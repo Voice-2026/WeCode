@@ -447,7 +447,19 @@ fn project_row(
 }
 
 fn project_icon(project: &ProjectInfo, active: bool) -> impl IntoElement {
-    let (from, to, text) = project_icon_palette(&project.id, active);
+    let (from, to, text) = match project
+        .badge_color_hex
+        .as_deref()
+        .and_then(project_icon_hex_color)
+    {
+        Some(base) => project_custom_icon_palette(base, active),
+        None => project_icon_palette(&project.id, active),
+    };
+    let symbol_icon = project
+        .badge_symbol
+        .as_deref()
+        .and_then(project_badge_symbol_icon);
+    let badge = project_badge_label(project);
 
     div()
         .w(px(36.0))
@@ -466,7 +478,13 @@ fn project_icon(project: &ProjectInfo, active: bool) -> impl IntoElement {
         .line_height(px(14.0))
         .text_color(color(text))
         .font_weight(FontWeight::BOLD)
-        .child(project_initial(&project.name))
+        .child(match symbol_icon {
+            Some(icon) => Icon::new(icon)
+                .size_4()
+                .text_color(color(text))
+                .into_any_element(),
+            None => div().child(badge).into_any_element(),
+        })
 }
 
 fn project_icon_palette(key: &str, active: bool) -> (u32, u32, u32) {
@@ -496,9 +514,97 @@ fn project_icon_palette(key: &str, active: bool) -> (u32, u32, u32) {
     }
 }
 
+fn project_custom_icon_palette(base: u32, active: bool) -> (u32, u32, u32) {
+    if active {
+        (mix_rgb(base, 0xFFFFFF, 18), base, 0xFFFFFF)
+    } else {
+        (
+            mix_rgb(base, 0x4A5260, 58),
+            mix_rgb(base, 0x242A35, 52),
+            0xE3E8EF,
+        )
+    }
+}
+
+fn mix_rgb(base: u32, other: u32, other_percent: u8) -> u32 {
+    let other_percent = other_percent.min(100) as u32;
+    let base_percent = 100 - other_percent;
+    let channel = |shift: u32| {
+        let base_value = (base >> shift) & 0xFF;
+        let other_value = (other >> shift) & 0xFF;
+        ((base_value * base_percent + other_value * other_percent) / 100) & 0xFF
+    };
+    (channel(16) << 16) | (channel(8) << 8) | channel(0)
+}
+
+fn project_icon_hex_color(value: &str) -> Option<u32> {
+    let value = value.trim().trim_start_matches('#');
+    if value.len() == 6 {
+        u32::from_str_radix(value, 16).ok()
+    } else {
+        None
+    }
+}
+
+fn project_badge_symbol_icon(symbol: &str) -> Option<IconName> {
+    match symbol {
+        "terminal" => Some(IconName::SquareTerminal),
+        "folder" => Some(IconName::Folder),
+        "shippingbox" | "shippingbox.fill" | "cube.box" | "laptopcomputer" => Some(IconName::Bot),
+        "hammer" => Some(IconName::Settings2),
+        "server.rack" | "globe" => Some(IconName::Globe),
+        "bolt" | "sparkles" => Some(IconName::Star),
+        "wrench" | "paintpalette" => Some(IconName::Settings),
+        "doc.text" => Some(IconName::File),
+        "book" => Some(IconName::BookOpen),
+        "person.2" => Some(IconName::CircleUser),
+        _ => None,
+    }
+}
+
+fn project_badge_label(project: &ProjectInfo) -> String {
+    let badge = project.badge.trim();
+    if badge.is_empty() {
+        return project_initial(&project.name);
+    }
+    badge.chars().take(2).collect::<String>().to_uppercase()
+}
+
 fn project_initial(name: &str) -> String {
     name.chars()
         .find(|ch| ch.is_alphanumeric())
         .map(|ch| ch.to_uppercase().collect::<String>())
         .unwrap_or_else(|| "C".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn project_with_badge(badge: &str) -> ProjectInfo {
+        ProjectInfo {
+            id: "project-a".to_string(),
+            name: "Project A".to_string(),
+            path: "/workspace/project-a".to_string(),
+            exists: true,
+            badge: badge.to_string(),
+            badge_symbol: None,
+            badge_color_hex: None,
+            git_default_push_remote_name: None,
+        }
+    }
+
+    #[test]
+    fn project_badge_label_prefers_runtime_badge() {
+        assert_eq!(project_badge_label(&project_with_badge("cd")), "CD");
+        assert_eq!(project_badge_label(&project_with_badge("项目")), "项目");
+        assert_eq!(project_badge_label(&project_with_badge(" ")), "P");
+    }
+
+    #[test]
+    fn project_icon_hex_color_accepts_saved_project_colors() {
+        assert_eq!(project_icon_hex_color("#0A84FF"), Some(0x0A84FF));
+        assert_eq!(project_icon_hex_color("FFB020"), Some(0xFFB020));
+        assert_eq!(project_icon_hex_color("bad"), None);
+    }
 }
