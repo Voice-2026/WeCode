@@ -20,15 +20,16 @@ use crate::{
         GitPathsRequest, GitPushRemoteBranchRequest, GitPushRemoteRequest, GitRemoteRequest,
         GitRestoreCommitRequest, GitReviewContentRequest, GitReviewContentSnapshot,
         GitReviewDiffRequest, GitReviewSnapshot, GitStatusSnapshot, GitSummary,
+        GitWatchRegistration,
     },
     llm::{
         LLMCompletionRequest, LLMCompletionResponse, LLMProviderTestResult, PetIdleSpeechRequest,
         PetIdleSpeechResponse,
     },
     memory::{
-        MemoryExtractionStatusSnapshot, MemoryManagerSnapshot, MemoryManagerSnapshotRequest,
-        MemoryProjectMigrationRequest, MemoryProjectProfileRefreshResult, MemorySummaryRow,
-        MemorySummaryUpdateRequest,
+        MemoryExtractionStatusSnapshot, MemoryManagementRequest, MemoryManagementSnapshot,
+        MemoryManagerSnapshot, MemoryManagerSnapshotRequest, MemoryProjectMigrationRequest,
+        MemoryProjectProfileRefreshResult, MemorySummaryRow, MemorySummaryUpdateRequest,
     },
     notification::{NotificationDispatchRequest, NotificationDispatchResult},
     performance::{PerformanceMonitor, PerformanceSnapshot},
@@ -503,6 +504,21 @@ pub fn git_refresh_project(service: &RuntimeService, project_path: String) -> Gi
     service.reload_project_git(&project_path)
 }
 
+pub fn git_status(project_path: String) -> GitStatusSnapshot {
+    crate::git::git_status(project_path)
+}
+
+pub fn git_watch(
+    service: &RuntimeService,
+    project_path: String,
+) -> Result<GitWatchRegistration, String> {
+    service.git_watch(project_path)
+}
+
+pub fn git_unwatch(service: &RuntimeService, project_path: String) -> Result<(), String> {
+    service.git_unwatch(project_path)
+}
+
 pub fn git_fetch(service: &RuntimeService, project_path: String) -> Result<GitSummary, String> {
     service.fetch_project_git(&project_path)
 }
@@ -739,6 +755,13 @@ pub fn memory_extraction_status(
     service: &RuntimeService,
 ) -> Result<MemoryExtractionStatusSnapshot, String> {
     service.memory_extraction_status()
+}
+
+pub fn memory_management_snapshot(
+    service: &RuntimeService,
+    request: MemoryManagementRequest,
+) -> Result<MemoryManagementSnapshot, String> {
+    service.memory_management_snapshot(request)
 }
 
 pub fn memory_manager_snapshot(
