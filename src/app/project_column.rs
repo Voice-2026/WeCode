@@ -229,7 +229,7 @@ fn project_more_button(
             )
             .separator()
             .item(
-                PopupMenuItem::new("重命名项目")
+                PopupMenuItem::new("编辑项目")
                     .icon(IconName::CaseSensitive)
                     .disabled(!has_project)
                     .on_click(move |_, window, cx| {

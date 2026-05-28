@@ -69,6 +69,7 @@ use std::{
 
 mod formatting;
 mod project_column;
+mod project_editor;
 mod settings;
 mod sidebars;
 mod status_bar;
@@ -165,6 +166,9 @@ pub struct CoduxApp {
     assistant_panel: Option<AssistantPanel>,
     project_column_collapsed: bool,
     project_open_applications: Vec<ProjectOpenApplicationSummary>,
+    project_editor_project_id: Option<String>,
+    project_editor_name: String,
+    project_editor_path: String,
 }
 
 fn shortcut_display_from_keystroke(keystroke: &gpui::Keystroke) -> String {
@@ -554,20 +558,6 @@ fn generated_rename_name(files: &[FileEntry], current_name: &str) -> String {
     format!("{stem}-renamed-{timestamp}{extension}")
 }
 
-fn generated_project_rename_name(current_name: &str) -> String {
-    let trimmed = current_name.trim();
-    let base = if trimmed.is_empty() {
-        "Project"
-    } else {
-        trimmed
-    };
-    if base.ends_with(" GPUI") {
-        base.to_string()
-    } else {
-        format!("{base} GPUI")
-    }
-}
-
 fn split_file_name(name: &str) -> (String, String) {
     let trimmed = name.trim();
     let Some((stem, extension)) = trimmed.rsplit_once('.') else {
@@ -808,6 +798,9 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: false,
             project_open_applications,
+            project_editor_project_id: None,
+            project_editor_name: String::new(),
+            project_editor_path: String::new(),
         };
         let _ = app.persist_terminal_runtime();
         Ok(app)
@@ -932,7 +925,20 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: false,
             project_open_applications,
+            project_editor_project_id: None,
+            project_editor_name: String::new(),
+            project_editor_path: String::new(),
         }
+    }
+
+    fn new_project_editor_window(project: ProjectInfo) -> Self {
+        let mut app = Self::new_settings_window();
+        app.window_mode = AppWindowMode::ProjectEditor;
+        app.status_message = format!("editing project: {}", project.name);
+        app.project_editor_project_id = Some(project.id);
+        app.project_editor_name = project.name;
+        app.project_editor_path = project.path;
+        app
     }
 
     fn new_desktop_pet_window() -> Self {
@@ -1492,24 +1498,120 @@ impl CoduxApp {
     }
 
     fn rename_selected_project(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.open_selected_project_editor_window(_window, cx);
+    }
+
+    fn open_selected_project_editor_window(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(project) = self.state.selected_project.clone() else {
-            self.status_message = "no selected project to rename".to_string();
+            self.status_message = "no selected project to edit".to_string();
             cx.notify();
             return;
         };
-        let next_name = generated_project_rename_name(&project.name);
+
+        let bounds = Bounds::centered(None, size(px(620.0), px(360.0)), cx);
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("Edit Project".into()),
+                    appears_transparent: true,
+                    ..Default::default()
+                }),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(520.0), px(300.0))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                let app = CoduxApp::new_project_editor_window(project);
+                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                let view = cx.new(|_| app);
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+
+        self.status_message = match result {
+            Ok(_) => "project editor opened".to_string(),
+            Err(error) => format!("failed to open project editor: {error}"),
+        };
+        cx.notify();
+    }
+
+    fn set_project_editor_name(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_editor_name = value;
+        cx.notify();
+    }
+
+    fn set_project_editor_path(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_editor_path = value;
+        cx.notify();
+    }
+
+    fn choose_project_editor_directory(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self
             .runtime_service
-            .update_project(&project.id, &next_name, &project.path)
+            .localized_open_dialog(LocalizedOpenDialogRequest {
+                title: "Choose Project Directory".to_string(),
+                message: "Select a folder for this project.".to_string(),
+                prompt: "Choose".to_string(),
+                default_path: Some(self.project_editor_path.clone()),
+                filters: Vec::new(),
+                directory: true,
+                multiple: false,
+                can_create_directories: Some(false),
+            }) {
+            Ok(Some(paths)) => {
+                if let Some(path) = paths.first() {
+                    self.project_editor_path = path.clone();
+                    self.status_message = "project directory selected".to_string();
+                } else {
+                    self.status_message = "project directory selection canceled".to_string();
+                }
+            }
+            Ok(None) => self.status_message = "project directory selection canceled".to_string(),
+            Err(error) => {
+                self.status_message = format!("failed to choose project directory: {error}")
+            }
+        }
+        cx.notify();
+    }
+
+    fn save_project_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project_id) = self.project_editor_project_id.clone() else {
+            self.status_message = "project editor has no project id".to_string();
+            cx.notify();
+            return;
+        };
+        let name = self.project_editor_name.trim().to_string();
+        let path = self.project_editor_path.trim().to_string();
+        if name.is_empty() || path.is_empty() {
+            self.status_message = "project name and path are required".to_string();
+            cx.notify();
+            return;
+        }
+
+        match self
+            .runtime_service
+            .update_project(&project_id, &name, &path)
         {
             Ok(()) => {
                 self.state = self.runtime_service.reload_state();
-                self.normalize_selected_ai_session();
-                self.normalize_selected_runtime_session();
-                self.normalize_selected_ssh_profile();
-                self.status_message = format!("project renamed: {next_name}");
+                self.status_message = format!("project saved: {name}");
+                window.remove_window();
             }
-            Err(error) => self.status_message = format!("failed to rename project: {error}"),
+            Err(error) => self.status_message = format!("failed to save project: {error}"),
         }
         cx.notify();
     }
@@ -7921,6 +8023,17 @@ impl Render for CoduxApp {
                 .into_any_element();
         }
 
+        if self.window_mode == AppWindowMode::ProjectEditor {
+            return div()
+                .size_full()
+                .font_family("SF Pro Text")
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.project_editor_workspace(window, cx))
+                .into_any_element();
+        }
+
         div()
             .size_full()
             .flex()
@@ -8413,12 +8526,5 @@ mod tests {
             "file search has no matches"
         );
         assert_eq!(file_search_status_message(1, 3), "file search match 2 of 3");
-    }
-
-    #[test]
-    fn generated_project_rename_name_is_stable() {
-        assert_eq!(generated_project_rename_name("Codux"), "Codux GPUI");
-        assert_eq!(generated_project_rename_name("Codux GPUI"), "Codux GPUI");
-        assert_eq!(generated_project_rename_name("  "), "Project GPUI");
     }
 }
