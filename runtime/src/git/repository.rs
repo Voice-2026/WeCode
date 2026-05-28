@@ -12,6 +12,9 @@ fn repo_root(repo: &GitRepository) -> &Path {
         .unwrap_or_else(|| Path::new(""))
 }
 
+const MAX_GIT_STATUS_FILES: usize = 1200;
+const MAX_GIT_PATH_STATUS_FILES: usize = 1200;
+
 fn git_status_from_repo(repo: &GitRepository) -> GitSummary {
     let branch = current_branch_name(repo);
     let upstream = upstream_branch_name(repo);
@@ -174,6 +177,19 @@ fn git_review_from_repo(repo: &GitRepository, base_branch: Option<&str>) -> GitR
 
 fn flatten_status_files(repo: &GitRepository) -> Vec<GitFileStatus> {
     let (staged, unstaged, untracked) = git2_status_files(repo);
+    flatten_unique_status_files(staged, unstaged, untracked)
+}
+
+fn flatten_path_status_files(repo: &GitRepository, directory_path: &str) -> Vec<GitFileStatus> {
+    let (staged, unstaged, untracked) = git2_path_status_files(repo, directory_path);
+    flatten_unique_status_files(staged, unstaged, untracked)
+}
+
+fn flatten_unique_status_files(
+    staged: Vec<GitFileStatus>,
+    unstaged: Vec<GitFileStatus>,
+    untracked: Vec<GitFileStatus>,
+) -> Vec<GitFileStatus> {
     let mut seen = HashSet::new();
     let mut files = Vec::new();
     for file in staged.into_iter().chain(unstaged).chain(untracked) {
@@ -188,12 +204,42 @@ fn flatten_status_files(repo: &GitRepository) -> Vec<GitFileStatus> {
 fn git2_status_files(
     repo: &GitRepository,
 ) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
+    git2_status_files_with_options(repo, false, None, MAX_GIT_STATUS_FILES)
+}
+
+fn git2_path_status_files(
+    repo: &GitRepository,
+    directory_path: &str,
+) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
+    git2_status_files_with_options(
+        repo,
+        true,
+        Some(directory_path),
+        MAX_GIT_PATH_STATUS_FILES,
+    )
+}
+
+fn git2_status_files_with_options(
+    repo: &GitRepository,
+    recurse_untracked_dirs: bool,
+    directory_path: Option<&str>,
+    max_files: usize,
+) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
     let mut options = git2::StatusOptions::new();
     options
         .include_untracked(true)
-        .recurse_untracked_dirs(true)
+        .recurse_untracked_dirs(recurse_untracked_dirs)
         .renames_head_to_index(true)
         .renames_index_to_workdir(true);
+
+    if let Some(directory_path) = directory_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        options.pathspec(directory_path);
+        options.pathspec(format!("{}/**", directory_path.trim_end_matches('/')));
+    }
+
     let statuses = match repo.statuses(Some(&mut options)) {
         Ok(statuses) => statuses,
         Err(_) => return (Vec::new(), Vec::new(), Vec::new()),
@@ -226,6 +272,9 @@ fn git2_status_files(
         }
         if !worktree_status.trim().is_empty() {
             unstaged.push(file);
+        }
+        if staged.len() + unstaged.len() + untracked.len() >= max_files {
+            break;
         }
     }
     (staged, unstaged, untracked)

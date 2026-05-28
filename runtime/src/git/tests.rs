@@ -44,6 +44,35 @@ mod tests {
     }
 
     #[test]
+    fn status_collapses_untracked_directories_until_expanded() {
+        let repo = temp_dir("git-untracked-dir");
+        GitService::init(repo.to_str().expect("repo")).expect("init repo");
+        fs::create_dir_all(repo.join("bulk/nested")).expect("bulk dir");
+        fs::write(repo.join("bulk/nested/a.txt"), "a\n").expect("a");
+        fs::write(repo.join("bulk/nested/b.txt"), "b\n").expect("b");
+
+        let status = GitService::status(repo.to_str().expect("repo"));
+        assert!(
+            status.changed_files.iter().any(|file| file.path == "bulk/"),
+            "initial status should show the untracked directory"
+        );
+        assert!(
+            status
+                .changed_files
+                .iter()
+                .all(|file| !file.path.starts_with("bulk/nested/")),
+            "initial status should not recurse into untracked directories"
+        );
+
+        let expanded =
+            GitService::path_status(repo.to_str().expect("repo"), "bulk").expect("path status");
+        assert!(
+            expanded.iter().any(|file| file.path == "bulk/nested/a.txt"),
+            "directory expansion should load children on demand"
+        );
+    }
+
+    #[test]
     fn git_watch_filter_allows_worktree_and_known_metadata() {
         let repository = "/repo/app";
         let git_dirs = vec!["/repo/app/.git".to_string()];
