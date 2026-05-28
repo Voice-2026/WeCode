@@ -4,6 +4,7 @@ pub mod ai_history_normalized;
 pub mod ai_runtime;
 pub mod ai_runtime_state;
 pub mod ai_usage_store;
+pub mod app_commands;
 pub mod app_icon;
 pub mod app_info;
 pub mod async_runtime;

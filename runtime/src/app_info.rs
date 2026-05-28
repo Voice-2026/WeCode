@@ -325,23 +325,12 @@ fn spawn_open_command(program: &str, args: &[&str]) -> Result<(), String> {
 }
 
 fn redact_settings(mut settings: Value) -> Value {
-    let Some(channels) = settings
-        .get_mut("notificationChannels")
-        .and_then(Value::as_object_mut)
-    else {
-        return settings;
-    };
-    for channel in channels.values_mut() {
-        if let Some(token) = channel.get_mut("token")
-            && token.as_str().is_some_and(|value| !value.trim().is_empty())
-        {
-            *token = Value::String("******".to_string());
-        }
-    }
+    redact_sensitive_json_fields(&mut settings);
     settings
 }
 
 fn redact_ssh(mut snapshot: Value) -> Value {
+    redact_sensitive_json_fields(&mut snapshot);
     let Some(profiles) = snapshot.get_mut("profiles").and_then(Value::as_array_mut) else {
         return snapshot;
     };
@@ -358,6 +347,40 @@ fn redact_ssh(mut snapshot: Value) -> Value {
         }
     }
     snapshot
+}
+
+fn redact_sensitive_json_fields(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                if is_sensitive_json_key(key)
+                    && value.as_str().is_some_and(|text| !text.trim().is_empty())
+                {
+                    *value = Value::String("******".to_string());
+                } else {
+                    redact_sensitive_json_fields(value);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_sensitive_json_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_json_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| *character != '_' && *character != '-')
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    matches!(
+        normalized.as_str(),
+        "apikey" | "token" | "password" | "keypassphrase" | "privatekeypath"
+    )
 }
 
 #[cfg(test)]
@@ -379,9 +402,16 @@ mod tests {
             "notificationChannels": {
                 "a": {"token": "secret"},
                 "b": {"token": ""}
-            }
+            },
+            "ai": {
+                "providers": [
+                    {"apiKey": "secret", "api_key": "secret"}
+                ]
+            },
         }));
         assert_eq!(value["notificationChannels"]["a"]["token"], "******");
         assert_eq!(value["notificationChannels"]["b"]["token"], "");
+        assert_eq!(value["ai"]["providers"][0]["apiKey"], "******");
+        assert_eq!(value["ai"]["providers"][0]["api_key"], "******");
     }
 }
