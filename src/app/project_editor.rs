@@ -7,6 +7,14 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let is_editing = self.project_editor_project_id.is_some();
+        let title = if is_editing {
+            "编辑项目"
+        } else {
+            "新建项目"
+        };
+        let submit_label = if is_editing { "保存" } else { "创建" };
+
         div()
             .flex()
             .flex_col()
@@ -24,7 +32,7 @@ impl CoduxApp {
                             .line_height(px(18.0))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color(theme::TEXT))
-                            .child("编辑项目"),
+                            .child(title),
                     )
                     .child(header_icon_button(
                         "project-editor-close",
@@ -86,7 +94,7 @@ impl CoduxApp {
                                         Button::new("project-editor-save")
                                             .secondary()
                                             .text_color(cx.theme().secondary_foreground)
-                                            .label("保存")
+                                            .label(submit_label)
                                             .on_click(cx.listener(|app, _event, window, cx| {
                                                 app.save_project_editor(window, cx);
                                             })),

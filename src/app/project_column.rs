@@ -56,7 +56,7 @@ impl CoduxApp {
                     None,
                     "project-add-footer",
                     cx,
-                    |app, _event, window, cx| app.open_project_folder_from_dialog(window, cx),
+                    |app, _event, window, cx| app.open_project_create_window(window, cx),
                 ))
                 .child(project_tool_button(
                     IconName::Settings,
@@ -80,7 +80,7 @@ impl CoduxApp {
                     Some("Add"),
                     "project-add-footer",
                     cx,
-                    |app, _event, window, cx| app.open_project_folder_from_dialog(window, cx),
+                    |app, _event, window, cx| app.open_project_create_window(window, cx),
                 ))
                 .child(project_tool_button(
                     IconName::Settings,
@@ -207,6 +207,7 @@ fn project_more_button(
         }))
         .dropdown_menu(move |menu, _window, _cx| {
             let reload_entity = app_entity.clone();
+            let import_entity = app_entity.clone();
             let rename_entity = app_entity.clone();
             let move_up_entity = app_entity.clone();
             let move_down_entity = app_entity.clone();
@@ -224,6 +225,15 @@ fn project_more_button(
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&reload_entity, |app, cx| {
                             app.reload_runtime_state(window, cx);
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new("导入文件夹")
+                    .icon(IconName::FolderOpen)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&import_entity, |app, cx| {
+                            app.open_project_folder_from_dialog(window, cx);
                         });
                     }),
             )

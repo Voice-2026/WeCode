@@ -30,7 +30,7 @@ use codux_runtime::{
     power::PowerService,
     project_activity::ProjectActivityEvent,
     project_open::ProjectOpenApplicationSummary,
-    project_store::ProjectDefaultPushRemoteRequest,
+    project_store::{ProjectCreateRequest, ProjectDefaultPushRemoteRequest},
     remote::{RemoteDeviceSummary, RemotePairingInfo, RemotePairingPollResult, RemoteSummary},
     runtime_activity::RuntimeActivitySummary,
     runtime_bridge::RuntimeInventory,
@@ -543,6 +543,16 @@ fn generated_project_child_name(files: &[FileEntry], directory: bool) -> String 
     format!("{prefix}-{timestamp}{suffix}")
 }
 
+fn project_badge_text_from_name(name: &str) -> Option<String> {
+    let badge = name
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+    (!badge.is_empty()).then_some(badge)
+}
+
 fn generated_rename_name(files: &[FileEntry], current_name: &str) -> String {
     let (stem, extension) = split_file_name(current_name);
     for index in 1..1000 {
@@ -941,6 +951,16 @@ impl CoduxApp {
         app
     }
 
+    fn new_project_creator_window() -> Self {
+        let mut app = Self::new_settings_window();
+        app.window_mode = AppWindowMode::ProjectEditor;
+        app.status_message = "creating project".to_string();
+        app.project_editor_project_id = None;
+        app.project_editor_name = String::new();
+        app.project_editor_path = String::new();
+        app
+    }
+
     fn new_desktop_pet_window() -> Self {
         let mut app = Self::new_settings_window();
         app.window_mode = AppWindowMode::DesktopPet;
@@ -1197,7 +1217,7 @@ impl CoduxApp {
             return true;
         }
         if project_create && !task_create {
-            self.open_project_folder_from_dialog(window, cx);
+            self.open_project_create_window(window, cx);
             return true;
         }
 
@@ -1501,6 +1521,34 @@ impl CoduxApp {
         self.open_selected_project_editor_window(_window, cx);
     }
 
+    fn open_project_create_window(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let bounds = Bounds::centered(None, size(px(620.0), px(360.0)), cx);
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("Create Project".into()),
+                    appears_transparent: true,
+                    ..Default::default()
+                }),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(520.0), px(300.0))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                let app = CoduxApp::new_project_creator_window();
+                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                let view = cx.new(|_| app);
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+
+        self.status_message = match result {
+            Ok(_) => "project creator opened".to_string(),
+            Err(error) => format!("failed to open project creator: {error}"),
+        };
+        cx.notify();
+    }
+
     fn open_selected_project_editor_window(
         &mut self,
         _window: &mut Window,
@@ -1589,11 +1637,6 @@ impl CoduxApp {
     }
 
     fn save_project_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(project_id) = self.project_editor_project_id.clone() else {
-            self.status_message = "project editor has no project id".to_string();
-            cx.notify();
-            return;
-        };
         let name = self.project_editor_name.trim().to_string();
         let path = self.project_editor_path.trim().to_string();
         if name.is_empty() || path.is_empty() {
@@ -1602,16 +1645,33 @@ impl CoduxApp {
             return;
         }
 
-        match self
-            .runtime_service
-            .update_project(&project_id, &name, &path)
-        {
-            Ok(()) => {
-                self.state = self.runtime_service.reload_state();
-                self.status_message = format!("project saved: {name}");
-                window.remove_window();
+        if let Some(project_id) = self.project_editor_project_id.clone() {
+            match self
+                .runtime_service
+                .update_project(&project_id, &name, &path)
+            {
+                Ok(()) => {
+                    self.state = self.runtime_service.reload_state();
+                    self.status_message = format!("project saved: {name}");
+                    window.remove_window();
+                }
+                Err(error) => self.status_message = format!("failed to save project: {error}"),
             }
-            Err(error) => self.status_message = format!("failed to save project: {error}"),
+        } else {
+            match self.runtime_service.project_create(ProjectCreateRequest {
+                name: name.clone(),
+                path,
+                badge_text: project_badge_text_from_name(&name),
+                badge_symbol: None,
+                badge_color_hex: None,
+            }) {
+                Ok(_snapshot) => {
+                    self.state = self.runtime_service.reload_state();
+                    self.status_message = format!("project created: {name}");
+                    window.remove_window();
+                }
+                Err(error) => self.status_message = format!("failed to create project: {error}"),
+            }
         }
         cx.notify();
     }
@@ -8474,6 +8534,19 @@ mod tests {
             generated_git_commit_message(&GitSummary::default()),
             "Update project files"
         );
+    }
+
+    #[test]
+    fn project_badge_text_uses_first_two_non_space_chars() {
+        assert_eq!(
+            project_badge_text_from_name(" Codux GPUI "),
+            Some("CO".to_string())
+        );
+        assert_eq!(
+            project_badge_text_from_name("项目"),
+            Some("项目".to_string())
+        );
+        assert_eq!(project_badge_text_from_name("  "), None);
     }
 
     #[test]
