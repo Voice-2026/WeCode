@@ -10,8 +10,10 @@ pub struct PerformanceSummary {
     pub process_id: u32,
     pub cpu_percent: f32,
     pub memory_bytes: u64,
+    pub gpu_bytes: u64,
     pub cpu_label: String,
     pub memory_label: String,
+    pub gpu_label: String,
     pub source: String,
     pub error: Option<String>,
 }
@@ -22,8 +24,10 @@ impl Default for PerformanceSummary {
             process_id: std::process::id(),
             cpu_percent: 0.0,
             memory_bytes: 0,
+            gpu_bytes: 0,
             cpu_label: "0.0%".to_string(),
             memory_label: "0 B".to_string(),
+            gpu_label: "0 B".to_string(),
             source: "unavailable".to_string(),
             error: None,
         }
@@ -39,8 +43,10 @@ impl PerformanceService {
             process_id: std::process::id(),
             cpu_percent: snapshot.cpu_percent as f32,
             memory_bytes: snapshot.memory_bytes,
+            gpu_bytes: snapshot.memory.gpu_bytes,
             cpu_label: format_cpu_percent(snapshot.cpu_percent as f32),
             memory_label: format_bytes(snapshot.memory_bytes),
+            gpu_label: format_bytes(snapshot.memory.gpu_bytes),
             source: "performance-monitor".to_string(),
             error: None,
         }
@@ -86,5 +92,12 @@ mod tests {
 
         assert!(snapshot.cpu_percent >= 0.0);
         assert!(snapshot.memory_bytes >= snapshot.memory.main_bytes);
+    }
+
+    #[test]
+    fn summary_exposes_gpu_label_from_tauri_snapshot_shape() {
+        let summary = PerformanceService::summary();
+
+        assert_eq!(summary.gpu_label, format_bytes(summary.gpu_bytes));
     }
 }

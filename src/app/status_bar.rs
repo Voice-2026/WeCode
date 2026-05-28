@@ -32,7 +32,11 @@ impl CoduxApp {
                         self.state.performance.memory_label.clone(),
                     ))
                     .child(status_separator())
-                    .child(status_metric(IconName::Frame, "GPU", "--".to_string())),
+                    .child(status_metric(
+                        IconName::Frame,
+                        "GPU",
+                        self.state.performance.gpu_label.clone(),
+                    )),
             )
             .child(
                 div()
