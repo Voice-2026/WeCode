@@ -5,6 +5,7 @@ use crate::{
     },
     ai_history_indexer::AIHistoryProjectState,
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest},
+    ai_runtime::AIRuntimeBridgeSnapshot,
     git::{GitPushRemoteBranchRequest, GitPushRemoteRequest, GitSummary},
     llm::{LLMCompletionRequest, LLMCompletionResponse, LLMProviderTestResult},
     memory::{
@@ -438,6 +439,18 @@ pub async fn llm_provider_test(
     provider: AIProviderSettings,
 ) -> Result<LLMProviderTestResult, String> {
     crate::llm::test_provider(provider).await
+}
+
+pub fn ai_runtime_snapshot(service: &RuntimeService) -> AIRuntimeBridgeSnapshot {
+    service.ai_runtime_bridge_snapshot()
+}
+
+pub fn desktop_pet_start_drag() -> Result<(), String> {
+    Ok(())
+}
+
+pub fn desktop_pet_show_context_menu(_service: &RuntimeService) -> Result<(), String> {
+    Ok(())
 }
 
 pub fn power_set_sleep_prevention(
@@ -995,6 +1008,25 @@ mod tests {
         ))
         .expect_err("missing provider key");
         assert!(provider_error.contains("missing an API key"));
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn ai_runtime_and_desktop_pet_window_facades_are_available() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-window-runtime-{}",
+            Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&support_dir).expect("support dir");
+        let service = RuntimeService::new(support_dir.clone());
+
+        let snapshot = ai_runtime_snapshot(&service);
+        assert!(snapshot.terminals.is_empty());
+        assert!(!snapshot.socket_path.is_empty());
+
+        desktop_pet_start_drag().expect("drag facade");
+        desktop_pet_show_context_menu(&service).expect("context menu facade");
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
