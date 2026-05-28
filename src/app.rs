@@ -109,6 +109,9 @@ pub struct CoduxApp {
     file_preview: String,
     file_editable: bool,
     file_dirty: bool,
+    file_search_open: bool,
+    file_search_query: String,
+    file_search_match_index: usize,
     file_directory: String,
     selected_file_entry: Option<String>,
     file_tree_expanded_dirs: HashSet<String>,
@@ -322,6 +325,14 @@ fn timestamp_slug() -> String {
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
     seconds.to_string()
+}
+
+fn file_search_status_message(index: usize, count: usize) -> String {
+    if count == 0 {
+        "file search has no matches".to_string()
+    } else {
+        format!("file search match {} of {count}", index + 1)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -741,6 +752,9 @@ impl CoduxApp {
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
+            file_search_open: false,
+            file_search_query: String::new(),
+            file_search_match_index: 0,
             file_directory: String::new(),
             selected_file_entry: None,
             file_tree_expanded_dirs: HashSet::new(),
@@ -862,6 +876,9 @@ impl CoduxApp {
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
+            file_search_open: false,
+            file_search_query: String::new(),
+            file_search_match_index: 0,
             file_directory: String::new(),
             selected_file_entry: None,
             file_tree_expanded_dirs: HashSet::new(),
@@ -1156,6 +1173,10 @@ impl CoduxApp {
         }
         if shortcut_matches(shortcuts, "editor.save", &actual) {
             self.save_selected_file_preview(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "editor.search", &actual) {
+            self.open_file_search(cx);
             return true;
         }
         if shortcut_matches(shortcuts, "close.active", &actual) {
@@ -2796,6 +2817,86 @@ impl CoduxApp {
             .unwrap_or(false)
     }
 
+    fn file_search_match_lines(&self) -> Vec<usize> {
+        let query = self.file_search_query.trim().to_lowercase();
+        if query.is_empty() {
+            return Vec::new();
+        }
+
+        self.file_preview
+            .lines()
+            .enumerate()
+            .filter_map(|(index, line)| line.to_lowercase().contains(&query).then_some(index))
+            .collect()
+    }
+
+    fn normalize_file_search_index(&mut self) {
+        let count = self.file_search_match_lines().len();
+        if count == 0 {
+            self.file_search_match_index = 0;
+        } else if self.file_search_match_index >= count {
+            self.file_search_match_index = count - 1;
+        }
+    }
+
+    fn open_file_search(&mut self, cx: &mut Context<Self>) {
+        self.workspace_view = WorkspaceView::Files;
+        self.file_search_open = true;
+        self.normalize_file_search_index();
+        let count = self.file_search_match_lines().len();
+        self.status_message = if self.file_search_query.trim().is_empty() {
+            "file search opened".to_string()
+        } else {
+            format!("file search matches: {count}")
+        };
+        cx.notify();
+    }
+
+    fn close_file_search(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.file_search_open = false;
+        self.status_message = "file search closed".to_string();
+        cx.notify();
+    }
+
+    fn set_file_search_query(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_search_query = value;
+        self.file_search_match_index = 0;
+        let count = self.file_search_match_lines().len();
+        self.status_message = if self.file_search_query.trim().is_empty() {
+            "file search query cleared".to_string()
+        } else {
+            format!("file search matches: {count}")
+        };
+        cx.notify();
+    }
+
+    fn select_next_file_search_match(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let count = self.file_search_match_lines().len();
+        if count > 0 {
+            self.file_search_match_index = (self.file_search_match_index + 1) % count;
+        }
+        self.status_message = file_search_status_message(self.file_search_match_index, count);
+        cx.notify();
+    }
+
+    fn select_previous_file_search_match(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let count = self.file_search_match_lines().len();
+        if count > 0 {
+            self.file_search_match_index = if self.file_search_match_index == 0 {
+                count - 1
+            } else {
+                self.file_search_match_index - 1
+            };
+        }
+        self.status_message = file_search_status_message(self.file_search_match_index, count);
+        cx.notify();
+    }
+
     fn handle_file_editor_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) -> bool {
         if self.workspace_view != WorkspaceView::Files
             || !self.file_editable
@@ -2971,6 +3072,7 @@ impl CoduxApp {
                 self.file_preview = preview;
                 self.file_editable = true;
                 self.file_dirty = false;
+                self.normalize_file_search_index();
                 self.state.files = self.runtime_service.reload_project_files(
                     &project_path,
                     file_directory_option(&self.file_directory),
@@ -7352,6 +7454,7 @@ impl CoduxApp {
                 };
                 self.file_editable = editable;
                 self.file_dirty = false;
+                self.normalize_file_search_index();
                 self.status_message = format!(
                     "{} loaded: {relative_path}",
                     if editable { "editor buffer" } else { "preview" }
@@ -8301,6 +8404,15 @@ mod tests {
             "view.terminal",
             default_terminal
         ));
+    }
+
+    #[test]
+    fn file_search_status_message_reports_match_position() {
+        assert_eq!(
+            file_search_status_message(0, 0),
+            "file search has no matches"
+        );
+        assert_eq!(file_search_status_message(1, 3), "file search match 2 of 3");
     }
 
     #[test]

@@ -31,7 +31,7 @@ impl CoduxApp {
                                 self.terminal_workspace_body(cx).into_any_element()
                             }
                             WorkspaceView::Files => {
-                                self.files_workspace_body(cx).into_any_element()
+                                self.files_workspace_body(window, cx).into_any_element()
                             }
                             WorkspaceView::Review => {
                                 self.review_workspace_body(cx).into_any_element()
@@ -200,7 +200,11 @@ impl CoduxApp {
             )
     }
 
-    fn files_workspace_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn files_workspace_body(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
             .flex()
             .flex_1()
@@ -276,6 +280,11 @@ impl CoduxApp {
                         &self.file_preview,
                         self.file_editable,
                         self.file_dirty,
+                        self.file_search_open,
+                        &self.file_search_query,
+                        self.file_search_match_index,
+                        window,
+                        cx,
                     )),
             )
     }
