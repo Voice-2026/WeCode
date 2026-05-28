@@ -70,6 +70,7 @@ pub(in crate::app) fn ai_stats_sidebar(
                     memory_manager_tab,
                     selected_memory_entry_id,
                     selected_memory_summary_id,
+                    6,
                     window,
                     cx,
                 )))
@@ -703,6 +704,7 @@ fn ai_memory_manager_card(
     active_tab: MemoryManagerTab,
     selected_memory_entry_id: Option<&str>,
     selected_memory_summary_id: Option<&str>,
+    row_limit: usize,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -722,7 +724,7 @@ fn ai_memory_manager_card(
                 div()
                     .flex()
                     .flex_col()
-                    .children(manager.summaries.iter().take(5).map(|summary| {
+                    .children(manager.summaries.iter().take(row_limit).map(|summary| {
                         ai_memory_manager_summary_row(
                             summary,
                             selected_memory_summary_id,
@@ -741,12 +743,19 @@ fn ai_memory_manager_card(
                 div()
                     .flex()
                     .flex_col()
-                    .children(manager.entries.iter().take(6).cloned().map(|entry| {
-                        let active = selected_memory_entry_id
-                            .map(|id| id == entry.id.as_str())
-                            .unwrap_or(false);
-                        ai_memory_manager_entry_row(entry, active, cx).into_any_element()
-                    }))
+                    .children(
+                        manager
+                            .entries
+                            .iter()
+                            .take(row_limit)
+                            .cloned()
+                            .map(|entry| {
+                                let active = selected_memory_entry_id
+                                    .map(|id| id == entry.id.as_str())
+                                    .unwrap_or(false);
+                                ai_memory_manager_entry_row(entry, active, cx).into_any_element()
+                            }),
+                    )
                     .into_any_element()
             }
         }
@@ -852,6 +861,12 @@ fn ai_memory_manager_card(
                     div()
                         .flex()
                         .items_center()
+                        .child(ai_memory_row_icon_button(
+                            "ai-memory-open-manager-window",
+                            IconName::ExternalLink,
+                            cx,
+                            |app, _event, window, cx| app.open_memory_manager_window(window, cx),
+                        ))
                         .child(ai_memory_migrate_project_button(manager, cx))
                         .child(ai_memory_row_icon_button(
                             "ai-memory-delete-project-memory",
@@ -923,6 +938,100 @@ fn ai_memory_manager_card(
     } else {
         card
     }
+}
+
+pub(in crate::app) fn memory_manager_window_workspace(
+    manager: &MemoryManagerSnapshot,
+    active_tab: MemoryManagerTab,
+    selected_memory_entry_id: Option<&str>,
+    selected_memory_summary_id: Option<&str>,
+    memory_processing: bool,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .bg(color(theme::BG))
+        .child(
+            div()
+                .h(px(56.0))
+                .px_4()
+                .flex()
+                .items_center()
+                .justify_between()
+                .border_b_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .child(
+                    div()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(14.0))
+                                .line_height(px(18.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(color(theme::TEXT))
+                                .child("记忆管理"),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.0))
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(manager.selected_target_title.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(assistant_header_icon_button(
+                            "memory-manager-window-refresh",
+                            IconName::Redo2,
+                            cx,
+                            |app, _event, window, cx| app.reload_memory(window, cx),
+                        ))
+                        .child(assistant_header_icon_button(
+                            "memory-manager-window-process",
+                            IconName::LoaderCircle,
+                            cx,
+                            |app, _event, window, cx| app.process_memory_sessions_now(window, cx),
+                        )),
+                ),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .p(px(14.0))
+                .child(ai_memory_manager_card(
+                    manager,
+                    active_tab,
+                    selected_memory_entry_id,
+                    selected_memory_summary_id,
+                    500,
+                    window,
+                    cx,
+                )),
+        )
+        .when(memory_processing, |this| {
+            this.child(
+                div()
+                    .flex_shrink_0()
+                    .border_t_1()
+                    .border_color(color(theme::BORDER_SOFT))
+                    .px_4()
+                    .py_2()
+                    .text_size(px(12.0))
+                    .line_height(px(16.0))
+                    .text_color(color(theme::TEXT_MUTED))
+                    .child("记忆索引正在运行"),
+            )
+        })
 }
 
 fn ai_memory_manager_tab_button(

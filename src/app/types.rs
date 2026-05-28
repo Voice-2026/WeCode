@@ -5,6 +5,7 @@ pub(in crate::app) enum AppWindowMode {
     Main,
     About,
     GitDiff,
+    MemoryManager,
     Settings,
     ProjectEditor,
     DesktopPet,

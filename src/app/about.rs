@@ -118,6 +118,41 @@ impl CoduxApp {
         cx.notify();
     }
 
+    pub(in crate::app) fn open_memory_manager_window(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let bounds = Bounds::centered(None, size(px(900.0), px(720.0)), cx);
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some("Memory Manager".into()),
+                    appears_transparent: true,
+                    ..Default::default()
+                }),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(720.0), px(560.0))),
+                ..Default::default()
+            },
+            |window, cx| {
+                let mut app = CoduxApp::new_settings_window();
+                app.window_mode = AppWindowMode::MemoryManager;
+                app.memory_manager_tab = MemoryManagerTab::Summary;
+                app.reload_memory_manager_snapshot();
+                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                let view = cx.new(|_| app);
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+
+        self.status_message = match result {
+            Ok(_) => "memory manager window opened".to_string(),
+            Err(error) => format!("failed to open memory manager window: {error}"),
+        };
+        cx.notify();
+    }
+
     pub(in crate::app) fn open_codux_website(&mut self, cx: &mut Context<Self>) {
         match self.runtime_service.open_url(CODUX_WEBSITE_URL) {
             Ok(()) => self.status_message = "Codux website opened".to_string(),

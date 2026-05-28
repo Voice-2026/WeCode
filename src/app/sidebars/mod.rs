@@ -6,6 +6,7 @@ mod git;
 mod ssh;
 
 use ai::ai_stats_sidebar;
+pub(in crate::app) use ai::memory_manager_window_workspace;
 pub(in crate::app) use files::file_section;
 pub(in crate::app) use git::git_section;
 pub(in crate::app) use ssh::ssh_section;

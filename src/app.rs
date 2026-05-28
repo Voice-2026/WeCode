@@ -83,7 +83,7 @@ use self::{
     sidebars::{
         AssistantPanel, current_directory_suffix, file_directory_option, file_preview_workspace,
         file_section, git_diff_window_workspace, git_review_workspace, git_workspace_section,
-        parent_relative_directory,
+        memory_manager_window_workspace, parent_relative_directory,
     },
     terminal_state::{
         prepare_memory_launch_artifacts, spawn_terminal_tabs, terminal_config_for_settings,
@@ -8490,6 +8490,25 @@ impl Render for CoduxApp {
                     self.git_diff_window_path.as_deref(),
                     &self.git_diff_window_content,
                     self.git_diff_window_error.as_deref(),
+                    cx,
+                ))
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::MemoryManager {
+            return div()
+                .size_full()
+                .font_family("SF Pro Text")
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(memory_manager_window_workspace(
+                    &self.state.memory_manager,
+                    self.memory_manager_tab,
+                    self.selected_memory_entry_id.as_deref(),
+                    self.selected_memory_summary_id.as_deref(),
+                    self.memory_processing,
+                    window,
                     cx,
                 ))
                 .into_any_element();
