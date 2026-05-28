@@ -42,11 +42,13 @@ impl CoduxApp {
                     .child(status_ai_segment(
                         self.state.ai_runtime_state.running_count,
                         self.state.ai_history.indexed,
+                        cx,
                     ))
                     .child(status_separator())
                     .child(status_memory_segment(
                         self.state.memory_manager.extraction.queued,
                         self.state.memory_manager.extraction.running,
+                        cx,
                     ))
                     .child(status_separator())
                     .child(status_remote_segment(&self.state.remote, cx))
@@ -63,6 +65,7 @@ impl CoduxApp {
                         &self.state.git.branch,
                         self.state.git.ahead,
                         self.state.git.behind,
+                        cx,
                     ))
                     .child(status_sync_action_button(
                         IconName::ArrowDown,
@@ -193,7 +196,11 @@ fn status_metric(icon: IconName, label: &'static str, value: String) -> impl Int
         )
 }
 
-fn status_ai_segment(running_count: usize, indexed: bool) -> impl IntoElement {
+fn status_ai_segment(
+    running_count: usize,
+    indexed: bool,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
     let running_color = if running_count > 0 {
         theme::GREEN
     } else {
@@ -210,6 +217,12 @@ fn status_ai_segment(running_count: usize, indexed: bool) -> impl IntoElement {
         .gap(px(5.0))
         .text_xs()
         .text_color(color(theme::TEXT_MUTED))
+        .rounded_sm()
+        .cursor_pointer()
+        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .on_click(cx.listener(|app, _event, window, cx| {
+            app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
+        }))
         .child(Icon::new(IconName::Bot).size_2p5())
         .child(div().mt(px(1.0)).text_color(color(theme::TEXT)).child("AI"))
         .child(
@@ -226,7 +239,11 @@ fn status_ai_segment(running_count: usize, indexed: bool) -> impl IntoElement {
         )
 }
 
-fn status_memory_segment(queued: i64, running: i64) -> impl IntoElement {
+fn status_memory_segment(
+    queued: i64,
+    running: i64,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
     let queued = queued.max(0);
     let running = running.max(0);
     let queued_color = if queued > 0 {
@@ -241,6 +258,7 @@ fn status_memory_segment(queued: i64, running: i64) -> impl IntoElement {
     };
 
     div()
+        .id("status-memory-panel")
         .h(px(20.0))
         .px(px(6.0))
         .flex()
@@ -248,6 +266,12 @@ fn status_memory_segment(queued: i64, running: i64) -> impl IntoElement {
         .gap(px(5.0))
         .text_xs()
         .text_color(color(theme::TEXT_MUTED))
+        .rounded_sm()
+        .cursor_pointer()
+        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .on_click(cx.listener(|app, _event, window, cx| {
+            app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
+        }))
         .child(Icon::new(IconName::BookOpen).size_2p5())
         .child(
             div()
@@ -322,14 +346,26 @@ fn status_remote_segment(remote: &RemoteSummary, cx: &mut Context<CoduxApp>) -> 
         )
 }
 
-fn status_git_segment(branch: &str, ahead: i64, behind: i64) -> impl IntoElement {
+fn status_git_segment(
+    branch: &str,
+    ahead: i64,
+    behind: i64,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
     div()
+        .id("status-git-panel")
         .h(px(20.0))
         .px(px(6.0))
         .flex()
         .items_center()
         .gap(px(5.0))
         .text_xs()
+        .rounded_sm()
+        .cursor_pointer()
+        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .on_click(cx.listener(|app, _event, window, cx| {
+            app.toggle_assistant_panel(AssistantPanel::Git, window, cx)
+        }))
         .child(Icon::new(IconName::Github).size_2p5())
         .child(
             div()
