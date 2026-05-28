@@ -5,7 +5,14 @@ use crate::{
     },
     ai_history_indexer::AIHistoryProjectState,
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest},
-    ai_runtime::AIRuntimeBridgeSnapshot,
+    ai_runtime::{
+        AIRuntimeBridgeSnapshot, AIRuntimeContextSnapshot, AIRuntimeProbeRequest,
+        AIRuntimeStateSnapshot,
+    },
+    desktop_pet::{
+        DesktopPetPhysicalPosition, DesktopPetPhysicalSize, DesktopPetPlacementSnapshot,
+        DesktopPetVisibilitySnapshot, DesktopPetWorkArea,
+    },
     git::{
         GitBranchRequest, GitBranchesSnapshot, GitCloneRequest, GitCommitActionRequest,
         GitCommitMessageContextSnapshot, GitCommitRefRequest, GitCommitRequest,
@@ -14,16 +21,21 @@ use crate::{
         GitRestoreCommitRequest, GitReviewContentRequest, GitReviewContentSnapshot,
         GitReviewDiffRequest, GitReviewSnapshot, GitStatusSnapshot, GitSummary,
     },
-    llm::{LLMCompletionRequest, LLMCompletionResponse, LLMProviderTestResult},
+    llm::{
+        LLMCompletionRequest, LLMCompletionResponse, LLMProviderTestResult, PetIdleSpeechRequest,
+        PetIdleSpeechResponse,
+    },
     memory::{
-        MemoryExtractionStatusSnapshot, MemoryProjectMigrationRequest, MemorySummaryRow,
+        MemoryExtractionStatusSnapshot, MemoryManagerSnapshot, MemoryManagerSnapshotRequest,
+        MemoryProjectMigrationRequest, MemoryProjectProfileRefreshResult, MemorySummaryRow,
         MemorySummaryUpdateRequest,
     },
     notification::{NotificationDispatchRequest, NotificationDispatchResult},
     performance::{PerformanceMonitor, PerformanceSnapshot},
     pet::{
-        PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview, PetCustomPetInstallRequest,
-        PetRefreshRequest, PetRenameRequest, PetRestoreRequest, PetSnapshot,
+        PetCatalog, PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview,
+        PetCustomPetInstallRequest, PetRefreshRequest, PetRenameRequest, PetRestoreRequest,
+        PetSnapshot,
     },
     power::PowerManager,
     project_activity::ProjectActivitySnapshot,
@@ -36,8 +48,8 @@ use crate::{
     remote::RemoteSummary,
     runtime_state::{AppRuntimeReadySnapshot, RuntimeService, RuntimeWindowStateSnapshot},
     settings::{AIProviderSettings, AppSettings, AppSettingsStore, sync_process_locale_preference},
-    ssh::{SSHProfileTestResult, SSHProfileUpsertRequest, SSHProfilesSnapshot},
     ssh::SSHLaunchCommand,
+    ssh::{SSHProfileTestResult, SSHProfileUpsertRequest, SSHProfilesSnapshot},
     worktree::{WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeSnapshot},
 };
 use std::path::PathBuf;
@@ -404,6 +416,21 @@ pub fn pet_refresh(
     service.pet_snapshot()
 }
 
+pub fn pet_catalog(service: &RuntimeService) -> Result<PetCatalog, String> {
+    Ok(service.pet_catalog())
+}
+
+pub fn pet_snapshot(service: &RuntimeService) -> Result<PetSnapshot, String> {
+    service.pet_snapshot()
+}
+
+pub fn pet_idle_speech(
+    service: &RuntimeService,
+    request: PetIdleSpeechRequest,
+) -> Result<PetIdleSpeechResponse, String> {
+    service.pet_idle_speech(request)
+}
+
 pub async fn pet_custom_install_preview(
     service: &RuntimeService,
     request: PetCustomPetInstallRequest,
@@ -708,6 +735,19 @@ pub fn memory_extraction_cancel(
     service.cancel_memory_extraction_queue()
 }
 
+pub fn memory_extraction_status(
+    service: &RuntimeService,
+) -> Result<MemoryExtractionStatusSnapshot, String> {
+    service.memory_extraction_status()
+}
+
+pub fn memory_manager_snapshot(
+    service: &RuntimeService,
+    request: MemoryManagerSnapshotRequest,
+) -> Result<MemoryManagerSnapshot, String> {
+    Ok(service.memory_manager_snapshot(&service.reload_state().projects, request))
+}
+
 pub fn memory_archive_entry(service: &RuntimeService, entry_id: String) -> Result<(), String> {
     service.archive_memory_entry(None, &entry_id).map(|_| ())
 }
@@ -751,6 +791,15 @@ pub async fn memory_index_now(
     service.process_memory_sessions_now().await
 }
 
+pub async fn memory_refresh_project_profile(
+    service: &RuntimeService,
+    project_id: String,
+) -> Result<MemoryProjectProfileRefreshResult, String> {
+    service
+        .force_refresh_memory_project_profile_with_llm(&project_id)
+        .await
+}
+
 pub fn llm_complete(
     service: &RuntimeService,
     request: LLMCompletionRequest,
@@ -768,12 +817,49 @@ pub fn ai_runtime_snapshot(service: &RuntimeService) -> AIRuntimeBridgeSnapshot 
     service.ai_runtime_bridge_snapshot()
 }
 
+pub fn ai_runtime_probe(
+    service: &RuntimeService,
+    request: AIRuntimeProbeRequest,
+) -> Option<AIRuntimeContextSnapshot> {
+    service.ai_runtime_probe(request)
+}
+
+pub fn ai_runtime_state_snapshot(service: &RuntimeService) -> AIRuntimeStateSnapshot {
+    service.ai_runtime_state_snapshot()
+}
+
+pub fn ai_runtime_dismiss_completion(service: &RuntimeService, project_id: String) -> bool {
+    service.ai_runtime_dismiss_completion(&project_id)
+}
+
 pub fn desktop_pet_start_drag() -> Result<(), String> {
     Ok(())
 }
 
 pub fn desktop_pet_show_context_menu(_service: &RuntimeService) -> Result<(), String> {
     Ok(())
+}
+
+pub fn desktop_pet_placement(
+    service: &RuntimeService,
+    position: DesktopPetPhysicalPosition,
+    size: DesktopPetPhysicalSize,
+    work_area: DesktopPetWorkArea,
+) -> DesktopPetPlacementSnapshot {
+    service.desktop_pet_placement(position, size, work_area)
+}
+
+pub fn desktop_pet_set_bubble_visible(
+    service: &RuntimeService,
+    visible: bool,
+) -> DesktopPetVisibilitySnapshot {
+    service.desktop_pet_set_bubble_visible(visible)
+}
+
+pub fn desktop_pet_sync_visibility(
+    service: &RuntimeService,
+) -> Result<DesktopPetVisibilitySnapshot, String> {
+    service.desktop_pet_sync_visibility()
 }
 
 pub fn power_set_sleep_prevention(
@@ -1283,6 +1369,12 @@ mod tests {
                 .expect("seed claimed pet");
         }
 
+        let catalog = pet_catalog(&service).expect("pet catalog");
+        assert!(!catalog.species.is_empty());
+
+        let snapshot = pet_snapshot(&service).expect("pet snapshot");
+        assert!(snapshot.claimed_at.is_some());
+
         let renamed = pet_rename(
             &service,
             PetRenameRequest {
@@ -1335,6 +1427,16 @@ mod tests {
         )
         .expect("custom sprite hydrate");
         assert_eq!(custom.id, "demo");
+
+        let idle = pet_idle_speech(
+            &service,
+            PetIdleSpeechRequest {
+                event: String::new(),
+                fallback_text: "Hello".to_string(),
+            },
+        )
+        .expect("fallback idle speech");
+        assert!(idle.text.is_empty() || idle.text == "Hello");
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
@@ -1629,8 +1731,33 @@ mod tests {
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 
+        let status = memory_extraction_status(&service).expect("status");
+        assert_eq!(status.pending_count, 0);
+
         let canceled = memory_extraction_cancel(&service).expect("cancel queue");
         assert_eq!(canceled.pending_count, 0);
+
+        let manager = memory_manager_snapshot(
+            &service,
+            MemoryManagerSnapshotRequest {
+                scope: "all".to_string(),
+                project_id: None,
+                tab: "active".to_string(),
+                limit: Some(20),
+            },
+        )
+        .expect("manager snapshot");
+        assert!(!manager.selected_target_title.is_empty());
+        assert!(manager.current_overview.active_entry_count >= 0);
+
+        assert!(
+            crate::async_runtime::block_on(memory_refresh_project_profile(
+                &service,
+                "missing-project".to_string(),
+            ))
+            .expect_err("missing project profile")
+            .contains("Project not found")
+        );
 
         assert!(
             memory_archive_entry(&service, String::new())
@@ -1742,8 +1869,52 @@ mod tests {
         assert!(snapshot.terminals.is_empty());
         assert!(!snapshot.socket_path.is_empty());
 
+        let runtime_state = ai_runtime_state_snapshot(&service);
+        assert!(runtime_state.sessions.is_empty());
+        assert_eq!(runtime_state.running_count, 0);
+
+        let probed = ai_runtime_probe(
+            &service,
+            AIRuntimeProbeRequest {
+                terminal_id: "terminal-a".to_string(),
+                terminal_instance_id: None,
+                project_id: "project-a".to_string(),
+                project_path: None,
+                tool: "codex".to_string(),
+                external_session_id: None,
+                transcript_path: None,
+                started_at: None,
+                updated_at: 0.0,
+            },
+        );
+        assert!(probed.is_none());
+        assert!(!ai_runtime_dismiss_completion(
+            &service,
+            "project-a".to_string()
+        ));
+
         desktop_pet_start_drag().expect("drag facade");
         desktop_pet_show_context_menu(&service).expect("context menu facade");
+        let placement = desktop_pet_placement(
+            &service,
+            DesktopPetPhysicalPosition { x: 900.0, y: 0.0 },
+            DesktopPetPhysicalSize {
+                width: 352.0,
+                height: 202.0,
+            },
+            DesktopPetWorkArea {
+                x: 0.0,
+                y: 0.0,
+                width: 1200.0,
+                height: 800.0,
+                scale_factor: 1.0,
+            },
+        );
+        assert_eq!(placement.side, "left");
+        let visible = desktop_pet_set_bubble_visible(&service, true);
+        assert!(visible.bubble_visible);
+        let synced = desktop_pet_sync_visibility(&service).expect("sync visibility");
+        assert!(synced.bubble_visible);
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
