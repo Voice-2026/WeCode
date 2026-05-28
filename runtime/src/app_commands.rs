@@ -6,6 +6,9 @@ use crate::{
     notification::{NotificationDispatchRequest, NotificationDispatchResult},
     performance::{PerformanceMonitor, PerformanceSnapshot},
     power::PowerManager,
+    project_activity::ProjectActivitySnapshot,
+    project_store::{ProjectListSnapshot, ProjectSummary},
+    runtime_state::RuntimeService,
     settings::{AppSettings, AppSettingsStore, sync_process_locale_preference},
 };
 use std::path::PathBuf;
@@ -91,6 +94,21 @@ pub fn performance_snapshot(monitor: &PerformanceMonitor) -> PerformanceSnapshot
     monitor.snapshot()
 }
 
+pub fn project_mark_active(
+    service: &RuntimeService,
+    project: ProjectSummary,
+) -> Result<ProjectActivitySnapshot, String> {
+    service.mark_project_active_with_watch(&project.id)
+}
+
+pub fn project_select(
+    service: &RuntimeService,
+    project_id: String,
+) -> Result<ProjectListSnapshot, String> {
+    service.select_project(&project_id)?;
+    Ok(service.project_list())
+}
+
 pub fn power_set_sleep_prevention(
     manager: &PowerManager,
     mode: String,
@@ -151,6 +169,59 @@ mod tests {
         let snapshot = performance_snapshot(&PerformanceMonitor::default());
         assert!(snapshot.cpu_percent >= 0.0);
         assert!(snapshot.memory_bytes >= snapshot.memory.main_bytes);
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn project_commands_select_and_mark_active_project() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-projects-{}",
+            Uuid::new_v4()
+        ));
+        let first = support_dir.join("first");
+        let second = support_dir.join("second");
+        std::fs::create_dir_all(&first).expect("first project dir");
+        std::fs::create_dir_all(&second).expect("second project dir");
+        std::fs::write(
+            support_dir.join("state.json"),
+            serde_json::to_string_pretty(&json!({
+                "projects": [
+                    {
+                        "id": "project-a",
+                        "name": "Project A",
+                        "path": first.display().to_string()
+                    },
+                    {
+                        "id": "project-b",
+                        "name": "Project B",
+                        "path": second.display().to_string()
+                    }
+                ],
+                "selectedProjectId": "project-a"
+            }))
+            .expect("state json"),
+        )
+        .expect("write state");
+
+        let service = RuntimeService::new(support_dir.clone());
+        let selected = project_select(&service, "project-b".to_string()).expect("select project");
+        assert_eq!(selected.selected_project_id.as_deref(), Some("project-b"));
+
+        let project = selected
+            .projects
+            .iter()
+            .find(|project| project.id == "project-b")
+            .expect("selected project")
+            .clone();
+        let activity = project_mark_active(&service, project).expect("mark active");
+        assert_eq!(activity.active_project_id.as_deref(), Some("project-b"));
+        assert!(
+            activity
+                .tracked_projects
+                .iter()
+                .any(|project| project.id == "project-b")
+        );
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
