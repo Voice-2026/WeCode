@@ -1398,6 +1398,7 @@ fn git_status_file_row(
     let can_discard = is_git_worktree_file(&file) || is_git_untracked_file(&file);
     let active = selected_file.map(|path| path == file.path).unwrap_or(false);
     let file_path = file.path.clone();
+    let diff_file_path = file.path.clone();
     let file_name = file
         .path
         .trim_end_matches('/')
@@ -1429,6 +1430,12 @@ fn git_status_file_row(
     if is_git_untracked_file(&file) || is_dir_status {
         actions.push(
             git_file_action_button("ignore", IconName::Close, file.path.clone(), cx)
+                .into_any_element(),
+        );
+    }
+    if !is_dir_status {
+        actions.push(
+            git_file_action_button("diff", IconName::ExternalLink, diff_file_path, cx)
                 .into_any_element(),
         );
     }
@@ -1535,9 +1542,144 @@ fn git_file_action_button(
                 app.discard_selected_git_file(window, cx);
             }
             "ignore" => app.append_project_gitignore_path(file_path.clone(), window, cx),
+            "diff" => app.open_git_diff_window(file_path.clone(), window, cx),
             _ => {}
         }
     }))
+}
+
+pub(in crate::app) fn git_diff_window_workspace(
+    selected_path: Option<&str>,
+    diff: &str,
+    error: Option<&str>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let file_path = selected_path.unwrap_or("未选择文件").to_string();
+    let open_path = file_path.clone();
+
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .bg(color(theme::BG))
+        .child(
+            div()
+                .h(px(52.0))
+                .px_4()
+                .flex()
+                .items_center()
+                .justify_between()
+                .border_b_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .child(
+                            div()
+                                .text_size(px(14.0))
+                                .line_height(px(18.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .truncate()
+                                .text_color(color(theme::TEXT))
+                                .child("Diff"),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.0))
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .truncate()
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(file_path),
+                        ),
+                )
+                .child(
+                    Button::new("git-diff-window-open-file")
+                        .secondary()
+                        .compact()
+                        .text_color(cx.theme().secondary_foreground)
+                        .disabled(selected_path.is_none())
+                        .on_click(cx.listener(move |app, _event, _window, cx| {
+                            app.open_git_diff_window_file(open_path.clone(), cx);
+                        }))
+                        .child(
+                            div()
+                                .h(px(22.0))
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .child(Icon::new(IconName::ExternalLink).size_3())
+                                .child("打开文件"),
+                        ),
+                ),
+        )
+        .when_some(error.map(str::to_string), |this, error| {
+            this.child(
+                div()
+                    .mx_4()
+                    .mt_3()
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(color(theme::ORANGE).opacity(0.35))
+                    .bg(color(theme::ORANGE).opacity(0.12))
+                    .px_3()
+                    .py_2()
+                    .text_size(px(12.0))
+                    .line_height(px(16.0))
+                    .text_color(color(theme::ORANGE))
+                    .child(error),
+            )
+        })
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .bg(color(theme::BG_TERMINAL))
+                .px_4()
+                .py_3()
+                .children(if diff.trim().is_empty() {
+                    vec![
+                        div()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(14.0))
+                            .line_height(px(18.0))
+                            .text_color(color(theme::TEXT_DIM))
+                            .child("没有可显示的 Diff")
+                            .into_any_element(),
+                    ]
+                } else {
+                    diff.lines()
+                        .map(|line| git_diff_line_row(line).into_any_element())
+                        .collect::<Vec<_>>()
+                }),
+        )
+}
+
+fn git_diff_line_row(line: &str) -> impl IntoElement {
+    let line_color = if line.starts_with('+') && !line.starts_with("+++") {
+        theme::GREEN
+    } else if line.starts_with('-') && !line.starts_with("---") {
+        0xF87171
+    } else if line.starts_with("@@") {
+        theme::ACCENT
+    } else {
+        theme::TEXT_MUTED
+    };
+
+    div()
+        .min_h(px(18.0))
+        .text_size(px(12.0))
+        .line_height(px(18.0))
+        .font_family("SF Mono")
+        .text_color(color(line_color))
+        .child(line.to_string())
 }
 
 fn git_history_panel(git: &GitSummary, cx: &mut Context<CoduxApp>) -> impl IntoElement {

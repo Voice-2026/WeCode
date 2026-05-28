@@ -14,7 +14,9 @@ pub(in crate::app) use files::{
     current_directory_suffix, file_directory_option, file_preview_workspace,
     parent_relative_directory,
 };
-pub(in crate::app) use git::{git_review_workspace, git_workspace_section};
+pub(in crate::app) use git::{
+    git_diff_window_workspace, git_review_workspace, git_workspace_section,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum AssistantPanel {

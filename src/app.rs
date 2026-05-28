@@ -82,7 +82,8 @@ use self::{
     settings::SettingsPane,
     sidebars::{
         AssistantPanel, current_directory_suffix, file_directory_option, file_preview_workspace,
-        file_section, git_review_workspace, git_workspace_section, parent_relative_directory,
+        file_section, git_diff_window_workspace, git_review_workspace, git_workspace_section,
+        parent_relative_directory,
     },
     terminal_state::{
         prepare_memory_launch_artifacts, spawn_terminal_tabs, terminal_config_for_settings,
@@ -123,6 +124,9 @@ pub struct CoduxApp {
     git_expanded_dirs: HashSet<String>,
     git_tree_children: HashMap<String, Vec<GitFileStatus>>,
     git_diff_preview: String,
+    git_diff_window_path: Option<String>,
+    git_diff_window_content: String,
+    git_diff_window_error: Option<String>,
     git_review_content: Option<GitReviewContentSummary>,
     git_clone_remote_url: String,
     git_remote_name: String,
@@ -843,6 +847,9 @@ impl CoduxApp {
             git_expanded_dirs: HashSet::new(),
             git_tree_children: HashMap::new(),
             git_diff_preview: "select a changed file to preview its diff".to_string(),
+            git_diff_window_path: None,
+            git_diff_window_content: String::new(),
+            git_diff_window_error: None,
             git_review_content: None,
             git_clone_remote_url: String::new(),
             git_remote_name: "origin".to_string(),
@@ -976,6 +983,9 @@ impl CoduxApp {
             git_expanded_dirs: HashSet::new(),
             git_tree_children: HashMap::new(),
             git_diff_preview: "select a changed file to preview its diff".to_string(),
+            git_diff_window_path: None,
+            git_diff_window_content: String::new(),
+            git_diff_window_error: None,
             git_review_content: None,
             git_clone_remote_url: String::new(),
             git_remote_name: "origin".to_string(),
@@ -3998,6 +4008,96 @@ impl CoduxApp {
                 self.status_message = format!("diff loaded: {file_path}");
             }
             Err(error) => self.status_message = format!("failed to load diff: {error}"),
+        }
+        cx.notify();
+    }
+
+    fn open_git_diff_window(
+        &mut self,
+        file_path: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for Git diff".to_string();
+            cx.notify();
+            return;
+        };
+        if file_path.trim().is_empty() || file_path.ends_with('/') {
+            self.status_message = "no Git file selected for diff window".to_string();
+            cx.notify();
+            return;
+        }
+
+        let project_path = project.path.clone();
+        let selected_project_id = project.id.clone();
+        let selected_project_name = project.name.clone();
+        let selected_file = file_path.clone();
+        let bounds = Bounds::centered(None, size(px(920.0), px(680.0)), cx);
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(gpui::TitlebarOptions {
+                    title: Some(format!("Diff - {selected_file}").into()),
+                    appears_transparent: true,
+                    ..Default::default()
+                }),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(720.0), px(520.0))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                let mut app = CoduxApp::new_settings_window();
+                app.window_mode = AppWindowMode::GitDiff;
+                app.git_diff_window_path = Some(selected_file.clone());
+                match app.runtime_service.read_project_git_review_diff(
+                    &project_path,
+                    &selected_file,
+                    app.git_review.base_branch.as_deref(),
+                ) {
+                    Ok(diff) => {
+                        app.git_diff_window_content = diff;
+                        app.git_diff_window_error = None;
+                    }
+                    Err(error) => {
+                        app.git_diff_window_content.clear();
+                        app.git_diff_window_error = Some(error);
+                    }
+                }
+                app.state.selected_project = Some(ProjectInfo {
+                    id: selected_project_id.clone(),
+                    name: selected_project_name.clone(),
+                    path: project_path.clone(),
+                    exists: true,
+                    badge: String::new(),
+                    badge_symbol: None,
+                    badge_color_hex: None,
+                    git_default_push_remote_name: None,
+                });
+                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                let view = cx.new(|_| app);
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+
+        self.status_message = match result {
+            Ok(_) => format!("Git diff window opened: {file_path}"),
+            Err(error) => format!("failed to open Git diff window: {error}"),
+        };
+        cx.notify();
+    }
+
+    fn open_git_diff_window_file(&mut self, file_path: String, cx: &mut Context<Self>) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for opening diff file".to_string();
+            cx.notify();
+            return;
+        };
+        match self
+            .runtime_service
+            .open_project_file_entry(&project.path, &file_path)
+        {
+            Ok(()) => self.status_message = format!("file open requested: {file_path}"),
+            Err(error) => self.status_message = format!("failed to open diff file: {error}"),
         }
         cx.notify();
     }
@@ -8376,6 +8476,22 @@ impl Render for CoduxApp {
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.about_workspace(window, cx))
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::GitDiff {
+            return div()
+                .size_full()
+                .font_family("SF Pro Text")
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(git_diff_window_workspace(
+                    self.git_diff_window_path.as_deref(),
+                    &self.git_diff_window_content,
+                    self.git_diff_window_error.as_deref(),
+                    cx,
+                ))
                 .into_any_element();
         }
 
