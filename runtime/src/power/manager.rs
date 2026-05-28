@@ -1,4 +1,8 @@
-use super::platform::{PlatformSleepAssertion, platform_power_adapter_connected};
+use super::{
+    platform::{PlatformSleepAssertion, platform_power_adapter_connected},
+    service::normalize_sleep_mode,
+    types::PowerSummary,
+};
 use crate::settings::AppSettingsStore;
 use std::{
     sync::{Arc, Mutex},
@@ -71,5 +75,25 @@ impl PowerManager {
             *assertion = Some(PlatformSleepAssertion::create()?);
         }
         Ok(assertion.is_some())
+    }
+
+    pub fn summary(&self, mode: &str) -> PowerSummary {
+        let adapter = platform_power_adapter_connected();
+        let assertion_active = self
+            .assertion
+            .lock()
+            .map(|assertion| assertion.is_some())
+            .unwrap_or(false);
+        PowerSummary {
+            mode: normalize_sleep_mode(mode).to_string(),
+            effective_enabled: match mode {
+                "always" => true,
+                "powerAdapterOnly" => adapter.unwrap_or(true),
+                _ => false,
+            },
+            power_adapter_connected: adapter,
+            assertion_active,
+            error: None,
+        }
     }
 }

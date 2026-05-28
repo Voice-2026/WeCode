@@ -16,3 +16,17 @@ fn summary_normalizes_unknown_sleep_mode_without_creating_assertion() {
     assert!(!summary.effective_enabled);
     assert!(!summary.assertion_active);
 }
+
+#[test]
+fn manager_summary_reflects_shared_sleep_assertion_state() {
+    let manager = PowerManager::default();
+
+    manager
+        .set_sleep_prevention("off".to_string())
+        .expect("disable sleep prevention");
+
+    let summary = manager.summary("off");
+    assert_eq!(summary.mode, "off");
+    assert!(!summary.effective_enabled);
+    assert!(!summary.assertion_active);
+}

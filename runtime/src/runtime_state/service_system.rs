@@ -362,8 +362,20 @@ impl RuntimeService {
 
     pub fn set_sleep_mode(&self, mode: &str) -> Result<(SettingsSummary, PowerSummary), String> {
         let settings = SettingsService::new(self.support_dir.clone()).set_sleep_mode(mode)?;
-        let power = PowerService::new().set_sleep_prevention(&settings.sleep_mode);
+        let mut power = self.power_manager.summary(&settings.sleep_mode);
+        if let Err(error) = self
+            .power_manager
+            .set_sleep_prevention(settings.sleep_mode.clone())
+        {
+            power.error = Some(error);
+        } else {
+            power = self.power_manager.summary(&settings.sleep_mode);
+        }
         Ok((settings, power))
+    }
+
+    pub fn power_summary(&self, mode: &str) -> PowerSummary {
+        self.power_manager.summary(mode)
     }
 
     pub fn set_power_sleep_prevention(&self, mode: &str) -> Result<bool, String> {

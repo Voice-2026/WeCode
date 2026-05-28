@@ -1,3 +1,9 @@
+static POWER_MANAGER: OnceLock<Arc<PowerManager>> = OnceLock::new();
+
+fn shared_power_manager() -> Arc<PowerManager> {
+    Arc::clone(POWER_MANAGER.get_or_init(|| Arc::new(PowerManager::default())))
+}
+
 impl RuntimeService {
     pub fn new(support_dir: PathBuf) -> Self {
         let ai_history_indexer = AIHistoryIndexer::new();
@@ -17,7 +23,7 @@ impl RuntimeService {
             file_watch_events: Arc::new(Mutex::new(VecDeque::new())),
             active_file_watch_path: Arc::new(Mutex::new(None)),
             git_cancels: Arc::new(Mutex::new(HashMap::new())),
-            power_manager: Arc::new(PowerManager::default()),
+            power_manager: shared_power_manager(),
             remote_host: Arc::new(RemoteHostRuntime::new_with_ai_history(
                 support_dir.clone(),
                 remote_ai_history_indexer,

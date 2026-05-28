@@ -50,7 +50,7 @@ impl RuntimeState {
         let ai_runtime_state = load_ai_runtime_state(&support_dir, &runtime_events);
         let remote = load_remote(&support_dir);
         let pet = load_pet(&support_dir);
-        let power = PowerService::new().set_sleep_prevention(&settings.sleep_mode);
+        let power = PowerService::new().summary(&settings.sleep_mode);
         let performance = load_performance();
         let tool_permissions = load_tool_permissions(&support_dir);
 

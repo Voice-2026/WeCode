@@ -27,7 +27,6 @@ use codux_runtime::{
         PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview, PetCustomPetInstallRequest,
         PetRenameRequest, PetRestoreRequest, PetSummary,
     },
-    power::PowerService,
     project_activity::ProjectActivityEvent,
     project_open::ProjectOpenApplicationSummary,
     project_store::{ProjectCreateRequest, ProjectDefaultPushRemoteRequest, ProjectUpdateRequest},
@@ -100,7 +99,6 @@ pub struct CoduxApp {
     next_terminal_index: usize,
     runtime: RuntimeInventory,
     runtime_ingress: RuntimeIngressStatus,
-    power: PowerService,
     state: RuntimeState,
     runtime_service: RuntimeService,
     is_exiting: bool,
@@ -654,9 +652,12 @@ impl CoduxApp {
         theme::apply_component_theme_for_name(&state.settings.theme, Some(window), cx);
         let runtime = RuntimeInventory::load();
         let runtime_ingress = RuntimeIngressService::new().start_background();
-        let power = PowerService::new();
-        state.power = power.set_sleep_prevention(&state.settings.sleep_mode);
         let runtime_service = RuntimeService::new(state.support_dir.clone());
+        let power_sync_error = runtime_service.start_power_settings_sync().err();
+        state.power = runtime_service.power_summary(&state.settings.sleep_mode);
+        if let Some(error) = power_sync_error {
+            state.power.error = Some(error);
+        }
         let tool_permissions = runtime_service.sync_tool_permissions();
         state.tool_permissions = tool_permissions.clone();
         let ai_runtime_status = match runtime_service.start_ai_runtime_event_processing() {
@@ -746,7 +747,6 @@ impl CoduxApp {
             next_terminal_index,
             runtime,
             runtime_ingress,
-            power,
             state,
             runtime_service,
             is_exiting: false,
@@ -838,9 +838,14 @@ impl CoduxApp {
     }
 
     fn new_settings_window() -> Self {
-        let state = RuntimeState::load();
+        let mut state = RuntimeState::load();
         let runtime = RuntimeInventory::load();
         let runtime_service = RuntimeService::new(state.support_dir.clone());
+        let power_sync_error = runtime_service.start_power_settings_sync().err();
+        state.power = runtime_service.power_summary(&state.settings.sleep_mode);
+        if let Some(error) = power_sync_error {
+            state.power.error = Some(error);
+        }
         let selected_ai_provider_id = state
             .settings
             .ai_providers
@@ -890,7 +895,6 @@ impl CoduxApp {
             next_terminal_index: 1,
             runtime,
             runtime_ingress: RuntimeIngressStatus::default(),
-            power: PowerService::new(),
             state,
             runtime_service,
             is_exiting: false,
@@ -1848,7 +1852,9 @@ impl CoduxApp {
         self.state.settings = settings;
         self.state.remote = self.runtime_service.reload_remote();
         self.state.notifications = self.runtime_service.reload_notifications();
-        self.state.power = self.power.summary(&self.state.settings.sleep_mode);
+        self.state.power = self
+            .runtime_service
+            .power_summary(&self.state.settings.sleep_mode);
     }
 
     fn set_theme(&mut self, theme: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -2412,11 +2418,9 @@ impl CoduxApp {
 
     fn set_sleep_mode(&mut self, mode: String, _window: &mut Window, cx: &mut Context<Self>) {
         match self.runtime_service.set_sleep_mode(&mode) {
-            Ok((settings, _power)) => {
+            Ok((settings, power)) => {
                 self.apply_settings_summary(settings);
-                self.state.power = self
-                    .power
-                    .set_sleep_prevention(&self.state.settings.sleep_mode);
+                self.state.power = power;
                 self.status_message = format!(
                     "sleep prevention mode saved: {}",
                     self.state.settings.sleep_mode
