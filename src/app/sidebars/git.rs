@@ -1719,7 +1719,7 @@ fn is_git_worktree_file(file: &GitFileStatus) -> bool {
 }
 
 fn is_git_untracked_file(file: &GitFileStatus) -> bool {
-    file.index_status == "?" && file.worktree_status == "?"
+    file.worktree_status == "?" && (file.index_status == "?" || file.index_status.trim().is_empty())
 }
 
 fn git_file_status_label(file: &GitFileStatus) -> String {

@@ -4,6 +4,14 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn git_file(path: &str, index_status: &str, worktree_status: &str) -> GitFileStatus {
+        GitFileStatus {
+            path: path.to_string(),
+            index_status: index_status.to_string(),
+            worktree_status: worktree_status.to_string(),
+        }
+    }
+
     #[test]
     fn reads_modified_and_untracked_file_diffs() {
         let repo = temp_dir("git-diff");
@@ -67,9 +75,40 @@ mod tests {
         let expanded =
             GitService::path_status(repo.to_str().expect("repo"), "bulk").expect("path status");
         assert!(
-            expanded.iter().any(|file| file.path == "bulk/nested/a.txt"),
-            "directory expansion should load children on demand"
+            expanded.iter().any(|file| file.path == "bulk/nested/"),
+            "directory expansion should expose only the next child directory"
         );
+        assert!(
+            expanded
+                .iter()
+                .all(|file| !file.path.starts_with("bulk/nested/a.txt")),
+            "directory expansion should not recurse into nested children"
+        );
+
+        let nested =
+            GitService::path_status(repo.to_str().expect("repo"), "bulk/nested").expect("nested");
+        assert!(
+            nested.iter().any(|file| file.path == "bulk/nested/a.txt"),
+            "nested directory expansion should load its direct files"
+        );
+    }
+
+    #[test]
+    fn path_status_keeps_directory_markers_per_status_kind() {
+        let files = vec![
+            git_file("src/shared/tracked.rs", "M", " "),
+            git_file("src/shared/new.rs", " ", "?"),
+        ];
+
+        let collapsed = collapse_path_status_files(files, "src");
+        assert!(collapsed.iter().any(|file| {
+            file.path == "src/shared/"
+                && file.index_status == "M"
+                && file.worktree_status.trim().is_empty()
+        }));
+        assert!(collapsed.iter().any(|file| {
+            file.path == "src/shared/" && file.index_status == "?" && file.worktree_status == "?"
+        }));
     }
 
     #[test]

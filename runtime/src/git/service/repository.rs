@@ -43,7 +43,10 @@ impl GitService {
         } else {
             format!("{}/", directory_path.trim_end_matches('/'))
         };
-        Ok(flatten_path_status_files(&repo, &directory_path)
+        Ok(collapse_path_status_files(
+            flatten_path_status_files(&repo, &directory_path),
+            &directory_path,
+        )
             .into_iter()
             .filter(|file| file.path == directory_path || file.path.starts_with(&prefix))
             .collect())

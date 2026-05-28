@@ -185,6 +185,85 @@ fn flatten_path_status_files(repo: &GitRepository, directory_path: &str) -> Vec<
     flatten_unique_status_files(staged, unstaged, untracked)
 }
 
+fn collapse_path_status_files(
+    files: Vec<GitFileStatus>,
+    directory_path: &str,
+) -> Vec<GitFileStatus> {
+    let base_path = directory_path.trim_matches('/');
+    let mut collapsed = Vec::new();
+    let mut directory_markers = HashMap::<String, GitFileStatus>::new();
+
+    for file in files {
+        let Some(relative_path) = relative_git_path(base_path, &file.path) else {
+            continue;
+        };
+        let relative_path = relative_path.trim_end_matches('/');
+        if relative_path.is_empty() {
+            continue;
+        }
+
+        if let Some((directory_name, _rest)) = relative_path.split_once('/') {
+            let path = join_git_path(base_path, directory_name);
+            let marker_path = format!("{}/", path.trim_end_matches('/'));
+            for marker in git_status_directory_markers(marker_path, &file) {
+                directory_markers.entry(git_status_marker_key(&marker)).or_insert(marker);
+            }
+        } else {
+            collapsed.push(file);
+        }
+    }
+
+    collapsed.extend(directory_markers.into_values());
+    collapsed.sort_by(|left, right| {
+        left.path
+            .to_lowercase()
+            .cmp(&right.path.to_lowercase())
+            .then_with(|| left.index_status.cmp(&right.index_status))
+            .then_with(|| left.worktree_status.cmp(&right.worktree_status))
+    });
+    collapsed
+}
+
+fn relative_git_path<'a>(base_path: &str, file_path: &'a str) -> Option<&'a str> {
+    if base_path.is_empty() {
+        return Some(file_path);
+    }
+    file_path
+        .strip_prefix(base_path)
+        .and_then(|path| path.strip_prefix('/'))
+}
+
+fn join_git_path(base_path: &str, name: &str) -> String {
+    if base_path.is_empty() {
+        name.to_string()
+    } else {
+        format!("{base_path}/{name}")
+    }
+}
+
+fn git_status_directory_markers(path: String, file: &GitFileStatus) -> Vec<GitFileStatus> {
+    if is_untracked_status(file) {
+        return vec![GitFileStatus {
+            path,
+            index_status: "?".to_string(),
+            worktree_status: "?".to_string(),
+        }];
+    }
+
+    vec![GitFileStatus {
+        path,
+        index_status: file.index_status.clone(),
+        worktree_status: file.worktree_status.clone(),
+    }]
+}
+
+fn git_status_marker_key(file: &GitFileStatus) -> String {
+    format!(
+        "{}\0{}\0{}",
+        file.path, file.index_status, file.worktree_status
+    )
+}
+
 fn flatten_unique_status_files(
     staged: Vec<GitFileStatus>,
     unstaged: Vec<GitFileStatus>,
