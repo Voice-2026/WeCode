@@ -63,12 +63,30 @@ impl RuntimeService {
         Ok(load_git_summary(project_path))
     }
 
+    pub fn stage_project_git_paths(
+        &self,
+        project_path: &str,
+        file_paths: &[String],
+    ) -> Result<git::GitSummary, String> {
+        git::GitService::stage_paths(project_path, file_paths)?;
+        Ok(load_git_summary(project_path))
+    }
+
     pub fn unstage_project_git_file(
         &self,
         project_path: &str,
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::unstage_file(project_path, file_path)?;
+        Ok(load_git_summary(project_path))
+    }
+
+    pub fn unstage_project_git_paths(
+        &self,
+        project_path: &str,
+        file_paths: &[String],
+    ) -> Result<git::GitSummary, String> {
+        git::GitService::unstage_paths(project_path, file_paths)?;
         Ok(load_git_summary(project_path))
     }
 
@@ -268,6 +286,15 @@ impl RuntimeService {
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::discard_file(project_path, file_path)?;
+        Ok(load_git_summary(project_path))
+    }
+
+    pub fn discard_project_git_paths(
+        &self,
+        project_path: &str,
+        file_paths: &[String],
+    ) -> Result<git::GitSummary, String> {
+        git::GitService::discard_paths(project_path, file_paths)?;
         Ok(load_git_summary(project_path))
     }
 

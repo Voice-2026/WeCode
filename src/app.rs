@@ -325,6 +325,19 @@ fn git_remote_action_label(action: &str) -> String {
     }
 }
 
+fn normalized_git_action_paths(paths: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for path in paths {
+        let path = path.trim().trim_start_matches('/').to_string();
+        if path.is_empty() || !seen.insert(path.clone()) {
+            continue;
+        }
+        normalized.push(path);
+    }
+    normalized
+}
+
 fn timestamp_slug() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -4022,6 +4035,24 @@ impl CoduxApp {
         self.update_selected_git_file_stage(false, cx);
     }
 
+    fn stage_git_paths(
+        &mut self,
+        paths: Vec<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_git_paths_stage(paths, true, cx);
+    }
+
+    fn unstage_git_paths(
+        &mut self,
+        paths: Vec<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_git_paths_stage(paths, false, cx);
+    }
+
     fn discard_selected_git_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git discard".to_string();
@@ -4048,6 +4079,46 @@ impl CoduxApp {
                 success_message: format!("discarded Git file: {file_path}"),
                 failure_prefix: "failed to discard Git file".to_string(),
                 clear_git_diff_preview: true,
+                refresh_review: true,
+                ..Default::default()
+            },
+            cx,
+        );
+    }
+
+    fn discard_git_paths(
+        &mut self,
+        paths: Vec<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for Git discard".to_string();
+            cx.notify();
+            return;
+        };
+        let paths = normalized_git_action_paths(paths);
+        if paths.is_empty() {
+            self.status_message = "no Git files to discard".to_string();
+            cx.notify();
+            return;
+        };
+        let count = paths.len();
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        self.start_project_git_operation(
+            project_id,
+            project_path,
+            GitRunningOperation {
+                label: format!("discard-batch:{count}"),
+                cancellable: false,
+            },
+            move |service, path| service.discard_project_git_paths(&path, &paths),
+            GitOperationCompletion {
+                success_message: format!("discarded {count} Git file paths"),
+                failure_prefix: "failed to discard Git file paths".to_string(),
+                clear_git_diff_preview: true,
+                clear_git_tree_cache: true,
                 refresh_review: true,
                 ..Default::default()
             },
@@ -4096,6 +4167,47 @@ impl CoduxApp {
         );
     }
 
+    fn append_project_gitignore_paths(
+        &mut self,
+        paths: Vec<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for .gitignore".to_string();
+            cx.notify();
+            return;
+        };
+        let paths = normalized_git_action_paths(paths);
+        if paths.is_empty() {
+            self.status_message = "no Git paths to ignore".to_string();
+            cx.notify();
+            return;
+        }
+
+        let count = paths.len();
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        self.start_project_git_operation(
+            project_id,
+            project_path,
+            GitRunningOperation {
+                label: format!("ignore-batch:{count}"),
+                cancellable: false,
+            },
+            move |service, path| service.append_project_gitignore(&path, &paths),
+            GitOperationCompletion {
+                success_message: format!("added {count} Git paths to .gitignore"),
+                failure_prefix: "failed to update .gitignore".to_string(),
+                clear_git_diff_preview: true,
+                clear_git_tree_cache: true,
+                refresh_review: true,
+                ..Default::default()
+            },
+            cx,
+        );
+    }
+
     fn update_selected_git_file_stage(&mut self, stage: bool, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git file operation".to_string();
@@ -4134,6 +4246,54 @@ impl CoduxApp {
                     if stage { "stage" } else { "unstage" }
                 ),
                 diff_file_to_reload: Some(file_path),
+                ..Default::default()
+            },
+            cx,
+        );
+    }
+
+    fn update_git_paths_stage(&mut self, paths: Vec<String>, stage: bool, cx: &mut Context<Self>) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for Git file operation".to_string();
+            cx.notify();
+            return;
+        };
+        let paths = normalized_git_action_paths(paths);
+        if paths.is_empty() {
+            self.status_message = "no Git files selected".to_string();
+            cx.notify();
+            return;
+        }
+
+        let count = paths.len();
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        let label = if stage { "stage" } else { "unstage" };
+        self.start_project_git_operation(
+            project_id,
+            project_path,
+            GitRunningOperation {
+                label: format!("{label}-batch:{count}"),
+                cancellable: false,
+            },
+            move |service, path| {
+                if stage {
+                    service.stage_project_git_paths(&path, &paths)
+                } else {
+                    service.unstage_project_git_paths(&path, &paths)
+                }
+            },
+            GitOperationCompletion {
+                success_message: format!(
+                    "{} {count} Git file paths",
+                    if stage { "staged" } else { "unstaged" }
+                ),
+                failure_prefix: format!(
+                    "failed to {} Git file paths",
+                    if stage { "stage" } else { "unstage" }
+                ),
+                clear_git_tree_cache: true,
+                refresh_review: true,
                 ..Default::default()
             },
             cx,

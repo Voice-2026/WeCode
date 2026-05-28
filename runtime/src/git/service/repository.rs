@@ -92,13 +92,35 @@ impl GitService {
         stage_paths_git2(&repo, &[safe_git_path(file_path)?])
     }
 
+    pub fn stage_paths(project_path: &str, file_paths: &[String]) -> Result<(), String> {
+        let repo = open_git_repository(project_path)?;
+        stage_paths_git2(&repo, &safe_git_paths(file_paths)?)
+    }
+
     pub fn unstage_file(project_path: &str, file_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
         unstage_paths_git2(&repo, &[safe_git_path(file_path)?])
+    }
+
+    pub fn unstage_paths(project_path: &str, file_paths: &[String]) -> Result<(), String> {
+        let repo = open_git_repository(project_path)?;
+        unstage_paths_git2(&repo, &safe_git_paths(file_paths)?)
     }
 
     pub fn discard_file(project_path: &str, file_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
         discard_paths_git2(&repo, &[safe_git_path(file_path)?])
     }
+
+    pub fn discard_paths(project_path: &str, file_paths: &[String]) -> Result<(), String> {
+        let repo = open_git_repository(project_path)?;
+        discard_paths_git2(&repo, &safe_git_paths(file_paths)?)
+    }
+}
+
+fn safe_git_paths(file_paths: &[String]) -> Result<Vec<String>, String> {
+    file_paths
+        .iter()
+        .map(|path| safe_git_path(path))
+        .collect::<Result<Vec<_>, _>>()
 }

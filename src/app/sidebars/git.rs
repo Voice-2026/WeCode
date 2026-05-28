@@ -949,6 +949,10 @@ fn git_status_group(
     empty_text: &'static str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let action_paths = files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<Vec<_>>();
     let rows = if expanded {
         if files.is_empty() {
             vec![
@@ -1029,27 +1033,64 @@ fn git_status_group(
                     div()
                         .flex()
                         .items_center()
-                        .gap_2()
+                        .gap_1()
                         .text_color(color(theme::TEXT_DIM))
-                        .child(if title == "已暂存" {
-                            div().w(px(44.0)).into_any_element()
-                        } else {
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(Icon::new(IconName::Plus).size_3p5())
-                                .child(Icon::new(IconName::Close).size_3p5())
-                                .child(if title == "更改" {
-                                    Icon::new(IconName::Undo).size_3p5().into_any_element()
-                                } else {
-                                    Icon::new(IconName::Close).size_3p5().into_any_element()
-                                })
-                                .into_any_element()
-                        }),
+                        .children(git_status_group_actions(id, action_paths, cx)),
                 ),
         )
         .children(rows)
+}
+
+fn git_status_group_actions(
+    section_id: &'static str,
+    paths: Vec<String>,
+    cx: &mut Context<CoduxApp>,
+) -> Vec<AnyElement> {
+    match section_id {
+        "staged" => vec![
+            git_status_group_action_button("unstage", IconName::Minus, paths, cx)
+                .into_any_element(),
+        ],
+        "changed" => vec![
+            git_status_group_action_button("stage", IconName::Plus, paths.clone(), cx)
+                .into_any_element(),
+            git_status_group_action_button("discard", IconName::Undo, paths, cx).into_any_element(),
+        ],
+        "untracked" => vec![
+            git_status_group_action_button("stage", IconName::Plus, paths.clone(), cx)
+                .into_any_element(),
+            git_status_group_action_button("ignore", IconName::Close, paths, cx).into_any_element(),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn git_status_group_action_button(
+    action: &'static str,
+    icon: IconName,
+    paths: Vec<String>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    Button::new(SharedString::from(format!("git-group-action-{action}")))
+        .compact()
+        .ghost()
+        .text_color(cx.theme().secondary_foreground)
+        .icon(
+            Icon::new(icon)
+                .size_3p5()
+                .text_color(cx.theme().secondary_foreground),
+        )
+        .on_click(cx.listener(move |app, _event, window, cx| {
+            cx.stop_propagation();
+            window.prevent_default();
+            match action {
+                "stage" => app.stage_git_paths(paths.clone(), window, cx),
+                "unstage" => app.unstage_git_paths(paths.clone(), window, cx),
+                "discard" => app.discard_git_paths(paths.clone(), window, cx),
+                "ignore" => app.append_project_gitignore_paths(paths.clone(), window, cx),
+                _ => {}
+            }
+        }))
 }
 
 struct GitImmediateDir {
