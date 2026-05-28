@@ -129,11 +129,56 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_i64)
             .map(|value| value.to_string())
             .unwrap_or(defaults.memory_extraction_idle_delay_seconds),
+        memory_session_extraction_cooldown_seconds: memory
+            .and_then(|memory| memory.get("sessionExtractionCooldownSeconds"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_session_extraction_cooldown_seconds),
         memory_max_index_sessions: memory
             .and_then(|memory| memory.get("maxIndexSessions"))
             .and_then(Value::as_i64)
             .map(|value| value.to_string())
             .unwrap_or(defaults.memory_max_index_sessions),
+        memory_max_injected_user_working_memories: memory
+            .and_then(|memory| memory.get("maxInjectedUserWorkingMemories"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_injected_user_working_memories),
+        memory_max_injected_project_working_memories: memory
+            .and_then(|memory| memory.get("maxInjectedProjectWorkingMemories"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_injected_project_working_memories),
+        memory_max_active_working_entries: memory
+            .and_then(|memory| memory.get("maxActiveWorkingEntries"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_active_working_entries),
+        memory_max_summary_versions: memory
+            .and_then(|memory| memory.get("maxSummaryVersions"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_summary_versions),
+        memory_summary_target_token_budget: memory
+            .and_then(|memory| memory.get("summaryTargetTokenBudget"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_summary_target_token_budget),
+        memory_max_injected_summary_tokens: memory
+            .and_then(|memory| memory.get("maxInjectedSummaryTokens"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_injected_summary_tokens),
+        memory_max_extraction_transcript_lines: memory
+            .and_then(|memory| memory.get("maxExtractionTranscriptLines"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_extraction_transcript_lines),
+        memory_max_extraction_transcript_tokens: memory
+            .and_then(|memory| memory.get("maxExtractionTranscriptTokens"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_extraction_transcript_tokens),
         memory_allow_cross_project_user_recall: memory
             .and_then(|memory| memory.get("allowCrossProjectUserRecall"))
             .and_then(Value::as_bool)

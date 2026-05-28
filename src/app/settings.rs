@@ -3675,6 +3675,7 @@ fn ai_provider_kind_options() -> Vec<(String, SharedString)> {
         ("groq", "Groq"),
         ("openrouter", "OpenRouter"),
         ("ollama", "Ollama"),
+        ("localLlama", "Llama Model"),
     ]
     .into_iter()
     .map(|(value, label)| opt(value, label))

@@ -46,7 +46,21 @@ mod tests {
                 "gitCommitMessageStyleRules": "  Keep scope clear.  ",
                 "memory": {
                   "enabled": true,
-                  "automaticInjectionEnabled": true
+                  "automaticInjectionEnabled": true,
+                  "automaticExtractionEnabled": true,
+                  "allowCrossProjectUserRecall": true,
+                  "defaultExtractorProviderId": "automatic",
+                  "maxInjectedUserWorkingMemories": 4,
+                  "maxInjectedProjectWorkingMemories": 6,
+                  "maxActiveWorkingEntries": 50,
+                  "maxSummaryVersions": 10,
+                  "summaryTargetTokenBudget": 900,
+                  "maxInjectedSummaryTokens": 900,
+                  "extractionIdleDelaySeconds": 300,
+                  "sessionExtractionCooldownSeconds": 900,
+                  "maxIndexSessions": 20,
+                  "maxExtractionTranscriptLines": 80,
+                  "maxExtractionTranscriptTokens": 8000
                 },
                 "pet": {
                   "speechMode": "off",
@@ -131,6 +145,17 @@ mod tests {
             "Keep scope clear.".chars().count()
         );
         assert_eq!(summary.runtime_tool_count, 5);
+        assert_eq!(summary.memory_extraction_idle_delay_seconds, "300");
+        assert_eq!(summary.memory_session_extraction_cooldown_seconds, "900");
+        assert_eq!(summary.memory_max_index_sessions, "20");
+        assert_eq!(summary.memory_max_injected_user_working_memories, "4");
+        assert_eq!(summary.memory_max_injected_project_working_memories, "6");
+        assert_eq!(summary.memory_max_active_working_entries, "50");
+        assert_eq!(summary.memory_max_summary_versions, "10");
+        assert_eq!(summary.memory_summary_target_token_budget, "900");
+        assert_eq!(summary.memory_max_injected_summary_tokens, "900");
+        assert_eq!(summary.memory_max_extraction_transcript_lines, "80");
+        assert_eq!(summary.memory_max_extraction_transcript_tokens, "8000");
         assert_eq!(summary.sleep_mode, "off");
         let provider = summary.ai_providers.first().expect("provider");
         assert_eq!(provider.display_name, "DeepSeek");
@@ -185,6 +210,15 @@ mod tests {
         assert!(!memory.memory_enabled);
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains("\"automaticInjectionEnabled\": true"));
+
+        let memory_number = SettingsService::new(support_dir.clone())
+            .set_ai_memory_number("maxInjectedUserWorkingMemories", "8")
+            .expect("set user memory injection count");
+        assert_eq!(memory_number.memory_max_injected_user_working_memories, "8");
+        let memory_number = SettingsService::new(support_dir.clone())
+            .set_ai_memory_number("maxExtractionTranscriptTokens", "12000")
+            .expect("set transcript token limit");
+        assert_eq!(memory_number.memory_max_extraction_transcript_tokens, "12000");
 
         let terminal_font = SettingsService::new(support_dir.clone())
             .cycle_terminal_font_size()

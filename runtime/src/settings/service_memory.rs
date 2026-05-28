@@ -15,21 +15,60 @@ impl SettingsService {
     }
 
     pub fn set_ai_memory_number(&self, key: &str, value: &str) -> Result<SettingsSummary, String> {
-        let (key, allowed, default) = match key {
+        let (key, allowed, default, min, max) = match key {
             "extractionIdleDelaySeconds" => (
                 "extractionIdleDelaySeconds",
-                &[60, 120, 300, 600, 900][..],
+                Some(&[60, 120, 300, 600, 900][..]),
                 300,
+                1,
+                86_400,
             ),
-            "maxIndexSessions" => ("maxIndexSessions", &[5, 10, 20, 50, 100][..], 20),
+            "sessionExtractionCooldownSeconds" => (
+                "sessionExtractionCooldownSeconds",
+                None,
+                900,
+                1,
+                86_400,
+            ),
+            "maxIndexSessions" => ("maxIndexSessions", Some(&[5, 10, 20, 50, 100][..]), 20, 1, 500),
+            "maxInjectedUserWorkingMemories" => (
+                "maxInjectedUserWorkingMemories",
+                None,
+                4,
+                0,
+                100,
+            ),
+            "maxInjectedProjectWorkingMemories" => (
+                "maxInjectedProjectWorkingMemories",
+                None,
+                6,
+                0,
+                100,
+            ),
+            "maxActiveWorkingEntries" => ("maxActiveWorkingEntries", None, 50, 1, 500),
+            "maxSummaryVersions" => ("maxSummaryVersions", None, 10, 1, 100),
+            "summaryTargetTokenBudget" => ("summaryTargetTokenBudget", None, 900, 100, 20_000),
+            "maxInjectedSummaryTokens" => ("maxInjectedSummaryTokens", None, 900, 100, 20_000),
+            "maxExtractionTranscriptLines" => (
+                "maxExtractionTranscriptLines",
+                None,
+                80,
+                10,
+                5_000,
+            ),
+            "maxExtractionTranscriptTokens" => (
+                "maxExtractionTranscriptTokens",
+                None,
+                8_000,
+                1_000,
+                200_000,
+            ),
             _ => return Err("Unsupported memory setting.".to_string()),
         };
-        let parsed = numeric_string(value, default, 1, 86_400);
+        let parsed = numeric_string(value, default, min, max);
         let value = allowed
-            .iter()
-            .find(|option| **option == parsed)
-            .copied()
-            .unwrap_or(default);
+            .and_then(|options| options.iter().find(|option| **option == parsed).copied())
+            .unwrap_or(parsed);
         let mut raw = self.raw_settings();
         let memory = ai_memory_mut(&mut raw)?;
         memory.insert(key.to_string(), Value::Number(value.into()));
