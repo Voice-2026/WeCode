@@ -56,10 +56,7 @@ impl CoduxApp {
                         "Index",
                         "status-index",
                         cx,
-                        |app, _event, window, cx| {
-                            app.reload_ai_history(window, cx);
-                            app.reload_runtime_activity(window, cx);
-                        },
+                        |app, _event, window, cx| app.process_memory_sessions_now(window, cx),
                     ))
                     .child(status_separator())
                     .child(status_git_segment(

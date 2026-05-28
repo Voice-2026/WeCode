@@ -5042,16 +5042,27 @@ impl CoduxApp {
     }
 
     fn reload_ai_history(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.refresh_ai_history_summaries_for_selected_project() {
+            Ok(project_name) => {
+                self.status_message = format!("AI history reloaded for {project_name}");
+            }
+            Err(error) => {
+                self.status_message = error;
+            }
+        }
+        cx.notify();
+    }
+
+    fn refresh_ai_history_summaries_for_selected_project(&mut self) -> Result<String, String> {
         let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project to refresh".to_string();
-            cx.notify();
-            return;
+            return Err("no selected project to refresh".to_string());
         };
         let selected_project = AIHistoryProjectRequest {
             id: project.id.clone(),
             name: project.name.clone(),
             path: project.path.clone(),
         };
+        let project_name = selected_project.name.clone();
         let projects = self
             .state
             .projects
@@ -5063,6 +5074,7 @@ impl CoduxApp {
             })
             .collect::<Vec<_>>();
 
+        let mut errors = Vec::new();
         match self
             .runtime_service
             .indexed_project_ai_history_summary(selected_project.clone())
@@ -5073,7 +5085,7 @@ impl CoduxApp {
                 }
             }
             Err(error) => {
-                self.status_message = format!("indexed project AI history failed: {error}");
+                errors.push(format!("indexed project AI history failed: {error}"));
             }
         }
         match self
@@ -5087,6 +5099,7 @@ impl CoduxApp {
             Err(error) => {
                 self.state.ai_global_history = self.runtime_service.reload_global_ai_history();
                 self.state.ai_global_history.error = Some(error);
+                errors.push("indexed global AI history failed".to_string());
             }
         }
         if self.state.ai_history.sessions.is_empty() {
@@ -5096,8 +5109,11 @@ impl CoduxApp {
         }
         self.normalize_selected_ai_session();
         self.reload_selected_ai_session_detail();
-        self.status_message = format!("AI history reloaded for {}", selected_project.name);
-        cx.notify();
+        if errors.is_empty() {
+            Ok(project_name)
+        } else {
+            Ok(format!("{project_name} ({})", errors.join("; ")))
+        }
     }
 
     fn select_ai_session(
@@ -5309,6 +5325,7 @@ impl CoduxApp {
         self.memory_processing = false;
         match result {
             Ok(status) => {
+                let history_refresh = self.refresh_ai_history_summaries_for_selected_project();
                 self.state.memory = self.runtime_service.reload_memory(
                     self.state
                         .selected_project
@@ -5318,10 +5335,16 @@ impl CoduxApp {
                 self.reload_memory_manager_snapshot();
                 self.normalize_selected_memory_entry();
                 self.normalize_selected_memory_summary();
-                self.status_message = format!(
-                    "memory processed · checked {} · enqueued {} · pending {}",
-                    status.checked_count, status.enqueued_count, status.pending_count
-                );
+                self.status_message = match history_refresh {
+                    Ok(project_name) => format!(
+                        "memory indexed for {project_name} · checked {} · enqueued {} · pending {}",
+                        status.checked_count, status.enqueued_count, status.pending_count
+                    ),
+                    Err(error) => format!(
+                        "memory indexed · checked {} · enqueued {} · pending {} · {error}",
+                        status.checked_count, status.enqueued_count, status.pending_count
+                    ),
+                };
             }
             Err(error) => self.status_message = format!("failed to process memory: {error}"),
         }
