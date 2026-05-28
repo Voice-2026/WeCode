@@ -480,6 +480,18 @@ fn normalized_global_ai_history_snapshot_to_summary(
     }
 }
 
+fn ai_history_project_request(project: &ProjectInfo) -> AIHistoryProjectRequest {
+    AIHistoryProjectRequest {
+        id: project.id.clone(),
+        name: project.name.clone(),
+        path: project.path.clone(),
+    }
+}
+
+fn ai_history_project_requests(projects: &[ProjectInfo]) -> Vec<AIHistoryProjectRequest> {
+    projects.iter().map(ai_history_project_request).collect()
+}
+
 fn normalized_ai_session_to_summary(
     session: codux_runtime::ai_history_normalized::AISessionSummary,
 ) -> AISessionSummary {
@@ -5057,22 +5069,9 @@ impl CoduxApp {
         let Some(project) = &self.state.selected_project else {
             return Err("no selected project to refresh".to_string());
         };
-        let selected_project = AIHistoryProjectRequest {
-            id: project.id.clone(),
-            name: project.name.clone(),
-            path: project.path.clone(),
-        };
+        let selected_project = ai_history_project_request(project);
         let project_name = selected_project.name.clone();
-        let projects = self
-            .state
-            .projects
-            .iter()
-            .map(|project| AIHistoryProjectRequest {
-                id: project.id.clone(),
-                name: project.name.clone(),
-                path: project.path.clone(),
-            })
-            .collect::<Vec<_>>();
+        let projects = ai_history_project_requests(&self.state.projects);
 
         let mut errors = Vec::new();
         match self
@@ -5198,6 +5197,7 @@ impl CoduxApp {
             cx.notify();
             return;
         };
+        let project_request = ai_history_project_request(project);
         let Some(session) = self.selected_ai_session().cloned() else {
             self.status_message = "no AI session to remove".to_string();
             cx.notify();
@@ -5205,10 +5205,13 @@ impl CoduxApp {
         };
         match self
             .runtime_service
-            .remove_ai_session(&project.path, &session.id)
+            .remove_indexed_ai_session(project_request, session.id.clone())
         {
-            Ok(history) => {
-                self.state.ai_history = history;
+            Ok(state) => {
+                if let Some(snapshot) = state.snapshot {
+                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                }
+                self.refresh_ai_global_history_summary();
                 self.selected_ai_session_id = None;
                 self.normalize_selected_ai_session();
                 self.reload_selected_ai_session_detail();
@@ -5236,17 +5239,22 @@ impl CoduxApp {
             cx.notify();
             return;
         };
+        let project_request = ai_history_project_request(project);
         let Some(session) = self.selected_ai_session().cloned() else {
             self.status_message = "no AI session to rename".to_string();
             cx.notify();
             return;
         };
-        match self
-            .runtime_service
-            .rename_ai_session(&project.path, &session.id, &title)
-        {
-            Ok(history) => {
-                self.state.ai_history = history;
+        match self.runtime_service.rename_indexed_ai_session(
+            project_request,
+            session.id.clone(),
+            title.clone(),
+        ) {
+            Ok(state) => {
+                if let Some(snapshot) = state.snapshot {
+                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                }
+                self.refresh_ai_global_history_summary();
                 self.selected_ai_session_id = Some(session.id);
                 self.reload_selected_ai_session_detail();
                 self.status_message = format!("AI session renamed: {title}");
@@ -5254,6 +5262,23 @@ impl CoduxApp {
             Err(error) => self.status_message = format!("failed to rename AI session: {error}"),
         }
         cx.notify();
+    }
+
+    fn refresh_ai_global_history_summary(&mut self) {
+        let projects = ai_history_project_requests(&self.state.projects);
+        match self
+            .runtime_service
+            .indexed_global_ai_history_summary(projects)
+        {
+            Ok(snapshot) => {
+                self.state.ai_global_history =
+                    normalized_global_ai_history_snapshot_to_summary(snapshot);
+            }
+            Err(error) => {
+                self.state.ai_global_history = self.runtime_service.reload_global_ai_history();
+                self.state.ai_global_history.error = Some(error);
+            }
+        }
     }
 
     fn restore_selected_ai_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
