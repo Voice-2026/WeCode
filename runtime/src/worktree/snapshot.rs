@@ -43,8 +43,7 @@ pub(super) fn project_worktree_snapshot(
     is_default: bool,
     now: i64,
 ) -> ProjectWorktreeSnapshot {
-    let status_snapshot = GitService::status(&path);
-    let (additions, deletions) = worktree_line_stats(&path);
+    let git_summary = project_worktree_git_summary(&path);
     ProjectWorktreeSnapshot {
         id,
         project_id,
@@ -55,12 +54,18 @@ pub(super) fn project_worktree_snapshot(
         is_default,
         created_at: now,
         updated_at: now,
-        git_summary: ProjectWorktreeGitSummary {
-            changes: status_snapshot.staged + status_snapshot.unstaged + status_snapshot.untracked,
-            incoming: status_snapshot.behind,
-            outgoing: status_snapshot.ahead,
-            additions,
-            deletions,
-        },
+        git_summary,
+    }
+}
+
+pub(super) fn project_worktree_git_summary(path: &str) -> ProjectWorktreeGitSummary {
+    let status_snapshot = GitService::status(path);
+    let (additions, deletions) = worktree_line_stats(path);
+    ProjectWorktreeGitSummary {
+        changes: status_snapshot.staged + status_snapshot.unstaged + status_snapshot.untracked,
+        incoming: status_snapshot.behind,
+        outgoing: status_snapshot.ahead,
+        additions,
+        deletions,
     }
 }

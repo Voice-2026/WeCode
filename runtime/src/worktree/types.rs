@@ -22,6 +22,7 @@ pub struct WorktreeInfo {
     pub status: String,
     pub is_default: bool,
     pub exists: bool,
+    pub git_summary: ProjectWorktreeGitSummary,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -58,7 +59,7 @@ pub struct ProjectWorktreeSnapshot {
     pub git_summary: ProjectWorktreeGitSummary,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectWorktreeGitSummary {
     pub changes: usize,

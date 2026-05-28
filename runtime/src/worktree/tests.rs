@@ -52,6 +52,42 @@ fn reads_and_selects_project_worktree_without_losing_unknown_fields() {
 }
 
 #[test]
+fn summary_includes_per_worktree_git_stats() {
+    let support_dir = temp_dir("worktree-summary-git");
+    let repo = temp_dir("worktree-summary-git-repo");
+    fs::create_dir_all(&support_dir).unwrap();
+    create_repo_with_commit(&repo);
+    fs::write(repo.join("README.md"), "hello\nworld\n").unwrap();
+    fs::write(
+        support_dir.join("state.json"),
+        serde_json::to_string_pretty(&json!({
+            "worktrees": [
+                {"id": "w1", "projectId": "p1", "name": "main", "branch": "main", "path": repo, "status": "todo", "isDefault": true}
+            ],
+            "worktreeTasks": [
+                {"worktreeId": "w1", "title": "Main task", "baseBranch": "main", "status": "todo"}
+            ],
+            "selectedWorktreeIdByProject": {"p1": "w1"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let summary = WorktreeService::new(support_dir.clone()).summary(
+        Some("p1"),
+        Some(repo.to_str().expect("repo path")),
+    );
+
+    assert_eq!(summary.worktrees.len(), 1);
+    assert_eq!(summary.worktrees[0].git_summary.changes, 1);
+    assert_eq!(summary.worktrees[0].git_summary.additions, 1);
+    assert_eq!(summary.worktrees[0].git_summary.deletions, 0);
+
+    fs::remove_dir_all(support_dir).ok();
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
 fn merge_snapshot_replaces_project_worktrees_and_preserves_existing_task_metadata() {
     let mut raw = serde_json::from_value::<Value>(json!({
         "worktrees": [

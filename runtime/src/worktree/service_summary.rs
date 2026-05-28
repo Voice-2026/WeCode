@@ -32,6 +32,7 @@ impl WorktreeService {
             .filter(|worktree| worktree.project_id == project_id)
             .map(|worktree| WorktreeInfo {
                 exists: Path::new(&worktree.path).exists(),
+                git_summary: project_worktree_git_summary(&worktree.path),
                 id: worktree.id,
                 project_id: worktree.project_id,
                 name: worktree.name,
@@ -45,6 +46,7 @@ impl WorktreeService {
         if worktrees.is_empty() {
             if let Some(project_path) = project_path {
                 worktrees.push(WorktreeInfo {
+                    git_summary: project_worktree_git_summary(project_path),
                     id: project_id.to_string(),
                     project_id: project_id.to_string(),
                     name: "main".to_string(),

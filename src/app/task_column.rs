@@ -74,14 +74,17 @@ impl CoduxApp {
                     let active = selected_worktree_id
                         .map(|id| id == task.worktree_id)
                         .unwrap_or(false);
-                    task_row(
-                        task.clone(),
-                        active,
-                        self.state.worktrees.active_git.changed_files.len(),
-                        &self.state.worktrees.active_git,
-                        cx,
-                    )
-                    .into_any_element()
+                    let git_summary = self
+                        .state
+                        .worktrees
+                        .worktrees
+                        .iter()
+                        .find(|worktree| worktree.id == task.worktree_id)
+                        .map(|worktree| worktree.git_summary.clone())
+                        .unwrap_or_else(|| {
+                            worktree_git_summary_from_git(&self.state.worktrees.active_git)
+                        });
+                    task_row(task.clone(), active, git_summary, cx).into_any_element()
                 }))
                 .children(
                     self.state
@@ -98,14 +101,7 @@ impl CoduxApp {
                                 .as_ref()
                                 .map(|id| id == &worktree.id)
                                 .unwrap_or(false);
-                            worktree_compact_row(
-                                worktree,
-                                active,
-                                self.state.worktrees.active_git.changed_files.len(),
-                                &self.state.worktrees.active_git,
-                                cx,
-                            )
-                            .into_any_element()
+                            worktree_compact_row(worktree, active, cx).into_any_element()
                         }),
                 ),
         )
@@ -175,8 +171,7 @@ fn session_section_heading(
 fn task_row(
     task: WorktreeTaskInfo,
     active: bool,
-    changed_files: usize,
-    git: &GitSummary,
+    git: ProjectWorktreeGitSummary,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let worktree_id = task.worktree_id.clone();
@@ -239,7 +234,7 @@ fn task_row(
                                 .line_height(px(16.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
-                                .child(format!("{} 个变更", changed_files)),
+                                .child(format!("{} 个变更", git.changes)),
                         )
                         .child(
                             div()
@@ -252,12 +247,12 @@ fn task_row(
                                 .child(
                                     div()
                                         .text_color(color(0x3EE66B))
-                                        .child(format!("+{}", git.ahead.max(0))),
+                                        .child(format!("+{}", git.additions.max(0))),
                                 )
                                 .child(
                                     div()
                                         .text_color(color(0xFF5C68))
-                                        .child(format!("-{}", git.behind.max(0))),
+                                        .child(format!("-{}", git.deletions.max(0))),
                                 ),
                         ),
                 ),
@@ -267,11 +262,10 @@ fn task_row(
 fn worktree_compact_row(
     worktree: WorktreeInfo,
     active: bool,
-    changed_files: usize,
-    git: &GitSummary,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let worktree_id = worktree.id.clone();
+    let git = worktree.git_summary.clone();
     div()
         .id(SharedString::from(format!(
             "compact-worktree-{}",
@@ -329,7 +323,7 @@ fn worktree_compact_row(
                                 .line_height(px(16.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
-                                .child(format!("{} 个变更", changed_files)),
+                                .child(format!("{} 个变更", git.changes)),
                         )
                         .child(
                             div()
@@ -342,16 +336,26 @@ fn worktree_compact_row(
                                 .child(
                                     div()
                                         .text_color(color(0x3EE66B))
-                                        .child(format!("+{}", git.ahead.max(0))),
+                                        .child(format!("+{}", git.additions.max(0))),
                                 )
                                 .child(
                                     div()
                                         .text_color(color(0xFF5C68))
-                                        .child(format!("-{}", git.behind.max(0))),
+                                        .child(format!("-{}", git.deletions.max(0))),
                                 ),
                         ),
                 ),
         )
+}
+
+fn worktree_git_summary_from_git(git: &GitSummary) -> ProjectWorktreeGitSummary {
+    ProjectWorktreeGitSummary {
+        changes: git.staged + git.unstaged + git.untracked,
+        incoming: git.behind,
+        outgoing: git.ahead,
+        additions: 0,
+        deletions: 0,
+    }
 }
 
 fn ai_session_compact_row(

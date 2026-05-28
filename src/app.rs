@@ -44,7 +44,7 @@ use codux_runtime::{
     terminal_pty::TerminalManager,
     terminal_runtime::{TerminalInputSummary, TerminalRuntimeService, TerminalRuntimeSessionInput},
     tool_permissions::ToolPermissionsSummary,
-    worktree::{WorktreeInfo, WorktreeTaskInfo},
+    worktree::{ProjectWorktreeGitSummary, WorktreeInfo, WorktreeTaskInfo},
 };
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement,

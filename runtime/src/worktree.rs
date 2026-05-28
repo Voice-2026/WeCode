@@ -12,7 +12,10 @@ use crate::git::GitService;
 use git_ops::*;
 use scan::{ScannedWorktreeSnapshot, scan_git_worktrees};
 use serde_json::{Map, Value};
-use snapshot::{project_worktree_snapshot, scanned_task_to_snapshot, scanned_worktree_to_snapshot};
+use snapshot::{
+    project_worktree_git_summary, project_worktree_snapshot, scanned_task_to_snapshot,
+    scanned_worktree_to_snapshot,
+};
 use state::{
     StateFile, enrich_scanned_snapshot_from_state, merge_worktree_snapshot, raw_snapshot,
     save_raw_snapshot, selected_worktree_id_from_state,
