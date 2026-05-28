@@ -20,7 +20,12 @@ use crate::{
     },
     power::PowerManager,
     project_activity::ProjectActivitySnapshot,
-    project_store::{ProjectListSnapshot, ProjectSummary},
+    project_open::{ProjectOpenApplicationRequest, ProjectOpenApplicationSummary},
+    project_store::{
+        ProjectCloseRequest, ProjectCreateRequest, ProjectDefaultPushRemoteRequest,
+        ProjectListSnapshot, ProjectReorderRequest, ProjectSelectWorktreeRequest, ProjectSummary,
+        ProjectUpdateRequest,
+    },
     remote::RemoteSummary,
     runtime_state::RuntimeService,
     settings::{AIProviderSettings, AppSettings, AppSettingsStore, sync_process_locale_preference},
@@ -123,6 +128,147 @@ pub fn project_select(
 ) -> Result<ProjectListSnapshot, String> {
     service.select_project(&project_id)?;
     Ok(service.project_list())
+}
+
+pub fn project_list(service: &RuntimeService) -> ProjectListSnapshot {
+    service.project_list()
+}
+
+pub fn project_create(
+    service: &RuntimeService,
+    request: ProjectCreateRequest,
+) -> Result<ProjectListSnapshot, String> {
+    service.project_create(request)
+}
+
+pub fn project_update(
+    service: &RuntimeService,
+    request: ProjectUpdateRequest,
+) -> Result<ProjectListSnapshot, String> {
+    service.project_update(request)
+}
+
+pub fn project_reorder(
+    service: &RuntimeService,
+    request: ProjectReorderRequest,
+) -> Result<ProjectListSnapshot, String> {
+    service.project_reorder(request)
+}
+
+pub fn project_close(
+    service: &RuntimeService,
+    request: ProjectCloseRequest,
+) -> Result<ProjectListSnapshot, String> {
+    service.project_close(request)
+}
+
+pub fn project_close_all(service: &RuntimeService) -> Result<ProjectListSnapshot, String> {
+    service.project_close_all()
+}
+
+pub fn project_select_worktree(
+    service: &RuntimeService,
+    request: ProjectSelectWorktreeRequest,
+) -> Result<(), String> {
+    service.project_select_worktree(request)
+}
+
+pub fn project_set_default_push_remote(
+    service: &RuntimeService,
+    request: ProjectDefaultPushRemoteRequest,
+) -> Result<ProjectListSnapshot, String> {
+    service.project_set_default_push_remote(request)
+}
+
+pub fn project_open_applications(
+    service: &RuntimeService,
+) -> Vec<ProjectOpenApplicationSummary> {
+    service.project_open_applications()
+}
+
+pub fn project_open_in_application(
+    service: &RuntimeService,
+    request: ProjectOpenApplicationRequest,
+) -> Result<(), String> {
+    service.project_open_in_application(request.project_path, request.application_id)
+}
+
+pub fn project_reveal_in_file_manager(
+    service: &RuntimeService,
+    project_path: String,
+) -> Result<(), String> {
+    service.project_reveal_in_file_manager(&project_path)
+}
+
+pub fn file_watch(
+    service: &RuntimeService,
+    project_path: String,
+) -> Result<crate::files::FileWatchRegistration, String> {
+    service.file_watch(project_path)
+}
+
+pub fn file_unwatch(service: &RuntimeService, project_path: String) -> Result<(), String> {
+    service.file_unwatch(project_path)
+}
+
+pub fn file_list_children(
+    request: crate::files::FileChildrenRequest,
+) -> Result<Vec<crate::files::FileEntry>, String> {
+    crate::files::file_list_children(request)
+}
+
+pub fn file_read(
+    request: crate::files::FilePathRequest,
+) -> Result<crate::files::FileReadResult, String> {
+    crate::files::file_read(request)
+}
+
+pub fn file_write(
+    request: crate::files::FileWriteRequest,
+) -> Result<crate::files::FileReadResult, String> {
+    crate::files::file_write(request)
+}
+
+pub fn file_create_file(
+    request: crate::files::FileCreateRequest,
+) -> Result<crate::files::FileEntry, String> {
+    crate::files::file_create_file(request)
+}
+
+pub fn file_create_dir(
+    request: crate::files::FileCreateRequest,
+) -> Result<crate::files::FileEntry, String> {
+    crate::files::file_create_dir(request)
+}
+
+pub fn file_rename(
+    request: crate::files::FileRenameRequest,
+) -> Result<crate::files::FileEntry, String> {
+    crate::files::file_rename(request)
+}
+
+pub fn file_delete(request: crate::files::FilePathRequest) -> Result<(), String> {
+    crate::files::file_delete(request)
+}
+
+pub fn file_copy(
+    request: crate::files::FileCopyRequest,
+) -> Result<crate::files::FileEntry, String> {
+    crate::files::file_copy(request)
+}
+
+pub fn file_import_external(
+    request: crate::files::FileExternalCopyRequest,
+) -> Result<Vec<crate::files::FileEntry>, String> {
+    crate::files::file_import_external(request)
+}
+
+pub fn file_reveal(request: crate::files::FilePathRequest) -> Result<(), String> {
+    crate::files::file_reveal(request)
+}
+
+pub fn file_open(request: crate::files::FilePathRequest) -> Result<(), String> {
+    crate::files::file_open(request)
 }
 
 pub fn ssh_profile_upsert(
@@ -567,6 +713,211 @@ mod tests {
                 .iter()
                 .any(|project| project.id == "project-b")
         );
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn project_management_commands_match_tauri_facade_shape() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-project-management-{}",
+            Uuid::new_v4()
+        ));
+        let first = support_dir.join("first");
+        let second = support_dir.join("second");
+        std::fs::create_dir_all(&first).expect("first project dir");
+        std::fs::create_dir_all(&second).expect("second project dir");
+        let service = RuntimeService::new(support_dir.clone());
+
+        let created = project_create(
+            &service,
+            ProjectCreateRequest {
+                name: "First".to_string(),
+                path: first.display().to_string(),
+                badge_text: None,
+                badge_symbol: Some("folder".to_string()),
+                badge_color_hex: Some("#2F80ED".to_string()),
+            },
+        )
+        .expect("create project");
+        assert_eq!(created.projects.len(), 1);
+        let first_id = created.projects[0].id.clone();
+
+        let created = project_create(
+            &service,
+            ProjectCreateRequest {
+                name: "Second".to_string(),
+                path: second.display().to_string(),
+                badge_text: None,
+                badge_symbol: None,
+                badge_color_hex: None,
+            },
+        )
+        .expect("create second project");
+        assert_eq!(created.projects.len(), 2);
+        let second_id = created.projects[1].id.clone();
+
+        let listed = project_list(&service);
+        assert_eq!(listed.projects.len(), 2);
+
+        let updated = project_update(
+            &service,
+            ProjectUpdateRequest {
+                project_id: first_id.clone(),
+                name: "First Renamed".to_string(),
+                path: first.display().to_string(),
+                badge_text: None,
+                badge_symbol: Some("book".to_string()),
+                badge_color_hex: Some("#78D891".to_string()),
+            },
+        )
+        .expect("update project");
+        assert!(
+            updated
+                .projects
+                .iter()
+                .any(|project| project.id == first_id && project.name == "First Renamed")
+        );
+
+        let reordered = project_reorder(
+            &service,
+            ProjectReorderRequest {
+                project_ids: vec![second_id.clone(), first_id.clone()],
+            },
+        )
+        .expect("reorder projects");
+        assert_eq!(reordered.projects[0].id, second_id);
+
+        let remotes = project_set_default_push_remote(
+            &service,
+            ProjectDefaultPushRemoteRequest {
+                project_id: first_id.clone(),
+                remote_name: Some("origin/main".to_string()),
+            },
+        )
+        .expect("set default remote");
+        assert_eq!(
+            remotes
+                .projects
+                .iter()
+                .find(|project| project.id == first_id)
+                .and_then(|project| project.git_default_push_remote_name.as_deref()),
+            Some("origin/main")
+        );
+
+        let applications = project_open_applications(&service);
+        assert!(applications.iter().any(|app| app.id == "vscode"));
+
+        let closed = project_close(
+            &service,
+            ProjectCloseRequest {
+                project_id: first_id.clone(),
+            },
+        )
+        .expect("close project");
+        assert!(!closed.projects.iter().any(|project| project.id == first_id));
+
+        let closed_all = project_close_all(&service).expect("close all projects");
+        assert!(closed_all.projects.is_empty());
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn file_commands_delegate_to_runtime_files_layer() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-files-{}",
+            Uuid::new_v4()
+        ));
+        let project_dir = support_dir.join("project");
+        let external_dir = support_dir.join("external");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        std::fs::create_dir_all(&external_dir).expect("external dir");
+        let service = RuntimeService::new(support_dir.clone());
+
+        let registration =
+            file_watch(&service, project_dir.display().to_string()).expect("watch project");
+        assert_eq!(
+            std::path::PathBuf::from(&registration.project_path)
+                .canonicalize()
+                .expect("canonical registration path"),
+            project_dir.canonicalize().expect("canonical project path")
+        );
+
+        let dir = file_create_dir(crate::files::FileCreateRequest {
+            root_path: project_dir.display().to_string(),
+            parent_path: None,
+            name: "src".to_string(),
+        })
+        .expect("create dir");
+        assert_eq!(dir.relative_path, "src");
+
+        let file = file_create_file(crate::files::FileCreateRequest {
+            root_path: project_dir.display().to_string(),
+            parent_path: Some("src".to_string()),
+            name: "main.rs".to_string(),
+        })
+        .expect("create file");
+        assert_eq!(file.relative_path, "src/main.rs");
+
+        let written = file_write(crate::files::FileWriteRequest {
+            root_path: project_dir.display().to_string(),
+            path: "src/main.rs".to_string(),
+            content: "fn main() {}\n".to_string(),
+        })
+        .expect("write file");
+        assert_eq!(written.content, "fn main() {}\n");
+
+        let read = file_read(crate::files::FilePathRequest {
+            root_path: project_dir.display().to_string(),
+            path: "src/main.rs".to_string(),
+        })
+        .expect("read file");
+        assert_eq!(read.name, "main.rs");
+
+        let copied = file_copy(crate::files::FileCopyRequest {
+            root_path: project_dir.display().to_string(),
+            source_path: "src/main.rs".to_string(),
+            target_directory_path: None,
+        })
+        .expect("copy file");
+        assert!(copied.relative_path.starts_with("src/main copy "));
+        assert!(project_dir.join(&copied.relative_path).exists());
+
+        let renamed = file_rename(crate::files::FileRenameRequest {
+            root_path: project_dir.display().to_string(),
+            path: "src/main.rs".to_string(),
+            new_name: "lib.rs".to_string(),
+        })
+        .expect("rename file");
+        assert_eq!(renamed.relative_path, "src/lib.rs");
+
+        let external_file = external_dir.join("note.txt");
+        std::fs::write(&external_file, "note").expect("write external file");
+        let imported = file_import_external(crate::files::FileExternalCopyRequest {
+            root_path: project_dir.display().to_string(),
+            source_paths: vec![external_file.display().to_string()],
+            target_directory_path: Some("src".to_string()),
+        })
+        .expect("import external file");
+        assert_eq!(imported[0].relative_path, "src/note.txt");
+
+        let children = file_list_children(crate::files::FileChildrenRequest {
+            root_path: project_dir.display().to_string(),
+            directory_path: Some("src".to_string()),
+        })
+        .expect("list children");
+        assert!(children.iter().any(|entry| entry.name == "lib.rs"));
+        assert!(children.iter().any(|entry| entry.name == "note.txt"));
+
+        file_delete(crate::files::FilePathRequest {
+            root_path: project_dir.display().to_string(),
+            path: "src/lib.rs".to_string(),
+        })
+        .expect("delete file");
+        assert!(!project_dir.join("src/lib.rs").exists());
+
+        file_unwatch(&service, project_dir.display().to_string()).expect("unwatch project");
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
