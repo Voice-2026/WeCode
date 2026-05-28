@@ -77,6 +77,8 @@ impl CoduxApp {
                         .child(workspace_pet_button(
                             &self.state.pet,
                             &self.pet_custom_pets,
+                            &self.runtime.source_root,
+                            &self.state.support_dir,
                             &self.pet_install_url,
                             &self.pet_install_display_name,
                             self.pet_install_preview.as_ref(),
@@ -586,6 +588,8 @@ fn workspace_level_button(pet: &PetSummary, cx: &mut Context<CoduxApp>) -> impl 
 fn workspace_pet_button(
     pet: &PetSummary,
     custom_pets: &[PetCustomPet],
+    runtime_asset_root: &std::path::Path,
+    support_dir: &std::path::Path,
     install_url: &str,
     install_display_name: &str,
     install_preview: Option<&PetCustomPetInstallPreview>,
@@ -597,6 +601,8 @@ fn workspace_pet_button(
     let app_entity = cx.entity();
     let pet = pet.clone();
     let custom_pets = custom_pets.to_vec();
+    let pet_sprite_path = pet_sprite_path(runtime_asset_root, support_dir, &pet, &custom_pets);
+    let support_dir = support_dir.to_path_buf();
     let label = if pet.claimed && !pet.display_name.is_empty() {
         pet.display_name.clone()
     } else {
@@ -614,6 +620,8 @@ fn workspace_pet_button(
     let content = workspace_pet_popover_content(
         pet.clone(),
         custom_pets,
+        pet_sprite_path,
+        support_dir,
         app_entity.clone(),
         install_url,
         install_display_name,
@@ -852,6 +860,8 @@ fn workspace_level_popover_content(
 fn workspace_pet_popover_content(
     pet: PetSummary,
     custom_pets: Vec<PetCustomPet>,
+    pet_sprite_path: std::path::PathBuf,
+    support_dir: std::path::PathBuf,
     app_entity: gpui::Entity<CoduxApp>,
     install_url: &str,
     install_display_name: &str,
@@ -876,6 +886,7 @@ fn workspace_pet_popover_content(
     } else {
         "未领取"
     };
+    let sprite_fallback_color = cx.theme().primary;
     let rename_form = workspace_pet_rename_form(&pet, window, cx);
     let install_form = workspace_pet_install_form(
         install_url,
@@ -899,14 +910,18 @@ fn workspace_pet_popover_content(
                 .gap_3()
                 .child(
                     div()
-                        .size(px(34.0))
+                        .size(px(40.0))
                         .rounded(px(8.0))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .bg(color(0x7C4DFF).opacity(0.22))
-                        .text_color(color(0xC7B6FF))
-                        .child(Icon::new(IconName::Heart).size_4()),
+                        .overflow_hidden()
+                        .bg(color(0xFFFFFF).opacity(0.055))
+                        .child(pet_sprite_element(
+                            pet_sprite_path,
+                            40.0,
+                            sprite_fallback_color,
+                        )),
                 )
                 .child(
                     div()
@@ -962,7 +977,12 @@ fn workspace_pet_popover_content(
         )
         .when(pet.claimed, |this| this.child(rename_form))
         .when(!custom_pets.is_empty(), |this| {
-            this.child(workspace_custom_pet_list(custom_pets, app_entity.clone()))
+            this.child(workspace_custom_pet_list(
+                custom_pets,
+                support_dir,
+                sprite_fallback_color,
+                app_entity.clone(),
+            ))
         })
         .child(install_form)
         .child(workspace_pet_popover_actions(
@@ -978,6 +998,8 @@ fn workspace_pet_popover_content(
 
 fn workspace_custom_pet_list(
     custom_pets: Vec<PetCustomPet>,
+    support_dir: std::path::PathBuf,
+    sprite_fallback_color: gpui::Hsla,
     app_entity: gpui::Entity<CoduxApp>,
 ) -> impl IntoElement {
     div()
@@ -1012,20 +1034,31 @@ fn workspace_custom_pet_list(
                 ),
         )
         .child(
-            div().flex().flex_col().gap_1().children(
-                custom_pets.into_iter().map(|pet| {
-                    workspace_custom_pet_row(pet, app_entity.clone()).into_any_element()
-                }),
-            ),
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .children(custom_pets.into_iter().map(|pet| {
+                    workspace_custom_pet_row(
+                        pet,
+                        support_dir.clone(),
+                        sprite_fallback_color,
+                        app_entity.clone(),
+                    )
+                    .into_any_element()
+                })),
         )
 }
 
 fn workspace_custom_pet_row(
     pet: PetCustomPet,
+    support_dir: std::path::PathBuf,
+    sprite_fallback_color: gpui::Hsla,
     app_entity: gpui::Entity<CoduxApp>,
 ) -> impl IntoElement {
     let pet_id = pet.id.clone();
     let claim_pet = pet.clone();
+    let sprite_path = custom_pet_sprite_path(&support_dir, &pet);
     div()
         .flex()
         .items_center()
@@ -1042,9 +1075,9 @@ fn workspace_custom_pet_row(
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(color(theme::ACCENT).opacity(0.18))
-                .text_color(color(theme::ACCENT))
-                .child(Icon::new(IconName::Heart).size_3p5()),
+                .overflow_hidden()
+                .bg(color(0xFFFFFF).opacity(0.055))
+                .child(pet_sprite_element(sprite_path, 24.0, sprite_fallback_color)),
         )
         .child(
             div()

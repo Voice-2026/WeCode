@@ -693,6 +693,13 @@ fn pet_sprite_path(
     if path.is_file() { path } else { fallback }
 }
 
+fn custom_pet_sprite_path(support_dir: &Path, custom_pet: &PetCustomPet) -> PathBuf {
+    support_dir
+        .join("custom-pets")
+        .join(&custom_pet.directory_name)
+        .join(&custom_pet.spritesheet_path)
+}
+
 impl CoduxApp {
     pub fn new(window: &mut Window, cx: &mut App) -> Result<Self> {
         let mut state = RuntimeState::load();
@@ -8208,29 +8215,36 @@ impl CoduxApp {
     }
 }
 
-fn desktop_pet_sprite(sprite_path: PathBuf, cx: &mut Context<CoduxApp>) -> impl IntoElement {
-    let size = DESKTOP_PET_SPRITE_SIZE;
-    let visible_width = pet_sprite_visible_width(size);
-    let fallback_color = cx.theme().primary;
+fn desktop_pet_sprite(sprite_path: PathBuf, cx: &mut Context<CoduxApp>) -> AnyElement {
+    pet_sprite_element(sprite_path, DESKTOP_PET_SPRITE_SIZE, cx.theme().primary)
+}
 
-    div().size(px(size)).overflow_hidden().flex_none().child(
-        img(sprite_path)
-            .w(px(PET_ATLAS_COLUMNS * visible_width))
-            .h(px(PET_ATLAS_ROWS * size))
-            .object_fit(ObjectFit::Fill)
-            .with_fallback(move || {
-                div()
-                    .size(px(size))
-                    .rounded_full()
-                    .bg(fallback_color.opacity(0.18))
-                    .text_color(fallback_color)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(Icon::new(IconName::Heart).size_6())
-                    .into_any_element()
-            }),
-    )
+fn pet_sprite_element(sprite_path: PathBuf, size: f32, fallback_color: gpui::Hsla) -> AnyElement {
+    let visible_width = pet_sprite_visible_width(size);
+
+    div()
+        .size(px(size))
+        .overflow_hidden()
+        .flex_none()
+        .child(
+            img(sprite_path)
+                .w(px(PET_ATLAS_COLUMNS * visible_width))
+                .h(px(PET_ATLAS_ROWS * size))
+                .object_fit(ObjectFit::Fill)
+                .with_fallback(move || {
+                    div()
+                        .size(px(size))
+                        .rounded_full()
+                        .bg(fallback_color.opacity(0.18))
+                        .text_color(fallback_color)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(Icon::new(IconName::Heart).size_6())
+                        .into_any_element()
+                }),
+        )
+        .into_any_element()
 }
 
 impl Render for CoduxApp {
