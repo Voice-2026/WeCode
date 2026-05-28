@@ -7,7 +7,7 @@ use std::{
 pub struct RuntimeInventory {
     pub source_root: PathBuf,
     pub root: PathBuf,
-    pub tauri_runtime_src: PathBuf,
+    pub runtime_src: PathBuf,
     pub locale_files: usize,
     pub wrapper_bins: usize,
     pub shell_hooks: usize,
@@ -21,7 +21,7 @@ impl RuntimeInventory {
     pub fn load() -> Self {
         let source_root = runtime_assets_path();
         let root = staged_runtime_root_path();
-        let tauri_runtime_src = tauri_runtime_src_path();
+        let runtime_src = runtime_src_path();
         let stage_error = stage_runtime_assets(&source_root, &root).err();
         let available = root.is_dir() && stage_error.is_none();
         Self {
@@ -31,8 +31,8 @@ impl RuntimeInventory {
             staged_files: count_files_recursive(&root),
             source_root,
             root,
-            tauri_runtime_src: tauri_runtime_src.clone(),
-            staged_rust_modules: count_files(tauri_runtime_src),
+            runtime_src: runtime_src.clone(),
+            staged_rust_modules: count_files_recursive(&runtime_src),
             available,
             stage_error,
         }
@@ -65,10 +65,11 @@ pub fn staged_runtime_root_path() -> PathBuf {
         .join("runtime-root")
 }
 
-pub fn tauri_runtime_src_path() -> PathBuf {
+pub fn runtime_src_path() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
-        .join("tauri-runtime-src")
+        .join("runtime")
+        .join("src")
 }
 
 fn stage_runtime_assets(source_root: &Path, staged_root: &Path) -> Result<(), String> {

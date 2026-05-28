@@ -14,8 +14,8 @@ goal is to move the Codux desktop UI and Rust runtime into a native GPUI app.
 - Terminal core: `alacritty_terminal`
 - PTY: `portable-pty`
 - Runtime assets: copied from `codux-tauri/src-tauri/runtime-assets`
-- Staged Rust runtime source: copied from `codux-tauri/src-tauri/src` into
-  `tauri-runtime-src`
+- Runtime crate: Tauri Rust logic split into the compiled `runtime` crate
+- Reference Tauri source snapshot: `tauri-runtime-src`
 
 ## Run
 
@@ -241,11 +241,10 @@ the main terminal pane.
 - At startup GPUI now stages `runtime-assets` into the shared
   `codux-dev/runtime-root` runtime directory, preserving nested wrapper and
   shell-hook files before terminal launches use that staged root.
-- `tauri-runtime-src` contains the current Tauri Rust runtime source as the
-  migration source set.
-- The Tauri Rust runtime modules are not yet compiled directly in this project.
-  They still need to be split from Tauri command/event/AppHandle boundaries into
-  GPUI-callable services.
+- `runtime` contains the migrated Rust backend crate. Tauri command/event/AppHandle
+  boundaries are being replaced with GPUI-callable service APIs there.
+- `tauri-runtime-src` is kept as the reference snapshot for parity checks while
+  the migration finishes; it is not the runtime source used by the GPUI app.
 
 ## Next Runtime Work
 
