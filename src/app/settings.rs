@@ -1,7 +1,6 @@
 use super::{CoduxApp, empty_label};
 use crate::theme::{self, color};
 use codux_runtime::{
-    app_info::AppAboutMetadata,
     memory::MemorySummary,
     notification::NotificationSummary,
     remote::RemoteSummary,
@@ -23,7 +22,6 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectItem, SelectState},
     switch::Switch,
 };
-use std::collections::BTreeSet;
 
 #[derive(Clone)]
 struct SettingsSelectOption {
@@ -278,10 +276,7 @@ fn settings_pane_body(
 ) -> AnyElement {
     match pane {
         SettingsPane::General => {
-            let about = app
-                .runtime_service
-                .about_metadata(env!("CARGO_PKG_VERSION"), "com.duxweb.dmux.gpui");
-            settings_general_pane(&app.state.settings, &app.state.update, &about, window, cx)
+            settings_general_pane(&app.state.settings, &app.state.update, window, cx)
         }
         SettingsPane::Appearance => settings_appearance_pane(&app.state.settings, window, cx),
         SettingsPane::Pet => settings_pet_pane(&app.state.settings, window, cx),
@@ -568,17 +563,6 @@ fn settings_select(
     settings_select_impl(id, value, options, false, window, cx, action)
 }
 
-fn settings_searchable_select(
-    id: &'static str,
-    value: &str,
-    options: Vec<(String, SharedString)>,
-    window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
-) -> AnyElement {
-    settings_select_impl(id, value, options, true, window, cx, action)
-}
-
 fn settings_select_impl(
     id: &'static str,
     value: &str,
@@ -644,19 +628,6 @@ fn settings_status_tag(value: impl Into<String>, accent: u32) -> AnyElement {
         .text_size(px(12.0))
         .line_height(px(16.0))
         .font_weight(FontWeight::SEMIBOLD)
-        .child(value.into())
-        .into_any_element()
-}
-
-fn settings_static_value(value: impl Into<String>) -> AnyElement {
-    div()
-        .w(relative(0.3))
-        .min_w_0()
-        .text_right()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
-        .text_color(color(theme::TEXT_MUTED))
-        .truncate()
         .child(value.into())
         .into_any_element()
 }
@@ -900,7 +871,6 @@ fn app_icon_preview(style: &'static str, selected: bool) -> AnyElement {
 fn settings_general_pane(
     settings: &SettingsSummary,
     update: &UpdateSummary,
-    about: &AppAboutMetadata,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -1077,96 +1047,6 @@ fn settings_general_pane(
             ],
         )
         .into_any_element(),
-        settings_card(
-            Some("诊断"),
-            Some("导出当前设置、项目、AI 状态、性能和 SSH 摘要，便于排查运行时问题。".to_string()),
-            vec![
-                settings_row(
-                    "运行时日志",
-                    None,
-                    settings_small_button(
-                        "settings-open-runtime-log",
-                        "打开日志",
-                        cx,
-                        |app, _event, window, cx| app.open_runtime_log(window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "实时日志",
-                    None,
-                    settings_small_button(
-                        "settings-open-live-log",
-                        "打开日志",
-                        cx,
-                        |app, _event, window, cx| app.open_live_log(window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "诊断报告",
-                    None,
-                    settings_small_button(
-                        "settings-export-diagnostics",
-                        "导出诊断",
-                        cx,
-                        |app, _event, window, cx| app.export_diagnostics(window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "帮助",
-                    None,
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .child(settings_small_button(
-                            "settings-open-website",
-                            "官网",
-                            cx,
-                            |app, _event, window, cx| {
-                                app.open_external_url("https://codux.dux.cn", window, cx)
-                            },
-                        ))
-                        .child(settings_small_button(
-                            "settings-open-github",
-                            "GitHub",
-                            cx,
-                            |app, _event, window, cx| {
-                                app.open_external_url("https://github.com/duxweb/codux", window, cx)
-                            },
-                        ))
-                        .into_any_element(),
-                )
-                .into_any_element(),
-            ],
-        )
-        .into_any_element(),
-        settings_card(
-            Some("关于"),
-            Some("来自 runtime 的应用元数据，和 Tauri 版关于窗口保持同源。".to_string()),
-            vec![
-                settings_row("版本", None, settings_static_value(about.version.clone()))
-                    .into_any_element(),
-                settings_row(
-                    "构建",
-                    None,
-                    settings_static_value(format!(
-                        "{} · {}/{}",
-                        about.build_profile, about.target_os, about.target_arch
-                    )),
-                )
-                .into_any_element(),
-                settings_row(
-                    "标识符",
-                    None,
-                    settings_static_value(about.identifier.clone()),
-                )
-                .into_any_element(),
-            ],
-        )
-        .into_any_element(),
     ])
     .into_any_element()
 }
@@ -1235,19 +1115,6 @@ fn settings_appearance_pane(
             Some("终端文字"),
             None,
             vec![
-                settings_row(
-                    "终端字体",
-                    None,
-                    settings_searchable_select(
-                        "settings-terminal-font-family",
-                        &settings.terminal_font_family,
-                        terminal_font_options(&settings.terminal_font_family, cx),
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_terminal_font_family(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
                 settings_row(
                     "终端字号",
                     None,
@@ -2770,17 +2637,6 @@ fn settings_developer_pane(
                     ),
                 )
                 .into_any_element(),
-                settings_row(
-                    "Restart Application",
-                    Some("重新启动 GPUI 应用进程。".to_string()),
-                    settings_small_button(
-                        "settings-app-restart",
-                        "重启应用",
-                        cx,
-                        |app, _event, window, cx| app.request_restart(window, cx),
-                    ),
-                )
-                .into_any_element(),
             ],
         )
         .into_any_element(),
@@ -3682,47 +3538,6 @@ fn terminal_scrollback_options() -> Vec<(String, SharedString)> {
             )
         })
         .collect()
-}
-
-fn terminal_font_options(
-    selected_family: &str,
-    cx: &mut Context<CoduxApp>,
-) -> Vec<(String, SharedString)> {
-    let selected_family = selected_family.trim();
-    let mut fonts = BTreeSet::new();
-    for family in [
-        "SF Mono",
-        "Menlo",
-        "Monaco",
-        "Consolas",
-        "Cascadia Mono",
-        "Liberation Mono",
-        "DejaVu Sans Mono",
-        "Noto Sans Mono",
-        "Noto Sans Mono CJK SC",
-        "Noto Sans CJK SC",
-        "PingFang SC",
-        "Hiragino Sans GB",
-        "Microsoft YaHei",
-    ] {
-        fonts.insert(family.to_string());
-    }
-    for family in cx.text_system().all_font_names() {
-        if !family.trim().is_empty() {
-            fonts.insert(family);
-        }
-    }
-    if !selected_family.is_empty() {
-        fonts.insert(selected_family.to_string());
-    }
-
-    let mut options = vec![("".to_string(), SharedString::from("系统默认"))];
-    options.extend(
-        fonts
-            .into_iter()
-            .map(|family| (family.clone(), SharedString::from(family))),
-    );
-    options
 }
 
 fn pet_speech_mode_options() -> Vec<(String, SharedString)> {

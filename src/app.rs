@@ -6,13 +6,12 @@ use anyhow::Result;
 use codux_runtime::{
     ai_history::{AIGlobalHistorySummary, AIHistorySummary, AISessionDetail, AISessionSummary},
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot},
-    app_info::DiagnosticsExportRequest,
     desktop_pet::{
         DESKTOP_PET_BASE_HEIGHT, DESKTOP_PET_BASE_WIDTH, DESKTOP_PET_HIDE, DESKTOP_PET_MUTE_1_HOUR,
         DESKTOP_PET_MUTE_30_MINUTES, DESKTOP_PET_MUTE_TODAY, DESKTOP_PET_SKIP_LINE,
         DESKTOP_PET_SPEAK_LESS, DESKTOP_PET_SPEAK_MORE, DesktopPetSavedOrigin, DesktopPetWorkArea,
     },
-    dialog::{DialogFilter, LocalizedOpenDialogRequest, LocalizedSaveDialogRequest},
+    dialog::LocalizedOpenDialogRequest,
     files::FileChangeEvent,
     git::{
         GitBranchSummary, GitCommitSummary, GitFileStatus, GitRemoteSummary,
@@ -35,7 +34,6 @@ use codux_runtime::{
     runtime_bridge::RuntimeInventory,
     runtime_event::{RuntimeEventSummary, RuntimeSessionSummary},
     runtime_ingress::{RuntimeIngressService, RuntimeIngressStatus},
-    runtime_paths,
     runtime_state::{FileEntry, FileKind, ProjectInfo, RuntimeService, RuntimeState},
     settings::SettingsSummary,
     ssh::{SSHConnectionProfile, SSHProfileSummary, SSHProfileUpsertRequest, SSHSummary},
@@ -336,14 +334,6 @@ fn normalized_git_action_paths(paths: Vec<String>) -> Vec<String> {
         normalized.push(path);
     }
     normalized
-}
-
-fn timestamp_slug() -> String {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    seconds.to_string()
 }
 
 fn file_search_status_message(index: usize, count: usize) -> String {
@@ -1934,28 +1924,6 @@ impl CoduxApp {
                 );
             }
             Err(error) => self.status_message = format!("failed to save font size: {error}"),
-        }
-        cx.notify();
-    }
-
-    fn set_terminal_font_family(
-        &mut self,
-        family: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match self.runtime_service.set_terminal_font_family(&family) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.apply_terminal_text_settings(cx);
-                let label = if self.state.settings.terminal_font_family.trim().is_empty() {
-                    "system default".to_string()
-                } else {
-                    self.state.settings.terminal_font_family.clone()
-                };
-                self.status_message = format!("terminal font saved: {label}");
-            }
-            Err(error) => self.status_message = format!("failed to save font: {error}"),
         }
         cx.notify();
     }
@@ -6532,100 +6500,6 @@ impl CoduxApp {
                 self.status_message = result.message;
             }
             Err(error) => self.status_message = format!("failed to install update: {error}"),
-        }
-        cx.notify();
-    }
-
-    fn request_restart(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.request_restart() {
-            Ok(()) => std::process::exit(0),
-            Err(error) => {
-                self.status_message = format!("failed to restart app: {error}");
-                cx.notify();
-            }
-        }
-    }
-
-    fn open_runtime_log(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.open_runtime_log() {
-            Ok(()) => self.status_message = "runtime log opened".to_string(),
-            Err(error) => self.status_message = format!("failed to open runtime log: {error}"),
-        }
-        cx.notify();
-    }
-
-    fn open_live_log(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.open_live_log() {
-            Ok(()) => self.status_message = "live log opened".to_string(),
-            Err(error) => self.status_message = format!("failed to open live log: {error}"),
-        }
-        cx.notify();
-    }
-
-    fn open_external_url(
-        &mut self,
-        url: &'static str,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match self.runtime_service.open_url(url) {
-            Ok(()) => self.status_message = format!("opened URL: {url}"),
-            Err(error) => self.status_message = format!("failed to open URL: {error}"),
-        }
-        cx.notify();
-    }
-
-    fn export_diagnostics(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let default_path = runtime_paths::runtime_temp_dir()
-            .join(format!("codux-diagnostics-{}.json", timestamp_slug()));
-        let destination =
-            match self
-                .runtime_service
-                .localized_save_dialog(LocalizedSaveDialogRequest {
-                    title: "导出诊断".to_string(),
-                    message: "选择诊断报告保存位置。".to_string(),
-                    prompt: "保存".to_string(),
-                    default_path: Some(default_path.display().to_string()),
-                    filters: vec![DialogFilter {
-                        _name: "JSON".to_string(),
-                        extensions: vec!["json".to_string()],
-                    }],
-                    can_create_directories: Some(true),
-                }) {
-                Ok(Some(path)) => path,
-                Ok(None) => {
-                    self.status_message = "diagnostics export canceled".to_string();
-                    cx.notify();
-                    return;
-                }
-                Err(error) => {
-                    self.status_message =
-                        format!("failed to choose diagnostics destination: {error}");
-                    cx.notify();
-                    return;
-                }
-            };
-        let about = self
-            .runtime_service
-            .about_metadata(env!("CARGO_PKG_VERSION"), "com.duxweb.dmux.gpui");
-        let update = self.runtime_service.update_status(
-            std::env::current_dir().unwrap_or_default(),
-            env!("CARGO_PKG_VERSION"),
-        );
-        match self.runtime_service.export_diagnostics(
-            DiagnosticsExportRequest {
-                destination_path: destination,
-            },
-            about,
-            update,
-        ) {
-            Ok(result) => {
-                self.status_message = format!(
-                    "diagnostics exported: {} bytes · {}",
-                    result.bytes, result.path
-                );
-            }
-            Err(error) => self.status_message = format!("failed to export diagnostics: {error}"),
         }
         cx.notify();
     }
