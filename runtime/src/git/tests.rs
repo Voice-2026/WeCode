@@ -94,6 +94,51 @@ mod tests {
     }
 
     #[test]
+    fn status_collapses_nested_tracked_changes_until_expanded() {
+        let repo = temp_dir("git-tracked-dir");
+        GitService::init(repo.to_str().expect("repo")).expect("init repo");
+        let repository = GitRepository::open(&repo).expect("open repo");
+        let mut config = repository.config().expect("config");
+        config
+            .set_str("user.email", "codux@example.test")
+            .expect("email");
+        config.set_str("user.name", "Codux").expect("name");
+        fs::create_dir_all(repo.join("src/nested")).expect("nested dir");
+        fs::write(repo.join("src/nested/lib.rs"), "old\n").expect("tracked file");
+        GitService::stage_file(repo.to_str().expect("repo"), "src/nested/lib.rs")
+            .expect("stage file");
+        GitService::commit_staged(repo.to_str().expect("repo"), "initial").expect("commit");
+
+        fs::write(repo.join("src/nested/lib.rs"), "new\n").expect("modify tracked");
+
+        let status = GitService::status(repo.to_str().expect("repo"));
+        assert!(
+            status.changed_files.iter().any(|file| file.path == "src/"),
+            "initial status should expose the root directory marker"
+        );
+        assert!(
+            status
+                .changed_files
+                .iter()
+                .all(|file| file.path != "src/nested/lib.rs"),
+            "initial status should not expose nested tracked files"
+        );
+
+        let src = GitService::path_status(repo.to_str().expect("repo"), "src").expect("src");
+        assert!(
+            src.iter().any(|file| file.path == "src/nested/"),
+            "expanding src should expose the next child directory"
+        );
+
+        let nested =
+            GitService::path_status(repo.to_str().expect("repo"), "src/nested").expect("nested");
+        assert!(
+            nested.iter().any(|file| file.path == "src/nested/lib.rs"),
+            "expanding nested should expose the changed file"
+        );
+    }
+
+    #[test]
     fn path_status_keeps_directory_markers_per_status_kind() {
         let files = vec![
             git_file("src/shared/tracked.rs", "M", " "),

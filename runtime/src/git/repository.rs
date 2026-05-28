@@ -20,7 +20,8 @@ fn git_status_from_repo(repo: &GitRepository) -> GitSummary {
     let upstream = upstream_branch_name(repo);
     let (ahead, behind) = ahead_behind(repo).unwrap_or((0, 0));
     let head_pushed = head_commit_pushed_from_repo(repo);
-    let changed_files = flatten_status_files(repo);
+    let raw_changed_files = flatten_status_files(repo);
+    let changed_files = collapse_path_status_files(raw_changed_files.clone(), "");
     let branches = git2_branches(repo, git2::BranchType::Local, &branch);
     let remote_branches = git2_branches(repo, git2::BranchType::Remote, &branch)
         .into_iter()
@@ -30,18 +31,18 @@ fn git_status_from_repo(repo: &GitRepository) -> GitSummary {
     let remotes = git2_remotes(repo);
     let commits = git2_commit_log(repo, 20);
 
-    let staged = changed_files
+    let staged = raw_changed_files
         .iter()
         .filter(|file| {
             let index = file.index_status.trim();
             !index.is_empty() && index != "?"
         })
         .count();
-    let unstaged = changed_files
+    let unstaged = raw_changed_files
         .iter()
         .filter(|file| !is_untracked_status(file) && !file.worktree_status.trim().is_empty())
         .count();
-    let untracked = changed_files
+    let untracked = raw_changed_files
         .iter()
         .filter(|file| is_untracked_status(file))
         .count();
@@ -135,25 +136,23 @@ fn git_review_from_repo(repo: &GitRepository, base_branch: Option<&str>) -> GitR
         };
     }
 
-    let status = git_status_from_repo(repo);
+    let changed_files = flatten_status_files(repo);
     let stats = working_tree_review_stats_git2(repo);
     let mut seen_paths = HashSet::new();
     let mut files = Vec::new();
-    for file in status.changed_files.iter().filter(|file| {
+    for file in changed_files.iter().filter(|file| {
         let index = file.index_status.trim();
         !index.is_empty() && index != "?"
     }) {
         push_review_file_from_status(&mut files, &mut seen_paths, file, "staged", &stats, root);
     }
-    for file in status
-        .changed_files
+    for file in changed_files
         .iter()
         .filter(|file| !is_untracked_status(file) && !file.worktree_status.trim().is_empty())
     {
         push_review_file_from_status(&mut files, &mut seen_paths, file, "modified", &stats, root);
     }
-    for file in status
-        .changed_files
+    for file in changed_files
         .iter()
         .filter(|file| is_untracked_status(file))
     {
