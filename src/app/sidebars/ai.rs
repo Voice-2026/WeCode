@@ -5,6 +5,7 @@ use gpui_component::input::{Input, InputState};
 pub(in crate::app) fn ai_stats_sidebar(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
+    selected_project_id: Option<&str>,
     memory: &MemorySummary,
     memory_manager: &MemoryManagerSnapshot,
     memory_manager_tab: MemoryManagerTab,
@@ -21,6 +22,11 @@ pub(in crate::app) fn ai_stats_sidebar(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let live_project_total_tokens =
+        ai_runtime_live_project_total_tokens(ai_runtime_state, selected_project_id);
+    let project_total_tokens = history.project_total_tokens + live_project_total_tokens;
+    let today_total_tokens = history.today_total_tokens + live_project_total_tokens;
+
     div()
         .flex()
         .min_h_0()
@@ -80,12 +86,12 @@ pub(in crate::app) fn ai_stats_sidebar(
                         .flex()
                         .child(div().flex_1().mr(px(12.0)).child(ai_metric_card(
                             "当前项目",
-                            compact_number(history.project_total_tokens),
+                            compact_number(project_total_tokens),
                             cx,
                         )))
                         .child(div().flex_1().child(ai_metric_card(
                             "今日总量",
-                            compact_number(global.today_total_tokens),
+                            compact_number(today_total_tokens),
                             cx,
                         ))),
                 )
@@ -124,6 +130,21 @@ pub(in crate::app) fn ai_stats_sidebar(
                     cx,
                 )),
         )
+}
+
+fn ai_runtime_live_project_total_tokens(
+    ai_runtime_state: &AIRuntimeStateSummary,
+    selected_project_id: Option<&str>,
+) -> i64 {
+    let Some(selected_project_id) = selected_project_id else {
+        return 0;
+    };
+    ai_runtime_state
+        .project_totals
+        .iter()
+        .find(|project| project.project_id == selected_project_id)
+        .map(|project| project.total_tokens.max(0))
+        .unwrap_or(0)
 }
 
 fn ai_stats_card(title: &'static str, cx: &mut Context<CoduxApp>) -> gpui::Div {

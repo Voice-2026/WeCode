@@ -1,5 +1,5 @@
 use crate::{
-    ai_runtime::{AIRuntimeStateSnapshot, AISessionSnapshot},
+    ai_runtime::{AIProjectTotals, AIRuntimeStateSnapshot, AISessionSnapshot},
     runtime_event::{RuntimeEventSummary, RuntimeSessionSummary},
 };
 use serde::{Deserialize, Serialize};
@@ -21,20 +21,42 @@ pub struct AIRuntimeStateSummary {
     pub needs_input_count: usize,
     pub completed_count: usize,
     pub session_count: usize,
+    pub global_total_tokens: i64,
+    pub global_cached_input_tokens: i64,
+    pub project_totals: Vec<AIRuntimeProjectTotalsSummary>,
     pub sessions: Vec<AIRuntimeSessionSummary>,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeProjectTotalsSummary {
+    pub project_id: String,
+    pub total_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub running: usize,
+    pub needs_input: usize,
+    pub completed: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AIRuntimeSessionSummary {
     pub terminal_id: String,
+    #[serde(default)]
+    pub project_id: String,
     pub tool: String,
+    #[serde(default)]
+    pub model: Option<String>,
     pub state: String,
     pub project_name: String,
     pub session_title: String,
     pub updated_at: f64,
     pub event_count: usize,
+    #[serde(default)]
+    pub total_tokens: i64,
+    #[serde(default)]
+    pub cached_input_tokens: i64,
     pub source: String,
 }
 
@@ -77,6 +99,8 @@ impl AIRuntimeStateService {
         );
         raw.insert("completedCount".to_string(), json!(events.completed_count));
         raw.insert("sessionCount".to_string(), json!(sessions.len()));
+        raw.insert("globalTotals".to_string(), json!(AIProjectTotals::default()));
+        raw.insert("projects".to_string(), json!([]));
         raw.insert("sessions".to_string(), json!(sessions));
         self.save_raw_snapshot(&raw)?;
         Ok(summary_from_raw(
@@ -111,6 +135,8 @@ impl AIRuntimeStateService {
             json!(snapshot.completion_count),
         );
         raw.insert("sessionCount".to_string(), json!(sessions.len()));
+        raw.insert("globalTotals".to_string(), json!(snapshot.global_totals));
+        raw.insert("projects".to_string(), json!(snapshot.projects));
         raw.insert("sessions".to_string(), json!(sessions));
         self.save_raw_snapshot(&raw)?;
         Ok(summary_from_raw(
@@ -185,8 +211,71 @@ fn summary_from_raw(
             .and_then(Value::as_u64)
             .map(|value| value as usize)
             .unwrap_or(sessions.len()),
+        global_total_tokens: raw_global_totals(raw).total_tokens,
+        global_cached_input_tokens: raw_global_totals(raw).cached_input_tokens,
+        project_totals: raw_project_totals(raw),
         sessions,
         error,
+    }
+}
+
+fn raw_global_totals(raw: &Map<String, Value>) -> AIRuntimeProjectTotalsSummary {
+    raw.get("globalTotals")
+        .map(|value| runtime_totals_from_value(String::new(), value))
+        .unwrap_or_default()
+}
+
+fn raw_project_totals(raw: &Map<String, Value>) -> Vec<AIRuntimeProjectTotalsSummary> {
+    raw.get("projects")
+        .and_then(Value::as_array)
+        .map(|projects| {
+            projects
+                .iter()
+                .filter_map(|project| {
+                    let project_id = project
+                        .get("projectId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    (!project_id.is_empty()).then(|| {
+                        runtime_totals_from_value(
+                            project_id,
+                            project.get("totals").unwrap_or(&Value::Null),
+                        )
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn runtime_totals_from_value(project_id: String, value: &Value) -> AIRuntimeProjectTotalsSummary {
+    let total = value.as_object();
+    AIRuntimeProjectTotalsSummary {
+        project_id,
+        total_tokens: total
+            .and_then(|total| total.get("totalTokens"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        cached_input_tokens: total
+            .and_then(|total| total.get("cachedInputTokens"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        running: total
+            .and_then(|total| total.get("running"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(0),
+        needs_input: total
+            .and_then(|total| total.get("needsInput"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(0),
+        completed: total
+            .and_then(|total| total.get("completed"))
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(0),
     }
 }
 
@@ -207,12 +296,16 @@ fn raw_sessions(raw: &Map<String, Value>) -> Vec<AIRuntimeSessionSummary> {
 fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessionSummary {
     AIRuntimeSessionSummary {
         terminal_id: session.terminal_id.clone(),
+        project_id: String::new(),
         tool: session.tool.clone(),
+        model: None,
         state: session.state.clone(),
         project_name: session.project_name.clone(),
         session_title: session.session_title.clone(),
         updated_at: session.updated_at,
         event_count: session.event_count,
+        total_tokens: 0,
+        cached_input_tokens: 0,
         source: "runtime-events".to_string(),
     }
 }
@@ -220,7 +313,9 @@ fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessi
 fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessionSummary {
     AIRuntimeSessionSummary {
         terminal_id: session.terminal_id.clone(),
+        project_id: session.project_id.clone(),
         tool: session.tool.clone(),
+        model: session.model.clone(),
         state: runtime_snapshot_session_state(session).to_string(),
         project_name: session.project_name.clone(),
         session_title: session.session_title.clone(),
@@ -228,6 +323,9 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
         event_count: usize::from(session.started_at.is_some())
             + usize::from(session.has_completed_turn)
             + usize::from(session.notification_type.is_some()),
+        total_tokens: (session.total_tokens - session.baseline_total_tokens).max(0),
+        cached_input_tokens: (session.cached_input_tokens - session.baseline_cached_input_tokens)
+            .max(0),
         source: "supervisor".to_string(),
     }
 }
@@ -331,6 +429,27 @@ mod tests {
             running_count: 1,
             needs_input_count: 1,
             completion_count: 0,
+            global_totals: AIProjectTotals {
+                total_tokens: 100,
+                cached_input_tokens: 15,
+                running: 1,
+                needs_input: 1,
+                completed: 0,
+            },
+            projects: vec![crate::ai_runtime::AIProjectStateSnapshot {
+                project_id: "project-a".to_string(),
+                project_phase: crate::ai_runtime::AIProjectPhase::Running {
+                    tool: "codex".to_string(),
+                },
+                completed_phase: crate::ai_runtime::AIProjectPhase::Idle,
+                totals: AIProjectTotals {
+                    total_tokens: 100,
+                    cached_input_tokens: 15,
+                    running: 1,
+                    needs_input: 0,
+                    completed: 0,
+                },
+            }],
             updated_at: 42.0,
             sessions: vec![
                 AISessionSnapshot {
@@ -342,16 +461,16 @@ mod tests {
                     session_title: "Build".to_string(),
                     tool: "codex".to_string(),
                     ai_session_id: None,
-                    model: None,
+                    model: Some("gpt-5".to_string()),
                     state: "responding".to_string(),
                     status: "running".to_string(),
                     is_running: true,
                     input_tokens: 0,
                     output_tokens: 0,
-                    cached_input_tokens: 0,
-                    total_tokens: 0,
-                    baseline_total_tokens: 0,
-                    baseline_cached_input_tokens: 0,
+                    cached_input_tokens: 20,
+                    total_tokens: 150,
+                    baseline_total_tokens: 50,
+                    baseline_cached_input_tokens: 5,
                     baseline_resolved: false,
                     started_at: Some(10.0),
                     updated_at: 20.0,
@@ -406,9 +525,18 @@ mod tests {
         assert_eq!(summary.session_count, 2);
         assert_eq!(summary.running_count, 1);
         assert_eq!(summary.needs_input_count, 1);
+        assert_eq!(summary.global_total_tokens, 100);
+        assert_eq!(summary.global_cached_input_tokens, 15);
+        assert_eq!(summary.project_totals.len(), 1);
+        assert_eq!(summary.project_totals[0].project_id, "project-a");
+        assert_eq!(summary.project_totals[0].total_tokens, 100);
         assert_eq!(summary.sessions[0].terminal_id, "term-b");
         assert_eq!(summary.sessions[0].state, "needs-input");
         assert_eq!(summary.sessions[1].state, "running");
+        assert_eq!(summary.sessions[1].project_id, "project-a");
+        assert_eq!(summary.sessions[1].model.as_deref(), Some("gpt-5"));
+        assert_eq!(summary.sessions[1].total_tokens, 100);
+        assert_eq!(summary.sessions[1].cached_input_tokens, 15);
 
         fs::remove_dir_all(dir).unwrap();
     }

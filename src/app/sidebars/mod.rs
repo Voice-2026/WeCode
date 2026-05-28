@@ -53,6 +53,10 @@ impl CoduxApp {
                     .child(ai_stats_sidebar(
                         &self.state.ai_global_history,
                         &self.state.ai_history,
+                        self.state
+                            .selected_project
+                            .as_ref()
+                            .map(|project| project.id.as_str()),
                         &self.state.memory,
                         &self.state.memory_manager,
                         self.memory_manager_tab,
