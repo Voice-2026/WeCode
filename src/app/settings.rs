@@ -553,7 +553,7 @@ fn settings_toggle(
 }
 
 fn settings_select(
-    id: &'static str,
+    id: impl Into<String>,
     value: &str,
     options: Vec<(String, SharedString)>,
     window: &mut Window,
@@ -564,7 +564,7 @@ fn settings_select(
 }
 
 fn settings_select_impl(
-    id: &'static str,
+    id: impl Into<String>,
     value: &str,
     options: Vec<(String, SharedString)>,
     searchable: bool,
@@ -572,6 +572,7 @@ fn settings_select_impl(
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
+    let id = id.into();
     let items = settings_select_options(options.clone());
     let selected_index = items.iter().position(|item| item.value == value);
     let state = window.use_keyed_state(
@@ -1029,17 +1030,13 @@ fn settings_general_pane(
                         .flex()
                         .items_center()
                         .gap(px(8.0))
-                        .child(settings_small_button(
+                        .child(settings_small_button_state(
                             "settings-check-update",
                             "检查更新",
+                            false,
+                            !settings.update_enabled,
                             cx,
                             |app, _event, window, cx| app.reload_update(window, cx),
-                        ))
-                        .child(settings_small_button(
-                            "settings-install-update",
-                            "安装更新",
-                            cx,
-                            |app, _event, window, cx| app.install_update(window, cx),
                         ))
                         .into_any_element(),
                 )
@@ -2894,7 +2891,7 @@ fn settings_ai_provider_card(
             "类型",
             None,
             settings_select(
-                "settings-provider-kind",
+                format!("settings-provider-kind-{}", provider.id),
                 &provider.kind,
                 ai_provider_kind_options(),
                 window,
@@ -3675,7 +3672,6 @@ fn ai_provider_kind_options() -> Vec<(String, SharedString)> {
         ("groq", "Groq"),
         ("openrouter", "OpenRouter"),
         ("ollama", "Ollama"),
-        ("localLlama", "Llama Model"),
     ]
     .into_iter()
     .map(|(value, label)| opt(value, label))
