@@ -1,0 +1,46 @@
+[package]
+name = "codux-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+bytes = "1.9"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+flume = "0.12"
+futures-util = "0.3"
+parking_lot = "0.12"
+portable-pty = "0.9"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+semver = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4", "v5"] }
+percent-encoding = "2.3"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "system-proxy"] }
+url = "2.5.7"
+x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+genai = "0.6.1"
+git2 = { version = "0.21.0", features = ["cred", "https", "ssh", "vendored-openssl"] }
+hkdf = "0.12"
+libc = "0.2"
+llm-json-repair = "0.1"
+notify = "8"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+webrtc = "0.20.0-alpha.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8"
+dispatch2 = "0.3"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSProcessInfo", "NSString", "NSURL"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_Power", "Win32_System_SystemServices", "Win32_System_Threading"] }

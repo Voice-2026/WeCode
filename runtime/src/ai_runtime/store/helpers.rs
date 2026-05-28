@@ -1,0 +1,117 @@
+use super::AIRuntimeStateCore;
+use crate::ai_runtime::{
+    constants::CODEX_INTERVAL_POLL_MINIMUM_SECONDS,
+    payload::AIHookEventPayload,
+    snapshot::{AIRuntimeProbeRequest, AISessionSnapshot},
+    state::{canonical_tool_name, normalized_string},
+};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub fn probe_request_for_session(session: &AISessionSnapshot) -> AIRuntimeProbeRequest {
+    AIRuntimeProbeRequest {
+        terminal_id: session.terminal_id.clone(),
+        terminal_instance_id: session.terminal_instance_id.clone(),
+        project_id: session.project_id.clone(),
+        project_path: session.project_path.clone(),
+        tool: session.tool.clone(),
+        external_session_id: session.ai_session_id.clone(),
+        transcript_path: session.transcript_path.clone(),
+        started_at: session.started_at,
+        updated_at: session.updated_at,
+    }
+}
+
+pub(super) fn mark_interrupted(session: AISessionSnapshot, updated_at: f64) -> AISessionSnapshot {
+    AISessionSnapshot {
+        state: "idle".to_string(),
+        status: "idle".to_string(),
+        is_running: false,
+        was_interrupted: true,
+        has_completed_turn: false,
+        active_turn_started_at: None,
+        runtime_turn_started_at: None,
+        updated_at,
+        ..session
+    }
+}
+
+pub(super) fn is_tool_activity_without_loading(
+    event: &AIHookEventPayload,
+    previous: Option<&AISessionSnapshot>,
+) -> bool {
+    if event.kind != "promptSubmitted"
+        || event
+            .metadata
+            .as_ref()
+            .and_then(|metadata| normalized_string(metadata.source.as_deref()))
+            .as_deref()
+            != Some("tool-use")
+    {
+        return false;
+    }
+    previous
+        .map(|session| session.has_completed_turn || session.was_interrupted)
+        .unwrap_or(true)
+}
+
+pub(super) fn note_latest_active_started_at(
+    core: &mut AIRuntimeStateCore,
+    project_id: &str,
+    started_at: f64,
+) {
+    let previous = core
+        .latest_active_started_at_by_project
+        .get(project_id)
+        .copied()
+        .unwrap_or(0.0);
+    if started_at > previous {
+        core.latest_active_started_at_by_project
+            .insert(project_id.to_string(), started_at);
+    }
+}
+
+pub fn should_poll_runtime_session(session: &AISessionSnapshot, reason: &str, now: f64) -> bool {
+    if reason == "transcript-tail" && is_codex_transcript_session(session) {
+        return true;
+    }
+    if canonical_tool_name(&session.tool).as_deref() == Some("codex")
+        && normalized_string(session.transcript_path.as_deref()).is_some()
+        && reason == "interval"
+        && now - session.updated_at < CODEX_INTERVAL_POLL_MINIMUM_SECONDS
+    {
+        return false;
+    }
+    session.state == "responding" || session.state == "needsInput" || !session.has_completed_turn
+}
+
+pub(super) fn is_codex_transcript_session(session: &AISessionSnapshot) -> bool {
+    canonical_tool_name(&session.tool).as_deref() == Some("codex")
+        && normalized_string(session.transcript_path.as_deref()).is_some()
+}
+
+pub(super) fn project_path_contains(project_path: Option<&str>, cwd: Option<&str>) -> bool {
+    let Some(project) = normalize_path_string(project_path) else {
+        return true;
+    };
+    let Some(current) = normalize_path_string(cwd) else {
+        return true;
+    };
+    current == project || current.starts_with(&format!("{project}/"))
+}
+
+fn normalize_path_string(path: Option<&str>) -> Option<String> {
+    normalized_string(path).map(|value| value.trim_end_matches('/').to_string())
+}
+
+pub(super) fn number_or(previous: Option<i64>, value: Option<i64>) -> i64 {
+    value
+        .map(|value| value.max(0))
+        .unwrap_or(previous.unwrap_or(0))
+}
+
+pub(super) fn now_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0)
+}

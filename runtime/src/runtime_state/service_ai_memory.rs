@@ -1,0 +1,280 @@
+impl RuntimeService {
+    pub fn reload_project_ai_history(&self, project_path: &str) -> AIHistorySummary {
+        load_ai_history(&self.support_dir, project_path)
+    }
+
+    pub fn reload_global_ai_history(&self) -> AIGlobalHistorySummary {
+        load_global_ai_history(&self.support_dir)
+    }
+
+    pub fn reload_project_ai_session_detail(
+        &self,
+        project_path: &str,
+        session_id: &str,
+    ) -> AISessionDetail {
+        AIHistoryService::new(self.support_dir.clone())
+            .project_session_detail(project_path, session_id)
+            .unwrap_or_else(|error| AISessionDetail {
+                id: session_id.to_string(),
+                error: Some(error),
+                ..Default::default()
+            })
+    }
+
+    pub fn rename_ai_session(
+        &self,
+        project_path: &str,
+        session_id: &str,
+        title: &str,
+    ) -> Result<AIHistorySummary, String> {
+        AIHistoryService::new(self.support_dir.clone()).rename_project_session(
+            project_path,
+            session_id,
+            title,
+        )
+    }
+
+    pub fn remove_ai_session(
+        &self,
+        project_path: &str,
+        session_id: &str,
+    ) -> Result<AIHistorySummary, String> {
+        AIHistoryService::new(self.support_dir.clone())
+            .remove_project_session(project_path, session_id)
+    }
+
+    pub fn reload_memory(&self, project_id: Option<&str>) -> MemorySummary {
+        load_memory(&self.support_dir, project_id)
+    }
+
+    pub fn enqueue_completed_session_memory(
+        &self,
+        session: &crate::ai_runtime::AISessionSnapshot,
+    ) -> Result<MemoryEnqueueResult, String> {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let projects = self.memory_project_infos();
+        MemoryService::new(self.support_dir.clone()).enqueue_completed_session_if_ready(
+            &settings.memory,
+            &projects,
+            session,
+        )
+    }
+
+    pub fn memory_extraction_status(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
+        MemoryService::new(self.support_dir.clone()).extraction_status_snapshot()
+    }
+
+    pub fn cancel_memory_extraction_queue(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
+        MemoryService::new(self.support_dir.clone()).cancel_extraction_queue()
+    }
+
+    pub fn enqueue_memory_extraction_candidates(
+        &self,
+    ) -> Result<MemoryManualEnqueueResult, String> {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let projects = self.memory_project_infos();
+        let _ = self.ai_runtime.poll_runtime_state();
+        let runtime_state = self.ai_runtime.runtime_state_snapshot();
+        let history_sessions = indexed_sessions_since(None).map_err(|error| error.to_string())?;
+        MemoryService::new(self.support_dir.clone()).enqueue_manual_extraction_candidates(
+            &settings.memory,
+            &projects,
+            &runtime_state.sessions,
+            &history_sessions,
+        )
+    }
+
+    pub async fn process_memory_sessions_now(
+        &self,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let projects = self.memory_project_infos();
+        let root_projects = ProjectStore::new(self.support_dir.clone())
+            .project_summaries()
+            .into_iter()
+            .map(|project| AIHistoryProjectRequest {
+                id: project.id,
+                name: project.name,
+                path: project.path,
+            })
+            .collect();
+        let _ = self.ai_history_indexer.global_summary(root_projects);
+        let _ = self.ai_runtime.poll_runtime_state();
+        let runtime_state = self.ai_runtime.runtime_state_snapshot();
+        let history_sessions = indexed_sessions_since(None).map_err(|error| error.to_string())?;
+        MemoryService::new(self.support_dir.clone())
+            .process_memory_sessions_now(
+                &settings,
+                &projects,
+                &runtime_state.sessions,
+                &history_sessions,
+            )
+            .await
+    }
+
+    pub async fn process_next_memory_extraction_task(
+        &self,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let projects = self.memory_project_infos();
+        MemoryService::new(self.support_dir.clone())
+            .process_next_memory_extraction_task(&settings, &projects)
+            .await
+    }
+
+    pub async fn process_memory_extraction_queue(
+        &self,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let projects = self.memory_project_infos();
+        MemoryService::new(self.support_dir.clone())
+            .process_memory_extraction_queue(&settings, &projects)
+            .await
+    }
+
+    fn memory_project_infos(&self) -> Vec<ProjectInfo> {
+        ProjectStore::new(self.support_dir.clone())
+            .project_summaries()
+            .into_iter()
+            .map(|project| ProjectInfo {
+                id: project.id,
+                name: project.name,
+                path: project.path,
+                exists: true,
+                git_default_push_remote_name: project.git_default_push_remote_name,
+            })
+            .collect()
+    }
+
+    pub fn reload_notifications(&self) -> NotificationSummary {
+        load_notifications(&self.support_dir)
+    }
+
+    pub fn toggle_notification_channel(
+        &self,
+        channel_id: &str,
+    ) -> Result<NotificationSummary, String> {
+        NotificationService::new(self.support_dir.clone()).toggle_channel(channel_id)
+    }
+
+    pub fn set_notification_channel_enabled(
+        &self,
+        channel_id: &str,
+        enabled: bool,
+    ) -> Result<NotificationSummary, String> {
+        NotificationService::new(self.support_dir.clone()).set_channel_enabled(channel_id, enabled)
+    }
+
+    pub fn update_notification_channel_string(
+        &self,
+        channel_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<NotificationSummary, String> {
+        NotificationService::new(self.support_dir.clone())
+            .update_channel_string(channel_id, key, value)
+    }
+
+    pub fn test_notification_channel(
+        &self,
+        channel_id: &str,
+    ) -> Result<NotificationDispatchResult, String> {
+        NotificationService::new(self.support_dir.clone()).test_channel(channel_id)
+    }
+
+    pub fn reload_memory_manager(
+        &self,
+        projects: &[ProjectInfo],
+        scope: &str,
+        project_id: Option<&str>,
+        tab: &str,
+    ) -> MemoryManagerSnapshot {
+        load_memory_manager(&self.support_dir, projects, scope, project_id, tab)
+    }
+
+    pub fn archive_memory_entry(
+        &self,
+        project_id: Option<&str>,
+        entry_id: &str,
+    ) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone())
+            .set_entry_status(project_id, entry_id, "archived")
+    }
+
+    pub fn restore_memory_entry(
+        &self,
+        project_id: Option<&str>,
+        entry_id: &str,
+    ) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone())
+            .set_entry_status(project_id, entry_id, "active")
+    }
+
+    pub fn delete_memory_entry(
+        &self,
+        project_id: Option<&str>,
+        entry_id: &str,
+    ) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone()).delete_entry(project_id, entry_id)
+    }
+
+    pub fn delete_memory_summary(
+        &self,
+        project_id: Option<&str>,
+        summary_id: &str,
+    ) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone()).delete_summary(project_id, summary_id)
+    }
+
+    pub fn delete_memory_project_profile(&self, project_id: &str) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone()).delete_project_profile(project_id)
+    }
+
+    pub fn delete_memory_project(&self, project_id: &str) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone()).delete_project_memory(project_id)
+    }
+
+    pub fn migrate_memory_project(
+        &self,
+        request: MemoryProjectMigrationRequest,
+    ) -> Result<MemorySummary, String> {
+        MemoryService::new(self.support_dir.clone()).migrate_project_memory(request)
+    }
+
+    pub fn update_memory_summary(
+        &self,
+        request: MemorySummaryUpdateRequest,
+    ) -> Result<MemorySummaryRow, String> {
+        MemoryService::new(self.support_dir.clone()).update_summary(request)
+    }
+
+    pub fn refresh_memory_project_profile_local(
+        &self,
+        project_id: &str,
+    ) -> Result<MemoryProjectProfile, String> {
+        let project = self
+            .memory_project_infos()
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        MemoryService::new(self.support_dir.clone())
+            .project_profile_for_launch(&project.id, &project.name, &project.path)
+            .ok_or_else(|| "Unable to generate project profile.".to_string())
+    }
+
+    pub async fn force_refresh_memory_project_profile_with_llm(
+        &self,
+        project_id: &str,
+    ) -> Result<MemoryProjectProfileRefreshResult, String> {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let project = self
+            .memory_project_infos()
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .ok_or_else(|| "Project not found.".to_string())?;
+        MemoryService::new(self.support_dir.clone())
+            .force_refresh_project_profile_with_llm_detailed(&settings, &project)
+            .await
+            .ok_or_else(|| "Unable to refresh project profile.".to_string())
+    }
+}

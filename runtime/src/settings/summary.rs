@@ -1,0 +1,318 @@
+fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
+    let defaults = SettingsSummary::default();
+    let ai = raw.get("ai").and_then(Value::as_object);
+    let memory = ai
+        .and_then(|ai| ai.get("memory"))
+        .and_then(Value::as_object);
+    let ai_pet = ai.and_then(|ai| ai.get("pet")).and_then(Value::as_object);
+    let remote = raw.get("remote").and_then(Value::as_object);
+    let update = raw.get("update").and_then(Value::as_object);
+    let pet = raw.get("pet").and_then(Value::as_object);
+
+    SettingsSummary {
+        language: string_value(raw, "language", defaults.language),
+        theme: string_value(raw, "theme", defaults.theme),
+        theme_color: raw
+            .get("themeColor")
+            .and_then(Value::as_str)
+            .map(sanitize_theme_color)
+            .unwrap_or(defaults.theme_color),
+        icon_style: raw
+            .get("iconStyle")
+            .and_then(Value::as_str)
+            .map(sanitize_icon_style)
+            .unwrap_or(defaults.icon_style),
+        shows_dock_badge: raw
+            .get("showsDockBadge")
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.shows_dock_badge),
+        shell: string_value(raw, "shell", defaults.shell),
+        terminal_font_family: raw
+            .get("terminalFontFamily")
+            .and_then(Value::as_str)
+            .map(sanitize_terminal_font_family)
+            .unwrap_or(defaults.terminal_font_family),
+        terminal_font_size: raw
+            .get("terminalFontSize")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 14, 10, 28).to_string())
+            .unwrap_or(defaults.terminal_font_size),
+        terminal_scrollback_lines: raw
+            .get("terminalScrollbackLines")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 500, 200, 10_000).to_string())
+            .unwrap_or(defaults.terminal_scrollback_lines),
+        git_refresh: raw
+            .get("gitRefresh")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 60, 1, 86_400).to_string())
+            .unwrap_or(defaults.git_refresh),
+        ai_refresh: raw
+            .get("aiRefresh")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 180, 1, 86_400).to_string())
+            .unwrap_or(defaults.ai_refresh),
+        ai_background_refresh: raw
+            .get("aiBackgroundRefresh")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 600, 1, 86_400).to_string())
+            .unwrap_or(defaults.ai_background_refresh),
+        statistics_mode: raw
+            .get("statisticsMode")
+            .and_then(Value::as_str)
+            .map(sanitize_statistics_mode)
+            .unwrap_or(defaults.statistics_mode),
+        sleep_mode: string_value(raw, "sleepMode", defaults.sleep_mode),
+        provider_count: ai
+            .and_then(|ai| ai.get("providers"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        ai_providers: ai
+            .and_then(|ai| ai.get("providers"))
+            .and_then(Value::as_array)
+            .map(|providers| providers.iter().filter_map(provider_summary).collect())
+            .unwrap_or_default(),
+        ai_global_prompt: ai
+            .and_then(|ai| ai.get("globalPrompt"))
+            .and_then(Value::as_str)
+            .map(|value| value.chars().take(20_000).collect())
+            .unwrap_or(defaults.ai_global_prompt),
+        ai_global_prompt_chars: ai
+            .and_then(|ai| ai.get("globalPrompt"))
+            .and_then(Value::as_str)
+            .map(|value| bounded_trimmed_chars(value, 20_000))
+            .unwrap_or(0),
+        git_commit_provider_id: ai
+            .and_then(|ai| ai.get("gitCommitMessageProviderId"))
+            .and_then(Value::as_str)
+            .unwrap_or("automatic")
+            .to_string(),
+        git_commit_tone: ai
+            .and_then(|ai| ai.get("gitCommitMessageTone"))
+            .and_then(Value::as_str)
+            .map(sanitize_git_commit_tone)
+            .unwrap_or(defaults.git_commit_tone),
+        git_commit_language: ai
+            .and_then(|ai| ai.get("gitCommitMessageLanguage"))
+            .and_then(Value::as_str)
+            .map(sanitize_git_commit_language)
+            .unwrap_or(defaults.git_commit_language),
+        git_commit_style_rules: ai
+            .and_then(|ai| ai.get("gitCommitMessageStyleRules"))
+            .and_then(Value::as_str)
+            .map(|value| value.chars().take(4_000).collect())
+            .unwrap_or(defaults.git_commit_style_rules),
+        git_commit_style_rules_chars: ai
+            .and_then(|ai| ai.get("gitCommitMessageStyleRules"))
+            .and_then(Value::as_str)
+            .map(|value| bounded_trimmed_chars(value, 4_000))
+            .unwrap_or(0),
+        runtime_tool_count: ai
+            .and_then(|ai| ai.get("runtimeTools"))
+            .map(runtime_tool_count)
+            .unwrap_or(defaults.runtime_tool_count),
+        memory_enabled: memory
+            .and_then(|memory| memory.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_enabled),
+        memory_automatic_injection_enabled: memory
+            .and_then(|memory| memory.get("automaticInjectionEnabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_automatic_injection_enabled),
+        memory_automatic_extraction_enabled: memory
+            .and_then(|memory| memory.get("automaticExtractionEnabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_automatic_extraction_enabled),
+        memory_extraction_idle_delay_seconds: memory
+            .and_then(|memory| memory.get("extractionIdleDelaySeconds"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_extraction_idle_delay_seconds),
+        memory_max_index_sessions: memory
+            .and_then(|memory| memory.get("maxIndexSessions"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_max_index_sessions),
+        memory_allow_cross_project_user_recall: memory
+            .and_then(|memory| memory.get("allowCrossProjectUserRecall"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_allow_cross_project_user_recall),
+        memory_default_extractor_provider_id: memory
+            .and_then(|memory| memory.get("defaultExtractorProviderId"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or(defaults.memory_default_extractor_provider_id),
+        remote_enabled: remote
+            .and_then(|remote| remote.get("isEnabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        remote_server_url: remote
+            .and_then(|remote| remote.get("serverURL"))
+            .and_then(Value::as_str)
+            .unwrap_or(&defaults.remote_server_url)
+            .to_string(),
+        remote_cached_devices: remote
+            .and_then(|remote| remote.get("cachedDevices"))
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0),
+        update_enabled: update
+            .and_then(|update| update.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.update_enabled),
+        update_channel: update
+            .and_then(|update| update.get("channel"))
+            .and_then(Value::as_str)
+            .unwrap_or("stable")
+            .to_string(),
+        pet_enabled: pet
+            .and_then(|pet| pet.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_enabled),
+        pet_desktop_widget: pet
+            .and_then(|pet| pet.get("desktopWidget"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_desktop_widget),
+        pet_static_mode: pet
+            .and_then(|pet| pet.get("staticMode"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_static_mode),
+        pet_reminders: pet
+            .and_then(|pet| pet.get("reminders"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_reminders),
+        pet_speech_mode: ai_pet
+            .and_then(|pet| pet.get("speechMode"))
+            .and_then(Value::as_str)
+            .map(sanitize_pet_speech_mode)
+            .unwrap_or(defaults.pet_speech_mode),
+        pet_speech_frequency: ai_pet
+            .and_then(|pet| pet.get("speechFrequency"))
+            .and_then(Value::as_str)
+            .map(sanitize_pet_speech_frequency)
+            .unwrap_or(defaults.pet_speech_frequency),
+        pet_speech_llm_enabled: ai_pet
+            .and_then(|pet| pet.get("speechLlmEnabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_speech_llm_enabled),
+        pet_speech_provider_id: ai_pet
+            .and_then(|pet| pet.get("speechProviderId"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or(defaults.pet_speech_provider_id),
+        pet_speech_quiet_during_work: ai_pet
+            .and_then(|pet| pet.get("speechQuietDuringWork"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_speech_quiet_during_work),
+        pet_speech_louder_at_night: ai_pet
+            .and_then(|pet| pet.get("speechLouderAtNight"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_speech_louder_at_night),
+        pet_speech_mute_on_fullscreen: ai_pet
+            .and_then(|pet| pet.get("speechMuteOnFullscreen"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_speech_mute_on_fullscreen),
+        pet_speech_quiet_hours_enabled: ai_pet
+            .and_then(|pet| pet.get("speechQuietHoursStart"))
+            .filter(|value| !value.is_null())
+            .is_some()
+            && ai_pet
+                .and_then(|pet| pet.get("speechQuietHoursEnd"))
+                .filter(|value| !value.is_null())
+                .is_some(),
+        pet_speech_temporary_muted: ai_pet
+            .and_then(|pet| pet.get("speechTemporaryMuteUntil"))
+            .and_then(Value::as_i64)
+            .map(|until| until > current_unix_seconds())
+            .unwrap_or(defaults.pet_speech_temporary_muted),
+        developer_hud: raw
+            .get("developerHud")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        developer_refresh: raw
+            .get("developerRefresh")
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 3, 1, 86_400).to_string())
+            .unwrap_or(defaults.developer_refresh),
+        shortcuts: raw
+            .get("shortcuts")
+            .and_then(Value::as_object)
+            .map(|shortcuts| {
+                shortcuts
+                    .iter()
+                    .filter_map(|(id, value)| {
+                        value
+                            .as_str()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(|value| (id.clone(), value.chars().take(120).collect()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+fn provider_summary(value: &Value) -> Option<AIProviderSummary> {
+    let provider = value.as_object()?;
+    Some(AIProviderSummary {
+        id: string_from_value(provider, "id", "unknown"),
+        kind: string_from_value(provider, "kind", "unknown"),
+        display_name: string_from_value(provider, "displayName", "Untitled provider"),
+        model: string_from_value(provider, "model", "default"),
+        base_url: string_from_value(provider, "baseUrl", ""),
+        enabled: provider
+            .get("isEnabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        memory_extraction: provider
+            .get("useForMemoryExtraction")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        priority: provider
+            .get("priority")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        api_key_configured: provider
+            .get("apiKey")
+            .and_then(Value::as_str)
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false),
+    })
+}
+
+fn runtime_tool_count(value: &Value) -> usize {
+    const TOOL_KEYS: [&str; 5] = ["codex", "claudeCode", "gemini", "opencode", "kiro"];
+    match value {
+        Value::Object(tools) => TOOL_KEYS
+            .iter()
+            .filter(|key| tools.contains_key(**key))
+            .count()
+            .max(TOOL_KEYS.len()),
+        Value::Array(tools) => tools.len(),
+        _ => 0,
+    }
+}
+
+fn string_from_value(raw: &Map<String, Value>, key: &str, fallback: &str) -> String {
+    raw.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn string_value(raw: &Map<String, Value>, key: &str, fallback: String) -> String {
+    raw.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or(fallback)
+}

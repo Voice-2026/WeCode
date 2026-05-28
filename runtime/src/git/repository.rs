@@ -1,0 +1,232 @@
+fn open_git_repository(path: &str) -> Result<GitRepository, String> {
+    let path = Path::new(path.trim());
+    if path.as_os_str().is_empty() {
+        return Err("Project path cannot be empty.".to_string());
+    }
+    GitRepository::discover(path).map_err(|error| error.message().to_string())
+}
+
+fn repo_root(repo: &GitRepository) -> &Path {
+    repo.workdir()
+        .or_else(|| repo.path().parent())
+        .unwrap_or_else(|| Path::new(""))
+}
+
+fn git_status_from_repo(repo: &GitRepository) -> GitSummary {
+    let branch = current_branch_name(repo);
+    let upstream = upstream_branch_name(repo);
+    let (ahead, behind) = ahead_behind(repo).unwrap_or((0, 0));
+    let head_pushed = head_commit_pushed_from_repo(repo);
+    let changed_files = flatten_status_files(repo);
+    let branches = git2_branches(repo, git2::BranchType::Local, &branch);
+    let remote_branches = git2_branches(repo, git2::BranchType::Remote, &branch)
+        .into_iter()
+        .filter(|branch| !branch.name.ends_with("/HEAD"))
+        .map(|branch| branch.name)
+        .collect();
+    let remotes = git2_remotes(repo);
+    let commits = git2_commit_log(repo, 20);
+
+    let staged = changed_files
+        .iter()
+        .filter(|file| {
+            let index = file.index_status.trim();
+            !index.is_empty() && index != "?"
+        })
+        .count();
+    let unstaged = changed_files
+        .iter()
+        .filter(|file| !is_untracked_status(file) && !file.worktree_status.trim().is_empty())
+        .count();
+    let untracked = changed_files
+        .iter()
+        .filter(|file| is_untracked_status(file))
+        .count();
+
+    GitSummary {
+        branch,
+        upstream,
+        ahead,
+        behind,
+        head_pushed,
+        staged,
+        unstaged,
+        untracked,
+        is_repository: true,
+        error: None,
+        changed_files,
+        branches,
+        remote_branches,
+        remotes,
+        commits,
+    }
+}
+
+fn head_commit_pushed_from_repo(repo: &GitRepository) -> bool {
+    let Some(head) = repo.head().ok().and_then(|head| head.target()) else {
+        return false;
+    };
+    let Some(upstream) = upstream_branch_name(repo) else {
+        return false;
+    };
+    let upstream_ref = format!("refs/remotes/{upstream}");
+    let Some(upstream_target) = repo
+        .find_reference(&upstream_ref)
+        .ok()
+        .and_then(|reference| reference.target())
+    else {
+        return false;
+    };
+    repo.graph_descendant_of(upstream_target, head)
+        .unwrap_or(false)
+}
+
+fn git_status_snapshot_from_repo(repo: &GitRepository) -> GitStatusSnapshot {
+    let branch = current_branch_name(repo);
+    let upstream = upstream_branch_name(repo);
+    let (ahead, behind) = ahead_behind(repo).unwrap_or((0, 0));
+    let (staged, unstaged, untracked) = git2_status_files(repo);
+    let branches = git2_branches(repo, git2::BranchType::Local, &branch);
+    let remote_branch_summaries = git2_branches(repo, git2::BranchType::Remote, &branch)
+        .into_iter()
+        .filter(|branch| !branch.name.ends_with("/HEAD"))
+        .collect::<Vec<_>>();
+    GitStatusSnapshot {
+        branch,
+        upstream,
+        ahead,
+        behind,
+        staged,
+        unstaged,
+        untracked,
+        commits: git2_commit_log(repo, 24),
+        branches,
+        remote_branches: remote_branch_summaries
+            .into_iter()
+            .map(|branch| branch.name)
+            .collect(),
+        remotes: git2_remotes(repo),
+        is_repository: true,
+        error: None,
+    }
+}
+
+fn git_review_from_repo(repo: &GitRepository, base_branch: Option<&str>) -> GitReviewSummary {
+    let root = repo_root(repo);
+    let base = base_branch
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "current branch")
+        .map(str::to_string);
+
+    if let Some(base) = base {
+        let files = git2_commit_review_files(repo, &base).unwrap_or_default();
+        let diff_stat = review_diff_stat(&files);
+        return GitReviewSummary {
+            mode: "taskBranch".to_string(),
+            title: "Worktree Review".to_string(),
+            base_branch: Some(base),
+            diff_stat,
+            files,
+            is_repository: true,
+            error: None,
+        };
+    }
+
+    let status = git_status_from_repo(repo);
+    let stats = working_tree_review_stats_git2(repo);
+    let mut seen_paths = HashSet::new();
+    let mut files = Vec::new();
+    for file in status.changed_files.iter().filter(|file| {
+        let index = file.index_status.trim();
+        !index.is_empty() && index != "?"
+    }) {
+        push_review_file_from_status(&mut files, &mut seen_paths, file, "staged", &stats, root);
+    }
+    for file in status
+        .changed_files
+        .iter()
+        .filter(|file| !is_untracked_status(file) && !file.worktree_status.trim().is_empty())
+    {
+        push_review_file_from_status(&mut files, &mut seen_paths, file, "modified", &stats, root);
+    }
+    for file in status
+        .changed_files
+        .iter()
+        .filter(|file| is_untracked_status(file))
+    {
+        push_review_file_from_status(&mut files, &mut seen_paths, file, "added", &stats, root);
+    }
+
+    GitReviewSummary {
+        mode: "workingTreeAudit".to_string(),
+        title: "Uncommitted Audit".to_string(),
+        base_branch: None,
+        diff_stat: if files.is_empty() {
+            String::new()
+        } else {
+            format!("{} changed files", files.len())
+        },
+        files,
+        is_repository: true,
+        error: None,
+    }
+}
+
+fn flatten_status_files(repo: &GitRepository) -> Vec<GitFileStatus> {
+    let (staged, unstaged, untracked) = git2_status_files(repo);
+    let mut seen = HashSet::new();
+    let mut files = Vec::new();
+    for file in staged.into_iter().chain(unstaged).chain(untracked) {
+        if seen.insert(file.path.clone()) {
+            files.push(file);
+        }
+    }
+    files.sort_by(|left, right| left.path.to_lowercase().cmp(&right.path.to_lowercase()));
+    files
+}
+
+fn git2_status_files(
+    repo: &GitRepository,
+) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
+    let mut options = git2::StatusOptions::new();
+    options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .renames_head_to_index(true)
+        .renames_index_to_workdir(true);
+    let statuses = match repo.statuses(Some(&mut options)) {
+        Ok(statuses) => statuses,
+        Err(_) => return (Vec::new(), Vec::new(), Vec::new()),
+    };
+
+    let mut staged = Vec::new();
+    let mut unstaged = Vec::new();
+    let mut untracked = Vec::new();
+    for entry in statuses.iter() {
+        let status = entry.status();
+        let Ok(path) = entry.path().map(normalize_git_path) else {
+            continue;
+        };
+        if is_codux_managed_memory_entrypoint(repo, &path) {
+            continue;
+        }
+        let index_status = git2_index_status_code(status);
+        let worktree_status = git2_worktree_status_code(status);
+        let file = GitFileStatus {
+            path,
+            index_status: index_status.clone(),
+            worktree_status: worktree_status.clone(),
+        };
+        if status.contains(git2::Status::WT_NEW) && index_status.trim().is_empty() {
+            untracked.push(file);
+            continue;
+        }
+        if !index_status.trim().is_empty() {
+            staged.push(file.clone());
+        }
+        if !worktree_status.trim().is_empty() {
+            unstaged.push(file);
+        }
+    }
+    (staged, unstaged, untracked)
+}

@@ -1,0 +1,280 @@
+use super::{
+    codex::ensure_codex_config_installed,
+    command::{hook_command, is_managed_hook, is_managed_hook_action},
+    json::{load_json_object, write_json_object},
+};
+use crate::runtime_paths::{app_slug, home_dir};
+use serde_json::{Map, Value, json};
+use std::path::Path;
+
+pub fn install_managed_hook_configs(managed_hook_script: &Path) -> Result<(), String> {
+    let codex_hooks_path = home_dir().join(".codex").join("hooks.json");
+    install_tool_hooks(
+        &codex_hooks_path,
+        "codex",
+        &[
+            ("SessionStart", "codex-session-start", 1000, false),
+            ("UserPromptSubmit", "codex-prompt-submit", 1000, false),
+            ("PermissionRequest", "codex-permission-request", 1000, false),
+            ("Stop", "codex-stop", 1000, false),
+        ],
+        managed_hook_script,
+    )?;
+    ensure_codex_config_installed(&codex_hooks_path)?;
+    install_tool_hooks(
+        &home_dir().join(".claude").join("settings.json"),
+        "claude",
+        &[
+            ("SessionStart", "session-start", 10, false),
+            ("UserPromptSubmit", "prompt-submit", 10, false),
+            ("PreCompact", "pre-compact", 10, false),
+            ("PostCompact", "post-compact", 10, false),
+            ("Stop", "stop", 10, false),
+            ("StopFailure", "stop-failure", 10, false),
+            ("SessionEnd", "session-end", 1, false),
+            ("PermissionRequest", "permission-request", 5, true),
+            ("PermissionDenied", "permission-denied", 5, true),
+            ("Elicitation", "elicitation", 10, true),
+            ("ElicitationResult", "elicitation-result", 10, true),
+        ],
+        managed_hook_script,
+    )?;
+    install_tool_hooks(
+        &home_dir().join(".gemini").join("settings.json"),
+        "gemini",
+        &[
+            ("SessionStart", "session-start", 5000, false),
+            ("BeforeAgent", "before-agent", 5000, false),
+            ("AfterAgent", "after-agent", 5000, false),
+            ("Notification", "notification", 5000, false),
+            ("SessionEnd", "session-end", 5000, false),
+        ],
+        managed_hook_script,
+    )?;
+    install_tool_hooks(
+        &home_dir()
+            .join(".gemini")
+            .join("antigravity-cli")
+            .join("settings.json"),
+        "agy",
+        &[
+            ("SessionStart", "session-start", 5000, false),
+            ("BeforeAgent", "before-agent", 5000, false),
+            ("AfterAgent", "after-agent", 5000, false),
+            ("Notification", "notification", 5000, false),
+            ("SessionEnd", "session-end", 5000, false),
+        ],
+        managed_hook_script,
+    )?;
+    install_tool_hooks(
+        &home_dir()
+            .join(".kiro")
+            .join("agents")
+            .join("codux-managed.json"),
+        "kiro",
+        &[
+            ("agentSpawn", "session-start", 5000, false),
+            ("stop", "session-end", 5000, false),
+        ],
+        managed_hook_script,
+    )
+}
+
+fn install_tool_hooks(
+    path: &Path,
+    tool: &str,
+    definitions: &[(&str, &str, i64, bool)],
+    managed_hook_script: &Path,
+) -> Result<(), String> {
+    if tool == "kiro" {
+        return install_kiro_tool_hooks(path, definitions, managed_hook_script);
+    }
+
+    let mut root = load_json_object(path)?;
+    let mut hooks = root
+        .remove("hooks")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+
+    for (event_key, action) in removed_hook_definitions(tool) {
+        strip_managed_action_from_hooks(&mut hooks, event_key, action, Some(tool));
+    }
+    if tool == "claude" {
+        strip_managed_action_from_hooks(&mut hooks, "Notification", "notification", Some("claude"));
+    }
+
+    for (event_key, action, timeout, is_async) in definitions {
+        let command = hook_command(managed_hook_script, action, app_slug(), tool);
+        let mut hook = Map::new();
+        hook.insert("type".to_string(), Value::String("command".to_string()));
+        hook.insert("command".to_string(), Value::String(command));
+        hook.insert("timeout".to_string(), Value::Number((*timeout).into()));
+        hook.insert(
+            "statusMessage".to_string(),
+            Value::String(format!("codux {tool} live")),
+        );
+        if *is_async {
+            hook.insert("async".to_string(), Value::Bool(true));
+        }
+
+        let groups = hooks
+            .remove(*event_key)
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default();
+        let mut cleaned = Vec::new();
+        for group in groups {
+            let Some(group_object) = group.as_object() else {
+                continue;
+            };
+            let next_hooks = group_object
+                .get("hooks")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|item| !is_managed_hook(item, action, tool))
+                .collect::<Vec<_>>();
+            if next_hooks.is_empty() {
+                continue;
+            }
+            let mut next_group = group_object.clone();
+            next_group.insert("hooks".to_string(), Value::Array(next_hooks));
+            cleaned.push(Value::Object(next_group));
+        }
+
+        cleaned.push(json!({
+            "matcher": "",
+            "hooks": [Value::Object(hook)],
+        }));
+        hooks.insert((*event_key).to_string(), Value::Array(cleaned));
+    }
+
+    root.insert("hooks".to_string(), Value::Object(hooks));
+    if tool == "gemini" || tool == "agy" {
+        disable_gemini_hook_notifications(&mut root);
+    }
+    write_json_object(path, root)
+}
+
+fn install_kiro_tool_hooks(
+    path: &Path,
+    definitions: &[(&str, &str, i64, bool)],
+    managed_hook_script: &Path,
+) -> Result<(), String> {
+    let mut root = load_json_object(path)?;
+    ensure_kiro_agent_config_fields(&mut root);
+    let mut hooks = root
+        .remove("hooks")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+
+    for (event_key, action, timeout, is_async) in definitions {
+        let command = hook_command(managed_hook_script, action, app_slug(), "kiro");
+        let mut hook = Map::new();
+        hook.insert("command".to_string(), Value::String(command));
+        hook.insert("timeout_ms".to_string(), Value::Number((*timeout).into()));
+        hook.insert("matcher".to_string(), Value::String(String::new()));
+        if *is_async {
+            hook.insert("async".to_string(), Value::Bool(true));
+        }
+
+        let entries = hooks
+            .remove(*event_key)
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default();
+        let mut cleaned = Vec::new();
+        for entry in entries {
+            if is_managed_hook(&entry, action, "kiro") {
+                continue;
+            }
+            cleaned.push(entry);
+        }
+        cleaned.push(Value::Object(hook));
+        hooks.insert((*event_key).to_string(), Value::Array(cleaned));
+    }
+
+    root.insert("hooks".to_string(), Value::Object(hooks));
+    write_json_object(path, root)
+}
+
+fn ensure_kiro_agent_config_fields(root: &mut Map<String, Value>) {
+    ensure_json_string_field(root, "name", "Codux Managed");
+    ensure_json_string_field(root, "description", "Codux runtime lifecycle hook bridge.");
+    ensure_json_string_field(root, "prompt", "Codux managed runtime hook agent.");
+}
+
+fn ensure_json_string_field(root: &mut Map<String, Value>, key: &str, default_value: &str) {
+    let is_valid = root
+        .get(key)
+        .and_then(|value| value.as_str())
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    if !is_valid {
+        root.insert(key.to_string(), Value::String(default_value.to_string()));
+    }
+}
+
+fn disable_gemini_hook_notifications(root: &mut Map<String, Value>) {
+    let mut hooks_config = root
+        .remove("hooksConfig")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    hooks_config.insert("notifications".to_string(), Value::Bool(false));
+    root.insert("hooksConfig".to_string(), Value::Object(hooks_config));
+}
+
+fn removed_hook_definitions(tool: &str) -> &'static [(&'static str, &'static str)] {
+    match tool {
+        "codex" => &[
+            ("PreToolUse", "codex-pre-tool-use"),
+            ("PostToolUse", "codex-post-tool-use"),
+            ("SessionEnd", "codex-session-end"),
+        ],
+        "claude" => &[
+            ("PreToolUse", "pre-tool-use"),
+            ("PostToolUse", "post-tool-use"),
+            ("PostToolUseFailure", "post-tool-use-failure"),
+        ],
+        _ => &[],
+    }
+}
+
+fn strip_managed_action_from_hooks(
+    hooks: &mut Map<String, Value>,
+    event_key: &str,
+    action: &str,
+    tool: Option<&str>,
+) {
+    let groups = hooks
+        .remove(event_key)
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default();
+    if groups.is_empty() {
+        return;
+    }
+
+    let mut cleaned_groups = Vec::new();
+    for group in groups {
+        let Some(group_object) = group.as_object() else {
+            continue;
+        };
+        let next_hooks = group_object
+            .get("hooks")
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|item| !is_managed_hook_action(item, action, tool))
+            .collect::<Vec<_>>();
+        if next_hooks.is_empty() {
+            continue;
+        }
+        let mut next_group = group_object.clone();
+        next_group.insert("hooks".to_string(), Value::Array(next_hooks));
+        cleaned_groups.push(Value::Object(next_group));
+    }
+
+    if !cleaned_groups.is_empty() {
+        hooks.insert(event_key.to_string(), Value::Array(cleaned_groups));
+    }
+}

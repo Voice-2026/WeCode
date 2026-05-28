@@ -1,0 +1,127 @@
+impl RuntimeState {
+    pub fn load() -> Self {
+        Self::load_from_support_dir(app_support_dir())
+    }
+
+    pub fn load_from_support_dir(support_dir: PathBuf) -> Self {
+        let (projects, selected_project) = load_projects(&support_dir);
+        let settings = load_settings(&support_dir);
+        let selected_path = selected_project
+            .as_ref()
+            .map(|project| project.path.as_str())
+            .unwrap_or("/Volumes/Web/codux-tauri");
+        let git = load_git_summary(selected_path);
+        let git_review = load_git_review(selected_path, None);
+        let files = load_file_entries(selected_path, None);
+        let ai_global_history = load_global_ai_history(&support_dir);
+        let ai_history = load_ai_history(&support_dir, selected_path);
+        let ai_session_detail = ai_history
+            .sessions
+            .first()
+            .map(|session| load_ai_session_detail(&support_dir, selected_path, &session.id));
+        let memory = load_memory(
+            &support_dir,
+            selected_project.as_ref().map(|project| project.id.as_str()),
+        );
+        let memory_manager = load_memory_manager(
+            &support_dir,
+            &projects,
+            "project",
+            selected_project.as_ref().map(|project| project.id.as_str()),
+            "active",
+        );
+        let notifications = load_notifications(&support_dir);
+        let ssh = load_ssh(&support_dir, RuntimeInventory::load().root);
+        let worktrees = load_worktrees(
+            &support_dir,
+            selected_project.as_ref().map(|project| project.id.as_str()),
+            selected_project
+                .as_ref()
+                .map(|project| project.path.as_str()),
+        );
+        let terminal_layout = load_terminal_layout(
+            &support_dir,
+            selected_project.as_ref().map(|project| project.id.as_str()),
+        );
+        let terminal_runtime = load_terminal_runtime(&support_dir);
+        let update = load_update(&support_dir, std::env::current_dir().unwrap_or_default());
+        let runtime_activity = load_runtime_activity(&support_dir);
+        let runtime_events = load_runtime_events();
+        let ai_runtime_state = load_ai_runtime_state(&support_dir, &runtime_events);
+        let remote = load_remote(&support_dir);
+        let pet = load_pet(&support_dir);
+        let power = PowerService::new().set_sleep_prevention(&settings.sleep_mode);
+        let performance = load_performance();
+        let tool_permissions = load_tool_permissions(&support_dir);
+
+        Self {
+            support_dir,
+            settings,
+            projects,
+            selected_project,
+            git,
+            git_review,
+            files,
+            ai_global_history,
+            ai_history,
+            ai_session_detail,
+            memory,
+            memory_manager,
+            notifications,
+            ssh,
+            worktrees,
+            terminal_layout,
+            terminal_runtime,
+            update,
+            runtime_activity,
+            runtime_events,
+            ai_runtime_state,
+            remote,
+            pet,
+            power,
+            performance,
+            tool_permissions,
+        }
+    }
+
+    pub fn select_project(&mut self, project_id: &str) {
+        let Some(project) = self
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .cloned()
+        else {
+            return;
+        };
+
+        self.git = load_git_summary(&project.path);
+        self.git_review = load_git_review(&project.path, None);
+        self.files = load_file_entries(&project.path, None);
+        self.ai_global_history = load_global_ai_history(&self.support_dir);
+        self.ai_history = load_ai_history(&self.support_dir, &project.path);
+        self.ai_session_detail =
+            self.ai_history.sessions.first().map(|session| {
+                load_ai_session_detail(&self.support_dir, &project.path, &session.id)
+            });
+        self.memory = load_memory(&self.support_dir, Some(&project.id));
+        self.memory_manager = load_memory_manager(
+            &self.support_dir,
+            &self.projects,
+            "project",
+            Some(&project.id),
+            "active",
+        );
+        self.notifications = load_notifications(&self.support_dir);
+        self.worktrees = load_worktrees(&self.support_dir, Some(&project.id), Some(&project.path));
+        self.terminal_layout = load_terminal_layout(&self.support_dir, Some(&project.id));
+        self.terminal_runtime = load_terminal_runtime(&self.support_dir);
+        self.runtime_activity = load_runtime_activity(&self.support_dir);
+        self.runtime_events = load_runtime_events();
+        self.ai_runtime_state = load_ai_runtime_state(&self.support_dir, &self.runtime_events);
+        self.pet = load_pet(&self.support_dir);
+        self.power = PowerService::new().summary(&self.settings.sleep_mode);
+        self.performance = load_performance();
+        self.tool_permissions = load_tool_permissions(&self.support_dir);
+        self.selected_project = Some(project);
+    }
+}

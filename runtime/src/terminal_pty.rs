@@ -1,0 +1,1904 @@
+use anyhow::{Context, Result, anyhow};
+use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, VecDeque},
+    fs,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
+#[cfg(not(windows))]
+use std::{process::Command, sync::OnceLock};
+use uuid::Uuid;
+
+#[cfg(windows)]
+const PATH_SEPARATOR: char = ';';
+#[cfg(not(windows))]
+const PATH_SEPARATOR: char = ':';
+
+#[cfg(windows)]
+const FALLBACK_PATH: &str = "C:\\Windows\\System32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0";
+#[cfg(not(windows))]
+const FALLBACK_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin";
+
+const INPUT_CAPTURE_LIMIT: usize = 20;
+const OUTPUT_CAPTURE_LIMIT: usize = 16 * 1024;
+const MIN_HISTORY_BYTES: usize = 128 * 1024;
+const MAX_CONFIGURED_HISTORY_BYTES: usize = 8 * 1024 * 1024;
+const COMMON_PASSTHROUGH_ENV_KEYS: &[&str] = &[
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_MESSAGES",
+    "LC_COLLATE",
+    "LC_NUMERIC",
+    "LC_TIME",
+    "LC_MONETARY",
+    "LC_MEASUREMENT",
+    "LC_IDENTIFICATION",
+    "LC_PAPER",
+    "LC_NAME",
+    "LC_ADDRESS",
+    "LC_TELEPHONE",
+    "LC_RESPONSETIME",
+];
+#[cfg(unix)]
+const UNIX_PASSTHROUGH_ENV_KEYS: &[&str] = &["TMPDIR", "SSH_AUTH_SOCK", "__CF_USER_TEXT_ENCODING"];
+#[cfg(windows)]
+const WINDOWS_PASSTHROUGH_ENV_KEYS: &[&str] = &[
+    "SystemRoot",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "USERNAME",
+    "USERDOMAIN",
+    "OneDrive",
+    "PROCESSOR_ARCHITECTURE",
+    "PSModulePath",
+];
+const DOTENV_KEYS: &[&str] = &[
+    "GEMINI_API_KEY",
+    "GEMINI_MODEL",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GEMINI_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "CODEX_HOME",
+    "OPENCODE_API_KEY",
+    "OPENCODE_BASE_URL",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+];
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalPtyConfig {
+    pub cwd: Option<String>,
+    pub shell: Option<String>,
+    pub command: Option<String>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    pub scrollback_lines: Option<usize>,
+    pub env: Option<HashMap<String, String>>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub terminal_id: Option<String>,
+    pub slot_id: Option<String>,
+    pub session_key: Option<String>,
+    pub title: Option<String>,
+    pub tool: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TerminalLaunchContext {
+    pub project_id: String,
+    pub project_name: String,
+    pub project_path: PathBuf,
+    pub support_dir: PathBuf,
+    pub runtime_root: PathBuf,
+    pub terminal_id: Option<String>,
+    pub slot_id: Option<String>,
+    pub session_key: Option<String>,
+    pub session_title: Option<String>,
+    pub session_cwd: Option<PathBuf>,
+    pub session_instance_id: Option<String>,
+    pub tool_permissions_file: Option<PathBuf>,
+    pub memory_workspace_root: Option<PathBuf>,
+    pub memory_prompt_file: Option<PathBuf>,
+    pub memory_index_file: Option<PathBuf>,
+}
+
+impl TerminalLaunchContext {
+    pub fn to_config(&self) -> TerminalPtyConfig {
+        TerminalPtyConfig {
+            cwd: Some(
+                self.session_cwd
+                    .as_ref()
+                    .unwrap_or(&self.project_path)
+                    .display()
+                    .to_string(),
+            ),
+            project_id: Some(self.project_id.clone()),
+            project_name: Some(self.project_name.clone()),
+            terminal_id: self.terminal_id.clone(),
+            slot_id: self.slot_id.clone(),
+            session_key: self.session_key.clone(),
+            title: self.session_title.clone(),
+            scrollback_lines: None,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TerminalEvent {
+    Output {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        text: String,
+        #[serde(skip)]
+        bytes: Vec<u8>,
+    },
+    Exit {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "exitCode")]
+        exit_code: Option<i32>,
+    },
+    Error {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        message: String,
+    },
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TerminalInputSnapshot {
+    pub bytes: usize,
+    pub history: Vec<TerminalCapturedInput>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TerminalCapturedInput {
+    pub text: String,
+    pub bytes: usize,
+    pub timestamp: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalOutputSnapshot {
+    pub bytes: usize,
+    pub tail: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionSnapshot {
+    pub id: String,
+    pub title: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub cwd: String,
+    pub shell: String,
+    pub command: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub status: String,
+    pub is_running: bool,
+    pub created_at: String,
+    pub last_active_at: String,
+    pub buffer_characters: usize,
+    pub has_buffer: bool,
+}
+
+pub type EventSink = Arc<dyn Fn(TerminalEvent) + Send + Sync + 'static>;
+
+pub struct TerminalManager {
+    sessions: parking_lot::Mutex<HashMap<String, Arc<TerminalPtySession>>>,
+}
+
+impl TerminalManager {
+    pub fn new() -> Self {
+        Self {
+            sessions: parking_lot::Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn list(&self) -> Vec<TerminalSessionSnapshot> {
+        self.sessions
+            .lock()
+            .values()
+            .map(|session| session.info())
+            .collect()
+    }
+
+    pub fn create<F>(&self, config: TerminalPtyConfig, emit: F) -> Result<String>
+    where
+        F: Fn(TerminalEvent) + Send + Sync + 'static,
+    {
+        self.create_with_sink(config, Arc::new(emit))
+    }
+
+    pub fn create_with_sink(&self, config: TerminalPtyConfig, emit: EventSink) -> Result<String> {
+        let (session, _) = self.attach_or_create_with_context(config, None, emit)?;
+        let id = session.id().to_string();
+        Ok(id)
+    }
+
+    pub fn attach_or_create_with_context(
+        &self,
+        config: TerminalPtyConfig,
+        context: Option<&TerminalLaunchContext>,
+        emit: EventSink,
+    ) -> Result<(Arc<TerminalPtySession>, flume::Receiver<Vec<u8>>)> {
+        let requested_id = config
+            .terminal_id
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+        if let Some(session) = requested_id
+            .as_deref()
+            .and_then(|id| self.sessions.lock().get(id).cloned())
+        {
+            session.subscribe_events(emit);
+            let rx = session.subscribe_output(true);
+            return Ok((session, rx));
+        }
+
+        let (session, _writer, reader) =
+            TerminalPtySession::spawn(config, context, Some(emit.clone()))?;
+        let session = Arc::new(session);
+        let id = session.id().to_string();
+        let rx = session.subscribe_output(true);
+        let event_subscribers = session.event_subscribers.clone();
+        self.sessions.lock().insert(id.clone(), session.clone());
+        spawn_headless_reader(id, reader, event_subscribers);
+        Ok((session, rx))
+    }
+
+    pub fn write(&self, session_id: &str, data: &[u8]) -> Result<()> {
+        self.session(session_id)?.write(data)
+    }
+
+    pub fn resize(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
+        self.session(session_id)?.resize(cols, rows)
+    }
+
+    pub fn kill(&self, session_id: &str) -> Result<()> {
+        let Some(session) = self.sessions.lock().remove(session_id) else {
+            return Err(anyhow!("terminal session not found: {session_id}"));
+        };
+        session.kill()
+    }
+
+    pub fn snapshot(&self, session_id: &str) -> Result<String> {
+        Ok(self.session(session_id)?.snapshot())
+    }
+
+    pub fn buffer_characters(&self, session_id: &str) -> Result<usize> {
+        Ok(self.session(session_id)?.buffer_characters())
+    }
+
+    pub fn clear_history(&self, session_id: &str) -> Result<()> {
+        self.session(session_id)?.clear_history();
+        Ok(())
+    }
+
+    fn session(&self, session_id: &str) -> Result<Arc<TerminalPtySession>> {
+        self.sessions
+            .lock()
+            .get(session_id)
+            .cloned()
+            .ok_or_else(|| anyhow!("terminal session not found: {session_id}"))
+    }
+}
+
+impl Default for TerminalManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct TerminalPtySession {
+    id: String,
+    stdin_writer: Arc<parking_lot::Mutex<Box<dyn Write + Send>>>,
+    input_capture: Arc<parking_lot::Mutex<TerminalInputCapture>>,
+    output_capture: Arc<parking_lot::Mutex<TerminalOutputCapture>>,
+    history: Arc<parking_lot::Mutex<RingHistory>>,
+    output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+    _child: Arc<parking_lot::Mutex<Box<dyn Child + Send + Sync>>>,
+    killer: Arc<parking_lot::Mutex<Box<dyn ChildKiller + Send + Sync>>>,
+    pty_master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
+}
+
+#[derive(Clone)]
+pub struct TerminalPtySessionHandle {
+    pty_master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
+    info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+}
+
+impl TerminalPtySession {
+    pub fn spawn(
+        config: TerminalPtyConfig,
+        context: Option<&TerminalLaunchContext>,
+        event_sink: Option<EventSink>,
+    ) -> Result<(Self, Box<dyn Write + Send>, Box<dyn Read + Send>)> {
+        let id = config
+            .terminal_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let cols = config.cols.unwrap_or(100).max(20);
+        let rows = config.rows.unwrap_or(32).max(8);
+        let shell = config.shell.clone().unwrap_or_else(default_shell);
+        let cwd = normalize_terminal_cwd(
+            config
+                .cwd
+                .clone()
+                .or_else(|| context.map(|context| context.project_path.display().to_string())),
+        );
+        let initial_command = config
+            .command
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .context("failed to open PTY")?;
+        let mut command = build_shell_command(&shell, initial_command.as_deref());
+        if let Some(cwd) = cwd.as_deref() {
+            command.cwd(PathBuf::from(cwd));
+        }
+        clear_terminal_environment(&mut command);
+        let environment = terminal_environment(&shell, cwd.as_deref(), &id, &config, context);
+        for (key, value) in environment {
+            command.env(key, value);
+        }
+
+        let child = pair
+            .slave
+            .spawn_command(command)
+            .with_context(|| format!("failed to spawn shell {shell}"))?;
+        let killer = child.clone_killer();
+        drop(pair.slave);
+
+        let writer = pair
+            .master
+            .take_writer()
+            .context("failed to take PTY writer")?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .context("failed to clone PTY reader")?;
+        let stdin_writer = Arc::new(parking_lot::Mutex::new(writer));
+        let input_capture = Arc::new(parking_lot::Mutex::new(TerminalInputCapture::new(
+            INPUT_CAPTURE_LIMIT,
+        )));
+        let output_capture = Arc::new(parking_lot::Mutex::new(TerminalOutputCapture::new(
+            OUTPUT_CAPTURE_LIMIT,
+        )));
+        let history = Arc::new(parking_lot::Mutex::new(RingHistory::new(
+            terminal_history_bytes(config.scrollback_lines, cols),
+        )));
+        let output_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let event_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        if let Some(event_sink) = event_sink {
+            event_subscribers.lock().push(event_sink);
+        }
+        let now = rfc3339_now();
+        let project_path = context
+            .map(|context| context.project_path.display().to_string())
+            .unwrap_or_else(|| cwd.clone().unwrap_or_default());
+        let project_name = config
+            .project_name
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| context.map(|context| context.project_name.clone()))
+            .or_else(|| project_path_name(&project_path))
+            .unwrap_or_else(|| "Codux".to_string());
+        let project_id = config
+            .project_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| context.map(|context| context.project_id.clone()))
+            .unwrap_or_else(|| project_name.clone());
+        let info = Arc::new(parking_lot::Mutex::new(TerminalSessionSnapshot {
+            id: id.clone(),
+            title: config
+                .title
+                .clone()
+                .unwrap_or_else(|| "Terminal".to_string()),
+            project_id,
+            project_name,
+            cwd: cwd.clone().unwrap_or(project_path),
+            shell: shell.clone(),
+            command: initial_command.clone().unwrap_or_default(),
+            cols,
+            rows,
+            status: "running".to_string(),
+            is_running: true,
+            created_at: now.clone(),
+            last_active_at: now,
+            buffer_characters: 0,
+            has_buffer: false,
+        }));
+        let pty_master = Arc::new(parking_lot::Mutex::new(pair.master));
+        let child = Arc::new(parking_lot::Mutex::new(child));
+
+        spawn_waiter(
+            id.clone(),
+            child.clone(),
+            info.clone(),
+            event_subscribers.clone(),
+        );
+
+        let terminal_writer = CaptureWriter::new(stdin_writer.clone(), input_capture.clone());
+        let terminal_reader = CaptureReader::new(
+            id.clone(),
+            reader,
+            output_capture.clone(),
+            history.clone(),
+            output_subscribers.clone(),
+            event_subscribers.clone(),
+            info.clone(),
+        );
+        Ok((
+            Self {
+                id,
+                stdin_writer,
+                input_capture,
+                output_capture,
+                history,
+                output_subscribers,
+                event_subscribers,
+                info,
+                _child: child,
+                killer: Arc::new(parking_lot::Mutex::new(killer)),
+                pty_master,
+            },
+            Box::new(terminal_writer),
+            Box::new(terminal_reader),
+        ))
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn clone_handle(&self) -> TerminalPtySessionHandle {
+        TerminalPtySessionHandle {
+            pty_master: self.pty_master.clone(),
+            info: self.info.clone(),
+        }
+    }
+
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        self.clone_handle().resize(cols, rows)
+    }
+
+    pub fn write(&self, data: &[u8]) -> Result<()> {
+        let mut writer = self.stdin_writer.lock();
+        writer.write_all(data)?;
+        writer.flush()?;
+        self.input_capture.lock().push(data);
+        Ok(())
+    }
+
+    pub fn subscribe_output(&self, replay_snapshot: bool) -> flume::Receiver<Vec<u8>> {
+        let (tx, rx) = flume::unbounded();
+        if replay_snapshot {
+            let snapshot = self.snapshot();
+            if !snapshot.is_empty() {
+                let _ = tx.send(snapshot.into_bytes());
+            }
+        }
+        self.output_subscribers.lock().push(tx);
+        rx
+    }
+
+    pub fn subscribe_events(&self, emit: EventSink) {
+        self.event_subscribers.lock().push(emit);
+    }
+
+    pub fn kill(&self) -> Result<()> {
+        self.killer.lock().kill()?;
+        Ok(())
+    }
+
+    pub fn snapshot(&self) -> String {
+        self.history.lock().to_text()
+    }
+
+    pub fn buffer_characters(&self) -> usize {
+        self.history.lock().len_chars()
+    }
+
+    pub fn clear_history(&self) {
+        self.history.lock().clear();
+        let mut info = self.info.lock();
+        info.buffer_characters = 0;
+        info.has_buffer = false;
+        info.last_active_at = rfc3339_now();
+    }
+
+    pub fn info(&self) -> TerminalSessionSnapshot {
+        let mut info = self.info.lock().clone();
+        info.buffer_characters = self.buffer_characters();
+        info.has_buffer = info.buffer_characters > 0;
+        info
+    }
+
+    pub fn input_snapshot(&self) -> TerminalInputSnapshot {
+        self.input_capture.lock().snapshot()
+    }
+
+    pub fn output_snapshot(&self) -> TerminalOutputSnapshot {
+        self.output_capture.lock().snapshot()
+    }
+}
+
+impl TerminalPtySessionHandle {
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        let cols = cols.max(20);
+        let rows = rows.max(8);
+        self.pty_master.lock().resize(PtySize {
+            cols,
+            rows,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+        let mut info = self.info.lock();
+        info.cols = cols;
+        info.rows = rows;
+        info.last_active_at = rfc3339_now();
+        Ok(())
+    }
+}
+
+struct CaptureReader {
+    session_id: String,
+    inner: Box<dyn Read + Send>,
+    output_capture: Arc<parking_lot::Mutex<TerminalOutputCapture>>,
+    history: Arc<parking_lot::Mutex<RingHistory>>,
+    output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+    pending_utf8: Vec<u8>,
+}
+
+impl CaptureReader {
+    fn new(
+        session_id: String,
+        inner: Box<dyn Read + Send>,
+        output_capture: Arc<parking_lot::Mutex<TerminalOutputCapture>>,
+        history: Arc<parking_lot::Mutex<RingHistory>>,
+        output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
+        event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+        info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+    ) -> Self {
+        Self {
+            session_id,
+            inner,
+            output_capture,
+            history,
+            output_subscribers,
+            event_subscribers,
+            info,
+            pending_utf8: Vec::new(),
+        }
+    }
+}
+
+impl Read for CaptureReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        if read == 0 {
+            self.flush_pending_utf8();
+            return Ok(0);
+        }
+        if read > 0 {
+            let bytes = &buf[..read];
+            self.output_capture.lock().push(bytes);
+            self.broadcast_output(bytes);
+            let text = decode_utf8_output(bytes, &mut self.pending_utf8);
+            if !text.is_empty() {
+                let mut history = self.history.lock();
+                history.push_text(&text);
+                let chars = history.len_chars();
+                let mut info = self.info.lock();
+                info.last_active_at = rfc3339_now();
+                info.buffer_characters = chars;
+                info.has_buffer = chars > 0;
+            }
+            emit_terminal_event(
+                &self.event_subscribers,
+                TerminalEvent::Output {
+                    session_id: self.session_id.clone(),
+                    text,
+                    bytes: bytes.to_vec(),
+                },
+            );
+        }
+        Ok(read)
+    }
+}
+
+impl CaptureReader {
+    fn flush_pending_utf8(&mut self) {
+        let text = flush_utf8_decoder(&mut self.pending_utf8);
+        if text.is_empty() {
+            return;
+        }
+        let bytes = text.as_bytes().to_vec();
+        {
+            let mut history = self.history.lock();
+            history.push_text(&text);
+            let chars = history.len_chars();
+            let mut info = self.info.lock();
+            info.last_active_at = rfc3339_now();
+            info.buffer_characters = chars;
+            info.has_buffer = chars > 0;
+        }
+        self.broadcast_output(&bytes);
+        emit_terminal_event(
+            &self.event_subscribers,
+            TerminalEvent::Output {
+                session_id: self.session_id.clone(),
+                text,
+                bytes,
+            },
+        );
+    }
+
+    fn broadcast_output(&self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut subscribers = self.output_subscribers.lock();
+        subscribers.retain(|subscriber| subscriber.send(bytes.to_vec()).is_ok());
+    }
+}
+
+struct CaptureWriter {
+    inner: Arc<parking_lot::Mutex<Box<dyn Write + Send>>>,
+    capture: Arc<parking_lot::Mutex<TerminalInputCapture>>,
+}
+
+impl CaptureWriter {
+    fn new(
+        inner: Arc<parking_lot::Mutex<Box<dyn Write + Send>>>,
+        capture: Arc<parking_lot::Mutex<TerminalInputCapture>>,
+    ) -> Self {
+        Self { inner, capture }
+    }
+}
+
+impl Write for CaptureWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.lock().write(buf)?;
+        if written > 0 {
+            self.capture.lock().push(&buf[..written]);
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.lock().flush()
+    }
+}
+
+struct TerminalOutputCapture {
+    total_bytes: usize,
+    limit: usize,
+    tail: VecDeque<u8>,
+}
+
+impl TerminalOutputCapture {
+    fn new(limit: usize) -> Self {
+        Self {
+            total_bytes: 0,
+            limit,
+            tail: VecDeque::with_capacity(limit.min(4096)),
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        self.total_bytes = self.total_bytes.saturating_add(bytes.len());
+        if self.limit == 0 {
+            return;
+        }
+        for byte in bytes {
+            self.tail.push_back(*byte);
+            while self.tail.len() > self.limit {
+                self.tail.pop_front();
+            }
+        }
+    }
+
+    fn snapshot(&self) -> TerminalOutputSnapshot {
+        let bytes = self.tail.iter().copied().collect::<Vec<_>>();
+        TerminalOutputSnapshot {
+            bytes: self.total_bytes,
+            tail: String::from_utf8_lossy(&bytes).to_string(),
+        }
+    }
+}
+
+struct TerminalInputCapture {
+    total_bytes: usize,
+    limit: usize,
+    history: VecDeque<TerminalCapturedInput>,
+}
+
+impl TerminalInputCapture {
+    fn new(limit: usize) -> Self {
+        Self {
+            total_bytes: 0,
+            limit,
+            history: VecDeque::with_capacity(limit.min(8)),
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        self.total_bytes = self.total_bytes.saturating_add(bytes.len());
+        if self.limit == 0 {
+            return;
+        }
+        let text = String::from_utf8_lossy(bytes).to_string();
+        if text.trim().is_empty() {
+            return;
+        }
+        self.history.push_back(TerminalCapturedInput {
+            text,
+            bytes: bytes.len(),
+            timestamp: now_seconds(),
+        });
+        while self.history.len() > self.limit {
+            self.history.pop_front();
+        }
+    }
+
+    fn snapshot(&self) -> TerminalInputSnapshot {
+        TerminalInputSnapshot {
+            bytes: self.total_bytes,
+            history: self.history.iter().cloned().collect(),
+        }
+    }
+}
+
+struct RingHistory {
+    max_bytes: usize,
+    len_bytes: usize,
+    len_chars: usize,
+    chunks: VecDeque<String>,
+}
+
+impl RingHistory {
+    fn new(max_bytes: usize) -> Self {
+        Self {
+            max_bytes,
+            len_bytes: 0,
+            len_chars: 0,
+            chunks: VecDeque::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.len_bytes = 0;
+        self.len_chars = 0;
+        self.chunks.clear();
+    }
+
+    fn push_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let chunk = text.to_string();
+        self.len_bytes += chunk.len();
+        self.len_chars += chunk.chars().count();
+        self.chunks.push_back(chunk);
+
+        while self.len_bytes > self.max_bytes {
+            if let Some(chunk) = self.chunks.pop_front() {
+                self.len_bytes = self.len_bytes.saturating_sub(chunk.len());
+                self.len_chars = self.len_chars.saturating_sub(chunk.chars().count());
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn to_text(&self) -> String {
+        let mut text = String::with_capacity(self.len_bytes);
+        for chunk in &self.chunks {
+            text.push_str(chunk);
+        }
+        text
+    }
+
+    fn len_chars(&self) -> usize {
+        self.len_chars
+    }
+}
+
+fn spawn_waiter(
+    id: String,
+    child: Arc<parking_lot::Mutex<Box<dyn Child + Send + Sync>>>,
+    info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+) {
+    std::thread::Builder::new()
+        .name(format!("codux-terminal-waiter-{id}"))
+        .spawn(move || {
+            let exit_code = child
+                .lock()
+                .wait()
+                .ok()
+                .map(|status| status.exit_code() as i32);
+            emit_terminal_event(
+                &event_subscribers,
+                TerminalEvent::Exit {
+                    session_id: id.clone(),
+                    exit_code,
+                },
+            );
+            let mut info = info.lock();
+            info.status = "exited".to_string();
+            info.is_running = false;
+            info.last_active_at = rfc3339_now();
+        })
+        .expect("failed to spawn terminal waiter");
+}
+
+fn spawn_headless_reader(
+    id: String,
+    mut reader: Box<dyn Read + Send>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+) {
+    std::thread::Builder::new()
+        .name(format!("codux-terminal-reader-{id}"))
+        .spawn(move || {
+            let mut buffer = vec![0_u8; 16 * 1024];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => return,
+                    Ok(_) => {}
+                    Err(error) => {
+                        emit_terminal_event(
+                            &event_subscribers,
+                            TerminalEvent::Error {
+                                session_id: id,
+                                message: error.to_string(),
+                            },
+                        );
+                        return;
+                    }
+                }
+            }
+        })
+        .expect("failed to spawn terminal reader");
+}
+
+fn emit_terminal_event(
+    subscribers: &Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    event: TerminalEvent,
+) {
+    for subscriber in subscribers.lock().iter() {
+        subscriber(event.clone());
+    }
+}
+
+pub fn terminal_environment(
+    shell: &str,
+    cwd: Option<&str>,
+    session_id: &str,
+    config: &TerminalPtyConfig,
+    context: Option<&TerminalLaunchContext>,
+) -> HashMap<String, String> {
+    let home = crate::runtime_paths::home_dir();
+    let home_text = home.display().to_string();
+    let user = default_user();
+    let session_cwd = cwd
+        .map(str::to_string)
+        .or_else(|| context.map(|context| context.project_path.display().to_string()))
+        .unwrap_or_else(|| home_text.clone());
+    let project_path = context
+        .map(|context| context.project_path.display().to_string())
+        .unwrap_or_else(|| session_cwd.clone());
+    let project_name = config
+        .project_name
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| context.map(|context| context.project_name.clone()))
+        .or_else(|| project_path_name(&project_path))
+        .unwrap_or_else(|| "Codux".to_string());
+    let project_id = config
+        .project_id
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| context.map(|context| context.project_id.clone()))
+        .unwrap_or_else(|| project_name.clone());
+    let terminal_id = config
+        .terminal_id
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| context.and_then(|context| context.terminal_id.clone()))
+        .unwrap_or_else(|| session_id.to_string());
+    let slot_id = config
+        .slot_id
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| context.and_then(|context| context.slot_id.clone()))
+        .unwrap_or_default();
+    let session_key = config
+        .session_key
+        .clone()
+        .or_else(|| context.and_then(|context| context.session_key.clone()))
+        .unwrap_or_default();
+    let session_title = config
+        .title
+        .clone()
+        .or_else(|| context.and_then(|context| context.session_title.clone()))
+        .unwrap_or_else(|| "Terminal".to_string());
+
+    let mut values = HashMap::new();
+    values.insert("HOME".to_string(), home_text.clone());
+    values.insert("USER".to_string(), user.clone());
+    values.insert("LOGNAME".to_string(), user.clone());
+    values.insert("SHELL".to_string(), shell.to_string());
+    values.insert("PWD".to_string(), session_cwd.clone());
+    append_passthrough_env(&mut values);
+
+    for (key, value) in configured_dotenv(&home_text) {
+        values.entry(key).or_insert(value);
+    }
+    for (key, value) in configured_codex_env(&home_text) {
+        values.entry(key).or_insert(value);
+    }
+
+    let mut path = merged_executable_path(
+        shell,
+        &home_text,
+        &user,
+        std::env::var("PATH").ok().as_deref(),
+    );
+    if let Some(context) = context {
+        let wrapper_bin = context
+            .runtime_root
+            .join("scripts/wrappers/bin")
+            .display()
+            .to_string();
+        path = prepend_path_component(&wrapper_bin, &path);
+        values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
+        values.insert(
+            "CODUX_SSH_PROFILES_FILE".to_string(),
+            context
+                .support_dir
+                .join("ssh_profiles.json")
+                .display()
+                .to_string(),
+        );
+        values.insert(
+            "DMUX_ZSH_HOOK_SCRIPT".to_string(),
+            context
+                .runtime_root
+                .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+                .display()
+                .to_string(),
+        );
+        if shell_name(shell).as_deref() == Some("zsh") {
+            values.insert(
+                "ZDOTDIR".to_string(),
+                context
+                    .runtime_root
+                    .join("scripts/shell-hooks/zsh")
+                    .display()
+                    .to_string(),
+            );
+        }
+        if let Some(path) = &context.tool_permissions_file {
+            values.insert(
+                "DMUX_TOOL_PERMISSION_SETTINGS_FILE".to_string(),
+                path.display().to_string(),
+            );
+        }
+        if let Some(path) = &context.memory_workspace_root {
+            values.insert(
+                "DMUX_AI_MEMORY_WORKSPACE_ROOT".to_string(),
+                path.display().to_string(),
+            );
+        }
+        if let Some(path) = &context.memory_prompt_file {
+            values.insert(
+                "DMUX_AI_MEMORY_PROMPT_FILE".to_string(),
+                path.display().to_string(),
+            );
+        }
+        if let Some(path) = &context.memory_index_file {
+            values.insert(
+                "DMUX_AI_MEMORY_INDEX_FILE".to_string(),
+                path.display().to_string(),
+            );
+        }
+    }
+    values.insert("PATH".to_string(), path.clone());
+    values.insert("DMUX_ORIGINAL_PATH".to_string(), path);
+    values.insert("TERM".to_string(), "xterm-256color".to_string());
+    values.insert("TERM_PROGRAM".to_string(), app_display_name().to_string());
+    values.insert(
+        "TERM_PROGRAM_VERSION".to_string(),
+        env!("CARGO_PKG_VERSION").to_string(),
+    );
+    values.insert("COLORTERM".to_string(), "truecolor".to_string());
+    values.insert("CODEX_COLOR".to_string(), "1".to_string());
+    values.insert("CODUX_GPUI".to_string(), "1".to_string());
+    values.insert(
+        "LANG".to_string(),
+        values.get("LANG").cloned().unwrap_or_else(default_lang),
+    );
+    let lang = values.get("LANG").cloned().unwrap_or_else(default_lang);
+    values.entry("LC_CTYPE".to_string()).or_insert(lang);
+    values.insert("DMUX_PROJECT_ID".to_string(), project_id.clone());
+    values.insert("DMUX_PROJECT_NAME".to_string(), project_name.clone());
+    values.insert("DMUX_PROJECT_PATH".to_string(), project_path.clone());
+    values.insert("CODUX_PROJECT_ID".to_string(), project_id);
+    values.insert("CODUX_PROJECT_NAME".to_string(), project_name);
+    values.insert("CODUX_PROJECT_PATH".to_string(), project_path);
+    values.insert("CODUX_TERMINAL_ID".to_string(), terminal_id.clone());
+    values.insert("CODUX_SLOT_ID".to_string(), slot_id.clone());
+    values.insert("DMUX_SESSION_ID".to_string(), terminal_id.clone());
+    values.insert("DMUX_TERMINAL_ID".to_string(), terminal_id);
+    values.insert("DMUX_SLOT_ID".to_string(), slot_id);
+    values.insert("DMUX_SESSION_KEY".to_string(), session_key);
+    values.insert("DMUX_SESSION_TITLE".to_string(), session_title);
+    values.insert("DMUX_SESSION_CWD".to_string(), session_cwd);
+    values.insert(
+        "DMUX_SESSION_INSTANCE_ID".to_string(),
+        context
+            .and_then(|context| context.session_instance_id.clone())
+            .unwrap_or_else(|| Uuid::new_v4().to_string().to_lowercase()),
+    );
+    values.insert("DMUX_RUNTIME_OWNER".to_string(), app_slug().to_string());
+    values.insert(
+        "DMUX_RUNTIME_SOCKET".to_string(),
+        runtime_temp_dir()
+            .join("runtime-events.sock")
+            .display()
+            .to_string(),
+    );
+    values.insert(
+        "DMUX_RUNTIME_EVENT_DIR".to_string(),
+        runtime_temp_dir()
+            .join("runtime-events")
+            .display()
+            .to_string(),
+    );
+    values.insert(
+        "DMUX_LOG_FILE".to_string(),
+        runtime_temp_dir().join("live.log").display().to_string(),
+    );
+    values.insert(
+        "DMUX_CLAUDE_SESSION_MAP_DIR".to_string(),
+        runtime_temp_dir()
+            .join("claude-session-map")
+            .display()
+            .to_string(),
+    );
+    values.insert(
+        "DMUX_OPENCODE_SESSION_MAP_DIR".to_string(),
+        runtime_temp_dir()
+            .join("opencode-session-map")
+            .display()
+            .to_string(),
+    );
+
+    if let Some(overrides) = &config.env {
+        for (key, value) in overrides {
+            values.insert(key.clone(), value.clone());
+        }
+    }
+    ensure_utf8_locale(&mut values);
+    values
+}
+
+fn ensure_utf8_locale(values: &mut HashMap<String, String>) {
+    let fallback = default_lang();
+    if !is_utf8_locale(values.get("LANG").map(String::as_str)) {
+        values.insert("LANG".to_string(), fallback.clone());
+    }
+
+    for key in ["LC_ALL", "LC_CTYPE"] {
+        if values
+            .get(key)
+            .is_some_and(|value| !is_utf8_locale(Some(value.as_str())))
+        {
+            values.insert(key.to_string(), fallback.clone());
+        }
+    }
+
+    values.entry("LC_CTYPE".to_string()).or_insert(fallback);
+}
+
+fn is_utf8_locale(value: Option<&str>) -> bool {
+    value
+        .map(|value| {
+            let normalized = value.trim().to_ascii_lowercase().replace('-', "");
+            normalized.contains("utf8")
+        })
+        .unwrap_or(false)
+}
+
+fn append_passthrough_env(values: &mut HashMap<String, String>) {
+    append_env_keys(values, COMMON_PASSTHROUGH_ENV_KEYS);
+    #[cfg(unix)]
+    append_env_keys(values, UNIX_PASSTHROUGH_ENV_KEYS);
+    #[cfg(windows)]
+    append_env_keys(values, WINDOWS_PASSTHROUGH_ENV_KEYS);
+}
+
+fn append_env_keys(values: &mut HashMap<String, String>, keys: &[&str]) {
+    for key in keys {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                values.entry((*key).to_string()).or_insert(value);
+            }
+        }
+    }
+}
+
+fn configured_dotenv(home: &str) -> HashMap<String, String> {
+    let mut values = HashMap::new();
+    let allowed = DOTENV_KEYS
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    for path in dotenv_paths(home) {
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        for raw_line in text.lines() {
+            let mut line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some(value) = line.strip_prefix("export ") {
+                line = value.trim();
+            }
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            let key = key.trim();
+            if !allowed.contains(key) || values.contains_key(key) {
+                continue;
+            }
+            values.insert(key.to_string(), unquote_env_value(value.trim()));
+        }
+    }
+    values
+}
+
+fn configured_codex_env(home: &str) -> HashMap<String, String> {
+    let mut values = HashMap::new();
+    let codex_home = Path::new(home).join(".codex");
+    if let Ok(text) = fs::read_to_string(codex_home.join("auth.json")) {
+        for (key, value) in codex_auth_env_from_text(&text) {
+            values.entry(key).or_insert(value);
+        }
+    }
+    if let Ok(text) = fs::read_to_string(codex_home.join("config.toml")) {
+        for (key, value) in codex_config_env_from_text(&text) {
+            values.entry(key).or_insert(value);
+        }
+    }
+    values
+}
+
+fn codex_auth_env_from_text(text: &str) -> HashMap<String, String> {
+    let mut values = HashMap::new();
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
+        return values;
+    };
+    if let Some(api_key) = json
+        .get("OPENAI_API_KEY")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        values.insert("OPENAI_API_KEY".to_string(), api_key.to_string());
+    }
+    values
+}
+
+fn codex_config_env_from_text(text: &str) -> HashMap<String, String> {
+    let mut root = HashMap::new();
+    let mut providers: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut profiles: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut section = Vec::<String>::new();
+    for raw_line in text.lines() {
+        let line = strip_toml_comment(raw_line).trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(next_section) = parse_toml_section(&line) {
+            section = next_section;
+            continue;
+        }
+        let Some((key, value)) = parse_toml_string_assignment(&line) else {
+            continue;
+        };
+        match section.as_slice() {
+            [] => {
+                root.insert(key, value);
+            }
+            [table, provider] if table == "model_providers" => {
+                providers
+                    .entry(provider.clone())
+                    .or_default()
+                    .insert(key, value);
+            }
+            [table, profile] if table == "profiles" => {
+                profiles
+                    .entry(profile.clone())
+                    .or_default()
+                    .insert(key, value);
+            }
+            _ => {}
+        }
+    }
+    let active_profile = root.get("profile").and_then(|name| profiles.get(name));
+    let active_provider = active_profile
+        .and_then(|profile| profile.get("model_provider"))
+        .or_else(|| root.get("model_provider"))
+        .map(String::as_str)
+        .unwrap_or("openai");
+    let base_url = providers
+        .get(active_provider)
+        .and_then(|provider| provider.get("base_url"))
+        .or_else(|| active_profile.and_then(|profile| profile.get("openai_base_url")))
+        .or_else(|| root.get("openai_base_url"))
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut values = HashMap::new();
+    if let Some(base_url) = base_url {
+        values.insert("OPENAI_BASE_URL".to_string(), base_url.to_string());
+    }
+    values
+}
+
+fn strip_toml_comment(line: &str) -> &str {
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escaped = false;
+    for (index, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_double_quote => escaped = true,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '#' if !in_single_quote && !in_double_quote => return &line[..index],
+            _ => {}
+        }
+    }
+    line
+}
+
+fn parse_toml_section(line: &str) -> Option<Vec<String>> {
+    let name = line.strip_prefix('[')?.strip_suffix(']')?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(
+        name.split('.')
+            .map(|part| unquote_env_value(part.trim()))
+            .filter(|part| !part.is_empty())
+            .collect(),
+    )
+}
+
+fn parse_toml_string_assignment(line: &str) -> Option<(String, String)> {
+    let (key, raw_value) = line.split_once('=')?;
+    let key = key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    Some((key.to_string(), parse_toml_string(raw_value.trim())?))
+}
+
+fn parse_toml_string(value: &str) -> Option<String> {
+    if value.len() < 2 {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    match (bytes[0], bytes[value.len() - 1]) {
+        (b'"', b'"') => serde_json::from_str::<String>(value).ok(),
+        (b'\'', b'\'') => Some(value[1..value.len() - 1].to_string()),
+        _ => None,
+    }
+}
+
+fn dotenv_paths(home: &str) -> Vec<PathBuf> {
+    [
+        ".gemini/.env",
+        ".claude/.env",
+        ".codex/.env",
+        ".opencode/.env",
+        ".config/opencode/.env",
+    ]
+    .iter()
+    .map(|path| Path::new(home).join(path))
+    .collect()
+}
+
+fn unquote_env_value(value: &str) -> String {
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        if (bytes[0] == b'"' && bytes[value.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[value.len() - 1] == b'\'')
+        {
+            return value[1..value.len() - 1].to_string();
+        }
+    }
+    value.to_string()
+}
+
+fn terminal_history_bytes(scrollback_lines: Option<usize>, cols: u16) -> usize {
+    let lines = scrollback_lines.unwrap_or(500).clamp(200, 10_000);
+    usize::from(cols.max(20))
+        .saturating_mul(lines)
+        .saturating_mul(4)
+        .clamp(MIN_HISTORY_BYTES, MAX_CONFIGURED_HISTORY_BYTES)
+}
+
+fn decode_utf8_output(bytes: &[u8], pending: &mut Vec<u8>) -> String {
+    if pending.is_empty() {
+        return decode_utf8_complete_prefix(bytes, pending);
+    }
+    pending.extend_from_slice(bytes);
+    let combined = std::mem::take(pending);
+    decode_utf8_complete_prefix(&combined, pending)
+}
+
+fn decode_utf8_complete_prefix(bytes: &[u8], pending: &mut Vec<u8>) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_string(),
+        Err(error) => {
+            let valid_up_to = error.valid_up_to();
+            let (valid, rest) = bytes.split_at(valid_up_to);
+            if error.error_len().is_none() {
+                pending.extend_from_slice(rest);
+                return String::from_utf8_lossy(valid).to_string();
+            }
+            String::from_utf8_lossy(bytes).to_string()
+        }
+    }
+}
+
+fn flush_utf8_decoder(pending: &mut Vec<u8>) -> String {
+    if pending.is_empty() {
+        String::new()
+    } else {
+        String::from_utf8_lossy(&std::mem::take(pending)).to_string()
+    }
+}
+
+fn clear_terminal_environment(command: &mut CommandBuilder) {
+    #[cfg(not(windows))]
+    command.env_clear();
+    #[cfg(windows)]
+    {
+        let _ = command;
+    }
+}
+
+fn normalize_terminal_cwd(cwd: Option<String>) -> Option<String> {
+    cwd.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(normalize_terminal_path(trimmed))
+        }
+    })
+}
+
+#[cfg(windows)]
+fn normalize_terminal_path(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = path.strip_prefix(r"\\?\") {
+        return rest.to_string();
+    }
+    path.to_string()
+}
+
+#[cfg(not(windows))]
+fn normalize_terminal_path(path: &str) -> String {
+    path.to_string()
+}
+
+#[cfg(unix)]
+fn build_shell_command(shell: &str, initial_command: Option<&str>) -> CommandBuilder {
+    let shell_name = shell_name(shell);
+    let mut command = CommandBuilder::new(shell);
+    if matches!(shell_name.as_deref(), Some("zsh")) {
+        if let Some(initial_command) = initial_command {
+            command.args(["+o", "prompt_sp", "-i", "-l", "-c", initial_command]);
+        } else {
+            command.args(["+o", "prompt_sp", "-i", "-l"]);
+        }
+        return command;
+    }
+    if matches!(shell_name.as_deref(), Some("bash" | "sh")) {
+        if let Some(initial_command) = initial_command {
+            command.args(["-i", "-l", "-c", initial_command]);
+        } else {
+            command.args(["-i", "-l"]);
+        }
+        return command;
+    }
+    if let Some(initial_command) = initial_command {
+        command.args(["-l", "-c", initial_command]);
+    }
+    command
+}
+
+#[cfg(windows)]
+fn build_shell_command(shell: &str, initial_command: Option<&str>) -> CommandBuilder {
+    let shell_name = shell_name(shell);
+    let mut command = CommandBuilder::new(shell);
+    if matches!(
+        shell_name.as_deref(),
+        Some("powershell.exe" | "powershell" | "pwsh.exe" | "pwsh")
+    ) {
+        command.args(["-NoLogo", "-NoProfile", "-NoExit"]);
+        if matches!(shell_name.as_deref(), Some("powershell.exe" | "powershell")) {
+            command.args(["-ExecutionPolicy", "Bypass"]);
+        }
+        if let Some(initial_command) = initial_command {
+            command.args(["-Command", initial_command]);
+        }
+        return command;
+    }
+    if let Some(initial_command) = initial_command {
+        command.arg(initial_command);
+    }
+    command
+}
+
+pub fn default_shell() -> String {
+    if cfg!(target_os = "windows") {
+        windows_default_shell()
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_default_shell() -> String {
+    windows_shell_candidates()
+        .into_iter()
+        .find(|path| Path::new(path).exists())
+        .unwrap_or_else(|| "powershell.exe".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn windows_default_shell() -> String {
+    String::new()
+}
+
+#[cfg(target_os = "windows")]
+fn windows_shell_candidates() -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(
+            Path::new(&program_files)
+                .join("PowerShell")
+                .join("7")
+                .join("pwsh.exe")
+                .display()
+                .to_string(),
+        );
+    }
+    if let Ok(system_root) = std::env::var("SystemRoot").or_else(|_| std::env::var("WINDIR")) {
+        candidates.push(
+            Path::new(&system_root)
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe")
+                .display()
+                .to_string(),
+        );
+    }
+    candidates.push("powershell.exe".to_string());
+    candidates
+}
+
+fn merged_executable_path(
+    shell: &str,
+    home: &str,
+    user: &str,
+    inherited_path: Option<&str>,
+) -> String {
+    let default_path = inherited_path
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(FALLBACK_PATH);
+    let login_shell_path = resolved_login_shell_path(shell, home, user);
+    let user_tool_paths = [
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        Path::new(home).join(".local/bin").display().to_string(),
+        Path::new(home).join(".bun/bin").display().to_string(),
+        Path::new(home).join(".cargo/bin").display().to_string(),
+        Path::new(home).join(".opencode/bin").display().to_string(),
+    ];
+    let mut paths = Vec::new();
+    if let Some(login_shell_path) = login_shell_path {
+        push_path_components(&mut paths, &login_shell_path);
+    }
+    #[cfg(not(windows))]
+    {
+        for path in user_tool_paths {
+            push_path(&mut paths, path);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = user_tool_paths;
+    }
+    push_path_components(&mut paths, default_path);
+    paths.join(&PATH_SEPARATOR.to_string())
+}
+
+fn push_path_components(paths: &mut Vec<String>, value: &str) {
+    for path in value.split(PATH_SEPARATOR) {
+        push_path(paths, path);
+    }
+}
+
+fn push_path(paths: &mut Vec<String>, value: impl AsRef<str>) {
+    let value = value.as_ref().trim();
+    if value.is_empty() || paths.iter().any(|existing| existing == value) {
+        return;
+    }
+    paths.push(value.to_string());
+}
+
+fn prepend_path_component(component: &str, path: &str) -> String {
+    if component.trim().is_empty()
+        || path
+            .split(PATH_SEPARATOR)
+            .any(|existing| existing.trim() == component.trim())
+    {
+        return path.to_string();
+    }
+    if path.trim().is_empty() {
+        component.to_string()
+    } else {
+        format!("{component}{PATH_SEPARATOR}{path}")
+    }
+}
+
+fn resolved_login_shell_path(shell: &str, home: &str, user: &str) -> Option<String> {
+    #[cfg(windows)]
+    {
+        let _ = shell;
+        let _ = home;
+        let _ = user;
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        static CACHE: OnceLock<parking_lot::Mutex<HashMap<String, Option<String>>>> =
+            OnceLock::new();
+        let cache = CACHE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()));
+        let key = format!("{shell}|{home}|{user}");
+        if let Some(value) = cache.lock().get(&key) {
+            return value.clone();
+        }
+        let resolved = resolve_login_shell_path_uncached(shell, home, user);
+        cache.lock().insert(key, resolved.clone());
+        resolved
+    }
+}
+
+#[cfg(not(windows))]
+fn resolve_login_shell_path_uncached(shell: &str, home: &str, user: &str) -> Option<String> {
+    let begin_marker = "__CODUX_LOGIN_PATH_BEGIN__";
+    let end_marker = "__CODUX_LOGIN_PATH_END__";
+    let output = Command::new(shell)
+        .args([
+            "-lic",
+            &format!("printf '{begin_marker}%s{end_marker}' \"$PATH\""),
+        ])
+        .env_clear()
+        .env("HOME", home)
+        .env("USER", user)
+        .env("LOGNAME", user)
+        .env("SHELL", shell)
+        .env("PATH", FALLBACK_PATH)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let begin = text.find(begin_marker)? + begin_marker.len();
+    let end = text[begin..].find(end_marker)? + begin;
+    let path = text[begin..end].trim();
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+fn shell_name(shell: &str) -> Option<String> {
+    Path::new(shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.trim_start_matches('-').to_ascii_lowercase())
+}
+
+fn project_path_name(path: &str) -> Option<String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn default_user() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "codux".to_string())
+}
+
+fn app_display_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "Codux Dev"
+    } else {
+        "Codux"
+    }
+}
+
+fn app_slug() -> &'static str {
+    if cfg!(debug_assertions) {
+        "codux-dev"
+    } else {
+        "codux"
+    }
+}
+
+fn runtime_temp_dir() -> PathBuf {
+    std::env::temp_dir().join(app_slug())
+}
+
+fn default_lang() -> String {
+    "en_US.UTF-8".to_string()
+}
+
+fn now_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or_default()
+}
+
+fn rfc3339_now() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[cfg(unix)]
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn output_capture_keeps_limited_tail_and_total_bytes() {
+        let mut capture = TerminalOutputCapture::new(5);
+        capture.push(b"hello");
+        capture.push(b" world");
+        let snapshot = capture.snapshot();
+        assert_eq!(snapshot.bytes, 11);
+        assert_eq!(snapshot.tail, "world");
+    }
+
+    #[test]
+    fn input_capture_keeps_limited_history_and_total_bytes() {
+        let mut capture = TerminalInputCapture::new(2);
+        capture.push(b"ls\n");
+        capture.push(b" ");
+        capture.push(b"pwd\n");
+        capture.push(b"echo ok\n");
+        let snapshot = capture.snapshot();
+        assert_eq!(snapshot.bytes, 16);
+        assert_eq!(snapshot.history.len(), 2);
+        assert_eq!(snapshot.history[0].text, "pwd\n");
+        assert_eq!(snapshot.history[1].text, "echo ok\n");
+    }
+
+    #[test]
+    fn utf8_decoder_keeps_split_multibyte_characters() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_output(&[0xe6, 0x8e], &mut pending), "");
+        assert_eq!(decode_utf8_output(&[0xa8], &mut pending), "推");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn utf8_decoder_flushes_incomplete_tail_on_eof() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_output(&[0xe6, 0x8e], &mut pending), "");
+        assert_eq!(flush_utf8_decoder(&mut pending), "�");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn terminal_history_bytes_respects_configured_scrollback() {
+        assert_eq!(terminal_history_bytes(Some(10_000), 100), 4 * 100 * 10_000);
+        assert_eq!(terminal_history_bytes(Some(1), 100), MIN_HISTORY_BYTES);
+    }
+
+    #[test]
+    fn terminal_environment_forces_utf8_locale() {
+        let mut config = TerminalPtyConfig::default();
+        config.env = Some(HashMap::from([
+            ("LANG".to_string(), "C".to_string()),
+            ("LC_ALL".to_string(), "C".to_string()),
+            ("LC_CTYPE".to_string(), "POSIX".to_string()),
+        ]));
+
+        let env = terminal_environment("/bin/zsh", None, "term-1", &config, None);
+
+        assert_eq!(env.get("LANG").map(String::as_str), Some("en_US.UTF-8"));
+        assert_eq!(env.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
+        assert_eq!(env.get("LC_CTYPE").map(String::as_str), Some("en_US.UTF-8"));
+    }
+
+    #[test]
+    fn terminal_environment_injects_codux_runtime_context() {
+        let context = TerminalLaunchContext {
+            project_id: "project-1".to_string(),
+            project_name: "Codux".to_string(),
+            project_path: PathBuf::from("/workspace/codux"),
+            support_dir: PathBuf::from("/support/Codux"),
+            runtime_root: PathBuf::from("/runtime-assets"),
+            terminal_id: Some("gpui-term-1".to_string()),
+            slot_id: Some("gpui-pane-1-1".to_string()),
+            session_key: Some("gpui:project-1:gpui-term-1:gpui-pane-1-1".to_string()),
+            session_title: Some("终端 1".to_string()),
+            session_cwd: Some(PathBuf::from("/workspace/codux")),
+            session_instance_id: Some("session-instance-1".to_string()),
+            tool_permissions_file: Some(PathBuf::from("/tmp/codux/tool-permissions.json")),
+            memory_workspace_root: Some(PathBuf::from("/tmp/codux/memory-workspaces/project-1")),
+            memory_prompt_file: Some(PathBuf::from(
+                "/tmp/codux/memory-workspaces/project-1/memory-prompt.txt",
+            )),
+            memory_index_file: Some(PathBuf::from(
+                "/tmp/codux/memory-workspaces/project-1/MEMORY.md",
+            )),
+        };
+        let env = terminal_environment(
+            "/bin/zsh",
+            Some("/workspace/codux"),
+            "gpui-term-1",
+            &context.to_config(),
+            Some(&context),
+        );
+        let path = env.get("PATH").expect("PATH should be set");
+        assert!(path.starts_with("/runtime-assets/scripts/wrappers/bin"));
+        assert_eq!(
+            env.get("DMUX_PROJECT_PATH").map(String::as_str),
+            Some("/workspace/codux")
+        );
+        assert_eq!(
+            env.get("CODUX_TERMINAL_ID").map(String::as_str),
+            Some("gpui-term-1")
+        );
+        assert_eq!(
+            env.get("DMUX_SESSION_INSTANCE_ID").map(String::as_str),
+            Some("session-instance-1")
+        );
+        assert_eq!(
+            env.get("DMUX_AI_MEMORY_INDEX_FILE").map(String::as_str),
+            Some("/tmp/codux/memory-workspaces/project-1/MEMORY.md")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_manager_reuses_session_and_broadcasts_to_subscribers() {
+        let manager = TerminalManager::new();
+        let emit: EventSink = Arc::new(|_| {});
+        let config = TerminalPtyConfig {
+            terminal_id: Some(format!("test-terminal-{}", Uuid::new_v4())),
+            shell: Some("/bin/cat".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            scrollback_lines: Some(100),
+            ..Default::default()
+        };
+
+        let (first_session, first_rx) = manager
+            .attach_or_create_with_context(config.clone(), None, emit.clone())
+            .expect("terminal should start");
+        first_session
+            .write(b"first-shared-output\n")
+            .expect("write should succeed");
+        assert!(
+            recv_until_contains(&first_rx, "first-shared-output", Duration::from_secs(2))
+                .contains("first-shared-output")
+        );
+
+        let (second_session, second_rx) = manager
+            .attach_or_create_with_context(config, None, emit)
+            .expect("terminal should attach");
+        assert!(Arc::ptr_eq(&first_session, &second_session));
+        assert!(
+            recv_until_contains(&second_rx, "first-shared-output", Duration::from_secs(2))
+                .contains("first-shared-output")
+        );
+
+        first_session
+            .write(b"second-shared-output\n")
+            .expect("write should succeed");
+        assert!(
+            recv_until_contains(&first_rx, "second-shared-output", Duration::from_secs(2))
+                .contains("second-shared-output")
+        );
+        assert!(
+            recv_until_contains(&second_rx, "second-shared-output", Duration::from_secs(2))
+                .contains("second-shared-output")
+        );
+
+        let _ = first_session.kill();
+    }
+
+    #[cfg(unix)]
+    fn recv_until_contains(
+        rx: &flume::Receiver<Vec<u8>>,
+        needle: &str,
+        timeout: Duration,
+    ) -> String {
+        let deadline = Instant::now() + timeout;
+        let mut text = String::new();
+        while Instant::now() < deadline && !text.contains(needle) {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(remaining.min(Duration::from_millis(100))) {
+                Ok(bytes) => text.push_str(&String::from_utf8_lossy(&bytes)),
+                Err(flume::RecvTimeoutError::Timeout) => {}
+                Err(flume::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        text
+    }
+}

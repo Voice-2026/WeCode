@@ -1,0 +1,202 @@
+fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) {
+    let state = fs::read_to_string(support_dir.join("state.json"))
+        .ok()
+        .and_then(|content| serde_json::from_str::<StateFile>(&content).ok());
+
+    let Some(state) = state else {
+        let projects = fallback_projects();
+        return (projects.clone(), projects.first().cloned());
+    };
+
+    let mut projects = state
+        .projects
+        .into_iter()
+        .map(|project| ProjectInfo {
+            exists: Path::new(&project.path).exists(),
+            id: project.id,
+            name: project.name,
+            path: project.path,
+            git_default_push_remote_name: project.git_default_push_remote_name,
+        })
+        .collect::<Vec<_>>();
+
+    if projects.is_empty() {
+        projects = fallback_projects();
+    }
+
+    let selected_project = state
+        .selected_project_id
+        .and_then(|id| projects.iter().find(|project| project.id == id).cloned())
+        .or_else(|| {
+            projects
+                .iter()
+                .find(|project| project.path == "/Volumes/Web/codux-tauri")
+                .cloned()
+        })
+        .or_else(|| projects.first().cloned());
+
+    (projects, selected_project)
+}
+
+fn load_settings(support_dir: &Path) -> SettingsSummary {
+    SettingsService::new(support_dir.to_path_buf()).summary()
+}
+
+fn load_git_summary(project_path: &str) -> git::GitSummary {
+    git::GitService::status(project_path)
+}
+
+fn load_git_review(project_path: &str, base_branch: Option<&str>) -> git::GitReviewSummary {
+    git::GitService::review(project_path, base_branch)
+}
+
+fn load_file_entries(project_path: &str, directory_path: Option<&str>) -> Vec<FileEntry> {
+    FilesService::list_children(project_path, directory_path)
+        .map(|mut entries| {
+            entries.truncate(80);
+            entries
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| FileEntry {
+            name: entry.name,
+            relative_path: entry.relative_path,
+            size: entry.size,
+            kind: match entry.kind {
+                crate::files::FileKind::Directory => FileKind::Directory,
+                crate::files::FileKind::File | crate::files::FileKind::Symlink => FileKind::File,
+            },
+        })
+        .collect()
+}
+
+fn load_ai_history(support_dir: &Path, project_path: &str) -> AIHistorySummary {
+    AIHistoryService::new(support_dir.to_path_buf()).project_summary(project_path)
+}
+
+fn load_global_ai_history(support_dir: &Path) -> AIGlobalHistorySummary {
+    AIHistoryService::new(support_dir.to_path_buf()).global_summary()
+}
+
+fn load_ai_session_detail(
+    support_dir: &Path,
+    project_path: &str,
+    session_id: &str,
+) -> AISessionDetail {
+    AIHistoryService::new(support_dir.to_path_buf())
+        .project_session_detail(project_path, session_id)
+        .unwrap_or_else(|error| AISessionDetail {
+            id: session_id.to_string(),
+            error: Some(error),
+            ..Default::default()
+        })
+}
+
+fn load_memory(support_dir: &Path, project_id: Option<&str>) -> MemorySummary {
+    MemoryService::new(support_dir.to_path_buf()).summary(project_id)
+}
+
+fn load_memory_manager(
+    support_dir: &Path,
+    projects: &[ProjectInfo],
+    scope: &str,
+    project_id: Option<&str>,
+    tab: &str,
+) -> MemoryManagerSnapshot {
+    MemoryService::new(support_dir.to_path_buf())
+        .manager_snapshot(projects, scope, project_id, tab, 500)
+}
+
+fn load_notifications(support_dir: &Path) -> NotificationSummary {
+    NotificationService::new(support_dir.to_path_buf()).summary()
+}
+
+fn load_ssh(support_dir: &Path, runtime_assets: PathBuf) -> SSHSummary {
+    SSHService::new(support_dir.to_path_buf(), runtime_assets).summary()
+}
+
+fn load_terminal_layout(support_dir: &Path, project_id: Option<&str>) -> TerminalLayoutSummary {
+    TerminalLayoutService::new(support_dir.to_path_buf()).load(project_id)
+}
+
+fn load_terminal_runtime(support_dir: &Path) -> TerminalRuntimeSummary {
+    TerminalRuntimeService::new(support_dir.to_path_buf()).summary()
+}
+
+fn load_worktrees(
+    support_dir: &Path,
+    project_id: Option<&str>,
+    project_path: Option<&str>,
+) -> WorktreeSummary {
+    WorktreeService::new(support_dir.to_path_buf()).summary(project_id, project_path)
+}
+
+fn load_update(support_dir: &Path, repo_root: PathBuf) -> UpdateSummary {
+    UpdateService::new(support_dir.to_path_buf(), repo_root).summary()
+}
+
+fn load_runtime_activity(support_dir: &Path) -> RuntimeActivitySummary {
+    RuntimeActivityService::new(support_dir.to_path_buf()).summary()
+}
+
+fn load_runtime_events() -> RuntimeEventSummary {
+    RuntimeEventService::new().summary()
+}
+
+fn load_ai_runtime_state(
+    support_dir: &Path,
+    runtime_events: &RuntimeEventSummary,
+) -> AIRuntimeStateSummary {
+    let service = AIRuntimeStateService::new(support_dir.to_path_buf());
+    match service.save_from_events(runtime_events) {
+        Ok(summary) => summary,
+        Err(error) => {
+            let mut summary = service.summary();
+            summary.error = Some(error);
+            summary
+        }
+    }
+}
+
+fn load_remote(support_dir: &Path) -> RemoteSummary {
+    RemoteService::new(support_dir.to_path_buf()).summary()
+}
+
+fn load_pet(support_dir: &Path) -> PetSummary {
+    PetService::new(support_dir.to_path_buf()).summary()
+}
+
+fn load_performance() -> PerformanceSummary {
+    PerformanceService::summary()
+}
+
+fn load_tool_permissions(support_dir: &Path) -> ToolPermissionsSummary {
+    ToolPermissionsService::new(support_dir.to_path_buf()).summary()
+}
+
+fn read_json_or_default(path: PathBuf) -> Value {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+fn app_support_dir() -> PathBuf {
+    runtime_paths::app_support_dir()
+}
+
+fn fallback_projects() -> Vec<ProjectInfo> {
+    ["/Volumes/Web/codux-tauri", "/Volumes/Web/codux-gpui"]
+        .into_iter()
+        .map(|path| ProjectInfo {
+            id: path.to_string(),
+            name: Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.to_string()),
+            path: path.to_string(),
+            exists: Path::new(path).exists(),
+            git_default_push_remote_name: None,
+        })
+        .collect()
+}

@@ -1,0 +1,189 @@
+use super::types::{ProjectActivityEvent, TrackedProject};
+use crate::background_queue::{SerialJob, SerialJobQueue};
+use crate::git::GitService;
+use crate::project_store::ProjectSummary;
+use crate::runtime_trace::{runtime_trace, runtime_trace_elapsed};
+use crate::worktree::WorktreeService;
+use std::collections::VecDeque;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+
+#[derive(Clone)]
+pub(super) struct GitJobQueue {
+    queue: SerialJobQueue<GitJob>,
+}
+
+impl GitJobQueue {
+    pub(super) fn new(events: Arc<Mutex<VecDeque<ProjectActivityEvent>>>) -> Self {
+        Self {
+            queue: SerialJobQueue::new("codux-git-job-worker", move |job| {
+                run_git_job(job, Arc::clone(&events))
+            }),
+        }
+    }
+
+    pub(super) fn submit(&self, job: GitJob) {
+        self.queue.submit(job);
+    }
+}
+
+pub(super) enum GitJob {
+    Refresh {
+        project: TrackedProject,
+    },
+    Review {
+        project: TrackedProject,
+    },
+    Worktree {
+        support_dir: std::path::PathBuf,
+        project: ProjectSummary,
+    },
+}
+
+impl SerialJob for GitJob {
+    fn queue_key(&self) -> String {
+        match self {
+            Self::Refresh { project } => git_job_key("refresh", &project.path),
+            Self::Review { project } => git_job_key("review", &project.path),
+            Self::Worktree { project, .. } => git_job_key("worktree", &project.path),
+        }
+    }
+}
+
+fn run_git_job(job: GitJob, events: Arc<Mutex<VecDeque<ProjectActivityEvent>>>) {
+    match job {
+        GitJob::Refresh { project } => run_git_refresh_job(&events, project),
+        GitJob::Review { project } => run_git_review_job(&events, project),
+        GitJob::Worktree {
+            support_dir,
+            project,
+        } => refresh_worktree_project_now(&events, support_dir, &project),
+    }
+}
+
+fn run_git_refresh_job(
+    events: &Arc<Mutex<VecDeque<ProjectActivityEvent>>>,
+    project: TrackedProject,
+) {
+    let started_at = Instant::now();
+    let project_id = project.id.clone();
+    let project_name = project.name.clone();
+    let project_path = project.path.clone();
+    let snapshot = GitService::status(&project_path);
+    let is_repository = snapshot.is_repository;
+    let staged_count = snapshot.staged;
+    let unstaged_count = snapshot.unstaged;
+    let untracked_count = snapshot.untracked;
+    if snapshot.is_repository || snapshot.error.is_none() || Path::new(&project_path).exists() {
+        push_event(
+            events,
+            ProjectActivityEvent::GitStatus {
+                project_id: project_id.clone(),
+                project_name: project_name.clone(),
+                project_path: project_path.clone(),
+                snapshot,
+            },
+        );
+    }
+    runtime_trace_elapsed(
+        "git",
+        "refresh_status",
+        started_at,
+        &format!(
+            "project={} path={} repo={} staged={} unstaged={} untracked={}",
+            project_id, project_path, is_repository, staged_count, unstaged_count, untracked_count
+        ),
+    );
+}
+
+fn run_git_review_job(
+    events: &Arc<Mutex<VecDeque<ProjectActivityEvent>>>,
+    project: TrackedProject,
+) {
+    let started_at = Instant::now();
+    let project_id = project.id.clone();
+    let project_path = project.path.clone();
+    let review = GitService::review(&project.path, None);
+    if review.is_repository || review.error.is_none() || Path::new(&project.path).exists() {
+        push_event(
+            events,
+            ProjectActivityEvent::GitReview {
+                project_id: project.id,
+                project_name: project.name,
+                project_path: project.path,
+                base_branch: None,
+                snapshot: review,
+            },
+        );
+    }
+    runtime_trace_elapsed(
+        "git",
+        "refresh_review",
+        started_at,
+        &format!("project={project_id} path={project_path}"),
+    );
+}
+
+fn refresh_worktree_project_now(
+    events: &Arc<Mutex<VecDeque<ProjectActivityEvent>>>,
+    support_dir: std::path::PathBuf,
+    project: &ProjectSummary,
+) {
+    let started_at = Instant::now();
+    let snapshot = match WorktreeService::new(support_dir).sync_from_git(&project.id, &project.path)
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            runtime_trace(
+                "project-activity",
+                &format!("worktree refresh snapshot failed: {error}"),
+            );
+            return;
+        }
+    };
+    push_event(
+        events,
+        ProjectActivityEvent::WorktreeSnapshot {
+            project_id: project.id.clone(),
+            project_path: project.path.clone(),
+            snapshot,
+        },
+    );
+    runtime_trace_elapsed(
+        "worktree",
+        "refresh_snapshot",
+        started_at,
+        &format!("project={} path={}", project.id, project.path),
+    );
+}
+
+fn push_event(events: &Arc<Mutex<VecDeque<ProjectActivityEvent>>>, event: ProjectActivityEvent) {
+    if let Ok(mut events) = events.lock() {
+        events.push_back(event);
+        while events.len() > 128 {
+            events.pop_front();
+        }
+    }
+}
+
+fn git_job_key(kind: &str, path: &str) -> String {
+    format!("{kind}:{}", coalesced_refresh_key(path))
+}
+
+fn coalesced_refresh_key(path: &str) -> String {
+    let path = Path::new(path.trim());
+    if path.as_os_str().is_empty() {
+        return String::new();
+    }
+    let normalized = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut key = normalized.to_string_lossy().replace('\\', "/");
+    while key.len() > 1 && key.ends_with('/') {
+        key.pop();
+    }
+    #[cfg(windows)]
+    {
+        key = key.to_ascii_lowercase();
+    }
+    key
+}
