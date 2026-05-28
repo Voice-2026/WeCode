@@ -3280,15 +3280,15 @@ fn opt(value: &'static str, label: &'static str) -> (String, SharedString) {
 fn language_options() -> Vec<(String, SharedString)> {
     vec![
         ("system", "跟随系统"),
-        ("english", "English"),
         ("simplifiedChinese", "简体中文"),
         ("traditionalChinese", "繁體中文"),
+        ("english", "English"),
         ("japanese", "日本語"),
         ("korean", "한국어"),
         ("french", "Français"),
         ("german", "Deutsch"),
         ("spanish", "Español"),
-        ("portugueseBrazil", "Português"),
+        ("portugueseBrazil", "Português (Brasil)"),
         ("russian", "Русский"),
     ]
     .into_iter()
@@ -3354,10 +3354,10 @@ fn ai_background_refresh_options() -> Vec<(String, SharedString)> {
 fn developer_refresh_options() -> Vec<(String, SharedString)> {
     interval_options(&[
         ("1", "1 sec"),
+        ("2", "2 sec"),
         ("3", "3 sec"),
         ("5", "5 sec"),
         ("10", "10 sec"),
-        ("30", "30 sec"),
     ])
 }
 
@@ -3685,8 +3685,8 @@ fn terminal_font_options(
 
 fn pet_speech_mode_options() -> Vec<(String, SharedString)> {
     vec![
-        ("off", "关闭"),
         ("mixed", "混合"),
+        ("off", "关闭"),
         ("encourage", "鼓励"),
         ("roast", "吐槽"),
         ("flirty", "调皮"),
@@ -3747,7 +3747,7 @@ fn git_provider_options(settings: &SettingsSummary) -> Vec<(String, SharedString
         settings
             .ai_providers
             .iter()
-            .filter(|provider| provider.enabled)
+            .filter(|provider| provider.enabled && provider.kind != "localLlama")
             .map(|provider| {
                 (
                     provider.id.clone(),
