@@ -5,6 +5,10 @@ use crate::{
     },
     notification::{NotificationDispatchRequest, NotificationDispatchResult},
     performance::{PerformanceMonitor, PerformanceSnapshot},
+    pet::{
+        PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview, PetCustomPetInstallRequest,
+        PetRefreshRequest, PetRenameRequest, PetRestoreRequest, PetSnapshot,
+    },
     power::PowerManager,
     project_activity::ProjectActivitySnapshot,
     project_store::{ProjectListSnapshot, ProjectSummary},
@@ -181,6 +185,57 @@ pub fn remote_pairing_reject(
     service.reject_remote_pairing(&pairing_id)
 }
 
+pub fn pet_refresh(
+    service: &RuntimeService,
+    _request: PetRefreshRequest,
+) -> Result<PetSnapshot, String> {
+    service.refresh_pet_from_indexed_history()?;
+    service.pet_snapshot()
+}
+
+pub async fn pet_custom_install_preview(
+    service: &RuntimeService,
+    request: PetCustomPetInstallRequest,
+) -> Result<PetCustomPetInstallPreview, String> {
+    service.resolve_custom_pet_install(request).await
+}
+
+pub async fn pet_custom_install(
+    service: &RuntimeService,
+    request: PetCustomPetInstallRequest,
+) -> Result<PetCustomPet, String> {
+    service.install_custom_pet(request).await
+}
+
+pub fn pet_custom_sprite(service: &RuntimeService, pet: PetCustomPet) -> Result<PetCustomPet, String> {
+    Ok(service.custom_pet_sprite(pet))
+}
+
+pub fn pet_claim(
+    service: &RuntimeService,
+    request: PetClaimRequest,
+) -> Result<PetSnapshot, String> {
+    service.claim_pet_from_indexed_history(request)
+}
+
+pub fn pet_rename(
+    service: &RuntimeService,
+    request: PetRenameRequest,
+) -> Result<PetSnapshot, String> {
+    service.rename_pet(request)
+}
+
+pub fn pet_archive_current(service: &RuntimeService) -> Result<PetSnapshot, String> {
+    service.archive_current_pet()
+}
+
+pub fn pet_restore_archived(
+    service: &RuntimeService,
+    request: PetRestoreRequest,
+) -> Result<PetSnapshot, String> {
+    service.restore_archived_pet(request)
+}
+
 pub fn power_set_sleep_prevention(
     manager: &PowerManager,
     mode: String,
@@ -197,6 +252,7 @@ pub fn notification_dispatch_channels(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pet::{PetProjectTokenTotal, PetRefreshInput};
     use serde_json::json;
     use uuid::Uuid;
 
@@ -392,6 +448,90 @@ mod tests {
                 .expect_err("missing reject id")
                 .contains("Missing pairing id")
         );
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn pet_commands_delegate_to_runtime_pet_store() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-pet-{}",
+            Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&support_dir).expect("support dir");
+        let service = RuntimeService::new(support_dir.clone());
+
+        if service
+            .pet_snapshot()
+            .map(|snapshot| snapshot.claimed_at.is_none())
+            .unwrap_or(true)
+        {
+            service
+                .claim_pet(crate::pet::PetClaimInput {
+                    species: "dragon".to_string(),
+                    custom_name: " Spark ".to_string(),
+                    custom_pet: None,
+                    project_totals: vec![PetProjectTokenTotal {
+                        project_id: "project-a".to_string(),
+                        total_tokens: 100,
+                    }],
+                    fallback_total_tokens: 100,
+                })
+                .expect("seed claimed pet");
+        }
+
+        let renamed = pet_rename(
+            &service,
+            PetRenameRequest {
+                custom_name: " Ember ".to_string(),
+            },
+        )
+        .expect("rename pet");
+        assert_eq!(renamed.custom_name, "Ember");
+
+        assert!(
+            pet_restore_archived(
+                &service,
+                PetRestoreRequest {
+                    legacy_id: "missing".to_string(),
+                },
+            )
+            .expect_err("missing archived pet")
+            .contains("Archived pet not found")
+        );
+
+        let refreshed = service
+            .refresh_pet(PetRefreshInput {
+                project_totals: vec![PetProjectTokenTotal {
+                    project_id: "project-a".to_string(),
+                    total_tokens: 250,
+                }],
+                fallback_total_tokens: 250,
+                computed_stats: Default::default(),
+            })
+            .expect("refresh pet directly");
+        assert!(refreshed.updated_at > 0);
+
+        let archived = pet_archive_current(&service).expect("archive pet");
+        assert!(archived.claimed_at.is_none());
+        assert!(!archived.legacy.is_empty());
+
+        let custom = pet_custom_sprite(
+            &service,
+            PetCustomPet {
+                id: "demo".to_string(),
+                display_name: "Demo".to_string(),
+                description: String::new(),
+                spritesheet_path: "sprite.png".to_string(),
+                directory_name: "demo".to_string(),
+                spritesheet_data_url: None,
+                source_page_url: None,
+                source_zip_url: None,
+                installed_at: None,
+            },
+        )
+        .expect("custom sprite hydrate");
+        assert_eq!(custom.id, "demo");
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
