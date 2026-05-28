@@ -3,6 +3,7 @@ use crate::{
         AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest, DiagnosticsExportResult,
         UpdateInstallResult, UpdateStatus,
     },
+    git::{GitPushRemoteBranchRequest, GitPushRemoteRequest, GitSummary},
     notification::{NotificationDispatchRequest, NotificationDispatchResult},
     performance::{PerformanceMonitor, PerformanceSnapshot},
     pet::{
@@ -256,6 +257,55 @@ pub fn worktree_merge(
     request: WorktreeMergeRequest,
 ) -> Result<WorktreeSnapshot, String> {
     service.merge_worktree_from_request(request)
+}
+
+pub fn git_cancel(service: &RuntimeService, project_path: String) -> Result<(), String> {
+    service.cancel_project_git(&project_path)
+}
+
+pub fn git_refresh_project(service: &RuntimeService, project_path: String) -> GitSummary {
+    service.reload_project_git(&project_path)
+}
+
+pub fn git_fetch(service: &RuntimeService, project_path: String) -> Result<GitSummary, String> {
+    service.fetch_project_git(&project_path)
+}
+
+pub fn git_pull(service: &RuntimeService, project_path: String) -> Result<GitSummary, String> {
+    service.pull_project_git(&project_path)
+}
+
+pub fn git_push(service: &RuntimeService, project_path: String) -> Result<GitSummary, String> {
+    service.push_project_git(&project_path)
+}
+
+pub fn git_sync(service: &RuntimeService, project_path: String) -> Result<GitSummary, String> {
+    service.sync_project_git(&project_path)
+}
+
+pub fn git_force_push(
+    service: &RuntimeService,
+    project_path: String,
+) -> Result<GitSummary, String> {
+    service.force_push_project_git(&project_path)
+}
+
+pub fn git_push_remote(
+    service: &RuntimeService,
+    request: GitPushRemoteRequest,
+) -> Result<GitSummary, String> {
+    service.push_project_git_remote(&request.project_path, &request.remote)
+}
+
+pub fn git_push_remote_branch(
+    service: &RuntimeService,
+    request: GitPushRemoteBranchRequest,
+) -> Result<GitSummary, String> {
+    service.push_project_git_remote_branch(
+        &request.project_path,
+        &request.remote_branch,
+        request.local_branch.as_deref(),
+    )
 }
 
 pub fn power_set_sleep_prevention(
@@ -606,6 +656,49 @@ mod tests {
         )
         .expect_err("non git merge should fail");
         assert!(merge_error.contains("Not a Git repository"));
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn git_remote_commands_delegate_to_runtime_git2_layer() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-git-{}",
+            Uuid::new_v4()
+        ));
+        let project_dir = support_dir.join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        let service = RuntimeService::new(support_dir.clone());
+        let project_path = project_dir.display().to_string();
+
+        git_cancel(&service, project_path.clone()).expect("cancel without token is ok");
+        let snapshot = git_refresh_project(&service, project_path.clone());
+        assert!(!snapshot.is_repository);
+
+        for result in [
+            git_fetch(&service, project_path.clone()),
+            git_pull(&service, project_path.clone()),
+            git_push(&service, project_path.clone()),
+            git_sync(&service, project_path.clone()),
+            git_force_push(&service, project_path.clone()),
+            git_push_remote(
+                &service,
+                GitPushRemoteRequest {
+                    project_path: project_path.clone(),
+                    remote: "origin".to_string(),
+                },
+            ),
+            git_push_remote_branch(
+                &service,
+                GitPushRemoteBranchRequest {
+                    project_path: project_path.clone(),
+                    remote_branch: "origin/main".to_string(),
+                    local_branch: Some("main".to_string()),
+                },
+            ),
+        ] {
+            assert!(result.is_err());
+        }
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
