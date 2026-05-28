@@ -91,37 +91,23 @@ pub(in crate::app) fn ai_stats_sidebar(
                 .child(
                     div()
                         .mt(px(12.0))
-                        .child(ai_today_usage_chart(global.today_total_tokens, cx)),
+                        .child(ai_today_usage_chart(global, history, cx)),
                 )
                 .child(
                     div()
                         .mt(px(12.0))
-                        .child(ai_recent_usage_heatmap(global.today_total_tokens, cx)),
+                        .child(ai_recent_usage_heatmap(global, history, cx)),
                 )
-                .child(
-                    div().mt(px(12.0)).child(ai_ranking_card(
-                        "工具排行",
-                        history
-                            .sessions
-                            .first()
-                            .map(|session| session.source.clone())
-                            .unwrap_or_else(|| "codex".to_string()),
-                        global.total_tokens,
-                        cx,
-                    )),
-                )
-                .child(
-                    div().mt(px(12.0)).child(ai_ranking_card(
-                        "模型排行",
-                        history
-                            .sessions
-                            .iter()
-                            .find_map(|session| session.last_model.clone())
-                            .unwrap_or_else(|| "gpt-5.5".to_string()),
-                        global.total_tokens,
-                        cx,
-                    )),
-                ),
+                .child(div().mt(px(12.0)).child(ai_ranking_card(
+                    "工具排行",
+                    ai_top_tool(history, global),
+                    cx,
+                )))
+                .child(div().mt(px(12.0)).child(ai_ranking_card(
+                    "模型排行",
+                    ai_top_model(history, global),
+                    cx,
+                ))),
         )
         .child(
             div()
@@ -1619,8 +1605,14 @@ fn ai_metric_card(
         )
 }
 
-fn ai_today_usage_chart(today_total_tokens: i64, cx: &mut Context<CoduxApp>) -> impl IntoElement {
-    let values = [0.06, 0.08, 0.06, 0.12, 0.34, 0.78, 0.28, 0.22, 0.36, 0.26];
+fn ai_today_usage_chart(
+    global: &AIGlobalHistorySummary,
+    history: &AIHistorySummary,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let values = ai_today_bucket_values(global, history);
+    let max_value = values.iter().copied().max().unwrap_or(0).max(1);
+
     ai_stats_card("今日用量", cx)
         .min_h(px(134.0))
         .child(
@@ -1631,13 +1623,14 @@ fn ai_today_usage_chart(today_total_tokens: i64, cx: &mut Context<CoduxApp>) -> 
                 .justify_center()
                 .h(px(62.0))
                 .children(values.into_iter().enumerate().map(|(index, value)| {
+                    let ratio = value as f32 / max_value as f32;
                     div()
                         .w(px(7.0))
                         .ml(if index == 0 { px(0.0) } else { px(4.0) })
-                        .h(px(10.0 + value * 56.0))
+                        .h(px(10.0 + ratio * 56.0))
                         .rounded(px(4.0))
                         .bg(color(theme::ACCENT))
-                        .opacity(if today_total_tokens > 0 { 1.0 } else { 0.35 })
+                        .opacity(if value > 0 { 1.0 } else { 0.35 })
                         .into_any_element()
                 })),
         )
@@ -1664,23 +1657,27 @@ fn ai_today_usage_chart(today_total_tokens: i64, cx: &mut Context<CoduxApp>) -> 
 }
 
 fn ai_recent_usage_heatmap(
-    today_total_tokens: i64,
+    global: &AIGlobalHistorySummary,
+    history: &AIHistorySummary,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let active_index = (today_total_tokens.unsigned_abs() as usize) % 84;
+    let values = ai_recent_heatmap_values(global, history);
+    let max_value = values.iter().copied().max().unwrap_or(0).max(1);
     let inactive_surface = ai_stats_track_surface(cx);
     ai_stats_card("近期用量", cx).child(div().mt(px(12.0)).flex().flex_wrap().children(
-        (0..84).map(|index| {
+        values.into_iter().map(|value| {
+            let ratio = value as f32 / max_value as f32;
             div()
                 .size(px(10.0))
                 .mr(px(6.0))
                 .mb(px(6.0))
                 .rounded(px(3.0))
-                .bg(if index == active_index {
+                .bg(if value > 0 {
                     color(theme::ACCENT)
                 } else {
                     inactive_surface
                 })
+                .opacity(if value > 0 { 0.35 + ratio * 0.65 } else { 1.0 })
                 .into_any_element()
         }),
     ))
@@ -1688,11 +1685,11 @@ fn ai_recent_usage_heatmap(
 
 fn ai_ranking_card(
     title: &'static str,
-    label: String,
-    value: i64,
+    row: Option<(String, i64, f32)>,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let track_surface = ai_stats_track_surface(cx);
+    let (label, value, percent) = row.unwrap_or_else(|| ("暂无数据".to_string(), 0, 0.0));
     ai_stats_card(title, cx)
         .child(
             div()
@@ -1727,7 +1724,7 @@ fn ai_ranking_card(
                             div()
                                 .ml(px(12.0))
                                 .text_color(color(theme::TEXT_DIM))
-                                .child(if value > 0 { "100%" } else { "0%" }),
+                                .child(format!("{:.0}%", percent * 100.0)),
                         ),
                 ),
         )
@@ -1741,12 +1738,121 @@ fn ai_ranking_card(
                 .child(
                     div()
                         .h_full()
-                        .w_full()
+                        .w(gpui::relative(percent.clamp(0.0, 1.0)))
                         .rounded(px(4.0))
                         .bg(color(theme::ACCENT))
                         .opacity(if value > 0 { 1.0 } else { 0.35 }),
                 ),
         )
+}
+
+fn ai_history_sessions<'a>(
+    history: &'a AIHistorySummary,
+    global: &'a AIGlobalHistorySummary,
+) -> Vec<&'a AISessionSummary> {
+    let mut sessions = Vec::new();
+    sessions.extend(history.sessions.iter());
+    sessions.extend(global.recent_sessions.iter());
+    sessions
+}
+
+fn ai_now_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+fn ai_today_bucket_values(
+    global: &AIGlobalHistorySummary,
+    history: &AIHistorySummary,
+) -> [i64; 10] {
+    let mut buckets = [0_i64; 10];
+    let now = ai_now_seconds();
+    let day_start = now - (now % 86_400.0);
+
+    for session in ai_history_sessions(history, global) {
+        if session.last_seen_at < day_start {
+            continue;
+        }
+        let bucket = (((session.last_seen_at - day_start) / 86_400.0) * buckets.len() as f64)
+            .floor()
+            .clamp(0.0, (buckets.len() - 1) as f64) as usize;
+        buckets[bucket] += session.total_tokens.max(0);
+    }
+
+    if buckets.iter().all(|value| *value == 0) {
+        buckets[buckets.len() - 1] = global.today_total_tokens.max(history.today_total_tokens);
+    }
+
+    buckets
+}
+
+fn ai_recent_heatmap_values(
+    global: &AIGlobalHistorySummary,
+    history: &AIHistorySummary,
+) -> [i64; 84] {
+    let mut values = [0_i64; 84];
+    let now = ai_now_seconds();
+    let today = now - (now % 86_400.0);
+
+    for session in ai_history_sessions(history, global) {
+        let session_day = session.last_seen_at - (session.last_seen_at % 86_400.0);
+        let day_offset = ((today - session_day) / 86_400.0).round() as isize;
+        if (0..values.len() as isize).contains(&day_offset) {
+            let index = values.len() - 1 - day_offset as usize;
+            values[index] += session.total_tokens.max(0);
+        }
+    }
+
+    if values.iter().all(|value| *value == 0) {
+        values[values.len() - 1] = global.today_total_tokens.max(history.today_total_tokens);
+    }
+
+    values
+}
+
+fn ai_top_tool(
+    history: &AIHistorySummary,
+    global: &AIGlobalHistorySummary,
+) -> Option<(String, i64, f32)> {
+    ai_top_breakdown(
+        ai_history_sessions(history, global)
+            .into_iter()
+            .map(|session| (session.source.clone(), session.total_tokens)),
+    )
+}
+
+fn ai_top_model(
+    history: &AIHistorySummary,
+    global: &AIGlobalHistorySummary,
+) -> Option<(String, i64, f32)> {
+    ai_top_breakdown(
+        ai_history_sessions(history, global)
+            .into_iter()
+            .filter_map(|session| {
+                session
+                    .last_model
+                    .clone()
+                    .map(|model| (model, session.total_tokens))
+            }),
+    )
+}
+
+fn ai_top_breakdown(rows: impl Iterator<Item = (String, i64)>) -> Option<(String, i64, f32)> {
+    let mut totals = BTreeMap::<String, i64>::new();
+    for (label, value) in rows {
+        if label.trim().is_empty() || value <= 0 {
+            continue;
+        }
+        *totals.entry(label).or_default() += value;
+    }
+
+    let total = totals.values().sum::<i64>().max(1);
+    totals
+        .into_iter()
+        .max_by_key(|(_, value)| *value)
+        .map(|(label, value)| (label, value, value as f32 / total as f32))
 }
 
 fn ai_sessions_panel(
