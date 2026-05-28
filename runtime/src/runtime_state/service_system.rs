@@ -366,6 +366,11 @@ impl RuntimeService {
         Ok((settings, power))
     }
 
+    pub fn set_power_sleep_prevention(&self, mode: &str) -> Result<bool, String> {
+        self.power_manager
+            .set_sleep_prevention(mode.trim().to_string())
+    }
+
     pub fn start_power_settings_sync(&self) -> Result<(), String> {
         self.power_manager
             .start_settings_sync(Arc::new(AppSettingsStore::from_support_dir(
