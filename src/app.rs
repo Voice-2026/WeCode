@@ -1381,6 +1381,11 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.workspace_view = view;
+        match view {
+            WorkspaceView::Files => self.refresh_files_panel_state(),
+            WorkspaceView::Review => self.refresh_git_panel_state(),
+            WorkspaceView::Terminal => {}
+        }
         cx.notify();
     }
 
@@ -1400,7 +1405,82 @@ impl CoduxApp {
         } else {
             Some(panel)
         };
+        if self.assistant_panel == Some(panel) {
+            self.refresh_assistant_panel_state(panel);
+        }
         cx.notify();
+    }
+
+    fn refresh_assistant_panel_state(&mut self, panel: AssistantPanel) {
+        match panel {
+            AssistantPanel::AIStats => {
+                let _ = self.refresh_ai_history_summaries_for_selected_project();
+                self.refresh_runtime_activity_state(false);
+                self.state.memory = self.runtime_service.reload_memory(
+                    self.state
+                        .selected_project
+                        .as_ref()
+                        .map(|project| project.id.as_str()),
+                );
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_entry();
+                self.normalize_selected_memory_summary();
+            }
+            AssistantPanel::SSH => {
+                self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+                self.normalize_selected_ssh_profile();
+            }
+            AssistantPanel::FileManager => {
+                self.refresh_files_panel_state();
+            }
+            AssistantPanel::Git => {
+                self.refresh_git_panel_state();
+            }
+        }
+    }
+
+    fn refresh_files_panel_state(&mut self) {
+        let Some(project) = &self.state.selected_project else {
+            return;
+        };
+        self.state.files = self
+            .runtime_service
+            .reload_project_files(&project.path, file_directory_option(&self.file_directory));
+        self.refresh_file_tree_cache();
+        self.normalize_selected_file_entry();
+    }
+
+    fn refresh_git_panel_state(&mut self) {
+        let Some(project) = self.state.selected_project.clone() else {
+            return;
+        };
+        self.state.git = self.runtime_service.reload_project_git(&project.path);
+        self.refresh_git_review_for_project(&project.path);
+        self.normalize_selected_git_file();
+        self.normalize_selected_git_branch();
+    }
+
+    fn refresh_runtime_activity_state(&mut self, poll_live_ai: bool) {
+        self.state.runtime_activity = self.runtime_service.reload_runtime_activity();
+        self.state.runtime_events = self.runtime_service.reload_runtime_events();
+        let ai_snapshot = if poll_live_ai {
+            self.runtime_service
+                .poll_ai_runtime_state()
+                .unwrap_or_else(|_| self.runtime_service.ai_runtime_state_snapshot())
+        } else {
+            self.runtime_service.ai_runtime_state_snapshot()
+        };
+        self.state.ai_runtime_state = self
+            .runtime_service
+            .save_ai_runtime_state_snapshot(&ai_snapshot)
+            .unwrap_or_else(|error| {
+                let mut summary = self
+                    .runtime_service
+                    .reload_ai_runtime_state(&self.state.runtime_events);
+                summary.error = Some(error);
+                summary
+            });
+        self.normalize_selected_runtime_session();
     }
 
     fn select_project(&mut self, project_id: String, _window: &mut Window, cx: &mut Context<Self>) {
