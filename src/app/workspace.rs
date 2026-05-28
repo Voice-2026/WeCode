@@ -59,10 +59,7 @@ impl CoduxApp {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(workspace_segmented_tabs(active_index, cx))
-                        .when(self.workspace_view == WorkspaceView::Terminal, |this| {
-                            this.child(workspace_terminal_layout_actions(cx))
-                        }),
+                        .child(workspace_segmented_tabs(active_index, cx)),
                 )
                 .child(
                     div()
@@ -701,47 +698,6 @@ fn workspace_header_button(id: &'static str, cx: &mut Context<CoduxApp>) -> Butt
         .compact()
         .h(px(28.0))
         .text_color(cx.theme().foreground)
-}
-
-fn workspace_terminal_layout_actions(cx: &mut Context<CoduxApp>) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .child(workspace_terminal_layout_button(
-            "workspace-terminal-layout-save",
-            "保存终端布局",
-            IconName::LayoutDashboard,
-            cx,
-            |app, _event, window, cx| app.save_terminal_layout(window, cx),
-        ))
-        .child(workspace_terminal_layout_button(
-            "workspace-terminal-layout-reload",
-            "重新加载终端布局",
-            IconName::Redo2,
-            cx,
-            |app, _event, window, cx| app.reload_terminal_layout(window, cx),
-        ))
-}
-
-fn workspace_terminal_layout_button(
-    id: &'static str,
-    tooltip: &'static str,
-    icon: IconName,
-    cx: &mut Context<CoduxApp>,
-    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
-) -> impl IntoElement {
-    Button::new(id)
-        .compact()
-        .ghost()
-        .tooltip(tooltip)
-        .text_color(cx.theme().secondary_foreground)
-        .icon(
-            Icon::new(icon)
-                .size_3p5()
-                .text_color(cx.theme().secondary_foreground),
-        )
-        .on_click(cx.listener(on_click))
 }
 
 fn workspace_header_badge_button_content(

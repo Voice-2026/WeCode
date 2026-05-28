@@ -179,17 +179,21 @@ fn read_json_file(path: PathBuf) -> Result<Value, String> {
 }
 
 fn fetch_json(endpoint: &str) -> Result<Value, String> {
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|error| error.to_string())?
-        .get(endpoint)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|error| error.to_string())?
-        .json::<Value>()
-        .map_err(|error| error.to_string())
+    crate::async_runtime::block_on(async move {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|error| error.to_string())?
+            .get(endpoint)
+            .header(reqwest::header::ACCEPT, "application/json")
+            .send()
+            .await
+            .and_then(|response| response.error_for_status())
+            .map_err(|error| error.to_string())?
+            .json::<Value>()
+            .await
+            .map_err(|error| error.to_string())
+    })
 }
 
 #[derive(Clone, Debug, Default, Serialize)]

@@ -41,18 +41,18 @@ pub(crate) fn remote_url(
     Ok(url.to_string())
 }
 
-pub(crate) fn remote_http_client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
+pub(crate) fn remote_http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(remote_error_message)
 }
 
-pub(crate) fn remote_parse_response<T: serde::de::DeserializeOwned>(
-    response: reqwest::blocking::Response,
+pub(crate) async fn remote_parse_response<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
 ) -> Result<T, String> {
     let status = response.status();
-    let bytes = response.bytes().map_err(remote_error_message)?;
+    let bytes = response.bytes().await.map_err(remote_error_message)?;
     if !status.is_success() {
         if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
             if let Some(error) = value.get("error").and_then(Value::as_str) {
@@ -69,7 +69,7 @@ pub(crate) fn remote_parse_response<T: serde::de::DeserializeOwned>(
     })
 }
 
-pub(crate) fn remote_post<T: serde::de::DeserializeOwned>(
+pub(crate) async fn remote_post<T: serde::de::DeserializeOwned>(
     base: &str,
     path: &str,
     body: Value,
@@ -80,8 +80,23 @@ pub(crate) fn remote_post<T: serde::de::DeserializeOwned>(
         .header(CONTENT_TYPE, "application/json")
         .json(&body)
         .send()
+        .await
         .map_err(remote_error_message)?;
-    remote_parse_response(response)
+    remote_parse_response(response).await
+}
+
+pub(crate) fn remote_post_blocking<T: serde::de::DeserializeOwned>(
+    base: &str,
+    path: &str,
+    body: Value,
+) -> Result<T, String> {
+    crate::async_runtime::block_on(remote_post(base, path, body))
+}
+
+pub(crate) fn remote_parse_response_blocking<T: serde::de::DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<T, String> {
+    crate::async_runtime::block_on(remote_parse_response(response))
 }
 
 pub(crate) fn remote_error_message(error: impl std::fmt::Display) -> String {

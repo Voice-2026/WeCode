@@ -1,6 +1,6 @@
 use super::http::{
-    remote_error_message, remote_http_client, remote_parse_response, remote_post,
-    remote_server_url, remote_url,
+    remote_error_message, remote_http_client, remote_parse_response_blocking,
+    remote_post_blocking, remote_server_url, remote_url,
 };
 use super::types::{RemoteDeviceSettings, RemoteSummary};
 use super::{RemoteService, remote_settings_from_raw, remote_settings_mut};
@@ -18,7 +18,7 @@ impl RemoteService {
         if settings.host_id.trim().is_empty() || settings.host_token.trim().is_empty() {
             return Err("Remote Host is not registered.".to_string());
         }
-        remote_post::<Value>(
+        remote_post_blocking::<Value>(
             &remote_server_url(&settings),
             "/api/devices/revoke",
             json!({
@@ -83,11 +83,11 @@ impl RemoteService {
             &[("token", settings.host_token.as_str())],
             false,
         )?;
-        let response = remote_http_client()?
-            .get(url)
-            .send()
-            .map_err(remote_error_message)?;
-        let mut list = remote_parse_response::<DeviceList>(response)?;
+        let client = remote_http_client()?;
+        let response =
+            crate::async_runtime::block_on(async move { client.get(url).send().await })
+                .map_err(remote_error_message)?;
+        let mut list = remote_parse_response_blocking::<DeviceList>(response)?;
         list.devices.retain(|device| device.revoked_at.is_none());
         let devices = list
             .devices

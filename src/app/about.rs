@@ -5,6 +5,7 @@ use codux_runtime::{
 };
 
 const CODUX_WEBSITE_URL: &str = "https://codux.dux.cn";
+const CODUX_GITHUB_URL: &str = "https://github.com/duxweb/codux";
 const CODUX_IDENTIFIER: &str = "com.duxweb.codux";
 
 impl CoduxApp {
@@ -157,6 +158,14 @@ impl CoduxApp {
         match self.runtime_service.open_url(CODUX_WEBSITE_URL) {
             Ok(()) => self.status_message = "Codux website opened".to_string(),
             Err(error) => self.status_message = format!("failed to open Codux website: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(in crate::app) fn open_codux_github(&mut self, cx: &mut Context<Self>) {
+        match self.runtime_service.open_url(CODUX_GITHUB_URL) {
+            Ok(()) => self.status_message = "Codux GitHub opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open Codux GitHub: {error}"),
         }
         cx.notify();
     }

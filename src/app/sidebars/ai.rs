@@ -6,20 +6,20 @@ pub(in crate::app) fn ai_stats_sidebar(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     selected_project_id: Option<&str>,
-    memory: &MemorySummary,
-    memory_manager: &MemoryManagerSnapshot,
-    memory_manager_tab: MemoryManagerTab,
-    runtime_events: &RuntimeEventSummary,
+    _memory: &MemorySummary,
+    _memory_manager: &MemoryManagerSnapshot,
+    _memory_manager_tab: MemoryManagerTab,
+    _runtime_events: &RuntimeEventSummary,
     ai_runtime_state: &AIRuntimeStateSummary,
-    runtime_activity: &RuntimeActivitySummary,
-    runtime_ingress: &RuntimeIngressStatus,
-    selected_detail: Option<&AISessionDetail>,
-    selected_session_id: Option<&str>,
-    selected_memory_entry_id: Option<&str>,
-    selected_memory_summary_id: Option<&str>,
-    memory_processing: bool,
-    selected_runtime_session: Option<&RuntimeSessionSummary>,
-    window: &mut Window,
+    _runtime_activity: &RuntimeActivitySummary,
+    _runtime_ingress: &RuntimeIngressStatus,
+    _selected_detail: Option<&AISessionDetail>,
+    _selected_session_id: Option<&str>,
+    _selected_memory_entry_id: Option<&str>,
+    _selected_memory_summary_id: Option<&str>,
+    _memory_processing: bool,
+    _selected_runtime_session: Option<&RuntimeSessionSummary>,
+    _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let live_project_total_tokens =
@@ -53,33 +53,6 @@ pub(in crate::app) fn ai_stats_sidebar(
                 .flex()
                 .flex_col()
                 .child(ai_current_session_card(history, cx))
-                .child(div().mt(px(12.0)).child(ai_tool_launcher_card(cx)))
-                .child(div().mt(px(12.0)).child(ai_runtime_sessions_card(
-                    runtime_events,
-                    ai_runtime_state,
-                    selected_runtime_session,
-                    cx,
-                )))
-                .child(div().mt(px(12.0)).child(ai_runtime_infrastructure_card(
-                    runtime_activity,
-                    runtime_ingress,
-                    cx,
-                )))
-                .child(div().mt(px(12.0)).child(ai_memory_card(
-                    memory,
-                    selected_memory_entry_id,
-                    memory_processing,
-                    cx,
-                )))
-                .child(div().mt(px(12.0)).child(ai_memory_manager_card(
-                    memory_manager,
-                    memory_manager_tab,
-                    selected_memory_entry_id,
-                    selected_memory_summary_id,
-                    6,
-                    window,
-                    cx,
-                )))
                 .child(
                     div()
                         .mt(px(12.0))
@@ -116,20 +89,7 @@ pub(in crate::app) fn ai_stats_sidebar(
                     cx,
                 ))),
         )
-        .child(
-            div()
-                .flex_shrink_0()
-                .max_h(px(390.0))
-                .border_t_1()
-                .border_color(color(theme::BORDER_SOFT))
-                .child(ai_sessions_panel(
-                    history,
-                    selected_detail,
-                    selected_session_id,
-                    window,
-                    cx,
-                )),
-        )
+        .child(ai_indexing_status_bar(history, cx))
 }
 
 fn ai_runtime_live_project_total_tokens(
@@ -213,6 +173,50 @@ fn ai_current_session_card(
                 .child("当前没有可显示的 AI 会话")
                 .into_any_element()
         }))
+}
+
+fn ai_indexing_status_bar(
+    history: &AIHistorySummary,
+    _cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let (label, accent) = if let Some(error) = history.error.as_ref() {
+        (format!("索引失败 · {error}"), theme::ORANGE)
+    } else if history.indexed {
+        ("AI 历史索引已完成".to_string(), theme::GREEN)
+    } else {
+        ("AI 历史等待索引".to_string(), theme::TEXT_MUTED)
+    };
+
+    div()
+        .flex_shrink_0()
+        .h(px(34.0))
+        .border_t_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .px_3()
+        .flex()
+        .items_center()
+        .justify_between()
+        .bg(color(theme::BG_PANEL).opacity(0.72))
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .text_color(color(theme::TEXT_DIM))
+                .child(div().size(px(7.0)).rounded_full().bg(color(accent)))
+                .child(div().min_w_0().truncate().child(label)),
+        )
+        .child(
+            div()
+                .ml(px(8.0))
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .text_color(color(theme::TEXT_MUTED))
+                .child(format!("{} 会话", history.session_count)),
+        )
 }
 
 fn ai_runtime_sessions_card(

@@ -34,5 +34,9 @@ where
 }
 
 pub fn block_on<F: Future>(future: F) -> F::Output {
-    runtime().block_on(future)
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        tokio::task::block_in_place(|| handle.block_on(future))
+    } else {
+        runtime().block_on(future)
+    }
 }

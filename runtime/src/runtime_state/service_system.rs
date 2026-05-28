@@ -84,7 +84,7 @@ impl RuntimeService {
         &self,
         request: NotificationDispatchRequest,
     ) -> NotificationDispatchResult {
-        crate::notification::dispatch_notification_channels(request)
+        crate::notification::dispatch_notification_channels_blocking(request)
     }
 
     pub fn localized_open_dialog(

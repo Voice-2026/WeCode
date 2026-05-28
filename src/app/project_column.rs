@@ -172,9 +172,9 @@ fn project_tool_button(
 
 fn project_more_button(
     label: Option<&'static str>,
-    has_project: bool,
-    has_projects: bool,
-    has_worktree: bool,
+    _has_project: bool,
+    _has_projects: bool,
+    _has_worktree: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
@@ -206,136 +206,81 @@ fn project_more_button(
                 .into_any_element()
         }))
         .dropdown_menu(move |menu, _window, _cx| {
-            let reload_entity = app_entity.clone();
-            let import_entity = app_entity.clone();
-            let rename_entity = app_entity.clone();
-            let move_up_entity = app_entity.clone();
-            let move_down_entity = app_entity.clone();
-            let close_entity = app_entity.clone();
-            let close_all_entity = app_entity.clone();
-            let sync_entity = app_entity.clone();
-            let create_entity = app_entity.clone();
-            let merge_entity = app_entity.clone();
-            let remove_entity = app_entity.clone();
-            let remove_branch_entity = app_entity.clone();
+            let about_entity = app_entity.clone();
+            let update_entity = app_entity.clone();
+            let diagnostics_entity = app_entity.clone();
+            let runtime_log_entity = app_entity.clone();
+            let live_log_entity = app_entity.clone();
+            let website_entity = app_entity.clone();
+            let github_entity = app_entity.clone();
 
             menu.item(
-                PopupMenuItem::new("刷新运行时")
-                    .icon(IconName::Redo2)
+                PopupMenuItem::new("关于 Codux")
+                    .icon(IconName::Info)
                     .on_click(move |_, window, cx| {
-                        cx.update_entity(&reload_entity, |app, cx| {
-                            app.reload_runtime_state(window, cx);
+                        cx.update_entity(&about_entity, |app, cx| {
+                            app.open_about_window(window, cx);
                         });
                     }),
             )
             .item(
-                PopupMenuItem::new("导入文件夹")
-                    .icon(IconName::FolderOpen)
+                PopupMenuItem::new("检查更新")
+                    .icon(IconName::Redo2)
                     .on_click(move |_, window, cx| {
-                        cx.update_entity(&import_entity, |app, cx| {
-                            app.open_project_folder_from_dialog(window, cx);
+                        cx.update_entity(&update_entity, |app, cx| {
+                            app.reload_update(window, cx);
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new("导出诊断...")
+                    .icon(IconName::File)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&diagnostics_entity, |app, cx| {
+                            let _ = window;
+                            app.export_diagnostics(cx);
                         });
                     }),
             )
             .separator()
             .item(
-                PopupMenuItem::new("编辑项目")
-                    .icon(IconName::CaseSensitive)
-                    .disabled(!has_project)
+                PopupMenuItem::new("打开 Runtime Log")
+                    .icon(IconName::File)
                     .on_click(move |_, window, cx| {
-                        cx.update_entity(&rename_entity, |app, cx| {
-                            app.rename_selected_project(window, cx);
+                        cx.update_entity(&runtime_log_entity, |app, cx| {
+                            let _ = window;
+                            app.open_runtime_log(cx);
                         });
                     }),
             )
             .item(
-                PopupMenuItem::new("项目上移")
-                    .icon(IconName::ArrowUp)
-                    .disabled(!has_project)
+                PopupMenuItem::new("打开 Live Log")
+                    .icon(IconName::File)
                     .on_click(move |_, window, cx| {
-                        cx.update_entity(&move_up_entity, |app, cx| {
-                            app.move_selected_project_up(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new("项目下移")
-                    .icon(IconName::ArrowDown)
-                    .disabled(!has_project)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&move_down_entity, |app, cx| {
-                            app.move_selected_project_down(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new("关闭项目")
-                    .icon(IconName::Close)
-                    .disabled(!has_project)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&close_entity, |app, cx| {
-                            app.close_selected_project(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new("关闭所有项目")
-                    .icon(IconName::Close)
-                    .disabled(!has_projects)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&close_all_entity, |app, cx| {
-                            app.close_all_projects(window, cx);
+                        cx.update_entity(&live_log_entity, |app, cx| {
+                            let _ = window;
+                            app.open_live_log(cx);
                         });
                     }),
             )
             .separator()
             .item(
-                PopupMenuItem::new("同步 Worktree")
-                    .icon(IconName::Redo2)
-                    .disabled(!has_project)
+                PopupMenuItem::new("官网")
+                    .icon(IconName::ExternalLink)
                     .on_click(move |_, window, cx| {
-                        cx.update_entity(&sync_entity, |app, cx| {
-                            app.sync_worktrees_from_git(window, cx);
+                        cx.update_entity(&website_entity, |app, cx| {
+                            let _ = window;
+                            app.open_codux_website(cx);
                         });
                     }),
             )
             .item(
-                PopupMenuItem::new("新建 Worktree")
-                    .icon(IconName::Plus)
-                    .disabled(!has_project)
+                PopupMenuItem::new("GitHub")
+                    .icon(IconName::Github)
                     .on_click(move |_, window, cx| {
-                        cx.update_entity(&create_entity, |app, cx| {
-                            app.create_worktree(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new("合并当前 Worktree")
-                    .icon(IconName::Undo2)
-                    .disabled(!has_worktree)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&merge_entity, |app, cx| {
-                            app.merge_selected_worktree(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new("移除当前 Worktree")
-                    .icon(IconName::Delete)
-                    .disabled(!has_worktree)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&remove_entity, |app, cx| {
-                            app.remove_selected_worktree(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new("移除 Worktree 和分支")
-                    .icon(IconName::Delete)
-                    .disabled(!has_worktree)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&remove_branch_entity, |app, cx| {
-                            app.remove_selected_worktree_and_branch(window, cx);
+                        cx.update_entity(&github_entity, |app, cx| {
+                            let _ = window;
+                            app.open_codux_github(cx);
                         });
                     }),
             )

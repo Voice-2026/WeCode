@@ -1,7 +1,7 @@
-pub fn dispatch_notification_channels(
+pub async fn dispatch_notification_channels(
     request: NotificationDispatchRequest,
 ) -> NotificationDispatchResult {
-    let client = match reqwest::blocking::Client::builder()
+    let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
         .build()
     {
@@ -27,7 +27,7 @@ pub fn dispatch_notification_channels(
         if channel.endpoint.trim().is_empty() {
             continue;
         }
-        match dispatch_channel(&client, &request, channel) {
+        match dispatch_channel(&client, &request, channel).await {
             Ok(()) => sent += 1,
             Err(message) => failed.push(NotificationChannelFailure {
                 id: channel.id.clone(),
@@ -39,8 +39,14 @@ pub fn dispatch_notification_channels(
     NotificationDispatchResult { sent, failed }
 }
 
-fn dispatch_channel(
-    client: &reqwest::blocking::Client,
+pub fn dispatch_notification_channels_blocking(
+    request: NotificationDispatchRequest,
+) -> NotificationDispatchResult {
+    crate::async_runtime::block_on(dispatch_notification_channels(request))
+}
+
+async fn dispatch_channel(
+    client: &reqwest::Client,
     request: &NotificationDispatchRequest,
     channel: &NotificationChannelConfig,
 ) -> Result<(), String> {
@@ -162,7 +168,8 @@ fn dispatch_channel(
             }
             builder.send()
         }
-    }
+    };
+    let response = response.await
     .map_err(|error| error.to_string())?;
 
     if response.status().is_success() {

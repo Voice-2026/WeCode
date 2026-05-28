@@ -1,5 +1,5 @@
 use super::crypto::{remote_pairing_match_code, remote_pairing_qr_payload};
-use super::http::{remote_post, remote_server_url};
+use super::http::{remote_post_blocking, remote_server_url};
 use super::summary::remote_summary_from_settings;
 use super::types::{
     RemotePairingInfo, RemotePairingPollResult, RemotePairingStatusResponse,
@@ -20,7 +20,7 @@ impl RemoteService {
             "token": settings.host_token,
         });
         let mut pairing =
-            remote_post::<RemotePairingInfo>(&remote_server_url(&settings), "/api/pairings", body)?;
+            remote_post_blocking::<RemotePairingInfo>(&remote_server_url(&settings), "/api/pairings", body)?;
         pairing.host_public_key =
             (!settings.host_public_key.trim().is_empty()).then(|| settings.host_public_key.clone());
         pairing.crypto_version = Some(1);
@@ -43,7 +43,7 @@ impl RemoteService {
         pairing: &RemotePairingInfo,
     ) -> Result<RemotePairingPollResult, String> {
         let settings = remote_settings_from_raw(&self.raw_settings());
-        let response = remote_post::<RemotePairingStatusResponse>(
+        let response = remote_post_blocking::<RemotePairingStatusResponse>(
             &remote_server_url(&settings),
             "/api/pairings/status",
             json!({
@@ -124,7 +124,7 @@ impl RemoteService {
         if settings.host_id.trim().is_empty() || settings.host_token.trim().is_empty() {
             return Err("Remote Host is not registered.".to_string());
         }
-        remote_post::<Value>(
+        remote_post_blocking::<Value>(
             &remote_server_url(&settings),
             path,
             json!({

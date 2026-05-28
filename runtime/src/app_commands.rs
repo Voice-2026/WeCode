@@ -895,7 +895,7 @@ pub fn power_set_sleep_prevention(
 pub fn notification_dispatch_channels(
     request: NotificationDispatchRequest,
 ) -> NotificationDispatchResult {
-    crate::notification::dispatch_notification_channels(request)
+    crate::notification::dispatch_notification_channels_blocking(request)
 }
 
 #[cfg(test)]

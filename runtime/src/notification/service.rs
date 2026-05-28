@@ -84,7 +84,7 @@ impl NotificationService {
         if channel.endpoint.trim().is_empty() {
             return Err("Notification endpoint is empty.".to_string());
         }
-        Ok(dispatch_notification_channels(
+        Ok(dispatch_notification_channels_blocking(
             NotificationDispatchRequest {
                 channels: vec![NotificationChannelConfig {
                     id: channel.id,

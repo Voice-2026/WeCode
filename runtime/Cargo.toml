@@ -21,7 +21,7 @@ semver = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4", "v5"] }
 percent-encoding = "2.3"
-reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "system-proxy"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "system-proxy"] }
 url = "2.5.7"
 x25519-dalek = { version = "2.0.1", features = ["static_secrets"] }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }

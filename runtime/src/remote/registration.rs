@@ -1,5 +1,5 @@
 use super::crypto::{ensure_remote_host_identity, remote_random_token};
-use super::http::{default_remote_server_url, remote_post, remote_server_url};
+use super::http::{default_remote_server_url, remote_post_blocking, remote_server_url};
 use super::summary::remote_summary_from_settings;
 use super::types::{RemoteSettings, RemoteSummary};
 use super::{RemoteService, remote_settings_from_raw, remote_settings_mut};
@@ -67,7 +67,7 @@ impl RemoteService {
             token: String,
         }
 
-        let response = remote_post::<RegisterResponse>(
+        let response = remote_post_blocking::<RegisterResponse>(
             &remote_server_url(&settings),
             "/api/hosts/register",
             json!({
