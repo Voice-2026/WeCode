@@ -34,7 +34,7 @@ use crate::{
         ProjectUpdateRequest,
     },
     remote::RemoteSummary,
-    runtime_state::RuntimeService,
+    runtime_state::{AppRuntimeReadySnapshot, RuntimeService, RuntimeWindowStateSnapshot},
     settings::{AIProviderSettings, AppSettings, AppSettingsStore, sync_process_locale_preference},
     ssh::{SSHProfileTestResult, SSHProfileUpsertRequest, SSHProfilesSnapshot},
     ssh::SSHLaunchCommand,
@@ -100,6 +100,42 @@ pub fn app_toggle_devtools() -> bool {
 
 pub fn app_window_close() -> bool {
     true
+}
+
+pub fn app_runtime_ready(
+    service: &RuntimeService,
+    visible: bool,
+    focused: bool,
+) -> AppRuntimeReadySnapshot {
+    service.app_runtime_ready(visible, focused)
+}
+
+pub fn app_window_state(
+    service: &RuntimeService,
+    visible: bool,
+    focused: bool,
+) -> RuntimeWindowStateSnapshot {
+    service.app_window_state(visible, focused)
+}
+
+pub fn runtime_trace_frontend(
+    service: &RuntimeService,
+    category: String,
+    message: String,
+) {
+    service.runtime_trace_frontend(&category, &message);
+}
+
+pub fn localized_open_dialog(
+    request: crate::dialog::LocalizedOpenDialogRequest,
+) -> Result<Option<Vec<String>>, String> {
+    crate::dialog::localized_open_dialog(request)
+}
+
+pub fn localized_save_dialog(
+    request: crate::dialog::LocalizedSaveDialogRequest,
+) -> Result<Option<String>, String> {
+    crate::dialog::localized_save_dialog(request)
 }
 
 pub fn app_settings_get(store: &AppSettingsStore) -> AppSettings {
@@ -776,6 +812,54 @@ mod tests {
         let manager = PowerManager::default();
         assert!(!power_set_sleep_prevention(&manager, "off".to_string()).expect("power off"));
         assert!(app_window_close());
+    }
+
+    #[test]
+    fn app_lifecycle_commands_delegate_to_runtime_service() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-lifecycle-{}",
+            Uuid::new_v4()
+        ));
+        let project_dir = support_dir.join("project");
+        std::fs::create_dir_all(&project_dir).expect("project dir");
+        std::fs::write(
+            support_dir.join("state.json"),
+            serde_json::to_string_pretty(&json!({
+                "projects": [
+                    {
+                        "id": "project-a",
+                        "name": "Project A",
+                        "path": project_dir.display().to_string()
+                    }
+                ],
+                "selectedProjectId": "project-a"
+            }))
+            .expect("state json"),
+        )
+        .expect("write state");
+        let service = RuntimeService::new(support_dir.clone());
+
+        runtime_trace_frontend(
+            &service,
+            "test".to_string(),
+            "lifecycle command".to_string(),
+        );
+        let ready = app_runtime_ready(&service, true, true);
+        assert_eq!(ready.projects.projects.len(), 1);
+        assert_eq!(ready.projects.selected_project_id.as_deref(), Some("project-a"));
+        assert_eq!(
+            ready
+                .project_activity
+                .active_project_id
+                .as_deref(),
+            Some("project-a")
+        );
+
+        let hidden = app_window_state(&service, false, false);
+        assert!(!hidden.project_activity.visible);
+        assert!(!hidden.project_activity.focused);
+
+        let _ = std::fs::remove_dir_all(support_dir);
     }
 
     #[test]
