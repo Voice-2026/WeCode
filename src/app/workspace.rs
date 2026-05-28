@@ -269,6 +269,9 @@ impl CoduxApp {
                         &self.file_tree_expanded_dirs,
                         &self.file_directory,
                         self.selected_file_entry.as_deref(),
+                        self.file_name_draft_kind,
+                        &self.file_name_draft_value,
+                        window,
                         cx,
                     )),
             )

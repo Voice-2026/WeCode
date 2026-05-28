@@ -116,6 +116,8 @@ pub struct CoduxApp {
     file_search_match_index: usize,
     file_directory: String,
     selected_file_entry: Option<String>,
+    file_name_draft_kind: Option<FileNameDraftKind>,
+    file_name_draft_value: String,
     file_tree_expanded_dirs: HashSet<String>,
     file_tree_children: HashMap<String, Vec<FileEntry>>,
     selected_git_file: Option<String>,
@@ -586,33 +588,6 @@ fn project_badge_text_from_name(name: &str) -> Option<String> {
     (!badge.is_empty()).then_some(badge)
 }
 
-fn generated_rename_name(files: &[FileEntry], current_name: &str) -> String {
-    let (stem, extension) = split_file_name(current_name);
-    for index in 1..1000 {
-        let name = format!("{stem}-renamed-{index}{extension}");
-        if !files.iter().any(|file| file.name == name) {
-            return name;
-        }
-    }
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    format!("{stem}-renamed-{timestamp}{extension}")
-}
-
-fn split_file_name(name: &str) -> (String, String) {
-    let trimmed = name.trim();
-    let Some((stem, extension)) = trimmed.rsplit_once('.') else {
-        return (trimmed.to_string(), String::new());
-    };
-    if stem.is_empty() {
-        (trimmed.to_string(), String::new())
-    } else {
-        (stem.to_string(), format!(".{extension}"))
-    }
-}
-
 fn join_relative_child_path(parent: &str, name: &str) -> String {
     let parent = parent.trim().trim_matches('/');
     if parent.is_empty() {
@@ -844,6 +819,8 @@ impl CoduxApp {
             file_search_match_index: 0,
             file_directory: String::new(),
             selected_file_entry: None,
+            file_name_draft_kind: None,
+            file_name_draft_value: String::new(),
             file_tree_expanded_dirs: HashSet::new(),
             file_tree_children: HashMap::new(),
             selected_git_file: None,
@@ -981,6 +958,8 @@ impl CoduxApp {
             file_search_match_index: 0,
             file_directory: String::new(),
             selected_file_entry: None,
+            file_name_draft_kind: None,
+            file_name_draft_value: String::new(),
             file_tree_expanded_dirs: HashSet::new(),
             file_tree_children: HashMap::new(),
             selected_git_file: None,
@@ -3308,14 +3287,82 @@ impl CoduxApp {
     }
 
     fn create_project_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.create_project_file_entry(false, cx);
+        self.start_file_name_draft(FileNameDraftKind::CreateFile, None, cx);
     }
 
     fn create_project_directory(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.create_project_file_entry(true, cx);
+        self.start_file_name_draft(FileNameDraftKind::CreateDirectory, None, cx);
     }
 
-    fn create_project_file_entry(&mut self, directory: bool, cx: &mut Context<Self>) {
+    fn start_file_name_draft(
+        &mut self,
+        kind: FileNameDraftKind,
+        value: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let value = value.unwrap_or_else(|| {
+            if kind == FileNameDraftKind::Rename {
+                self.selected_file_entry()
+                    .map(|entry| entry.name)
+                    .unwrap_or_default()
+            } else {
+                generated_project_child_name(
+                    &self.state.files,
+                    kind == FileNameDraftKind::CreateDirectory,
+                )
+            }
+        });
+        self.file_name_draft_kind = Some(kind);
+        self.file_name_draft_value = value;
+        self.workspace_view = WorkspaceView::Files;
+        self.assistant_panel = Some(AssistantPanel::FileManager);
+        self.status_message = match kind {
+            FileNameDraftKind::CreateFile => "enter file name".to_string(),
+            FileNameDraftKind::CreateDirectory => "enter folder name".to_string(),
+            FileNameDraftKind::Rename => "enter new file name".to_string(),
+        };
+        cx.notify();
+    }
+
+    fn set_file_name_draft_value(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_name_draft_value = value;
+        cx.notify();
+    }
+
+    fn cancel_file_name_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.file_name_draft_kind = None;
+        self.file_name_draft_value.clear();
+        self.status_message = "file name edit canceled".to_string();
+        cx.notify();
+    }
+
+    fn confirm_file_name_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let Some(kind) = self.file_name_draft_kind else {
+            self.status_message = "no file name edit in progress".to_string();
+            cx.notify();
+            return;
+        };
+        let name = self.file_name_draft_value.trim().to_string();
+        if name.is_empty() || name.contains('/') || name.contains('\\') {
+            self.status_message =
+                "file name is required and cannot contain path separators".to_string();
+            cx.notify();
+            return;
+        }
+
+        match kind {
+            FileNameDraftKind::CreateFile => self.create_project_file_entry(false, name, cx),
+            FileNameDraftKind::CreateDirectory => self.create_project_file_entry(true, name, cx),
+            FileNameDraftKind::Rename => self.rename_selected_file_entry_to(name, cx),
+        }
+    }
+
+    fn create_project_file_entry(&mut self, directory: bool, name: String, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file creation".to_string();
             cx.notify();
@@ -3323,7 +3370,6 @@ impl CoduxApp {
         };
         let project_path = project.path.clone();
         let parent = file_directory_option(&self.file_directory).map(str::to_string);
-        let name = generated_project_child_name(&self.state.files, directory);
         let result = if directory {
             self.runtime_service
                 .create_project_directory(&project_path, parent.as_deref(), &name)
@@ -3347,6 +3393,8 @@ impl CoduxApp {
                 self.state.git = self.runtime_service.reload_project_git(&project_path);
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
+                self.file_name_draft_kind = None;
+                self.file_name_draft_value.clear();
                 self.status_message = format!(
                     "{} created: {relative_path}",
                     if directory { "directory" } else { "file" }
@@ -3455,6 +3503,10 @@ impl CoduxApp {
     }
 
     fn rename_selected_file_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.start_file_name_draft(FileNameDraftKind::Rename, None, cx);
+    }
+
+    fn rename_selected_file_entry_to(&mut self, new_name: String, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file rename".to_string();
             cx.notify();
@@ -3471,7 +3523,6 @@ impl CoduxApp {
             cx.notify();
             return;
         };
-        let new_name = generated_rename_name(&self.state.files, &entry.name);
         let project_path = project.path.clone();
         match self.runtime_service.rename_project_file_entry(
             &project_path,
@@ -3513,6 +3564,8 @@ impl CoduxApp {
                 self.state.git = self.runtime_service.reload_project_git(&project_path);
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
+                self.file_name_draft_kind = None;
+                self.file_name_draft_value.clear();
                 self.status_message = format!("renamed file entry: {renamed_path}");
             }
             Err(error) => self.status_message = format!("failed to rename file entry: {error}"),

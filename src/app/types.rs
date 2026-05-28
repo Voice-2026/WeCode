@@ -61,6 +61,13 @@ pub(in crate::app) enum WorkspaceView {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum FileNameDraftKind {
+    CreateFile,
+    CreateDirectory,
+    Rename,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum MemoryManagerTab {
     Active,
     History,

@@ -28,6 +28,9 @@ pub(in crate::app) fn file_section(
     expanded_dirs: &HashSet<String>,
     directory_path: &str,
     selected_entry: Option<&str>,
+    draft_kind: Option<FileNameDraftKind>,
+    draft_value: &str,
+    window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let directory_path = directory_path.to_string();
@@ -97,6 +100,9 @@ pub(in crate::app) fn file_section(
                 .child(
                     div()
                         .mt(px(4.0))
+                        .when_some(draft_kind, |this, kind| {
+                            this.child(file_name_draft_row(kind, draft_value, window, cx))
+                        })
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scrollbar()
@@ -115,6 +121,67 @@ pub(in crate::app) fn file_section(
                         }),
                 ),
         )
+}
+
+fn file_name_draft_row(
+    kind: FileNameDraftKind,
+    value: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let value = value.to_string();
+    let placeholder = match kind {
+        FileNameDraftKind::CreateFile => "filename.txt",
+        FileNameDraftKind::CreateDirectory => "folder",
+        FileNameDraftKind::Rename => "new name",
+    };
+    let input_state = window.use_keyed_state(
+        SharedString::from(format!("file-name-draft-{kind:?}")),
+        cx,
+        |window, cx| {
+            InputState::new(window, cx)
+                .default_value(value.clone())
+                .placeholder(placeholder)
+        },
+    );
+    input_state.update(cx, |state, cx| {
+        if state.value().as_ref() != value {
+            state.set_value(value.clone(), window, cx);
+        }
+    });
+    cx.subscribe_in(&input_state, window, |app, state, event, window, cx| {
+        if matches!(event, InputEvent::Change) {
+            app.set_file_name_draft_value(state.read(cx).value().to_string(), window, cx);
+        }
+    })
+    .detach();
+
+    div()
+        .mb(px(6.0))
+        .px(px(6.0))
+        .py(px(5.0))
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .bg(ai_stats_surface(cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(Input::new(&input_state).with_size(gpui_component::Size::Small)),
+        )
+        .child(header_icon_button(
+            "file-name-draft-confirm",
+            IconName::Check,
+            cx,
+            |app, _event, window, cx| app.confirm_file_name_draft(window, cx),
+        ))
+        .child(header_icon_button(
+            "file-name-draft-cancel",
+            IconName::Close,
+            cx,
+            |app, _event, window, cx| app.cancel_file_name_draft(window, cx),
+        ))
 }
 
 fn file_actions_menu_button(
