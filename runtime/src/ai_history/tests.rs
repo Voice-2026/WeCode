@@ -60,6 +60,24 @@ fn project_session_detail_groups_external_session_files() {
 }
 
 #[test]
+fn project_summary_includes_tauri_ai_panel_aggregates() {
+    let support_dir = temp_support_dir("panel-aggregates");
+    create_test_history_db(&support_dir);
+
+    let summary = AIHistoryService::new(support_dir.clone()).project_summary("/tmp/codux-gpui");
+
+    assert_eq!(summary.session_count, 2);
+    assert!(!summary.heatmap.is_empty());
+    assert_eq!(summary.today_time_buckets.len(), 48);
+    assert_eq!(summary.tool_breakdown[0].key, "codex");
+    assert_eq!(summary.tool_breakdown[0].total_tokens, 150);
+    assert_eq!(summary.model_breakdown[0].key, "gpt-5");
+    assert_eq!(summary.model_breakdown[0].total_tokens, 150);
+
+    fs::remove_dir_all(support_dir).ok();
+}
+
+#[test]
 fn global_summary_aggregates_projects_and_recent_sessions() {
     let support_dir = temp_support_dir("global");
     create_test_history_db(&support_dir);

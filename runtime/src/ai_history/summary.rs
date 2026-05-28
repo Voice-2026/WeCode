@@ -1,7 +1,7 @@
 use super::helpers::local_today_start_seconds;
 use super::queries::{
     load_global_project_totals, load_global_recent_sessions, load_global_today_cached_tokens,
-    load_sessions, load_today_tokens,
+    load_project_aggregates, load_sessions, load_today_tokens,
 };
 use super::{AIGlobalHistorySummary, AIHistoryService, AIHistorySummary};
 use rusqlite::{Connection, OptionalExtension};
@@ -54,6 +54,8 @@ impl AIHistoryService {
         let today_start = local_today_start_seconds();
         let (today_total_tokens, today_cached_input_tokens) =
             load_today_tokens(&conn, project_path, today_start).unwrap_or((0, 0));
+        let aggregates = load_project_aggregates(&conn, project_path, today_start)
+            .unwrap_or_else(|_| Default::default());
 
         AIHistorySummary {
             indexed: indexed_at.is_some(),
@@ -64,6 +66,10 @@ impl AIHistoryService {
             today_cached_input_tokens,
             session_count: sessions.len(),
             sessions,
+            heatmap: aggregates.heatmap,
+            today_time_buckets: aggregates.today_time_buckets,
+            tool_breakdown: aggregates.tool_breakdown,
+            model_breakdown: aggregates.model_breakdown,
             error: None,
         }
     }

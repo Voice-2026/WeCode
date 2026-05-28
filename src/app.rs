@@ -465,6 +465,10 @@ fn normalized_ai_history_snapshot_to_summary(snapshot: AIHistorySnapshot) -> AIH
             .into_iter()
             .map(normalized_ai_session_to_summary)
             .collect(),
+        heatmap: snapshot.heatmap,
+        today_time_buckets: snapshot.today_time_buckets,
+        tool_breakdown: snapshot.tool_breakdown,
+        model_breakdown: snapshot.model_breakdown,
         error: None,
     }
 }

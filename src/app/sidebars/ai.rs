@@ -1877,6 +1877,19 @@ fn ai_today_bucket_values(
     history: &AIHistorySummary,
 ) -> [i64; 10] {
     let mut buckets = [0_i64; 10];
+    if !history.today_time_buckets.is_empty() {
+        for bucket in &history.today_time_buckets {
+            let index = (((bucket.start - history.today_time_buckets[0].start) / 86_400.0)
+                * buckets.len() as f64)
+                .floor()
+                .clamp(0.0, (buckets.len() - 1) as f64) as usize;
+            buckets[index] += bucket.total_tokens.max(0);
+        }
+        if buckets.iter().any(|value| *value > 0) {
+            return buckets;
+        }
+    }
+
     let now = ai_now_seconds();
     let day_start = now - (now % 86_400.0);
 
@@ -1902,6 +1915,21 @@ fn ai_recent_heatmap_values(
     history: &AIHistorySummary,
 ) -> [i64; 84] {
     let mut values = [0_i64; 84];
+    if !history.heatmap.is_empty() {
+        let now = ai_now_seconds();
+        let today = now - (now % 86_400.0);
+        for day in &history.heatmap {
+            let day_offset = ((today - day.day) / 86_400.0).round() as isize;
+            if (0..values.len() as isize).contains(&day_offset) {
+                let index = values.len() - 1 - day_offset as usize;
+                values[index] += day.total_tokens.max(0);
+            }
+        }
+        if values.iter().any(|value| *value > 0) {
+            return values;
+        }
+    }
+
     let now = ai_now_seconds();
     let today = now - (now % 86_400.0);
 
@@ -1925,6 +1953,15 @@ fn ai_top_tool(
     history: &AIHistorySummary,
     global: &AIGlobalHistorySummary,
 ) -> Option<(String, i64, f32)> {
+    if !history.tool_breakdown.is_empty() {
+        return ai_top_breakdown(
+            history
+                .tool_breakdown
+                .iter()
+                .map(|item| (item.key.clone(), item.total_tokens)),
+        );
+    }
+
     ai_top_breakdown(
         ai_history_sessions(history, global)
             .into_iter()
@@ -1936,6 +1973,15 @@ fn ai_top_model(
     history: &AIHistorySummary,
     global: &AIGlobalHistorySummary,
 ) -> Option<(String, i64, f32)> {
+    if !history.model_breakdown.is_empty() {
+        return ai_top_breakdown(
+            history
+                .model_breakdown
+                .iter()
+                .map(|item| (item.key.clone(), item.total_tokens)),
+        );
+    }
+
     ai_top_breakdown(
         ai_history_sessions(history, global)
             .into_iter()

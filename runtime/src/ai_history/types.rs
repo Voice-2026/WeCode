@@ -1,3 +1,4 @@
+use crate::ai_history_normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -11,6 +12,10 @@ pub struct AIHistorySummary {
     pub today_cached_input_tokens: i64,
     pub session_count: usize,
     pub sessions: Vec<AISessionSummary>,
+    pub heatmap: Vec<AIHeatmapDay>,
+    pub today_time_buckets: Vec<AITimeBucket>,
+    pub tool_breakdown: Vec<AIUsageBreakdownItem>,
+    pub model_breakdown: Vec<AIUsageBreakdownItem>,
     pub error: Option<String>,
 }
 
