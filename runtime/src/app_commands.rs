@@ -10,6 +10,7 @@ use crate::{
     project_store::{ProjectListSnapshot, ProjectSummary},
     runtime_state::RuntimeService,
     settings::{AppSettings, AppSettingsStore, sync_process_locale_preference},
+    ssh::{SSHProfileTestResult, SSHProfileUpsertRequest, SSHProfilesSnapshot},
 };
 use std::path::PathBuf;
 
@@ -107,6 +108,28 @@ pub fn project_select(
 ) -> Result<ProjectListSnapshot, String> {
     service.select_project(&project_id)?;
     Ok(service.project_list())
+}
+
+pub fn ssh_profile_upsert(
+    service: &RuntimeService,
+    request: SSHProfileUpsertRequest,
+) -> Result<SSHProfilesSnapshot, String> {
+    service.upsert_ssh_profile(request)
+}
+
+pub fn ssh_profile_delete(
+    service: &RuntimeService,
+    profile_id: String,
+) -> Result<SSHProfilesSnapshot, String> {
+    service.delete_ssh_profile(profile_id)
+}
+
+pub fn ssh_profile_test(
+    service: &RuntimeService,
+    request: SSHProfileUpsertRequest,
+    runtime_assets: PathBuf,
+) -> Result<SSHProfileTestResult, String> {
+    service.test_ssh_profile(request, runtime_assets)
 }
 
 pub fn power_set_sleep_prevention(
@@ -222,6 +245,42 @@ mod tests {
                 .iter()
                 .any(|project| project.id == "project-b")
         );
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
+    fn ssh_profile_commands_upsert_delete_and_test_without_real_connection() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-app-command-ssh-{}",
+            Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&support_dir).expect("support dir");
+        let service = RuntimeService::new(support_dir.clone());
+        let request = SSHProfileUpsertRequest {
+            id: Some("profile-1".to_string()),
+            name: "Production".to_string(),
+            host: "example.com".to_string(),
+            port: 2222,
+            username: "root".to_string(),
+            credential_kind: "password".to_string(),
+            private_key_path: None,
+            password: Some("secret".to_string()),
+            key_passphrase: None,
+        };
+
+        let snapshot = ssh_profile_upsert(&service, request.clone()).expect("upsert profile");
+        assert_eq!(snapshot.profiles.len(), 1);
+        assert_eq!(snapshot.profiles[0].id, "profile-1");
+        assert_eq!(snapshot.profiles[0].host, "example.com");
+
+        let test_error = ssh_profile_test(&service, request, support_dir.join("missing-bin"))
+            .expect_err("missing wrapper should fail before connecting");
+        assert!(test_error.contains("codux-ssh wrapper is not ready"));
+
+        let snapshot =
+            ssh_profile_delete(&service, "profile-1".to_string()).expect("delete profile");
+        assert!(snapshot.profiles.is_empty());
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
