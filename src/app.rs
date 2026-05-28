@@ -68,6 +68,7 @@ use std::{
 
 mod about;
 mod formatting;
+mod pet;
 mod project_column;
 mod project_editor;
 mod settings;
@@ -139,6 +140,7 @@ pub struct CoduxApp {
     pet_install_previewing: bool,
     pet_installing: bool,
     pet_custom_pets: Vec<PetCustomPet>,
+    pet_claim_species: String,
     selected_ai_session_id: Option<String>,
     selected_ai_provider_id: Option<String>,
     ai_provider_testing_id: Option<String>,
@@ -862,6 +864,7 @@ impl CoduxApp {
             pet_install_previewing: false,
             pet_installing: false,
             pet_custom_pets,
+            pet_claim_species: String::new(),
             selected_ai_session_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
@@ -998,6 +1001,7 @@ impl CoduxApp {
             pet_install_previewing: false,
             pet_installing: false,
             pet_custom_pets,
+            pet_claim_species: String::new(),
             selected_ai_session_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
@@ -1066,6 +1070,18 @@ impl CoduxApp {
         let mut app = Self::new_settings_window();
         app.window_mode = AppWindowMode::DesktopPet;
         app.status_message = "desktop pet window ready".to_string();
+        app
+    }
+
+    fn new_pet_window(mode: AppWindowMode) -> Self {
+        let mut app = Self::new_settings_window();
+        app.window_mode = mode;
+        app.status_message = match mode {
+            AppWindowMode::PetClaim => "pet claim window ready".to_string(),
+            AppWindowMode::PetCustomInstall => "custom pet install window ready".to_string(),
+            AppWindowMode::PetDex => "pet dex window ready".to_string(),
+            _ => "pet window ready".to_string(),
+        };
         app
     }
 
@@ -7496,16 +7512,57 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn claim_default_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let catalog = self.runtime_service.pet_catalog();
-        let species = catalog
-            .species
-            .first()
-            .map(|item| item.species.clone())
-            .unwrap_or_else(|| "voidcat".to_string());
+    fn claim_pet_species(
+        &mut self,
+        species: String,
+        custom_name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let trimmed_species = species.trim();
+        if let Some(custom_id) = trimmed_species.strip_prefix("custom:") {
+            if let Some(custom_pet) = self
+                .pet_custom_pets
+                .iter()
+                .find(|pet| pet.id == custom_id)
+                .cloned()
+            {
+                let custom_pet = self.runtime_service.hydrate_custom_pet_data_url(custom_pet);
+                let request = PetClaimRequest {
+                    species: format!("custom:{}", custom_pet.id),
+                    custom_name: custom_name.trim().to_string(),
+                    custom_pet: Some(custom_pet.clone()),
+                    _projects: Vec::new(),
+                };
+                match self.runtime_service.claim_pet_from_indexed_history(request) {
+                    Ok(_) => {
+                        self.state.pet = self.runtime_service.reload_pet();
+                        self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                        self.status_message =
+                            format!("custom pet claimed: {}", custom_pet.display_name);
+                    }
+                    Err(error) => {
+                        self.status_message = format!("failed to claim custom pet: {error}");
+                    }
+                }
+                cx.notify();
+                return;
+            }
+        }
+
+        let species = if trimmed_species.is_empty() {
+            self.runtime_service
+                .pet_catalog()
+                .species
+                .first()
+                .map(|item| item.species.clone())
+                .unwrap_or_else(|| "voidcat".to_string())
+        } else {
+            trimmed_species.to_string()
+        };
         let request = PetClaimRequest {
             species,
-            custom_name: String::new(),
+            custom_name: custom_name.trim().to_string(),
             custom_pet: None,
             _projects: Vec::new(),
         };
@@ -8511,6 +8568,39 @@ impl Render for CoduxApp {
                     window,
                     cx,
                 ))
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::PetClaim {
+            return div()
+                .size_full()
+                .font_family("SF Pro Text")
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.pet_claim_workspace(window, cx))
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::PetCustomInstall {
+            return div()
+                .size_full()
+                .font_family("SF Pro Text")
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.pet_custom_install_workspace(window, cx))
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::PetDex {
+            return div()
+                .size_full()
+                .font_family("SF Pro Text")
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.pet_dex_workspace(window, cx))
                 .into_any_element();
         }
 

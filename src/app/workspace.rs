@@ -1185,7 +1185,7 @@ fn workspace_pet_rename_form(
         .into_any_element()
 }
 
-fn workspace_pet_install_form(
+pub(in crate::app) fn workspace_pet_install_form(
     install_url: &str,
     install_display_name: &str,
     install_preview: Option<&PetCustomPetInstallPreview>,
@@ -1360,7 +1360,7 @@ fn workspace_pet_popover_actions(
                 "领取",
                 IconName::Plus,
                 app_entity.clone(),
-                |app, window, cx| app.claim_default_pet(window, cx),
+                |app, window, cx| app.open_pet_claim_window(window, cx),
             ))
         })
         .when(claimed, |this| {
@@ -1381,6 +1381,20 @@ fn workspace_pet_popover_actions(
                 |app, window, cx| app.restore_latest_archived_pet(window, cx),
             ))
         })
+        .child(workspace_popover_action_button(
+            SharedString::from(format!("{id_prefix}-dex")),
+            "图鉴",
+            IconName::BookOpen,
+            app_entity.clone(),
+            |app, window, cx| app.open_pet_dex_window(window, cx),
+        ))
+        .child(workspace_popover_action_button(
+            SharedString::from(format!("{id_prefix}-custom")),
+            "自定义",
+            IconName::Plus,
+            app_entity.clone(),
+            |app, window, cx| app.open_pet_custom_install_window(window, cx),
+        ))
         .child(workspace_popover_action_button(
             SharedString::from(format!("{id_prefix}-refresh")),
             "刷新",
