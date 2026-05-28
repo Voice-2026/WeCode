@@ -215,6 +215,93 @@ fn shortcut_display_from_keystroke(keystroke: &gpui::Keystroke) -> String {
     parts.join("")
 }
 
+fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
+    let primary = if cfg!(target_os = "macos") {
+        "⌘"
+    } else {
+        "Ctrl+"
+    };
+    match (shortcut_id, primary) {
+        ("view.terminal", "⌘") => Some("⌘1"),
+        ("view.files", "⌘") => Some("⌘2"),
+        ("view.review", "⌘") => Some("⌘3"),
+        ("project.create", "⌘") => Some("⌘N"),
+        ("settings.open", "⌘") => Some("⌘,"),
+        ("task.create", "⌘") => Some("⌘N"),
+        ("editor.save", "⌘") => Some("⌘S"),
+        ("editor.search", "⌘") => Some("⌘F"),
+        ("close.active", "⌘") => Some("⌘W"),
+        ("view.terminal", _) => Some("Ctrl+1"),
+        ("view.files", _) => Some("Ctrl+2"),
+        ("view.review", _) => Some("Ctrl+3"),
+        ("project.create", _) => Some("Ctrl+N"),
+        ("settings.open", _) => Some("Ctrl+,"),
+        ("task.create", _) => Some("Ctrl+N"),
+        ("editor.save", _) => Some("Ctrl+S"),
+        ("editor.search", _) => Some("Ctrl+F"),
+        ("close.active", _) => Some("Ctrl+W"),
+        _ => None,
+    }
+}
+
+fn normalized_shortcut_text(value: &str) -> Option<String> {
+    let mut rest = value.trim().to_lowercase();
+    if rest.is_empty() {
+        return None;
+    }
+
+    let platform = rest.contains("command") || rest.contains("cmd") || rest.contains('⌘');
+    let control = rest.contains("control") || rest.contains("ctrl") || rest.contains('⌃');
+    let alt = rest.contains("option") || rest.contains("alt") || rest.contains('⌥');
+    let shift = rest.contains("shift") || rest.contains('⇧');
+
+    for token in [
+        "command", "cmd", "control", "ctrl", "option", "alt", "shift", "⌘", "⌃", "⌥", "⇧", "+",
+    ] {
+        rest = rest.replace(token, "");
+    }
+    rest.retain(|character| !character.is_whitespace());
+    if rest.is_empty() {
+        return None;
+    }
+
+    let key = if rest.chars().count() == 1 {
+        rest.to_uppercase()
+    } else {
+        rest
+    };
+    Some(format!(
+        "{}{}{}{}{}",
+        if platform { "Meta+" } else { "" },
+        if control { "Ctrl+" } else { "" },
+        if alt { "Alt+" } else { "" },
+        if shift { "Shift+" } else { "" },
+        key
+    ))
+}
+
+fn shortcut_value_matches(configured: &str, actual: &str) -> bool {
+    let Some(actual) = normalized_shortcut_text(actual) else {
+        return false;
+    };
+    configured
+        .split('/')
+        .filter_map(normalized_shortcut_text)
+        .any(|candidate| candidate == actual)
+}
+
+fn shortcut_matches(shortcuts: &HashMap<String, String>, shortcut_id: &str, actual: &str) -> bool {
+    shortcuts
+        .get(shortcut_id)
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| shortcut_value_matches(value, actual))
+        .unwrap_or_else(|| {
+            default_shortcut_display(shortcut_id)
+                .map(|value| shortcut_value_matches(value, actual))
+                .unwrap_or(false)
+        })
+}
+
 fn git_remote_action_label(action: &str) -> String {
     if let Some(remote) = action.strip_prefix("push:") {
         return format!("push to {remote}");
@@ -1001,8 +1088,7 @@ impl CoduxApp {
             return;
         }
 
-        if keystroke.modifiers.secondary() && keystroke.key.eq_ignore_ascii_case("s") {
-            self.save_selected_file_preview(_window, cx);
+        if self.handle_configured_shortcut(event, _window, cx) {
             cx.stop_propagation();
             return;
         }
@@ -1038,6 +1124,57 @@ impl CoduxApp {
         if self.handle_file_editor_key(event, cx) {
             cx.stop_propagation();
         }
+    }
+
+    fn handle_configured_shortcut(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let actual = shortcut_display_from_keystroke(&event.keystroke);
+        let shortcuts = &self.state.settings.shortcuts;
+
+        if shortcut_matches(shortcuts, "view.terminal", &actual) {
+            self.workspace_view = WorkspaceView::Terminal;
+            cx.notify();
+            return true;
+        }
+        if shortcut_matches(shortcuts, "view.files", &actual) {
+            self.workspace_view = WorkspaceView::Files;
+            cx.notify();
+            return true;
+        }
+        if shortcut_matches(shortcuts, "view.review", &actual) {
+            self.workspace_view = WorkspaceView::Review;
+            cx.notify();
+            return true;
+        }
+        if shortcut_matches(shortcuts, "settings.open", &actual) {
+            self.open_settings_window(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "editor.save", &actual) {
+            self.save_selected_file_preview(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "close.active", &actual) {
+            self.close_selected_project(window, cx);
+            return true;
+        }
+
+        let project_create = shortcut_matches(shortcuts, "project.create", &actual);
+        let task_create = shortcut_matches(shortcuts, "task.create", &actual);
+        if task_create && !project_create {
+            self.create_worktree(window, cx);
+            return true;
+        }
+        if project_create && !task_create {
+            self.open_project_folder_from_dialog(window, cx);
+            return true;
+        }
+
+        false
     }
 
     fn open_settings_window(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1229,20 +1366,48 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn add_gpui_project(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let path = "/Volumes/Web/codux-gpui";
+    fn open_project_folder_from_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self
             .runtime_service
-            .create_or_select_project("codux-gpui", path)
-        {
-            Ok(project_id) => {
-                self.state = self.runtime_service.reload_state();
-                self.normalize_selected_ai_session();
-                self.normalize_selected_runtime_session();
-                self.normalize_selected_ssh_profile();
-                self.status_message = format!("project added/selected: {project_id}");
+            .localized_open_dialog(LocalizedOpenDialogRequest {
+                title: "Open Folder".to_string(),
+                message: "Choose a project folder to import.".to_string(),
+                prompt: "Open".to_string(),
+                default_path: None,
+                filters: Vec::new(),
+                directory: true,
+                multiple: false,
+                can_create_directories: Some(false),
+            }) {
+            Ok(Some(paths)) => {
+                let Some(path) = paths.first().cloned() else {
+                    self.status_message = "project import canceled".to_string();
+                    cx.notify();
+                    return;
+                };
+                let name = std::path::Path::new(&path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or("Project")
+                    .to_string();
+                match self.runtime_service.create_or_select_project(&name, &path) {
+                    Ok(project_id) => {
+                        self.state = self.runtime_service.reload_state();
+                        self.normalize_selected_ai_session();
+                        self.normalize_selected_runtime_session();
+                        self.normalize_selected_ssh_profile();
+                        self.status_message = format!("project added/selected: {project_id}");
+                    }
+                    Err(error) => {
+                        self.status_message = format!("failed to add project: {error}");
+                    }
+                }
             }
-            Err(error) => self.status_message = format!("failed to add GPUI project: {error}"),
+            Ok(None) => {
+                self.status_message = "project import canceled".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to choose project folder: {error}"),
         }
         cx.notify();
     }
@@ -8099,6 +8264,43 @@ mod tests {
     fn git_remote_action_label_names_remote_pushes() {
         assert_eq!(git_remote_action_label("fetch"), "fetch");
         assert_eq!(git_remote_action_label("push:origin"), "push to origin");
+    }
+
+    #[test]
+    fn shortcut_text_normalizes_tauri_display_formats() {
+        assert_eq!(
+            normalized_shortcut_text("Cmd+Shift+P"),
+            Some("Meta+Shift+P".to_string())
+        );
+        assert_eq!(
+            normalized_shortcut_text("⌘⇧P"),
+            Some("Meta+Shift+P".to_string())
+        );
+        assert_eq!(
+            normalized_shortcut_text("Control+Alt+Delete"),
+            Some("Ctrl+Alt+delete".to_string())
+        );
+    }
+
+    #[test]
+    fn shortcut_matching_uses_custom_value_or_default() {
+        let mut shortcuts = HashMap::new();
+        shortcuts.insert("view.files".to_string(), "Cmd+Shift+F / Ctrl+F".to_string());
+        assert!(shortcut_matches(&shortcuts, "view.files", "⌘⇧F"));
+        assert!(shortcut_matches(&shortcuts, "view.files", "⌃F"));
+        assert!(!shortcut_matches(&shortcuts, "view.files", "⌘2"));
+
+        shortcuts.clear();
+        let default_terminal = if cfg!(target_os = "macos") {
+            "⌘1"
+        } else {
+            "Ctrl+1"
+        };
+        assert!(shortcut_matches(
+            &shortcuts,
+            "view.terminal",
+            default_terminal
+        ));
     }
 
     #[test]

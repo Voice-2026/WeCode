@@ -56,7 +56,7 @@ impl CoduxApp {
                     None,
                     "project-add-footer",
                     cx,
-                    |app, _event, window, cx| app.add_gpui_project(window, cx),
+                    |app, _event, window, cx| app.open_project_folder_from_dialog(window, cx),
                 ))
                 .child(project_tool_button(
                     IconName::Settings,
@@ -80,7 +80,7 @@ impl CoduxApp {
                     Some("Add"),
                     "project-add-footer",
                     cx,
-                    |app, _event, window, cx| app.add_gpui_project(window, cx),
+                    |app, _event, window, cx| app.open_project_folder_from_dialog(window, cx),
                 ))
                 .child(project_tool_button(
                     IconName::Settings,
