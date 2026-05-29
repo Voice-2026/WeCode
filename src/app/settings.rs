@@ -3059,7 +3059,7 @@ fn settings_notification_card(
     let testing = testing_channel_id
         .map(|id| id == channel.id)
         .unwrap_or(false);
-    let test_disabled = testing_channel_id.is_some();
+    let test_disabled = testing_channel_id.is_some() || channel.endpoint.trim().is_empty();
     settings_card(None, None, {
         let mut rows = vec![
             div()
