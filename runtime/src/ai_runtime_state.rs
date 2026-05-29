@@ -58,6 +58,18 @@ pub struct AIRuntimeSessionSummary {
     pub updated_at: f64,
     pub event_count: usize,
     #[serde(default)]
+    pub has_completed_turn: bool,
+    #[serde(default)]
+    pub was_interrupted: bool,
+    #[serde(default)]
+    pub notification_type: Option<String>,
+    #[serde(default)]
+    pub target_tool_name: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub latest_assistant_preview: Option<String>,
+    #[serde(default)]
     pub total_tokens: i64,
     #[serde(default)]
     pub cached_input_tokens: i64,
@@ -318,6 +330,12 @@ fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessi
         started_at: None,
         updated_at: session.updated_at,
         event_count: session.event_count,
+        has_completed_turn: session.state == "completed",
+        was_interrupted: false,
+        notification_type: None,
+        target_tool_name: None,
+        message: None,
+        latest_assistant_preview: None,
         total_tokens: 0,
         cached_input_tokens: 0,
         raw_total_tokens: 0,
@@ -343,6 +361,12 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
         event_count: usize::from(session.started_at.is_some())
             + usize::from(session.has_completed_turn)
             + usize::from(session.notification_type.is_some()),
+        has_completed_turn: session.has_completed_turn,
+        was_interrupted: session.was_interrupted,
+        notification_type: session.notification_type.clone(),
+        target_tool_name: session.target_tool_name.clone(),
+        message: session.message.clone(),
+        latest_assistant_preview: session.latest_assistant_preview.clone(),
         total_tokens: (session.total_tokens - session.baseline_total_tokens).max(0),
         cached_input_tokens: (session.cached_input_tokens - session.baseline_cached_input_tokens)
             .max(0),

@@ -783,6 +783,96 @@ fn desktop_pet_fallback_line() -> &'static str {
     "休息一下，我会在这里陪你盯住进度。"
 }
 
+fn desktop_pet_runtime_activity_line(
+    runtime: &codux_runtime::ai_runtime_state::AIRuntimeStateSummary,
+) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0);
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| {
+            session.state == "needs-input"
+                && session
+                    .notification_type
+                    .as_deref()
+                    .map(is_permission_request_notification_type)
+                    .unwrap_or(false)
+        })
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+    {
+        if let Some(target) = session
+            .target_tool_name
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return format!("{} 需要授权使用 {target}", session.tool);
+        }
+        return format!("{} 需要授权", session.tool);
+    }
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| session.state == "needs-input")
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+    {
+        return normalized_desktop_pet_preview(session.message.as_deref())
+            .unwrap_or_else(|| format!("{} 需要输入", session.tool));
+    }
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| {
+            session.state == "completed"
+                && session.has_completed_turn
+                && now - session.updated_at <= 30.0
+        })
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+    {
+        if session.was_interrupted {
+            return format!("{} 执行失败", session.tool);
+        }
+        return format!("{} 已完成", session.tool);
+    }
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| session.state == "running")
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+    {
+        return normalized_desktop_pet_preview(session.latest_assistant_preview.as_deref())
+            .unwrap_or_else(|| format!("{} 正在运行", session.tool));
+    }
+
+    desktop_pet_fallback_line().to_string()
+}
+
+fn normalized_desktop_pet_preview(value: Option<&str>) -> Option<String> {
+    let preview = value?
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!preview.is_empty()).then_some(preview)
+}
+
+fn is_permission_request_notification_type(value: &str) -> bool {
+    matches!(
+        value,
+        "PermissionRequest" | "permission-request" | "permission_request"
+    )
+}
+
 const PET_ATLAS_COLUMNS: f32 = 8.0;
 const PET_ATLAS_ROWS: f32 = 9.0;
 const PET_ATLAS_CELL_WIDTH: f32 = 192.0;
@@ -1242,8 +1332,30 @@ impl CoduxApp {
             return;
         }
 
-        self.request_desktop_pet_speech("idle", desktop_pet_fallback_line(), cx);
+        self.refresh_desktop_pet_activity_line(cx);
         self.start_pet_sprite_animation_loop(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
+                    std::thread::sleep(Duration::from_secs(2));
+                })
+                .await;
+
+                if this
+                    .update(cx, |app, cx| {
+                        app.state.runtime_events = app.runtime_service.reload_runtime_events();
+                        app.state.ai_runtime_state = app
+                            .runtime_service
+                            .reload_ai_runtime_state(&app.state.runtime_events);
+                        app.refresh_desktop_pet_activity_line(cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     pub(in crate::app) fn start_pet_sprite_animation_loop(&mut self, cx: &mut Context<Self>) {
@@ -1457,6 +1569,23 @@ impl CoduxApp {
                     cx.notify();
                 }
             }
+        }
+    }
+
+    fn refresh_desktop_pet_activity_line(&mut self, cx: &mut Context<Self>) {
+        let line = desktop_pet_runtime_activity_line(&self.state.ai_runtime_state);
+        self.set_desktop_pet_activity_line(line, cx);
+    }
+
+    fn set_desktop_pet_activity_line(&mut self, line: String, cx: &mut Context<Self>) {
+        if self.desktop_pet_line_skipped {
+            return;
+        }
+        if self.desktop_pet_line != line {
+            self.desktop_pet_line = line;
+            self.runtime_service
+                .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
+            cx.notify();
         }
     }
 
