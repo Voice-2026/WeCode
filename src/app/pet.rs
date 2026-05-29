@@ -101,9 +101,10 @@ impl CoduxApp {
 
                 if this
                     .update(cx, |app, cx| {
+                        let settings_changed = app.apply_settings_update_event(cx);
                         let custom_changed = app.sync_pet_custom_install_event(cx);
                         let pet_changed = app.sync_pet_update_event(cx);
-                        if custom_changed || pet_changed {
+                        if settings_changed || custom_changed || pet_changed {
                             cx.notify();
                         }
                     })
