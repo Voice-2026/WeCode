@@ -2438,6 +2438,7 @@ impl CoduxApp {
         match self.runtime_service.toggle_pet_enabled() {
             Ok(settings) => {
                 self.apply_settings_summary(settings);
+                self.sync_desktop_pet_window(false, cx);
                 self.status_message = format!(
                     "pet setting saved: {}",
                     if self.state.settings.pet_enabled {
