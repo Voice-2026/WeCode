@@ -254,11 +254,13 @@ pub(crate) fn codux_menus(language: &str) -> Vec<Menu> {
                 MenuItem::action(labels.diagnostics, ExportDiagnostics),
                 MenuItem::action(labels.runtime_log, OpenRuntimeLog),
                 MenuItem::action(labels.live_log, OpenLiveLog),
-                #[cfg(debug_assertions)]
-                MenuItem::action(labels.devtools, ToggleInspector),
                 MenuItem::separator(),
                 MenuItem::action(labels.website, OpenWebsite),
                 MenuItem::action(labels.github, OpenGithub),
+                #[cfg(debug_assertions)]
+                MenuItem::separator(),
+                #[cfg(debug_assertions)]
+                MenuItem::action(labels.devtools, ToggleInspector),
             ],
         },
     ]
