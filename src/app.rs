@@ -155,6 +155,7 @@ pub struct CoduxApp {
     pet_name_editing: bool,
     pet_dex_spotlight: Option<PetDexSpotlight>,
     selected_ai_session_id: Option<String>,
+    ai_session_delete_confirm_id: Option<String>,
     selected_ai_provider_id: Option<String>,
     ai_provider_testing_id: Option<String>,
     selected_memory_entry_id: Option<String>,
@@ -962,6 +963,7 @@ impl CoduxApp {
             pet_name_editing: false,
             pet_dex_spotlight: None,
             selected_ai_session_id: None,
+            ai_session_delete_confirm_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
             selected_memory_entry_id,
@@ -1108,6 +1110,7 @@ impl CoduxApp {
             pet_name_editing: false,
             pet_dex_spotlight: None,
             selected_ai_session_id: None,
+            ai_session_delete_confirm_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
             selected_memory_entry_id,
@@ -5882,6 +5885,21 @@ impl CoduxApp {
                 .first()
                 .map(|session| session.id.clone());
         }
+        if self
+            .ai_session_delete_confirm_id
+            .as_deref()
+            .map(|id| {
+                !self
+                    .state
+                    .ai_history
+                    .sessions
+                    .iter()
+                    .any(|session| session.id == id)
+            })
+            .unwrap_or(false)
+        {
+            self.ai_session_delete_confirm_id = None;
+        }
         self.reload_selected_ai_session_detail();
     }
 
@@ -5922,13 +5940,59 @@ impl CoduxApp {
                 }
                 self.refresh_ai_global_history_summary();
                 self.selected_ai_session_id = None;
+                self.ai_session_delete_confirm_id = None;
                 self.normalize_selected_ai_session();
                 self.reload_selected_ai_session_detail();
                 self.status_message = "selected AI session removed from index".to_string();
             }
-            Err(error) => self.status_message = format!("failed to remove AI session: {error}"),
+            Err(error) => {
+                self.ai_session_delete_confirm_id = None;
+                self.status_message = format!("failed to remove AI session: {error}");
+            }
         }
         cx.notify();
+    }
+
+    fn request_remove_ai_session(
+        &mut self,
+        session_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((session_id, session_title)) = self
+            .state
+            .ai_history
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(|session| (session.id.clone(), session.title.clone()))
+        else {
+            self.status_message = "AI session is no longer available".to_string();
+            self.normalize_selected_ai_session();
+            cx.notify();
+            return;
+        };
+        self.selected_ai_session_id = Some(session_id.clone());
+        self.ai_session_delete_confirm_id = Some(session_id);
+        self.reload_selected_ai_session_detail();
+        self.status_message = format!("confirm AI session removal: {session_title}");
+        cx.notify();
+    }
+
+    fn cancel_remove_ai_session(&mut self, cx: &mut Context<Self>) {
+        self.ai_session_delete_confirm_id = None;
+        self.status_message = "AI session removal cancelled".to_string();
+        cx.notify();
+    }
+
+    fn confirm_remove_ai_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(session_id) = self.ai_session_delete_confirm_id.clone() else {
+            self.status_message = "no AI session removal to confirm".to_string();
+            cx.notify();
+            return;
+        };
+        self.selected_ai_session_id = Some(session_id);
+        self.remove_selected_ai_session(window, cx);
     }
 
     fn rename_selected_ai_session_to(
