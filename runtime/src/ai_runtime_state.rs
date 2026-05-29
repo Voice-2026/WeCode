@@ -46,6 +46,8 @@ pub struct AIRuntimeSessionSummary {
     #[serde(default)]
     pub project_id: String,
     pub tool: String,
+    #[serde(default, rename = "aiSessionId")]
+    pub ai_session_id: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
     pub state: String,
@@ -59,6 +61,14 @@ pub struct AIRuntimeSessionSummary {
     pub total_tokens: i64,
     #[serde(default)]
     pub cached_input_tokens: i64,
+    #[serde(default)]
+    pub raw_total_tokens: i64,
+    #[serde(default)]
+    pub raw_cached_input_tokens: i64,
+    #[serde(default)]
+    pub baseline_total_tokens: i64,
+    #[serde(default)]
+    pub baseline_cached_input_tokens: i64,
     pub source: String,
 }
 
@@ -300,6 +310,7 @@ fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessi
         terminal_id: session.terminal_id.clone(),
         project_id: String::new(),
         tool: session.tool.clone(),
+        ai_session_id: None,
         model: None,
         state: session.state.clone(),
         project_name: session.project_name.clone(),
@@ -309,6 +320,10 @@ fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessi
         event_count: session.event_count,
         total_tokens: 0,
         cached_input_tokens: 0,
+        raw_total_tokens: 0,
+        raw_cached_input_tokens: 0,
+        baseline_total_tokens: 0,
+        baseline_cached_input_tokens: 0,
         source: "runtime-events".to_string(),
     }
 }
@@ -318,6 +333,7 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
         terminal_id: session.terminal_id.clone(),
         project_id: session.project_id.clone(),
         tool: session.tool.clone(),
+        ai_session_id: session.ai_session_id.clone(),
         model: session.model.clone(),
         state: runtime_snapshot_session_state(session).to_string(),
         project_name: session.project_name.clone(),
@@ -330,6 +346,10 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
         total_tokens: (session.total_tokens - session.baseline_total_tokens).max(0),
         cached_input_tokens: (session.cached_input_tokens - session.baseline_cached_input_tokens)
             .max(0),
+        raw_total_tokens: session.total_tokens.max(0),
+        raw_cached_input_tokens: session.cached_input_tokens.max(0),
+        baseline_total_tokens: session.baseline_total_tokens.max(0),
+        baseline_cached_input_tokens: session.baseline_cached_input_tokens.max(0),
         source: "supervisor".to_string(),
     }
 }
@@ -464,7 +484,7 @@ mod tests {
                     project_path: None,
                     session_title: "Build".to_string(),
                     tool: "codex".to_string(),
-                    ai_session_id: None,
+                    ai_session_id: Some("session-a".to_string()),
                     model: Some("gpt-5".to_string()),
                     state: "responding".to_string(),
                     status: "running".to_string(),
@@ -538,6 +558,16 @@ mod tests {
         assert_eq!(summary.sessions[0].state, "needs-input");
         assert_eq!(summary.sessions[1].state, "running");
         assert_eq!(summary.sessions[1].project_id, "project-a");
+        assert_eq!(
+            summary.sessions[1].ai_session_id.as_deref(),
+            Some("session-a")
+        );
+        assert_eq!(summary.sessions[1].raw_total_tokens, 150);
+        assert_eq!(summary.sessions[1].raw_cached_input_tokens, 20);
+        assert_eq!(summary.sessions[1].baseline_total_tokens, 50);
+        assert_eq!(summary.sessions[1].baseline_cached_input_tokens, 5);
+        assert_eq!(summary.sessions[1].total_tokens, 100);
+        assert_eq!(summary.sessions[1].cached_input_tokens, 15);
         assert_eq!(summary.sessions[1].model.as_deref(), Some("gpt-5"));
         assert_eq!(summary.sessions[1].total_tokens, 100);
         assert_eq!(summary.sessions[1].cached_input_tokens, 15);

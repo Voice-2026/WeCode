@@ -25,16 +25,31 @@ pub(in crate::app) fn ai_stats_sidebar(
 ) -> impl IntoElement {
     let include_cached = statistics_mode == "includingCache";
     let live_sessions = ai_live_sessions(ai_runtime_state, selected_project_id);
-    let live_project_total_tokens = ai_live_sessions_total(&live_sessions, include_cached);
-    let live_today_tokens = ai_live_sessions_today_total(&live_sessions, include_cached);
+    let indexed_baselines = ai_indexed_session_baselines(history);
+    let live_project_total_tokens =
+        ai_live_sessions_total(&live_sessions, &indexed_baselines, include_cached);
+    let live_today_tokens =
+        ai_live_sessions_today_total(&live_sessions, &indexed_baselines, include_cached);
     let project_total_tokens = ai_display_tokens(
         history.project_total_tokens,
         history.project_cached_input_tokens,
         include_cached,
     ) + live_project_total_tokens;
     let today_total_tokens = ai_history_today_total(history, include_cached) + live_today_tokens;
-    let tool_rows = ai_tool_rows(history, global, &live_sessions, include_cached);
-    let model_rows = ai_model_rows(history, global, &live_sessions, include_cached);
+    let tool_rows = ai_tool_rows(
+        history,
+        global,
+        &live_sessions,
+        &indexed_baselines,
+        include_cached,
+    );
+    let model_rows = ai_model_rows(
+        history,
+        global,
+        &live_sessions,
+        &indexed_baselines,
+        include_cached,
+    );
 
     div()
         .flex()
@@ -81,6 +96,7 @@ pub(in crate::app) fn ai_stats_sidebar(
                     global,
                     history,
                     &live_sessions,
+                    &indexed_baselines,
                     include_cached,
                     cx,
                 )))
@@ -88,6 +104,7 @@ pub(in crate::app) fn ai_stats_sidebar(
                     global,
                     history,
                     &live_sessions,
+                    &indexed_baselines,
                     include_cached,
                     cx,
                 )))
@@ -122,37 +139,119 @@ fn ai_live_sessions<'a>(
 
 fn ai_live_sessions_total(
     sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
 ) -> i64 {
     sessions
         .iter()
         .map(|session| {
-            ai_display_tokens(
-                session.total_tokens,
-                session.cached_input_tokens,
-                include_cached,
-            )
+            ai_live_session_delta_tokens(session, indexed_baselines, include_cached, None)
         })
         .sum()
 }
 
 fn ai_live_sessions_today_total(
     sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
 ) -> i64 {
     let now = ai_now_seconds();
     let day_start = ai_local_day_start_seconds(now);
     sessions
         .iter()
-        .filter(|session| ai_live_session_counts_for_day(session, day_start))
         .map(|session| {
-            ai_display_tokens(
-                session.total_tokens,
-                session.cached_input_tokens,
+            ai_live_session_delta_tokens(
+                session,
+                indexed_baselines,
                 include_cached,
+                Some(day_start),
             )
         })
         .sum()
+}
+
+fn ai_live_session_delta_tokens(
+    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
+    include_cached: bool,
+    day_start: Option<f64>,
+) -> i64 {
+    if let Some(day_start) = day_start {
+        if session.updated_at < day_start {
+            return 0;
+        }
+    }
+
+    let raw_total = if session.raw_total_tokens > 0 {
+        session.raw_total_tokens
+    } else {
+        session.total_tokens + session.baseline_total_tokens
+    };
+    let raw_cached = if session.raw_cached_input_tokens > 0 {
+        session.raw_cached_input_tokens
+    } else {
+        session.cached_input_tokens + session.baseline_cached_input_tokens
+    };
+    let (indexed_total, indexed_cached) =
+        ai_indexed_baseline_for_session(session, indexed_baselines);
+    let (today_total, today_cached) = day_start
+        .map(|day_start| {
+            let started_at = session.started_at.unwrap_or(session.updated_at);
+            if ai_local_day_start_seconds(started_at) == day_start {
+                (0, 0)
+            } else {
+                (raw_total, raw_cached)
+            }
+        })
+        .unwrap_or((0, 0));
+    let total_baseline = session
+        .baseline_total_tokens
+        .max(indexed_total)
+        .max(today_total);
+    let cached_baseline = session
+        .baseline_cached_input_tokens
+        .max(indexed_cached)
+        .max(today_cached);
+
+    ai_display_tokens(
+        raw_total - total_baseline,
+        raw_cached - cached_baseline,
+        include_cached,
+    )
+}
+
+fn ai_indexed_session_baselines(history: &AIHistorySummary) -> BTreeMap<String, (i64, i64)> {
+    let mut baselines = BTreeMap::new();
+    for session in &history.sessions {
+        let Some(key) =
+            ai_indexed_session_key(&session.source, session.external_session_id.as_deref())
+        else {
+            continue;
+        };
+        let entry = baselines.entry(key).or_insert((0, 0));
+        entry.0 = entry.0.max(session.total_tokens);
+        entry.1 = entry.1.max(session.cached_input_tokens);
+    }
+    baselines
+}
+
+fn ai_indexed_baseline_for_session(
+    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
+) -> (i64, i64) {
+    let Some(key) = ai_indexed_session_key(&session.tool, session.ai_session_id.as_deref()) else {
+        return (0, 0);
+    };
+    indexed_baselines.get(&key).copied().unwrap_or((0, 0))
+}
+
+fn ai_indexed_session_key(tool: &str, external_session_id: Option<&str>) -> Option<String> {
+    let tool = tool.trim().to_lowercase();
+    let external_session_id = external_session_id?.trim();
+    if tool.is_empty() || external_session_id.is_empty() {
+        return None;
+    }
+    Some(format!("{tool}|{external_session_id}"))
 }
 
 fn ai_live_session_counts_for_day(
@@ -1962,10 +2061,17 @@ fn ai_today_usage_chart(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let values = ai_today_bucket_values(global, history, live_sessions, include_cached);
+    let values = ai_today_bucket_values(
+        global,
+        history,
+        live_sessions,
+        indexed_baselines,
+        include_cached,
+    );
     let max_value = values.iter().copied().max().unwrap_or(0).max(1);
 
     ai_stats_card("今日用量", cx)
@@ -2016,10 +2122,17 @@ fn ai_recent_usage_heatmap(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let values = ai_recent_heatmap_values(global, history, live_sessions, include_cached);
+    let values = ai_recent_heatmap_values(
+        global,
+        history,
+        live_sessions,
+        indexed_baselines,
+        include_cached,
+    );
     let max_value = values.iter().copied().max().unwrap_or(0).max(1);
     let inactive_surface = ai_stats_track_surface(cx);
     ai_stats_card("近期用量", cx).child(div().mt(px(12.0)).flex().flex_wrap().children(
@@ -2144,6 +2257,7 @@ fn ai_today_bucket_values(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
 ) -> [i64; 48] {
     let mut buckets = [0_i64; 48];
@@ -2190,10 +2304,11 @@ fn ai_today_bucket_values(
         let bucket = (((session.updated_at - day_start) / 86_400.0) * buckets.len() as f64)
             .floor()
             .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-        buckets[bucket] += ai_display_tokens(
-            session.total_tokens,
-            session.cached_input_tokens,
+        buckets[bucket] += ai_live_session_delta_tokens(
+            session,
+            indexed_baselines,
             include_cached,
+            Some(day_start),
         );
     }
 
@@ -2213,6 +2328,7 @@ fn ai_recent_heatmap_values(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
 ) -> [i64; 84] {
     let mut values = [0_i64; 84];
@@ -2255,11 +2371,8 @@ fn ai_recent_heatmap_values(
         let day_offset = ((today - session_day) / 86_400.0).round() as isize;
         if (0..values.len() as isize).contains(&day_offset) {
             let index = values.len() - 1 - day_offset as usize;
-            values[index] += ai_display_tokens(
-                session.total_tokens,
-                session.cached_input_tokens,
-                include_cached,
-            );
+            values[index] +=
+                ai_live_session_delta_tokens(session, indexed_baselines, include_cached, None);
         }
     }
 
@@ -2279,6 +2392,7 @@ fn ai_tool_rows(
     history: &AIHistorySummary,
     global: &AIGlobalHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
 ) -> Vec<(String, i64, f32)> {
     if !history.tool_breakdown.is_empty() {
@@ -2299,10 +2413,11 @@ fn ai_tool_rows(
                 .chain(live_sessions.iter().map(|session| {
                     (
                         session.tool.clone(),
-                        ai_display_tokens(
-                            session.total_tokens,
-                            session.cached_input_tokens,
+                        ai_live_session_delta_tokens(
+                            session,
+                            indexed_baselines,
                             include_cached,
+                            None,
                         ),
                     )
                 })),
@@ -2325,11 +2440,7 @@ fn ai_tool_rows(
             .chain(live_sessions.iter().map(|session| {
                 (
                     session.tool.clone(),
-                    ai_display_tokens(
-                        session.total_tokens,
-                        session.cached_input_tokens,
-                        include_cached,
-                    ),
+                    ai_live_session_delta_tokens(session, indexed_baselines, include_cached, None),
                 )
             })),
     )
@@ -2339,6 +2450,7 @@ fn ai_model_rows(
     history: &AIHistorySummary,
     global: &AIGlobalHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
 ) -> Vec<(String, i64, f32)> {
     if !history.model_breakdown.is_empty() {
@@ -2360,10 +2472,11 @@ fn ai_model_rows(
                     session.model.clone().map(|model| {
                         (
                             model,
-                            ai_display_tokens(
-                                session.total_tokens,
-                                session.cached_input_tokens,
+                            ai_live_session_delta_tokens(
+                                session,
+                                indexed_baselines,
                                 include_cached,
+                                None,
                             ),
                         )
                     })
@@ -2390,10 +2503,11 @@ fn ai_model_rows(
                 session.model.clone().map(|model| {
                     (
                         model,
-                        ai_display_tokens(
-                            session.total_tokens,
-                            session.cached_input_tokens,
+                        ai_live_session_delta_tokens(
+                            session,
+                            indexed_baselines,
                             include_cached,
+                            None,
                         ),
                     )
                 })
