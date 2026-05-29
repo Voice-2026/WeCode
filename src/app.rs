@@ -43,7 +43,6 @@ use codux_runtime::{
     terminal_layout::{TerminalPaneSummary, TerminalTabSummary},
     terminal_pty::TerminalManager,
     terminal_runtime::{TerminalInputSummary, TerminalRuntimeService, TerminalRuntimeSessionInput},
-    tool_permissions::ToolPermissionsSummary,
     worktree::{ProjectWorktreeGitSummary, WorktreeInfo, WorktreeTaskInfo},
 };
 use gpui::{
@@ -520,39 +519,6 @@ fn publish_settings_update() -> u64 {
     event.revision
 }
 
-fn ai_tool_launch_command(tool: AIToolLauncher, permissions: &ToolPermissionsSummary) -> String {
-    match tool {
-        AIToolLauncher::Codex => {
-            let mut parts = vec!["codex".to_string()];
-            push_flag_value(&mut parts, "--model", &permissions.codex_model);
-            if !permissions.codex_effort.trim().is_empty() && permissions.codex_effort != "medium" {
-                push_flag_value(&mut parts, "--reasoning-effort", &permissions.codex_effort);
-            }
-            shell_join(parts)
-        }
-        AIToolLauncher::Claude => {
-            let mut parts = vec!["claude".to_string()];
-            push_flag_value(&mut parts, "--model", &permissions.claude_code_model);
-            shell_join(parts)
-        }
-        AIToolLauncher::Gemini => {
-            let mut parts = vec!["gemini".to_string()];
-            push_flag_value(&mut parts, "--model", &permissions.gemini_model);
-            shell_join(parts)
-        }
-        AIToolLauncher::OpenCode => {
-            let mut parts = vec!["opencode".to_string()];
-            push_flag_value(&mut parts, "--model", &permissions.opencode_model);
-            shell_join(parts)
-        }
-        AIToolLauncher::Kiro => {
-            let mut parts = vec!["kiro".to_string()];
-            push_flag_value(&mut parts, "--model", &permissions.kiro_model);
-            shell_join(parts)
-        }
-    }
-}
-
 fn ai_session_restore_command(session: &AISessionSummary) -> String {
     let tool = session.source.to_lowercase();
     let id = session
@@ -747,15 +713,7 @@ fn plural(count: usize) -> &'static str {
     if count == 1 { "" } else { "s" }
 }
 
-fn push_flag_value(parts: &mut Vec<String>, flag: &str, value: &str) {
-    let value = value.trim();
-    if value.is_empty() {
-        return;
-    }
-    parts.push(flag.to_string());
-    parts.push(value.to_string());
-}
-
+#[cfg(test)]
 fn shell_join(parts: Vec<String>) -> String {
     parts
         .into_iter()
@@ -9278,21 +9236,6 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn launch_ai_tool(
-        &mut self,
-        tool: AIToolLauncher,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        prepare_memory_launch_artifacts(&self.state);
-        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
-        let command = ai_tool_launch_command(tool, &self.state.tool_permissions);
-        self.send_to_active_terminal(&format!("{command}\n"), cx);
-        if let Some(view) = self.active_terminal_view() {
-            view.read(cx).focus_handle().focus(window, cx);
-        }
-    }
-
     fn close_terminal_tab(
         &mut self,
         terminal_id: usize,
@@ -10139,36 +10082,6 @@ mod tests {
             Some(PathBuf::from("/workspace/codux").as_path())
         );
         assert_eq!(context.session_instance_id, repeated.session_instance_id);
-    }
-
-    #[test]
-    fn ai_tool_launch_command_uses_configured_models_and_quotes_values() {
-        let permissions = ToolPermissionsSummary {
-            codex_model: "gpt-5.5".to_string(),
-            codex_effort: "high".to_string(),
-            claude_code_model: "claude sonnet".to_string(),
-            gemini_model: "gemini-2.5-pro".to_string(),
-            opencode_model: "open'code".to_string(),
-            kiro_model: String::new(),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            ai_tool_launch_command(AIToolLauncher::Codex, &permissions),
-            "codex --model gpt-5.5 --reasoning-effort high"
-        );
-        assert_eq!(
-            ai_tool_launch_command(AIToolLauncher::Claude, &permissions),
-            "claude --model 'claude sonnet'"
-        );
-        assert_eq!(
-            ai_tool_launch_command(AIToolLauncher::OpenCode, &permissions),
-            "opencode --model 'open'\\''code'"
-        );
-        assert_eq!(
-            ai_tool_launch_command(AIToolLauncher::Kiro, &permissions),
-            "kiro"
-        );
     }
 
     #[test]

@@ -90,15 +90,6 @@ pub(in crate::app) struct GitRunningOperation {
     pub(in crate::app) cancellable: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::app) enum AIToolLauncher {
-    Codex,
-    Claude,
-    Gemini,
-    OpenCode,
-    Kiro,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) enum PetDexSpotlight {
     Bundled(String),
