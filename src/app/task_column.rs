@@ -1,3 +1,5 @@
+use gpui_component::InteractiveElementExt as _;
+
 use super::*;
 
 impl CoduxApp {
@@ -364,6 +366,7 @@ fn ai_session_compact_row(
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let session_id = session.id.clone();
+    let restore_session_id = session.id.clone();
     let last_seen = relative_time_label(session.last_seen_at);
     div()
         .id(SharedString::from(format!(
@@ -385,6 +388,10 @@ fn ai_session_compact_row(
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |app, _event, window, cx| {
             app.select_ai_session(session_id.clone(), window, cx)
+        }))
+        .on_double_click(cx.listener(move |app, _event, window, cx| {
+            app.selected_ai_session_id = Some(restore_session_id.clone());
+            app.restore_selected_ai_session(window, cx);
         }))
         .child(
             div()
