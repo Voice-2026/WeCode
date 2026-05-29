@@ -1312,16 +1312,30 @@ impl CoduxApp {
         .detach();
     }
 
-    fn shutdown_runtime_state(&mut self) {
+    fn shutdown_runtime_state_from_drop(&mut self) {
         if self.is_exiting {
             return;
         }
         self.is_exiting = true;
-        let _ = self.persist_terminal_runtime();
-        for terminal in self.terminal_manager.list() {
-            let _ = self.terminal_manager.kill(&terminal.id);
-        }
-        self.runtime_service.shutdown_runtime_state();
+
+        let support_dir = self.state.support_dir.clone();
+        let terminal_snapshot = self.terminal_runtime_snapshot();
+        let terminal_manager = self.terminal_manager.clone();
+        let runtime_service = self.runtime_service.clone();
+        let _ = std::thread::Builder::new()
+            .name("codux-runtime-shutdown".to_string())
+            .spawn(move || {
+                let (active_terminal_id, active_slot_id, sessions) = terminal_snapshot;
+                let _ = TerminalRuntimeService::new(support_dir).save_from_gpui(
+                    active_terminal_id,
+                    active_slot_id,
+                    sessions,
+                );
+                for terminal in terminal_manager.list() {
+                    let _ = terminal_manager.kill(&terminal.id);
+                }
+                runtime_service.shutdown_runtime_state();
+            });
     }
 
     fn open_desktop_pet_window(&mut self, cx: &mut Context<Self>) {
@@ -9582,7 +9596,7 @@ impl Render for CoduxApp {
 impl Drop for CoduxApp {
     fn drop(&mut self) {
         if self.window_mode == AppWindowMode::Main {
-            self.shutdown_runtime_state();
+            self.shutdown_runtime_state_from_drop();
         }
     }
 }
