@@ -85,7 +85,7 @@ pub(crate) async fn remote_post<T: serde::de::DeserializeOwned>(
     remote_parse_response(response).await
 }
 
-pub(crate) fn remote_post_blocking<T: serde::de::DeserializeOwned>(
+pub(crate) fn remote_post_blocking<T: serde::de::DeserializeOwned + Send>(
     base: &str,
     path: &str,
     body: Value,
@@ -93,7 +93,7 @@ pub(crate) fn remote_post_blocking<T: serde::de::DeserializeOwned>(
     crate::async_runtime::block_on(remote_post(base, path, body))
 }
 
-pub(crate) fn remote_parse_response_blocking<T: serde::de::DeserializeOwned>(
+pub(crate) fn remote_parse_response_blocking<T: serde::de::DeserializeOwned + Send>(
     response: reqwest::Response,
 ) -> Result<T, String> {
     crate::async_runtime::block_on(remote_parse_response(response))

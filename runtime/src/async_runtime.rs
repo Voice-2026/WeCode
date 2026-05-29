@@ -33,9 +33,19 @@ where
     runtime().spawn_blocking(function)
 }
 
-pub fn block_on<F: Future>(future: F) -> F::Output {
+pub fn block_on<F>(future: F) -> F::Output
+where
+    F: Future + Send,
+    F::Output: Send,
+{
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        tokio::task::block_in_place(|| handle.block_on(future))
+        drop(handle);
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| runtime().block_on(future))
+                .join()
+                .expect("Codux async runtime worker panicked")
+        })
     } else {
         runtime().block_on(future)
     }
