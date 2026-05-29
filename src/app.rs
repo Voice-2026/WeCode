@@ -136,6 +136,7 @@ pub struct CoduxApp {
     git_diff_window_error: Option<String>,
     git_review_content: Option<GitReviewContentSummary>,
     git_clone_remote_url: String,
+    git_remote_editor_open: bool,
     git_remote_name: String,
     git_remote_url: String,
     git_running_operation: Option<GitRunningOperation>,
@@ -841,6 +842,7 @@ impl CoduxApp {
             git_diff_window_error: None,
             git_review_content: None,
             git_clone_remote_url: String::new(),
+            git_remote_editor_open: false,
             git_remote_name: "origin".to_string(),
             git_remote_url: String::new(),
             git_running_operation: None,
@@ -982,6 +984,7 @@ impl CoduxApp {
             git_diff_window_error: None,
             git_review_content: None,
             git_clone_remote_url: String::new(),
+            git_remote_editor_open: false,
             git_remote_name: "origin".to_string(),
             git_remote_url: String::new(),
             git_running_operation: None,
@@ -3902,6 +3905,21 @@ impl CoduxApp {
         cx.notify();
     }
 
+    fn open_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.git_remote_editor_open = true;
+        if self.git_remote_name.trim().is_empty() {
+            self.git_remote_name = "origin".to_string();
+        }
+        self.status_message = "Git remote editor opened".to_string();
+        cx.notify();
+    }
+
+    fn close_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.git_remote_editor_open = false;
+        self.status_message = "Git remote editor closed".to_string();
+        cx.notify();
+    }
+
     fn set_git_remote_name(&mut self, value: String, _window: &mut Window, cx: &mut Context<Self>) {
         self.git_remote_name = value;
         cx.notify();
@@ -5051,6 +5069,7 @@ impl CoduxApp {
                     }
                     if completion.clear_remote_url {
                         self.git_remote_url.clear();
+                        self.git_remote_editor_open = false;
                     }
                     if completion.clear_selected_branch {
                         self.selected_git_branch = None;

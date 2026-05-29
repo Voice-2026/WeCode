@@ -10,8 +10,9 @@ pub(in crate::app) fn git_section(
     selected_branch: Option<&str>,
     default_push_remote: Option<&str>,
     clone_remote_url: &str,
-    _remote_name: &str,
-    _remote_url: &str,
+    remote_editor_open: bool,
+    remote_name: &str,
+    remote_url: &str,
     running_operation: Option<&GitRunningOperation>,
     commit_message: &str,
     window: &mut Window,
@@ -42,6 +43,9 @@ pub(in crate::app) fn git_section(
                 expanded_dirs,
                 tree_children,
                 selected_file,
+                remote_editor_open,
+                remote_name,
+                remote_url,
                 commit_message,
                 window,
                 cx,
@@ -393,8 +397,19 @@ fn git_branch_dropdown_menu(
     let remote_entity = app_entity.clone();
     let default_remote = default_push_remote.clone();
     let menu = menu.submenu("远程仓库", window, cx, move |menu, window, cx| {
+        let add_entity = remote_entity.clone();
+        let menu = menu.item(
+            PopupMenuItem::new("添加远程仓库")
+                .icon(IconName::Plus)
+                .on_click(move |_, window, cx| {
+                    cx.update_entity(&add_entity, |app, cx| {
+                        app.open_git_remote_editor(window, cx);
+                    });
+                }),
+        );
+
         if remote_items.is_empty() {
-            return menu.item(
+            return menu.separator().item(
                 PopupMenuItem::new("暂无远程仓库")
                     .icon(IconName::Globe)
                     .disabled(true),
@@ -431,12 +446,13 @@ fn git_branch_dropdown_menu(
                             .icon(IconName::Check)
                             .checked(is_default)
                             .on_click(move |_, window, cx| {
+                                let next_remote = if is_default {
+                                    None
+                                } else {
+                                    Some(set_remote.clone())
+                                };
                                 cx.update_entity(&set_entity, |app, cx| {
-                                    app.set_project_default_push_remote(
-                                        Some(set_remote.clone()),
-                                        window,
-                                        cx,
-                                    );
+                                    app.set_project_default_push_remote(next_remote, window, cx);
                                 });
                             }),
                     )
@@ -465,18 +481,6 @@ fn git_branch_dropdown_menu(
             )
         })
     });
-
-    let clear_default_entity = app_entity.clone();
-    let menu = menu.item(
-        PopupMenuItem::new("清空默认远程")
-            .icon(IconName::Delete)
-            .disabled(default_push_remote.is_none())
-            .on_click(move |_, window, cx| {
-                cx.update_entity(&clear_default_entity, |app, cx| {
-                    app.set_project_default_push_remote(None, window, cx);
-                });
-            }),
-    );
 
     let fetch_entity = app_entity.clone();
     let pull_entity = app_entity.clone();
@@ -584,6 +588,9 @@ fn git_repository_panel(
     expanded_dirs: &HashSet<String>,
     tree_children: &HashMap<String, Vec<GitFileStatus>>,
     selected_file: Option<&str>,
+    remote_editor_open: bool,
+    remote_name: &str,
+    remote_url: &str,
     commit_message: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -613,6 +620,9 @@ fn git_repository_panel(
         .min_h_0()
         .flex_col()
         .child(git_commit_panel(commit_message, window, cx))
+        .when(remote_editor_open, |this| {
+            this.child(git_remote_editor_panel(remote_name, remote_url, window, cx))
+        })
         .child(
             v_resizable("git-sidebar-file-history-split")
                 .child(
@@ -634,6 +644,109 @@ fn git_repository_panel(
                         .size(px(260.0))
                         .size_range(px(180.0)..px(420.0))
                         .child(git_history_panel(git, cx)),
+                ),
+        )
+}
+
+fn git_remote_editor_panel(
+    remote_name: &str,
+    remote_url: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let name_value = remote_name.to_string();
+    let name_state = window.use_keyed_state("git-remote-name", cx, |window, cx| {
+        InputState::new(window, cx)
+            .default_value(name_value.clone())
+            .placeholder("远程名称")
+    });
+    name_state.update(cx, |state, cx| {
+        if state.value().as_ref() != remote_name {
+            state.set_value(remote_name.to_string(), window, cx);
+        }
+    });
+    cx.subscribe_in(&name_state, window, |app, state, event, window, cx| {
+        if matches!(event, InputEvent::Change) {
+            app.set_git_remote_name(state.read(cx).value().to_string(), window, cx);
+        }
+    })
+    .detach();
+
+    let url_value = remote_url.to_string();
+    let url_state = window.use_keyed_state("git-remote-url", cx, |window, cx| {
+        InputState::new(window, cx)
+            .default_value(url_value.clone())
+            .placeholder("远程仓库 URL")
+    });
+    url_state.update(cx, |state, cx| {
+        if state.value().as_ref() != remote_url {
+            state.set_value(remote_url.to_string(), window, cx);
+        }
+    });
+    cx.subscribe_in(&url_state, window, |app, state, event, window, cx| {
+        if matches!(event, InputEvent::Change) {
+            app.set_git_remote_url(state.read(cx).value().to_string(), window, cx);
+        }
+    })
+    .detach();
+
+    div()
+        .flex_shrink_0()
+        .border_b_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .p(px(12.0))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(theme::TEXT))
+                        .child("添加远程仓库"),
+                )
+                .child(
+                    Button::new("git-remote-editor-close")
+                        .compact()
+                        .ghost()
+                        .text_color(cx.theme().secondary_foreground)
+                        .icon(Icon::new(IconName::Close).size_3p5())
+                        .on_click(cx.listener(|app, _event, window, cx| {
+                            app.close_git_remote_editor(window, cx)
+                        })),
+                ),
+        )
+        .child(
+            div()
+                .mt(px(10.0))
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(96.0))
+                        .child(Input::new(&name_state).with_size(gpui_component::Size::Small)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(Input::new(&url_state).with_size(gpui_component::Size::Small)),
+                )
+                .child(
+                    Button::new("git-remote-editor-add")
+                        .compact()
+                        .secondary()
+                        .disabled(remote_name.trim().is_empty() || remote_url.trim().is_empty())
+                        .text_color(cx.theme().secondary_foreground)
+                        .label("添加")
+                        .on_click(cx.listener(|app, _event, window, cx| {
+                            app.add_project_git_remote(window, cx)
+                        })),
                 ),
         )
 }

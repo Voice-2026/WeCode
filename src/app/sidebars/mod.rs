@@ -122,6 +122,7 @@ impl CoduxApp {
                             .as_ref()
                             .and_then(|project| project.git_default_push_remote_name.as_deref()),
                         &self.git_clone_remote_url,
+                        self.git_remote_editor_open,
                         &self.git_remote_name,
                         &self.git_remote_url,
                         self.git_running_operation.as_ref(),
