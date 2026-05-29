@@ -254,20 +254,38 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("view.files", "⌘") => Some("⌘2"),
         ("view.review", "⌘") => Some("⌘3"),
         ("project.create", "⌘") => Some("⌘N"),
+        ("project.open_folder", "⌘") => Some("⌘O"),
         ("settings.open", "⌘") => Some("⌘,"),
         ("task.create", "⌘") => Some("⌘⇧N"),
         ("editor.save", "⌘") => Some("⌘S"),
         ("editor.search", "⌘") => Some("⌘F"),
         ("close.active", "⌘") => Some("⌘W"),
+        ("sidebar.projects.toggle", "⌘") => Some("⌘⌥P"),
+        ("sidebar.tasks.toggle", "⌘") => Some("⌘⌥T"),
+        ("assistant.git.open", "⌘") => Some("⌘⇧G"),
+        ("assistant.files.open", "⌘") => Some("⌘⇧F"),
+        ("assistant.ai.open", "⌘") => Some("⌘⇧A"),
+        ("assistant.ssh.open", "⌘") => Some("⌘⇧S"),
+        ("terminal.split.create", "⌘") => Some("⌘⇧\\"),
+        ("terminal.tab.create", "⌘") => Some("⌘⇧T"),
         ("view.terminal", _) => Some("Ctrl+1"),
         ("view.files", _) => Some("Ctrl+2"),
         ("view.review", _) => Some("Ctrl+3"),
         ("project.create", _) => Some("Ctrl+N"),
+        ("project.open_folder", _) => Some("Ctrl+O"),
         ("settings.open", _) => Some("Ctrl+,"),
         ("task.create", _) => Some("Ctrl+Shift+N"),
         ("editor.save", _) => Some("Ctrl+S"),
         ("editor.search", _) => Some("Ctrl+F"),
         ("close.active", _) => Some("Ctrl+W"),
+        ("sidebar.projects.toggle", _) => Some("Ctrl+Alt+P"),
+        ("sidebar.tasks.toggle", _) => Some("Ctrl+Alt+T"),
+        ("assistant.git.open", _) => Some("Ctrl+Shift+G"),
+        ("assistant.files.open", _) => Some("Ctrl+Shift+F"),
+        ("assistant.ai.open", _) => Some("Ctrl+Shift+A"),
+        ("assistant.ssh.open", _) => Some("Ctrl+Shift+S"),
+        ("terminal.split.create", _) => Some("Ctrl+Shift+\\"),
+        ("terminal.tab.create", _) => Some("Ctrl+Shift+T"),
         _ => None,
     }
 }
@@ -1442,6 +1460,42 @@ impl CoduxApp {
         }
         if shortcut_matches(shortcuts, "settings.open", &actual) {
             self.open_settings_window(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "project.open_folder", &actual) {
+            self.open_project_folder_from_dialog(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "sidebar.projects.toggle", &actual) {
+            self.toggle_project_column(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "sidebar.tasks.toggle", &actual) {
+            self.toggle_task_column(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "assistant.git.open", &actual) {
+            self.toggle_assistant_panel(AssistantPanel::Git, window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "assistant.files.open", &actual) {
+            self.toggle_assistant_panel(AssistantPanel::FileManager, window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "assistant.ai.open", &actual) {
+            self.toggle_assistant_panel(AssistantPanel::AIStats, window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "assistant.ssh.open", &actual) {
+            self.toggle_assistant_panel(AssistantPanel::SSH, window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "terminal.split.create", &actual) {
+            self.split_terminal(window, cx);
+            return true;
+        }
+        if shortcut_matches(shortcuts, "terminal.tab.create", &actual) {
+            self.add_terminal_tab(window, cx);
             return true;
         }
         if shortcut_matches(shortcuts, "editor.save", &actual) {
@@ -9759,6 +9813,27 @@ mod tests {
         };
         assert!(shortcut_matches(&shortcuts, "task.create", default_task));
         assert!(!shortcut_matches(&shortcuts, "task.create", "⌘N"));
+
+        let default_git_panel = if cfg!(target_os = "macos") {
+            "⌘⇧G"
+        } else {
+            "Ctrl+Shift+G"
+        };
+        assert!(shortcut_matches(
+            &shortcuts,
+            "assistant.git.open",
+            default_git_panel
+        ));
+        let default_projects_sidebar = if cfg!(target_os = "macos") {
+            "⌘⌥P"
+        } else {
+            "Ctrl+Alt+P"
+        };
+        assert!(shortcut_matches(
+            &shortcuts,
+            "sidebar.projects.toggle",
+            default_projects_sidebar
+        ));
     }
 
     #[test]
