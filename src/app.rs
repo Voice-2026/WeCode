@@ -44,8 +44,8 @@ use codux_runtime::{
     worktree::{ProjectWorktreeGitSummary, WorktreeInfo, WorktreeTaskInfo},
 };
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, MouseButton, ObjectFit, ParentElement, Render, SharedString,
+    AnyElement, App, AppContext, Bounds, Context, DispatchPhase, FontWeight, InteractiveElement,
+    IntoElement, KeyDownEvent, MouseButton, ObjectFit, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Window, WindowBackgroundAppearance,
     WindowBounds, WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
     prelude::FluentBuilder as _, px, size,
@@ -60,6 +60,7 @@ use gpui_component::{
     tooltip::Tooltip,
 };
 use std::{
+    any::TypeId,
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
@@ -68,6 +69,7 @@ use std::{
 
 mod about;
 mod formatting;
+pub(crate) mod native_menu;
 mod pet;
 mod project_column;
 mod project_editor;
@@ -172,6 +174,7 @@ pub struct CoduxApp {
     workspace_view: WorkspaceView,
     assistant_panel: Option<AssistantPanel>,
     project_column_collapsed: bool,
+    task_column_collapsed: bool,
     project_open_applications: Vec<ProjectOpenApplicationSummary>,
     project_editor_project_id: Option<String>,
     project_editor_name: String,
@@ -875,6 +878,7 @@ impl CoduxApp {
             workspace_view: WorkspaceView::Terminal,
             assistant_panel: None,
             project_column_collapsed: false,
+            task_column_collapsed: false,
             project_open_applications,
             project_editor_project_id: None,
             project_editor_name: String::new(),
@@ -1014,6 +1018,7 @@ impl CoduxApp {
             workspace_view: WorkspaceView::Terminal,
             assistant_panel: None,
             project_column_collapsed: false,
+            task_column_collapsed: false,
             project_open_applications,
             project_editor_project_id: None,
             project_editor_name: String::new(),
@@ -1306,7 +1311,7 @@ impl CoduxApp {
             return true;
         }
         if shortcut_matches(shortcuts, "close.active", &actual) {
-            self.close_selected_project(window, cx);
+            self.close_active_workspace_item(window, cx);
             return true;
         }
 
@@ -1372,6 +1377,49 @@ impl CoduxApp {
     fn toggle_project_column(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.project_column_collapsed = !self.project_column_collapsed;
         cx.notify();
+    }
+
+    fn toggle_task_column(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.task_column_collapsed = !self.task_column_collapsed;
+        cx.notify();
+    }
+
+    fn close_active_workspace_item(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.workspace_view {
+            WorkspaceView::Terminal => {
+                let Some(tab_index) = self
+                    .terminals
+                    .iter()
+                    .position(|tab| tab.id == self.active_terminal_id)
+                else {
+                    self.status_message = "no active terminal".to_string();
+                    cx.notify();
+                    return;
+                };
+                let pane_count = self.terminals[tab_index].panes.len();
+                if pane_count > 1 {
+                    self.close_terminal_pane(pane_count - 1, window, cx);
+                } else {
+                    self.status_message = "keep at least one terminal split".to_string();
+                    cx.notify();
+                }
+            }
+            WorkspaceView::Files => {
+                if self.selected_file_entry.take().is_some() {
+                    self.file_preview = "select a file to preview it".to_string();
+                    self.file_editable = false;
+                    self.file_dirty = false;
+                    self.status_message = "file preview closed".to_string();
+                } else {
+                    self.status_message = "no active file preview".to_string();
+                }
+                cx.notify();
+            }
+            WorkspaceView::Review => {
+                self.status_message = "no active review item to close".to_string();
+                cx.notify();
+            }
+        }
     }
 
     fn set_workspace_view(
@@ -6678,6 +6726,216 @@ impl CoduxApp {
         cx.notify();
     }
 
+    fn register_native_menu_actions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        macro_rules! register {
+            ($action:ty, $handler:expr) => {
+                cx.on_action(
+                    TypeId::of::<$action>(),
+                    window,
+                    |app, _action, phase, window, cx| {
+                        if phase == DispatchPhase::Bubble {
+                            ($handler)(app, window, cx);
+                            cx.stop_propagation();
+                        }
+                    },
+                );
+            };
+        }
+
+        register!(
+            native_menu::ShowAbout,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_about_window(window, cx)
+            }
+        );
+        register!(
+            native_menu::OpenSettings,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_settings_window(window, cx)
+            }
+        );
+        register!(
+            native_menu::CheckUpdates,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.reload_update(window, cx)
+            }
+        );
+        register!(native_menu::ExportDiagnostics, |app: &mut CoduxApp,
+                                                   _window: &mut Window,
+                                                   cx: &mut Context<
+            CoduxApp,
+        >| {
+            app.export_diagnostics(cx)
+        });
+        register!(
+            native_menu::OpenRuntimeLog,
+            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_runtime_log(cx)
+            }
+        );
+        register!(
+            native_menu::OpenLiveLog,
+            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_live_log(cx)
+            }
+        );
+        register!(
+            native_menu::OpenWebsite,
+            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_codux_website(cx)
+            }
+        );
+        register!(
+            native_menu::OpenGithub,
+            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_codux_github(cx)
+            }
+        );
+        register!(
+            native_menu::NewProject,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_project_create_window(window, cx)
+            }
+        );
+        register!(native_menu::OpenProjectFolder, |app: &mut CoduxApp,
+                                                   window: &mut Window,
+                                                   cx: &mut Context<
+            CoduxApp,
+        >| {
+            app.open_project_folder_from_dialog(window, cx)
+        });
+        register!(native_menu::CloseCurrentProject, |app: &mut CoduxApp,
+                                                     window: &mut Window,
+                                                     cx: &mut Context<
+            CoduxApp,
+        >| {
+            app.close_selected_project(window, cx)
+        });
+        register!(native_menu::CloseAllProjects, |app: &mut CoduxApp,
+                                                  window: &mut Window,
+                                                  cx: &mut Context<
+            CoduxApp,
+        >| {
+            app.close_all_projects(window, cx)
+        });
+        register!(
+            native_menu::CloseActive,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.close_active_workspace_item(window, cx)
+            }
+        );
+        register!(
+            native_menu::CloseWindow,
+            |_app: &mut CoduxApp, window: &mut Window, _cx: &mut Context<CoduxApp>| {
+                window.remove_window()
+            }
+        );
+        register!(
+            native_menu::ViewTerminal,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.set_workspace_view(WorkspaceView::Terminal, window, cx)
+            }
+        );
+        register!(
+            native_menu::ViewFiles,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.set_workspace_view(WorkspaceView::Files, window, cx)
+            }
+        );
+        register!(
+            native_menu::ViewReview,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.set_workspace_view(WorkspaceView::Review, window, cx)
+            }
+        );
+        register!(
+            native_menu::ToggleProjects,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.toggle_project_column(window, cx)
+            }
+        );
+        register!(
+            native_menu::ToggleTasks,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.toggle_task_column(window, cx)
+            }
+        );
+        register!(
+            native_menu::OpenGitPanel,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.toggle_assistant_panel(AssistantPanel::Git, window, cx)
+            }
+        );
+        register!(
+            native_menu::OpenFilesPanel,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.toggle_assistant_panel(AssistantPanel::FileManager, window, cx)
+            }
+        );
+        register!(
+            native_menu::OpenAiPanel,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
+            }
+        );
+        register!(
+            native_menu::OpenSshPanel,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.toggle_assistant_panel(AssistantPanel::SSH, window, cx)
+            }
+        );
+        register!(
+            native_menu::CreateSplit,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.split_terminal(window, cx)
+            }
+        );
+        register!(
+            native_menu::CreateTab,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.add_terminal_tab(window, cx)
+            }
+        );
+        register!(
+            native_menu::CreateTask,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.create_worktree(window, cx)
+            }
+        );
+        register!(
+            native_menu::EditorSave,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.save_selected_file_preview(window, cx)
+            }
+        );
+        register!(
+            native_menu::EditorSearch,
+            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.open_file_search(cx)
+            }
+        );
+        register!(native_menu::MinimizeWindow, |_app: &mut CoduxApp,
+                                                window: &mut Window,
+                                                _cx: &mut Context<
+            CoduxApp,
+        >| {
+            window.minimize_window()
+        });
+        register!(
+            native_menu::ZoomWindow,
+            |_app: &mut CoduxApp, window: &mut Window, _cx: &mut Context<CoduxApp>| {
+                window.zoom_window()
+            }
+        );
+        register!(native_menu::ToggleFullscreen, |_app: &mut CoduxApp,
+                                                  window: &mut Window,
+                                                  _cx: &mut Context<
+            CoduxApp,
+        >| {
+            window.toggle_fullscreen()
+        });
+    }
+
     fn toggle_remote_host(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let next = !self.state.remote.enabled;
         match self.runtime_service.set_remote_enabled(next) {
@@ -8578,6 +8836,8 @@ fn pet_sprite_element(sprite_path: PathBuf, size: f32, fallback_color: gpui::Hsl
 
 impl Render for CoduxApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.register_native_menu_actions(window, cx);
+
         if self.window_mode == AppWindowMode::DesktopPet {
             return self.desktop_pet_window(window, cx).into_any_element();
         }
@@ -8697,7 +8957,9 @@ impl Render for CoduxApp {
                     .flex_1()
                     .overflow_hidden()
                     .child(self.project_column(cx))
-                    .child(self.task_column(cx))
+                    .when(!self.task_column_collapsed, |this| {
+                        this.child(self.task_column(cx))
+                    })
                     .child(self.main_workspace_column(window, cx)),
             )
             .child(self.status_bar(cx))

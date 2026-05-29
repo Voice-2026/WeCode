@@ -15,6 +15,8 @@ fn main() -> Result<()> {
         gpui_component::init(cx);
         theme::apply_component_theme_for_name("GitHub Dark", None, cx);
         disable_root_tab_focus_bindings(cx);
+        cx.on_action(|_: &crate::app::native_menu::QuitCodux, cx| cx.quit());
+        cx.set_menus(crate::app::native_menu::codux_menus());
         let bounds = Bounds::centered(None, size(px(1280.0), px(820.0)), cx);
 
         let result = cx.open_window(
