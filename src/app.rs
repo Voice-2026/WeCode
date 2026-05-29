@@ -150,6 +150,7 @@ pub struct CoduxApp {
     pet_installing: bool,
     pet_custom_pets: Vec<PetCustomPet>,
     pet_custom_install_seen_revision: u64,
+    pet_update_seen_revision: u64,
     pet_claim_species: String,
     pet_name_editing: bool,
     pet_dex_spotlight: Option<PetDexSpotlight>,
@@ -385,6 +386,7 @@ struct RuntimeActivityTickResult {
     file_events: usize,
     ai_history_events: usize,
     pet_events: usize,
+    pet_update_events: usize,
     ai_events: usize,
     memory_events: usize,
     dock_badge_count: Option<i64>,
@@ -416,7 +418,13 @@ struct PetCustomInstallEvent {
     custom_pet_id: Option<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct PetUpdateEvent {
+    revision: u64,
+}
+
 static PET_CUSTOM_INSTALL_EVENT: OnceLock<Mutex<PetCustomInstallEvent>> = OnceLock::new();
+static PET_UPDATE_EVENT: OnceLock<Mutex<PetUpdateEvent>> = OnceLock::new();
 
 fn pet_custom_install_event() -> &'static Mutex<PetCustomInstallEvent> {
     PET_CUSTOM_INSTALL_EVENT.get_or_init(|| Mutex::new(PetCustomInstallEvent::default()))
@@ -435,6 +443,25 @@ fn publish_pet_custom_install(custom_pet_id: String) -> u64 {
     };
     event.revision = event.revision.saturating_add(1);
     event.custom_pet_id = Some(custom_pet_id);
+    event.revision
+}
+
+fn pet_update_event() -> &'static Mutex<PetUpdateEvent> {
+    PET_UPDATE_EVENT.get_or_init(|| Mutex::new(PetUpdateEvent::default()))
+}
+
+fn current_pet_update_event() -> PetUpdateEvent {
+    pet_update_event()
+        .lock()
+        .map(|event| event.clone())
+        .unwrap_or_default()
+}
+
+fn publish_pet_update() -> u64 {
+    let Ok(mut event) = pet_update_event().lock() else {
+        return 0;
+    };
+    event.revision = event.revision.saturating_add(1);
     event.revision
 }
 
@@ -912,6 +939,7 @@ impl CoduxApp {
             pet_installing: false,
             pet_custom_pets,
             pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
+            pet_update_seen_revision: current_pet_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -1057,6 +1085,7 @@ impl CoduxApp {
             pet_installing: false,
             pet_custom_pets,
             pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
+            pet_update_seen_revision: current_pet_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -7405,10 +7434,11 @@ impl CoduxApp {
     fn reload_runtime_activity(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let result = self.apply_runtime_activity_tick(true, _window.is_window_active(), true);
         self.status_message = format!(
-            "runtime activity reloaded · project events {} · file events {} · pet {} · AI history {} · AI events {} · memory queued {} · badge {}",
+            "runtime activity reloaded · project events {} · file events {} · pet catalog {} · pet updates {} · AI history {} · AI events {} · memory queued {} · badge {}",
             result.project_events,
             result.file_events,
             result.pet_events,
+            result.pet_update_events,
             result.ai_history_events,
             result.ai_events,
             result.memory_events,
@@ -7438,6 +7468,7 @@ impl CoduxApp {
         let applied_project_events = self.apply_project_activity_events(project_events);
         let applied_pet_events =
             usize::from(self.sync_pet_custom_install_event_for_activity_tick());
+        let applied_pet_update_events = usize::from(self.sync_pet_update_event_for_activity_tick());
         let ai_history_events = self.runtime_service.drain_ai_history_events();
         let applied_ai_history_events = self.apply_ai_history_events(ai_history_events);
         let file_events = self.runtime_service.drain_file_change_events();
@@ -7493,6 +7524,7 @@ impl CoduxApp {
             file_events: applied_file_events,
             ai_history_events: applied_ai_history_events,
             pet_events: applied_pet_events,
+            pet_update_events: applied_pet_update_events,
             ai_events: drained.events.len(),
             memory_events: drained.memory.len(),
             dock_badge_count: window_state.dock_badge_count,
@@ -7500,6 +7532,7 @@ impl CoduxApp {
                 || applied_file_events > 0
                 || applied_ai_history_events > 0
                 || applied_pet_events > 0
+                || applied_pet_update_events > 0
                 || !remote_events.is_empty()
                 || !drained.events.is_empty()
                 || !drained.memory.is_empty()
@@ -8089,6 +8122,10 @@ impl CoduxApp {
                     Ok(_) => {
                         self.state.pet = self.runtime_service.reload_pet();
                         self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                        let revision = publish_pet_update();
+                        if revision > 0 {
+                            self.pet_update_seen_revision = revision;
+                        }
                         self.status_message =
                             format!("custom pet claimed: {}", custom_pet.display_name);
                         window.remove_window();
@@ -8122,6 +8159,10 @@ impl CoduxApp {
         match self.runtime_service.claim_pet_from_indexed_history(request) {
             Ok(_) => {
                 self.state.pet = self.runtime_service.reload_pet();
+                let revision = publish_pet_update();
+                if revision > 0 {
+                    self.pet_update_seen_revision = revision;
+                }
                 self.status_message = "pet claimed".to_string();
                 window.remove_window();
             }
@@ -8147,6 +8188,10 @@ impl CoduxApp {
         }) {
             Ok(_) => {
                 self.state.pet = self.runtime_service.reload_pet();
+                let revision = publish_pet_update();
+                if revision > 0 {
+                    self.pet_update_seen_revision = revision;
+                }
                 self.pet_name_editing = false;
                 self.status_message = "pet renamed".to_string();
             }
@@ -8185,6 +8230,12 @@ impl CoduxApp {
         match self.runtime_service.archive_current_pet() {
             Ok(_) => {
                 self.state.pet = self.runtime_service.reload_pet();
+                self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                self.pet_dex_spotlight = None;
+                let revision = publish_pet_update();
+                if revision > 0 {
+                    self.pet_update_seen_revision = revision;
+                }
                 self.status_message = "pet archived".to_string();
             }
             Err(error) => self.status_message = format!("failed to archive pet: {error}"),

@@ -101,7 +101,9 @@ impl CoduxApp {
 
                 if this
                     .update(cx, |app, cx| {
-                        if app.sync_pet_custom_install_event(cx) {
+                        let custom_changed = app.sync_pet_custom_install_event(cx);
+                        let pet_changed = app.sync_pet_update_event(cx);
+                        if custom_changed || pet_changed {
                             cx.notify();
                         }
                     })
@@ -125,6 +127,16 @@ impl CoduxApp {
     pub(in crate::app) fn sync_pet_custom_install_event_for_activity_tick(&mut self) -> bool {
         let event = current_pet_custom_install_event();
         self.apply_pet_custom_install_event(event)
+    }
+
+    pub(in crate::app) fn sync_pet_update_event(&mut self, _cx: &mut Context<Self>) -> bool {
+        let event = current_pet_update_event();
+        self.apply_pet_update_event(event)
+    }
+
+    pub(in crate::app) fn sync_pet_update_event_for_activity_tick(&mut self) -> bool {
+        let event = current_pet_update_event();
+        self.apply_pet_update_event(event)
     }
 
     fn apply_pet_custom_install_event(&mut self, event: PetCustomInstallEvent) -> bool {
@@ -164,12 +176,28 @@ impl CoduxApp {
         true
     }
 
+    fn apply_pet_update_event(&mut self, event: PetUpdateEvent) -> bool {
+        if event.revision <= self.pet_update_seen_revision {
+            return false;
+        }
+
+        self.pet_update_seen_revision = event.revision;
+        self.state.pet = self.runtime_service.reload_pet();
+        self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+        if self.window_mode == AppWindowMode::PetDex {
+            self.pet_dex_spotlight = None;
+        }
+        self.status_message = "pet state refreshed".to_string();
+        true
+    }
+
     pub(in crate::app) fn pet_claim_workspace(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         self.sync_pet_custom_install_event(cx);
+        self.sync_pet_update_event(cx);
         let catalog = self.runtime_service.pet_catalog();
         if self.pet_claim_species.is_empty() {
             self.pet_claim_species = if self.state.pet.species.is_empty() {
@@ -361,6 +389,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         self.sync_pet_custom_install_event(cx);
+        self.sync_pet_update_event(cx);
         let catalog = self.runtime_service.pet_catalog();
         let snapshot = self
             .runtime_service
@@ -1067,6 +1096,13 @@ fn pet_legacy_section(
                                     ) {
                                         Ok(_) => {
                                             app.state.pet = app.runtime_service.reload_pet();
+                                            app.pet_custom_pets =
+                                                app.runtime_service.pet_catalog().custom_pets;
+                                            app.pet_dex_spotlight = None;
+                                            let revision = publish_pet_update();
+                                            if revision > 0 {
+                                                app.pet_update_seen_revision = revision;
+                                            }
                                             app.status_message = "pet restored".to_string();
                                         }
                                         Err(error) => {
