@@ -1225,10 +1225,12 @@ impl CoduxApp {
                         if app.window_mode != AppWindowMode::Main {
                             return;
                         }
-                        if app
-                            .apply_runtime_activity_tick(true, true, include_scheduled_tick)
-                            .changed
-                        {
+                        let result =
+                            app.apply_runtime_activity_tick(true, true, include_scheduled_tick);
+                        if result.pet_update_events > 0 {
+                            app.sync_desktop_pet_window(false, cx);
+                        }
+                        if result.changed {
                             cx.notify();
                         }
                     })
@@ -7565,6 +7567,9 @@ impl CoduxApp {
 
     fn reload_runtime_activity(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let result = self.apply_runtime_activity_tick(true, _window.is_window_active(), true);
+        if result.pet_update_events > 0 {
+            self.sync_desktop_pet_window(false, cx);
+        }
         self.status_message = format!(
             "runtime activity reloaded · project events {} · file events {} · pet catalog {} · pet updates {} · AI history {} · AI events {} · memory queued {} · badge {}",
             result.project_events,
@@ -7939,6 +7944,9 @@ impl CoduxApp {
             Ok(summary) => {
                 self.state.pet = summary;
                 self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
+                }
                 self.status_message = "pet data refreshed".to_string();
             }
             Err(error) => self.status_message = format!("failed to refresh pet: {error}"),
@@ -8288,6 +8296,9 @@ impl CoduxApp {
                         if revision > 0 {
                             self.pet_update_seen_revision = revision;
                         }
+                        if self.window_mode == AppWindowMode::Main {
+                            self.sync_desktop_pet_window(false, cx);
+                        }
                         self.status_message =
                             format!("custom pet claimed: {}", custom_pet.display_name);
                         window.remove_window();
@@ -8325,6 +8336,9 @@ impl CoduxApp {
                 if revision > 0 {
                     self.pet_update_seen_revision = revision;
                 }
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
+                }
                 self.status_message = "pet claimed".to_string();
                 window.remove_window();
             }
@@ -8353,6 +8367,9 @@ impl CoduxApp {
                 let revision = publish_pet_update();
                 if revision > 0 {
                     self.pet_update_seen_revision = revision;
+                }
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
                 }
                 self.pet_name_editing = false;
                 self.status_message = "pet renamed".to_string();
@@ -8403,6 +8420,9 @@ impl CoduxApp {
                 let revision = publish_pet_update();
                 if revision > 0 {
                     self.pet_update_seen_revision = revision;
+                }
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
                 }
                 self.status_message = "pet archived".to_string();
             }
