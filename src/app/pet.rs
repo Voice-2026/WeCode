@@ -1,5 +1,5 @@
 use super::*;
-use codux_runtime::pet::{PetCatalogItem, PetLegacyRecord, PetSnapshot, PetStats};
+use codux_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetSnapshot, PetStats};
 use gpui_component::input::{Input, InputState};
 
 use crate::app::workspace::workspace_pet_install_form;
@@ -287,6 +287,18 @@ impl CoduxApp {
             self.runtime_service
                 .hydrate_custom_pet_data_url(pet.clone())
         });
+        let mut unlocked_species = HashSet::new();
+        if self.state.pet.claimed && snapshot.custom_pet.is_none() {
+            unlocked_species.insert(self.state.pet.species.clone());
+        }
+        for record in &snapshot.legacy {
+            if record.custom_pet.is_none() {
+                unlocked_species.insert(record.species.clone());
+            }
+        }
+        let custom_pets = catalog.custom_pets.clone();
+        let total_count = catalog.species.len() + custom_pets.len();
+        let unlocked_count = unlocked_species.len() + custom_pets.len();
         let primary_action = if self.state.pet.claimed {
             pet_inline_button(
                 "pet-dex-archive",
@@ -327,6 +339,7 @@ impl CoduxApp {
             div()
                 .min_h_0()
                 .flex_1()
+                .relative()
                 .grid()
                 .grid_cols(2)
                 .overflow_hidden()
@@ -340,6 +353,7 @@ impl CoduxApp {
                         .flex()
                         .flex_col()
                         .gap(px(12.0))
+                        .child(pet_dex_intro_card(unlocked_count, total_count))
                         .child(pet_dex_current_card(
                             &self.state.pet,
                             current_custom_pet.as_ref(),
@@ -370,14 +384,27 @@ impl CoduxApp {
                         .flex()
                         .flex_col()
                         .gap(px(16.0))
-                        .child(pet_catalog_section(catalog.species, cx))
+                        .child(pet_catalog_section(
+                            catalog.species.clone(),
+                            &unlocked_species,
+                            cx,
+                        ))
                         .child(pet_custom_section(
-                            catalog.custom_pets,
+                            custom_pets,
                             self.state.support_dir.clone(),
                             cx,
                         )),
                 ),
         )
+        .when_some(self.pet_dex_spotlight.clone(), |this, spotlight| {
+            this.child(pet_dex_spotlight_overlay(
+                spotlight,
+                &catalog,
+                &self.runtime.source_root,
+                &self.state.support_dir,
+                cx,
+            ))
+        })
     }
 }
 
@@ -778,6 +805,67 @@ fn pet_dex_current_card(
         )
 }
 
+fn pet_dex_intro_card(unlocked_count: usize, total_count: usize) -> impl IntoElement {
+    div()
+        .rounded(px(8.0))
+        .bg(color(0xFFFFFF).opacity(0.055))
+        .border_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .p(px(12.0))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(
+                    Icon::new(IconName::BookOpen)
+                        .size_3p5()
+                        .text_color(color(theme::TEXT_MUTED)),
+                )
+                .child(
+                    div()
+                        .text_size(px(17.0))
+                        .line_height(px(22.0))
+                        .font_weight(FontWeight::BOLD)
+                        .child("宠物图鉴"),
+                ),
+        )
+        .child(
+            div()
+                .mt(px(4.0))
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .text_color(color(theme::TEXT_MUTED))
+                .child("记录你养成过的 Codux 伙伴。"),
+        )
+        .child(
+            div()
+                .mt(px(10.0))
+                .rounded(px(7.0))
+                .bg(color(0xFFFFFF).opacity(0.045))
+                .px(px(10.0))
+                .py(px(8.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child("图鉴收集"),
+                )
+                .child(
+                    div()
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
+                        .font_weight(FontWeight::BOLD)
+                        .child(format!("{unlocked_count}/{}", total_count.max(1))),
+                ),
+        )
+}
+
 fn pet_stats_grid(stats: &PetStats, total_xp: i64) -> impl IntoElement {
     div()
         .grid()
@@ -914,7 +1002,8 @@ fn pet_legacy_section(
 
 fn pet_catalog_section(
     items: Vec<PetCatalogItem>,
-    _cx: &mut Context<CoduxApp>,
+    unlocked_species: &HashSet<String>,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     div()
         .rounded(px(8.0))
@@ -930,17 +1019,39 @@ fn pet_catalog_section(
                 .grid_cols(3)
                 .gap(px(8.0))
                 .children(items.into_iter().map(|item| {
+                    let unlocked = unlocked_species.contains(&item.species);
+                    let species = item.species.clone();
                     div()
+                        .id(SharedString::from(format!("pet-dex-bundled-{species}")))
+                        .cursor_pointer()
                         .rounded(px(7.0))
-                        .bg(color(0xFFFFFF).opacity(0.045))
+                        .bg(if unlocked {
+                            color(0xFFFFFF).opacity(0.045)
+                        } else {
+                            color(0xFFFFFF).opacity(0.025)
+                        })
                         .px(px(9.0))
                         .py(px(8.0))
+                        .opacity(if unlocked { 1.0 } else { 0.72 })
+                        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                        .on_click(cx.listener(move |app, _event, _window, cx| {
+                            if unlocked {
+                                app.show_pet_dex_spotlight(
+                                    PetDexSpotlight::Bundled(species.clone()),
+                                    cx,
+                                );
+                            }
+                        }))
                         .child(
                             div()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child(pet_species_name(&item.species)),
+                                .child(if unlocked {
+                                    pet_species_name(&item.species)
+                                } else {
+                                    "???".to_string()
+                                }),
                         )
                         .child(
                             div()
@@ -949,7 +1060,11 @@ fn pet_catalog_section(
                                 .line_height(px(15.0))
                                 .truncate()
                                 .text_color(color(theme::TEXT_DIM))
-                                .child(pet_species_subtitle(&item.species)),
+                                .child(if unlocked {
+                                    "伙伴".to_string()
+                                } else {
+                                    "未解锁".to_string()
+                                }),
                         )
                         .into_any_element()
                 })),
@@ -985,8 +1100,10 @@ fn pet_custom_section(
                 })
                 .children(custom_pets.into_iter().map(|pet| {
                     let sprite_path = custom_pet_sprite_path(&support_dir, &pet);
-                    let claim_pet = pet.clone();
+                    let pet_id = pet.id.clone();
                     div()
+                        .id(SharedString::from(format!("pet-dex-custom-{pet_id}")))
+                        .cursor_pointer()
                         .rounded(px(7.0))
                         .px(px(7.0))
                         .py(px(6.0))
@@ -994,6 +1111,9 @@ fn pet_custom_section(
                         .items_center()
                         .gap(px(8.0))
                         .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                        .on_click(cx.listener(move |app, _event, _window, cx| {
+                            app.show_pet_dex_spotlight(PetDexSpotlight::Custom(pet_id.clone()), cx);
+                        }))
                         .child(
                             div()
                                 .size(px(30.0))
@@ -1026,25 +1146,144 @@ fn pet_custom_section(
                                         .child(empty_label(&pet.description)),
                                 ),
                         )
-                        .child(
-                            Button::new(SharedString::from(format!(
-                                "pet-dex-claim-custom-{}",
-                                pet.id
-                            )))
-                            .compact()
-                            .ghost()
-                            .tooltip("领取这个自定义宠物")
-                            .text_color(cx.theme().secondary_foreground)
-                            .icon(Icon::new(IconName::Check).size_3p5())
-                            .on_click(cx.listener(
-                                move |app, _event, window, cx| {
-                                    app.claim_custom_pet(claim_pet.clone(), window, cx)
-                                },
-                            )),
-                        )
                         .into_any_element()
                 })),
         )
+}
+
+fn pet_dex_spotlight_overlay(
+    spotlight: PetDexSpotlight,
+    catalog: &PetCatalog,
+    runtime_asset_root: &Path,
+    support_dir: &Path,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let detail = match spotlight {
+        PetDexSpotlight::Bundled(species) => catalog
+            .species
+            .iter()
+            .find(|item| item.species == species)
+            .map(|item| {
+                let pet = PetSummary {
+                    species: item.species.clone(),
+                    ..PetSummary::default()
+                };
+                (
+                    pet_species_name(&item.species),
+                    "伙伴".to_string(),
+                    pet_species_subtitle(&item.species),
+                    pet_sprite_path(runtime_asset_root, support_dir, &pet, &[]),
+                    None,
+                )
+            }),
+        PetDexSpotlight::Custom(custom_id) => catalog
+            .custom_pets
+            .iter()
+            .find(|pet| pet.id == custom_id)
+            .map(|pet| {
+                (
+                    pet.display_name.clone(),
+                    "自定义宠物".to_string(),
+                    empty_label(&pet.description),
+                    custom_pet_sprite_path(support_dir, pet),
+                    pet.source_page_url.clone(),
+                )
+            }),
+    };
+
+    let Some((title, subtitle, description, sprite_path, source_url)) = detail else {
+        return div().into_any_element();
+    };
+    let source_url_for_click = source_url.clone();
+
+    div()
+        .absolute()
+        .top(px(0.0))
+        .right(px(0.0))
+        .bottom(px(0.0))
+        .left(px(0.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(color(0x000000).opacity(0.35))
+        .p(px(24.0))
+        .child(
+            div()
+                .w(px(360.0))
+                .rounded(px(14.0))
+                .border_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .bg(color(theme::BG_PANEL))
+                .p(px(20.0))
+                .text_center()
+                .shadow_lg()
+                .child(
+                    div()
+                        .mx_auto()
+                        .size(px(116.0))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(color(theme::ACCENT).opacity(0.12))
+                        .child(pet_sprite_element(sprite_path, 94.0, cx.theme().primary)),
+                )
+                .child(
+                    div()
+                        .mt(px(16.0))
+                        .text_size(px(18.0))
+                        .line_height(px(24.0))
+                        .font_weight(FontWeight::BOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt(px(4.0))
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::ACCENT))
+                        .child(subtitle),
+                )
+                .child(
+                    div()
+                        .mt(px(12.0))
+                        .text_size(px(12.0))
+                        .line_height(px(20.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(description),
+                )
+                .child(
+                    div()
+                        .mt(px(20.0))
+                        .flex()
+                        .justify_center()
+                        .gap_2()
+                        .when_some(source_url_for_click, |this, url| {
+                            this.child(
+                                Button::new("pet-dex-open-source")
+                                    .compact()
+                                    .secondary()
+                                    .text_color(cx.theme().secondary_foreground)
+                                    .label("打开来源")
+                                    .on_click(cx.listener(move |app, _event, window, cx| {
+                                        app.open_pet_source_url(url.clone(), window, cx)
+                                    })),
+                            )
+                        })
+                        .child(
+                            Button::new("pet-dex-close-spotlight")
+                                .compact()
+                                .primary()
+                                .text_color(cx.theme().primary_foreground)
+                                .label("关闭")
+                                .on_click(cx.listener(|app, _event, _window, cx| {
+                                    app.close_pet_dex_spotlight(cx)
+                                })),
+                        ),
+                ),
+        )
+        .into_any_element()
 }
 
 fn pet_section_header(label: &'static str, count: usize) -> impl IntoElement {

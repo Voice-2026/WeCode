@@ -98,3 +98,9 @@ pub(in crate::app) enum AIToolLauncher {
     OpenCode,
     Kiro,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::app) enum PetDexSpotlight {
+    Bundled(String),
+    Custom(String),
+}

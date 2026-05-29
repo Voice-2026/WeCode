@@ -149,6 +149,7 @@ pub struct CoduxApp {
     pet_custom_pets: Vec<PetCustomPet>,
     pet_claim_species: String,
     pet_name_editing: bool,
+    pet_dex_spotlight: Option<PetDexSpotlight>,
     selected_ai_session_id: Option<String>,
     selected_ai_provider_id: Option<String>,
     ai_provider_testing_id: Option<String>,
@@ -856,6 +857,7 @@ impl CoduxApp {
             pet_custom_pets,
             pet_claim_species: String::new(),
             pet_name_editing: false,
+            pet_dex_spotlight: None,
             selected_ai_session_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
@@ -999,6 +1001,7 @@ impl CoduxApp {
             pet_custom_pets,
             pet_claim_species: String::new(),
             pet_name_editing: false,
+            pet_dex_spotlight: None,
             selected_ai_session_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
@@ -7840,6 +7843,14 @@ impl CoduxApp {
         cx.notify();
     }
 
+    fn open_pet_source_url(&mut self, url: String, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.open_url(&url) {
+            Ok(_) => self.status_message = "pet source opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open pet source: {error}"),
+        }
+        cx.notify();
+    }
+
     fn install_custom_pet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
@@ -7921,31 +7932,6 @@ impl CoduxApp {
     fn pet_install_input_matches(&self, page_url: &str, display_name: &str) -> bool {
         self.pet_install_url.trim() == page_url
             && self.pet_install_display_name.trim() == display_name
-    }
-
-    fn claim_custom_pet(
-        &mut self,
-        custom_pet: PetCustomPet,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let custom_pet = self.runtime_service.hydrate_custom_pet_data_url(custom_pet);
-        let request = PetClaimRequest {
-            species: format!("custom:{}", custom_pet.id),
-            custom_name: String::new(),
-            custom_pet: Some(custom_pet.clone()),
-            _projects: Vec::new(),
-        };
-
-        match self.runtime_service.claim_pet_from_indexed_history(request) {
-            Ok(_) => {
-                self.state.pet = self.runtime_service.reload_pet();
-                self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
-                self.status_message = format!("custom pet claimed: {}", custom_pet.display_name);
-            }
-            Err(error) => self.status_message = format!("failed to claim custom pet: {error}"),
-        }
-        cx.notify();
     }
 
     fn claim_pet_species(
@@ -8051,6 +8037,18 @@ impl CoduxApp {
     fn cancel_current_pet_rename(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.pet_name_editing = false;
         self.status_message = "pet rename cancelled".to_string();
+        cx.notify();
+    }
+
+    fn show_pet_dex_spotlight(&mut self, spotlight: PetDexSpotlight, cx: &mut Context<Self>) {
+        self.pet_dex_spotlight = Some(spotlight);
+        self.status_message = "pet dex detail opened".to_string();
+        cx.notify();
+    }
+
+    fn close_pet_dex_spotlight(&mut self, cx: &mut Context<Self>) {
+        self.pet_dex_spotlight = None;
+        self.status_message = "pet dex detail closed".to_string();
         cx.notify();
     }
 
