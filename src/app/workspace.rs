@@ -789,7 +789,13 @@ struct DailyLevelTier {
     title: &'static str,
     min: i64,
     color: u32,
-    icon: IconName,
+    icon: DailyLevelIcon,
+}
+
+#[derive(Clone)]
+enum DailyLevelIcon {
+    Component(IconName),
+    Asset(&'static str),
 }
 
 const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
@@ -798,56 +804,56 @@ const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
         title: "黑铁",
         min: 0,
         color: 0x5B616D,
-        icon: IconName::Minus,
+        icon: DailyLevelIcon::Component(IconName::Minus),
     },
     DailyLevelTier {
         id: "bronze",
         title: "青铜",
         min: 1_000_000,
         color: 0xC98663,
-        icon: IconName::Star,
+        icon: DailyLevelIcon::Asset("rank-icons/zap.svg"),
     },
     DailyLevelTier {
         id: "silver",
         title: "白银",
         min: 3_000_000,
         color: 0xC8D1E3,
-        icon: IconName::Check,
+        icon: DailyLevelIcon::Asset("rank-icons/shield-check.svg"),
     },
     DailyLevelTier {
         id: "gold",
         title: "黄金",
         min: 6_000_000,
         color: 0xE8AA34,
-        icon: IconName::Star,
+        icon: DailyLevelIcon::Component(IconName::Star),
     },
     DailyLevelTier {
         id: "platinum",
         title: "铂金",
         min: 10_000_000,
         color: 0x7ED6D8,
-        icon: IconName::Star,
+        icon: DailyLevelIcon::Component(IconName::Star),
     },
     DailyLevelTier {
         id: "diamond",
         title: "钻石",
         min: 18_000_000,
         color: 0x59A7FF,
-        icon: IconName::Star,
+        icon: DailyLevelIcon::Asset("rank-icons/sparkles.svg"),
     },
     DailyLevelTier {
         id: "master",
         title: "大师",
         min: 30_000_000,
         color: 0x9A72FF,
-        icon: IconName::Star,
+        icon: DailyLevelIcon::Asset("rank-icons/trophy.svg"),
     },
     DailyLevelTier {
         id: "grandmaster",
         title: "宗师",
         min: 50_000_000,
         color: 0xFF5E8E,
-        icon: IconName::Heart,
+        icon: DailyLevelIcon::Asset("rank-icons/flame.svg"),
     },
 ];
 
@@ -1030,11 +1036,15 @@ fn daily_level_badge(tier: &DailyLevelTier, box_size: f32, icon_size: f32) -> im
             linear_color_stop(color(tier.color).opacity(0.72), 1.0),
         ))
         .text_color(color(0xFFFFFF))
-        .child(
-            Icon::new(tier.icon.clone())
-                .with_size(px(icon_size))
-                .text_color(color(0xFFFFFF)),
-        )
+        .child(daily_level_icon(tier.icon.clone(), icon_size))
+}
+
+fn daily_level_icon(icon: DailyLevelIcon, icon_size: f32) -> impl IntoElement {
+    let icon = match icon {
+        DailyLevelIcon::Component(name) => Icon::new(name),
+        DailyLevelIcon::Asset(path) => Icon::empty().path(path),
+    };
+    icon.with_size(px(icon_size)).text_color(color(0xFFFFFF))
 }
 
 fn workspace_pet_popover_content(

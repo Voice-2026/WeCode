@@ -1157,6 +1157,7 @@ dependencies = [
  "gpui_platform",
  "parking_lot",
  "portable-pty",
+ "rust-embed",
  "serde",
  "uuid",
 ]

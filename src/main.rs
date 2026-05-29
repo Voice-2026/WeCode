@@ -1,15 +1,16 @@
 mod app;
+mod assets;
 mod terminal;
 mod theme;
 
 use anyhow::Result;
 use app::CoduxApp;
+use assets::CoduxAssets;
 use gpui::{App, AppContext, Bounds, KeyBinding, Unbind, WindowBounds, WindowOptions, px, size};
 use gpui_component::Root;
-use gpui_component_assets::Assets;
 
 fn main() -> Result<()> {
-    let app = gpui_platform::application().with_assets(Assets);
+    let app = gpui_platform::application().with_assets(CoduxAssets);
 
     app.run(|cx: &mut App| {
         gpui_component::init(cx);

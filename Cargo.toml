@@ -14,5 +14,6 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", package
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component-assets" }
 parking_lot = "0.12"
 portable-pty = "0.9"
+rust-embed = "8.11"
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v5"] }
