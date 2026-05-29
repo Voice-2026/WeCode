@@ -258,8 +258,16 @@ impl CoduxApp {
                                 .flex_col()
                                 .gap(px(8.0))
                                 .children(catalog.species.into_iter().map(|item| {
-                                    pet_claim_option_row(item, &selected_species, window, cx)
-                                        .into_any_element()
+                                    pet_claim_option_row(
+                                        item,
+                                        &selected_species,
+                                        &self.runtime.source_root,
+                                        &self.state.support_dir,
+                                        &self.pet_custom_pets,
+                                        window,
+                                        cx,
+                                    )
+                                    .into_any_element()
                                 }))
                                 .child(pet_claim_random_row(&selected_species, cx))
                                 .when(!custom_pets.is_empty(), |this| {
@@ -275,8 +283,13 @@ impl CoduxApp {
                                     )
                                     .children(
                                         custom_pets.into_iter().map(|pet| {
-                                            pet_claim_custom_row(pet, &selected_species, cx)
-                                                .into_any_element()
+                                            pet_claim_custom_row(
+                                                pet,
+                                                &selected_species,
+                                                &self.state.support_dir,
+                                                cx,
+                                            )
+                                            .into_any_element()
                                         }),
                                     )
                                 }),
@@ -666,6 +679,7 @@ fn pet_claim_random_row(selected_species: &str, cx: &mut Context<CoduxApp>) -> i
         selected,
         "随机".to_string(),
         "让 Codux 为你选择一个伙伴".to_string(),
+        pet_claim_random_thumb(cx),
         cx,
     )
     .on_click(cx.listener(move |app, _event, _window, cx| {
@@ -678,6 +692,9 @@ fn pet_claim_random_row(selected_species: &str, cx: &mut Context<CoduxApp>) -> i
 fn pet_claim_option_row(
     item: PetCatalogItem,
     selected_species: &str,
+    runtime_asset_root: &Path,
+    support_dir: &Path,
+    custom_pets: &[PetCustomPet],
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -685,12 +702,22 @@ fn pet_claim_option_row(
     let species = item.species.clone();
     let title = pet_species_name(&item.species);
     let subtitle = pet_species_subtitle(&item.species);
+    let sprite_path = pet_sprite_path(
+        runtime_asset_root,
+        support_dir,
+        &PetSummary {
+            species: item.species.clone(),
+            ..PetSummary::default()
+        },
+        custom_pets,
+    );
 
     pet_select_row(
         SharedString::from(format!("pet-claim-bundled-{}", item.species)),
         selected,
         title,
         subtitle,
+        pet_claim_sprite_thumb(sprite_path, cx.theme().primary),
         cx,
     )
     .on_click(cx.listener(move |app, _event, _window, cx| {
@@ -703,18 +730,21 @@ fn pet_claim_option_row(
 fn pet_claim_custom_row(
     pet: PetCustomPet,
     selected_species: &str,
+    support_dir: &Path,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let selected = selected_species == format!("custom:{}", pet.id);
     let species = format!("custom:{}", pet.id);
     let title = pet.display_name.clone();
     let subtitle = empty_label(&pet.description);
+    let sprite_path = custom_pet_sprite_path(support_dir, &pet);
 
     pet_select_row(
         SharedString::from(format!("pet-claim-custom-{}", pet.id)),
         selected,
         title,
         subtitle,
+        pet_claim_sprite_thumb(sprite_path, cx.theme().primary),
         cx,
     )
     .on_click(cx.listener(move |app, _event, _window, cx| {
@@ -729,37 +759,95 @@ fn pet_select_row(
     selected: bool,
     title: String,
     subtitle: String,
+    leading: AnyElement,
     cx: &mut Context<CoduxApp>,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .cursor_pointer()
-        .rounded(px(6.0))
-        .px(px(8.0))
-        .py(px(7.0))
-        .bg(if selected {
-            cx.theme().secondary_hover
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(if selected {
+            color(theme::ACCENT).opacity(0.6)
         } else {
             cx.theme().transparent
         })
+        .px(px(10.0))
+        .py(px(7.0))
+        .flex()
+        .items_center()
+        .gap(px(10.0))
+        .bg(if selected {
+            color(theme::ACCENT).opacity(0.1)
+        } else {
+            color(0xFFFFFF).opacity(0.035)
+        })
         .hover(|style| style.bg(cx.theme().secondary_hover))
+        .child(leading)
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color(theme::TEXT))
-                .child(title),
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(13.0))
+                        .line_height(px(17.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(theme::TEXT))
+                        .truncate()
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt(px(2.0))
+                        .text_size(px(12.0))
+                        .line_height(px(15.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .truncate()
+                        .child(subtitle),
+                ),
         )
         .child(
             div()
-                .mt(px(2.0))
-                .text_size(px(12.0))
-                .line_height(px(15.0))
-                .text_color(color(theme::TEXT_MUTED))
-                .truncate()
-                .child(subtitle),
+                .size(px(18.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(if selected {
+                    Icon::new(IconName::CircleCheck)
+                        .size_3p5()
+                        .text_color(color(theme::ACCENT))
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
+                }),
         )
+}
+
+fn pet_claim_sprite_thumb(sprite_path: PathBuf, fallback_color: gpui::Hsla) -> AnyElement {
+    div()
+        .size(px(44.0))
+        .rounded(px(8.0))
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(color(0xFFFFFF).opacity(0.04))
+        .child(pet_sprite_element(sprite_path, 44.0, fallback_color))
+        .into_any_element()
+}
+
+fn pet_claim_random_thumb(cx: &mut Context<CoduxApp>) -> AnyElement {
+    let accent = cx.theme().primary;
+    div()
+        .size(px(44.0))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(accent.opacity(0.12))
+        .text_color(accent)
+        .child(Icon::new(IconName::Asterisk).size_5().text_color(accent))
+        .into_any_element()
 }
 
 fn pet_claim_preview(
