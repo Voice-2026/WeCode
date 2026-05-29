@@ -9375,6 +9375,8 @@ impl CoduxApp {
         } else {
             "Codux Pet".to_string()
         };
+        let pet_labels = desktop_pet_labels(&self.state.settings.language);
+        let menu_labels = pet_labels.clone();
 
         div()
             .size_full()
@@ -9391,7 +9393,7 @@ impl CoduxApp {
                 }),
             )
             .context_menu(move |menu, _window, _cx| {
-                desktop_pet_context_menu(menu, app_entity.clone())
+                desktop_pet_context_menu(menu, app_entity.clone(), menu_labels.clone())
             })
             .child(
                 div()
@@ -9477,21 +9479,21 @@ impl CoduxApp {
                                             .gap_1()
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-mute-30",
-                                                "静音 30 分钟",
+                                                pet_labels.mute_30.clone(),
                                                 IconName::Moon,
                                                 DESKTOP_PET_MUTE_30_MINUTES,
                                                 cx,
                                             ))
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-mute-hour",
-                                                "静音 1 小时",
+                                                pet_labels.mute_1_hour.clone(),
                                                 IconName::Bell,
                                                 DESKTOP_PET_MUTE_1_HOUR,
                                                 cx,
                                             ))
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-mute-today",
-                                                "今日静音",
+                                                pet_labels.mute_today.clone(),
                                                 IconName::Calendar,
                                                 DESKTOP_PET_MUTE_TODAY,
                                                 cx,
@@ -9504,28 +9506,28 @@ impl CoduxApp {
                                             .gap_1()
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-skip",
-                                                "跳过当前句",
+                                                pet_labels.skip_line.clone(),
                                                 IconName::Pause,
                                                 DESKTOP_PET_SKIP_LINE,
                                                 cx,
                                             ))
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-speak-less",
-                                                "少说一点",
+                                                pet_labels.speak_less.clone(),
                                                 IconName::Minus,
                                                 DESKTOP_PET_SPEAK_LESS,
                                                 cx,
                                             ))
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-speak-more",
-                                                "多说一点",
+                                                pet_labels.speak_more.clone(),
                                                 IconName::Plus,
                                                 DESKTOP_PET_SPEAK_MORE,
                                                 cx,
                                             ))
                                             .child(desktop_pet_action_button(
                                                 "desktop-pet-hide",
-                                                "隐藏桌面宠物",
+                                                pet_labels.hide.clone(),
                                                 IconName::Close,
                                                 DESKTOP_PET_HIDE,
                                                 cx,
@@ -9748,7 +9750,7 @@ impl Drop for CoduxApp {
 
 fn desktop_pet_action_button(
     id: &'static str,
-    tooltip: &'static str,
+    tooltip: String,
     icon: IconName,
     action_id: &'static str,
     cx: &mut Context<CoduxApp>,
@@ -9768,9 +9770,38 @@ fn desktop_pet_action_button(
         }))
 }
 
-fn desktop_pet_context_menu(menu: PopupMenu, app_entity: gpui::Entity<CoduxApp>) -> PopupMenu {
+#[derive(Clone)]
+struct DesktopPetLabels {
+    mute_30: String,
+    mute_1_hour: String,
+    mute_today: String,
+    skip_line: String,
+    speak_more: String,
+    speak_less: String,
+    hide: String,
+}
+
+fn desktop_pet_labels(language: &str) -> DesktopPetLabels {
+    let locale = locale_from_language_setting(language);
+    let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
+    DesktopPetLabels {
+        mute_30: tr("pet.desktop.mute_30_minutes", "Mute 30 Minutes"),
+        mute_1_hour: tr("pet.desktop.mute_1_hour", "Mute 1 Hour"),
+        mute_today: tr("pet.desktop.mute_today", "Mute Today"),
+        skip_line: tr("pet.desktop.skip_line", "Skip Line"),
+        speak_more: tr("pet.desktop.speak_more", "Speak More"),
+        speak_less: tr("pet.desktop.speak_less", "Speak Less"),
+        hide: tr("pet.desktop.hide", "Hide Desktop Pet"),
+    }
+}
+
+fn desktop_pet_context_menu(
+    menu: PopupMenu,
+    app_entity: gpui::Entity<CoduxApp>,
+    labels: DesktopPetLabels,
+) -> PopupMenu {
     fn item(
-        label: &'static str,
+        label: String,
         icon: IconName,
         action_id: &'static str,
         app_entity: gpui::Entity<CoduxApp>,
@@ -9785,45 +9816,45 @@ fn desktop_pet_context_menu(menu: PopupMenu, app_entity: gpui::Entity<CoduxApp>)
     }
 
     menu.item(item(
-        "静音 30 分钟",
+        labels.mute_30,
         IconName::Moon,
         DESKTOP_PET_MUTE_30_MINUTES,
         app_entity.clone(),
     ))
     .item(item(
-        "静音 1 小时",
+        labels.mute_1_hour,
         IconName::Bell,
         DESKTOP_PET_MUTE_1_HOUR,
         app_entity.clone(),
     ))
     .item(item(
-        "今日静音",
+        labels.mute_today,
         IconName::Calendar,
         DESKTOP_PET_MUTE_TODAY,
         app_entity.clone(),
     ))
     .separator()
     .item(item(
-        "跳过当前句",
+        labels.skip_line,
         IconName::Pause,
         DESKTOP_PET_SKIP_LINE,
         app_entity.clone(),
     ))
     .item(item(
-        "多说一点",
+        labels.speak_more,
         IconName::Plus,
         DESKTOP_PET_SPEAK_MORE,
         app_entity.clone(),
     ))
     .item(item(
-        "少说一点",
+        labels.speak_less,
         IconName::Minus,
         DESKTOP_PET_SPEAK_LESS,
         app_entity.clone(),
     ))
     .separator()
     .item(item(
-        "隐藏桌面宠物",
+        labels.hide,
         IconName::Close,
         DESKTOP_PET_HIDE,
         app_entity,
