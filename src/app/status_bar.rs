@@ -19,18 +19,21 @@ impl CoduxApp {
                 self.state.settings.developer_hud,
                 |this| {
                     this.child(status_metric(
+                        "status-performance-cpu",
                         IconName::ChartPie,
                         "CPU",
                         self.state.performance.cpu_label.clone(),
                     ))
                     .child(status_separator())
                     .child(status_metric(
+                        "status-performance-memory",
                         IconName::GalleryVerticalEnd,
                         "MEM",
                         self.state.performance.memory_label.clone(),
                     ))
                     .child(status_separator())
                     .child(status_metric(
+                        "status-performance-gpu",
                         IconName::Frame,
                         "GPU",
                         self.state.performance.gpu_label.clone(),
@@ -175,9 +178,14 @@ fn status_sync_action_button(
         )
 }
 
-fn status_metric(icon: IconName, label: &'static str, value: String) -> impl IntoElement {
+fn status_metric(
+    id: &'static str,
+    icon: IconName,
+    label: &'static str,
+    value: String,
+) -> impl IntoElement {
     div()
-        .id("status-remote-settings")
+        .id(id)
         .h(px(20.0))
         .px(px(6.0))
         .flex()
@@ -227,7 +235,7 @@ fn status_ai_segment(
     };
 
     div()
-        .id("status-remote-settings")
+        .id("status-ai-panel")
         .h(px(20.0))
         .px(px(6.0))
         .flex()
