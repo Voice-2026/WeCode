@@ -201,6 +201,7 @@ impl CoduxApp {
             )
             .into_any_element(),
             pet_footer_spacer().into_any_element(),
+            pet_cancel_button("pet-claim-cancel", cx).into_any_element(),
             pet_footer_button(
                 "pet-claim-confirm",
                 "确认领取",
@@ -253,16 +254,8 @@ impl CoduxApp {
                 )),
         )
         .child(pet_footer_bar(pet_window_footer(vec![
+            pet_cancel_button("pet-custom-install-cancel", cx).into_any_element(),
             pet_footer_spacer().into_any_element(),
-            pet_footer_button(
-                "pet-custom-preview-window",
-                "解析",
-                IconName::Eye,
-                false,
-                cx,
-                |app, _event, window, cx| app.preview_custom_pet_install(window, cx),
-            )
-            .into_any_element(),
             pet_footer_button(
                 "pet-custom-install-window",
                 "安装",
@@ -270,6 +263,11 @@ impl CoduxApp {
                 true,
                 cx,
                 |app, _event, window, cx| app.install_custom_pet(window, cx),
+            )
+            .disabled(
+                self.pet_install_preview.is_none()
+                    || self.pet_install_previewing
+                    || self.pet_installing,
             )
             .into_any_element(),
         ])))
@@ -381,6 +379,15 @@ impl CoduxApp {
                 ),
         )
     }
+}
+
+fn pet_cancel_button(id: &'static str, cx: &mut Context<CoduxApp>) -> Button {
+    Button::new(id)
+        .compact()
+        .ghost()
+        .text_color(cx.theme().secondary_foreground)
+        .label("取消")
+        .on_click(|_, window, _| window.remove_window())
 }
 
 fn pet_window_shell(

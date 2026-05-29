@@ -7810,9 +7810,22 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn install_custom_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn open_pet_market(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.open_url("https://petdex.crafter.run") {
+            Ok(_) => self.status_message = "Petdex opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open Petdex: {error}"),
+        }
+        cx.notify();
+    }
+
+    fn install_custom_pet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
+            cx.notify();
+            return;
+        }
+        if self.pet_install_preview.is_none() {
+            self.status_message = "parse the Petdex page before installing".to_string();
             cx.notify();
             return;
         }
@@ -7829,59 +7842,27 @@ impl CoduxApp {
         };
 
         let service = self.runtime_service.clone();
-        let current_pet_claimed = self.state.pet.claimed;
+        let window_handle = window.window_handle();
         self.pet_installing = true;
         self.status_message = "custom pet install started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn(async move {
                 let custom_pet = service.install_custom_pet(request).await?;
-                let archived_current = if current_pet_claimed {
-                    match service.archive_current_pet() {
-                        Ok(_) => true,
-                        Err(error) => {
-                            let pet = service.reload_pet();
-                            return Ok((
-                                pet,
-                                format!(
-                                    "custom pet installed, but current pet archive failed: {error}"
-                                ),
-                            ));
-                        }
-                    }
-                } else {
-                    false
-                };
-
-                let claim = PetClaimRequest {
-                    species: custom_pet.id.clone(),
-                    custom_name: String::new(),
-                    custom_pet: Some(custom_pet.clone()),
-                    _projects: Vec::new(),
-                };
-                let status_message = match service.claim_pet_from_indexed_history(claim) {
-                    Ok(_) => {
-                        if archived_current {
-                            format!(
-                                "custom pet installed, current pet archived, claimed: {}",
-                                custom_pet.display_name
-                            )
-                        } else {
-                            format!(
-                                "custom pet installed and claimed: {}",
-                                custom_pet.display_name
-                            )
-                        }
-                    }
-                    Err(error) => format!("custom pet installed, but claim failed: {error}"),
-                };
-                Ok((service.reload_pet(), status_message))
+                Ok((
+                    service.reload_pet(),
+                    format!("custom pet installed: {}", custom_pet.display_name),
+                ))
             })
             .await
             .map_err(|error| error.to_string())
             .and_then(|result| result);
 
             let _ = this.update(cx, |app, cx| {
+                let should_close = result.is_ok();
                 app.apply_custom_pet_install_result(page_url, display_name, result, cx);
+                if should_close {
+                    let _ = window_handle.update(cx, |_view, window, _cx| window.remove_window());
+                }
             });
         })
         .detach();
@@ -7949,7 +7930,7 @@ impl CoduxApp {
         &mut self,
         species: String,
         custom_name: String,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let trimmed_species = species.trim();
@@ -7973,6 +7954,7 @@ impl CoduxApp {
                         self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
                         self.status_message =
                             format!("custom pet claimed: {}", custom_pet.display_name);
+                        window.remove_window();
                     }
                     Err(error) => {
                         self.status_message = format!("failed to claim custom pet: {error}");
@@ -8004,6 +7986,7 @@ impl CoduxApp {
             Ok(_) => {
                 self.state.pet = self.runtime_service.reload_pet();
                 self.status_message = "pet claimed".to_string();
+                window.remove_window();
             }
             Err(error) => self.status_message = format!("failed to claim pet: {error}"),
         }

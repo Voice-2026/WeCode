@@ -1419,7 +1419,6 @@ pub(in crate::app) fn workspace_pet_install_form(
                 .flex()
                 .flex_col()
                 .gap_2()
-                .child(Input::new(&url_state).with_size(gpui_component::Size::Small))
                 .child(
                     div()
                         .flex()
@@ -1427,8 +1426,23 @@ pub(in crate::app) fn workspace_pet_install_form(
                         .gap_2()
                         .child(
                             div().flex_1().min_w_0().child(
-                                Input::new(&name_state).with_size(gpui_component::Size::Small),
+                                Input::new(&url_state).with_size(gpui_component::Size::Small),
                             ),
+                        )
+                        .child(
+                            Button::new("pet-custom-market")
+                                .compact()
+                                .ghost()
+                                .tooltip("打开 Petdex")
+                                .text_color(cx.theme().secondary_foreground)
+                                .icon(
+                                    Icon::new(IconName::ExternalLink)
+                                        .size_3p5()
+                                        .text_color(cx.theme().secondary_foreground),
+                                )
+                                .on_click(cx.listener(|app, _event, window, cx| {
+                                    app.open_pet_market(window, cx)
+                                })),
                         )
                         .child(
                             Button::new("pet-preview-custom")
@@ -1436,7 +1450,7 @@ pub(in crate::app) fn workspace_pet_install_form(
                                 .secondary()
                                 .loading(install_previewing)
                                 .disabled(install_previewing || installing)
-                                .tooltip("预览自定义宠物")
+                                .tooltip("解析自定义宠物")
                                 .text_color(cx.theme().secondary_foreground)
                                 .icon(
                                     Icon::new(IconName::Eye)
@@ -1446,25 +1460,9 @@ pub(in crate::app) fn workspace_pet_install_form(
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.preview_custom_pet_install(window, cx)
                                 })),
-                        )
-                        .child(
-                            Button::new("pet-install-custom")
-                                .compact()
-                                .secondary()
-                                .loading(installing)
-                                .disabled(install_previewing || installing)
-                                .tooltip("安装自定义宠物")
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(IconName::Plus)
-                                        .size_3p5()
-                                        .text_color(cx.theme().secondary_foreground),
-                                )
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.install_custom_pet(window, cx)
-                                })),
                         ),
-                ),
+                )
+                .child(div().child(Input::new(&name_state).with_size(gpui_component::Size::Small))),
         )
         .when_some(install_preview.cloned(), |this, preview| {
             this.child(workspace_pet_install_preview(preview))
