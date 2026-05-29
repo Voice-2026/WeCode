@@ -260,7 +260,7 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("project.create", "⌘") => Some("⌘N"),
         ("project.open_folder", "⌘") => Some("⌘O"),
         ("settings.open", "⌘") => Some("⌘,"),
-        ("task.create", "⌘") => Some("⌘⇧N"),
+        ("task.create", "⌘") => Some("⌘N"),
         ("editor.save", "⌘") => Some("⌘S"),
         ("editor.search", "⌘") => Some("⌘F"),
         ("close.active", "⌘") => Some("⌘W"),
@@ -278,7 +278,7 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("project.create", _) => Some("Ctrl+N"),
         ("project.open_folder", _) => Some("Ctrl+O"),
         ("settings.open", _) => Some("Ctrl+,"),
-        ("task.create", _) => Some("Ctrl+Shift+N"),
+        ("task.create", _) => Some("Ctrl+N"),
         ("editor.save", _) => Some("Ctrl+S"),
         ("editor.search", _) => Some("Ctrl+F"),
         ("close.active", _) => Some("Ctrl+W"),
@@ -1604,12 +1604,12 @@ impl CoduxApp {
 
         let project_create = shortcut_matches(shortcuts, "project.create", &actual);
         let task_create = shortcut_matches(shortcuts, "task.create", &actual);
-        if task_create && !project_create {
-            self.create_worktree(window, cx);
-            return true;
-        }
-        if project_create && !task_create {
-            self.open_project_create_window(window, cx);
+        if project_create || task_create {
+            if self.task_column_collapsed || !task_create {
+                self.open_project_create_window(window, cx);
+            } else {
+                self.create_worktree(window, cx);
+            }
             return true;
         }
 
@@ -10130,12 +10130,12 @@ mod tests {
             default_terminal
         ));
         let default_task = if cfg!(target_os = "macos") {
-            "⌘⇧N"
+            "⌘N"
         } else {
-            "Ctrl+Shift+N"
+            "Ctrl+N"
         };
         assert!(shortcut_matches(&shortcuts, "task.create", default_task));
-        assert!(!shortcut_matches(&shortcuts, "task.create", "⌘N"));
+        assert!(shortcut_matches(&shortcuts, "project.create", default_task));
 
         let default_git_panel = if cfg!(target_os = "macos") {
             "⌘⇧G"
