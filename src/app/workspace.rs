@@ -80,6 +80,7 @@ impl CoduxApp {
                             &self.pet_custom_pets,
                             &self.runtime.source_root,
                             &self.state.support_dir,
+                            &self.state.settings.language,
                             &self.pet_install_url,
                             &self.pet_install_display_name,
                             self.pet_install_preview.as_ref(),
@@ -606,6 +607,7 @@ fn workspace_pet_button(
     custom_pets: &[PetCustomPet],
     runtime_asset_root: &std::path::Path,
     support_dir: &std::path::Path,
+    language: &str,
     _install_url: &str,
     _install_display_name: &str,
     _install_preview: Option<&PetCustomPetInstallPreview>,
@@ -617,6 +619,7 @@ fn workspace_pet_button(
 ) -> impl IntoElement {
     let app_entity = cx.entity();
     let pet = pet.clone();
+    let language = language.to_string();
     let pet_snapshot = pet_snapshot.cloned();
     let custom_pets = custom_pets.to_vec();
     let pet_sprite_path = pet_sprite_path(runtime_asset_root, support_dir, &pet, &custom_pets);
@@ -648,6 +651,7 @@ fn workspace_pet_button(
         pet_snapshot,
         pet_sprite_path,
         pet_name_editing,
+        language.clone(),
         app_entity.clone(),
         window,
         cx,
@@ -1013,6 +1017,7 @@ fn workspace_pet_popover_content(
     pet_snapshot: Option<PetSnapshot>,
     pet_sprite_path: std::path::PathBuf,
     pet_name_editing: bool,
+    language: String,
     app_entity: gpui::Entity<CoduxApp>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -1030,7 +1035,7 @@ fn workspace_pet_popover_content(
                 .as_ref()
                 .map(|pet| pet.display_name.clone())
         })
-        .unwrap_or_else(|| workspace_pet_species_name(&pet.species));
+        .unwrap_or_else(|| workspace_pet_species_name(&pet.species, &language));
     let subtitle = if pet.custom_name.trim().is_empty() {
         None
     } else {
@@ -1056,6 +1061,11 @@ fn workspace_pet_popover_content(
         .as_ref()
         .map(|snapshot| snapshot.persona_id.clone())
         .unwrap_or_else(|| "observer".to_string());
+    let persona_label = pet_persona_label(&persona, &language);
+    let dex_tooltip = workspace_i18n(&language, "pet.dex.open", "Open Dex");
+    let xp_label = workspace_i18n(&language, "pet.xp.label", "Experience");
+    let stats_title = workspace_i18n(&language, "pet.stats.title", "Traits");
+    let total_xp_label = workspace_i18n(&language, "pet.total_xp", "Total XP");
 
     div()
         .flex()
@@ -1086,7 +1096,7 @@ fn workspace_pet_popover_content(
                     Button::new("workspace-pet-dex-open")
                         .compact()
                         .ghost()
-                        .tooltip("打开图鉴")
+                        .tooltip(dex_tooltip)
                         .absolute()
                         .right(px(12.0))
                         .top(px(12.0))
@@ -1102,6 +1112,7 @@ fn workspace_pet_popover_content(
                     name,
                     subtitle,
                     pet_name_editing,
+                    &language,
                     window,
                     cx,
                 ))
@@ -1116,7 +1127,7 @@ fn workspace_pet_popover_content(
                         .line_height(px(12.0))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::ACCENT))
-                        .child(pet_persona_label(&persona)),
+                        .child(persona_label),
                 )
                 .child(
                     div()
@@ -1129,7 +1140,7 @@ fn workspace_pet_popover_content(
         )
         .child(workspace_popover_separator())
         .child(div().px(px(14.0)).py(px(12.0)).child(workspace_pet_meter(
-            "经验",
+            xp_label,
             format!(
                 "{} / {}",
                 compact_number(progress.xp_in_level),
@@ -1150,18 +1161,38 @@ fn workspace_pet_popover_content(
                         .line_height(px(16.0))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::TEXT_MUTED))
-                        .child("特质"),
+                        .child(stats_title),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(workspace_pet_trait("智慧", stats.wisdom, 0x2F8FFF))
-                        .child(workspace_pet_trait("混沌", stats.chaos, 0xFF6030))
-                        .child(workspace_pet_trait("夜行", stats.night, 0x6060CC))
-                        .child(workspace_pet_trait("耐力", stats.stamina, 0x20A060))
-                        .child(workspace_pet_trait("共情", stats.empathy, 0xE060A0)),
+                        .child(workspace_pet_trait(
+                            workspace_i18n(&language, "pet.attribute.wisdom", "Wisdom"),
+                            stats.wisdom,
+                            0x2F8FFF,
+                        ))
+                        .child(workspace_pet_trait(
+                            workspace_i18n(&language, "pet.attribute.chaos", "Chaos"),
+                            stats.chaos,
+                            0xFF6030,
+                        ))
+                        .child(workspace_pet_trait(
+                            workspace_i18n(&language, "pet.attribute.night", "Night"),
+                            stats.night,
+                            0x6060CC,
+                        ))
+                        .child(workspace_pet_trait(
+                            workspace_i18n(&language, "pet.attribute.stamina", "Stamina"),
+                            stats.stamina,
+                            0x20A060,
+                        ))
+                        .child(workspace_pet_trait(
+                            workspace_i18n(&language, "pet.attribute.empathy", "Empathy"),
+                            stats.empathy,
+                            0xE060A0,
+                        )),
                 ),
         )
         .child(workspace_popover_separator())
@@ -1175,7 +1206,7 @@ fn workspace_pet_popover_content(
                         .line_height(px(16.0))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::TEXT_MUTED))
-                        .child("总 XP"),
+                        .child(total_xp_label),
                 )
                 .child(
                     div()
@@ -1201,7 +1232,7 @@ fn workspace_popover_separator() -> impl IntoElement {
 }
 
 fn workspace_pet_meter(
-    label: &'static str,
+    label: String,
     value: String,
     progress: f64,
     accent: u32,
@@ -1245,7 +1276,7 @@ fn workspace_pet_meter(
         )
 }
 
-fn workspace_pet_trait(label: &'static str, value: i64, accent: u32) -> impl IntoElement {
+fn workspace_pet_trait(label: String, value: i64, accent: u32) -> impl IntoElement {
     let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
     div()
         .grid()
@@ -1284,32 +1315,34 @@ fn workspace_pet_trait(label: &'static str, value: i64, accent: u32) -> impl Int
         )
 }
 
-fn pet_persona_label(persona: &str) -> String {
-    match persona {
-        "observer" => "观察者",
-        "sprinter" => "疾行者",
-        "guardian" => "守护者",
-        "nightowl" => "夜行者",
-        "maker" => "创造者",
+fn pet_persona_label(persona: &str, language: &str) -> String {
+    let fallback = match persona {
+        "observer" => "Observer",
+        "sprinter" => "Sprinter",
+        "guardian" => "Guardian",
+        "nightowl" => "Night Owl",
+        "maker" => "Maker",
         value => value,
-    }
-    .to_string()
+    };
+    workspace_i18n(language, &format!("pet.persona.{persona}"), fallback)
 }
 
-fn workspace_pet_species_name(species: &str) -> String {
+fn workspace_pet_species_name(species: &str, language: &str) -> String {
     match species.strip_prefix("custom:") {
         Some(id) if !id.trim().is_empty() => id.to_string(),
-        _ => match species {
-            "voidcat" => "Voidcat",
-            "fox" => "Fox",
-            "panda" => "Panda",
-            "otter" => "Otter",
-            "owl" => "Owl",
-            "dragon" => "Dragon",
-            value if !value.trim().is_empty() => value,
-            _ => "Pet",
+        _ => {
+            let fallback = match species {
+                "voidcat" => "Voidcat",
+                "fox" => "Fox",
+                "panda" => "Panda",
+                "otter" => "Otter",
+                "owl" => "Owl",
+                "dragon" => "Dragon",
+                value if !value.trim().is_empty() => value,
+                _ => "Pet",
+            };
+            workspace_i18n(language, &format!("pet.species.{species}.base"), fallback)
         }
-        .to_string(),
     }
 }
 
@@ -1318,6 +1351,7 @@ fn workspace_pet_name_row(
     name: String,
     subtitle: Option<String>,
     editing: bool,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -1358,10 +1392,11 @@ fn workspace_pet_name_row(
     }
 
     let value = pet.custom_name.clone();
+    let placeholder = workspace_i18n(language, "pet.name.placeholder", "Pet Name");
     let name_state = window.use_keyed_state("pet-rename-custom-name", cx, |window, cx| {
         InputState::new(window, cx)
             .default_value(value.clone())
-            .placeholder("宠物昵称")
+            .placeholder(placeholder)
     });
     name_state.update(cx, |state, cx| {
         if state.value().as_ref() != pet.custom_name {
