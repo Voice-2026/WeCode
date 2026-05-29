@@ -200,15 +200,13 @@ impl CoduxApp {
         self.sync_pet_update_event(cx);
         let catalog = self.runtime_service.pet_catalog();
         if self.pet_claim_species.is_empty() {
-            self.pet_claim_species = if self.state.pet.species.is_empty() {
-                catalog
-                    .species
-                    .first()
-                    .map(|item| item.species.clone())
-                    .unwrap_or_else(|| "voidcat".to_string())
-            } else {
-                self.state.pet.species.clone()
-            };
+            self.pet_claim_species = catalog
+                .species
+                .iter()
+                .find(|item| item.species == "voidcat")
+                .or_else(|| catalog.species.first())
+                .map(|item| item.species.clone())
+                .unwrap_or_else(|| "voidcat".to_string());
         }
         let selected_species = self.pet_claim_species.clone();
         let claim_name_state = window.use_keyed_state("pet-claim-custom-name", cx, |window, cx| {
