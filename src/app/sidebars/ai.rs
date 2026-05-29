@@ -144,7 +144,7 @@ fn ai_live_sessions_today_total(
     let day_start = ai_local_day_start_seconds(now);
     sessions
         .iter()
-        .filter(|session| session.updated_at >= day_start)
+        .filter(|session| ai_live_session_counts_for_day(session, day_start))
         .map(|session| {
             ai_display_tokens(
                 session.total_tokens,
@@ -153,6 +153,17 @@ fn ai_live_sessions_today_total(
             )
         })
         .sum()
+}
+
+fn ai_live_session_counts_for_day(
+    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    day_start: f64,
+) -> bool {
+    if session.updated_at < day_start {
+        return false;
+    }
+    let started_at = session.started_at.unwrap_or(session.updated_at);
+    ai_local_day_start_seconds(started_at) == day_start
 }
 
 fn ai_display_tokens(total_tokens: i64, cached_input_tokens: i64, include_cached: bool) -> i64 {
@@ -2152,7 +2163,7 @@ fn ai_today_bucket_values(
     }
 
     for session in live_sessions {
-        if session.updated_at < day_start {
+        if !ai_live_session_counts_for_day(session, day_start) {
             continue;
         }
         let bucket = (((session.updated_at - day_start) / 86_400.0) * buckets.len() as f64)

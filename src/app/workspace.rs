@@ -594,11 +594,22 @@ fn workspace_today_level_tokens(state: &RuntimeState) -> i64 {
         .ai_runtime_state
         .sessions
         .iter()
-        .filter(|session| session.updated_at >= day_start)
+        .filter(|session| workspace_live_session_counts_for_day(session, day_start))
         .map(|session| session.total_tokens.max(0))
         .sum::<i64>();
 
     history_tokens + live_tokens
+}
+
+fn workspace_live_session_counts_for_day(
+    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    day_start: f64,
+) -> bool {
+    if session.updated_at < day_start {
+        return false;
+    }
+    let started_at = session.started_at.unwrap_or(session.updated_at);
+    codux_runtime::ai_history_normalized::local_day_start_seconds(started_at) == day_start
 }
 
 fn workspace_pet_button(

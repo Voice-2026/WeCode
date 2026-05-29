@@ -51,6 +51,8 @@ pub struct AIRuntimeSessionSummary {
     pub state: String,
     pub project_name: String,
     pub session_title: String,
+    #[serde(default)]
+    pub started_at: Option<f64>,
     pub updated_at: f64,
     pub event_count: usize,
     #[serde(default)]
@@ -302,6 +304,7 @@ fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessi
         state: session.state.clone(),
         project_name: session.project_name.clone(),
         session_title: session.session_title.clone(),
+        started_at: None,
         updated_at: session.updated_at,
         event_count: session.event_count,
         total_tokens: 0,
@@ -319,6 +322,7 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
         state: runtime_snapshot_session_state(session).to_string(),
         project_name: session.project_name.clone(),
         session_title: session.session_title.clone(),
+        started_at: session.started_at,
         updated_at: session.updated_at,
         event_count: usize::from(session.started_at.is_some())
             + usize::from(session.has_completed_turn)
