@@ -6,6 +6,7 @@ pub(in crate::app) fn ai_stats_sidebar(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     selected_project_id: Option<&str>,
+    statistics_mode: &str,
     _memory: &MemorySummary,
     _memory_manager: &MemoryManagerSnapshot,
     _memory_manager_tab: MemoryManagerTab,
@@ -22,13 +23,18 @@ pub(in crate::app) fn ai_stats_sidebar(
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let include_cached = statistics_mode == "includingCache";
     let live_sessions = ai_live_sessions(ai_runtime_state, selected_project_id);
-    let live_project_total_tokens = ai_live_sessions_total(&live_sessions);
-    let live_today_tokens = ai_live_sessions_today_total(&live_sessions);
-    let project_total_tokens = history.project_total_tokens + live_project_total_tokens;
-    let today_total_tokens = history.today_total_tokens + live_today_tokens;
-    let tool_rows = ai_tool_rows(history, global, &live_sessions);
-    let model_rows = ai_model_rows(history, global, &live_sessions);
+    let live_project_total_tokens = ai_live_sessions_total(&live_sessions, include_cached);
+    let live_today_tokens = ai_live_sessions_today_total(&live_sessions, include_cached);
+    let project_total_tokens = ai_display_tokens(
+        history.project_total_tokens,
+        history.project_cached_input_tokens,
+        include_cached,
+    ) + live_project_total_tokens;
+    let today_total_tokens = ai_history_today_total(history, include_cached) + live_today_tokens;
+    let tool_rows = ai_tool_rows(history, global, &live_sessions, include_cached);
+    let model_rows = ai_model_rows(history, global, &live_sessions, include_cached);
 
     div()
         .flex()
@@ -55,7 +61,7 @@ pub(in crate::app) fn ai_stats_sidebar(
                 .p(px(12.0))
                 .flex()
                 .flex_col()
-                .child(ai_current_session_card(&live_sessions, cx))
+                .child(ai_current_session_card(&live_sessions, include_cached, cx))
                 .child(
                     div()
                         .mt(px(12.0))
@@ -75,12 +81,14 @@ pub(in crate::app) fn ai_stats_sidebar(
                     global,
                     history,
                     &live_sessions,
+                    include_cached,
                     cx,
                 )))
                 .child(div().mt(px(12.0)).child(ai_recent_usage_heatmap(
                     global,
                     history,
                     &live_sessions,
+                    include_cached,
                     cx,
                 )))
                 .child(
@@ -114,23 +122,74 @@ fn ai_live_sessions<'a>(
 
 fn ai_live_sessions_total(
     sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
 ) -> i64 {
     sessions
         .iter()
-        .map(|session| session.total_tokens.max(0))
+        .map(|session| {
+            ai_display_tokens(
+                session.total_tokens,
+                session.cached_input_tokens,
+                include_cached,
+            )
+        })
         .sum()
 }
 
 fn ai_live_sessions_today_total(
     sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
 ) -> i64 {
     let now = ai_now_seconds();
     let day_start = now - (now % 86_400.0);
     sessions
         .iter()
         .filter(|session| session.updated_at >= day_start)
-        .map(|session| session.total_tokens.max(0))
+        .map(|session| {
+            ai_display_tokens(
+                session.total_tokens,
+                session.cached_input_tokens,
+                include_cached,
+            )
+        })
         .sum()
+}
+
+fn ai_display_tokens(total_tokens: i64, cached_input_tokens: i64, include_cached: bool) -> i64 {
+    total_tokens.max(0)
+        + if include_cached {
+            cached_input_tokens.max(0)
+        } else {
+            0
+        }
+}
+
+fn ai_history_today_total(history: &AIHistorySummary, include_cached: bool) -> i64 {
+    let bucket_total = history
+        .today_time_buckets
+        .iter()
+        .map(|bucket| {
+            ai_display_tokens(
+                bucket.total_tokens,
+                bucket.cached_input_tokens,
+                include_cached,
+            )
+        })
+        .sum::<i64>();
+    let now = ai_now_seconds();
+    let today = now - (now % 86_400.0);
+    let heatmap_total = history
+        .heatmap
+        .iter()
+        .filter(|day| (day.day - today).abs() < 1.0)
+        .map(|day| ai_display_tokens(day.total_tokens, day.cached_input_tokens, include_cached))
+        .sum::<i64>();
+    let summary_total = ai_display_tokens(
+        history.today_total_tokens,
+        history.today_cached_input_tokens,
+        include_cached,
+    );
+    summary_total.max(bucket_total).max(heatmap_total)
 }
 
 fn ai_stats_card(title: &'static str, cx: &mut Context<CoduxApp>) -> gpui::Div {
@@ -152,33 +211,32 @@ fn ai_stats_card(title: &'static str, cx: &mut Context<CoduxApp>) -> gpui::Div {
 
 fn ai_current_session_card(
     sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let body = if sessions.is_empty() {
-        div()
-            .flex_1()
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(12.0))
-            .line_height(px(16.0))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(color(theme::TEXT_DIM))
-            .child("当前没有可显示的 AI 会话")
-            .into_any_element()
-    } else {
-        div()
-            .mt(px(10.0))
-            .flex()
-            .flex_col()
-            .children(
-                sessions
-                    .iter()
-                    .take(6)
-                    .map(|session| ai_live_session_row(session, cx).into_any_element()),
-            )
-            .into_any_element()
-    };
+    let body =
+        if sessions.is_empty() {
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color(theme::TEXT_DIM))
+                .child("当前没有可显示的 AI 会话")
+                .into_any_element()
+        } else {
+            div()
+                .mt(px(10.0))
+                .flex()
+                .flex_col()
+                .children(sessions.iter().take(6).map(|session| {
+                    ai_live_session_row(session, include_cached, cx).into_any_element()
+                }))
+                .into_any_element()
+        };
 
     ai_stats_card("当前会话累计", cx)
         .min_h(px(100.0))
@@ -187,6 +245,7 @@ fn ai_current_session_card(
 
 fn ai_live_session_row(
     session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    include_cached: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     div()
@@ -235,7 +294,11 @@ fn ai_live_session_row(
                         .line_height(px(18.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
-                        .child(compact_number(session.total_tokens.max(0))),
+                        .child(compact_number(ai_display_tokens(
+                            session.total_tokens,
+                            session.cached_input_tokens,
+                            include_cached,
+                        ))),
                 )
                 .child(
                     div()
@@ -1816,9 +1879,10 @@ fn ai_today_usage_chart(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let values = ai_today_bucket_values(global, history, live_sessions);
+    let values = ai_today_bucket_values(global, history, live_sessions, include_cached);
     let max_value = values.iter().copied().max().unwrap_or(0).max(1);
 
     ai_stats_card("今日用量", cx)
@@ -1868,9 +1932,10 @@ fn ai_recent_usage_heatmap(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let values = ai_recent_heatmap_values(global, history, live_sessions);
+    let values = ai_recent_heatmap_values(global, history, live_sessions, include_cached);
     let max_value = values.iter().copied().max().unwrap_or(0).max(1);
     let inactive_surface = ai_stats_track_surface(cx);
     ai_stats_card("近期用量", cx).child(div().mt(px(12.0)).flex().flex_wrap().children(
@@ -1991,6 +2056,7 @@ fn ai_today_bucket_values(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
 ) -> [i64; 10] {
     let mut buckets = [0_i64; 10];
     let mut has_indexed_buckets = false;
@@ -2000,7 +2066,11 @@ fn ai_today_bucket_values(
                 * buckets.len() as f64)
                 .floor()
                 .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-            buckets[index] += bucket.total_tokens.max(0);
+            buckets[index] += ai_display_tokens(
+                bucket.total_tokens,
+                bucket.cached_input_tokens,
+                include_cached,
+            );
         }
         has_indexed_buckets = buckets.iter().any(|value| *value > 0);
     }
@@ -2016,7 +2086,11 @@ fn ai_today_bucket_values(
             let bucket = (((session.last_seen_at - day_start) / 86_400.0) * buckets.len() as f64)
                 .floor()
                 .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-            buckets[bucket] += session.total_tokens.max(0);
+            buckets[bucket] += ai_display_tokens(
+                session.total_tokens,
+                session.cached_input_tokens,
+                include_cached,
+            );
         }
     }
 
@@ -2027,11 +2101,20 @@ fn ai_today_bucket_values(
         let bucket = (((session.updated_at - day_start) / 86_400.0) * buckets.len() as f64)
             .floor()
             .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-        buckets[bucket] += session.total_tokens.max(0);
+        buckets[bucket] += ai_display_tokens(
+            session.total_tokens,
+            session.cached_input_tokens,
+            include_cached,
+        );
     }
 
     if buckets.iter().all(|value| *value == 0) {
-        buckets[buckets.len() - 1] = global.today_total_tokens.max(history.today_total_tokens);
+        buckets[buckets.len() - 1] = ai_display_tokens(
+            global.today_total_tokens,
+            global.today_cached_input_tokens,
+            include_cached,
+        )
+        .max(ai_history_today_total(history, include_cached));
     }
 
     buckets
@@ -2041,6 +2124,7 @@ fn ai_recent_heatmap_values(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
 ) -> [i64; 84] {
     let mut values = [0_i64; 84];
     let mut has_indexed_heatmap = false;
@@ -2051,7 +2135,8 @@ fn ai_recent_heatmap_values(
             let day_offset = ((today - day.day) / 86_400.0).round() as isize;
             if (0..values.len() as isize).contains(&day_offset) {
                 let index = values.len() - 1 - day_offset as usize;
-                values[index] += day.total_tokens.max(0);
+                values[index] +=
+                    ai_display_tokens(day.total_tokens, day.cached_input_tokens, include_cached);
             }
         }
         has_indexed_heatmap = values.iter().any(|value| *value > 0);
@@ -2066,7 +2151,11 @@ fn ai_recent_heatmap_values(
             let day_offset = ((today - session_day) / 86_400.0).round() as isize;
             if (0..values.len() as isize).contains(&day_offset) {
                 let index = values.len() - 1 - day_offset as usize;
-                values[index] += session.total_tokens.max(0);
+                values[index] += ai_display_tokens(
+                    session.total_tokens,
+                    session.cached_input_tokens,
+                    include_cached,
+                );
             }
         }
     }
@@ -2076,12 +2165,21 @@ fn ai_recent_heatmap_values(
         let day_offset = ((today - session_day) / 86_400.0).round() as isize;
         if (0..values.len() as isize).contains(&day_offset) {
             let index = values.len() - 1 - day_offset as usize;
-            values[index] += session.total_tokens.max(0);
+            values[index] += ai_display_tokens(
+                session.total_tokens,
+                session.cached_input_tokens,
+                include_cached,
+            );
         }
     }
 
     if values.iter().all(|value| *value == 0) {
-        values[values.len() - 1] = global.today_total_tokens.max(history.today_total_tokens);
+        values[values.len() - 1] = ai_display_tokens(
+            global.today_total_tokens,
+            global.today_cached_input_tokens,
+            include_cached,
+        )
+        .max(ai_history_today_total(history, include_cached));
     }
 
     values
@@ -2091,30 +2189,59 @@ fn ai_tool_rows(
     history: &AIHistorySummary,
     global: &AIGlobalHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
 ) -> Vec<(String, i64, f32)> {
     if !history.tool_breakdown.is_empty() {
         return ai_rank_rows(
             history
                 .tool_breakdown
                 .iter()
-                .map(|item| (item.key.clone(), item.total_tokens))
-                .chain(
-                    live_sessions
-                        .iter()
-                        .map(|session| (session.tool.clone(), session.total_tokens)),
-                ),
+                .map(|item| {
+                    (
+                        item.key.clone(),
+                        ai_display_tokens(
+                            item.total_tokens,
+                            item.cached_input_tokens,
+                            include_cached,
+                        ),
+                    )
+                })
+                .chain(live_sessions.iter().map(|session| {
+                    (
+                        session.tool.clone(),
+                        ai_display_tokens(
+                            session.total_tokens,
+                            session.cached_input_tokens,
+                            include_cached,
+                        ),
+                    )
+                })),
         );
     }
 
     ai_rank_rows(
         ai_history_sessions(history, global)
             .into_iter()
-            .map(|session| (session.source.clone(), session.total_tokens))
-            .chain(
-                live_sessions
-                    .iter()
-                    .map(|session| (session.tool.clone(), session.total_tokens)),
-            ),
+            .map(|session| {
+                (
+                    session.source.clone(),
+                    ai_display_tokens(
+                        session.total_tokens,
+                        session.cached_input_tokens,
+                        include_cached,
+                    ),
+                )
+            })
+            .chain(live_sessions.iter().map(|session| {
+                (
+                    session.tool.clone(),
+                    ai_display_tokens(
+                        session.total_tokens,
+                        session.cached_input_tokens,
+                        include_cached,
+                    ),
+                )
+            })),
     )
 }
 
@@ -2122,18 +2249,34 @@ fn ai_model_rows(
     history: &AIHistorySummary,
     global: &AIGlobalHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
+    include_cached: bool,
 ) -> Vec<(String, i64, f32)> {
     if !history.model_breakdown.is_empty() {
         return ai_rank_rows(
             history
                 .model_breakdown
                 .iter()
-                .map(|item| (item.key.clone(), item.total_tokens))
+                .map(|item| {
+                    (
+                        item.key.clone(),
+                        ai_display_tokens(
+                            item.total_tokens,
+                            item.cached_input_tokens,
+                            include_cached,
+                        ),
+                    )
+                })
                 .chain(live_sessions.iter().filter_map(|session| {
-                    session
-                        .model
-                        .clone()
-                        .map(|model| (model, session.total_tokens))
+                    session.model.clone().map(|model| {
+                        (
+                            model,
+                            ai_display_tokens(
+                                session.total_tokens,
+                                session.cached_input_tokens,
+                                include_cached,
+                            ),
+                        )
+                    })
                 })),
         );
     }
@@ -2142,16 +2285,28 @@ fn ai_model_rows(
         ai_history_sessions(history, global)
             .into_iter()
             .filter_map(|session| {
-                session
-                    .last_model
-                    .clone()
-                    .map(|model| (model, session.total_tokens))
+                session.last_model.clone().map(|model| {
+                    (
+                        model,
+                        ai_display_tokens(
+                            session.total_tokens,
+                            session.cached_input_tokens,
+                            include_cached,
+                        ),
+                    )
+                })
             })
             .chain(live_sessions.iter().filter_map(|session| {
-                session
-                    .model
-                    .clone()
-                    .map(|model| (model, session.total_tokens))
+                session.model.clone().map(|model| {
+                    (
+                        model,
+                        ai_display_tokens(
+                            session.total_tokens,
+                            session.cached_input_tokens,
+                            include_cached,
+                        ),
+                    )
+                })
             })),
     )
 }

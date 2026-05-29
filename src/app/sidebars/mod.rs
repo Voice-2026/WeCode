@@ -57,6 +57,7 @@ impl CoduxApp {
                             .selected_project
                             .as_ref()
                             .map(|project| project.id.as_str()),
+                        &self.state.settings.statistics_mode,
                         &self.state.memory,
                         &self.state.memory_manager,
                         self.memory_manager_tab,
