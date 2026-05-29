@@ -2840,7 +2840,8 @@ fn settings_ai_provider_card(
     let testing = testing_provider_id
         .map(|id| id == provider.id)
         .unwrap_or(false);
-    let test_disabled = testing_provider_id.is_some();
+    let test_disabled = testing_provider_id.is_some()
+        || (!provider.api_key_configured && !provider_allows_empty_api_key(&provider.kind));
 
     div()
         .id(SharedString::from(format!(
@@ -3008,17 +3009,6 @@ fn settings_ai_provider_card(
                 .flex()
                 .justify_end()
                 .gap(px(8.0))
-                .child(settings_small_button(
-                    format!("settings-provider-remove-{}", provider.id),
-                    "移除",
-                    cx,
-                    {
-                        let remove_id = provider.id.clone();
-                        move |app, _event, window, cx| {
-                            app.remove_ai_provider(remove_id.clone(), window, cx)
-                        }
-                    },
-                ))
                 .child(
                     Button::new(SharedString::from(format!(
                         "settings-provider-test-{}",
@@ -3041,7 +3031,18 @@ fn settings_ai_provider_card(
                             .text_color(color(theme::TEXT))
                             .child(if testing { "测试中" } else { "测试" }),
                     ),
-                ),
+                )
+                .child(settings_small_button(
+                    format!("settings-provider-remove-{}", provider.id),
+                    "移除",
+                    cx,
+                    {
+                        let remove_id = provider.id.clone();
+                        move |app, _event, window, cx| {
+                            app.remove_ai_provider(remove_id.clone(), window, cx)
+                        }
+                    },
+                )),
         )
         .into_any_element()
 }
@@ -3702,6 +3703,10 @@ fn ai_provider_options(settings: &SettingsSummary, purpose: &str) -> Vec<(String
             .map(|provider| (provider.id, SharedString::from(provider.display_name))),
     );
     options
+}
+
+fn provider_allows_empty_api_key(kind: &str) -> bool {
+    matches!(kind, "ollama" | "localLlama")
 }
 
 fn memory_extraction_interval_options() -> Vec<(String, SharedString)> {
