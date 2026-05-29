@@ -7509,6 +7509,7 @@ impl CoduxApp {
         if include_scheduled_tick {
             self.state.terminal_runtime = self.runtime_service.reload_terminal_runtime();
             self.state.notifications = self.runtime_service.reload_notifications();
+            self.refresh_global_today_ai_tokens();
             self.normalize_selected_notification_channel();
             if self.state.settings.developer_hud {
                 self.state.performance = self.runtime_service.reload_performance();
@@ -7604,6 +7605,12 @@ impl CoduxApp {
                     });
                 }
             });
+        }
+    }
+
+    fn refresh_global_today_ai_tokens(&mut self) {
+        if let Ok(tokens) = self.runtime_service.global_today_normalized_ai_tokens() {
+            self.state.ai_global_history.today_total_tokens = tokens.max(0);
         }
     }
 
