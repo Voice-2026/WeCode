@@ -424,8 +424,16 @@ fn ai_live_session_row(
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(compact_number(ai_display_tokens(
-                            session.total_tokens,
-                            session.cached_input_tokens,
+                            if session.raw_total_tokens > 0 {
+                                session.raw_total_tokens
+                            } else {
+                                session.total_tokens + session.baseline_total_tokens
+                            },
+                            if session.raw_cached_input_tokens > 0 {
+                                session.raw_cached_input_tokens
+                            } else {
+                                session.cached_input_tokens + session.baseline_cached_input_tokens
+                            },
                             include_cached,
                         ))),
                 )
