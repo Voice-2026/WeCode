@@ -1,4 +1,7 @@
 use super::*;
+use codux_runtime::{
+    i18n::translate, runtime_paths::app_display_name, settings::locale_from_language_setting,
+};
 
 impl CoduxApp {
     pub(super) fn project_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -67,6 +70,7 @@ impl CoduxApp {
                 ))
                 .child(project_more_button(
                     None,
+                    &self.state.settings.language,
                     self.state.selected_project.is_some(),
                     !self.state.projects.is_empty(),
                     self.state.worktrees.selected_worktree_id.is_some(),
@@ -74,23 +78,29 @@ impl CoduxApp {
                 ))
                 .into_any_element()
         } else {
+            let language = self.state.settings.language.as_str();
             base.flex_col()
                 .child(project_tool_button(
                     IconName::Plus,
-                    Some("Add"),
+                    Some(project_column_text(
+                        language,
+                        "sidebar.footer.add_project",
+                        "Add Project",
+                    )),
                     "project-add-footer",
                     cx,
                     |app, _event, window, cx| app.open_project_create_window(window, cx),
                 ))
                 .child(project_tool_button(
                     IconName::Settings,
-                    Some("Settings"),
+                    Some(project_column_text(language, "menu.settings", "Settings")),
                     "project-settings-footer",
                     cx,
                     |app, _event, window, cx| app.open_settings_window(window, cx),
                 ))
                 .child(project_more_button(
-                    Some("More"),
+                    Some(project_column_text(language, "sidebar.footer.help", "Help")),
+                    language,
                     self.state.selected_project.is_some(),
                     !self.state.projects.is_empty(),
                     self.state.worktrees.selected_worktree_id.is_some(),
@@ -134,7 +144,7 @@ fn project_column_header(collapsed: bool, cx: &mut Context<CoduxApp>) -> impl In
 
 fn project_tool_button(
     icon: IconName,
-    label: Option<&'static str>,
+    label: Option<String>,
     id: &'static str,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
@@ -171,13 +181,27 @@ fn project_tool_button(
 }
 
 fn project_more_button(
-    label: Option<&'static str>,
+    label: Option<String>,
+    language: &str,
     _has_project: bool,
     _has_projects: bool,
     _has_worktree: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
+    let about_label = project_column_text(language, "menu.app.about_format", "About %@")
+        .replace("%@", app_display_name());
+    let updates_label = project_column_text(language, "about.updates", "Check for Updates");
+    let diagnostics_label = project_column_text(
+        language,
+        "menu.help.export_diagnostics",
+        "Export Diagnostics...",
+    );
+    let runtime_log_label =
+        project_column_text(language, "menu.help.open_runtime_log", "Open Runtime Log");
+    let live_log_label = project_column_text(language, "menu.help.open_live_log", "Open Live Log");
+    let website_label = project_column_text(language, "menu.help.website", "Website");
+    let github_label = project_column_text(language, "menu.help.github", "GitHub");
     let button = Button::new("project-tool-project-more-footer")
         .ghost()
         .text_color(cx.theme().secondary_foreground)
@@ -215,7 +239,7 @@ fn project_more_button(
             let github_entity = app_entity.clone();
 
             menu.item(
-                PopupMenuItem::new("关于 Codux")
+                PopupMenuItem::new(about_label.clone())
                     .icon(IconName::Info)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&about_entity, |app, cx| {
@@ -224,7 +248,7 @@ fn project_more_button(
                     }),
             )
             .item(
-                PopupMenuItem::new("检查更新")
+                PopupMenuItem::new(updates_label.clone())
                     .icon(IconName::Redo2)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&update_entity, |app, cx| {
@@ -233,7 +257,7 @@ fn project_more_button(
                     }),
             )
             .item(
-                PopupMenuItem::new("导出诊断...")
+                PopupMenuItem::new(diagnostics_label.clone())
                     .icon(IconName::File)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&diagnostics_entity, |app, cx| {
@@ -244,7 +268,7 @@ fn project_more_button(
             )
             .separator()
             .item(
-                PopupMenuItem::new("打开 Runtime Log")
+                PopupMenuItem::new(runtime_log_label.clone())
                     .icon(IconName::File)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&runtime_log_entity, |app, cx| {
@@ -254,7 +278,7 @@ fn project_more_button(
                     }),
             )
             .item(
-                PopupMenuItem::new("打开 Live Log")
+                PopupMenuItem::new(live_log_label.clone())
                     .icon(IconName::File)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&live_log_entity, |app, cx| {
@@ -265,7 +289,7 @@ fn project_more_button(
             )
             .separator()
             .item(
-                PopupMenuItem::new("官网")
+                PopupMenuItem::new(website_label.clone())
                     .icon(IconName::ExternalLink)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&website_entity, |app, cx| {
@@ -275,7 +299,7 @@ fn project_more_button(
                     }),
             )
             .item(
-                PopupMenuItem::new("GitHub")
+                PopupMenuItem::new(github_label.clone())
                     .icon(IconName::Github)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&github_entity, |app, cx| {
@@ -285,6 +309,11 @@ fn project_more_button(
                     }),
             )
         })
+}
+
+fn project_column_text(language: &str, key: &str, fallback: &str) -> String {
+    let locale = locale_from_language_setting(language);
+    translate(&locale, key, fallback)
 }
 
 fn project_column_toggle_button(collapsed: bool, cx: &mut Context<CoduxApp>) -> impl IntoElement {
