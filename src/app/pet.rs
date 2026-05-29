@@ -289,6 +289,36 @@ impl CoduxApp {
             self.runtime_service
                 .hydrate_custom_pet_data_url(pet.clone())
         });
+        let primary_action = if self.state.pet.claimed {
+            pet_inline_button(
+                "pet-dex-archive",
+                "归档当前",
+                IconName::Delete,
+                true,
+                cx,
+                |app, _event, window, cx| app.archive_current_pet(window, cx),
+            )
+            .into_any_element()
+        } else {
+            pet_inline_button(
+                "pet-dex-claim",
+                "领取宠物",
+                IconName::Heart,
+                true,
+                cx,
+                |app, _event, window, cx| app.open_pet_claim_window(window, cx),
+            )
+            .into_any_element()
+        };
+        let add_custom_action = pet_inline_button(
+            "pet-dex-open-custom-install",
+            "添加自定义",
+            IconName::Plus,
+            true,
+            cx,
+            |app, _event, window, cx| app.open_pet_custom_install_window(window, cx),
+        )
+        .into_any_element();
 
         pet_window_shell(
             "宠物图鉴",
@@ -329,24 +359,8 @@ impl CoduxApp {
                                 .flex()
                                 .items_center()
                                 .gap(px(8.0))
-                                .child(pet_inline_button(
-                                    "pet-dex-archive",
-                                    "归档当前",
-                                    IconName::Delete,
-                                    self.state.pet.claimed,
-                                    cx,
-                                    |app, _event, window, cx| app.archive_current_pet(window, cx),
-                                ))
-                                .child(pet_inline_button(
-                                    "pet-dex-restore",
-                                    "恢复最近归档",
-                                    IconName::Undo2,
-                                    self.state.pet.archived_count > 0,
-                                    cx,
-                                    |app, _event, window, cx| {
-                                        app.restore_latest_archived_pet(window, cx)
-                                    },
-                                )),
+                                .child(primary_action)
+                                .child(add_custom_action),
                         )
                         .child(pet_legacy_section(snapshot.legacy, cx)),
                 )

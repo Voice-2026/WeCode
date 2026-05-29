@@ -7972,34 +7972,6 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn restore_latest_archived_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let legacy_id = match self
-            .runtime_service
-            .pet_snapshot()
-            .ok()
-            .and_then(|snapshot| snapshot.legacy.last().map(|record| record.id.clone()))
-        {
-            Some(legacy_id) => legacy_id,
-            None => {
-                self.status_message = "no archived pet to restore".to_string();
-                cx.notify();
-                return;
-            }
-        };
-
-        match self
-            .runtime_service
-            .restore_archived_pet(PetRestoreRequest { legacy_id })
-        {
-            Ok(_) => {
-                self.state.pet = self.runtime_service.reload_pet();
-                self.status_message = "pet restored".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to restore pet: {error}"),
-        }
-        cx.notify();
-    }
-
     fn sync_tool_permissions(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
         self.status_message = if let Some(error) = &self.state.tool_permissions.error {
