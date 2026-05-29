@@ -66,7 +66,7 @@ use std::{
     any::TypeId,
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -149,6 +149,7 @@ pub struct CoduxApp {
     pet_install_previewing: bool,
     pet_installing: bool,
     pet_custom_pets: Vec<PetCustomPet>,
+    pet_custom_install_seen_revision: u64,
     pet_claim_species: String,
     pet_name_editing: bool,
     pet_dex_spotlight: Option<PetDexSpotlight>,
@@ -383,6 +384,7 @@ struct RuntimeActivityTickResult {
     project_events: usize,
     file_events: usize,
     ai_history_events: usize,
+    pet_events: usize,
     ai_events: usize,
     memory_events: usize,
     dock_badge_count: Option<i64>,
@@ -406,6 +408,34 @@ impl Default for GitOperationCompletion {
             selected_branch: None,
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+struct PetCustomInstallEvent {
+    revision: u64,
+    custom_pet_id: Option<String>,
+}
+
+static PET_CUSTOM_INSTALL_EVENT: OnceLock<Mutex<PetCustomInstallEvent>> = OnceLock::new();
+
+fn pet_custom_install_event() -> &'static Mutex<PetCustomInstallEvent> {
+    PET_CUSTOM_INSTALL_EVENT.get_or_init(|| Mutex::new(PetCustomInstallEvent::default()))
+}
+
+fn current_pet_custom_install_event() -> PetCustomInstallEvent {
+    pet_custom_install_event()
+        .lock()
+        .map(|event| event.clone())
+        .unwrap_or_default()
+}
+
+fn publish_pet_custom_install(custom_pet_id: String) -> u64 {
+    let Ok(mut event) = pet_custom_install_event().lock() else {
+        return 0;
+    };
+    event.revision = event.revision.saturating_add(1);
+    event.custom_pet_id = Some(custom_pet_id);
+    event.revision
 }
 
 fn ai_tool_launch_command(tool: AIToolLauncher, permissions: &ToolPermissionsSummary) -> String {
@@ -881,6 +911,7 @@ impl CoduxApp {
             pet_install_previewing: false,
             pet_installing: false,
             pet_custom_pets,
+            pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -1025,6 +1056,7 @@ impl CoduxApp {
             pet_install_previewing: false,
             pet_installing: false,
             pet_custom_pets,
+            pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -7373,9 +7405,10 @@ impl CoduxApp {
     fn reload_runtime_activity(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let result = self.apply_runtime_activity_tick(true, _window.is_window_active(), true);
         self.status_message = format!(
-            "runtime activity reloaded · project events {} · file events {} · AI history {} · AI events {} · memory queued {} · badge {}",
+            "runtime activity reloaded · project events {} · file events {} · pet {} · AI history {} · AI events {} · memory queued {} · badge {}",
             result.project_events,
             result.file_events,
+            result.pet_events,
             result.ai_history_events,
             result.ai_events,
             result.memory_events,
@@ -7403,6 +7436,8 @@ impl CoduxApp {
         }
         let project_events = self.runtime_service.drain_project_activity_events();
         let applied_project_events = self.apply_project_activity_events(project_events);
+        let applied_pet_events =
+            usize::from(self.sync_pet_custom_install_event_for_activity_tick());
         let ai_history_events = self.runtime_service.drain_ai_history_events();
         let applied_ai_history_events = self.apply_ai_history_events(ai_history_events);
         let file_events = self.runtime_service.drain_file_change_events();
@@ -7457,12 +7492,14 @@ impl CoduxApp {
             project_events: applied_project_events,
             file_events: applied_file_events,
             ai_history_events: applied_ai_history_events,
+            pet_events: applied_pet_events,
             ai_events: drained.events.len(),
             memory_events: drained.memory.len(),
             dock_badge_count: window_state.dock_badge_count,
             changed: applied_project_events > 0
                 || applied_file_events > 0
                 || applied_ai_history_events > 0
+                || applied_pet_events > 0
                 || !remote_events.is_empty()
                 || !drained.events.is_empty()
                 || !drained.memory.is_empty()
@@ -7970,6 +8007,7 @@ impl CoduxApp {
                 let custom_pet = service.install_custom_pet(request).await?;
                 Ok((
                     service.reload_pet(),
+                    custom_pet.id,
                     format!("custom pet installed: {}", custom_pet.display_name),
                 ))
             })
@@ -7993,15 +8031,19 @@ impl CoduxApp {
         &mut self,
         page_url: String,
         display_name: String,
-        result: Result<(PetSummary, String), String>,
+        result: Result<(PetSummary, String, String), String>,
         cx: &mut Context<Self>,
     ) {
         self.pet_installing = false;
         match result {
-            Ok((pet, status_message)) => {
+            Ok((pet, custom_pet_id, status_message)) => {
                 let matches_input = self.pet_install_input_matches(&page_url, &display_name);
                 self.state.pet = pet;
                 self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                let revision = publish_pet_custom_install(custom_pet_id);
+                if revision > 0 {
+                    self.pet_custom_install_seen_revision = revision;
+                }
                 if matches_input {
                     self.pet_install_url.clear();
                     self.pet_install_display_name.clear();

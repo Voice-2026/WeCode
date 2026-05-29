@@ -72,6 +72,7 @@ impl CoduxApp {
                 let app = CoduxApp::new_pet_window(mode);
                 theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
                 let view = cx.new(|_| app);
+                view.update(cx, |app, cx| app.start_pet_window_sync_loop(cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },
         );
@@ -83,11 +84,92 @@ impl CoduxApp {
         cx.notify();
     }
 
+    pub(in crate::app) fn start_pet_window_sync_loop(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.window_mode,
+            AppWindowMode::PetClaim | AppWindowMode::PetCustomInstall | AppWindowMode::PetDex
+        ) {
+            return;
+        }
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                })
+                .await;
+
+                if this
+                    .update(cx, |app, cx| {
+                        if app.sync_pet_custom_install_event(cx) {
+                            cx.notify();
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(in crate::app) fn sync_pet_custom_install_event(
+        &mut self,
+        _cx: &mut Context<Self>,
+    ) -> bool {
+        let event = current_pet_custom_install_event();
+        self.apply_pet_custom_install_event(event)
+    }
+
+    pub(in crate::app) fn sync_pet_custom_install_event_for_activity_tick(&mut self) -> bool {
+        let event = current_pet_custom_install_event();
+        self.apply_pet_custom_install_event(event)
+    }
+
+    fn apply_pet_custom_install_event(&mut self, event: PetCustomInstallEvent) -> bool {
+        if event.revision <= self.pet_custom_install_seen_revision {
+            return false;
+        }
+
+        self.pet_custom_install_seen_revision = event.revision;
+        self.state.pet = self.runtime_service.reload_pet();
+        self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+
+        let Some(custom_pet_id) = event.custom_pet_id else {
+            self.status_message = "custom pet catalog refreshed".to_string();
+            return true;
+        };
+
+        match self.window_mode {
+            AppWindowMode::PetClaim => {
+                if self
+                    .pet_custom_pets
+                    .iter()
+                    .any(|pet| pet.id == custom_pet_id)
+                {
+                    self.pet_claim_species = format!("custom:{custom_pet_id}");
+                    self.status_message = "custom pet catalog refreshed".to_string();
+                }
+            }
+            AppWindowMode::PetDex => {
+                self.pet_dex_spotlight = Some(PetDexSpotlight::Custom(custom_pet_id));
+                self.status_message = "custom pet catalog refreshed".to_string();
+            }
+            _ => {
+                self.status_message = "custom pet catalog refreshed".to_string();
+            }
+        }
+
+        true
+    }
+
     pub(in crate::app) fn pet_claim_workspace(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        self.sync_pet_custom_install_event(cx);
         let catalog = self.runtime_service.pet_catalog();
         if self.pet_claim_species.is_empty() {
             self.pet_claim_species = if self.state.pet.species.is_empty() {
@@ -278,6 +360,7 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        self.sync_pet_custom_install_event(cx);
         let catalog = self.runtime_service.pet_catalog();
         let snapshot = self
             .runtime_service
