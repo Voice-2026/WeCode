@@ -103,4 +103,5 @@ pub(in crate::app) enum AIToolLauncher {
 pub(in crate::app) enum PetDexSpotlight {
     Bundled(String),
     Custom(String),
+    ArchiveConfirm,
 }

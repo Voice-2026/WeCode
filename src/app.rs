@@ -8232,6 +8232,12 @@ impl CoduxApp {
     }
 
     fn archive_current_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.pet_dex_spotlight = Some(PetDexSpotlight::ArchiveConfirm);
+        self.status_message = "confirm pet archive".to_string();
+        cx.notify();
+    }
+
+    fn archive_current_pet_confirmed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self.runtime_service.archive_current_pet() {
             Ok(_) => {
                 self.state.pet = self.runtime_service.reload_pet();

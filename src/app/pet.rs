@@ -1277,6 +1277,10 @@ fn pet_dex_spotlight_overlay(
     support_dir: &Path,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    if spotlight == PetDexSpotlight::ArchiveConfirm {
+        return pet_dex_archive_confirm_overlay(cx);
+    }
+
     let detail = match spotlight {
         PetDexSpotlight::Bundled(species) => catalog
             .species
@@ -1308,6 +1312,7 @@ fn pet_dex_spotlight_overlay(
                     pet.source_page_url.clone(),
                 )
             }),
+        PetDexSpotlight::ArchiveConfirm => None,
     };
 
     let Some((title, subtitle, description, sprite_path, source_url)) = detail else {
@@ -1398,6 +1403,84 @@ fn pet_dex_spotlight_overlay(
                                 .label("关闭")
                                 .on_click(cx.listener(|app, _event, _window, cx| {
                                     app.close_pet_dex_spotlight(cx)
+                                })),
+                        ),
+                ),
+        )
+        .into_any_element()
+}
+
+fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
+    div()
+        .absolute()
+        .top(px(0.0))
+        .right(px(0.0))
+        .bottom(px(0.0))
+        .left(px(0.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(color(0x000000).opacity(0.35))
+        .p(px(24.0))
+        .child(
+            div()
+                .w(px(360.0))
+                .rounded(px(14.0))
+                .border_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .bg(color(theme::BG_PANEL))
+                .p(px(20.0))
+                .shadow_lg()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(IconName::Delete)
+                                .size_4()
+                                .text_color(color(theme::ORANGE)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(18.0))
+                                .line_height(px(24.0))
+                                .font_weight(FontWeight::BOLD)
+                                .child("归档当前宠物"),
+                        ),
+                )
+                .child(
+                    div()
+                        .mt(px(12.0))
+                        .text_size(px(12.0))
+                        .line_height(px(20.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child("将当前宠物归档到图鉴，然后选择新的伙伴。"),
+                )
+                .child(
+                    div()
+                        .mt(px(20.0))
+                        .flex()
+                        .justify_end()
+                        .gap_2()
+                        .child(
+                            Button::new("pet-dex-cancel-archive")
+                                .compact()
+                                .ghost()
+                                .text_color(cx.theme().secondary_foreground)
+                                .label("取消")
+                                .on_click(cx.listener(|app, _event, _window, cx| {
+                                    app.close_pet_dex_spotlight(cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("pet-dex-confirm-archive")
+                                .compact()
+                                .primary()
+                                .text_color(cx.theme().primary_foreground)
+                                .label("确认归档")
+                                .on_click(cx.listener(|app, _event, window, cx| {
+                                    app.archive_current_pet_confirmed(window, cx)
                                 })),
                         ),
                 ),
