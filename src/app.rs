@@ -56,7 +56,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Root, Sizable,
     button::{Button, ButtonVariants},
-    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     resizable::{resizable_panel, v_resizable},
     scroll::ScrollableElement,
     tag::Tag,
@@ -9057,6 +9057,7 @@ impl CoduxApp {
     }
 
     fn desktop_pet_window(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let app_entity = cx.entity();
         let level = self.state.pet.level.max(1);
         let progress = self.state.pet.progress.clamp(0.0, 1.0) as f32;
         let line = self.desktop_pet_line.trim().to_string();
@@ -9086,6 +9087,9 @@ impl CoduxApp {
                     app.save_desktop_pet_window_origin(window, cx)
                 }),
             )
+            .context_menu(move |menu, _window, _cx| {
+                desktop_pet_context_menu(menu, app_entity.clone())
+            })
             .child(
                 div()
                     .size_full()
@@ -9432,6 +9436,68 @@ fn desktop_pet_action_button(
         .on_click(cx.listener(move |app, _event, window, cx| {
             app.apply_desktop_pet_action(action_id, window, cx)
         }))
+}
+
+fn desktop_pet_context_menu(menu: PopupMenu, app_entity: gpui::Entity<CoduxApp>) -> PopupMenu {
+    fn item(
+        label: &'static str,
+        icon: IconName,
+        action_id: &'static str,
+        app_entity: gpui::Entity<CoduxApp>,
+    ) -> PopupMenuItem {
+        PopupMenuItem::new(label)
+            .icon(icon)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&app_entity, |app, cx| {
+                    app.apply_desktop_pet_action(action_id, window, cx);
+                });
+            })
+    }
+
+    menu.item(item(
+        "静音 30 分钟",
+        IconName::Moon,
+        DESKTOP_PET_MUTE_30_MINUTES,
+        app_entity.clone(),
+    ))
+    .item(item(
+        "静音 1 小时",
+        IconName::Bell,
+        DESKTOP_PET_MUTE_1_HOUR,
+        app_entity.clone(),
+    ))
+    .item(item(
+        "今日静音",
+        IconName::Calendar,
+        DESKTOP_PET_MUTE_TODAY,
+        app_entity.clone(),
+    ))
+    .separator()
+    .item(item(
+        "跳过当前句",
+        IconName::Pause,
+        DESKTOP_PET_SKIP_LINE,
+        app_entity.clone(),
+    ))
+    .item(item(
+        "多说一点",
+        IconName::Plus,
+        DESKTOP_PET_SPEAK_MORE,
+        app_entity.clone(),
+    ))
+    .item(item(
+        "少说一点",
+        IconName::Minus,
+        DESKTOP_PET_SPEAK_LESS,
+        app_entity.clone(),
+    ))
+    .separator()
+    .item(item(
+        "隐藏桌面宠物",
+        IconName::Close,
+        DESKTOP_PET_HIDE,
+        app_entity,
+    ))
 }
 
 fn column_header(content: impl IntoElement) -> impl IntoElement {
