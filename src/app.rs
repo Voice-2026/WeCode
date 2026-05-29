@@ -255,7 +255,7 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("view.review", "⌘") => Some("⌘3"),
         ("project.create", "⌘") => Some("⌘N"),
         ("settings.open", "⌘") => Some("⌘,"),
-        ("task.create", "⌘") => Some("⌘N"),
+        ("task.create", "⌘") => Some("⌘⇧N"),
         ("editor.save", "⌘") => Some("⌘S"),
         ("editor.search", "⌘") => Some("⌘F"),
         ("close.active", "⌘") => Some("⌘W"),
@@ -264,7 +264,7 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("view.review", _) => Some("Ctrl+3"),
         ("project.create", _) => Some("Ctrl+N"),
         ("settings.open", _) => Some("Ctrl+,"),
-        ("task.create", _) => Some("Ctrl+N"),
+        ("task.create", _) => Some("Ctrl+Shift+N"),
         ("editor.save", _) => Some("Ctrl+S"),
         ("editor.search", _) => Some("Ctrl+F"),
         ("close.active", _) => Some("Ctrl+W"),
@@ -9752,6 +9752,13 @@ mod tests {
             "view.terminal",
             default_terminal
         ));
+        let default_task = if cfg!(target_os = "macos") {
+            "⌘⇧N"
+        } else {
+            "Ctrl+Shift+N"
+        };
+        assert!(shortcut_matches(&shortcuts, "task.create", default_task));
+        assert!(!shortcut_matches(&shortcuts, "task.create", "⌘N"));
     }
 
     #[test]
