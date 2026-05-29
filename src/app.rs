@@ -267,10 +267,14 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("sidebar.projects.toggle", "⌘") => Some("⌘⌥P"),
         ("sidebar.tasks.toggle", "⌘") => Some("⌘⌥T"),
         ("assistant.git.open", "⌘") => Some("⌘⇧G"),
+        ("panel.git", "⌘") => Some("⌘⇧G"),
         ("assistant.files.open", "⌘") => Some("⌘⇧F"),
         ("assistant.ai.open", "⌘") => Some("⌘⇧A"),
+        ("panel.ai", "⌘") => Some("⌘⇧A"),
         ("assistant.ssh.open", "⌘") => Some("⌘⇧S"),
+        ("terminal.split", "⌘") => Some("⌘⇧\\"),
         ("terminal.split.create", "⌘") => Some("⌘⇧\\"),
+        ("terminal.tab", "⌘") => Some("⌘⇧T"),
         ("terminal.tab.create", "⌘") => Some("⌘⇧T"),
         ("view.terminal", _) => Some("Ctrl+1"),
         ("view.files", _) => Some("Ctrl+2"),
@@ -285,10 +289,14 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("sidebar.projects.toggle", _) => Some("Ctrl+Alt+P"),
         ("sidebar.tasks.toggle", _) => Some("Ctrl+Alt+T"),
         ("assistant.git.open", _) => Some("Ctrl+Shift+G"),
+        ("panel.git", _) => Some("Ctrl+Shift+G"),
         ("assistant.files.open", _) => Some("Ctrl+Shift+F"),
         ("assistant.ai.open", _) => Some("Ctrl+Shift+A"),
+        ("panel.ai", _) => Some("Ctrl+Shift+A"),
         ("assistant.ssh.open", _) => Some("Ctrl+Shift+S"),
+        ("terminal.split", _) => Some("Ctrl+Shift+\\"),
         ("terminal.split.create", _) => Some("Ctrl+Shift+\\"),
+        ("terminal.tab", _) => Some("Ctrl+Shift+T"),
         ("terminal.tab.create", _) => Some("Ctrl+Shift+T"),
         _ => None,
     }
@@ -1565,7 +1573,9 @@ impl CoduxApp {
             self.toggle_task_column(window, cx);
             return true;
         }
-        if shortcut_matches(shortcuts, "assistant.git.open", &actual) {
+        if shortcut_matches(shortcuts, "assistant.git.open", &actual)
+            || shortcut_matches(shortcuts, "panel.git", &actual)
+        {
             self.toggle_assistant_panel(AssistantPanel::Git, window, cx);
             return true;
         }
@@ -1573,7 +1583,9 @@ impl CoduxApp {
             self.toggle_assistant_panel(AssistantPanel::FileManager, window, cx);
             return true;
         }
-        if shortcut_matches(shortcuts, "assistant.ai.open", &actual) {
+        if shortcut_matches(shortcuts, "assistant.ai.open", &actual)
+            || shortcut_matches(shortcuts, "panel.ai", &actual)
+        {
             self.toggle_assistant_panel(AssistantPanel::AIStats, window, cx);
             return true;
         }
@@ -1581,11 +1593,15 @@ impl CoduxApp {
             self.toggle_assistant_panel(AssistantPanel::SSH, window, cx);
             return true;
         }
-        if shortcut_matches(shortcuts, "terminal.split.create", &actual) {
+        if shortcut_matches(shortcuts, "terminal.split.create", &actual)
+            || shortcut_matches(shortcuts, "terminal.split", &actual)
+        {
             self.split_terminal(window, cx);
             return true;
         }
-        if shortcut_matches(shortcuts, "terminal.tab.create", &actual) {
+        if shortcut_matches(shortcuts, "terminal.tab.create", &actual)
+            || shortcut_matches(shortcuts, "terminal.tab", &actual)
+        {
             self.add_terminal_tab(window, cx);
             return true;
         }
@@ -10146,6 +10162,17 @@ mod tests {
             &shortcuts,
             "assistant.git.open",
             default_git_panel
+        ));
+        assert!(shortcut_matches(&shortcuts, "panel.git", default_git_panel));
+        let default_terminal_split = if cfg!(target_os = "macos") {
+            "⌘⇧\\"
+        } else {
+            "Ctrl+Shift+\\"
+        };
+        assert!(shortcut_matches(
+            &shortcuts,
+            "terminal.split",
+            default_terminal_split
         ));
         let default_projects_sidebar = if cfg!(target_os = "macos") {
             "⌘⌥P"
