@@ -1,5 +1,6 @@
 use super::*;
 use codux_runtime::pet::{PetCatalogItem, PetLegacyRecord, PetSnapshot, PetStats};
+use gpui_component::input::{Input, InputState};
 
 use crate::app::workspace::workspace_pet_install_form;
 
@@ -100,8 +101,15 @@ impl CoduxApp {
             };
         }
         let selected_species = self.pet_claim_species.clone();
+        let claim_name_state = window.use_keyed_state("pet-claim-custom-name", cx, |window, cx| {
+            InputState::new(window, cx).placeholder("留空则使用宠物名称")
+        });
         let preview_pet = PetSummary {
-            species: selected_species.clone(),
+            species: if selected_species == "bundled:random" {
+                fallback_random_preview_species(&catalog.species)
+            } else {
+                selected_species.clone()
+            },
             ..self.state.pet.clone()
         };
         let fallback_species = if selected_species.is_empty() {
@@ -143,6 +151,7 @@ impl CoduxApp {
                                     pet_claim_option_row(item, &selected_species, window, cx)
                                         .into_any_element()
                                 }))
+                                .child(pet_claim_random_row(&selected_species, cx))
                                 .when(!custom_pets.is_empty(), |this| {
                                     this.child(
                                         div()
@@ -163,13 +172,23 @@ impl CoduxApp {
                                 }),
                         ),
                 )
-                .child(pet_claim_preview(
-                    &preview_pet,
-                    &self.runtime.source_root,
-                    &self.state.support_dir,
-                    &self.pet_custom_pets,
-                    cx,
-                )),
+                .child(
+                    div()
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().min_h_0().flex_1().child(pet_claim_preview(
+                            &preview_pet,
+                            selected_species == "bundled:random",
+                            &self.runtime.source_root,
+                            &self.state.support_dir,
+                            &self.pet_custom_pets,
+                            cx,
+                        )))
+                        .child(div().px(px(20.0)).pb(px(16.0)).child(
+                            Input::new(&claim_name_state).with_size(gpui_component::Size::Medium),
+                        )),
+                ),
         )
         .child(pet_footer_bar(pet_window_footer(vec![
             pet_footer_button(
@@ -189,12 +208,18 @@ impl CoduxApp {
                 true,
                 cx,
                 move |app, _event, window, cx| {
-                    let species = if app.pet_claim_species.is_empty() {
+                    let selected = if app.pet_claim_species.is_empty() {
                         fallback_species.clone()
                     } else {
                         app.pet_claim_species.clone()
                     };
-                    app.claim_pet_species(species, String::new(), window, cx);
+                    let species = if selected == "bundled:random" {
+                        random_pet_species(&app.runtime_service.pet_catalog().species)
+                    } else {
+                        selected
+                    };
+                    let custom_name = claim_name_state.read(cx).value().to_string();
+                    app.claim_pet_species(species, custom_name, window, cx);
                 },
             )
             .into_any_element(),
@@ -472,6 +497,23 @@ fn pet_inline_button(
         .on_click(cx.listener(on_click))
 }
 
+fn pet_claim_random_row(selected_species: &str, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+    let selected = selected_species == "bundled:random";
+
+    pet_select_row(
+        SharedString::from("pet-claim-random"),
+        selected,
+        "随机".to_string(),
+        "让 Codux 为你选择一个伙伴".to_string(),
+        cx,
+    )
+    .on_click(cx.listener(move |app, _event, _window, cx| {
+        app.pet_claim_species = "bundled:random".to_string();
+        app.status_message = "selected random pet".to_string();
+        cx.notify();
+    }))
+}
+
 fn pet_claim_option_row(
     item: PetCatalogItem,
     selected_species: &str,
@@ -561,13 +603,16 @@ fn pet_select_row(
 
 fn pet_claim_preview(
     pet: &PetSummary,
+    random: bool,
     runtime_asset_root: &Path,
     support_dir: &Path,
     custom_pets: &[PetCustomPet],
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let sprite_path = pet_sprite_path(runtime_asset_root, support_dir, pet, custom_pets);
-    let title = if pet.species.starts_with("custom:") {
+    let title = if random {
+        "随机".to_string()
+    } else if pet.species.starts_with("custom:") {
         custom_pets
             .iter()
             .find(|custom| pet.species == format!("custom:{}", custom.id))
@@ -575,6 +620,11 @@ fn pet_claim_preview(
             .unwrap_or_else(|| "自定义宠物".to_string())
     } else {
         pet_species_name(&pet.species)
+    };
+    let description = if random {
+        "确认领取时会从内置宠物里随机选择一个伙伴。".to_string()
+    } else {
+        "领取后会使用现有 Tauri runtime 的宠物进度、等级和历史统计。".to_string()
     };
 
     div()
@@ -594,7 +644,14 @@ fn pet_claim_preview(
                 .justify_center()
                 .overflow_hidden()
                 .bg(color(theme::ACCENT).opacity(0.12))
-                .child(pet_sprite_element(sprite_path, 92.0, cx.theme().primary)),
+                .child(if random {
+                    Icon::new(IconName::Asterisk)
+                        .size_8()
+                        .text_color(cx.theme().primary)
+                        .into_any_element()
+                } else {
+                    pet_sprite_element(sprite_path, 92.0, cx.theme().primary)
+                }),
         )
         .child(
             div()
@@ -611,8 +668,26 @@ fn pet_claim_preview(
                 .text_size(px(12.0))
                 .line_height(px(18.0))
                 .text_color(color(theme::TEXT_MUTED))
-                .child("领取后会使用现有 Tauri runtime 的宠物进度、等级和历史统计。"),
+                .child(description),
         )
+}
+
+fn fallback_random_preview_species(items: &[PetCatalogItem]) -> String {
+    items
+        .first()
+        .map(|item| item.species.clone())
+        .unwrap_or_else(|| "voidcat".to_string())
+}
+
+fn random_pet_species(items: &[PetCatalogItem]) -> String {
+    if items.is_empty() {
+        return "voidcat".to_string();
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.subsec_nanos() as usize)
+        .unwrap_or_default();
+    items[nanos % items.len()].species.clone()
 }
 
 fn pet_dex_current_card(
