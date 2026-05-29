@@ -7647,7 +7647,8 @@ impl CoduxApp {
         match self.runtime_service.refresh_pet_from_indexed_history() {
             Ok(summary) => {
                 self.state.pet = summary;
-                self.status_message = "pet progress refreshed".to_string();
+                self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                self.status_message = "pet data refreshed".to_string();
             }
             Err(error) => self.status_message = format!("failed to refresh pet: {error}"),
         }
