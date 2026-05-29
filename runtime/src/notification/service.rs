@@ -84,6 +84,7 @@ impl NotificationService {
         if channel.endpoint.trim().is_empty() {
             return Err("Notification endpoint is empty.".to_string());
         }
+        let label = channel.label.clone();
         Ok(dispatch_notification_channels_blocking(
             NotificationDispatchRequest {
                 channels: vec![NotificationChannelConfig {
@@ -91,9 +92,9 @@ impl NotificationService {
                     endpoint: channel.endpoint,
                     token: channel.token,
                 }],
-                title: "Codux notification test".to_string(),
-                body: "This test message was sent from Codux GPUI.".to_string(),
-                group: "settings".to_string(),
+                title: "Test".to_string(),
+                body: format!("Test succeeded: {label}"),
+                group: "codux-test".to_string(),
             },
         ))
     }
