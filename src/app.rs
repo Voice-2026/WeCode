@@ -17,6 +17,7 @@ use codux_runtime::{
         GitBranchSummary, GitCommitSummary, GitFileStatus, GitRemoteSummary,
         GitReviewContentSummary, GitReviewSummary, GitSummary,
     },
+    i18n::translate,
     memory::{
         MemoryEntrySummary, MemoryExtractionStatusSnapshot, MemoryManagerSnapshot,
         MemoryProjectMigrationRequest, MemoryProjectProfileRefreshResult, MemorySummary,
@@ -36,7 +37,7 @@ use codux_runtime::{
     runtime_event::{RuntimeEventSummary, RuntimeSessionSummary},
     runtime_ingress::{RuntimeIngressService, RuntimeIngressStatus},
     runtime_state::{FileEntry, FileKind, ProjectInfo, RuntimeService, RuntimeState},
-    settings::SettingsSummary,
+    settings::{SettingsSummary, locale_from_language_setting},
     ssh::{SSHConnectionProfile, SSHProfileSummary, SSHProfileUpsertRequest, SSHSummary},
     terminal_layout::{TerminalPaneSummary, TerminalTabSummary},
     terminal_pty::TerminalManager,
@@ -7464,17 +7465,22 @@ impl CoduxApp {
                 token: channel.token.clone(),
             })
             .collect::<Vec<_>>();
+        let locale = locale_from_language_setting(&self.state.settings.language);
 
         for completion in completions {
             let service = self.runtime_service.clone();
             let channels = channels.clone();
+            let locale = locale.clone();
             codux_runtime::async_runtime::spawn_blocking(move || {
                 let title = if completion.was_interrupted {
-                    "Task interrupted"
+                    translate(
+                        &locale,
+                        "ai.notification.task_interrupted",
+                        "Task interrupted",
+                    )
                 } else {
-                    "Task completed"
-                }
-                .to_string();
+                    translate(&locale, "ai.notification.task_completed", "Task completed")
+                };
                 let body = format!("{} · {}", completion.project_name, completion.tool);
                 let group = "codux-task";
                 let _ = service.show_native_notification(&title, &body, group);
