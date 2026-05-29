@@ -152,6 +152,7 @@ pub struct CoduxApp {
     pet_custom_pets: Vec<PetCustomPet>,
     pet_custom_install_seen_revision: u64,
     pet_update_seen_revision: u64,
+    settings_seen_revision: u64,
     pet_claim_species: String,
     pet_name_editing: bool,
     pet_dex_spotlight: Option<PetDexSpotlight>,
@@ -443,8 +444,14 @@ struct PetUpdateEvent {
     revision: u64,
 }
 
+#[derive(Clone, Debug, Default)]
+struct SettingsUpdateEvent {
+    revision: u64,
+}
+
 static PET_CUSTOM_INSTALL_EVENT: OnceLock<Mutex<PetCustomInstallEvent>> = OnceLock::new();
 static PET_UPDATE_EVENT: OnceLock<Mutex<PetUpdateEvent>> = OnceLock::new();
+static SETTINGS_UPDATE_EVENT: OnceLock<Mutex<SettingsUpdateEvent>> = OnceLock::new();
 
 fn pet_custom_install_event() -> &'static Mutex<PetCustomInstallEvent> {
     PET_CUSTOM_INSTALL_EVENT.get_or_init(|| Mutex::new(PetCustomInstallEvent::default()))
@@ -479,6 +486,25 @@ fn current_pet_update_event() -> PetUpdateEvent {
 
 fn publish_pet_update() -> u64 {
     let Ok(mut event) = pet_update_event().lock() else {
+        return 0;
+    };
+    event.revision = event.revision.saturating_add(1);
+    event.revision
+}
+
+fn settings_update_event() -> &'static Mutex<SettingsUpdateEvent> {
+    SETTINGS_UPDATE_EVENT.get_or_init(|| Mutex::new(SettingsUpdateEvent::default()))
+}
+
+fn current_settings_update_event() -> SettingsUpdateEvent {
+    settings_update_event()
+        .lock()
+        .map(|event| event.clone())
+        .unwrap_or_default()
+}
+
+fn publish_settings_update() -> u64 {
+    let Ok(mut event) = settings_update_event().lock() else {
         return 0;
     };
     event.revision = event.revision.saturating_add(1);
@@ -961,6 +987,7 @@ impl CoduxApp {
             pet_custom_pets,
             pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
             pet_update_seen_revision: current_pet_update_event().revision,
+            settings_seen_revision: current_settings_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -1109,6 +1136,7 @@ impl CoduxApp {
             pet_custom_pets,
             pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
             pet_update_seen_revision: current_pet_update_event().revision,
+            settings_seen_revision: current_settings_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -1226,7 +1254,7 @@ impl CoduxApp {
                             return;
                         }
                         let result =
-                            app.apply_runtime_activity_tick(true, true, include_scheduled_tick);
+                            app.apply_runtime_activity_tick(true, true, include_scheduled_tick, cx);
                         if result.pet_update_events > 0 {
                             app.sync_desktop_pet_window(false, cx);
                         }
@@ -2225,13 +2253,42 @@ impl CoduxApp {
         }
     }
 
-    fn apply_settings_summary(&mut self, settings: SettingsSummary) {
+    fn apply_settings_update_event(&mut self, cx: &mut Context<Self>) -> bool {
+        let event = current_settings_update_event();
+        if event.revision <= self.settings_seen_revision {
+            return false;
+        }
+
+        self.settings_seen_revision = event.revision;
+        self.replace_settings_summary(self.runtime_service.reload_state().settings);
+        self.normalize_selected_ai_provider();
+        self.normalize_selected_notification_channel();
+        self.normalize_selected_remote_device();
+        cx.set_menus(native_menu::codux_menus(&self.state.settings.language));
+        theme::apply_component_theme_for_name(&self.state.settings.theme, None, cx);
+        if self.window_mode == AppWindowMode::Main {
+            self.apply_terminal_text_settings(cx);
+            self.sync_desktop_pet_window(false, cx);
+        }
+        self.status_message = "settings updated".to_string();
+        true
+    }
+
+    fn replace_settings_summary(&mut self, settings: SettingsSummary) {
         self.state.settings = settings;
         self.state.remote = self.runtime_service.reload_remote();
         self.state.notifications = self.runtime_service.reload_notifications();
         self.state.power = self
             .runtime_service
             .power_summary(&self.state.settings.sleep_mode);
+    }
+
+    fn apply_settings_summary(&mut self, settings: SettingsSummary) {
+        self.replace_settings_summary(settings);
+        let revision = publish_settings_update();
+        if revision > 0 {
+            self.settings_seen_revision = revision;
+        }
     }
 
     fn set_theme(&mut self, theme: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -7566,8 +7623,8 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn reload_runtime_activity(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let result = self.apply_runtime_activity_tick(true, _window.is_window_active(), true);
+    fn reload_runtime_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let result = self.apply_runtime_activity_tick(true, window.is_window_active(), true, cx);
         if result.pet_update_events > 0 {
             self.sync_desktop_pet_window(false, cx);
         }
@@ -7597,11 +7654,13 @@ impl CoduxApp {
         visible: bool,
         focused: bool,
         include_scheduled_tick: bool,
+        cx: &mut Context<Self>,
     ) -> RuntimeActivityTickResult {
         let window_state = self.runtime_service.app_window_state(visible, focused);
         if include_scheduled_tick {
             self.runtime_service.tick_project_activity();
         }
+        let applied_settings_events = usize::from(self.apply_settings_update_event(cx));
         let project_events = self.runtime_service.drain_project_activity_events();
         let applied_project_events = self.apply_project_activity_events(project_events);
         let applied_pet_events =
@@ -7674,6 +7733,7 @@ impl CoduxApp {
                 || applied_ai_history_events > 0
                 || applied_pet_events > 0
                 || applied_pet_update_events > 0
+                || applied_settings_events > 0
                 || !remote_events.is_empty()
                 || !drained.events.is_empty()
                 || !drained.memory.is_empty()
