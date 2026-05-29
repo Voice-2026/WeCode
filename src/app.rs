@@ -114,6 +114,7 @@ pub struct CoduxApp {
     desktop_pet_window: Option<AnyWindowHandle>,
     desktop_pet_line_skipped: bool,
     desktop_pet_line: String,
+    pet_sprite_frame: usize,
     file_preview: String,
     file_editable: bool,
     file_dirty: bool,
@@ -778,6 +779,7 @@ const PET_ATLAS_COLUMNS: f32 = 8.0;
 const PET_ATLAS_ROWS: f32 = 9.0;
 const PET_ATLAS_CELL_WIDTH: f32 = 192.0;
 const PET_ATLAS_CELL_HEIGHT: f32 = 208.0;
+const PET_IDLE_FRAME_COUNT: usize = 6;
 const DESKTOP_PET_SPRITE_SIZE: f32 = 112.0;
 
 fn pet_sprite_visible_width(size: f32) -> f32 {
@@ -949,6 +951,7 @@ impl CoduxApp {
             desktop_pet_window: None,
             desktop_pet_line_skipped: false,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
+            pet_sprite_frame: 0,
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
@@ -1098,6 +1101,7 @@ impl CoduxApp {
             desktop_pet_window: None,
             desktop_pet_line_skipped: false,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
+            pet_sprite_frame: 0,
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
@@ -1231,12 +1235,49 @@ impl CoduxApp {
         }
 
         self.request_desktop_pet_speech("idle", desktop_pet_fallback_line(), cx);
+        self.start_pet_sprite_animation_loop(cx);
+    }
+
+    pub(in crate::app) fn start_pet_sprite_animation_loop(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.window_mode,
+            AppWindowMode::Main
+                | AppWindowMode::DesktopPet
+                | AppWindowMode::PetClaim
+                | AppWindowMode::PetCustomInstall
+                | AppWindowMode::PetDex
+        ) {
+            return;
+        }
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
+                    std::thread::sleep(Duration::from_millis(280));
+                })
+                .await;
+
+                if this
+                    .update(cx, |app, cx| {
+                        app.pet_sprite_frame = app.pet_sprite_frame.wrapping_add(1);
+                        if !app.state.settings.pet_static_mode {
+                            cx.notify();
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     pub(crate) fn start_runtime_event_loop(&mut self, cx: &mut Context<Self>) {
         if self.window_mode != AppWindowMode::Main {
             return;
         }
+        self.start_pet_sprite_animation_loop(cx);
         self.sync_desktop_pet_window(false, cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let mut ticks = 0_u64;
@@ -9347,11 +9388,27 @@ impl CoduxApp {
 }
 
 fn desktop_pet_sprite(sprite_path: PathBuf, cx: &mut Context<CoduxApp>) -> AnyElement {
-    pet_sprite_element(sprite_path, DESKTOP_PET_SPRITE_SIZE, cx.theme().primary)
+    let frame = cx
+        .entity()
+        .read(cx)
+        .visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
+    pet_sprite_element(
+        sprite_path,
+        DESKTOP_PET_SPRITE_SIZE,
+        frame,
+        cx.theme().primary,
+    )
 }
 
-fn pet_sprite_element(sprite_path: PathBuf, size: f32, fallback_color: gpui::Hsla) -> AnyElement {
+fn pet_sprite_element(
+    sprite_path: PathBuf,
+    size: f32,
+    frame: usize,
+    fallback_color: gpui::Hsla,
+) -> AnyElement {
     let visible_width = pet_sprite_visible_width(size);
+    let frame = frame % PET_ATLAS_COLUMNS as usize;
+    let offset = -(frame as f32) * visible_width;
 
     div()
         .size(px(size))
@@ -9361,6 +9418,7 @@ fn pet_sprite_element(sprite_path: PathBuf, size: f32, fallback_color: gpui::Hsl
             img(sprite_path)
                 .w(px(PET_ATLAS_COLUMNS * visible_width))
                 .h(px(PET_ATLAS_ROWS * size))
+                .ml(px(offset))
                 .object_fit(ObjectFit::Fill)
                 .with_fallback(move || {
                     div()
@@ -9376,6 +9434,16 @@ fn pet_sprite_element(sprite_path: PathBuf, size: f32, fallback_color: gpui::Hsl
                 }),
         )
         .into_any_element()
+}
+
+impl CoduxApp {
+    pub(in crate::app) fn visible_pet_sprite_frame(&self, frame_count: usize) -> usize {
+        if self.state.settings.pet_static_mode {
+            0
+        } else {
+            self.pet_sprite_frame % frame_count.max(1)
+        }
+    }
 }
 
 impl Render for CoduxApp {

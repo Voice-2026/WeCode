@@ -1124,6 +1124,7 @@ fn workspace_pet_popover_content(
                         .child(pet_sprite_element(
                             pet_sprite_path,
                             110.0,
+                            cx.entity().read(cx).visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
                             sprite_fallback_color,
                         )),
                 )

@@ -72,7 +72,10 @@ impl CoduxApp {
                 let app = CoduxApp::new_pet_window(mode);
                 theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
                 let view = cx.new(|_| app);
-                view.update(cx, |app, cx| app.start_pet_window_sync_loop(cx));
+                view.update(cx, |app, cx| {
+                    app.start_pet_window_sync_loop(cx);
+                    app.start_pet_sprite_animation_loop(cx);
+                });
                 cx.new(|cx| Root::new(view, window, cx))
             },
         );
@@ -861,7 +864,7 @@ fn pet_claim_sprite_thumb(sprite_path: PathBuf, fallback_color: gpui::Hsla) -> A
         .items_center()
         .justify_center()
         .bg(color(0xFFFFFF).opacity(0.04))
-        .child(pet_sprite_element(sprite_path, 44.0, fallback_color))
+        .child(pet_sprite_element(sprite_path, 44.0, 0, fallback_color))
         .into_any_element()
 }
 
@@ -928,7 +931,14 @@ fn pet_claim_preview(
                         .text_color(cx.theme().primary)
                         .into_any_element()
                 } else {
-                    pet_sprite_element(sprite_path, 92.0, cx.theme().primary)
+                    pet_sprite_element(
+                        sprite_path,
+                        92.0,
+                        cx.entity()
+                            .read(cx)
+                            .visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
+                        cx.theme().primary,
+                    )
                 }),
         )
         .child(
@@ -1004,7 +1014,7 @@ fn pet_dex_current_card(
                 .items_center()
                 .justify_center()
                 .bg(color(theme::ACCENT).opacity(0.12))
-                .child(pet_sprite_element(sprite_path, 48.0, cx.theme().primary)),
+                .child(pet_sprite_element(sprite_path, 48.0, 0, cx.theme().primary)),
         )
         .child(
             div()
@@ -1403,7 +1413,12 @@ fn pet_custom_section(
                                 .items_center()
                                 .justify_center()
                                 .bg(color(0xFFFFFF).opacity(0.055))
-                                .child(pet_sprite_element(sprite_path, 28.0, cx.theme().primary)),
+                                .child(pet_sprite_element(
+                                    sprite_path,
+                                    28.0,
+                                    0,
+                                    cx.theme().primary,
+                                )),
                         )
                         .child(
                             div()
@@ -1511,7 +1526,14 @@ fn pet_dex_spotlight_overlay(
                         .items_center()
                         .justify_center()
                         .bg(color(theme::ACCENT).opacity(0.12))
-                        .child(pet_sprite_element(sprite_path, 94.0, cx.theme().primary)),
+                        .child(pet_sprite_element(
+                            sprite_path,
+                            94.0,
+                            cx.entity()
+                                .read(cx)
+                                .visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
+                            cx.theme().primary,
+                        )),
                 )
                 .child(
                     div()
