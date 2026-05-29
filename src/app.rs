@@ -148,6 +148,7 @@ pub struct CoduxApp {
     pet_installing: bool,
     pet_custom_pets: Vec<PetCustomPet>,
     pet_claim_species: String,
+    pet_name_editing: bool,
     selected_ai_session_id: Option<String>,
     selected_ai_provider_id: Option<String>,
     ai_provider_testing_id: Option<String>,
@@ -854,6 +855,7 @@ impl CoduxApp {
             pet_installing: false,
             pet_custom_pets,
             pet_claim_species: String::new(),
+            pet_name_editing: false,
             selected_ai_session_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
@@ -996,6 +998,7 @@ impl CoduxApp {
             pet_installing: false,
             pet_custom_pets,
             pet_claim_species: String::new(),
+            pet_name_editing: false,
             selected_ai_session_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
@@ -8029,10 +8032,25 @@ impl CoduxApp {
         }) {
             Ok(_) => {
                 self.state.pet = self.runtime_service.reload_pet();
+                self.pet_name_editing = false;
                 self.status_message = "pet renamed".to_string();
             }
             Err(error) => self.status_message = format!("failed to rename pet: {error}"),
         }
+        cx.notify();
+    }
+
+    fn start_current_pet_rename(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.pet.claimed {
+            self.pet_name_editing = true;
+            self.status_message = "pet rename editor opened".to_string();
+        }
+        cx.notify();
+    }
+
+    fn cancel_current_pet_rename(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.pet_name_editing = false;
+        self.status_message = "pet rename cancelled".to_string();
         cx.notify();
     }
 

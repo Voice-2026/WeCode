@@ -84,6 +84,7 @@ impl CoduxApp {
                             self.pet_install_preview.as_ref(),
                             self.pet_install_previewing,
                             self.pet_installing,
+                            self.pet_name_editing,
                             window,
                             cx,
                         ))
@@ -593,6 +594,7 @@ fn workspace_pet_button(
     _install_preview: Option<&PetCustomPetInstallPreview>,
     _install_previewing: bool,
     _installing: bool,
+    pet_name_editing: bool,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -628,6 +630,7 @@ fn workspace_pet_button(
         pet.clone(),
         pet_snapshot,
         pet_sprite_path,
+        pet_name_editing,
         app_entity.clone(),
         window,
         cx,
@@ -971,6 +974,7 @@ fn workspace_pet_popover_content(
     pet: PetSummary,
     pet_snapshot: Option<PetSnapshot>,
     pet_sprite_path: std::path::PathBuf,
+    pet_name_editing: bool,
     app_entity: gpui::Entity<CoduxApp>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -995,7 +999,6 @@ fn workspace_pet_popover_content(
         Some(species_name.clone())
     };
     let sprite_fallback_color = cx.theme().primary;
-    let rename_form = workspace_pet_rename_form(&pet, window, cx);
     let progress = pet_snapshot
         .as_ref()
         .map(|snapshot| snapshot.progress.clone())
@@ -1056,35 +1059,14 @@ fn workspace_pet_popover_content(
                             });
                         }),
                 )
-                .child(
-                    div()
-                        .mt(px(12.0))
-                        .flex()
-                        .items_baseline()
-                        .justify_center()
-                        .gap_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .text_size(px(17.0))
-                                .line_height(px(22.0))
-                                .font_weight(FontWeight::BOLD)
-                                .truncate()
-                                .child(name),
-                        )
-                        .when_some(subtitle, |this, subtitle| {
-                            this.child(
-                                div()
-                                    .max_w(px(92.0))
-                                    .truncate()
-                                    .text_size(px(14.0))
-                                    .line_height(px(20.0))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(color(theme::TEXT_MUTED))
-                                    .child(subtitle),
-                            )
-                        }),
-                )
+                .child(workspace_pet_name_row(
+                    pet.clone(),
+                    name,
+                    subtitle,
+                    pet_name_editing,
+                    window,
+                    cx,
+                ))
                 .child(
                     div()
                         .mt(px(8.0))
@@ -1166,7 +1148,6 @@ fn workspace_pet_popover_content(
                         .child(compact_number(progress.total_xp)),
                 ),
         )
-        .child(div().px(px(14.0)).pb(px(12.0)).child(rename_form))
         .when_some(pet.error, |this, error| {
             this.child(
                 div()
@@ -1294,11 +1275,50 @@ fn workspace_pet_species_name(species: &str) -> String {
     }
 }
 
-fn workspace_pet_rename_form(
-    pet: &PetSummary,
+fn workspace_pet_name_row(
+    pet: PetSummary,
+    name: String,
+    subtitle: Option<String>,
+    editing: bool,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    if !editing {
+        return div()
+            .mt(px(12.0))
+            .flex()
+            .items_baseline()
+            .justify_center()
+            .gap_1()
+            .min_w_0()
+            .child(
+                div()
+                    .id("pet-name-edit-trigger")
+                    .cursor_pointer()
+                    .text_size(px(17.0))
+                    .line_height(px(22.0))
+                    .font_weight(FontWeight::BOLD)
+                    .truncate()
+                    .on_click(cx.listener(|app, _event, window, cx| {
+                        app.start_current_pet_rename(window, cx)
+                    }))
+                    .child(name),
+            )
+            .when_some(subtitle, |this, subtitle| {
+                this.child(
+                    div()
+                        .max_w(px(92.0))
+                        .truncate()
+                        .text_size(px(14.0))
+                        .line_height(px(20.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(subtitle),
+                )
+            })
+            .into_any_element();
+    }
+
     let value = pet.custom_name.clone();
     let name_state = window.use_keyed_state("pet-rename-custom-name", cx, |window, cx| {
         InputState::new(window, cx)
@@ -1310,47 +1330,56 @@ fn workspace_pet_rename_form(
             state.set_value(pet.custom_name.clone(), window, cx);
         }
     });
+    cx.subscribe_in(&name_state, window, |app, state, event, window, cx| {
+        if matches!(event, InputEvent::PressEnter { .. }) {
+            app.rename_current_pet_to(state.read(cx).value().to_string(), window, cx);
+        }
+    })
+    .detach();
     let save_state = name_state.clone();
 
     div()
-        .rounded(px(6.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .p_2()
+        .mt(px(12.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap_1()
         .child(
             div()
-                .mb_2()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color(theme::TEXT))
-                .child("宠物昵称"),
+                .w(px(150.0))
+                .child(Input::new(&name_state).with_size(gpui_component::Size::Small)),
         )
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(Input::new(&name_state).with_size(gpui_component::Size::Small)),
+            Button::new("pet-rename-current")
+                .compact()
+                .ghost()
+                .tooltip("保存宠物昵称")
+                .text_color(cx.theme().secondary_foreground)
+                .icon(
+                    Icon::new(IconName::Check)
+                        .size_3p5()
+                        .text_color(cx.theme().secondary_foreground),
                 )
-                .child(
-                    Button::new("pet-rename-current")
-                        .compact()
-                        .secondary()
-                        .tooltip("保存宠物昵称")
-                        .text_color(cx.theme().secondary_foreground)
-                        .icon(
-                            Icon::new(IconName::Check)
-                                .size_3p5()
-                                .text_color(cx.theme().secondary_foreground),
-                        )
-                        .on_click(cx.listener(move |app, _event, window, cx| {
-                            let custom_name = save_state.read(cx).value().to_string();
-                            app.rename_current_pet_to(custom_name, window, cx)
-                        })),
+                .on_click(cx.listener(move |app, _event, window, cx| {
+                    let custom_name = save_state.read(cx).value().to_string();
+                    app.rename_current_pet_to(custom_name, window, cx)
+                })),
+        )
+        .child(
+            Button::new("pet-rename-cancel")
+                .compact()
+                .ghost()
+                .tooltip("取消")
+                .text_color(cx.theme().secondary_foreground)
+                .icon(
+                    Icon::new(IconName::Close)
+                        .size_3p5()
+                        .text_color(cx.theme().secondary_foreground),
+                )
+                .on_click(
+                    cx.listener(|app, _event, window, cx| {
+                        app.cancel_current_pet_rename(window, cx)
+                    }),
                 ),
         )
         .into_any_element()
