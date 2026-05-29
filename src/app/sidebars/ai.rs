@@ -195,12 +195,31 @@ fn ai_history_today_total(history: &AIHistorySummary, include_cached: bool) -> i
         .filter(|day| (ai_local_day_start_seconds(day.day) - today).abs() < 1.0)
         .map(|day| ai_display_tokens(day.total_tokens, day.cached_input_tokens, include_cached))
         .sum::<i64>();
-    let summary_total = ai_display_tokens(
-        history.today_total_tokens,
-        history.today_cached_input_tokens,
-        include_cached,
-    );
+    let summary_total = if ai_history_has_fresh_today_evidence(history, today) {
+        ai_display_tokens(
+            history.today_total_tokens,
+            history.today_cached_input_tokens,
+            include_cached,
+        )
+    } else {
+        0
+    };
     summary_total.max(bucket_total).max(heatmap_total)
+}
+
+fn ai_history_has_fresh_today_evidence(history: &AIHistorySummary, today: f64) -> bool {
+    history
+        .today_time_buckets
+        .iter()
+        .any(|bucket| ai_local_day_start_seconds(bucket.start) == today)
+        || history
+            .heatmap
+            .iter()
+            .any(|day| ai_local_day_start_seconds(day.day) == today)
+        || history
+            .indexed_at
+            .map(|indexed_at| ai_local_day_start_seconds(indexed_at) == today)
+            .unwrap_or(false)
 }
 
 fn ai_stats_card(title: &'static str, cx: &mut Context<CoduxApp>) -> gpui::Div {
@@ -1961,10 +1980,11 @@ fn ai_today_usage_chart(
                 .children(values.into_iter().enumerate().map(|(index, value)| {
                     let ratio = value as f32 / max_value as f32;
                     div()
-                        .w(px(7.0))
-                        .ml(if index == 0 { px(0.0) } else { px(4.0) })
+                        .flex_1()
+                        .min_w(px(2.0))
+                        .ml(if index == 0 { px(0.0) } else { px(1.0) })
                         .h(px(10.0 + ratio * 56.0))
-                        .rounded(px(4.0))
+                        .rounded(px(3.0))
                         .bg(color(theme::ACCENT))
                         .opacity(if value > 0 { 1.0 } else { 0.35 })
                         .into_any_element()
@@ -2125,13 +2145,17 @@ fn ai_today_bucket_values(
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     include_cached: bool,
-) -> [i64; 10] {
-    let mut buckets = [0_i64; 10];
+) -> [i64; 48] {
+    let mut buckets = [0_i64; 48];
     let mut has_indexed_buckets = false;
+    let now = ai_now_seconds();
+    let day_start = ai_local_day_start_seconds(now);
     if !history.today_time_buckets.is_empty() {
         for bucket in &history.today_time_buckets {
-            let index = (((bucket.start - history.today_time_buckets[0].start) / 86_400.0)
-                * buckets.len() as f64)
+            if ai_local_day_start_seconds(bucket.start) != day_start {
+                continue;
+            }
+            let index = (((bucket.start - day_start) / 86_400.0) * buckets.len() as f64)
                 .floor()
                 .clamp(0.0, (buckets.len() - 1) as f64) as usize;
             buckets[index] += ai_display_tokens(
@@ -2142,9 +2166,6 @@ fn ai_today_bucket_values(
         }
         has_indexed_buckets = buckets.iter().any(|value| *value > 0);
     }
-
-    let now = ai_now_seconds();
-    let day_start = ai_local_day_start_seconds(now);
 
     if !has_indexed_buckets {
         for session in ai_history_sessions(history, global) {
