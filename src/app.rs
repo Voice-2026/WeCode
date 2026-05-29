@@ -44,11 +44,11 @@ use codux_runtime::{
     worktree::{ProjectWorktreeGitSummary, WorktreeInfo, WorktreeTaskInfo},
 };
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, DispatchPhase, FontWeight, InteractiveElement,
-    IntoElement, KeyDownEvent, MouseButton, ObjectFit, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, StyledImage, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder as _, px, size,
+    AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context, DispatchPhase, FontWeight,
+    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ObjectFit, ParentElement, Render,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, img,
+    linear_color_stop, linear_gradient, point, prelude::FluentBuilder as _, px, size,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, IconName, Root, Sizable,
@@ -108,6 +108,7 @@ pub struct CoduxApp {
     runtime_service: RuntimeService,
     is_exiting: bool,
     status_message: String,
+    desktop_pet_window: Option<AnyWindowHandle>,
     desktop_pet_line_skipped: bool,
     desktop_pet_line: String,
     file_preview: String,
@@ -812,6 +813,7 @@ impl CoduxApp {
                 },
                 ai_runtime_status
             ),
+            desktop_pet_window: None,
             desktop_pet_line_skipped: false,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
             file_preview: "select a file to preview it".to_string(),
@@ -952,6 +954,7 @@ impl CoduxApp {
             runtime_service,
             is_exiting: false,
             status_message: "settings window ready".to_string(),
+            desktop_pet_window: None,
             desktop_pet_line_skipped: false,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
             file_preview: "select a file to preview it".to_string(),
@@ -1085,6 +1088,7 @@ impl CoduxApp {
         if self.window_mode != AppWindowMode::Main {
             return;
         }
+        self.sync_desktop_pet_window(false, cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let mut ticks = 0_u64;
             loop {
@@ -1129,6 +1133,15 @@ impl CoduxApp {
     }
 
     fn open_desktop_pet_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.desktop_pet_window {
+            if handle.update(cx, |_view, _window, _cx| {}).is_ok() {
+                self.status_message = "desktop pet window already opened".to_string();
+                cx.notify();
+                return;
+            }
+            self.desktop_pet_window = None;
+        }
+
         match self.runtime_service.desktop_pet_should_show() {
             Ok(true) => {}
             Ok(false) => {
@@ -1195,10 +1208,42 @@ impl CoduxApp {
         );
 
         self.status_message = match result {
-            Ok(_) => "desktop pet window opened".to_string(),
+            Ok(handle) => {
+                self.desktop_pet_window = Some(handle.into());
+                "desktop pet window opened".to_string()
+            }
             Err(error) => format!("failed to open desktop pet window: {error}"),
         };
         cx.notify();
+    }
+
+    fn close_desktop_pet_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.desktop_pet_window.take() {
+            let _ = handle.update(cx, |_view, window, _cx| window.remove_window());
+        }
+        self.runtime_service.desktop_pet_set_bubble_visible(false);
+    }
+
+    fn sync_desktop_pet_window(&mut self, report_unavailable: bool, cx: &mut Context<Self>) {
+        match self.runtime_service.desktop_pet_should_show() {
+            Ok(true) => self.open_desktop_pet_window(cx),
+            Ok(false) => {
+                self.close_desktop_pet_window(cx);
+                if report_unavailable {
+                    self.status_message =
+                        "desktop pet needs pet enabled, desktop widget enabled, and a claimed pet"
+                            .to_string();
+                    cx.notify();
+                }
+            }
+            Err(error) => {
+                self.close_desktop_pet_window(cx);
+                if report_unavailable {
+                    self.status_message = format!("failed to check desktop pet: {error}");
+                    cx.notify();
+                }
+            }
+        }
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -2257,7 +2302,7 @@ impl CoduxApp {
                     self.open_desktop_pet_window(cx);
                     return;
                 } else {
-                    self.runtime_service.desktop_pet_set_bubble_visible(false);
+                    self.close_desktop_pet_window(cx);
                 }
             }
             Err(error) => {
