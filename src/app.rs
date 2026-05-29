@@ -24,7 +24,7 @@ use codux_runtime::{
     },
     pet::{
         PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview, PetCustomPetInstallRequest,
-        PetRenameRequest, PetRestoreRequest, PetSummary,
+        PetRenameRequest, PetRestoreRequest, PetSnapshot, PetSummary,
     },
     project_activity::ProjectActivityEvent,
     project_open::ProjectOpenApplicationSummary,

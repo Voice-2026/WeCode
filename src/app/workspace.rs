@@ -48,6 +48,7 @@ impl CoduxApp {
             WorkspaceView::Files => 1,
             WorkspaceView::Review => 2,
         };
+        let pet_snapshot = self.runtime_service.pet_snapshot().ok();
         column_header(
             div()
                 .flex()
@@ -73,6 +74,7 @@ impl CoduxApp {
                         ))
                         .child(workspace_pet_button(
                             &self.state.pet,
+                            pet_snapshot.as_ref(),
                             &self.pet_custom_pets,
                             &self.runtime.source_root,
                             &self.state.support_dir,
@@ -546,67 +548,44 @@ fn workspace_open_button(
 }
 
 fn workspace_level_button(pet: &PetSummary, cx: &mut Context<CoduxApp>) -> impl IntoElement {
-    let app_entity = cx.entity();
-    let level = pet.level.max(1);
-    let daily_xp = pet.daily_xp;
-    let total_xp = pet.total_xp;
-    let progress = pet.progress.clamp(0.0, 1.0);
-    let available = pet.available;
-    let claimed = pet.claimed;
-    let archived_count = pet.archived_count;
-    let error = pet.error.clone();
+    let tokens = pet.daily_xp.max(0);
+    let tier = daily_level_tier(tokens);
 
     Popover::new("workspace-level-popover")
         .anchor(Anchor::TopRight)
-        .w(px(268.0))
+        .w(px(304.0))
         .trigger(
             workspace_header_button("workspace-level", cx)
                 .secondary()
                 .text_color(cx.theme().foreground)
-                .child(workspace_header_badge_button_content(
-                    IconName::Star,
-                    color(0x2F80ED),
-                    format!("Lv.{level}"),
-                    cx,
-                )),
+                .child(workspace_daily_level_button_content(tier.clone(), cx)),
         )
-        .content(move |_, _, _| {
-            workspace_level_popover_content(
-                level,
-                daily_xp,
-                total_xp,
-                progress,
-                available,
-                claimed,
-                archived_count,
-                error.clone(),
-                app_entity.clone(),
-            )
-        })
+        .content(move |_, _, _| workspace_level_popover_content(tokens, tier.clone()))
 }
 
 fn workspace_pet_button(
     pet: &PetSummary,
+    pet_snapshot: Option<&PetSnapshot>,
     custom_pets: &[PetCustomPet],
     runtime_asset_root: &std::path::Path,
     support_dir: &std::path::Path,
-    install_url: &str,
-    install_display_name: &str,
-    install_preview: Option<&PetCustomPetInstallPreview>,
-    install_previewing: bool,
-    installing: bool,
+    _install_url: &str,
+    _install_display_name: &str,
+    _install_preview: Option<&PetCustomPetInstallPreview>,
+    _install_previewing: bool,
+    _installing: bool,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let app_entity = cx.entity();
     let pet = pet.clone();
+    let pet_snapshot = pet_snapshot.cloned();
     let custom_pets = custom_pets.to_vec();
     let pet_sprite_path = pet_sprite_path(runtime_asset_root, support_dir, &pet, &custom_pets);
-    let support_dir = support_dir.to_path_buf();
-    let label = if pet.claimed && !pet.display_name.is_empty() {
-        pet.display_name.clone()
+    let label = if pet.claimed {
+        format!("Lv.{}", pet.level.max(1))
     } else {
-        "宠物".to_string()
+        "领取".to_string()
     };
     let trigger = workspace_header_button("workspace-pet", cx)
         .secondary()
@@ -617,26 +596,30 @@ fn workspace_pet_button(
             label,
             cx,
         ));
+
+    if !pet.claimed {
+        return trigger
+            .on_click(cx.listener(|app, _event, window, cx| {
+                app.open_pet_claim_window(window, cx);
+            }))
+            .into_any_element();
+    }
+
     let content = workspace_pet_popover_content(
         pet.clone(),
-        custom_pets,
+        pet_snapshot,
         pet_sprite_path,
-        support_dir,
         app_entity.clone(),
-        install_url,
-        install_display_name,
-        install_preview,
-        install_previewing,
-        installing,
         window,
         cx,
     );
 
     Popover::new("workspace-pet-popover")
         .anchor(Anchor::TopRight)
-        .w(px(292.0))
+        .w(px(324.0))
         .trigger(trigger)
         .child(content)
+        .into_any_element()
 }
 
 fn workspace_assistant_button(
@@ -732,101 +715,244 @@ fn workspace_header_badge_button_content(
         )
 }
 
-fn workspace_level_popover_content(
-    level: i64,
-    daily_xp: i64,
-    total_xp: i64,
-    progress: f64,
-    available: bool,
-    claimed: bool,
-    archived_count: usize,
-    error: Option<String>,
-    app_entity: gpui::Entity<CoduxApp>,
+#[derive(Clone)]
+struct DailyLevelTier {
+    id: &'static str,
+    title: &'static str,
+    min: i64,
+    color: u32,
+    icon: IconName,
+}
+
+const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
+    DailyLevelTier {
+        id: "iron",
+        title: "黑铁",
+        min: 0,
+        color: 0x5B616D,
+        icon: IconName::Minus,
+    },
+    DailyLevelTier {
+        id: "bronze",
+        title: "青铜",
+        min: 1_000_000,
+        color: 0xC98663,
+        icon: IconName::Star,
+    },
+    DailyLevelTier {
+        id: "silver",
+        title: "白银",
+        min: 3_000_000,
+        color: 0xC8D1E3,
+        icon: IconName::Check,
+    },
+    DailyLevelTier {
+        id: "gold",
+        title: "黄金",
+        min: 6_000_000,
+        color: 0xE8AA34,
+        icon: IconName::Star,
+    },
+    DailyLevelTier {
+        id: "platinum",
+        title: "铂金",
+        min: 10_000_000,
+        color: 0x7ED6D8,
+        icon: IconName::Star,
+    },
+    DailyLevelTier {
+        id: "diamond",
+        title: "钻石",
+        min: 18_000_000,
+        color: 0x59A7FF,
+        icon: IconName::Star,
+    },
+    DailyLevelTier {
+        id: "master",
+        title: "大师",
+        min: 30_000_000,
+        color: 0x9A72FF,
+        icon: IconName::Star,
+    },
+    DailyLevelTier {
+        id: "grandmaster",
+        title: "宗师",
+        min: 50_000_000,
+        color: 0xFF5E8E,
+        icon: IconName::Heart,
+    },
+];
+
+fn daily_level_tier(tokens: i64) -> DailyLevelTier {
+    DAILY_LEVEL_TIERS
+        .iter()
+        .rev()
+        .find(|tier| tokens >= tier.min)
+        .cloned()
+        .unwrap_or_else(|| DAILY_LEVEL_TIERS[0].clone())
+}
+
+fn workspace_daily_level_button_content(
+    tier: DailyLevelTier,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let percent = (progress * 100.0).round() as i64;
+    div()
+        .h(px(20.0))
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_color(cx.theme().foreground)
+        .child(daily_level_badge(&tier, 18.0, 8.0))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .line_height(px(12.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(tier.title),
+        )
+}
+
+fn workspace_level_popover_content(tokens: i64, current_tier: DailyLevelTier) -> impl IntoElement {
+    let tokens = tokens.max(0);
 
     div()
         .flex()
         .flex_col()
-        .gap_3()
         .text_color(color(theme::TEXT))
         .child(
             div()
                 .flex()
                 .items_center()
-                .justify_between()
+                .gap_3()
+                .child(daily_level_badge(&current_tier, 34.0, 14.0))
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("每日等级"),
+                        .min_w_0()
+                        .flex_1()
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(theme::TEXT_MUTED))
+                                .child("今日等级"),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.0))
+                                .text_size(px(15.0))
+                                .line_height(px(18.0))
+                                .font_weight(FontWeight::BOLD)
+                                .child(current_tier.title),
+                        ),
                 )
                 .child(
                     div()
-                        .px_2()
-                        .h(px(22.0))
-                        .rounded_sm()
-                        .flex()
-                        .items_center()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .bg(color(theme::ACCENT).opacity(0.18))
-                        .text_color(color(0x9CC9FF))
-                        .child(format!("Lv.{level}")),
+                        .text_right()
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .line_height(px(14.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(theme::TEXT_MUTED))
+                                .child("今日 Tokens"),
+                        )
+                        .child(
+                            div()
+                                .mt(px(2.0))
+                                .text_size(px(15.0))
+                                .line_height(px(18.0))
+                                .font_weight(FontWeight::BOLD)
+                                .child(compact_number(tokens)),
+                        ),
                 ),
         )
-        .child(
-            div()
-                .h(px(6.0))
-                .w_full()
-                .rounded_full()
-                .overflow_hidden()
-                .bg(color(0xFFFFFF).opacity(0.08))
-                .child(
-                    div()
-                        .h_full()
-                        .w(relative(progress as f32))
-                        .rounded_full()
-                        .bg(color(theme::ACCENT)),
-                ),
-        )
-        .child(
-            div()
-                .grid()
-                .grid_cols(3)
-                .gap_2()
-                .child(workspace_popover_metric(
-                    "今日 XP",
-                    compact_number(daily_xp),
-                ))
-                .child(workspace_popover_metric("总 XP", compact_number(total_xp)))
-                .child(workspace_popover_metric("进度", format!("{percent}%"))),
-        )
-        .child(workspace_pet_popover_actions(
-            "workspace-level-popover",
-            app_entity,
-            claimed,
-            archived_count,
+        .child(div().mt(px(12.0)).flex().flex_col().gap_1().children(
+            DAILY_LEVEL_TIERS.into_iter().map(|tier| {
+                let current = tier.id == current_tier.id;
+                div()
+                    .rounded(px(8.0))
+                    .px(px(10.0))
+                    .py(px(8.0))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .bg(if current {
+                        color(0xFFFFFF).opacity(0.075)
+                    } else {
+                        color(0xFFFFFF).opacity(0.0)
+                    })
+                    .border_1()
+                    .border_color(if current {
+                        color(tier.color).opacity(0.28)
+                    } else {
+                        color(0xFFFFFF).opacity(0.0)
+                    })
+                    .child(daily_level_badge(&tier, 24.0, 10.0))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .line_height(px(16.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(tier.title),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(2.0))
+                                    .text_size(px(11.0))
+                                    .line_height(px(14.0))
+                                    .text_color(color(theme::TEXT_MUTED))
+                                    .child(format!("需要 {}", compact_number(tier.min))),
+                            ),
+                    )
+                    .when(current, |this| {
+                        this.child(
+                            div()
+                                .rounded_full()
+                                .px(px(8.0))
+                                .py(px(4.0))
+                                .text_size(px(11.0))
+                                .line_height(px(12.0))
+                                .font_weight(FontWeight::BOLD)
+                                .bg(color(tier.color).opacity(0.14))
+                                .text_color(color(tier.color))
+                                .child("当前"),
+                        )
+                    })
+                    .into_any_element()
+            }),
         ))
-        .when(!available || error.is_some(), |this| {
-            this.child(workspace_popover_notice(
-                error.unwrap_or_else(|| "宠物数据暂不可用".to_string()),
-            ))
-        })
+}
+
+fn daily_level_badge(tier: &DailyLevelTier, box_size: f32, icon_size: f32) -> impl IntoElement {
+    div()
+        .size(px(box_size))
+        .rounded_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(linear_gradient(
+            135.0,
+            linear_color_stop(color(tier.color), 0.0),
+            linear_color_stop(color(tier.color).opacity(0.72), 1.0),
+        ))
+        .text_color(color(0xFFFFFF))
+        .child(
+            Icon::new(tier.icon.clone())
+                .with_size(px(icon_size))
+                .text_color(color(0xFFFFFF)),
+        )
 }
 
 fn workspace_pet_popover_content(
     pet: PetSummary,
-    custom_pets: Vec<PetCustomPet>,
+    pet_snapshot: Option<PetSnapshot>,
     pet_sprite_path: std::path::PathBuf,
-    support_dir: std::path::PathBuf,
     app_entity: gpui::Entity<CoduxApp>,
-    install_url: &str,
-    install_display_name: &str,
-    install_preview: Option<&PetCustomPetInstallPreview>,
-    install_previewing: bool,
-    installing: bool,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -835,251 +961,318 @@ fn workspace_pet_popover_content(
     } else {
         "还没有领取宠物".to_string()
     };
-    let species = if pet.species.is_empty() {
-        "未选择".to_string()
+    let species_name = pet_snapshot
+        .as_ref()
+        .and_then(|snapshot| {
+            snapshot
+                .custom_pet
+                .as_ref()
+                .map(|pet| pet.display_name.clone())
+        })
+        .unwrap_or_else(|| workspace_pet_species_name(&pet.species));
+    let subtitle = if pet.custom_name.trim().is_empty() {
+        None
     } else {
-        pet.species.clone()
-    };
-    let status = if pet.claimed {
-        "已领取"
-    } else {
-        "未领取"
+        Some(species_name.clone())
     };
     let sprite_fallback_color = cx.theme().primary;
     let rename_form = workspace_pet_rename_form(&pet, window, cx);
-    let install_form = workspace_pet_install_form(
-        install_url,
-        install_display_name,
-        install_preview,
-        install_previewing,
-        installing,
-        window,
-        cx,
-    );
+    let progress = pet_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.progress.clone())
+        .unwrap_or_else(|| codux_runtime::pet::PetProgressInfo {
+            level: pet.level.max(1),
+            xp_in_level: 0,
+            xp_for_level: 0,
+            total_xp: pet.total_xp.max(0),
+            progress: pet.progress,
+            is_at_max_level: false,
+        });
+    let stats = pet_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.current_stats.clone())
+        .unwrap_or_default();
+    let persona = pet_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.persona_id.clone())
+        .unwrap_or_else(|| "observer".to_string());
 
     div()
         .flex()
         .flex_col()
-        .gap_3()
         .text_color(color(theme::TEXT))
         .child(
             div()
+                .relative()
                 .flex()
-                .items_start()
-                .gap_3()
+                .flex_col()
+                .items_center()
+                .px(px(14.0))
+                .pt(px(18.0))
+                .pb(px(14.0))
                 .child(
                     div()
-                        .size(px(40.0))
-                        .rounded(px(8.0))
+                        .size(px(110.0))
                         .flex()
                         .items_center()
                         .justify_center()
-                        .overflow_hidden()
-                        .bg(color(0xFFFFFF).opacity(0.055))
                         .child(pet_sprite_element(
                             pet_sprite_path,
-                            40.0,
+                            110.0,
                             sprite_fallback_color,
                         )),
+                )
+                .child(
+                    Button::new("workspace-pet-dex-open")
+                        .compact()
+                        .ghost()
+                        .tooltip("打开图鉴")
+                        .absolute()
+                        .right(px(12.0))
+                        .top(px(12.0))
+                        .icon(Icon::new(IconName::BookOpen).size_3p5())
+                        .on_click(move |_, window, cx| {
+                            cx.update_entity(&app_entity, |app, cx| {
+                                app.open_pet_dex_window(window, cx);
+                            });
+                        }),
+                )
+                .child(
+                    div()
+                        .mt(px(12.0))
+                        .flex()
+                        .items_baseline()
+                        .justify_center()
+                        .gap_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(17.0))
+                                .line_height(px(22.0))
+                                .font_weight(FontWeight::BOLD)
+                                .truncate()
+                                .child(name),
+                        )
+                        .when_some(subtitle, |this, subtitle| {
+                            this.child(
+                                div()
+                                    .max_w(px(92.0))
+                                    .truncate()
+                                    .text_size(px(14.0))
+                                    .line_height(px(20.0))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(color(theme::TEXT_MUTED))
+                                    .child(subtitle),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .mt(px(8.0))
+                        .rounded_full()
+                        .bg(color(theme::ACCENT).opacity(0.14))
+                        .px(px(10.0))
+                        .py(px(4.0))
+                        .text_size(px(12.0))
+                        .line_height(px(12.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::ACCENT))
+                        .child(pet_persona_label(&persona)),
+                )
+                .child(
+                    div()
+                        .mt(px(10.0))
+                        .text_size(px(26.0))
+                        .line_height(px(32.0))
+                        .font_weight(FontWeight::BLACK)
+                        .child(format!("Lv.{}", progress.level.max(1))),
+                ),
+        )
+        .child(workspace_popover_separator())
+        .child(div().px(px(14.0)).py(px(12.0)).child(workspace_pet_meter(
+            "经验",
+            format!(
+                "{} / {}",
+                compact_number(progress.xp_in_level),
+                compact_number(progress.xp_for_level)
+            ),
+            progress.progress,
+            theme::ACCENT,
+        )))
+        .child(workspace_popover_separator())
+        .child(
+            div()
+                .px(px(14.0))
+                .py(px(12.0))
+                .child(
+                    div()
+                        .mb(px(8.0))
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child("特质"),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_col()
-                        .gap_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .truncate()
-                                .child(name),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
-                                .text_color(color(theme::TEXT_MUTED))
-                                .child(format!("{status} · {species}")),
-                        ),
+                        .gap_2()
+                        .child(workspace_pet_trait("智慧", stats.wisdom, 0x2F8FFF))
+                        .child(workspace_pet_trait("混沌", stats.chaos, 0xFF6030))
+                        .child(workspace_pet_trait("夜行", stats.night, 0x6060CC))
+                        .child(workspace_pet_trait("耐力", stats.stamina, 0x20A060))
+                        .child(workspace_pet_trait("共情", stats.empathy, 0xE060A0)),
                 ),
         )
+        .child(workspace_popover_separator())
         .child(
             div()
-                .grid()
-                .grid_cols(3)
-                .gap_2()
-                .child(workspace_popover_metric(
-                    "等级",
-                    format!("Lv.{}", pet.level.max(1)),
-                ))
-                .child(workspace_popover_metric(
-                    "今日 XP",
-                    compact_number(pet.daily_xp),
-                ))
-                .child(workspace_popover_metric(
-                    "自定义",
-                    pet.custom_pet_count.to_string(),
-                )),
+                .py(px(10.0))
+                .text_center()
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child("总 XP"),
+                )
+                .child(
+                    div()
+                        .mt(px(2.0))
+                        .text_size(px(13.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(compact_number(progress.total_xp)),
+                ),
         )
-        .child(
-            div()
-                .grid()
-                .grid_cols(2)
-                .gap_2()
-                .child(workspace_popover_metric(
-                    "归档",
-                    pet.archived_count.to_string(),
-                ))
-                .child(workspace_popover_metric("来源", empty_label(&pet.source))),
-        )
-        .when(pet.claimed, |this| this.child(rename_form))
-        .when(!custom_pets.is_empty(), |this| {
-            this.child(workspace_custom_pet_list(
-                custom_pets,
-                support_dir,
-                sprite_fallback_color,
-                app_entity.clone(),
-            ))
-        })
-        .child(install_form)
-        .child(workspace_pet_popover_actions(
-            "workspace-pet-popover",
-            app_entity,
-            pet.claimed,
-            pet.archived_count,
-        ))
+        .child(div().px(px(14.0)).pb(px(12.0)).child(rename_form))
         .when_some(pet.error, |this, error| {
-            this.child(workspace_popover_notice(error))
+            this.child(
+                div()
+                    .px(px(14.0))
+                    .pb(px(12.0))
+                    .child(workspace_popover_notice(error)),
+            )
         })
 }
 
-fn workspace_custom_pet_list(
-    custom_pets: Vec<PetCustomPet>,
-    support_dir: std::path::PathBuf,
-    sprite_fallback_color: gpui::Hsla,
-    app_entity: gpui::Entity<CoduxApp>,
+fn workspace_popover_separator() -> impl IntoElement {
+    div().mx(px(14.0)).h(px(1.0)).bg(color(theme::BORDER_SOFT))
+}
+
+fn workspace_pet_meter(
+    label: &'static str,
+    value: String,
+    progress: f64,
+    accent: u32,
 ) -> impl IntoElement {
     div()
-        .rounded(px(6.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .p_2()
         .child(
             div()
-                .mb_2()
                 .flex()
                 .items_center()
                 .justify_between()
                 .gap_2()
+                .text_size(px(12.0))
+                .line_height(px(16.0))
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(theme::TEXT))
-                        .child("已安装自定义宠物"),
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(label),
                 )
                 .child(
                     div()
-                        .rounded(px(999.0))
-                        .px(px(7.0))
-                        .py(px(1.0))
-                        .bg(color(theme::ACCENT).opacity(0.16))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .text_color(color(theme::ACCENT))
-                        .child(custom_pets.len().to_string()),
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::TEXT_DIM))
+                        .child(value),
                 ),
         )
         .child(
             div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .children(custom_pets.into_iter().map(|pet| {
-                    workspace_custom_pet_row(
-                        pet,
-                        support_dir.clone(),
-                        sprite_fallback_color,
-                        app_entity.clone(),
-                    )
-                    .into_any_element()
-                })),
+                .mt(px(6.0))
+                .h(px(7.0))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(color(accent).opacity(0.15))
+                .child(
+                    div()
+                        .h_full()
+                        .w(relative(progress.clamp(0.0, 1.0) as f32))
+                        .rounded_full()
+                        .bg(color(accent)),
+                ),
         )
 }
 
-fn workspace_custom_pet_row(
-    pet: PetCustomPet,
-    support_dir: std::path::PathBuf,
-    sprite_fallback_color: gpui::Hsla,
-    app_entity: gpui::Entity<CoduxApp>,
-) -> impl IntoElement {
-    let pet_id = pet.id.clone();
-    let claim_pet = pet.clone();
-    let sprite_path = custom_pet_sprite_path(&support_dir, &pet);
+fn workspace_pet_trait(label: &'static str, value: i64, accent: u32) -> impl IntoElement {
+    let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
     div()
-        .flex()
+        .grid()
+        .grid_cols(4)
         .items_center()
         .gap_2()
-        .rounded(px(6.0))
-        .px(px(6.0))
-        .py(px(5.0))
-        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
         .child(
             div()
-                .size(px(24.0))
-                .flex_shrink_0()
-                .rounded(px(6.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .overflow_hidden()
-                .bg(color(0xFFFFFF).opacity(0.055))
-                .child(pet_sprite_element(sprite_path, 24.0, sprite_fallback_color)),
+                .text_color(color(theme::TEXT_MUTED))
+                .font_weight(FontWeight::MEDIUM)
+                .child(label),
         )
         .child(
             div()
-                .min_w_0()
-                .flex_1()
+                .col_span(2)
+                .h(px(5.0))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(color(accent).opacity(0.12))
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(pet.display_name),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .line_height(px(15.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(empty_label(&pet.description)),
+                        .h_full()
+                        .w(relative(ratio))
+                        .rounded_full()
+                        .bg(color(accent).opacity(0.75)),
                 ),
         )
         .child(
-            Button::new(SharedString::from(format!(
-                "workspace-claim-custom-pet-{pet_id}"
-            )))
-            .compact()
-            .ghost()
-            .tooltip("领取这个自定义宠物")
-            .text_color(color(theme::TEXT))
-            .on_click(move |_, window, cx| {
-                cx.update_entity(&app_entity, |app, cx| {
-                    app.claim_custom_pet(claim_pet.clone(), window, cx);
-                });
-            })
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
-                    .text_color(color(theme::TEXT))
-                    .child("领取"),
-            ),
+            div()
+                .text_right()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color(theme::TEXT_DIM))
+                .child(compact_number(value)),
         )
+}
+
+fn pet_persona_label(persona: &str) -> String {
+    match persona {
+        "observer" => "观察者",
+        "sprinter" => "疾行者",
+        "guardian" => "守护者",
+        "nightowl" => "夜行者",
+        "maker" => "创造者",
+        value => value,
+    }
+    .to_string()
+}
+
+fn workspace_pet_species_name(species: &str) -> String {
+    match species.strip_prefix("custom:") {
+        Some(id) if !id.trim().is_empty() => id.to_string(),
+        _ => match species {
+            "voidcat" => "Voidcat",
+            "fox" => "Fox",
+            "panda" => "Panda",
+            "otter" => "Otter",
+            "owl" => "Owl",
+            "dragon" => "Dragon",
+            value if !value.trim().is_empty() => value,
+            _ => "Pet",
+        }
+        .to_string(),
+    }
 }
 
 fn workspace_pet_rename_form(
@@ -1298,129 +1491,6 @@ fn workspace_pet_install_preview(preview: PetCustomPetInstallPreview) -> impl In
                 .text_color(color(theme::TEXT_MUTED))
                 .truncate()
                 .child(empty_label(&preview.description)),
-        )
-}
-
-fn workspace_pet_popover_actions(
-    id_prefix: &'static str,
-    app_entity: gpui::Entity<CoduxApp>,
-    claimed: bool,
-    archived_count: usize,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .justify_end()
-        .gap_2()
-        .pt_1()
-        .when(!claimed, |this| {
-            this.child(workspace_popover_action_button(
-                SharedString::from(format!("{id_prefix}-claim")),
-                "领取",
-                IconName::Plus,
-                app_entity.clone(),
-                |app, window, cx| app.open_pet_claim_window(window, cx),
-            ))
-        })
-        .when(claimed, |this| {
-            this.child(workspace_popover_action_button(
-                SharedString::from(format!("{id_prefix}-archive")),
-                "归档",
-                IconName::Delete,
-                app_entity.clone(),
-                |app, window, cx| app.archive_current_pet(window, cx),
-            ))
-        })
-        .when(archived_count > 0, |this| {
-            this.child(workspace_popover_action_button(
-                SharedString::from(format!("{id_prefix}-restore")),
-                "恢复",
-                IconName::Undo2,
-                app_entity.clone(),
-                |app, window, cx| app.restore_latest_archived_pet(window, cx),
-            ))
-        })
-        .child(workspace_popover_action_button(
-            SharedString::from(format!("{id_prefix}-dex")),
-            "图鉴",
-            IconName::BookOpen,
-            app_entity.clone(),
-            |app, window, cx| app.open_pet_dex_window(window, cx),
-        ))
-        .child(workspace_popover_action_button(
-            SharedString::from(format!("{id_prefix}-custom")),
-            "自定义",
-            IconName::Plus,
-            app_entity.clone(),
-            |app, window, cx| app.open_pet_custom_install_window(window, cx),
-        ))
-        .child(workspace_popover_action_button(
-            SharedString::from(format!("{id_prefix}-refresh")),
-            "刷新",
-            IconName::Redo2,
-            app_entity.clone(),
-            |app, window, cx| app.refresh_pet(window, cx),
-        ))
-        .child(workspace_popover_action_button(
-            SharedString::from(format!("{id_prefix}-settings")),
-            "设置",
-            IconName::Settings,
-            app_entity,
-            |app, _window, cx| app.open_settings_window_with_pane(SettingsPane::Pet, cx),
-        ))
-}
-
-fn workspace_popover_action_button(
-    id: SharedString,
-    label: &'static str,
-    icon: IconName,
-    app_entity: gpui::Entity<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
-) -> impl IntoElement {
-    Button::new(id)
-        .compact()
-        .ghost()
-        .text_color(color(theme::TEXT))
-        .on_click(move |_, window, cx| {
-            cx.update_entity(&app_entity, |app, cx| action(app, window, cx));
-        })
-        .child(
-            div()
-                .h(px(22.0))
-                .flex()
-                .items_center()
-                .gap_1()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(Icon::new(icon).size_3())
-                .child(label),
-        )
-}
-
-fn workspace_popover_metric(label: &'static str, value: String) -> impl IntoElement {
-    div()
-        .min_w_0()
-        .rounded(px(6.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .px_2()
-        .py_1()
-        .child(
-            div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_DIM))
-                .child(label),
-        )
-        .child(
-            div()
-                .mt(px(1.0))
-                .text_size(px(13.0))
-                .line_height(px(17.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .truncate()
-                .text_color(color(theme::TEXT))
-                .child(value),
         )
 }
 
