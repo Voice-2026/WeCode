@@ -2149,6 +2149,7 @@ impl CoduxApp {
         match self.runtime_service.set_language(&language) {
             Ok(settings) => {
                 self.apply_settings_summary(settings);
+                cx.set_menus(native_menu::codux_menus(&self.state.settings.language));
                 self.status_message = format!("language saved: {}", self.state.settings.language);
             }
             Err(error) => self.status_message = format!("failed to save language: {error}"),
