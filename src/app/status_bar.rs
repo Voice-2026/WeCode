@@ -273,9 +273,7 @@ fn status_memory_segment(
         .rounded_sm()
         .cursor_pointer()
         .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
-        .on_click(cx.listener(|app, _event, window, cx| {
-            app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
-        }))
+        .on_click(cx.listener(|app, _event, window, cx| app.open_memory_manager_window(window, cx)))
         .child(Icon::new(IconName::BookOpen).size_2p5())
         .child(
             div()
