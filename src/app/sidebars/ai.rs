@@ -317,6 +317,18 @@ fn ai_indexing_status_bar(
 ) -> impl IntoElement {
     let (label, accent) = if let Some(error) = history.error.as_ref() {
         (format!("索引失败 · {error}"), theme::ORANGE)
+    } else if history.is_loading {
+        let progress = history
+            .progress
+            .map(|value| format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round() as i64));
+        let detail = ai_indexing_detail_label(&history.detail);
+        let label = match (history.queued, progress) {
+            (true, Some(progress)) => format!("AI 历史排队中 · {progress}"),
+            (true, None) => "AI 历史排队中".to_string(),
+            (false, Some(progress)) => format!("AI 历史索引中 · {progress} · {detail}"),
+            (false, None) => format!("AI 历史索引中 · {detail}"),
+        };
+        (label, theme::ORANGE)
     } else if history.indexed {
         ("AI 历史索引已完成".to_string(), theme::GREEN)
     } else {
@@ -356,29 +368,44 @@ fn ai_indexing_status_bar(
                 .line_height(px(16.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(format!("{} 会话", history.session_count))
-                .when(history.error.is_some() || history.indexed, |this| {
-                    this.child(
-                        Button::new("ai-indexing-status-refresh")
-                            .compact()
-                            .ghost()
-                            .text_color(cx.theme().secondary_foreground)
-                            .icon(
-                                Icon::new(IconName::Redo2)
-                                    .size_3()
-                                    .text_color(cx.theme().secondary_foreground),
-                            )
-                            .label(if history.error.is_some() {
-                                "重试"
-                            } else {
-                                "刷新"
-                            })
-                            .on_click(cx.listener(|app, _event, window, cx| {
-                                app.reload_ai_history(window, cx);
-                                app.reload_runtime_activity(window, cx);
-                            })),
-                    )
-                }),
+                .when(
+                    (history.error.is_some() || history.indexed) && !history.is_loading,
+                    |this| {
+                        this.child(
+                            Button::new("ai-indexing-status-refresh")
+                                .compact()
+                                .ghost()
+                                .text_color(cx.theme().secondary_foreground)
+                                .icon(
+                                    Icon::new(IconName::Redo2)
+                                        .size_3()
+                                        .text_color(cx.theme().secondary_foreground),
+                                )
+                                .label(if history.error.is_some() {
+                                    "重试"
+                                } else {
+                                    "刷新"
+                                })
+                                .on_click(cx.listener(|app, _event, window, cx| {
+                                    app.reload_ai_history(window, cx);
+                                    app.reload_runtime_activity(window, cx);
+                                })),
+                        )
+                    },
+                ),
         )
+}
+
+fn ai_indexing_detail_label(detail: &str) -> &'static str {
+    match detail {
+        "queued" => "排队中",
+        "indexing" => "索引中",
+        "readingSources" => "读取来源",
+        "aggregating" => "聚合统计",
+        "completed" => "已完成",
+        "failed" => "失败",
+        _ => "处理中",
+    }
 }
 
 fn ai_runtime_sessions_card(

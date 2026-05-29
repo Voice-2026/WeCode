@@ -46,6 +46,7 @@ impl CoduxApp {
                     .child(status_ai_segment(
                         self.state.ai_runtime_state.running_count,
                         self.state.ai_history.indexed,
+                        self.state.ai_history.is_loading,
                         cx,
                     ))
                     .child(status_separator())
@@ -203,6 +204,7 @@ fn status_metric(icon: IconName, label: &'static str, value: String) -> impl Int
 fn status_ai_segment(
     running_count: usize,
     indexed: bool,
+    is_indexing: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let running_color = if running_count > 0 {
@@ -210,7 +212,20 @@ fn status_ai_segment(
     } else {
         theme::TEXT_DIM
     };
-    let index_color = if indexed { theme::GREEN } else { theme::ORANGE };
+    let index_color = if indexed {
+        theme::GREEN
+    } else if is_indexing {
+        theme::ORANGE
+    } else {
+        theme::TEXT_DIM
+    };
+    let index_label = if indexed {
+        "已索引"
+    } else if is_indexing {
+        "索引中"
+    } else {
+        "未索引"
+    };
 
     div()
         .id("status-remote-settings")
@@ -239,7 +254,7 @@ fn status_ai_segment(
             div()
                 .mt(px(1.0))
                 .text_color(color(index_color))
-                .child(if indexed { "已索引" } else { "未索引" }),
+                .child(index_label),
         )
 }
 

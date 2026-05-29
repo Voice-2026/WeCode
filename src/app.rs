@@ -5,6 +5,7 @@ use crate::{
 use anyhow::Result;
 use codux_runtime::{
     ai_history::{AIGlobalHistorySummary, AIHistorySummary, AISessionDetail, AISessionSummary},
+    ai_history_indexer::{AIHistoryEvent, AIHistoryProjectState},
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot},
     desktop_pet::{
         DESKTOP_PET_BASE_HEIGHT, DESKTOP_PET_BASE_WIDTH, DESKTOP_PET_HIDE, DESKTOP_PET_MUTE_1_HOUR,
@@ -381,6 +382,7 @@ struct GitOperationCompletion {
 struct RuntimeActivityTickResult {
     project_events: usize,
     file_events: usize,
+    ai_history_events: usize,
     ai_events: usize,
     memory_events: usize,
     dock_badge_count: Option<i64>,
@@ -466,6 +468,10 @@ fn normalized_ai_history_snapshot_to_summary(snapshot: AIHistorySnapshot) -> AIH
     AIHistorySummary {
         indexed: true,
         indexed_at: Some(snapshot.indexed_at),
+        is_loading: false,
+        queued: false,
+        progress: Some(1.0),
+        detail: "completed".to_string(),
         project_total_tokens: snapshot.project_summary.project_total_tokens,
         project_cached_input_tokens: snapshot.project_summary.project_cached_input_tokens,
         today_total_tokens: snapshot.project_summary.today_total_tokens,
@@ -482,6 +488,25 @@ fn normalized_ai_history_snapshot_to_summary(snapshot: AIHistorySnapshot) -> AIH
         model_breakdown: snapshot.model_breakdown,
         error: None,
     }
+}
+
+fn ai_history_summary_from_project_state(
+    state: &AIHistoryProjectState,
+) -> Option<AIHistorySummary> {
+    let mut summary = state
+        .snapshot
+        .clone()
+        .map(normalized_ai_history_snapshot_to_summary)?;
+    apply_ai_history_project_state(&mut summary, &state);
+    Some(summary)
+}
+
+fn apply_ai_history_project_state(summary: &mut AIHistorySummary, state: &AIHistoryProjectState) {
+    summary.is_loading = state.is_loading;
+    summary.queued = state.queued;
+    summary.progress = state.progress;
+    summary.detail = state.detail.clone();
+    summary.error = state.error.clone();
 }
 
 fn normalized_global_ai_history_snapshot_to_summary(
@@ -5635,14 +5660,16 @@ impl CoduxApp {
         let projects = ai_history_project_requests(&self.state.projects);
 
         let mut errors = Vec::new();
+        let mut project_index_state = None;
         match self
             .runtime_service
             .indexed_project_ai_history_summary(selected_project.clone())
         {
             Ok(state) => {
-                if let Some(snapshot) = state.snapshot {
-                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
                 }
+                project_index_state = Some(state);
             }
             Err(error) => {
                 errors.push(format!("indexed project AI history failed: {error}"));
@@ -5666,6 +5693,9 @@ impl CoduxApp {
             self.state.ai_history = self
                 .runtime_service
                 .reload_project_ai_history(&selected_project.path);
+        }
+        if let Some(state) = project_index_state.as_ref() {
+            apply_ai_history_project_state(&mut self.state.ai_history, state);
         }
         self.normalize_selected_ai_session();
         self.reload_selected_ai_session_detail();
@@ -5769,8 +5799,8 @@ impl CoduxApp {
             .remove_indexed_ai_session(project_request, session.id.clone())
         {
             Ok(state) => {
-                if let Some(snapshot) = state.snapshot {
-                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
                 }
                 self.refresh_ai_global_history_summary();
                 self.selected_ai_session_id = None;
@@ -5812,8 +5842,8 @@ impl CoduxApp {
             title.clone(),
         ) {
             Ok(state) => {
-                if let Some(snapshot) = state.snapshot {
-                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
                 }
                 self.refresh_ai_global_history_summary();
                 self.selected_ai_session_id = Some(session.id);
@@ -7343,9 +7373,10 @@ impl CoduxApp {
     fn reload_runtime_activity(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let result = self.apply_runtime_activity_tick(true, _window.is_window_active(), true);
         self.status_message = format!(
-            "runtime activity reloaded · project events {} · file events {} · AI events {} · memory queued {} · badge {}",
+            "runtime activity reloaded · project events {} · file events {} · AI history {} · AI events {} · memory queued {} · badge {}",
             result.project_events,
             result.file_events,
+            result.ai_history_events,
             result.ai_events,
             result.memory_events,
             result
@@ -7372,6 +7403,8 @@ impl CoduxApp {
         }
         let project_events = self.runtime_service.drain_project_activity_events();
         let applied_project_events = self.apply_project_activity_events(project_events);
+        let ai_history_events = self.runtime_service.drain_ai_history_events();
+        let applied_ai_history_events = self.apply_ai_history_events(ai_history_events);
         let file_events = self.runtime_service.drain_file_change_events();
         let applied_file_events = self.apply_file_change_events(file_events);
         let remote_events = self.runtime_service.drain_remote_events();
@@ -7423,11 +7456,13 @@ impl CoduxApp {
         RuntimeActivityTickResult {
             project_events: applied_project_events,
             file_events: applied_file_events,
+            ai_history_events: applied_ai_history_events,
             ai_events: drained.events.len(),
             memory_events: drained.memory.len(),
             dock_badge_count: window_state.dock_badge_count,
             changed: applied_project_events > 0
                 || applied_file_events > 0
+                || applied_ai_history_events > 0
                 || !remote_events.is_empty()
                 || !drained.events.is_empty()
                 || !drained.memory.is_empty()
@@ -7495,6 +7530,50 @@ impl CoduxApp {
                 }
             });
         }
+    }
+
+    fn apply_ai_history_events(&mut self, events: Vec<AIHistoryEvent>) -> usize {
+        let selected_project = self.state.selected_project.clone();
+        let selected_id = selected_project.as_ref().map(|project| project.id.as_str());
+        let selected_path = selected_project
+            .as_ref()
+            .map(|project| project.path.as_str());
+        let mut applied = 0;
+
+        for event in events {
+            match event {
+                AIHistoryEvent::ProjectState { state }
+                    if selected_id == Some(state.project_id.as_str())
+                        || selected_path == Some(state.project_path.as_str()) =>
+                {
+                    if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                        self.state.ai_history = summary;
+                    } else {
+                        apply_ai_history_project_state(&mut self.state.ai_history, &state);
+                    }
+                    self.normalize_selected_ai_session();
+                    applied += 1;
+                }
+                AIHistoryEvent::Project { snapshot }
+                    if selected_id == Some(snapshot.project_id.as_str()) =>
+                {
+                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                    self.normalize_selected_ai_session();
+                    applied += 1;
+                }
+                AIHistoryEvent::Global { snapshot } => {
+                    self.state.ai_global_history =
+                        normalized_global_ai_history_snapshot_to_summary(snapshot);
+                    applied += 1;
+                }
+                AIHistoryEvent::Status { .. } => {
+                    applied += 1;
+                }
+                _ => {}
+            }
+        }
+
+        applied
     }
 
     fn apply_project_activity_events(&mut self, events: Vec<ProjectActivityEvent>) -> usize {

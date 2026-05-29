@@ -60,6 +60,10 @@ impl AIHistoryService {
         AIHistorySummary {
             indexed: indexed_at.is_some(),
             indexed_at,
+            is_loading: false,
+            queued: false,
+            progress: None,
+            detail: "idle".to_string(),
             project_total_tokens,
             project_cached_input_tokens,
             today_total_tokens,

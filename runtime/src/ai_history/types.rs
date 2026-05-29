@@ -6,6 +6,10 @@ use serde::Serialize;
 pub struct AIHistorySummary {
     pub indexed: bool,
     pub indexed_at: Option<f64>,
+    pub is_loading: bool,
+    pub queued: bool,
+    pub progress: Option<f64>,
+    pub detail: String,
     pub project_total_tokens: i64,
     pub project_cached_input_tokens: i64,
     pub today_total_tokens: i64,
