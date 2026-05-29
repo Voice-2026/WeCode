@@ -12,6 +12,7 @@ actions!(
         ExportDiagnostics,
         OpenRuntimeLog,
         OpenLiveLog,
+        ToggleInspector,
         OpenWebsite,
         OpenGithub,
         HideCodux,
@@ -92,6 +93,7 @@ struct MenuLabels {
     diagnostics: String,
     runtime_log: String,
     live_log: String,
+    devtools: String,
     website: String,
     github: String,
 }
@@ -149,6 +151,7 @@ impl MenuLabels {
             diagnostics: tr("menu.help.export_diagnostics", "Export Diagnostics..."),
             runtime_log: tr("menu.help.open_runtime_log", "Open Runtime Log"),
             live_log: tr("menu.help.open_live_log", "Open Live Log"),
+            devtools: tr("menu.help.developer_tools", "Developer Tools"),
             website: tr("menu.help.website", "Official Website"),
             github: tr("menu.help.github", "GitHub"),
         }
@@ -251,6 +254,8 @@ pub(crate) fn codux_menus(language: &str) -> Vec<Menu> {
                 MenuItem::action(labels.diagnostics, ExportDiagnostics),
                 MenuItem::action(labels.runtime_log, OpenRuntimeLog),
                 MenuItem::action(labels.live_log, OpenLiveLog),
+                #[cfg(debug_assertions)]
+                MenuItem::action(labels.devtools, ToggleInspector),
                 MenuItem::separator(),
                 MenuItem::action(labels.website, OpenWebsite),
                 MenuItem::action(labels.github, OpenGithub),

@@ -200,6 +200,8 @@ fn project_more_button(
     let runtime_log_label =
         project_column_text(language, "menu.help.open_runtime_log", "Open Runtime Log");
     let live_log_label = project_column_text(language, "menu.help.open_live_log", "Open Live Log");
+    let devtools_label =
+        project_column_text(language, "menu.help.developer_tools", "Developer Tools");
     let website_label = project_column_text(language, "menu.help.website", "Website");
     let github_label = project_column_text(language, "menu.help.github", "GitHub");
     let button = Button::new("project-tool-project-more-footer")
@@ -235,6 +237,7 @@ fn project_more_button(
             let diagnostics_entity = app_entity.clone();
             let runtime_log_entity = app_entity.clone();
             let live_log_entity = app_entity.clone();
+            let inspector_entity = app_entity.clone();
             let website_entity = app_entity.clone();
             let github_entity = app_entity.clone();
 
@@ -287,6 +290,17 @@ fn project_more_button(
                         });
                     }),
             )
+            .when(cfg!(debug_assertions), |menu| {
+                menu.item(
+                    PopupMenuItem::new(devtools_label.clone())
+                        .icon(IconName::Inspector)
+                        .on_click(move |_, window, cx| {
+                            cx.update_entity(&inspector_entity, |_app, cx| {
+                                window.toggle_inspector(cx);
+                            });
+                        }),
+                )
+            })
             .separator()
             .item(
                 PopupMenuItem::new(website_label.clone())

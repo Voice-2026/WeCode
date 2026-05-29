@@ -7064,6 +7064,14 @@ impl CoduxApp {
                 app.open_live_log(cx)
             }
         );
+        #[cfg(debug_assertions)]
+        register!(native_menu::ToggleInspector, |_app: &mut CoduxApp,
+                                                 window: &mut Window,
+                                                 cx: &mut Context<
+            CoduxApp,
+        >| {
+            window.toggle_inspector(cx)
+        });
         register!(
             native_menu::OpenWebsite,
             |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
