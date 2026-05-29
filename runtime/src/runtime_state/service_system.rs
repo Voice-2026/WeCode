@@ -87,6 +87,15 @@ impl RuntimeService {
         crate::notification::dispatch_notification_channels_blocking(request)
     }
 
+    pub fn show_native_notification(
+        &self,
+        title: &str,
+        body: &str,
+        group: &str,
+    ) -> Result<(), String> {
+        crate::notification::show_native_notification_blocking(title, body, group)
+    }
+
     pub fn localized_open_dialog(
         &self,
         request: LocalizedOpenDialogRequest,

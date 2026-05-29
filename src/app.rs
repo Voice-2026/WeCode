@@ -7414,22 +7414,6 @@ impl CoduxApp {
         &self,
         events: &[codux_runtime::ai_runtime::AIRuntimeSupervisorEvent],
     ) {
-        let channels = self
-            .state
-            .notifications
-            .channels
-            .iter()
-            .filter(|channel| channel.enabled && !channel.endpoint.trim().is_empty())
-            .map(|channel| NotificationChannelConfig {
-                id: channel.id.clone(),
-                endpoint: channel.endpoint.clone(),
-                token: channel.token.clone(),
-            })
-            .collect::<Vec<_>>();
-        if channels.is_empty() {
-            return;
-        }
-
         let completions = events
             .iter()
             .filter_map(|event| match event {
@@ -7443,6 +7427,19 @@ impl CoduxApp {
             return;
         }
 
+        let channels = self
+            .state
+            .notifications
+            .channels
+            .iter()
+            .filter(|channel| channel.enabled && !channel.endpoint.trim().is_empty())
+            .map(|channel| NotificationChannelConfig {
+                id: channel.id.clone(),
+                endpoint: channel.endpoint.clone(),
+                token: channel.token.clone(),
+            })
+            .collect::<Vec<_>>();
+
         for completion in completions {
             let service = self.runtime_service.clone();
             let channels = channels.clone();
@@ -7454,12 +7451,16 @@ impl CoduxApp {
                 }
                 .to_string();
                 let body = format!("{} · {}", completion.project_name, completion.tool);
-                service.dispatch_notification_channels(NotificationDispatchRequest {
-                    channels,
-                    title,
-                    body,
-                    group: "codux-task".to_string(),
-                });
+                let group = "codux-task";
+                let _ = service.show_native_notification(&title, &body, group);
+                if !channels.is_empty() {
+                    service.dispatch_notification_channels(NotificationDispatchRequest {
+                        channels,
+                        title,
+                        body,
+                        group: group.to_string(),
+                    });
+                }
             });
         }
     }

@@ -24,4 +24,5 @@ const KNOWN_CHANNELS: &[(&str, &str)] = &[
 include!("notification/payloads.rs");
 include!("notification/settings.rs");
 include!("notification/dispatch.rs");
+include!("notification/native.rs");
 include!("notification/service.rs");
