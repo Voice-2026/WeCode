@@ -146,6 +146,7 @@ pub struct CoduxApp {
     pet_install_url: String,
     pet_install_display_name: String,
     pet_install_preview: Option<PetCustomPetInstallPreview>,
+    pet_install_error: Option<String>,
     pet_install_previewing: bool,
     pet_installing: bool,
     pet_custom_pets: Vec<PetCustomPet>,
@@ -954,6 +955,7 @@ impl CoduxApp {
             pet_install_url: String::new(),
             pet_install_display_name: String::new(),
             pet_install_preview: None,
+            pet_install_error: None,
             pet_install_previewing: false,
             pet_installing: false,
             pet_custom_pets,
@@ -1101,6 +1103,7 @@ impl CoduxApp {
             pet_install_url: String::new(),
             pet_install_display_name: String::new(),
             pet_install_preview: None,
+            pet_install_error: None,
             pet_install_previewing: false,
             pet_installing: false,
             pet_custom_pets,
@@ -8052,6 +8055,7 @@ impl CoduxApp {
     fn set_pet_install_url(&mut self, value: String, _window: &mut Window, cx: &mut Context<Self>) {
         self.pet_install_url = value;
         self.pet_install_preview = None;
+        self.pet_install_error = None;
         cx.notify();
     }
 
@@ -8062,18 +8066,21 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.pet_install_display_name = value;
+        self.pet_install_error = None;
         cx.notify();
     }
 
     fn preview_custom_pet_install(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
+            self.pet_install_error = Some("custom pet install task is already running".to_string());
             cx.notify();
             return;
         }
         let page_url = self.pet_install_url.trim().to_string();
         if page_url.is_empty() {
             self.status_message = "enter a Petdex URL first".to_string();
+            self.pet_install_error = Some("enter a Petdex URL first".to_string());
             cx.notify();
             return;
         }
@@ -8085,6 +8092,7 @@ impl CoduxApp {
 
         let service = self.runtime_service.clone();
         self.pet_install_previewing = true;
+        self.pet_install_error = None;
         self.status_message = "custom pet preview loading".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn(async move {
@@ -8121,10 +8129,13 @@ impl CoduxApp {
                 self.status_message =
                     format!("custom pet preview loaded: {}", preview.display_name);
                 self.pet_install_preview = Some(preview);
+                self.pet_install_error = None;
             }
             Err(error) => {
                 self.pet_install_preview = None;
-                self.status_message = format!("failed to preview custom pet: {error}");
+                let message = format!("failed to preview custom pet: {error}");
+                self.status_message = message.clone();
+                self.pet_install_error = Some(message);
             }
         }
         cx.notify();
@@ -8149,23 +8160,27 @@ impl CoduxApp {
     fn install_custom_pet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
+            self.pet_install_error = Some("custom pet install task is already running".to_string());
             cx.notify();
             return;
         }
         if self.pet_install_preview.is_none() {
             self.status_message = "parse the Petdex page before installing".to_string();
+            self.pet_install_error = Some("parse the Petdex page before installing".to_string());
             cx.notify();
             return;
         }
         let page_url = self.pet_install_url.trim().to_string();
         if page_url.is_empty() {
             self.status_message = "enter a Petdex URL first".to_string();
+            self.pet_install_error = Some("enter a Petdex URL first".to_string());
             cx.notify();
             return;
         }
         let display_name = self.pet_install_display_name.trim().to_string();
         if display_name.is_empty() {
             self.status_message = "enter a pet name before installing".to_string();
+            self.pet_install_error = Some("enter a pet name before installing".to_string());
             cx.notify();
             return;
         }
@@ -8177,6 +8192,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         let window_handle = window.window_handle();
         self.pet_installing = true;
+        self.pet_install_error = None;
         self.status_message = "custom pet install started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn(async move {
@@ -8225,10 +8241,13 @@ impl CoduxApp {
                     self.pet_install_display_name.clear();
                     self.pet_install_preview = None;
                 }
+                self.pet_install_error = None;
                 self.status_message = status_message;
             }
             Err(error) => {
-                self.status_message = format!("failed to install custom pet: {error}");
+                let message = format!("failed to install custom pet: {error}");
+                self.status_message = message.clone();
+                self.pet_install_error = Some(message);
             }
         }
         cx.notify();

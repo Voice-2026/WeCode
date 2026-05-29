@@ -370,6 +370,7 @@ impl CoduxApp {
                     &self.pet_install_url,
                     &self.pet_install_display_name,
                     self.pet_install_preview.as_ref(),
+                    self.pet_install_error.as_deref(),
                     self.pet_install_previewing,
                     self.pet_installing,
                     window,

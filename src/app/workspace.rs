@@ -84,6 +84,7 @@ impl CoduxApp {
                             &self.pet_install_url,
                             &self.pet_install_display_name,
                             self.pet_install_preview.as_ref(),
+                            self.pet_install_error.as_deref(),
                             self.pet_install_previewing,
                             self.pet_installing,
                             self.pet_name_editing,
@@ -634,6 +635,7 @@ fn workspace_pet_button(
     _install_url: &str,
     _install_display_name: &str,
     _install_preview: Option<&PetCustomPetInstallPreview>,
+    _install_error: Option<&str>,
     _install_previewing: bool,
     _installing: bool,
     pet_name_editing: bool,
@@ -1541,6 +1543,7 @@ pub(in crate::app) fn workspace_pet_install_form(
     install_url: &str,
     install_display_name: &str,
     install_preview: Option<&PetCustomPetInstallPreview>,
+    install_error: Option<&str>,
     install_previewing: bool,
     installing: bool,
     window: &mut Window,
@@ -1675,6 +1678,9 @@ pub(in crate::app) fn workspace_pet_install_form(
                             .text_color(color(theme::ACCENT))
                             .child("正在下载、解包并校验宠物包。"),
                     )
+                })
+                .when_some(install_error.map(str::to_string), |this, error| {
+                    this.child(workspace_pet_install_error(error))
                 }),
         )
 }
@@ -1813,6 +1819,19 @@ fn workspace_pet_install_check(text: &'static str) -> impl IntoElement {
                 .text_color(color(theme::GREEN)),
         )
         .child(text)
+}
+
+fn workspace_pet_install_error(error: String) -> impl IntoElement {
+    div()
+        .rounded(px(8.0))
+        .bg(color(theme::ORANGE).opacity(0.12))
+        .px(px(12.0))
+        .py(px(8.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(color(theme::ORANGE))
+        .child(error)
 }
 
 fn pet_install_host_label(page_url: &str) -> String {
