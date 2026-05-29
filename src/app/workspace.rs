@@ -1515,23 +1515,23 @@ pub(in crate::app) fn workspace_pet_install_form(
     .detach();
 
     div()
-        .rounded(px(6.0))
+        .rounded(px(8.0))
         .bg(color(0xFFFFFF).opacity(0.055))
-        .p_2()
+        .p(px(14.0))
         .child(
             div()
-                .mb_2()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .mb(px(8.0))
+                .text_size(px(12.0))
+                .line_height(px(16.0))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color(theme::TEXT))
-                .child("自定义宠物"),
+                .text_color(color(theme::TEXT_MUTED))
+                .child("Petdex 页面 URL"),
         )
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap_2()
+                .gap(px(12.0))
                 .child(
                     div()
                         .flex()
@@ -1553,6 +1553,7 @@ pub(in crate::app) fn workspace_pet_install_form(
                                         .size_3p5()
                                         .text_color(cx.theme().secondary_foreground),
                                 )
+                                .label("获取宠物")
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.open_pet_market(window, cx)
                                 })),
@@ -1562,7 +1563,11 @@ pub(in crate::app) fn workspace_pet_install_form(
                                 .compact()
                                 .secondary()
                                 .loading(install_previewing)
-                                .disabled(install_previewing || installing)
+                                .disabled(
+                                    install_url.trim().is_empty()
+                                        || install_previewing
+                                        || installing,
+                                )
                                 .tooltip("解析自定义宠物")
                                 .text_color(cx.theme().secondary_foreground)
                                 .icon(
@@ -1570,58 +1575,189 @@ pub(in crate::app) fn workspace_pet_install_form(
                                         .size_3p5()
                                         .text_color(cx.theme().secondary_foreground),
                                 )
+                                .label(if install_previewing {
+                                    "读取中"
+                                } else if install_preview.is_some() {
+                                    "重新解析"
+                                } else {
+                                    "解析"
+                                })
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.preview_custom_pet_install(window, cx)
                                 })),
                         ),
                 )
-                .child(div().child(Input::new(&name_state).with_size(gpui_component::Size::Small))),
+                .when_some(install_preview.cloned(), |this, preview| {
+                    this.child(workspace_pet_install_preview(
+                        preview,
+                        &name_state,
+                        installing,
+                    ))
+                })
+                .when(installing, |this| {
+                    this.child(
+                        div()
+                            .rounded(px(8.0))
+                            .bg(color(theme::ACCENT).opacity(0.1))
+                            .px(px(12.0))
+                            .py(px(8.0))
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(color(theme::ACCENT))
+                            .child("正在下载、解包并校验宠物包。"),
+                    )
+                }),
         )
-        .when_some(install_preview.cloned(), |this, preview| {
-            this.child(workspace_pet_install_preview(preview))
-        })
 }
 
-fn workspace_pet_install_preview(preview: PetCustomPetInstallPreview) -> impl IntoElement {
+fn workspace_pet_install_preview(
+    preview: PetCustomPetInstallPreview,
+    name_state: &gpui::Entity<InputState>,
+    installing: bool,
+) -> impl IntoElement {
+    let image = match preview.image_url.clone() {
+        Some(url) if !url.trim().is_empty() => img(url)
+            .size_full()
+            .object_fit(ObjectFit::Cover)
+            .with_fallback(|| workspace_pet_install_preview_fallback())
+            .into_any_element(),
+        _ => workspace_pet_install_preview_fallback(),
+    };
+
     div()
-        .mt_2()
-        .rounded(px(6.0))
-        .bg(color(0x000000).opacity(0.16))
-        .p_2()
+        .flex()
+        .flex_col()
+        .gap(px(12.0))
         .child(
             div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_2()
+                .grid()
+                .grid_cols(2)
+                .gap(px(14.0))
+                .rounded(px(10.0))
+                .border_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .bg(color(0xFFFFFF).opacity(0.035))
+                .p(px(14.0))
                 .child(
                     div()
-                        .min_w_0()
-                        .flex_1()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(preview.display_name),
+                        .size(px(104.0))
+                        .rounded(px(10.0))
+                        .overflow_hidden()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(color(theme::ACCENT).opacity(0.1))
+                        .child(image),
                 )
                 .child(
                     div()
-                        .flex_shrink_0()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .child(preview.slug),
+                        .min_w_0()
+                        .self_center()
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(px(17.0))
+                                .line_height(px(22.0))
+                                .font_weight(FontWeight::BOLD)
+                                .child(preview.display_name.clone()),
+                        )
+                        .child(
+                            div()
+                                .mt(px(4.0))
+                                .max_h(px(72.0))
+                                .overflow_y_scrollbar()
+                                .text_size(px(12.0))
+                                .line_height(px(20.0))
+                                .text_color(color(theme::TEXT_MUTED))
+                                .child(empty_label(&preview.description)),
+                        )
+                        .child(
+                            div()
+                                .mt(px(8.0))
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .text_size(px(11.0))
+                                .line_height(px(14.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(Icon::new(IconName::ExternalLink).size_3())
+                                .child(pet_install_host_label(&preview.page_url)),
+                        ),
                 ),
         )
         .child(
             div()
-                .mt_1()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_MUTED))
-                .truncate()
-                .child(empty_label(&preview.description)),
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child("宠物名称"),
+                )
+                .child(
+                    Input::new(name_state)
+                        .with_size(gpui_component::Size::Medium)
+                        .disabled(installing),
+                ),
         )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(7.0))
+                .child(workspace_pet_install_check("Petdex 页面已验证"))
+                .child(workspace_pet_install_check("已找到宠物包链接"))
+                .child(workspace_pet_install_check("安装时会校验 Codex 格式")),
+        )
+}
+
+fn workspace_pet_install_preview_fallback() -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            Icon::new(IconName::Info)
+                .size_8()
+                .text_color(color(theme::ACCENT)),
+        )
+        .into_any_element()
+}
+
+fn workspace_pet_install_check(text: &'static str) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .text_color(color(theme::TEXT_MUTED))
+        .child(
+            Icon::new(IconName::CircleCheck)
+                .size_3p5()
+                .text_color(color(theme::GREEN)),
+        )
+        .child(text)
+}
+
+fn pet_install_host_label(page_url: &str) -> String {
+    let trimmed = page_url.trim();
+    trimmed
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(trimmed)
+        .split('/')
+        .next()
+        .filter(|host| !host.trim().is_empty())
+        .unwrap_or("petdex.crafter.run")
+        .to_string()
 }
 
 fn workspace_popover_notice(message: String) -> impl IntoElement {
