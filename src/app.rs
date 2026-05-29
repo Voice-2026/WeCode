@@ -258,7 +258,7 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("project.create", "⌘") => Some("⌘N"),
         ("project.open_folder", "⌘") => Some("⌘O"),
         ("settings.open", "⌘") => Some("⌘,"),
-        ("task.create", "⌘") => Some("⌘N"),
+        ("task.create", "⌘") => Some("⌘⇧N"),
         ("editor.save", "⌘") => Some("⌘S"),
         ("editor.search", "⌘") => Some("⌘F"),
         ("close.active", "⌘") => Some("⌘W"),
@@ -276,7 +276,7 @@ fn default_shortcut_display(shortcut_id: &str) -> Option<&'static str> {
         ("project.create", _) => Some("Ctrl+N"),
         ("project.open_folder", _) => Some("Ctrl+O"),
         ("settings.open", _) => Some("Ctrl+,"),
-        ("task.create", _) => Some("Ctrl+N"),
+        ("task.create", _) => Some("Ctrl+Shift+N"),
         ("editor.save", _) => Some("Ctrl+S"),
         ("editor.search", _) => Some("Ctrl+F"),
         ("close.active", _) => Some("Ctrl+W"),
@@ -9964,12 +9964,12 @@ mod tests {
             default_terminal
         ));
         let default_task = if cfg!(target_os = "macos") {
-            "⌘N"
+            "⌘⇧N"
         } else {
-            "Ctrl+N"
+            "Ctrl+Shift+N"
         };
         assert!(shortcut_matches(&shortcuts, "task.create", default_task));
-        assert!(!shortcut_matches(&shortcuts, "task.create", "⌘⇧N"));
+        assert!(!shortcut_matches(&shortcuts, "task.create", "⌘N"));
 
         let default_git_panel = if cfg!(target_os = "macos") {
             "⌘⇧G"
