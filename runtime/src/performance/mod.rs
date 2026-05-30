@@ -3,6 +3,7 @@ mod monitor;
 pub use monitor::{PerformanceMemorySnapshot, PerformanceMonitor, PerformanceSnapshot};
 
 use serde::Serialize;
+use std::sync::OnceLock;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,7 +39,8 @@ pub struct PerformanceService;
 
 impl PerformanceService {
     pub fn summary() -> PerformanceSummary {
-        let snapshot = PerformanceMonitor::default().snapshot();
+        static MONITOR: OnceLock<PerformanceMonitor> = OnceLock::new();
+        let snapshot = MONITOR.get_or_init(PerformanceMonitor::default).snapshot();
         PerformanceSummary {
             process_id: std::process::id(),
             cpu_percent: snapshot.cpu_percent as f32,

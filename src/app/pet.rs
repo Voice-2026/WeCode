@@ -1,6 +1,11 @@
 use super::*;
-use codux_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetSnapshot, PetStats};
-use gpui_component::input::{Input, InputState};
+use codux_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetStats};
+use gpui::{Hsla, ListSizingBehavior};
+use gpui_component::{
+    dialog::DialogFooter,
+    input::{Input, InputState},
+};
+use std::{ops::Range, rc::Rc};
 
 use crate::app::workspace::workspace_pet_install_form;
 
@@ -27,8 +32,11 @@ impl CoduxApp {
         self.open_pet_window(
             AppWindowMode::PetCustomInstall,
             "Add Custom Pet",
-            size(px(680.0), px(320.0)),
-            size(px(620.0), px(240.0)),
+            size(
+                px(PET_CUSTOM_INSTALL_WINDOW_WIDTH),
+                px(PET_CUSTOM_INSTALL_INPUT_HEIGHT),
+            ),
+            size(px(620.0), px(PET_CUSTOM_INSTALL_INPUT_HEIGHT)),
             cx,
         );
     }
@@ -55,14 +63,24 @@ impl CoduxApp {
         min_size: gpui::Size<gpui::Pixels>,
         cx: &mut Context<Self>,
     ) {
+        let existing = match mode {
+            AppWindowMode::PetClaim => Self::activate_child_window(&mut self.pet_claim_window, cx),
+            AppWindowMode::PetCustomInstall => {
+                Self::activate_child_window(&mut self.pet_custom_install_window, cx)
+            }
+            AppWindowMode::PetDex => Self::activate_child_window(&mut self.pet_dex_window, cx),
+            _ => false,
+        };
+        if existing {
+            self.status_message = format!("{title} window already opened");
+            cx.notify();
+            return;
+        }
+
         let bounds = Bounds::centered(None, window_size, cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some(title.into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar(title)),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(min_size),
                 is_resizable: mode == AppWindowMode::PetDex,
@@ -73,69 +91,46 @@ impl CoduxApp {
                 theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
                 let view = cx.new(|_| app);
                 view.update(cx, |app, cx| {
-                    app.start_pet_window_sync_loop(cx);
-                    app.start_pet_sprite_animation_loop(cx);
+                    app.start_pet_event_sync_loop(cx);
+                    if mode == AppWindowMode::PetDex {
+                        app.start_pet_sprite_animation_loop(cx);
+                    }
                 });
                 cx.new(|cx| Root::new(view, window, cx))
             },
         );
 
         self.status_message = match result {
-            Ok(_) => format!("{title} window opened"),
+            Ok(handle) => {
+                let handle = Some(handle.into());
+                match mode {
+                    AppWindowMode::PetClaim => self.pet_claim_window = handle,
+                    AppWindowMode::PetCustomInstall => self.pet_custom_install_window = handle,
+                    AppWindowMode::PetDex => self.pet_dex_window = handle,
+                    _ => {}
+                }
+                format!("{title} window opened")
+            }
             Err(error) => format!("failed to open {title} window: {error}"),
         };
         cx.notify();
     }
 
-    pub(in crate::app) fn start_pet_window_sync_loop(&mut self, cx: &mut Context<Self>) {
-        if !matches!(
-            self.window_mode,
-            AppWindowMode::PetClaim | AppWindowMode::PetCustomInstall | AppWindowMode::PetDex
-        ) {
-            return;
-        }
-
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            loop {
-                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                })
-                .await;
-
-                if this
-                    .update(cx, |app, cx| {
-                        let settings_changed = app.apply_settings_update_event(cx);
-                        let custom_changed = app.sync_pet_custom_install_event(cx);
-                        let pet_changed = app.sync_pet_update_event(cx);
-                        if settings_changed || custom_changed || pet_changed {
-                            cx.notify();
-                        }
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        })
-        .detach();
-    }
-
-    pub(in crate::app) fn sync_pet_custom_install_event(
-        &mut self,
-        _cx: &mut Context<Self>,
-    ) -> bool {
-        let event = current_pet_custom_install_event();
-        self.apply_pet_custom_install_event(event)
+    pub(in crate::app) fn refresh_pet_cache(&mut self) {
+        self.state.pet = self.runtime_service.reload_pet();
+        self.pet_catalog = self.runtime_service.pet_catalog();
+        self.pet_snapshot = self.runtime_service.pet_snapshot().unwrap_or_default();
+        self.pet_custom_pets = self.pet_catalog.custom_pets.clone();
+        self.pet_sprite_paths = pet_sprite_path_cache(
+            &self.runtime.source_root,
+            &self.state.support_dir,
+            &self.pet_catalog,
+        );
     }
 
     pub(in crate::app) fn sync_pet_custom_install_event_for_activity_tick(&mut self) -> bool {
         let event = current_pet_custom_install_event();
         self.apply_pet_custom_install_event(event)
-    }
-
-    pub(in crate::app) fn sync_pet_update_event(&mut self, _cx: &mut Context<Self>) -> bool {
-        let event = current_pet_update_event();
-        self.apply_pet_update_event(event)
     }
 
     pub(in crate::app) fn sync_pet_update_event_for_activity_tick(&mut self) -> bool {
@@ -149,8 +144,7 @@ impl CoduxApp {
         }
 
         self.pet_custom_install_seen_revision = event.revision;
-        self.state.pet = self.runtime_service.reload_pet();
-        self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+        self.refresh_pet_cache();
 
         let Some(custom_pet_id) = event.custom_pet_id else {
             self.status_message = "custom pet catalog refreshed".to_string();
@@ -186,8 +180,7 @@ impl CoduxApp {
         }
 
         self.pet_update_seen_revision = event.revision;
-        self.state.pet = self.runtime_service.reload_pet();
-        self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+        self.refresh_pet_cache();
         if self.window_mode == AppWindowMode::PetDex {
             self.pet_dex_spotlight = None;
         }
@@ -200,9 +193,7 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.sync_pet_custom_install_event(cx);
-        self.sync_pet_update_event(cx);
-        let catalog = self.runtime_service.pet_catalog();
+        let catalog = self.pet_catalog.clone();
         if self.pet_claim_species.is_empty() {
             self.pet_claim_species = catalog
                 .species
@@ -213,8 +204,13 @@ impl CoduxApp {
                 .unwrap_or_else(|| "voidcat".to_string());
         }
         let selected_species = self.pet_claim_species.clone();
+        let language = self.state.settings.language.clone();
         let claim_name_state = window.use_keyed_state("pet-claim-custom-name", cx, |window, cx| {
-            InputState::new(window, cx).placeholder("留空则使用宠物名称")
+            InputState::new(window, cx).placeholder(pet_catalog_text(
+                &language,
+                "pet.claim.name.placeholder",
+                "Leave empty to use the species name",
+            ))
         });
         let preview_pet = PetSummary {
             species: if selected_species == "bundled:random" {
@@ -234,18 +230,17 @@ impl CoduxApp {
             selected_species.clone()
         };
         let custom_pets = catalog.custom_pets.clone();
-        let language = self.state.settings.language.clone();
         let selected_catalog_item = catalog
             .species
             .iter()
             .find(|item| item.species == selected_species)
             .cloned();
 
-        pet_window_shell(
-            "领取宠物",
-            "选择一个 Codux 伙伴，也可以先安装自定义宠物。",
-            cx,
-        )
+        child_window_shell(pet_catalog_text(
+            &language,
+            "pet.claim.window.title",
+            "Claim Pet",
+        ))
         .child(
             div()
                 .min_h_0()
@@ -278,7 +273,7 @@ impl CoduxApp {
                                     )
                                     .into_any_element()
                                 }))
-                                .child(pet_claim_random_row(&selected_species, cx))
+                                .child(pet_claim_random_row(&selected_species, &language, cx))
                                 .when(!custom_pets.is_empty(), |this| {
                                     this.child(
                                         div()
@@ -288,7 +283,11 @@ impl CoduxApp {
                                             .line_height(px(16.0))
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(color(theme::TEXT_DIM))
-                                            .child("自定义宠物"),
+                                            .child(pet_catalog_text(
+                                                &language,
+                                                "pet.claim.custom.section",
+                                                "Custom Pets",
+                                            )),
                                     )
                                     .children(
                                         custom_pets.into_iter().map(|pet| {
@@ -324,21 +323,20 @@ impl CoduxApp {
                         )),
                 ),
         )
-        .child(pet_footer_bar(pet_window_footer(vec![
+        .child(pet_footer_bar(pet_dialog_footer(vec![
             pet_footer_button(
                 "pet-claim-open-custom-install",
-                "添加自定义",
+                pet_catalog_text(&language, "pet.custom.install.action", "Add Custom Pet"),
                 IconName::Plus,
                 false,
                 cx,
                 |app, _event, window, cx| app.open_pet_custom_install_window(window, cx),
             )
             .into_any_element(),
-            pet_footer_spacer().into_any_element(),
-            pet_cancel_button("pet-claim-cancel", cx).into_any_element(),
+            pet_cancel_button("pet-claim-cancel", &language, cx).into_any_element(),
             pet_footer_button(
                 "pet-claim-confirm",
-                "确认领取",
+                pet_catalog_text(&language, "pet.claim.confirm", "Confirm Claim"),
                 IconName::Check,
                 true,
                 cx,
@@ -366,17 +364,19 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        pet_window_shell(
-            "添加自定义宠物",
-            "粘贴 Petdex 页面，先解析预览，再安装到本地 runtime。",
-            cx,
-        )
+        let language = self.state.settings.language.clone();
+
+        child_window_shell(pet_catalog_text(
+            &language,
+            "pet.custom.install.title",
+            "Add Custom Pet",
+        ))
         .child(
             div()
-                .min_h_0()
                 .flex_1()
-                .p(px(16.0))
+                .min_h_0()
                 .overflow_y_scrollbar()
+                .p(px(16.0))
                 .child(workspace_pet_install_form(
                     &self.pet_install_url,
                     &self.pet_install_display_name,
@@ -388,17 +388,19 @@ impl CoduxApp {
                     cx,
                 )),
         )
-        .child(pet_footer_bar(pet_window_footer(vec![
-            pet_cancel_button("pet-custom-install-cancel", cx).into_any_element(),
-            pet_footer_spacer().into_any_element(),
+        .child(pet_footer_bar(pet_dialog_footer(vec![
+            pet_cancel_button("pet-custom-install-cancel", &language, cx).into_any_element(),
             pet_footer_button(
                 "pet-custom-install-window",
-                "安装",
+                pet_catalog_text(&language, "pet.custom.install.confirm", "Install"),
                 IconName::Plus,
                 true,
                 cx,
                 |app, _event, window, cx| app.install_custom_pet(window, cx),
             )
+            .custom(ButtonCustomVariant::new(cx).color(cx.theme().primary))
+            .text_color(cx.theme().primary_foreground)
+            .loading(self.pet_installing)
             .disabled(
                 self.pet_install_preview.is_none()
                     || self.pet_install_display_name.trim().is_empty()
@@ -414,13 +416,8 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        self.sync_pet_custom_install_event(cx);
-        self.sync_pet_update_event(cx);
-        let catalog = self.runtime_service.pet_catalog();
-        let snapshot = self
-            .runtime_service
-            .pet_snapshot()
-            .unwrap_or_else(|_| PetSnapshot::default());
+        let catalog = self.pet_catalog.clone();
+        let snapshot = self.pet_snapshot.clone();
         let current_custom_pet = snapshot.custom_pet.as_ref().map(|pet| {
             self.runtime_service
                 .hydrate_custom_pet_data_url(pet.clone())
@@ -435,33 +432,46 @@ impl CoduxApp {
             }
         }
         let custom_pets = catalog.custom_pets.clone();
+        let current_catalog_item = catalog
+            .species
+            .iter()
+            .find(|item| item.species == self.state.pet.species)
+            .cloned();
         let total_count = catalog.species.len() + custom_pets.len();
         let unlocked_count = unlocked_species.len() + custom_pets.len();
+        let language = self.state.settings.language.clone();
         let current_name = if self.state.pet.claimed {
             self.state.pet.display_name.clone()
         } else {
-            "未领取".to_string()
+            pet_catalog_text(&language, "pet.dex.unclaimed", "Not Claimed")
         };
         let current_level = if self.state.pet.claimed {
-            format!("Lv.{}", snapshot.progress.level.max(1))
+            pet_format_placeholders(
+                &pet_catalog_text(&language, "pet.dex.current_level_format", "Lv.%@"),
+                &[snapshot.progress.level.max(1).to_string()],
+            )
         } else {
-            "未领取".to_string()
+            pet_catalog_text(&language, "pet.dex.unclaimed", "Not Claimed")
         };
         let archived_count = snapshot.legacy.len();
         let archived_subtitle = if archived_count == 0 {
-            "暂无归档宠物"
+            pet_catalog_text(&language, "pet.dex.archived.none", "No archived pets yet")
         } else {
-            "历史伙伴"
+            pet_catalog_text(&language, "pet.dex.archived.history", "Past companions")
         };
         let collection_subtitle = if total_count > 0 && unlocked_count == total_count {
-            "全部伙伴已解锁"
+            pet_catalog_text(
+                &language,
+                "pet.dex.collection.complete",
+                "All companions unlocked",
+            )
         } else {
-            "继续探索"
+            pet_catalog_text(&language, "pet.dex.collection.continue", "Keep exploring")
         };
         let primary_action = if self.state.pet.claimed {
             pet_inline_button(
                 "pet-dex-archive",
-                "归档当前",
+                pet_catalog_text(&language, "pet.archive.action", "Archive"),
                 IconName::Delete,
                 true,
                 cx,
@@ -471,7 +481,7 @@ impl CoduxApp {
         } else {
             pet_inline_button(
                 "pet-dex-claim",
-                "领取宠物",
+                pet_catalog_text(&language, "pet.claim.action", "Claim Pet"),
                 IconName::Heart,
                 true,
                 cx,
@@ -481,7 +491,7 @@ impl CoduxApp {
         };
         let add_custom_action = pet_inline_button(
             "pet-dex-open-custom-install",
-            "添加自定义",
+            pet_catalog_text(&language, "pet.custom.install.action", "Add Custom Pet"),
             IconName::Plus,
             true,
             cx,
@@ -489,80 +499,79 @@ impl CoduxApp {
         )
         .into_any_element();
 
-        pet_window_shell(
-            "宠物图鉴",
-            "查看当前伙伴、已归档伙伴和已安装的自定义宠物。",
-            cx,
-        )
+        child_window_shell(pet_catalog_text(
+            &language,
+            "pet.dex.window.title",
+            "Pet Dex",
+        ))
         .child(
             div()
                 .min_h_0()
                 .flex_1()
                 .relative()
-                .grid()
-                .grid_cols(2)
+                .flex()
                 .overflow_hidden()
                 .child(
                     div()
+                        .w(px(270.0))
+                        .flex_none()
                         .min_h_0()
                         .border_r_1()
                         .border_color(color(theme::BORDER_SOFT))
-                        .p(px(16.0))
-                        .overflow_y_scrollbar()
                         .flex()
                         .flex_col()
-                        .gap(px(12.0))
-                        .child(pet_dex_intro_card(
-                            current_name,
-                            current_level,
-                            archived_count,
-                            archived_subtitle,
-                            unlocked_count,
-                            total_count,
-                            collection_subtitle,
-                        ))
-                        .child(pet_dex_current_card(
-                            &self.state.pet,
-                            current_custom_pet.as_ref(),
-                            &self.runtime.source_root,
-                            &self.state.support_dir,
-                            &self.pet_custom_pets,
-                            cx,
-                        ))
-                        .child(pet_stats_grid(
-                            &snapshot.current_stats,
-                            snapshot.progress.total_xp,
-                        ))
+                        .child(
+                            div().min_h_0().flex_1().overflow_y_scrollbar().child(
+                                div()
+                                    .p(px(16.0))
+                                    .flex()
+                                    .flex_col()
+                                    .child(pet_dex_sidebar_overview(
+                                        &language,
+                                        current_name,
+                                        current_level,
+                                        archived_count,
+                                        archived_subtitle,
+                                        unlocked_count,
+                                        total_count,
+                                        collection_subtitle,
+                                    ))
+                                    .child(pet_dex_current_card(
+                                        &self.state.pet,
+                                        current_custom_pet.as_ref(),
+                                        current_catalog_item.as_ref(),
+                                        &self.runtime.source_root,
+                                        &self.state.support_dir,
+                                        &self.pet_custom_pets,
+                                        &snapshot.current_stats,
+                                        snapshot.progress.total_xp,
+                                        snapshot.claimed_at,
+                                        &language,
+                                        cx,
+                                    )),
+                            ),
+                        )
                         .child(
                             div()
+                                .flex_none()
+                                .border_t_1()
+                                .border_color(color(theme::BORDER_SOFT))
+                                .p(px(16.0))
                                 .flex()
-                                .items_center()
+                                .flex_col()
                                 .gap(px(8.0))
-                                .child(primary_action)
-                                .child(add_custom_action),
-                        )
-                        .child(pet_legacy_section(snapshot.legacy, cx)),
+                                .child(pet_dex_sidebar_action(primary_action))
+                                .child(pet_dex_sidebar_action(add_custom_action)),
+                        ),
                 )
-                .child(
-                    div()
-                        .min_h_0()
-                        .p(px(16.0))
-                        .overflow_y_scrollbar()
-                        .flex()
-                        .flex_col()
-                        .gap(px(16.0))
-                        .child(pet_catalog_section(
-                            catalog.species.clone(),
-                            &unlocked_species,
-                            &self.state.settings.language,
-                            cx,
-                        ))
-                        .child(pet_custom_section(
-                            custom_pets,
-                            self.state.support_dir.clone(),
-                            cx,
-                        )),
-                ),
+                .child(self.pet_dex_virtual_content(
+                    catalog.species.clone(),
+                    unlocked_species,
+                    custom_pets,
+                    snapshot.legacy,
+                    _window,
+                    cx,
+                )),
         )
         .when_some(self.pet_dex_spotlight.clone(), |this, spotlight| {
             this.child(pet_dex_spotlight_overlay(
@@ -571,78 +580,620 @@ impl CoduxApp {
                 &self.runtime.source_root,
                 &self.state.support_dir,
                 &self.state.settings.language,
+                self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
                 cx,
             ))
         })
     }
+
+    fn pet_dex_virtual_content(
+        &mut self,
+        bundled_items: Vec<PetCatalogItem>,
+        unlocked_species: HashSet<String>,
+        custom_pets: Vec<PetCustomPet>,
+        legacy_records: Vec<PetLegacyRecord>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let rows = Rc::new(pet_dex_virtual_rows(
+            bundled_items,
+            &unlocked_species,
+            custom_pets,
+            legacy_records,
+            &self.runtime.source_root,
+            &self.state.support_dir,
+            &self.pet_sprite_paths,
+            &self.state.settings.language,
+            window,
+        ));
+        let item_sizes = Rc::new(
+            rows.iter()
+                .map(|row| size(px(1.0), row.height()))
+                .collect::<Vec<_>>(),
+        );
+        let scroll_handle = self.pet_dex_scroll_handle.clone();
+
+        div()
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .overflow_hidden()
+            .child(
+                v_virtual_list(
+                    cx.entity().clone(),
+                    "pet-dex-virtual-content",
+                    item_sizes,
+                    move |_app, visible_range: Range<usize>, _window, cx| {
+                        visible_range
+                            .filter_map(|index| {
+                                rows.get(index).map(|row| row.render(&rows, index, cx))
+                            })
+                            .collect::<Vec<_>>()
+                    },
+                )
+                .track_scroll(&scroll_handle)
+                .with_sizing_behavior(ListSizingBehavior::Auto),
+            )
+            .vertical_scrollbar(&scroll_handle)
+            .into_any_element()
+    }
 }
 
-fn pet_cancel_button(id: &'static str, cx: &mut Context<CoduxApp>) -> Button {
-    Button::new(id)
-        .compact()
-        .ghost()
-        .text_color(cx.theme().secondary_foreground)
-        .label("取消")
-        .on_click(|_, window, _| window.remove_window())
+#[derive(Clone)]
+enum PetDexVirtualRow {
+    Spacer {
+        height: f32,
+    },
+    SectionHeader {
+        label: String,
+        trailing: Option<String>,
+    },
+    PetCardRow {
+        cards: Vec<PetDexCard>,
+        columns: usize,
+    },
+    EmptyState {
+        message: String,
+    },
+    LegacyRow {
+        record: PetLegacyRecord,
+        sprite_path: PathBuf,
+        language: String,
+    },
 }
 
-fn pet_window_shell(
-    title: &'static str,
-    subtitle: &'static str,
-    cx: &mut Context<CoduxApp>,
-) -> gpui::Div {
+#[derive(Clone)]
+enum PetDexCard {
+    Bundled {
+        item: PetCatalogItem,
+        unlocked: bool,
+        sprite_path: Option<PathBuf>,
+        title: String,
+        subtitle: String,
+    },
+    Custom {
+        pet: PetCustomPet,
+        sprite_path: PathBuf,
+        subtitle: String,
+    },
+}
+
+impl PetDexVirtualRow {
+    fn height(&self) -> gpui::Pixels {
+        px(match self {
+            PetDexVirtualRow::Spacer { height } => *height,
+            PetDexVirtualRow::SectionHeader { .. } => 34.0,
+            PetDexVirtualRow::PetCardRow { .. } => 148.0,
+            PetDexVirtualRow::EmptyState { .. } => 84.0,
+            PetDexVirtualRow::LegacyRow { .. } => 72.0,
+        })
+    }
+
+    fn render(
+        &self,
+        rows: &Rc<Vec<PetDexVirtualRow>>,
+        index: usize,
+        cx: &mut Context<CoduxApp>,
+    ) -> gpui::Div {
+        match self {
+            PetDexVirtualRow::Spacer { .. } => div().w_full(),
+            PetDexVirtualRow::SectionHeader { label, trailing } => div()
+                .w_full()
+                .px(px(20.0))
+                .pt(px(8.0))
+                .child(pet_section_header(label.clone(), trailing.clone())),
+            PetDexVirtualRow::PetCardRow { cards, columns } => div()
+                .w_full()
+                .px(px(20.0))
+                .pt(px(12.0))
+                .flex()
+                .gap(px(12.0))
+                .children(
+                    cards
+                        .iter()
+                        .cloned()
+                        .map(|card| pet_dex_virtual_card(card, cx)),
+                )
+                .children(
+                    (cards.len()..*columns)
+                        .map(|_| div().flex_1().min_w_0().h(px(136.0)).into_any_element()),
+                ),
+            PetDexVirtualRow::EmptyState { message } => div()
+                .w_full()
+                .px(px(20.0))
+                .pt(px(12.0))
+                .child(pet_dex_empty_state(message.clone())),
+            PetDexVirtualRow::LegacyRow {
+                record,
+                sprite_path,
+                language,
+            } => div()
+                .w_full()
+                .px(px(20.0))
+                .pt(px(8.0))
+                .child(pet_legacy_row(
+                    record.clone(),
+                    sprite_path.clone(),
+                    language.clone(),
+                    cx,
+                )),
+        }
+        .when(
+            matches!(self, PetDexVirtualRow::LegacyRow { .. })
+                && rows
+                    .get(index + 1)
+                    .map(|next| !matches!(next, PetDexVirtualRow::LegacyRow { .. }))
+                    .unwrap_or(true),
+            |this| this.mb(px(12.0)),
+        )
+    }
+}
+
+fn pet_dex_virtual_rows(
+    bundled_items: Vec<PetCatalogItem>,
+    unlocked_species: &HashSet<String>,
+    custom_pets: Vec<PetCustomPet>,
+    legacy_records: Vec<PetLegacyRecord>,
+    runtime_asset_root: &Path,
+    support_dir: &Path,
+    sprite_paths: &HashMap<String, PathBuf>,
+    language: &str,
+    window: &mut Window,
+) -> Vec<PetDexVirtualRow> {
+    let columns = pet_dex_columns(window);
+    let mut rows = Vec::new();
+    let unlocked_count = bundled_items
+        .iter()
+        .filter(|item| unlocked_species.contains(&item.species))
+        .count();
+    let total_count = bundled_items.len();
+
+    rows.push(PetDexVirtualRow::Spacer { height: 20.0 });
+    rows.push(PetDexVirtualRow::SectionHeader {
+        label: pet_catalog_text(language, "pet.dex.bundled.section", "Bundled Pets"),
+        trailing: Some(pet_format_placeholders(
+            &pet_catalog_text(language, "pet.dex.unlocked_count", "%@/%@ unlocked"),
+            &[unlocked_count.to_string(), total_count.to_string()],
+        )),
+    });
+    for chunk in bundled_items.chunks(columns) {
+        rows.push(PetDexVirtualRow::PetCardRow {
+            columns,
+            cards: chunk
+                .iter()
+                .map(|item| {
+                    let unlocked = unlocked_species.contains(&item.species);
+                    PetDexCard::Bundled {
+                        item: item.clone(),
+                        unlocked,
+                        sprite_path: sprite_paths.get(&item.species).cloned(),
+                        title: if unlocked {
+                            pet_catalog_text(
+                                language,
+                                &item.name_key,
+                                &pet_species_name(&item.species),
+                            )
+                        } else {
+                            pet_catalog_text(language, "pet.dex.unknown", "???")
+                        },
+                        subtitle: if unlocked {
+                            pet_catalog_text(language, "pet.stage.companion", "Companion")
+                        } else {
+                            pet_catalog_text(language, "pet.dex.locked", "Locked")
+                        },
+                    }
+                })
+                .collect(),
+        });
+    }
+
+    rows.push(PetDexVirtualRow::Spacer { height: 28.0 });
+    rows.push(PetDexVirtualRow::SectionHeader {
+        label: pet_catalog_text(language, "pet.claim.custom.section", "Custom Pets"),
+        trailing: Some(pet_format_placeholders(
+            &pet_catalog_text(language, "pet.custom.installed_count", "%@ installed"),
+            &[custom_pets.len().to_string()],
+        )),
+    });
+    if custom_pets.is_empty() {
+        rows.push(PetDexVirtualRow::EmptyState {
+            message: pet_catalog_text(
+                language,
+                "pet.custom.install.subtitle",
+                "Install a Codex-format pet from Petdex.",
+            ),
+        });
+    } else {
+        for chunk in custom_pets.chunks(columns) {
+            rows.push(PetDexVirtualRow::PetCardRow {
+                columns,
+                cards: chunk
+                    .iter()
+                    .map(|pet| PetDexCard::Custom {
+                        pet: pet.clone(),
+                        sprite_path: sprite_paths
+                            .get(&format!("custom:{}", pet.id))
+                            .cloned()
+                            .unwrap_or_default(),
+                        subtitle: pet_catalog_text(language, "pet.custom.installed", "Custom pet"),
+                    })
+                    .collect(),
+            });
+        }
+    }
+
+    rows.push(PetDexVirtualRow::Spacer { height: 28.0 });
+    rows.push(PetDexVirtualRow::SectionHeader {
+        label: pet_catalog_text(language, "pet.archive.history", "Archive History"),
+        trailing: None,
+    });
+    if legacy_records.is_empty() {
+        rows.push(PetDexVirtualRow::EmptyState {
+            message: pet_catalog_text(language, "pet.dex.archived.none", "No archived pets yet"),
+        });
+    } else {
+        for record in legacy_records.into_iter().rev() {
+            let sprite_path = legacy_pet_sprite_path(runtime_asset_root, support_dir, &record);
+            rows.push(PetDexVirtualRow::LegacyRow {
+                record,
+                sprite_path,
+                language: language.to_string(),
+            });
+        }
+    }
+    rows.push(PetDexVirtualRow::Spacer { height: 20.0 });
+
+    rows
+}
+
+fn pet_dex_columns(window: &mut Window) -> usize {
+    let width = window.viewport_size().width.as_f32();
+    if width >= 1160.0 {
+        5
+    } else if width >= 900.0 {
+        4
+    } else {
+        3
+    }
+}
+
+fn pet_dex_card_frame(id: SharedString) -> gpui::Stateful<gpui::Div> {
     div()
-        .size_full()
+        .id(id)
+        .flex_1()
+        .min_w_0()
+        .h(px(136.0))
+        .rounded(px(8.0))
+        .border_1()
+        .px(px(10.0))
+        .py(px(12.0))
         .flex()
         .flex_col()
-        .bg(color(theme::BG))
-        .text_color(color(theme::TEXT))
-        .child(
-            div()
-                .h(px(56.0))
-                .flex_shrink_0()
-                .px(px(18.0))
-                .flex()
-                .items_center()
-                .justify_between()
-                .border_b_1()
-                .border_color(color(theme::BORDER_SOFT))
+        .items_center()
+        .justify_center()
+        .text_center()
+}
+
+fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElement {
+    match card {
+        PetDexCard::Bundled {
+            item,
+            unlocked,
+            sprite_path,
+            title,
+            subtitle,
+        } => {
+            let species = item.species.clone();
+            pet_dex_card_frame(SharedString::from(format!("pet-dex-bundled-{species}")))
+                .cursor_pointer()
+                .border_color(if unlocked {
+                    color(theme::ACCENT).opacity(0.25)
+                } else {
+                    color(theme::BORDER_SOFT)
+                })
+                .bg(if unlocked {
+                    color(0xFFFFFF).opacity(0.035)
+                } else {
+                    color(0xFFFFFF).opacity(0.025)
+                })
+                .opacity(if unlocked { 1.0 } else { 0.8 })
+                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                .on_click(cx.listener(move |app, _event, _window, cx| {
+                    if unlocked {
+                        app.show_pet_dex_spotlight(PetDexSpotlight::Bundled(species.clone()), cx);
+                    }
+                }))
                 .child(
                     div()
-                        .min_w_0()
+                        .size(px(56.0))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(if unlocked {
+                            color(pet_accent_color(&item.species)).opacity(0.16)
+                        } else {
+                            color(0xFFFFFF).opacity(0.04)
+                        })
+                        .child(if unlocked && sprite_path.is_some() {
+                            pet_sprite_element(
+                                sprite_path.unwrap_or_default(),
+                                44.0,
+                                0,
+                                0,
+                                cx.theme().primary,
+                            )
+                        } else {
+                            div()
+                                .text_size(px(28.0))
+                                .line_height(px(32.0))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(color(theme::TEXT_DIM))
+                                .child("?")
+                                .into_any_element()
+                        }),
+                )
+                .child(
+                    div()
+                        .mt(px(10.0))
+                        .w_full()
+                        .truncate()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .mt(px(4.0))
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .truncate()
+                        .text_color(if unlocked {
+                            color(theme::TEXT_MUTED)
+                        } else {
+                            color(theme::TEXT_DIM)
+                        })
+                        .child(subtitle),
+                )
+                .into_any_element()
+        }
+        PetDexCard::Custom {
+            pet,
+            sprite_path,
+            subtitle,
+        } => {
+            let pet_id = pet.id.clone();
+            pet_dex_card_frame(SharedString::from(format!("pet-dex-custom-{pet_id}")))
+                .cursor_pointer()
+                .border_color(color(theme::ACCENT).opacity(0.25))
+                .bg(color(0xFFFFFF).opacity(0.035))
+                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                .on_click(cx.listener(move |app, _event, _window, cx| {
+                    app.show_pet_dex_spotlight(PetDexSpotlight::Custom(pet_id.clone()), cx);
+                }))
+                .child(
+                    div()
+                        .size(px(56.0))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(color(theme::ACCENT).opacity(0.12))
+                        .child(pet_sprite_element(
+                            sprite_path,
+                            44.0,
+                            0,
+                            0,
+                            cx.theme().primary,
+                        )),
+                )
+                .child(
+                    div()
+                        .mt(px(10.0))
+                        .w_full()
+                        .truncate()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(pet.display_name),
+                )
+                .child(
+                    div()
+                        .mt(px(4.0))
+                        .w_full()
+                        .truncate()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .text_color(color(theme::ACCENT))
+                        .child(subtitle),
+                )
+                .into_any_element()
+        }
+    }
+}
+
+fn pet_dex_empty_state(message: String) -> impl IntoElement {
+    div()
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .bg(color(0xFFFFFF).opacity(0.02))
+        .px(px(14.0))
+        .py(px(24.0))
+        .text_center()
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .text_color(color(theme::TEXT_DIM))
+        .child(message)
+}
+
+fn pet_legacy_row(
+    record: PetLegacyRecord,
+    sprite_path: PathBuf,
+    language: String,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let legacy_id = record.id.clone();
+    let pet_name = if record.custom_name.trim().is_empty() {
+        record
+            .custom_pet
+            .as_ref()
+            .map(|pet| pet.display_name.clone())
+            .unwrap_or_else(|| pet_species_name(&record.species))
+    } else {
+        record.custom_name.clone()
+    };
+
+    div()
+        .rounded(px(9.0))
+        .bg(color(0xFFFFFF).opacity(0.035))
+        .px(px(12.0))
+        .py(px(10.0))
+        .flex()
+        .items_center()
+        .gap(px(12.0))
+        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+        .child(
+            div()
+                .size(px(44.0))
+                .rounded(px(9.0))
+                .overflow_hidden()
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(color(0xFFFFFF).opacity(0.05))
+                .child(pet_sprite_element(
+                    sprite_path,
+                    38.0,
+                    0,
+                    0,
+                    cx.theme().primary,
+                )),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
                         .child(
                             div()
+                                .min_w_0()
+                                .truncate()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child(title),
+                                .child(pet_name),
                         )
                         .child(
                             div()
-                                .mt(px(2.0))
-                                .truncate()
+                                .rounded_full()
+                                .bg(color(theme::ACCENT).opacity(0.12))
+                                .px(px(8.0))
+                                .py(px(2.0))
                                 .text_size(px(12.0))
-                                .line_height(px(16.0))
-                                .text_color(color(theme::TEXT_MUTED))
-                                .child(subtitle),
+                                .line_height(px(14.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(color(theme::ACCENT))
+                                .child(pet_catalog_text(
+                                    &language,
+                                    "pet.stage.companion",
+                                    "Companion",
+                                )),
                         ),
                 )
                 .child(
-                    Button::new("pet-window-refresh")
-                        .compact()
-                        .ghost()
-                        .tooltip("刷新宠物数据")
-                        .text_color(cx.theme().secondary_foreground)
-                        .icon(
-                            Icon::new(IconName::Redo2)
-                                .size_3p5()
-                                .text_color(cx.theme().secondary_foreground),
-                        )
-                        .on_click(
-                            cx.listener(|app, _event, window, cx| app.refresh_pet(window, cx)),
-                        ),
+                    div()
+                        .mt(px(2.0))
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .text_color(color(theme::TEXT_DIM))
+                        .child(format!(
+                            "{} XP · Lv.{}",
+                            compact_number(record.total_xp),
+                            record.progress.level
+                        )),
                 ),
         )
+        .child(
+            div()
+                .w(px(100.0))
+                .flex_none()
+                .text_right()
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .text_color(color(theme::TEXT_DIM))
+                .child(pet_date_label(record.retired_at)),
+        )
+        .child(
+            Button::new(SharedString::from(format!(
+                "pet-restore-legacy-{legacy_id}"
+            )))
+            .compact()
+            .ghost()
+            .tooltip(pet_catalog_text(
+                &language,
+                "pet.archive.restore.action",
+                "Restore",
+            ))
+            .text_color(cx.theme().secondary_foreground)
+            .icon(Icon::new(IconName::Undo2).size_3p5())
+            .on_click(cx.listener(move |app, _event, _window, cx| {
+                match app.runtime_service.restore_archived_pet(PetRestoreRequest {
+                    legacy_id: legacy_id.clone(),
+                }) {
+                    Ok(_) => {
+                        app.refresh_pet_cache();
+                        app.pet_dex_spotlight = None;
+                        let revision = publish_pet_update();
+                        if revision > 0 {
+                            app.pet_update_seen_revision = revision;
+                        }
+                        app.status_message = "pet restored".to_string();
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to restore pet: {error}");
+                    }
+                }
+                cx.notify();
+            })),
+        )
+}
+
+fn pet_cancel_button(id: &'static str, language: &str, cx: &mut Context<CoduxApp>) -> Button {
+    Button::new(id)
+        .ghost()
+        .text_color(cx.theme().secondary_foreground)
+        .child(pet_button_label(
+            pet_catalog_text(language, "common.cancel", "Cancel"),
+            cx.theme().secondary_foreground,
+        ))
+        .on_click(|_, window, _| window.remove_window())
 }
 
 fn pet_footer_bar(footer: impl IntoElement) -> impl IntoElement {
@@ -651,43 +1202,40 @@ fn pet_footer_bar(footer: impl IntoElement) -> impl IntoElement {
         .flex_shrink_0()
         .border_t_1()
         .border_color(color(theme::BORDER_SOFT))
-        .px(px(14.0))
+        .px(px(16.0))
         .flex()
         .items_center()
-        .gap(px(8.0))
+        .justify_end()
         .child(footer)
 }
 
-fn pet_window_footer(children: Vec<AnyElement>) -> impl IntoElement {
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .children(children)
-}
-
-fn pet_footer_spacer() -> impl IntoElement {
-    div().flex_1()
+fn pet_dialog_footer(children: Vec<AnyElement>) -> impl IntoElement {
+    DialogFooter::new().children(children)
 }
 
 fn pet_footer_button(
     id: &'static str,
-    label: &'static str,
+    label: String,
     icon: IconName,
     primary: bool,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> Button {
     let button = Button::new(id)
-        .compact()
         .text_color(if primary {
             cx.theme().primary_foreground
         } else {
             cx.theme().secondary_foreground
         })
         .icon(Icon::new(icon).size_3p5())
-        .label(label)
+        .child(pet_button_label(
+            label,
+            if primary {
+                cx.theme().primary_foreground
+            } else {
+                cx.theme().secondary_foreground
+            },
+        ))
         .on_click(cx.listener(on_click));
     if primary {
         button.primary()
@@ -696,9 +1244,17 @@ fn pet_footer_button(
     }
 }
 
+fn pet_button_label(label: impl Into<SharedString>, text_color: Hsla) -> impl IntoElement {
+    div()
+        .text_size(px(14.0))
+        .line_height(px(18.0))
+        .text_color(text_color)
+        .child(label.into())
+}
+
 fn pet_inline_button(
     id: &'static str,
-    label: &'static str,
+    label: String,
     icon: IconName,
     enabled: bool,
     cx: &mut Context<CoduxApp>,
@@ -706,22 +1262,46 @@ fn pet_inline_button(
 ) -> Button {
     Button::new(id)
         .compact()
-        .secondary()
+        .primary()
         .disabled(!enabled)
-        .text_color(cx.theme().secondary_foreground)
+        .text_color(cx.theme().primary_foreground)
+        .w_full()
         .icon(Icon::new(icon).size_3p5())
-        .label(label)
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(14.0))
+                .line_height(px(18.0))
+                .child(SharedString::from(label)),
+        )
         .on_click(cx.listener(on_click))
 }
 
-fn pet_claim_random_row(selected_species: &str, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn pet_dex_sidebar_action(action: AnyElement) -> impl IntoElement {
+    div()
+        .w_full()
+        .h(px(36.0))
+        .flex()
+        .items_center()
+        .child(action)
+}
+
+fn pet_claim_random_row(
+    selected_species: &str,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
     let selected = selected_species == "bundled:random";
 
     pet_select_row(
         SharedString::from("pet-claim-random"),
         selected,
-        "随机".to_string(),
-        "让 Codux 为你选择一个伙伴".to_string(),
+        pet_catalog_text(language, "pet.claim.random.title", "Random"),
+        pet_catalog_text(
+            language,
+            "pet.claim.random.subtitle",
+            "Let Codux choose a companion",
+        ),
         pet_claim_random_thumb(cx),
         cx,
     )
@@ -880,7 +1460,7 @@ fn pet_claim_sprite_thumb(sprite_path: PathBuf, fallback_color: gpui::Hsla) -> A
         .items_center()
         .justify_center()
         .bg(color(0xFFFFFF).opacity(0.04))
-        .child(pet_sprite_element(sprite_path, 44.0, 0, fallback_color))
+        .child(pet_sprite_element(sprite_path, 44.0, 0, 0, fallback_color))
         .into_any_element()
 }
 
@@ -910,13 +1490,13 @@ fn pet_claim_preview(
 ) -> impl IntoElement {
     let sprite_path = pet_sprite_path(runtime_asset_root, support_dir, pet, custom_pets);
     let title = if random {
-        "随机".to_string()
+        pet_catalog_text(language, "pet.claim.random.title", "Random")
     } else if pet.species.starts_with("custom:") {
         custom_pets
             .iter()
             .find(|custom| pet.species == format!("custom:{}", custom.id))
             .map(|custom| custom.display_name.clone())
-            .unwrap_or_else(|| "自定义宠物".to_string())
+            .unwrap_or_else(|| pet_catalog_text(language, "pet.custom.missing", "Custom Pet"))
     } else {
         catalog_item
             .map(|item| pet_catalog_text(language, &item.name_key, &pet_species_name(&pet.species)))
@@ -926,7 +1506,7 @@ fn pet_claim_preview(
         pet_catalog_text(
             language,
             "pet.claim.random.description",
-            "确认领取时会从内置宠物里随机选择一个伙伴。",
+            "Let Codux choose one companion for you.",
         )
     } else {
         catalog_item
@@ -969,6 +1549,7 @@ fn pet_claim_preview(
                         cx.entity()
                             .read(cx)
                             .visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
+                        0,
                         cx.theme().primary,
                     )
                 }),
@@ -1013,85 +1594,245 @@ fn random_pet_species(items: &[PetCatalogItem]) -> String {
 fn pet_dex_current_card(
     pet: &PetSummary,
     custom_pet: Option<&PetCustomPet>,
+    catalog_item: Option<&PetCatalogItem>,
     runtime_asset_root: &Path,
     support_dir: &Path,
     custom_pets: &[PetCustomPet],
+    stats: &PetStats,
+    total_xp: i64,
+    claimed_at: Option<i64>,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let sprite_path = pet_sprite_path(runtime_asset_root, support_dir, pet, custom_pets);
     let name = if pet.claimed {
         pet.display_name.clone()
     } else {
-        "还没有领取宠物".to_string()
+        pet_catalog_text(language, "pet.dex.no_current_pet", "No active pet yet")
     };
     let description = custom_pet
         .map(|pet| empty_label(&pet.description))
+        .or_else(|| {
+            catalog_item.map(|item| {
+                pet_catalog_text(
+                    language,
+                    &item.subtitle_key,
+                    &pet_species_subtitle(&pet.species),
+                )
+            })
+        })
         .unwrap_or_else(|| pet_species_subtitle(&pet.species));
+    let level = pet_format_placeholders(
+        &pet_catalog_text(language, "pet.dex.current_level_format", "Lv.%@"),
+        &[pet.level.max(1).to_string()],
+    );
 
     div()
-        .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .p(px(12.0))
-        .flex()
-        .items_center()
-        .gap(px(12.0))
         .child(
             div()
-                .size(px(54.0))
-                .rounded(px(10.0))
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(color(theme::ACCENT).opacity(0.12))
-                .child(pet_sprite_element(sprite_path, 48.0, 0, cx.theme().primary)),
+                .mb(px(8.0))
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color(theme::TEXT_MUTED))
+                .child(pet_catalog_text(
+                    language,
+                    "pet.dex.current_pet",
+                    "Current Pet",
+                )),
         )
         .child(
             div()
-                .min_w_0()
-                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(8.0))
                 .child(
                     div()
+                        .size(px(84.0))
+                        .overflow_hidden()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(pet_sprite_element(
+                            sprite_path,
+                            84.0,
+                            0,
+                            0,
+                            cx.theme().primary,
+                        )),
+                )
+                .child(
+                    div()
+                        .max_w(px(210.0))
                         .truncate()
+                        .text_center()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .font_weight(FontWeight::BOLD)
                         .child(name),
                 )
                 .child(
                     div()
-                        .mt(px(3.0))
+                        .max_w(px(210.0))
                         .truncate()
+                        .text_center()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
                         .text_color(color(theme::TEXT_MUTED))
-                        .child(description),
+                        .child(format!("{description} · {level}")),
                 ),
         )
         .child(
-            Tag::info()
-                .with_size(gpui_component::Size::Small)
-                .child(format!("Lv.{}", pet.level.max(1))),
+            div()
+                .mt(px(16.0))
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .child(pet_trait_bar(
+                    "🧠",
+                    pet_catalog_text(language, "pet.attribute.wisdom", "Wisdom"),
+                    stats.wisdom,
+                    0x2F8FFF,
+                ))
+                .child(pet_trait_bar(
+                    "🔥",
+                    pet_catalog_text(language, "pet.attribute.chaos", "Chaos"),
+                    stats.chaos,
+                    0xFF6030,
+                ))
+                .child(pet_trait_bar(
+                    "🌙",
+                    pet_catalog_text(language, "pet.attribute.night", "Night"),
+                    stats.night,
+                    0x6060CC,
+                ))
+                .child(pet_trait_bar(
+                    "💪",
+                    pet_catalog_text(language, "pet.attribute.stamina", "Stamina"),
+                    stats.stamina,
+                    0x20A060,
+                ))
+                .child(pet_trait_bar(
+                    "🩹",
+                    pet_catalog_text(language, "pet.attribute.empathy", "Empathy"),
+                    stats.empathy,
+                    0xE060A0,
+                )),
+        )
+        .child(
+            div()
+                .mt(px(14.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .rounded_full()
+                        .bg(color(theme::ACCENT).opacity(0.12))
+                        .px(px(10.0))
+                        .py(px(5.0))
+                        .text_size(px(12.0))
+                        .line_height(px(14.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(theme::ACCENT))
+                        .child(pet_catalog_text(
+                            language,
+                            "pet.stage.companion",
+                            "Companion",
+                        )),
+                )
+                .when_some(claimed_at, |this, timestamp| {
+                    this.child(
+                        div()
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .text_color(color(theme::TEXT_DIM))
+                            .child(pet_date_label(timestamp)),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .mt(px(12.0))
+                .rounded(px(8.0))
+                .bg(color(0xFFFFFF).opacity(0.045))
+                .px(px(12.0))
+                .py(px(9.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(8.0))
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .child(
+                    div()
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(pet_catalog_text(language, "pet.total_xp", "Total XP")),
+                )
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(theme::TEXT))
+                        .child(compact_number(total_xp)),
+                ),
         )
 }
 
-fn pet_dex_intro_card(
+fn pet_trait_bar(emoji: &'static str, label: String, value: i64, accent: u32) -> impl IntoElement {
+    let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .child(div().w(px(18.0)).child(emoji))
+        .child(
+            div()
+                .w(px(34.0))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color(theme::TEXT_MUTED))
+                .child(label),
+        )
+        .child(
+            div()
+                .min_w(px(0.0))
+                .flex_1()
+                .h(px(5.0))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(color(accent).opacity(0.16))
+                .child(
+                    div()
+                        .h_full()
+                        .w(gpui::relative(ratio))
+                        .rounded_full()
+                        .bg(color(accent).opacity(0.75)),
+                ),
+        )
+        .child(
+            div()
+                .w(px(34.0))
+                .text_right()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color(theme::TEXT_DIM))
+                .child(compact_number(value)),
+        )
+}
+
+fn pet_dex_sidebar_overview(
+    language: &str,
     current_name: String,
     current_level: String,
     archived_count: usize,
-    archived_subtitle: &'static str,
+    archived_subtitle: String,
     unlocked_count: usize,
     total_count: usize,
-    collection_subtitle: &'static str,
+    collection_subtitle: String,
 ) -> impl IntoElement {
     div()
-        .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .p(px(12.0))
         .child(
             div()
                 .flex()
@@ -1107,7 +1848,7 @@ fn pet_dex_intro_card(
                         .text_size(px(17.0))
                         .line_height(px(22.0))
                         .font_weight(FontWeight::BOLD)
-                        .child("宠物图鉴"),
+                        .child(pet_catalog_text(language, "pet.dex.title", "Pet Dex")),
                 ),
         )
         .child(
@@ -1116,34 +1857,51 @@ fn pet_dex_intro_card(
                 .text_size(px(12.0))
                 .line_height(px(16.0))
                 .text_color(color(theme::TEXT_MUTED))
-                .child("记录你养成过的 Codux 伙伴。"),
+                .child(pet_catalog_text(
+                    language,
+                    "pet.dex.subtitle",
+                    "A record of every coding companion you've raised",
+                )),
         )
+        .child(pet_dex_separator())
         .child(
             div()
-                .mt(px(12.0))
                 .flex()
                 .flex_col()
                 .gap(px(8.0))
-                .child(pet_dex_summary_row("当前伙伴", current_level, current_name))
                 .child(pet_dex_summary_row(
-                    "已归档",
+                    pet_catalog_text(language, "pet.dex.current_companion", "Current Companion"),
+                    current_level,
+                    current_name,
+                ))
+                .child(pet_dex_summary_row(
+                    pet_catalog_text(language, "pet.dex.archived", "Archived"),
                     archived_subtitle.to_string(),
                     archived_count.to_string(),
                 ))
                 .child(pet_dex_summary_row(
-                    "图鉴收集",
+                    pet_catalog_text(language, "pet.dex.collection", "Dex Collection"),
                     collection_subtitle.to_string(),
                     format!("{unlocked_count}/{}", total_count.max(1)),
                 )),
         )
+        .child(pet_dex_separator())
 }
 
-fn pet_dex_summary_row(label: &'static str, subtitle: String, value: String) -> impl IntoElement {
+fn pet_dex_separator() -> impl IntoElement {
     div()
-        .rounded(px(7.0))
+        .my(px(16.0))
+        .h(px(1.0))
+        .w_full()
+        .bg(color(theme::BORDER_SOFT).opacity(0.75))
+}
+
+fn pet_dex_summary_row(label: String, subtitle: String, value: String) -> impl IntoElement {
+    div()
+        .rounded(px(8.0))
         .bg(color(0xFFFFFF).opacity(0.045))
-        .px(px(10.0))
-        .py(px(8.0))
+        .px(px(12.0))
+        .py(px(10.0))
         .flex()
         .items_center()
         .justify_between()
@@ -1181,306 +1939,52 @@ fn pet_dex_summary_row(label: &'static str, subtitle: String, value: String) -> 
         )
 }
 
-fn pet_stats_grid(stats: &PetStats, total_xp: i64) -> impl IntoElement {
-    div()
-        .grid()
-        .grid_cols(3)
-        .gap(px(8.0))
-        .child(pet_stat_tile("总 XP", compact_number(total_xp)))
-        .child(pet_stat_tile("智慧", stats.wisdom.to_string()))
-        .child(pet_stat_tile("耐力", stats.stamina.to_string()))
-        .child(pet_stat_tile("共情", stats.empathy.to_string()))
-        .child(pet_stat_tile("夜行", stats.night.to_string()))
-        .child(pet_stat_tile("混沌", stats.chaos.to_string()))
+fn legacy_pet_sprite_path(
+    runtime_asset_root: &Path,
+    support_dir: &Path,
+    record: &PetLegacyRecord,
+) -> PathBuf {
+    if let Some(custom_pet) = record.custom_pet.as_ref() {
+        return custom_pet_sprite_path(support_dir, custom_pet);
+    }
+
+    pet_sprite_path(
+        runtime_asset_root,
+        support_dir,
+        &PetSummary {
+            species: record.species.clone(),
+            ..PetSummary::default()
+        },
+        &[],
+    )
 }
 
-fn pet_stat_tile(label: &'static str, value: String) -> impl IntoElement {
-    div()
-        .rounded(px(7.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .px(px(10.0))
-        .py(px(8.0))
-        .child(
-            div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_DIM))
-                .child(label),
-        )
-        .child(
-            div()
-                .mt(px(2.0))
-                .text_size(px(16.0))
-                .line_height(px(20.0))
-                .font_weight(FontWeight::BOLD)
-                .child(value),
-        )
+fn pet_date_label(timestamp: i64) -> String {
+    use chrono::{Datelike, Local, TimeZone};
+
+    Local
+        .timestamp_opt(timestamp, 0)
+        .single()
+        .map(|date| format!("{}/{}/{}", date.year(), date.month(), date.day()))
+        .unwrap_or_else(|| "未知日期".to_string())
 }
 
-fn pet_legacy_section(
-    records: Vec<PetLegacyRecord>,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    div()
-        .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.04))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .overflow_hidden()
-        .child(pet_section_header("归档记录", records.len()))
-        .child(
-            div()
-                .p(px(8.0))
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .when(records.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .px(px(6.0))
-                            .py(px(8.0))
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .text_color(color(theme::TEXT_DIM))
-                            .child("暂无归档宠物"),
-                    )
-                })
-                .children(records.into_iter().rev().map(|record| {
-                    let legacy_id = record.id.clone();
-                    div()
-                        .rounded(px(6.0))
-                        .px(px(7.0))
-                        .py(px(6.0))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(14.0))
-                                        .line_height(px(18.0))
-                                        .child(if record.custom_name.is_empty() {
-                                            pet_species_name(&record.species)
-                                        } else {
-                                            record.custom_name
-                                        }),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(12.0))
-                                        .line_height(px(15.0))
-                                        .text_color(color(theme::TEXT_DIM))
-                                        .child(format!(
-                                            "Lv.{} · {}",
-                                            record.progress.level, record.species
-                                        )),
-                                ),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!(
-                                "pet-restore-legacy-{legacy_id}"
-                            )))
-                            .compact()
-                            .ghost()
-                            .tooltip("恢复这个宠物")
-                            .text_color(cx.theme().secondary_foreground)
-                            .icon(Icon::new(IconName::Undo2).size_3p5())
-                            .on_click(cx.listener(
-                                move |app, _event, _window, cx| {
-                                    match app.runtime_service.restore_archived_pet(
-                                        PetRestoreRequest {
-                                            legacy_id: legacy_id.clone(),
-                                        },
-                                    ) {
-                                        Ok(_) => {
-                                            app.state.pet = app.runtime_service.reload_pet();
-                                            app.pet_custom_pets =
-                                                app.runtime_service.pet_catalog().custom_pets;
-                                            app.pet_dex_spotlight = None;
-                                            let revision = publish_pet_update();
-                                            if revision > 0 {
-                                                app.pet_update_seen_revision = revision;
-                                            }
-                                            app.status_message = "pet restored".to_string();
-                                        }
-                                        Err(error) => {
-                                            app.status_message =
-                                                format!("failed to restore pet: {error}");
-                                        }
-                                    }
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                        .into_any_element()
-                })),
-        )
-}
-
-fn pet_catalog_section(
-    items: Vec<PetCatalogItem>,
-    unlocked_species: &HashSet<String>,
-    language: &str,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    div()
-        .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.04))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .overflow_hidden()
-        .child(pet_section_header("内置宠物", items.len()))
-        .child(
-            div()
-                .p(px(10.0))
-                .grid()
-                .grid_cols(3)
-                .gap(px(8.0))
-                .children(items.into_iter().map(|item| {
-                    let unlocked = unlocked_species.contains(&item.species);
-                    let species = item.species.clone();
-                    div()
-                        .id(SharedString::from(format!("pet-dex-bundled-{species}")))
-                        .cursor_pointer()
-                        .rounded(px(7.0))
-                        .bg(if unlocked {
-                            color(0xFFFFFF).opacity(0.045)
-                        } else {
-                            color(0xFFFFFF).opacity(0.025)
-                        })
-                        .px(px(9.0))
-                        .py(px(8.0))
-                        .opacity(if unlocked { 1.0 } else { 0.72 })
-                        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
-                        .on_click(cx.listener(move |app, _event, _window, cx| {
-                            if unlocked {
-                                app.show_pet_dex_spotlight(
-                                    PetDexSpotlight::Bundled(species.clone()),
-                                    cx,
-                                );
-                            }
-                        }))
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(if unlocked {
-                                    pet_catalog_text(
-                                        language,
-                                        &item.name_key,
-                                        &pet_species_name(&item.species),
-                                    )
-                                } else {
-                                    "???".to_string()
-                                }),
-                        )
-                        .child(
-                            div()
-                                .mt(px(2.0))
-                                .text_size(px(12.0))
-                                .line_height(px(15.0))
-                                .truncate()
-                                .text_color(color(theme::TEXT_DIM))
-                                .child(if unlocked {
-                                    "伙伴".to_string()
-                                } else {
-                                    "未解锁".to_string()
-                                }),
-                        )
-                        .into_any_element()
-                })),
-        )
-}
-
-fn pet_custom_section(
-    custom_pets: Vec<PetCustomPet>,
-    support_dir: PathBuf,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    div()
-        .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.04))
-        .border_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .overflow_hidden()
-        .child(pet_section_header("自定义宠物", custom_pets.len()))
-        .child(
-            div()
-                .p(px(10.0))
-                .flex()
-                .flex_col()
-                .gap(px(6.0))
-                .when(custom_pets.is_empty(), |this| {
-                    this.child(
-                        div()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .text_color(color(theme::TEXT_DIM))
-                            .child("还没有安装自定义宠物"),
-                    )
-                })
-                .children(custom_pets.into_iter().map(|pet| {
-                    let sprite_path = custom_pet_sprite_path(&support_dir, &pet);
-                    let pet_id = pet.id.clone();
-                    div()
-                        .id(SharedString::from(format!("pet-dex-custom-{pet_id}")))
-                        .cursor_pointer()
-                        .rounded(px(7.0))
-                        .px(px(7.0))
-                        .py(px(6.0))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
-                        .on_click(cx.listener(move |app, _event, _window, cx| {
-                            app.show_pet_dex_spotlight(PetDexSpotlight::Custom(pet_id.clone()), cx);
-                        }))
-                        .child(
-                            div()
-                                .size(px(30.0))
-                                .rounded(px(6.0))
-                                .overflow_hidden()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .bg(color(0xFFFFFF).opacity(0.055))
-                                .child(pet_sprite_element(
-                                    sprite_path,
-                                    28.0,
-                                    0,
-                                    cx.theme().primary,
-                                )),
-                        )
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(14.0))
-                                        .line_height(px(18.0))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(pet.display_name),
-                                )
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(12.0))
-                                        .line_height(px(15.0))
-                                        .text_color(color(theme::TEXT_DIM))
-                                        .child(empty_label(&pet.description)),
-                                ),
-                        )
-                        .into_any_element()
-                })),
-        )
+fn pet_accent_color(species: &str) -> u32 {
+    match species {
+        "voidcat" => 0x6A5CFF,
+        "rusthound" => 0xFF8A3D,
+        "goose" => 0x3E86F6,
+        "chaossprite" => 0xFF4FA3,
+        "code" => 0x2F8FFF,
+        "sheep" => 0xF28FB8,
+        "ox" => 0xF3B43F,
+        "dragon" => 0xE04435,
+        "phoenix" => 0xFF7A22,
+        "dolphin" => 0x1E9BFF,
+        "penguin" => 0x5C6D85,
+        "panda" => 0x6A6F78,
+        _ => theme::ACCENT,
+    }
 }
 
 fn pet_dex_spotlight_overlay(
@@ -1489,10 +1993,11 @@ fn pet_dex_spotlight_overlay(
     runtime_asset_root: &Path,
     support_dir: &Path,
     language: &str,
+    sprite_frame: usize,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     if spotlight == PetDexSpotlight::ArchiveConfirm {
-        return pet_dex_archive_confirm_overlay(cx);
+        return pet_dex_archive_confirm_overlay(language, cx);
     }
 
     let detail = match spotlight {
@@ -1507,14 +2012,14 @@ fn pet_dex_spotlight_overlay(
                 };
                 (
                     pet_catalog_text(language, &item.name_key, &pet_species_name(&item.species)),
-                    "伙伴".to_string(),
+                    pet_catalog_text(language, "pet.stage.companion", "Companion"),
                     pet_catalog_text(
                         language,
                         &item.description_key,
                         &pet_species_subtitle(&item.species),
                     ),
                     pet_sprite_path(runtime_asset_root, support_dir, &pet, &[]),
-                    None,
+                    pet_accent_color(&item.species),
                 )
             }),
         PetDexSpotlight::Custom(custom_id) => catalog
@@ -1524,21 +2029,22 @@ fn pet_dex_spotlight_overlay(
             .map(|pet| {
                 (
                     pet.display_name.clone(),
-                    "自定义宠物".to_string(),
+                    pet_catalog_text(language, "pet.custom.installed", "Custom pet"),
                     empty_label(&pet.description),
                     custom_pet_sprite_path(support_dir, pet),
-                    pet.source_page_url.clone(),
+                    theme::ACCENT,
                 )
             }),
         PetDexSpotlight::ArchiveConfirm => None,
     };
 
-    let Some((title, subtitle, description, sprite_path, source_url)) = detail else {
+    let Some((title, subtitle, description, sprite_path, accent)) = detail else {
         return div().into_any_element();
     };
-    let source_url_for_click = source_url.clone();
 
     div()
+        .id("pet-dex-spotlight-overlay")
+        .occlude()
         .absolute()
         .top(px(0.0))
         .right(px(0.0))
@@ -1547,96 +2053,71 @@ fn pet_dex_spotlight_overlay(
         .flex()
         .items_center()
         .justify_center()
-        .bg(color(0x000000).opacity(0.35))
+        .bg(color(0x000000).opacity(0.62))
         .p(px(24.0))
+        .on_click(cx.listener(|app, _event, _window, cx| app.close_pet_dex_spotlight(cx)))
         .child(
             div()
-                .w(px(360.0))
-                .rounded(px(14.0))
-                .border_1()
-                .border_color(color(theme::BORDER_SOFT))
-                .bg(color(theme::BG_PANEL))
-                .p(px(20.0))
+                .id("pet-dex-spotlight-preview")
+                .max_w(px(520.0))
+                .flex()
+                .flex_col()
+                .items_center()
                 .text_center()
-                .shadow_lg()
                 .child(
                     div()
                         .mx_auto()
-                        .size(px(116.0))
+                        .size(px(212.0))
                         .rounded_full()
                         .flex()
                         .items_center()
                         .justify_center()
-                        .bg(color(theme::ACCENT).opacity(0.12))
+                        .bg(color(accent).opacity(0.09))
                         .child(pet_sprite_element(
                             sprite_path,
-                            94.0,
-                            cx.entity()
-                                .read(cx)
-                                .visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
+                            168.0,
+                            sprite_frame,
+                            0,
                             cx.theme().primary,
                         )),
                 )
                 .child(
                     div()
-                        .mt(px(16.0))
-                        .text_size(px(18.0))
-                        .line_height(px(24.0))
+                        .mt(px(20.0))
+                        .text_size(px(24.0))
+                        .line_height(px(30.0))
                         .font_weight(FontWeight::BOLD)
+                        .text_color(color(theme::TEXT))
                         .child(title),
                 )
                 .child(
                     div()
-                        .mt(px(4.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .mt(px(8.0))
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(color(theme::ACCENT))
+                        .text_color(color(accent))
                         .child(subtitle),
                 )
-                .child(
-                    div()
-                        .mt(px(12.0))
-                        .text_size(px(12.0))
-                        .line_height(px(20.0))
-                        .text_color(color(theme::TEXT_MUTED))
-                        .child(description),
-                )
-                .child(
-                    div()
-                        .mt(px(20.0))
-                        .flex()
-                        .justify_center()
-                        .gap_2()
-                        .when_some(source_url_for_click, |this, url| {
-                            this.child(
-                                Button::new("pet-dex-open-source")
-                                    .compact()
-                                    .secondary()
-                                    .text_color(cx.theme().secondary_foreground)
-                                    .label("打开来源")
-                                    .on_click(cx.listener(move |app, _event, window, cx| {
-                                        app.open_pet_source_url(url.clone(), window, cx)
-                                    })),
-                            )
-                        })
-                        .child(
-                            Button::new("pet-dex-close-spotlight")
-                                .compact()
-                                .primary()
-                                .text_color(cx.theme().primary_foreground)
-                                .label("关闭")
-                                .on_click(cx.listener(|app, _event, _window, cx| {
-                                    app.close_pet_dex_spotlight(cx)
-                                })),
-                        ),
-                ),
+                .when(!description.is_empty(), |this| {
+                    this.child(
+                        div()
+                            .mt(px(18.0))
+                            .max_w(px(420.0))
+                            .text_size(px(14.0))
+                            .line_height(px(22.0))
+                            .text_color(color(theme::TEXT_MUTED))
+                            .child(description),
+                    )
+                }),
         )
         .into_any_element()
 }
 
-fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
+fn pet_dex_archive_confirm_overlay(language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
     div()
+        .id("pet-dex-archive-overlay")
+        .occlude()
         .absolute()
         .top(px(0.0))
         .right(px(0.0))
@@ -1647,8 +2128,11 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
         .justify_center()
         .bg(color(0x000000).opacity(0.35))
         .p(px(24.0))
+        .on_click(cx.listener(|app, _event, _window, cx| app.close_pet_dex_spotlight(cx)))
         .child(
             div()
+                .id("pet-dex-archive-card")
+                .occlude()
                 .w(px(360.0))
                 .rounded(px(14.0))
                 .border_1()
@@ -1656,6 +2140,7 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
                 .bg(color(theme::BG_PANEL))
                 .p(px(20.0))
                 .shadow_lg()
+                .on_click(|_event, _window, cx| cx.stop_propagation())
                 .child(
                     div()
                         .flex()
@@ -1668,10 +2153,14 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
                         )
                         .child(
                             div()
-                                .text_size(px(18.0))
-                                .line_height(px(24.0))
+                                .text_size(px(16.0))
+                                .line_height(px(22.0))
                                 .font_weight(FontWeight::BOLD)
-                                .child("归档当前宠物"),
+                                .child(pet_catalog_text(
+                                    &language,
+                                    "pet.archive.alert.title",
+                                    "Archive Current Pet",
+                                )),
                         ),
                 )
                 .child(
@@ -1680,7 +2169,11 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
                         .text_size(px(12.0))
                         .line_height(px(20.0))
                         .text_color(color(theme::TEXT_MUTED))
-                        .child("将当前宠物归档到图鉴，然后选择新的伙伴。"),
+                        .child(pet_catalog_text(
+                            &language,
+                            "pet.archive.alert.message",
+                            "Archive this pet into the dex and choose a new companion.",
+                        )),
                 )
                 .child(
                     div()
@@ -1693,7 +2186,7 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
                                 .compact()
                                 .ghost()
                                 .text_color(cx.theme().secondary_foreground)
-                                .label("取消")
+                                .label(pet_catalog_text(&language, "common.cancel", "Cancel"))
                                 .on_click(cx.listener(|app, _event, _window, cx| {
                                     app.close_pet_dex_spotlight(cx)
                                 })),
@@ -1703,7 +2196,11 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
                                 .compact()
                                 .primary()
                                 .text_color(cx.theme().primary_foreground)
-                                .label("确认归档")
+                                .label(pet_catalog_text(
+                                    &language,
+                                    "pet.archive.confirm",
+                                    "Confirm Archive",
+                                ))
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.archive_current_pet_confirmed(window, cx)
                                 })),
@@ -1713,37 +2210,45 @@ fn pet_dex_archive_confirm_overlay(cx: &mut Context<CoduxApp>) -> AnyElement {
         .into_any_element()
 }
 
-fn pet_section_header(label: &'static str, count: usize) -> impl IntoElement {
+fn pet_section_header(label: String, trailing: Option<String>) -> impl IntoElement {
     div()
-        .h(px(34.0))
-        .px(px(10.0))
         .flex()
         .items_center()
-        .gap(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.045))
+        .justify_between()
+        .gap(px(12.0))
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
+                .min_w_0()
+                .truncate()
+                .text_size(px(16.0))
+                .line_height(px(20.0))
+                .font_weight(FontWeight::BOLD)
                 .child(label),
         )
-        .child(
-            div()
-                .px(px(7.0))
-                .py(px(1.0))
-                .rounded(px(999.0))
-                .bg(color(theme::ACCENT).opacity(0.16))
-                .text_size(px(12.0))
-                .line_height(px(15.0))
-                .text_color(color(theme::ACCENT))
-                .child(count.to_string()),
-        )
+        .when_some(trailing, |this, trailing| {
+            this.child(
+                div()
+                    .flex_none()
+                    .text_size(px(12.0))
+                    .line_height(px(16.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(color(theme::TEXT_MUTED))
+                    .child(trailing),
+            )
+        })
 }
 
 fn pet_catalog_text(language: &str, key: &str, fallback: &str) -> String {
     let locale = locale_from_language_setting(language);
     translate(&locale, key, fallback)
+}
+
+fn pet_format_placeholders(template: &str, values: &[String]) -> String {
+    let mut output = template.to_string();
+    for value in values {
+        output = output.replacen("%@", value, 1);
+    }
+    output
 }
 
 fn pet_species_name(species: &str) -> String {

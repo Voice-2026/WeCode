@@ -95,6 +95,66 @@ fn writes_and_renames_text_files_safely() {
 }
 
 #[test]
+fn moves_files_and_directories_to_existing_directory() {
+    let root = temp_dir("files-move");
+    fs::create_dir_all(root.join("src").join("nested")).expect("nested dir");
+    fs::create_dir_all(root.join("docs")).expect("docs dir");
+    fs::write(root.join("src").join("note.txt"), "hello\n").expect("note");
+
+    let moved =
+        FilesService::move_to_directory(root.to_str().expect("root"), "src/note.txt", "docs")
+            .expect("move file");
+    assert_eq!(moved.relative_path, "docs/note.txt");
+    assert!(root.join("docs").join("note.txt").is_file());
+
+    let moved_dir =
+        FilesService::move_to_directory(root.to_str().expect("root"), "src/nested", "docs")
+            .expect("move directory");
+    assert_eq!(moved_dir.relative_path, "docs/nested");
+    assert!(root.join("docs").join("nested").is_dir());
+
+    assert!(
+        FilesService::move_to_directory(root.to_str().expect("root"), "docs", "docs/nested")
+            .is_err()
+    );
+    assert!(
+        FilesService::move_to_directory(root.to_str().expect("root"), "docs/note.txt", "../")
+            .is_err()
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn move_to_directory_overwrite_replaces_conflicting_entry() {
+    let root = temp_dir("files-move-overwrite");
+    fs::create_dir_all(root.join("src")).expect("src dir");
+    fs::create_dir_all(root.join("docs")).expect("docs dir");
+    fs::write(root.join("src").join("note.txt"), "new\n").expect("source note");
+    fs::write(root.join("docs").join("note.txt"), "old\n").expect("target note");
+
+    assert!(
+        FilesService::move_to_directory(root.to_str().expect("root"), "src/note.txt", "docs")
+            .is_err()
+    );
+
+    let moved = FilesService::move_to_directory_overwrite(
+        root.to_str().expect("root"),
+        "src/note.txt",
+        "docs",
+    )
+    .expect("move with overwrite");
+    assert_eq!(moved.relative_path, "docs/note.txt");
+    assert_eq!(
+        fs::read_to_string(root.join("docs").join("note.txt")).expect("read target"),
+        "new\n"
+    );
+    assert!(!root.join("src").join("note.txt").exists());
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn copies_files_and_directories_with_available_names() {
     let root = temp_dir("files-copy");
     fs::create_dir_all(root.join("src").join("nested")).expect("nested dir");

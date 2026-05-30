@@ -11,6 +11,7 @@ pub(in crate::app) enum AppWindowMode {
     PetDex,
     Settings,
     ProjectEditor,
+    SshProfileEditor,
     DesktopPet,
 }
 

@@ -1149,17 +1149,24 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
+ "chrono",
+ "cocoa 0.26.0",
  "codux-runtime",
+ "core-foundation-sys",
  "flume 0.12.0",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
  "gpui_platform",
+ "objc",
  "parking_lot",
  "portable-pty",
+ "raw-window-handle",
  "rust-embed",
+ "rustls",
  "serde",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1194,6 +1201,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sys-locale",
  "tokio",
  "tokio-tungstenite",
  "url",
@@ -6559,6 +6567,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",

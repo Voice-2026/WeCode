@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 alacritty_terminal = "0.25.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 codux-runtime = { path = "runtime" }
 flume = "0.12"
 gpui = { git = "https://github.com/zed-industries/zed" }
@@ -14,6 +15,21 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", package
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component-assets" }
 parking_lot = "0.12"
 portable-pty = "0.9"
+rustls = "0.23"
 rust-embed = "8.11"
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v5"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "=0.26.0"
+core-foundation-sys = "0.8"
+objc = "0.2"
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -71,6 +71,13 @@ impl AIHistoryIndexer {
         Self { tx, state, events }
     }
 
+    pub fn active_project_count(&self) -> usize {
+        self.state
+            .lock()
+            .map(|state| state.queued_or_running_projects.len())
+            .unwrap_or_default()
+    }
+
     pub fn project_summary(
         &self,
         project: AIHistoryProjectRequest,

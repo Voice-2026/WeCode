@@ -42,6 +42,7 @@ fn installs_custom_pet_package_from_zip_bytes() {
         display_name: "Spark".to_string(),
         description: "Preview description".to_string(),
         image_url: None,
+        local_image_path: None,
     };
     let zip = pet_package_zip();
 

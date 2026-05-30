@@ -46,9 +46,11 @@ impl PetService {
     }
 
     pub async fn resolve_custom_pet_install(
+        &self,
         request: PetCustomPetInstallRequest,
     ) -> Result<PetCustomPetInstallPreview, String> {
-        resolve_custom_pet_install(request).await
+        super::install::resolve_custom_pet_install_with_cache(self.support_dir.clone(), request)
+            .await
     }
 
     pub async fn install_custom_pet(

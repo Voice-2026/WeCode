@@ -244,7 +244,7 @@ pub fn locale_from_language_setting(language: &str) -> String {
         "spanish" | "es" => "es",
         "portugueseBrazil" | "pt-BR" => "pt-BR",
         "russian" | "ru" => "ru",
-        _ => "en",
+        _ => return app_settings::locale_from_language_setting(language),
     }
     .to_string()
 }

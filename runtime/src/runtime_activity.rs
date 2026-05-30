@@ -3,7 +3,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    time::UNIX_EPOCH,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -48,13 +49,27 @@ impl RuntimeActivityService {
     }
 
     pub fn summary(&self) -> RuntimeActivitySummary {
+        static CACHE: OnceLock<Mutex<Option<(Instant, RuntimeActivitySummary)>>> = OnceLock::new();
+        const CACHE_TTL: Duration = Duration::from_secs(15);
+
+        let cache = CACHE.get_or_init(|| Mutex::new(None));
+        if let Ok(guard) = cache.lock() {
+            if let Some((updated_at, summary)) = guard.as_ref() {
+                if updated_at.elapsed() < CACHE_TTL
+                    && summary.support_dir == self.support_dir.display().to_string()
+                {
+                    return summary.clone();
+                }
+            }
+        }
+
         let runtime_log = self.support_dir.join("runtime.log");
         let live_log = self.runtime_temp_dir.join("live.log");
         let runtime_root = self.runtime_temp_dir.join("runtime-root");
         let runtime_support = self.support_dir.join("runtime-support");
         let runtime_events = self.runtime_temp_dir.join("runtime-events");
 
-        RuntimeActivitySummary {
+        let summary = RuntimeActivitySummary {
             support_dir: self.support_dir.display().to_string(),
             runtime_temp_dir: self.runtime_temp_dir.display().to_string(),
             runtime_root_dir: runtime_root.display().to_string(),
@@ -71,7 +86,11 @@ impl RuntimeActivityService {
             recent_runtime_lines: tail_lines(&runtime_log, 5).unwrap_or_default(),
             recent_live_lines: tail_lines(&live_log, 5).unwrap_or_default(),
             error: None,
+        };
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some((Instant::now(), summary.clone()));
         }
+        summary
     }
 }
 
@@ -141,6 +160,18 @@ fn tail_lines(path: &Path, limit: usize) -> Result<Vec<String>, String> {
 }
 
 fn running_ai_processes() -> Result<Vec<RuntimeProcessSummary>, String> {
+    static CACHE: OnceLock<Mutex<Option<(Instant, Vec<RuntimeProcessSummary>)>>> = OnceLock::new();
+    const CACHE_TTL: Duration = Duration::from_secs(10);
+
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some((updated_at, processes)) = guard.as_ref() {
+            if updated_at.elapsed() < CACHE_TTL {
+                return Ok(processes.clone());
+            }
+        }
+    }
+
     #[cfg(target_os = "windows")]
     {
         return Ok(Vec::new());
@@ -156,12 +187,16 @@ fn running_ai_processes() -> Result<Vec<RuntimeProcessSummary>, String> {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
         }
         let text = String::from_utf8_lossy(&output.stdout);
-        Ok(text
+        let processes = text
             .lines()
             .filter_map(parse_process_line)
             .filter(|process| is_ai_runtime_process(&process.command))
             .take(12)
-            .collect())
+            .collect::<Vec<_>>();
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some((Instant::now(), processes.clone()));
+        }
+        Ok(processes)
     }
 }
 

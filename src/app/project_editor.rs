@@ -15,37 +15,15 @@ impl CoduxApp {
         };
         let submit_label = if is_editing { "保存" } else { "创建" };
 
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .bg(color(theme::BG))
-            .child(column_header(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .w_full()
-                    .child(
-                        div()
-                            .text_size(px(14.0))
-                            .line_height(px(18.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(color(theme::TEXT))
-                            .child(title),
-                    )
-                    .child(header_icon_button(
-                        "project-editor-close",
-                        IconName::Close,
-                        cx,
-                        |_app, _event, window, _cx| window.remove_window(),
-                    )),
-            ))
+        child_window_shell(title)
             .child(
                 div()
+                    .min_h_0()
+                    .flex_1()
+                    .overflow_y_scrollbar()
                     .flex()
                     .flex_col()
-                    .gap_4()
+                    .gap(px(16.0))
                     .p(px(18.0))
                     .child(project_editor_field(
                         "项目名称",
@@ -69,45 +47,51 @@ impl CoduxApp {
                     .child(project_editor_color_field(
                         &self.project_editor_badge_color_hex,
                         cx,
-                    ))
+                    )),
+            )
+            .child(
+                div()
+                    .h(px(62.0))
+                    .flex_shrink_0()
+                    .border_t_1()
+                    .border_color(color(theme::BORDER_SOFT).opacity(0.45))
+                    .px(px(18.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(12.0))
                     .child(
                         div()
-                            .mt(px(4.0))
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .text_color(color(theme::TEXT_DIM))
+                            .child(self.status_message.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
                             .flex()
                             .items_center()
-                            .justify_between()
-                            .gap_3()
+                            .gap(px(8.0))
                             .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .line_height(px(16.0))
-                                    .text_color(color(theme::TEXT_DIM))
-                                    .truncate()
-                                    .child(self.status_message.clone()),
+                                Button::new("project-editor-cancel")
+                                    .ghost()
+                                    .text_color(cx.theme().secondary_foreground)
+                                    .label("取消")
+                                    .on_click(cx.listener(|_app, _event, window, _cx| {
+                                        window.remove_window();
+                                    })),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(
-                                        Button::new("project-editor-cancel")
-                                            .ghost()
-                                            .text_color(cx.theme().secondary_foreground)
-                                            .label("取消")
-                                            .on_click(cx.listener(|_app, _event, window, _cx| {
-                                                window.remove_window();
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new("project-editor-save")
-                                            .secondary()
-                                            .text_color(cx.theme().secondary_foreground)
-                                            .label(submit_label)
-                                            .on_click(cx.listener(|app, _event, window, cx| {
-                                                app.save_project_editor(window, cx);
-                                            })),
-                                    ),
+                                Button::new("project-editor-save")
+                                    .secondary()
+                                    .text_color(cx.theme().secondary_foreground)
+                                    .label(submit_label)
+                                    .on_click(cx.listener(|app, _event, window, cx| {
+                                        app.save_project_editor(window, cx);
+                                    })),
                             ),
                     ),
             )

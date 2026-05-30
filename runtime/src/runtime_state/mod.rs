@@ -14,7 +14,10 @@ use crate::{
         AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest,
         DiagnosticsExportResult, UpdateInstallResult,
     },
-    dialog::{LocalizedOpenDialogRequest, LocalizedSaveDialogRequest},
+    dialog::{
+        LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest, LocalizedOpenDialogRequest,
+        LocalizedSaveDialogRequest,
+    },
     desktop_pet::{
         DesktopPetHitLayout, DesktopPetPhysicalPosition, DesktopPetPhysicalSize,
         DesktopPetPlacementSnapshot, DesktopPetSavedOrigin, DesktopPetService,

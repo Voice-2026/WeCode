@@ -48,6 +48,14 @@ pub struct FileCopyRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileMoveRequest {
+    pub root_path: String,
+    pub source_path: String,
+    pub target_directory_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileExternalCopyRequest {
     pub root_path: String,
     pub source_paths: Vec<String>,

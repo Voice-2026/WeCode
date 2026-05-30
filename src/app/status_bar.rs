@@ -14,7 +14,6 @@ impl CoduxApp {
             .bg(color(theme::STATUS_BAR))
             .text_color(color(theme::TEXT_MUTED))
             .text_xs()
-            .font_weight(FontWeight::SEMIBOLD)
             .child(div().flex().items_center().gap_1().when(
                 self.state.settings.developer_hud,
                 |this| {
@@ -47,9 +46,13 @@ impl CoduxApp {
                     .gap_1()
                     .child(status_ai_segment(
                         self.state.ai_runtime_state.running_count,
+                        self.ai_history_active_index_count,
                         self.state.ai_history.indexed,
                         self.state.ai_history.is_loading,
+                        self.state.ai_history.queued,
+                        self.state.ai_history.progress,
                         self.state.ai_history.error.as_deref(),
+                        app_now_seconds() < self.ai_index_progress_visible_until,
                         cx,
                     ))
                     .child(status_separator())
@@ -113,7 +116,6 @@ fn status_action_button(
         .gap_1()
         .rounded_sm()
         .text_xs()
-        .font_weight(FontWeight::SEMIBOLD)
         .text_color(color(theme::TEXT_MUTED))
         .cursor_pointer()
         .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
@@ -165,7 +167,6 @@ fn status_sync_action_button(
         .gap_1()
         .rounded_sm()
         .text_xs()
-        .font_weight(FontWeight::SEMIBOLD)
         .text_color(color(theme::TEXT_MUTED))
         .cursor_pointer()
         .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
@@ -211,38 +212,51 @@ fn status_metric(
 
 fn status_ai_segment(
     running_count: usize,
+    index_count: usize,
     indexed: bool,
     is_indexing: bool,
+    is_queued: bool,
+    progress: Option<f64>,
     error: Option<&str>,
+    show_progress: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let loading = error.is_none() && (is_indexing || is_queued || index_count > 0);
     let running_color = if running_count > 0 {
         theme::GREEN
     } else {
         theme::TEXT_DIM
     };
+    let active_index_color = if index_count > 0 {
+        theme::ORANGE
+    } else {
+        theme::TEXT_DIM
+    };
     let index_color = if error.is_some() {
+        theme::ORANGE
+    } else if loading {
         theme::ORANGE
     } else if indexed {
         theme::GREEN
-    } else if is_indexing {
-        theme::ORANGE
     } else {
         theme::TEXT_DIM
     };
     let index_label = if error.is_some() {
         "索引失败"
+    } else if loading {
+        "索引中"
     } else if indexed {
         "已索引"
-    } else if is_indexing {
-        "索引中"
     } else {
         "未索引"
     };
+    let progress_value = progress.unwrap_or(0.0).clamp(0.0, 1.0);
+    let progress_loading = progress.is_none() || progress_value <= 0.0;
+    let show_progress = show_progress && loading;
 
     div()
         .id("status-ai-panel")
-        .h(px(20.0))
+        .h(if show_progress { px(24.0) } else { px(20.0) })
         .px(px(6.0))
         .flex()
         .items_center()
@@ -255,7 +269,15 @@ fn status_ai_segment(
         .on_click(cx.listener(|app, _event, window, cx| {
             app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
         }))
-        .child(Icon::new(IconName::Bot).size_2p5())
+        .child(if loading && !show_progress {
+            Spinner::new()
+                .icon(Icon::new(IconName::LoaderCircle))
+                .with_size(Size::Small)
+                .color(color(theme::ORANGE))
+                .into_any_element()
+        } else {
+            Icon::new(IconName::Bot).size_2p5().into_any_element()
+        })
         .child(div().mt(px(1.0)).text_color(color(theme::TEXT)).child("AI"))
         .child(
             div()
@@ -266,9 +288,26 @@ fn status_ai_segment(
         .child(
             div()
                 .mt(px(1.0))
+                .text_color(color(active_index_color))
+                .child(format!("{} 索引", index_count)),
+        )
+        .child(
+            div()
+                .mt(px(1.0))
                 .text_color(color(index_color))
                 .child(index_label),
         )
+        .when(show_progress, |this| {
+            this.child(
+                div().w(px(72.0)).child(
+                    Progress::new("status-ai-index-progress")
+                        .with_size(Size::XSmall)
+                        .color(color(theme::ACCENT))
+                        .loading(loading && progress_loading)
+                        .value((progress_value * 100.0) as f32),
+                ),
+            )
+        })
 }
 
 fn status_memory_segment(

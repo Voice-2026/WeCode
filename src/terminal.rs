@@ -27,6 +27,7 @@ use std::{
     io::Write,
     ops::Range,
     sync::{Arc, mpsc},
+    time::Duration,
 };
 
 pub use codux_runtime::terminal_pty::TerminalLaunchContext;
@@ -221,7 +222,11 @@ pub struct TerminalView {
     title: Option<String>,
     bell_count: usize,
     exited: bool,
+    cursor_visible: bool,
+    pending_scroll_lines: i32,
+    scroll_frame_pending: bool,
     _reader_task: Task<()>,
+    _cursor_blink_task: Task<()>,
 }
 
 impl TerminalView {
@@ -256,7 +261,23 @@ impl TerminalView {
             while let Ok(bytes) = bytes_rx.recv_async().await {
                 if this
                     .update(cx, |view, cx| {
+                        view.cursor_visible = true;
                         view.state.process_bytes(&bytes);
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let blink_timer = cx.background_executor().clone();
+        let cursor_blink_task = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                blink_timer.timer(Duration::from_millis(500)).await;
+                if this
+                    .update(cx, |view, cx| {
+                        view.cursor_visible = !view.cursor_visible;
                         cx.notify();
                     })
                     .is_err()
@@ -281,7 +302,11 @@ impl TerminalView {
             title: None,
             bell_count: 0,
             exited: false,
+            cursor_visible: true,
+            pending_scroll_lines: 0,
+            scroll_frame_pending: false,
             _reader_task: reader_task,
+            _cursor_blink_task: cursor_blink_task,
         }
     }
 
@@ -303,6 +328,7 @@ impl TerminalView {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.cursor_visible = true;
         if is_copy_keystroke(&event.keystroke) {
             if let Some(text) = self.selected_text() {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -445,10 +471,28 @@ impl TerminalView {
                     self.write_bytes(sequence);
                 }
             } else {
-                self.state.scroll_display(lines);
+                self.queue_display_scroll(lines, _window, cx);
             }
             cx.stop_propagation();
-            cx.notify();
+        }
+    }
+
+    fn queue_display_scroll(&mut self, lines: i32, window: &Window, cx: &mut Context<Self>) {
+        self.pending_scroll_lines = self.pending_scroll_lines.saturating_add(lines);
+        if !self.scroll_frame_pending {
+            self.scroll_frame_pending = true;
+            cx.defer_in(window, |terminal, _window, cx| {
+                terminal.flush_pending_scroll();
+                cx.notify();
+            });
+        }
+    }
+
+    fn flush_pending_scroll(&mut self) {
+        self.scroll_frame_pending = false;
+        let lines = std::mem::take(&mut self.pending_scroll_lines);
+        if lines != 0 {
+            self.state.scroll_display(lines);
         }
     }
 
@@ -578,6 +622,7 @@ fn should_send_alternate_scroll(mode: TermMode, shift_pressed: bool) -> bool {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.flush_pending_scroll();
         self.process_events(window, cx);
 
         let term = self.state.term.clone();
@@ -590,6 +635,7 @@ impl Render for TerminalView {
         let terminal_view = cx.weak_entity();
         let marked_text = self.marked_text.clone();
         let padding = self.config.padding;
+        let cursor_visible = !self.focus_handle.contains_focused(window, cx) || self.cursor_visible;
 
         div()
             .size_full()
@@ -638,7 +684,15 @@ impl Render for TerminalView {
                             term.resize(TermSize::new(cols, rows));
                         }
                         let selection = selection.lock().range();
-                        renderer.paint(bounds, padding, &term, selection, window, cx);
+                        renderer.paint(
+                            bounds,
+                            padding,
+                            &term,
+                            selection,
+                            cursor_visible,
+                            window,
+                            cx,
+                        );
                         if let Some(marked_text) = marked_text.as_deref() {
                             renderer.paint_marked_text(
                                 bounds,
@@ -1668,6 +1722,7 @@ impl TerminalRenderer {
         padding: Edges<Pixels>,
         term: &Term<GpuiEventProxy>,
         selection: Option<SelectionRange>,
+        cursor_visible: bool,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -1708,7 +1763,7 @@ impl TerminalRenderer {
             self.paint_row_text(line, row, grid.columns(), grid, colors, origin, window, cx);
         }
 
-        if display_offset == 0 {
+        if display_offset == 0 && cursor_visible {
             self.paint_cursor(grid.cursor.point, colors, origin, window);
         }
     }
@@ -1780,9 +1835,6 @@ impl TerminalRenderer {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let vertical_offset =
-            (self.cell_height - (self.cell_height / self.line_height_multiplier)) / 2.0;
-
         let mut current_run: Option<TerminalTextRun> = None;
         for col in 0..columns {
             let cell = &grid[TerminalPoint::new(line, Column(col))];
@@ -1833,14 +1885,14 @@ impl TerminalRenderer {
                 }
             } else {
                 if let Some(current) = current_run.take() {
-                    current.paint(self, row, origin, vertical_offset, window, cx);
+                    current.paint(self, row, origin, window, cx);
                 }
                 current_run = Some(TerminalTextRun::new(col, cell.c, cell_width, run));
             }
         }
 
         if let Some(current) = current_run {
-            current.paint(self, row, origin, vertical_offset, window, cx);
+            current.paint(self, row, origin, window, cx);
         }
     }
 
@@ -1854,15 +1906,17 @@ impl TerminalRenderer {
         let cursor_color = self
             .palette
             .resolve(Color::Named(NamedColor::Cursor), colors);
+        let x = origin.x + self.cell_width * cursor.column.0 as f32;
+        let y = origin.y + self.cell_height * cursor.line.0 as f32;
         window.paint_quad(quad(
             Bounds {
                 origin: Point {
-                    x: origin.x + self.cell_width * cursor.column.0 as f32,
-                    y: origin.y + self.cell_height * cursor.line.0 as f32,
+                    x: px(f32::from(x).floor()),
+                    y: px(f32::from(y).floor()),
                 },
                 size: Size {
-                    width: self.cell_width,
-                    height: self.cell_height,
+                    width: px(f32::from(self.cell_width).round().max(1.0)),
+                    height: px(f32::from(self.cell_height).round().max(1.0)),
                 },
             },
             px(0.0),
@@ -1973,7 +2027,6 @@ impl TerminalTextRun {
         renderer: &TerminalRenderer,
         row: usize,
         origin: Point<Pixels>,
-        vertical_offset: Pixels,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -1990,7 +2043,7 @@ impl TerminalTextRun {
         let _ = shaped.paint(
             Point {
                 x: origin.x + renderer.cell_width * self.start_col as f32,
-                y: origin.y + renderer.cell_height * row as f32 + vertical_offset,
+                y: origin.y + renderer.cell_height * row as f32,
             },
             renderer.cell_height,
             TextAlign::Left,

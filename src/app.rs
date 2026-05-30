@@ -10,9 +10,12 @@ use codux_runtime::{
     desktop_pet::{
         DESKTOP_PET_BASE_HEIGHT, DESKTOP_PET_BASE_WIDTH, DESKTOP_PET_HIDE, DESKTOP_PET_MUTE_1_HOUR,
         DESKTOP_PET_MUTE_30_MINUTES, DESKTOP_PET_MUTE_TODAY, DESKTOP_PET_SKIP_LINE,
-        DESKTOP_PET_SPEAK_LESS, DESKTOP_PET_SPEAK_MORE, DesktopPetSavedOrigin, DesktopPetWorkArea,
+        DESKTOP_PET_SPEAK_LESS, DESKTOP_PET_SPEAK_MORE, DesktopPetSavedOrigin, DesktopPetSide,
+        DesktopPetWorkArea,
     },
-    dialog::LocalizedOpenDialogRequest,
+    dialog::{
+        LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest, LocalizedOpenDialogRequest,
+    },
     files::FileChangeEvent,
     git::{
         GitBranchSummary, GitCommitSummary, GitFileStatus, GitRemoteSummary,
@@ -24,10 +27,11 @@ use codux_runtime::{
         MemoryProjectMigrationRequest, MemoryProjectProfileRefreshResult, MemorySummary,
         MemorySummaryUpdateRequest,
     },
-    notification::{NotificationChannelConfig, NotificationDispatchRequest},
+    notification::{NotificationChannelConfig, NotificationDispatchRequest, NotificationSummary},
+    performance::{PerformanceService, PerformanceSummary},
     pet::{
-        PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview, PetCustomPetInstallRequest,
-        PetRenameRequest, PetRestoreRequest, PetSnapshot, PetSummary,
+        PetCatalog, PetClaimRequest, PetCustomPet, PetCustomPetInstallPreview,
+        PetCustomPetInstallRequest, PetRenameRequest, PetRestoreRequest, PetSnapshot, PetSummary,
     },
     project_activity::ProjectActivityEvent,
     project_open::ProjectOpenApplicationSummary,
@@ -37,69 +41,87 @@ use codux_runtime::{
     runtime_bridge::RuntimeInventory,
     runtime_event::{RuntimeEventSummary, RuntimeSessionSummary},
     runtime_ingress::{RuntimeIngressService, RuntimeIngressStatus},
+    runtime_paths::app_display_name,
     runtime_state::{FileEntry, FileKind, ProjectInfo, RuntimeService, RuntimeState},
     settings::{SettingsSummary, locale_from_language_setting},
     ssh::{SSHConnectionProfile, SSHProfileSummary, SSHProfileUpsertRequest, SSHSummary},
     terminal_layout::{TerminalPaneSummary, TerminalTabSummary},
     terminal_pty::TerminalManager,
-    terminal_runtime::{TerminalInputSummary, TerminalRuntimeService, TerminalRuntimeSessionInput},
-    worktree::{ProjectWorktreeGitSummary, WorktreeInfo, WorktreeTaskInfo},
+    terminal_runtime::{
+        TerminalInputSummary, TerminalRuntimeService, TerminalRuntimeSessionInput,
+        TerminalRuntimeSummary,
+    },
+    worktree::WorktreeInfo,
 };
 use gpui::{
-    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, DispatchPhase,
+    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, FocusHandle,
     FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ObjectFit,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, img,
-    linear_color_stop, linear_gradient, point, prelude::FluentBuilder as _, px, size,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    Subscription, UniformListScrollHandle, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
+    prelude::FluentBuilder as _, px, size,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Root, Sizable,
-    button::{Button, ButtonVariants},
+    ActiveTheme, Disableable, Icon, IconName, Root, Sizable, Size, VirtualListScrollHandle,
+    button::{Button, ButtonCustomVariant, ButtonVariants},
+    input::{Input, InputEvent, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
-    resizable::{resizable_panel, v_resizable},
-    scroll::ScrollableElement,
+    progress::Progress,
+    resizable::{h_resizable, resizable_panel, v_resizable},
+    select::{Select, SelectEvent, SelectItem, SelectState},
+    spinner::Spinner,
     tag::Tag,
     tooltip::Tooltip,
+    v_virtual_list,
 };
 use std::{
-    any::TypeId,
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
+    rc::Rc,
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 mod about;
 mod formatting;
+pub(crate) mod macos_window;
 pub(crate) mod native_menu;
 mod pet;
 mod project_column;
 mod project_editor;
+mod scroll_compat;
 mod settings;
 mod sidebars;
+mod ssh_profile_editor;
 mod status_bar;
 mod task_column;
 mod terminal_state;
 mod types;
+mod window_shell;
 mod workspace;
 use self::{
     formatting::{compact_number, relative_time_label},
+    scroll_compat::{ScrollableElement, codux_uniform_list},
     settings::SettingsPane,
     sidebars::{
-        AssistantPanel, current_directory_suffix, file_directory_option, file_preview_workspace,
-        file_section, git_diff_window_workspace, git_review_workspace, git_workspace_section,
-        memory_manager_window_workspace, parent_relative_directory,
+        AssistantPanel, FileTreeRow, clipboard_external_paths, current_directory_suffix,
+        file_directory_option, file_preview_workspace, file_tree_rows, git_diff_window_workspace,
+        git_review_workspace, git_workspace_section, memory_manager_window_workspace,
+        parent_relative_directory,
     },
+    ssh_profile_editor::ssh_profile_editor_workspace,
     terminal_state::{
         prepare_memory_launch_artifacts, spawn_terminal_tabs, terminal_config_for_settings,
         terminal_launch_context, terminal_pane_launch_context, terminal_pane_summary,
         terminal_restore_plan, terminal_tab_summary,
     },
     types::*,
+    window_shell::child_window_shell,
 };
 
 pub struct CoduxApp {
     window_mode: AppWindowMode,
+    root_focus_handle: Option<FocusHandle>,
     terminals: Vec<TerminalTab>,
     terminal_manager: Arc<TerminalManager>,
     active_terminal_id: usize,
@@ -111,9 +133,21 @@ pub struct CoduxApp {
     is_exiting: bool,
     status_message: String,
     desktop_pet_window: Option<AnyWindowHandle>,
-    desktop_pet_line_skipped: bool,
+    settings_window: Option<AnyWindowHandle>,
+    about_window: Option<AnyWindowHandle>,
+    memory_manager_window: Option<AnyWindowHandle>,
+    pet_claim_window: Option<AnyWindowHandle>,
+    pet_custom_install_window: Option<AnyWindowHandle>,
+    pet_dex_window: Option<AnyWindowHandle>,
+    ssh_profile_editor_window: Option<AnyWindowHandle>,
+    project_editor_window: Option<AnyWindowHandle>,
     desktop_pet_line: String,
+    desktop_pet_tone: DesktopPetActivityTone,
+    desktop_pet_active_llm_key: String,
+    desktop_pet_requested_llm_key: String,
+    desktop_pet_last_llm_requested_at: f64,
     pet_sprite_frame: usize,
+    pet_sprite_animation_active: bool,
     file_preview: String,
     file_editable: bool,
     file_dirty: bool,
@@ -122,16 +156,24 @@ pub struct CoduxApp {
     file_search_match_index: usize,
     file_directory: String,
     selected_file_entry: Option<String>,
+    selected_file_entries: HashSet<String>,
+    file_selection_anchor: Option<String>,
     file_name_draft_kind: Option<FileNameDraftKind>,
+    file_name_draft_target: Option<String>,
     file_name_draft_value: String,
+    file_name_draft_select_all: bool,
     file_tree_expanded_dirs: HashSet<String>,
     file_tree_children: HashMap<String, Vec<FileEntry>>,
+    file_tree_scroll_handle: UniformListScrollHandle,
+    file_preview_scroll_handle: UniformListScrollHandle,
     selected_git_file: Option<String>,
     selected_git_branch: Option<String>,
     git_review: GitReviewSummary,
     git_expanded_sections: HashSet<String>,
     git_expanded_dirs: HashSet<String>,
     git_tree_children: HashMap<String, Vec<GitFileStatus>>,
+    git_files_scroll_handle: VirtualListScrollHandle,
+    selected_git_files: HashSet<String>,
     git_diff_preview: String,
     git_diff_window_path: Option<String>,
     git_diff_window_content: String,
@@ -143,16 +185,27 @@ pub struct CoduxApp {
     git_remote_url: String,
     git_running_operation: Option<GitRunningOperation>,
     git_commit_message: String,
+    git_commit_message_revision: u64,
     pet_install_url: String,
     pet_install_display_name: String,
     pet_install_preview: Option<PetCustomPetInstallPreview>,
     pet_install_error: Option<String>,
     pet_install_previewing: bool,
     pet_installing: bool,
+    pet_catalog: PetCatalog,
+    pet_snapshot: PetSnapshot,
     pet_custom_pets: Vec<PetCustomPet>,
+    pet_sprite_paths: HashMap<String, PathBuf>,
+    project_scroll_handle: UniformListScrollHandle,
+    task_scroll_handle: UniformListScrollHandle,
+    session_scroll_handle: UniformListScrollHandle,
+    ssh_scroll_handle: UniformListScrollHandle,
+    git_history_scroll_handle: VirtualListScrollHandle,
+    pet_dex_scroll_handle: VirtualListScrollHandle,
     pet_custom_install_seen_revision: u64,
     pet_update_seen_revision: u64,
     settings_seen_revision: u64,
+    ssh_seen_revision: u64,
     pet_claim_species: String,
     pet_name_editing: bool,
     pet_dex_spotlight: Option<PetDexSpotlight>,
@@ -164,11 +217,19 @@ pub struct CoduxApp {
     selected_memory_summary_id: Option<String>,
     selected_notification_channel_id: Option<String>,
     notification_testing_channel_id: Option<String>,
+    runtime_refresh_in_flight: bool,
+    pending_runtime_refresh: Option<RuntimeScheduledRefresh>,
+    ai_index_progress_visible_until: f64,
+    ai_index_progress_generation: u64,
+    ai_history_active_index_count: usize,
+    performance_refresh_in_flight: bool,
+    pending_performance_refresh: Option<PerformanceSummary>,
     active_settings_pane: SettingsPane,
     memory_manager_tab: MemoryManagerTab,
     memory_processing: bool,
     selected_runtime_terminal_id: Option<String>,
     selected_ssh_profile_id: Option<String>,
+    ssh_draft_open: bool,
     ssh_testing: bool,
     ssh_draft_id: Option<String>,
     ssh_draft_name: String,
@@ -187,6 +248,11 @@ pub struct CoduxApp {
     assistant_panel: Option<AssistantPanel>,
     project_column_collapsed: bool,
     task_column_collapsed: bool,
+    project_list_store: Option<gpui::Entity<ProjectListStore>>,
+    project_column_view: Option<gpui::Entity<ProjectColumnView>>,
+    task_column_view: Option<gpui::Entity<TaskColumnView>>,
+    workspace_column_view: Option<gpui::Entity<WorkspaceColumnView>>,
+    file_sidebar_view: Option<gpui::Entity<FileSidebarView>>,
     project_open_applications: Vec<ProjectOpenApplicationSummary>,
     project_editor_project_id: Option<String>,
     project_editor_name: String,
@@ -423,6 +489,15 @@ struct RuntimeActivityTickResult {
     ai_state_error: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+struct RuntimeScheduledRefresh {
+    runtime_activity: RuntimeActivitySummary,
+    runtime_events: RuntimeEventSummary,
+    remote: RemoteSummary,
+    terminal_runtime: TerminalRuntimeSummary,
+    notifications: NotificationSummary,
+}
+
 impl Default for GitOperationCompletion {
     fn default() -> Self {
         Self {
@@ -457,9 +532,15 @@ struct SettingsUpdateEvent {
     revision: u64,
 }
 
+#[derive(Clone, Debug, Default)]
+struct SshUpdateEvent {
+    revision: u64,
+}
+
 static PET_CUSTOM_INSTALL_EVENT: OnceLock<Mutex<PetCustomInstallEvent>> = OnceLock::new();
 static PET_UPDATE_EVENT: OnceLock<Mutex<PetUpdateEvent>> = OnceLock::new();
 static SETTINGS_UPDATE_EVENT: OnceLock<Mutex<SettingsUpdateEvent>> = OnceLock::new();
+static SSH_UPDATE_EVENT: OnceLock<Mutex<SshUpdateEvent>> = OnceLock::new();
 
 fn pet_custom_install_event() -> &'static Mutex<PetCustomInstallEvent> {
     PET_CUSTOM_INSTALL_EVENT.get_or_init(|| Mutex::new(PetCustomInstallEvent::default()))
@@ -517,6 +598,32 @@ fn publish_settings_update() -> u64 {
     };
     event.revision = event.revision.saturating_add(1);
     event.revision
+}
+
+fn ssh_update_event() -> &'static Mutex<SshUpdateEvent> {
+    SSH_UPDATE_EVENT.get_or_init(|| Mutex::new(SshUpdateEvent::default()))
+}
+
+fn current_ssh_update_event() -> SshUpdateEvent {
+    ssh_update_event()
+        .lock()
+        .map(|event| event.clone())
+        .unwrap_or_default()
+}
+
+fn publish_ssh_update() -> u64 {
+    let Ok(mut event) = ssh_update_event().lock() else {
+        return 0;
+    };
+    event.revision = event.revision.saturating_add(1);
+    event.revision
+}
+
+fn app_now_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 fn ai_session_restore_command(session: &AISessionSummary) -> String {
@@ -737,13 +844,53 @@ fn app_git_review(state: &RuntimeState) -> GitReviewSummary {
     state.git_review.clone()
 }
 
+fn git_status_tree_key(section_id: &str, path: &str) -> String {
+    format!("{section_id}:{}", path.trim_matches('/'))
+}
+
 fn desktop_pet_fallback_line() -> &'static str {
-    "休息一下，我会在这里陪你盯住进度。"
+    ""
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DesktopPetActivityTone {
+    Normal,
+    Attention,
+    Success,
+    Warning,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DesktopPetAnimation {
+    row: usize,
+    frame_count: usize,
+}
+
+struct DesktopPetActivityLine {
+    text: String,
+    tone: DesktopPetActivityTone,
+}
+
+impl DesktopPetActivityLine {
+    fn empty() -> Self {
+        Self {
+            text: String::new(),
+            tone: DesktopPetActivityTone::Normal,
+        }
+    }
+}
+
+struct DesktopPetLlmContext {
+    event: &'static str,
+    fallback_text: String,
+    tone: DesktopPetActivityTone,
+    tool: String,
+    updated_at: f64,
 }
 
 fn desktop_pet_runtime_activity_line(
     runtime: &codux_runtime::ai_runtime_state::AIRuntimeStateSummary,
-) -> String {
+) -> DesktopPetActivityLine {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
@@ -767,9 +914,15 @@ fn desktop_pet_runtime_activity_line(
             .as_deref()
             .filter(|value| !value.trim().is_empty())
         {
-            return format!("{} 需要授权使用 {target}", session.tool);
+            return DesktopPetActivityLine {
+                text: format!("{} 需要授权使用 {target}", session.tool),
+                tone: DesktopPetActivityTone::Attention,
+            };
         }
-        return format!("{} 需要授权", session.tool);
+        return DesktopPetActivityLine {
+            text: format!("{} 需要授权", session.tool),
+            tone: DesktopPetActivityTone::Attention,
+        };
     }
 
     if let Some(session) = runtime
@@ -778,24 +931,34 @@ fn desktop_pet_runtime_activity_line(
         .filter(|session| session.state == "needs-input")
         .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
     {
-        return normalized_desktop_pet_preview(session.message.as_deref())
-            .unwrap_or_else(|| format!("{} 需要输入", session.tool));
+        return DesktopPetActivityLine {
+            text: normalized_desktop_pet_preview(session.message.as_deref())
+                .unwrap_or_else(|| format!("{} 需要输入", session.tool)),
+            tone: DesktopPetActivityTone::Attention,
+        };
     }
 
     if let Some(session) = runtime
         .sessions
         .iter()
         .filter(|session| {
-            session.state == "completed"
+            session.state != "running"
+                && session.state != "needs-input"
                 && session.has_completed_turn
                 && now - session.updated_at <= 30.0
         })
         .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
     {
         if session.was_interrupted {
-            return format!("{} 执行失败", session.tool);
+            return DesktopPetActivityLine {
+                text: format!("{} 执行失败", session.tool),
+                tone: DesktopPetActivityTone::Warning,
+            };
         }
-        return format!("{} 已完成", session.tool);
+        return DesktopPetActivityLine {
+            text: format!("{} 已完成", session.tool),
+            tone: DesktopPetActivityTone::Success,
+        };
     }
 
     if let Some(session) = runtime
@@ -804,11 +967,128 @@ fn desktop_pet_runtime_activity_line(
         .filter(|session| session.state == "running")
         .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
     {
-        return normalized_desktop_pet_preview(session.latest_assistant_preview.as_deref())
-            .unwrap_or_else(|| format!("{} 正在运行", session.tool));
+        return DesktopPetActivityLine {
+            text: normalized_desktop_pet_preview(session.latest_assistant_preview.as_deref())
+                .unwrap_or_else(|| format!("{} 正在运行", session.tool)),
+            tone: DesktopPetActivityTone::Normal,
+        };
     }
 
-    desktop_pet_fallback_line().to_string()
+    DesktopPetActivityLine::empty()
+}
+
+fn desktop_pet_llm_context(
+    runtime: &codux_runtime::ai_runtime_state::AIRuntimeStateSummary,
+) -> Option<DesktopPetLlmContext> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs_f64())
+        .unwrap_or(0.0);
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| {
+            session.state == "needs-input"
+                && session
+                    .notification_type
+                    .as_deref()
+                    .map(is_permission_request_notification_type)
+                    .unwrap_or(false)
+        })
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+    {
+        let fallback_text = if let Some(target) = session
+            .target_tool_name
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            format!("{} 需要授权使用 {target}", session.tool)
+        } else {
+            format!("{} 需要授权", session.tool)
+        };
+        return Some(DesktopPetLlmContext {
+            event: "permission",
+            fallback_text,
+            tone: DesktopPetActivityTone::Attention,
+            tool: session.tool.clone(),
+            updated_at: session.updated_at,
+        });
+    }
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| session.state == "needs-input")
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+        .filter(|session| normalized_desktop_pet_preview(session.message.as_deref()).is_none())
+    {
+        return Some(DesktopPetLlmContext {
+            event: "needsInput",
+            fallback_text: format!("{} 需要输入", session.tool),
+            tone: DesktopPetActivityTone::Attention,
+            tool: session.tool.clone(),
+            updated_at: session.updated_at,
+        });
+    }
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| {
+            session.state != "running"
+                && session.state != "needs-input"
+                && session.has_completed_turn
+                && now - session.updated_at <= 30.0
+        })
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+    {
+        let failed = session.was_interrupted;
+        return Some(DesktopPetLlmContext {
+            event: if failed { "failed" } else { "completed" },
+            fallback_text: if failed {
+                format!("{} 执行失败", session.tool)
+            } else {
+                format!("{} 已完成", session.tool)
+            },
+            tone: if failed {
+                DesktopPetActivityTone::Warning
+            } else {
+                DesktopPetActivityTone::Success
+            },
+            tool: session.tool.clone(),
+            updated_at: session.updated_at,
+        });
+    }
+
+    if let Some(session) = runtime
+        .sessions
+        .iter()
+        .filter(|session| session.state == "running")
+        .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+        .filter(|session| {
+            normalized_desktop_pet_preview(session.latest_assistant_preview.as_deref()).is_none()
+        })
+    {
+        return Some(DesktopPetLlmContext {
+            event: "running",
+            fallback_text: format!("{} 正在运行", session.tool),
+            tone: DesktopPetActivityTone::Normal,
+            tool: session.tool.clone(),
+            updated_at: session.updated_at,
+        });
+    }
+
+    None
+}
+
+fn desktop_pet_llm_cooldown_seconds(value: &str) -> f64 {
+    match value.trim() {
+        "chatterbox" => 30.0,
+        "lively" => 90.0,
+        "quiet" => 15.0 * 60.0,
+        _ => 5.0 * 60.0,
+    }
 }
 
 fn normalized_desktop_pet_preview(value: Option<&str>) -> Option<String> {
@@ -836,7 +1116,23 @@ const PET_ATLAS_ROWS: f32 = 9.0;
 const PET_ATLAS_CELL_WIDTH: f32 = 192.0;
 const PET_ATLAS_CELL_HEIGHT: f32 = 208.0;
 const PET_IDLE_FRAME_COUNT: usize = 6;
+const PET_RUNNING_FRAME_COUNT: usize = 6;
+const PET_WAITING_FRAME_COUNT: usize = 6;
+const PET_REVIEW_FRAME_COUNT: usize = 6;
+const PET_WAVING_FRAME_COUNT: usize = 4;
+const PET_FAILED_FRAME_COUNT: usize = 8;
 const DESKTOP_PET_SPRITE_SIZE: f32 = 112.0;
+const DESKTOP_PET_BUBBLE_WIDTH: f32 = 198.0;
+const DESKTOP_PET_BUBBLE_MIN_HEIGHT: f32 = 52.0;
+const DESKTOP_PET_BUBBLE_TOP: f32 = 52.0;
+const DESKTOP_PET_BUBBLE_EDGE: f32 = 8.0;
+const DESKTOP_PET_BUBBLE_TAIL_SIZE: f32 = 9.0;
+const DESKTOP_PET_SPRITE_BOTTOM: f32 = 8.0;
+const DESKTOP_PET_SPRITE_SIDE: f32 = 24.0;
+const PET_CUSTOM_INSTALL_WINDOW_WIDTH: f32 = 680.0;
+const PET_CUSTOM_INSTALL_INPUT_HEIGHT: f32 = 230.0;
+const PET_CUSTOM_INSTALL_READY_HEIGHT: f32 = 530.0;
+const PET_CUSTOM_INSTALL_ERROR_HEIGHT: f32 = 280.0;
 
 fn pet_sprite_visible_width(size: f32) -> f32 {
     PET_ATLAS_CELL_WIDTH * (size / PET_ATLAS_CELL_HEIGHT)
@@ -882,6 +1178,55 @@ fn custom_pet_sprite_path(support_dir: &Path, custom_pet: &PetCustomPet) -> Path
         .join("custom-pets")
         .join(&custom_pet.directory_name)
         .join(&custom_pet.spritesheet_path)
+}
+
+fn pet_sprite_path_cache(
+    runtime_asset_root: &Path,
+    support_dir: &Path,
+    catalog: &PetCatalog,
+) -> HashMap<String, PathBuf> {
+    let mut paths = HashMap::new();
+    for item in &catalog.species {
+        paths.insert(
+            item.species.clone(),
+            pet_sprite_path(
+                runtime_asset_root,
+                support_dir,
+                &PetSummary {
+                    species: item.species.clone(),
+                    ..PetSummary::default()
+                },
+                &[],
+            ),
+        );
+    }
+    for custom_pet in &catalog.custom_pets {
+        paths.insert(
+            format!("custom:{}", custom_pet.id),
+            custom_pet_sprite_path(support_dir, custom_pet),
+        );
+    }
+    paths
+}
+
+fn resize_pet_custom_install_window(window: &mut Window, height: f32) {
+    window.resize(size(
+        px(PET_CUSTOM_INSTALL_WINDOW_WIDTH),
+        px(height.clamp(
+            PET_CUSTOM_INSTALL_INPUT_HEIGHT,
+            PET_CUSTOM_INSTALL_READY_HEIGHT,
+        )),
+    ));
+}
+
+fn resize_pet_custom_install_window_handle(
+    handle: AnyWindowHandle,
+    height: f32,
+    cx: &mut Context<CoduxApp>,
+) {
+    let _ = handle.update(cx, |_view, window, _cx| {
+        resize_pet_custom_install_window(window, height);
+    });
 }
 
 impl CoduxApp {
@@ -975,10 +1320,15 @@ impl CoduxApp {
             .map(|branch| branch.name.clone());
         let git_review = app_git_review(&state);
         let project_open_applications = runtime_service.project_open_applications();
-        let pet_custom_pets = runtime_service.pet_catalog().custom_pets;
+        let pet_catalog = runtime_service.pet_catalog();
+        let pet_snapshot = runtime_service.pet_snapshot().unwrap_or_default();
+        let pet_custom_pets = pet_catalog.custom_pets.clone();
+        let pet_sprite_paths =
+            pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
 
         let mut app = Self {
             window_mode: AppWindowMode::Main,
+            root_focus_handle: None,
             terminals,
             terminal_manager,
             active_terminal_id,
@@ -1005,9 +1355,21 @@ impl CoduxApp {
                 ai_runtime_status
             ),
             desktop_pet_window: None,
-            desktop_pet_line_skipped: false,
+            settings_window: None,
+            about_window: None,
+            memory_manager_window: None,
+            pet_claim_window: None,
+            pet_custom_install_window: None,
+            pet_dex_window: None,
+            ssh_profile_editor_window: None,
+            project_editor_window: None,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
+            desktop_pet_tone: DesktopPetActivityTone::Normal,
+            desktop_pet_active_llm_key: String::new(),
+            desktop_pet_requested_llm_key: String::new(),
+            desktop_pet_last_llm_requested_at: 0.0,
             pet_sprite_frame: 0,
+            pet_sprite_animation_active: false,
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
@@ -1016,16 +1378,24 @@ impl CoduxApp {
             file_search_match_index: 0,
             file_directory: String::new(),
             selected_file_entry: None,
+            selected_file_entries: HashSet::new(),
+            file_selection_anchor: None,
             file_name_draft_kind: None,
+            file_name_draft_target: None,
             file_name_draft_value: String::new(),
+            file_name_draft_select_all: false,
             file_tree_expanded_dirs: HashSet::new(),
             file_tree_children: HashMap::new(),
+            file_tree_scroll_handle: UniformListScrollHandle::new(),
+            file_preview_scroll_handle: UniformListScrollHandle::new(),
             selected_git_file: None,
             selected_git_branch,
             git_review,
             git_expanded_sections: HashSet::from(["changed".to_string(), "untracked".to_string()]),
             git_expanded_dirs: HashSet::new(),
             git_tree_children: HashMap::new(),
+            git_files_scroll_handle: VirtualListScrollHandle::new(),
+            selected_git_files: HashSet::new(),
             git_diff_preview: "select a changed file to preview its diff".to_string(),
             git_diff_window_path: None,
             git_diff_window_content: String::new(),
@@ -1037,16 +1407,27 @@ impl CoduxApp {
             git_remote_url: String::new(),
             git_running_operation: None,
             git_commit_message: String::new(),
+            git_commit_message_revision: 0,
             pet_install_url: String::new(),
             pet_install_display_name: String::new(),
             pet_install_preview: None,
             pet_install_error: None,
             pet_install_previewing: false,
             pet_installing: false,
+            pet_catalog,
+            pet_snapshot,
             pet_custom_pets,
+            pet_sprite_paths,
+            project_scroll_handle: UniformListScrollHandle::new(),
+            task_scroll_handle: UniformListScrollHandle::new(),
+            session_scroll_handle: UniformListScrollHandle::new(),
+            ssh_scroll_handle: UniformListScrollHandle::new(),
+            git_history_scroll_handle: VirtualListScrollHandle::new(),
+            pet_dex_scroll_handle: VirtualListScrollHandle::new(),
             pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
             pet_update_seen_revision: current_pet_update_event().revision,
             settings_seen_revision: current_settings_update_event().revision,
+            ssh_seen_revision: current_ssh_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -1058,11 +1439,19 @@ impl CoduxApp {
             selected_memory_summary_id,
             selected_notification_channel_id,
             notification_testing_channel_id: None,
+            runtime_refresh_in_flight: false,
+            pending_runtime_refresh: None,
+            ai_index_progress_visible_until: 0.0,
+            ai_index_progress_generation: 0,
+            ai_history_active_index_count: 0,
+            performance_refresh_in_flight: false,
+            pending_performance_refresh: None,
             active_settings_pane: SettingsPane::General,
             memory_manager_tab: MemoryManagerTab::Active,
             memory_processing: false,
             selected_runtime_terminal_id,
             selected_ssh_profile_id,
+            ssh_draft_open: false,
             ssh_testing: false,
             ssh_draft_id: None,
             ssh_draft_name: String::new(),
@@ -1081,6 +1470,11 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: false,
             task_column_collapsed: false,
+            project_list_store: None,
+            project_column_view: None,
+            task_column_view: None,
+            workspace_column_view: None,
+            file_sidebar_view: None,
             project_open_applications,
             project_editor_project_id: None,
             project_editor_name: String::new(),
@@ -1140,10 +1534,15 @@ impl CoduxApp {
             .map(|branch| branch.name.clone());
         let git_review = app_git_review(&state);
         let project_open_applications = runtime_service.project_open_applications();
-        let pet_custom_pets = runtime_service.pet_catalog().custom_pets;
+        let pet_catalog = runtime_service.pet_catalog();
+        let pet_snapshot = runtime_service.pet_snapshot().unwrap_or_default();
+        let pet_custom_pets = pet_catalog.custom_pets.clone();
+        let pet_sprite_paths =
+            pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
 
         Self {
             window_mode: AppWindowMode::Settings,
+            root_focus_handle: None,
             terminals: Vec::new(),
             terminal_manager: Arc::new(TerminalManager::new()),
             active_terminal_id: 0,
@@ -1155,9 +1554,21 @@ impl CoduxApp {
             is_exiting: false,
             status_message: "settings window ready".to_string(),
             desktop_pet_window: None,
-            desktop_pet_line_skipped: false,
+            settings_window: None,
+            about_window: None,
+            memory_manager_window: None,
+            pet_claim_window: None,
+            pet_custom_install_window: None,
+            pet_dex_window: None,
+            ssh_profile_editor_window: None,
+            project_editor_window: None,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
+            desktop_pet_tone: DesktopPetActivityTone::Normal,
+            desktop_pet_active_llm_key: String::new(),
+            desktop_pet_requested_llm_key: String::new(),
+            desktop_pet_last_llm_requested_at: 0.0,
             pet_sprite_frame: 0,
+            pet_sprite_animation_active: false,
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
@@ -1166,16 +1577,24 @@ impl CoduxApp {
             file_search_match_index: 0,
             file_directory: String::new(),
             selected_file_entry: None,
+            selected_file_entries: HashSet::new(),
+            file_selection_anchor: None,
             file_name_draft_kind: None,
+            file_name_draft_target: None,
             file_name_draft_value: String::new(),
+            file_name_draft_select_all: false,
             file_tree_expanded_dirs: HashSet::new(),
             file_tree_children: HashMap::new(),
+            file_tree_scroll_handle: UniformListScrollHandle::new(),
+            file_preview_scroll_handle: UniformListScrollHandle::new(),
             selected_git_file: None,
             selected_git_branch,
             git_review,
             git_expanded_sections: HashSet::from(["changed".to_string(), "untracked".to_string()]),
             git_expanded_dirs: HashSet::new(),
             git_tree_children: HashMap::new(),
+            git_files_scroll_handle: VirtualListScrollHandle::new(),
+            selected_git_files: HashSet::new(),
             git_diff_preview: "select a changed file to preview its diff".to_string(),
             git_diff_window_path: None,
             git_diff_window_content: String::new(),
@@ -1187,16 +1606,27 @@ impl CoduxApp {
             git_remote_url: String::new(),
             git_running_operation: None,
             git_commit_message: String::new(),
+            git_commit_message_revision: 0,
             pet_install_url: String::new(),
             pet_install_display_name: String::new(),
             pet_install_preview: None,
             pet_install_error: None,
             pet_install_previewing: false,
             pet_installing: false,
+            pet_catalog,
+            pet_snapshot,
             pet_custom_pets,
+            pet_sprite_paths,
+            project_scroll_handle: UniformListScrollHandle::new(),
+            task_scroll_handle: UniformListScrollHandle::new(),
+            session_scroll_handle: UniformListScrollHandle::new(),
+            ssh_scroll_handle: UniformListScrollHandle::new(),
+            git_history_scroll_handle: VirtualListScrollHandle::new(),
+            pet_dex_scroll_handle: VirtualListScrollHandle::new(),
             pet_custom_install_seen_revision: current_pet_custom_install_event().revision,
             pet_update_seen_revision: current_pet_update_event().revision,
             settings_seen_revision: current_settings_update_event().revision,
+            ssh_seen_revision: current_ssh_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -1208,11 +1638,19 @@ impl CoduxApp {
             selected_memory_summary_id,
             selected_notification_channel_id,
             notification_testing_channel_id: None,
+            runtime_refresh_in_flight: false,
+            pending_runtime_refresh: None,
+            ai_index_progress_visible_until: 0.0,
+            ai_index_progress_generation: 0,
+            ai_history_active_index_count: 0,
+            performance_refresh_in_flight: false,
+            pending_performance_refresh: None,
             active_settings_pane: SettingsPane::General,
             memory_manager_tab: MemoryManagerTab::Active,
             memory_processing: false,
             selected_runtime_terminal_id,
             selected_ssh_profile_id: None,
+            ssh_draft_open: false,
             ssh_testing: false,
             ssh_draft_id: None,
             ssh_draft_name: String::new(),
@@ -1231,6 +1669,11 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: false,
             task_column_collapsed: false,
+            project_list_store: None,
+            project_column_view: None,
+            task_column_view: None,
+            workspace_column_view: None,
+            file_sidebar_view: None,
             project_open_applications,
             project_editor_project_id: None,
             project_editor_name: String::new(),
@@ -1266,6 +1709,28 @@ impl CoduxApp {
         app
     }
 
+    fn new_ssh_profile_editor_window(profile: Option<SSHConnectionProfile>) -> Self {
+        let mut app = Self::new_settings_window();
+        app.window_mode = AppWindowMode::SshProfileEditor;
+        app.ssh_draft_open = true;
+        app.ssh_draft_id = None;
+        app.ssh_draft_name.clear();
+        app.ssh_draft_host.clear();
+        app.ssh_draft_port = "22".to_string();
+        app.ssh_draft_username.clear();
+        app.ssh_draft_credential_kind = "none".to_string();
+        app.ssh_draft_private_key_path.clear();
+        app.ssh_draft_password.clear();
+        app.ssh_draft_key_passphrase.clear();
+        if let Some(profile) = profile {
+            app.apply_ssh_draft(profile);
+            app.status_message = "editing SSH profile".to_string();
+        } else {
+            app.status_message = "new SSH profile".to_string();
+        }
+        app
+    }
+
     fn new_desktop_pet_window() -> Self {
         let mut app = Self::new_settings_window();
         app.window_mode = AppWindowMode::DesktopPet;
@@ -1292,12 +1757,10 @@ impl CoduxApp {
 
         self.refresh_desktop_pet_activity_line(cx);
         self.start_pet_sprite_animation_loop(cx);
+        let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             loop {
-                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(Duration::from_secs(2));
-                })
-                .await;
+                timer.timer(Duration::from_secs(5)).await;
 
                 if this
                     .update(cx, |app, cx| {
@@ -1316,35 +1779,94 @@ impl CoduxApp {
         .detach();
     }
 
-    pub(in crate::app) fn start_pet_sprite_animation_loop(&mut self, cx: &mut Context<Self>) {
+    fn start_pet_event_sync_loop(&mut self, cx: &mut Context<Self>) {
         if !matches!(
             self.window_mode,
-            AppWindowMode::Main
-                | AppWindowMode::DesktopPet
-                | AppWindowMode::PetClaim
-                | AppWindowMode::PetCustomInstall
-                | AppWindowMode::PetDex
+            AppWindowMode::PetClaim | AppWindowMode::PetCustomInstall | AppWindowMode::PetDex
         ) {
             return;
         }
 
+        let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             loop {
-                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(Duration::from_millis(280));
-                })
-                .await;
+                timer.timer(Duration::from_millis(300)).await;
 
-                if this
-                    .update(cx, |app, cx| {
-                        app.pet_sprite_frame = app.pet_sprite_frame.wrapping_add(1);
-                        if !app.state.settings.pet_static_mode {
-                            cx.notify();
-                        }
-                    })
-                    .is_err()
-                {
-                    break;
+                match this.update(cx, |app, cx| {
+                    if !matches!(
+                        app.window_mode,
+                        AppWindowMode::PetClaim
+                            | AppWindowMode::PetCustomInstall
+                            | AppWindowMode::PetDex
+                    ) {
+                        return false;
+                    }
+
+                    let changed = app.sync_pet_custom_install_event_for_activity_tick()
+                        || app.sync_pet_update_event_for_activity_tick();
+                    if changed {
+                        cx.notify();
+                    }
+                    true
+                }) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => break,
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn activate_child_window(handle: &mut Option<AnyWindowHandle>, cx: &mut Context<Self>) -> bool {
+        let Some(window_handle) = *handle else {
+            return false;
+        };
+        if window_handle
+            .update(cx, |_view, window, _cx| window.activate_window())
+            .is_ok()
+        {
+            return true;
+        }
+        *handle = None;
+        false
+    }
+
+    pub(in crate::app) fn start_pet_sprite_animation_loop(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.window_mode,
+            AppWindowMode::DesktopPet | AppWindowMode::PetDex
+        ) {
+            return;
+        }
+        if self.state.settings.pet_static_mode {
+            return;
+        }
+        if self.pet_sprite_animation_active {
+            return;
+        }
+        self.pet_sprite_animation_active = true;
+
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_millis(280)).await;
+
+                match this.update(cx, |app, cx| {
+                    if app.window_mode == AppWindowMode::PetDex
+                        && !matches!(
+                            app.pet_dex_spotlight,
+                            Some(PetDexSpotlight::Bundled(_) | PetDexSpotlight::Custom(_))
+                        )
+                    {
+                        app.pet_sprite_animation_active = false;
+                        return false;
+                    }
+                    app.pet_sprite_frame = app.pet_sprite_frame.wrapping_add(1);
+                    cx.notify();
+                    true
+                }) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => break,
                 }
             }
         })
@@ -1355,29 +1877,34 @@ impl CoduxApp {
         if self.window_mode != AppWindowMode::Main {
             return;
         }
-        self.start_pet_sprite_animation_loop(cx);
         self.sync_desktop_pet_window(false, cx);
+        let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let mut ticks = 0_u64;
             loop {
-                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(Duration::from_millis(500));
-                })
-                .await;
+                timer.timer(Duration::from_millis(1000)).await;
                 ticks = ticks.wrapping_add(1);
-                let include_scheduled_tick = ticks % 4 == 0;
+                let include_performance_tick = ticks % 3 == 0;
+                let include_scheduled_tick = ticks % 5 == 0;
 
                 if this
                     .update(cx, |app, cx| {
                         if app.window_mode != AppWindowMode::Main {
                             return;
                         }
+                        let performance_changed = app.apply_pending_performance_refresh();
+                        if include_performance_tick {
+                            app.spawn_performance_refresh(cx);
+                        }
+                        if include_scheduled_tick {
+                            app.spawn_runtime_scheduled_refresh(cx);
+                        }
                         let result =
                             app.apply_runtime_activity_tick(true, true, include_scheduled_tick, cx);
                         if result.pet_update_events > 0 {
                             app.sync_desktop_pet_window(false, cx);
                         }
-                        if result.changed {
+                        if result.changed || performance_changed {
                             cx.notify();
                         }
                     })
@@ -1386,6 +1913,76 @@ impl CoduxApp {
                     return;
                 }
             }
+        })
+        .detach();
+    }
+
+    fn spawn_runtime_scheduled_refresh(&mut self, cx: &mut Context<Self>) {
+        if self.runtime_refresh_in_flight {
+            return;
+        }
+        self.runtime_refresh_in_flight = true;
+        let runtime_service = self.runtime_service.clone();
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let refresh = codux_runtime::async_runtime::spawn_blocking(move || {
+                let runtime_activity = runtime_service.reload_runtime_activity();
+                let runtime_events = runtime_service.reload_runtime_events();
+                let remote = runtime_service.reload_remote();
+                let terminal_runtime = runtime_service.reload_terminal_runtime();
+                let notifications = runtime_service.reload_notifications();
+                RuntimeScheduledRefresh {
+                    runtime_activity,
+                    runtime_events,
+                    remote,
+                    terminal_runtime,
+                    notifications,
+                }
+            })
+            .await
+            .ok();
+
+            let _ = this.update(cx, |app, _cx| {
+                app.runtime_refresh_in_flight = false;
+                if let Some(refresh) = refresh {
+                    app.pending_runtime_refresh = Some(refresh);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn apply_pending_performance_refresh(&mut self) -> bool {
+        let Some(performance) = self.pending_performance_refresh.take() else {
+            return false;
+        };
+        let changed = self.state.performance.cpu_label != performance.cpu_label
+            || self.state.performance.memory_label != performance.memory_label
+            || self.state.performance.gpu_label != performance.gpu_label;
+        if changed {
+            self.state.performance = performance;
+        }
+        changed
+    }
+
+    fn spawn_performance_refresh(&mut self, cx: &mut Context<Self>) {
+        if !self.state.settings.developer_hud || self.performance_refresh_in_flight {
+            return;
+        }
+        self.performance_refresh_in_flight = true;
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let performance =
+                codux_runtime::async_runtime::spawn_blocking(PerformanceService::summary)
+                    .await
+                    .ok();
+
+            let _ = this.update(cx, |app, _cx| {
+                app.performance_refresh_in_flight = false;
+                if let Some(performance) = performance {
+                    app.pending_performance_refresh = Some(performance);
+                }
+            });
         })
         .detach();
     }
@@ -1441,7 +2038,8 @@ impl CoduxApp {
                 return;
             }
         }
-        self.runtime_service.desktop_pet_set_bubble_visible(true);
+        self.runtime_service
+            .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
 
         let display = cx.primary_display();
         let display_id = display.as_ref().map(|display| display.id());
@@ -1483,11 +2081,12 @@ impl CoduxApp {
                 ..Default::default()
             },
             |window, cx| {
+                macos_window::make_desktop_pet_window_transparent(window);
                 let app = CoduxApp::new_desktop_pet_window();
                 theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
                 let view = cx.new(|_| app);
                 view.update(cx, |app, cx| app.start_desktop_pet_speech_loop(cx));
-                cx.new(|cx| Root::new(view, window, cx))
+                view
             },
         );
 
@@ -1532,23 +2131,107 @@ impl CoduxApp {
 
     fn refresh_desktop_pet_activity_line(&mut self, cx: &mut Context<Self>) {
         let line = desktop_pet_runtime_activity_line(&self.state.ai_runtime_state);
-        self.set_desktop_pet_activity_line(line, cx);
+        self.set_desktop_pet_activity_line(line.text, line.tone, cx);
+        self.request_desktop_pet_llm_line(cx);
     }
 
-    fn set_desktop_pet_activity_line(&mut self, line: String, cx: &mut Context<Self>) {
-        if self.desktop_pet_line_skipped {
-            return;
-        }
-        if self.desktop_pet_line != line {
+    fn set_desktop_pet_activity_line(
+        &mut self,
+        line: String,
+        tone: DesktopPetActivityTone,
+        cx: &mut Context<Self>,
+    ) {
+        if self.desktop_pet_line != line || self.desktop_pet_tone != tone {
             self.desktop_pet_line = line;
+            self.desktop_pet_tone = tone;
             self.runtime_service
                 .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
             cx.notify();
         }
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn request_desktop_pet_llm_line(&mut self, cx: &mut Context<Self>) {
+        let Some(context) = desktop_pet_llm_context(&self.state.ai_runtime_state) else {
+            self.desktop_pet_active_llm_key.clear();
+            return;
+        };
+        if !self.state.settings.pet_speech_llm_enabled
+            || self.state.settings.pet_speech_mode == "off"
+            || self.state.settings.pet_speech_temporary_muted
+        {
+            self.desktop_pet_active_llm_key.clear();
+            return;
+        }
+
+        let key = format!(
+            "{}:{}:{}:{}",
+            context.event, context.tool, context.updated_at, context.fallback_text
+        );
+        self.desktop_pet_active_llm_key = key.clone();
+        if self.desktop_pet_requested_llm_key == key {
+            return;
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        let cooldown = desktop_pet_llm_cooldown_seconds(&self.state.settings.pet_speech_frequency);
+        if now - self.desktop_pet_last_llm_requested_at < cooldown {
+            return;
+        }
+
+        self.desktop_pet_requested_llm_key = key.clone();
+        self.desktop_pet_last_llm_requested_at = now;
+        let service = self.runtime_service.clone();
+        let event = context.event.to_string();
+        let fallback_text = context.fallback_text.clone();
+        let tone = context.tone;
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let request = codux_runtime::llm::PetIdleSpeechRequest {
+                event,
+                fallback_text,
+            };
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.pet_idle_speech(request)
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                app.apply_desktop_pet_llm_line(key, tone, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn apply_desktop_pet_llm_line(
+        &mut self,
+        key: String,
+        tone: DesktopPetActivityTone,
+        result: Result<codux_runtime::llm::PetIdleSpeechResponse, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.desktop_pet_active_llm_key != key {
+            return;
+        }
+        if let Ok(response) = result {
+            let text = normalized_desktop_pet_preview(Some(&response.text)).unwrap_or_default();
+            if !text.is_empty() {
+                self.set_desktop_pet_activity_line(text, tone, cx);
+            }
+        }
+    }
+
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
+
+        if self.should_close_window_for_keystroke(keystroke) {
+            window.remove_window();
+            cx.stop_propagation();
+            return;
+        }
 
         if let Some(shortcut_id) = self.recording_shortcut_id.clone() {
             if keystroke.key.eq_ignore_ascii_case("escape") {
@@ -1582,7 +2265,17 @@ impl CoduxApp {
             return;
         }
 
-        if self.handle_configured_shortcut(event, _window, cx) {
+        if self.handle_configured_shortcut(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+
+        if self.handle_file_name_draft_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+
+        if self.handle_file_clipboard_key(event, window, cx) {
             cx.stop_propagation();
             return;
         }
@@ -1618,6 +2311,17 @@ impl CoduxApp {
         if self.handle_file_editor_key(event, cx) {
             cx.stop_propagation();
         }
+    }
+
+    fn should_close_window_for_keystroke(&self, keystroke: &gpui::Keystroke) -> bool {
+        !matches!(
+            self.window_mode,
+            AppWindowMode::Main | AppWindowMode::DesktopPet
+        ) && keystroke.key.eq_ignore_ascii_case("w")
+            && keystroke.modifiers.platform
+            && !keystroke.modifiers.control
+            && !keystroke.modifiers.alt
+            && !keystroke.modifiers.shift
     }
 
     fn handle_configured_shortcut(
@@ -1719,19 +2423,50 @@ impl CoduxApp {
         false
     }
 
+    fn handle_file_clipboard_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.workspace_view != WorkspaceView::Files
+            && self.assistant_panel != Some(AssistantPanel::FileManager)
+        {
+            return false;
+        }
+        let keystroke = &event.keystroke;
+        if !keystroke.modifiers.platform
+            || keystroke.modifiers.control
+            || keystroke.modifiers.alt
+            || keystroke.modifiers.shift
+        {
+            return false;
+        }
+        if keystroke.key.eq_ignore_ascii_case("c") {
+            return self.copy_selected_file_paths_to_clipboard(cx);
+        }
+        if keystroke.key.eq_ignore_ascii_case("v") {
+            let paths = clipboard_external_paths(cx);
+            return self.paste_clipboard_file_entries(paths, window, cx);
+        }
+        false
+    }
+
     fn open_settings_window(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.open_settings_window_with_pane(SettingsPane::General, cx);
     }
 
     fn open_settings_window_with_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
+        if Self::activate_child_window(&mut self.settings_window, cx) {
+            self.status_message = format!("settings window already opened: {}", pane.label());
+            cx.notify();
+            return;
+        }
+
         let bounds = Bounds::centered(None, size(px(980.0), px(720.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Codux Settings".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar("Codux Settings")),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(760.0), px(560.0))),
                 ..Default::default()
@@ -1746,7 +2481,8 @@ impl CoduxApp {
         );
 
         match result {
-            Ok(_) => {
+            Ok(handle) => {
+                self.settings_window = Some(handle.into());
                 self.status_message = format!("settings window opened: {}", pane.label());
             }
             Err(error) => {
@@ -1760,8 +2496,73 @@ impl CoduxApp {
         self.open_settings_window_with_pane(SettingsPane::Remote, cx);
     }
 
-    fn open_ssh_settings_window(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.open_settings_window_with_pane(SettingsPane::SSH, cx);
+    fn open_ssh_profile_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.open_ssh_profile_editor(None, cx);
+    }
+
+    fn open_selected_ssh_profile_editor(&mut self, profile_id: String, cx: &mut Context<Self>) {
+        self.open_ssh_profile_editor(Some(profile_id), cx);
+    }
+
+    fn open_ssh_profile_editor(&mut self, profile_id: Option<String>, cx: &mut Context<Self>) {
+        self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+        self.normalize_selected_ssh_profile();
+        if Self::activate_child_window(&mut self.ssh_profile_editor_window, cx) {
+            self.status_message = "SSH profile editor already opened".to_string();
+            cx.notify();
+            return;
+        }
+
+        let profile = if let Some(profile_id) = profile_id {
+            let snapshot = self.runtime_service.ssh_profiles();
+            let Some(profile) = snapshot
+                .profiles
+                .into_iter()
+                .find(|profile| profile.id == profile_id)
+            else {
+                self.status_message = "SSH profile is no longer available".to_string();
+                cx.notify();
+                return;
+            };
+            Some(profile)
+        } else {
+            None
+        };
+        let title = if profile.is_some() {
+            "Edit SSH Profile"
+        } else {
+            "Add SSH Profile"
+        };
+        let bounds = Bounds::centered(None, size(px(520.0), px(430.0)), cx);
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(theme::codux_titlebar(title)),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(460.0), px(390.0))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                let app = CoduxApp::new_ssh_profile_editor_window(profile);
+                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                let view = cx.new(|_| app);
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+
+        self.status_message = match result {
+            Ok(handle) => {
+                self.ssh_profile_editor_window = Some(handle.into());
+                "SSH profile editor opened".to_string()
+            }
+            Err(error) => format!("failed to open SSH profile editor: {error}"),
+        };
+        cx.notify();
+    }
+
+    fn close_ssh_profile_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.ssh_draft_open = false;
+        self.ssh_testing = false;
+        cx.notify();
     }
 
     fn toggle_project_column(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1852,8 +2653,6 @@ impl CoduxApp {
     fn refresh_assistant_panel_state(&mut self, panel: AssistantPanel) {
         match panel {
             AssistantPanel::AIStats => {
-                let _ = self.refresh_ai_history_summaries_for_selected_project();
-                self.refresh_runtime_activity_state(false);
                 self.state.memory = self.runtime_service.reload_memory(
                     self.state
                         .selected_project
@@ -1901,6 +2700,12 @@ impl CoduxApp {
     fn refresh_runtime_activity_state(&mut self, poll_live_ai: bool) {
         self.state.runtime_activity = self.runtime_service.reload_runtime_activity();
         self.state.runtime_events = self.runtime_service.reload_runtime_events();
+        let ssh_event = current_ssh_update_event();
+        if ssh_event.revision > self.ssh_seen_revision {
+            self.ssh_seen_revision = ssh_event.revision;
+            self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+            self.normalize_selected_ssh_profile();
+        }
         let ai_snapshot = if poll_live_ai {
             self.runtime_service
                 .poll_ai_runtime_state()
@@ -1932,7 +2737,7 @@ impl CoduxApp {
         self.file_preview = "select a file to preview it".to_string();
         self.file_editable = false;
         self.file_dirty = false;
-        self.selected_file_entry = None;
+        self.clear_file_selection();
         self.selected_git_file = None;
         self.normalize_selected_git_branch();
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
@@ -1943,6 +2748,8 @@ impl CoduxApp {
             .sessions
             .first()
             .map(|session| session.id.clone());
+        self.start_ai_history_refresh(true, cx);
+        self.sync_project_list_store(cx);
         cx.notify();
     }
 
@@ -1953,7 +2760,7 @@ impl CoduxApp {
         self.reset_file_tree_cache();
         self.file_editable = false;
         self.file_dirty = false;
-        self.selected_file_entry = None;
+        self.clear_file_selection();
         self.selected_git_file = None;
         self.normalize_selected_git_branch();
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
@@ -1962,6 +2769,7 @@ impl CoduxApp {
         self.normalize_selected_runtime_session();
         self.normalize_selected_ssh_profile();
         self.status_message = "state reloaded from Codux support files".to_string();
+        self.sync_project_list_store(cx);
         cx.notify();
     }
 
@@ -2062,6 +2870,7 @@ impl CoduxApp {
                         self.normalize_selected_ai_session();
                         self.normalize_selected_runtime_session();
                         self.normalize_selected_ssh_profile();
+                        self.sync_project_list_store(cx);
                         self.status_message = format!("project added/selected: {project_id}");
                     }
                     Err(error) => {
@@ -2089,6 +2898,7 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();
+                self.sync_project_list_store(cx);
                 self.status_message = match next_project_id {
                     Some(next_project_id) => {
                         format!("closed {}, selected {next_project_id}", project.name)
@@ -2111,7 +2921,7 @@ impl CoduxApp {
         match self.runtime_service.project_close_all() {
             Ok(_snapshot) => {
                 self.state = self.runtime_service.reload_state();
-                self.selected_file_entry = None;
+                self.clear_file_selection();
                 self.file_tree_expanded_dirs.clear();
                 self.file_tree_children.clear();
                 self.file_preview = "select a file to preview it".to_string();
@@ -2125,6 +2935,7 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();
+                self.sync_project_list_store(cx);
                 self.status_message = format!(
                     "closed {closed} project{}",
                     if closed == 1 { "" } else { "s" }
@@ -2140,16 +2951,18 @@ impl CoduxApp {
     }
 
     fn open_project_create_window(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let bounds = Bounds::centered(None, size(px(620.0), px(360.0)), cx);
+        if Self::activate_child_window(&mut self.project_editor_window, cx) {
+            self.status_message = "project creator already opened".to_string();
+            cx.notify();
+            return;
+        }
+
+        let bounds = Bounds::centered(None, size(px(620.0), px(430.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Create Project".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar("Create Project")),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(520.0), px(300.0))),
+                window_min_size: Some(size(px(520.0), px(390.0))),
                 ..Default::default()
             },
             move |window, cx| {
@@ -2161,7 +2974,10 @@ impl CoduxApp {
         );
 
         self.status_message = match result {
-            Ok(_) => "project creator opened".to_string(),
+            Ok(handle) => {
+                self.project_editor_window = Some(handle.into());
+                "project creator opened".to_string()
+            }
             Err(error) => format!("failed to open project creator: {error}"),
         };
         cx.notify();
@@ -2178,16 +2994,18 @@ impl CoduxApp {
             return;
         };
 
-        let bounds = Bounds::centered(None, size(px(620.0), px(360.0)), cx);
+        if Self::activate_child_window(&mut self.project_editor_window, cx) {
+            self.status_message = "project editor already opened".to_string();
+            cx.notify();
+            return;
+        }
+
+        let bounds = Bounds::centered(None, size(px(620.0), px(430.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Edit Project".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar("Edit Project")),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(520.0), px(300.0))),
+                window_min_size: Some(size(px(520.0), px(390.0))),
                 ..Default::default()
             },
             move |window, cx| {
@@ -2199,7 +3017,10 @@ impl CoduxApp {
         );
 
         self.status_message = match result {
-            Ok(_) => "project editor opened".to_string(),
+            Ok(handle) => {
+                self.project_editor_window = Some(handle.into());
+                "project editor opened".to_string()
+            }
             Err(error) => format!("failed to open project editor: {error}"),
         };
         cx.notify();
@@ -2294,6 +3115,7 @@ impl CoduxApp {
             }) {
                 Ok(_snapshot) => {
                     self.state = self.runtime_service.reload_state();
+                    self.sync_project_list_store(cx);
                     self.status_message = format!("project saved: {name}");
                     window.remove_window();
                 }
@@ -2309,6 +3131,7 @@ impl CoduxApp {
             }) {
                 Ok(_snapshot) => {
                     self.state = self.runtime_service.reload_state();
+                    self.sync_project_list_store(cx);
                     self.status_message = format!("project created: {name}");
                     window.remove_window();
                 }
@@ -2330,6 +3153,7 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();
+                self.sync_project_list_store(cx);
                 self.status_message = format!("moved project up: {}", project.name);
             }
             Err(error) => self.status_message = format!("failed to move project: {error}"),
@@ -2349,6 +3173,7 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();
+                self.sync_project_list_store(cx);
                 self.status_message = format!("moved project down: {}", project.name);
             }
             Err(error) => self.status_message = format!("failed to move project: {error}"),
@@ -3525,6 +4350,31 @@ impl CoduxApp {
             .and_then(|path| self.file_tree_entry(path))
     }
 
+    fn clear_file_selection(&mut self) {
+        self.selected_file_entry = None;
+        self.selected_file_entries.clear();
+        self.file_selection_anchor = None;
+    }
+
+    fn set_single_file_selection(&mut self, relative_path: String) {
+        self.selected_file_entry = Some(relative_path.clone());
+        self.selected_file_entries.clear();
+        self.file_selection_anchor = Some(relative_path);
+    }
+
+    fn prepare_file_context_menu_selection(
+        &mut self,
+        relative_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_file_entries.contains(&relative_path) {
+            self.selected_file_entry = Some(relative_path);
+        } else {
+            self.set_single_file_selection(relative_path);
+        }
+        cx.notify();
+    }
+
     fn reload_file_tree_directory(&mut self, directory_path: &str) {
         let Some(project) = &self.state.selected_project else {
             return;
@@ -3557,6 +4407,27 @@ impl CoduxApp {
                 .reload_project_files(&project_path, Some(directory_path.as_str()));
             self.file_tree_children.insert(directory_path, children);
         }
+        self.prune_missing_file_tree_directories();
+    }
+
+    fn prune_missing_file_tree_directories(&mut self) {
+        let existing_dirs = self
+            .state
+            .files
+            .iter()
+            .chain(
+                self.file_tree_children
+                    .values()
+                    .flat_map(|children| children.iter()),
+            )
+            .filter(|entry| matches!(entry.kind, FileKind::Directory))
+            .map(|entry| entry.relative_path.clone())
+            .collect::<HashSet<_>>();
+
+        self.file_tree_expanded_dirs
+            .retain(|path| existing_dirs.contains(path));
+        self.file_tree_children
+            .retain(|path, _| existing_dirs.contains(path));
     }
 
     fn toggle_file_tree_directory(
@@ -3577,11 +4448,276 @@ impl CoduxApp {
     }
 
     fn open_file_entry(&mut self, entry: FileEntry, window: &mut Window, cx: &mut Context<Self>) {
-        self.selected_file_entry = Some(entry.relative_path.clone());
+        self.set_single_file_selection(entry.relative_path.clone());
         match entry.kind {
             FileKind::Directory => self.toggle_file_tree_directory(entry.relative_path, window, cx),
             FileKind::File => self.preview_file(entry.relative_path, window, cx),
         }
+    }
+
+    fn select_file_entry(&mut self, relative_path: String, cx: &mut Context<Self>) {
+        self.set_single_file_selection(relative_path.clone());
+        self.status_message = format!("selected file item: {relative_path}");
+        cx.notify();
+    }
+
+    fn toggle_file_entry_selection(&mut self, relative_path: String, cx: &mut Context<Self>) {
+        if !self.selected_file_entries.remove(&relative_path) {
+            self.selected_file_entries.insert(relative_path.clone());
+            self.selected_file_entry = Some(relative_path);
+        } else if self.selected_file_entry.as_deref() == Some(relative_path.as_str()) {
+            self.selected_file_entry = self.selected_file_entries.iter().next().cloned();
+        }
+        if self.file_selection_anchor.is_none() {
+            self.file_selection_anchor = self.selected_file_entry.clone();
+        }
+        self.status_message = format!(
+            "selected {} file item{}",
+            self.selected_file_entries.len(),
+            plural(self.selected_file_entries.len())
+        );
+        cx.notify();
+    }
+
+    fn select_file_entry_from_click(
+        &mut self,
+        entry: FileEntry,
+        extend: bool,
+        toggle: bool,
+        open: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if open || matches!(entry.kind, FileKind::Directory) && !extend && !toggle {
+            self.open_file_entry(entry, window, cx);
+        } else if extend {
+            self.select_file_entry_range(entry.relative_path, cx);
+        } else if toggle {
+            self.toggle_file_entry_selection(entry.relative_path, cx);
+        } else {
+            self.select_file_entry(entry.relative_path, cx);
+        }
+    }
+
+    fn select_file_entry_range(&mut self, relative_path: String, cx: &mut Context<Self>) {
+        let anchor = self
+            .file_selection_anchor
+            .clone()
+            .unwrap_or_else(|| relative_path.clone());
+        let visible_paths = self.visible_file_tree_paths();
+        let Some(anchor_index) = visible_paths.iter().position(|path| path == &anchor) else {
+            self.select_file_entry(relative_path, cx);
+            return;
+        };
+        let Some(target_index) = visible_paths.iter().position(|path| path == &relative_path)
+        else {
+            self.select_file_entry(relative_path, cx);
+            return;
+        };
+        let (start, end) = if anchor_index <= target_index {
+            (anchor_index, target_index)
+        } else {
+            (target_index, anchor_index)
+        };
+        self.selected_file_entries = visible_paths[start..=end].iter().cloned().collect();
+        self.selected_file_entry = Some(relative_path);
+        self.file_selection_anchor = Some(anchor);
+        self.status_message = format!(
+            "selected {} file item{}",
+            self.selected_file_entries.len(),
+            plural(self.selected_file_entries.len())
+        );
+        cx.notify();
+    }
+
+    fn visible_file_tree_paths(&self) -> Vec<String> {
+        fn push_visible(
+            rows: &mut Vec<String>,
+            files: &[FileEntry],
+            children: &HashMap<String, Vec<FileEntry>>,
+            expanded: &HashSet<String>,
+        ) {
+            for file in files {
+                rows.push(file.relative_path.clone());
+                if expanded.contains(&file.relative_path) {
+                    if let Some(child_files) = children.get(&file.relative_path) {
+                        push_visible(rows, child_files, children, expanded);
+                    }
+                }
+            }
+        }
+
+        let mut rows = Vec::new();
+        push_visible(
+            &mut rows,
+            &self.state.files,
+            &self.file_tree_children,
+            &self.file_tree_expanded_dirs,
+        );
+        rows
+    }
+
+    fn move_file_entries_to_directory(
+        &mut self,
+        paths: Vec<String>,
+        target_directory_path: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut paths = paths
+            .into_iter()
+            .filter(|path| path != &target_directory_path)
+            .filter(|path| !target_directory_path.starts_with(&format!("{path}/")))
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths.dedup();
+        let original_len = paths.len();
+        paths.retain(|path| {
+            parent_relative_directory(path) != target_directory_path.trim_matches('/')
+        });
+        if paths.is_empty() {
+            self.status_message = if original_len == 0 {
+                "no movable file item selected".to_string()
+            } else {
+                "file item is already in that directory".to_string()
+            };
+            cx.notify();
+            return;
+        }
+
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for file move".to_string();
+            cx.notify();
+            return;
+        };
+        self.status_message = format!(
+            "moving {} file item{} to {target_directory_path}",
+            paths.len(),
+            plural(paths.len())
+        );
+        let project_path = project.path.clone();
+        let conflicts = paths
+            .iter()
+            .filter_map(|path| {
+                let name = path.rsplit('/').next()?;
+                let target = join_relative_child_path(&target_directory_path, name);
+                Path::new(&project_path)
+                    .join(&target)
+                    .exists()
+                    .then_some(target)
+            })
+            .collect::<Vec<_>>();
+        if conflicts.is_empty() {
+            self.move_file_entries_to_directory_confirmed(paths, target_directory_path, false, cx);
+            return;
+        }
+
+        let title = if conflicts.len() == 1 {
+            format!("覆盖 \"{}\"？", conflicts[0])
+        } else {
+            format!("覆盖 {} 个同名文件项？", conflicts.len())
+        };
+        let service = self.runtime_service.clone();
+        self.status_message = "waiting for file move confirmation".to_string();
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                    title,
+                    message: "目标位置已有同名文件项。覆盖会替换目标文件项。".to_string(),
+                    confirm_label: "覆盖".to_string(),
+                    cancel_label: "取消".to_string(),
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(true) => app.move_file_entries_to_directory_confirmed(
+                    paths,
+                    target_directory_path,
+                    true,
+                    cx,
+                ),
+                Ok(false) => {
+                    app.status_message = "file move canceled".to_string();
+                    cx.notify();
+                }
+                Err(error) => {
+                    app.status_message = format!("failed to show move confirmation: {error}");
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn move_file_entries_to_directory_confirmed(
+        &mut self,
+        paths: Vec<String>,
+        target_directory_path: String,
+        overwrite: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for file move".to_string();
+            cx.notify();
+            return;
+        };
+        let project_path = project.path.clone();
+        let mut moved = Vec::new();
+        let mut latest_files = None;
+        for path in paths {
+            let result = if overwrite {
+                self.runtime_service.move_project_file_entry_overwrite(
+                    &project_path,
+                    &path,
+                    &target_directory_path,
+                    file_directory_option(&self.file_directory),
+                )
+            } else {
+                self.runtime_service.move_project_file_entry(
+                    &project_path,
+                    &path,
+                    &target_directory_path,
+                    file_directory_option(&self.file_directory),
+                )
+            };
+            match result {
+                Ok((files, moved_path)) => {
+                    latest_files = Some(files);
+                    moved.push(moved_path);
+                    self.file_tree_expanded_dirs.retain(|expanded| {
+                        expanded != &path && !expanded.starts_with(&format!("{path}/"))
+                    });
+                }
+                Err(error) => {
+                    self.status_message = format!("failed to move {path}: {error}");
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+
+        if let Some(files) = latest_files {
+            self.state.files = files;
+        }
+        self.refresh_file_tree_cache();
+        if moved.len() == 1 {
+            self.set_single_file_selection(moved[0].clone());
+        } else {
+            self.selected_file_entries = moved.iter().cloned().collect();
+            self.selected_file_entry = moved.last().cloned();
+            self.file_selection_anchor = self.selected_file_entry.clone();
+        }
+        self.state.git = self.runtime_service.reload_project_git(&project_path);
+        self.normalize_selected_git_file();
+        self.normalize_selected_git_branch();
+        self.status_message = format!("moved {} file item{}", moved.len(), plural(moved.len()));
+        cx.notify();
     }
 
     fn open_parent_file_directory(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -3600,7 +4736,7 @@ impl CoduxApp {
             .runtime_service
             .reload_project_files(&project.path, file_directory_option(&parent));
         self.file_directory = parent;
-        self.selected_file_entry = None;
+        self.clear_file_selection();
         self.file_preview = "select a file to preview it".to_string();
         self.file_editable = false;
         self.file_dirty = false;
@@ -3618,7 +4754,7 @@ impl CoduxApp {
             .map(|path| self.file_tree_entry(path).is_some())
             .unwrap_or(false);
         if !selected_still_exists {
-            self.selected_file_entry = None;
+            self.clear_file_selection();
             self.file_editable = false;
             self.file_dirty = false;
         }
@@ -3759,11 +4895,19 @@ impl CoduxApp {
     }
 
     fn create_project_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.start_file_name_draft(FileNameDraftKind::CreateFile, None, cx);
+        self.start_file_name_draft(
+            FileNameDraftKind::CreateFile,
+            Some("undefined".to_string()),
+            cx,
+        );
     }
 
     fn create_project_directory(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.start_file_name_draft(FileNameDraftKind::CreateDirectory, None, cx);
+        self.start_file_name_draft(
+            FileNameDraftKind::CreateDirectory,
+            Some("undefined".to_string()),
+            cx,
+        );
     }
 
     fn start_file_name_draft(
@@ -3785,6 +4929,12 @@ impl CoduxApp {
             }
         });
         self.file_name_draft_kind = Some(kind);
+        self.file_name_draft_target = if kind == FileNameDraftKind::Rename {
+            self.selected_file_entry.clone()
+        } else {
+            None
+        };
+        self.file_name_draft_select_all = true;
         self.file_name_draft_value = value;
         self.workspace_view = WorkspaceView::Files;
         self.assistant_panel = Some(AssistantPanel::FileManager);
@@ -3806,9 +4956,65 @@ impl CoduxApp {
         cx.notify();
     }
 
+    fn handle_file_name_draft_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.file_name_draft_kind.is_none() {
+            return false;
+        }
+        let keystroke = &event.keystroke;
+        if keystroke.modifiers.control
+            || keystroke.modifiers.alt
+            || keystroke.modifiers.platform
+            || keystroke.modifiers.function
+        {
+            return false;
+        }
+
+        if matches!(keystroke.key.as_str(), "escape" | "Escape") {
+            self.cancel_file_name_draft(window, cx);
+            true
+        } else if matches!(
+            keystroke.key.as_str(),
+            "enter" | "Enter" | "return" | "Return"
+        ) {
+            self.confirm_file_name_draft(window, cx);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn finish_file_name_draft_on_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.file_name_draft_kind.is_none() {
+            return;
+        }
+        let value = self.file_name_draft_value.trim();
+        let unchanged_rename = self.file_name_draft_kind == Some(FileNameDraftKind::Rename)
+            && self
+                .selected_file_entry()
+                .map(|entry| entry.name == value)
+                .unwrap_or(false);
+        if value.is_empty() || value.eq_ignore_ascii_case("undefined") || unchanged_rename {
+            self.file_name_draft_kind = None;
+            self.file_name_draft_target = None;
+            self.file_name_draft_value.clear();
+            self.file_name_draft_select_all = false;
+            self.status_message = "file name edit canceled".to_string();
+            cx.notify();
+        } else {
+            self.confirm_file_name_draft(window, cx);
+        }
+    }
+
     fn cancel_file_name_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.file_name_draft_kind = None;
+        self.file_name_draft_target = None;
         self.file_name_draft_value.clear();
+        self.file_name_draft_select_all = false;
         self.status_message = "file name edit canceled".to_string();
         cx.notify();
     }
@@ -3820,9 +5026,14 @@ impl CoduxApp {
             return;
         };
         let name = self.file_name_draft_value.trim().to_string();
-        if name.is_empty() || name.contains('/') || name.contains('\\') {
+        if name.is_empty()
+            || name.eq_ignore_ascii_case("undefined")
+            || name.contains('/')
+            || name.contains('\\')
+        {
             self.status_message =
-                "file name is required and cannot contain path separators".to_string();
+                "file name is required and cannot be undefined or contain path separators"
+                    .to_string();
             cx.notify();
             return;
         }
@@ -3854,7 +5065,7 @@ impl CoduxApp {
                 let relative_path = join_relative_child_path(&self.file_directory, &name);
                 self.state.files = files;
                 self.refresh_file_tree_cache();
-                self.selected_file_entry = Some(relative_path.clone());
+                self.set_single_file_selection(relative_path.clone());
                 self.file_preview = if directory {
                     "directory created".to_string()
                 } else {
@@ -3866,6 +5077,7 @@ impl CoduxApp {
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
                 self.file_name_draft_kind = None;
+                self.file_name_draft_target = None;
                 self.file_name_draft_value.clear();
                 self.status_message = format!(
                     "{} created: {relative_path}",
@@ -3882,41 +5094,114 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn delete_selected_file_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn request_delete_selected_file_entries(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut paths = if self.selected_file_entries.is_empty() {
+            self.selected_file_entry
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            self.selected_file_entries
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        paths.sort();
+        paths.dedup();
+        if paths.is_empty() {
+            self.status_message = "no selected file entry to delete".to_string();
+        } else {
+            let title = if paths.len() == 1 {
+                format!("删除 \"{}\"？", paths[0])
+            } else {
+                format!("删除 {} 个文件项？", paths.len())
+            };
+            let service = self.runtime_service.clone();
+            self.status_message = "waiting for file deletion confirmation".to_string();
+            let timer = cx.background_executor().clone();
+            cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                timer.timer(Duration::from_millis(120)).await;
+                let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                    service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                        title,
+                        message: "删除后会移动到废纸篓。".to_string(),
+                        confirm_label: "删除".to_string(),
+                        cancel_label: "取消".to_string(),
+                    })
+                })
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result);
+
+                let _ = this.update(cx, |app, cx| match result {
+                    Ok(true) => app.delete_file_entries(paths, cx),
+                    Ok(false) => {
+                        app.status_message = "file deletion canceled".to_string();
+                        cx.notify();
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to show delete confirmation: {error}");
+                        cx.notify();
+                    }
+                });
+            })
+            .detach();
+            cx.notify();
+            return;
+        }
+        cx.notify();
+    }
+
+    fn delete_file_entries(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file deletion".to_string();
             cx.notify();
             return;
         };
-        let Some(entry_path) = self.selected_file_entry.clone() else {
+        if paths.is_empty() {
             self.status_message = "no selected file entry to delete".to_string();
             cx.notify();
             return;
-        };
+        }
         let project_path = project.path.clone();
         let directory = file_directory_option(&self.file_directory).map(str::to_string);
-        match self.runtime_service.delete_project_file_entry(
-            &project_path,
-            &entry_path,
-            directory.as_deref(),
-        ) {
-            Ok(files) => {
-                self.state.files = files;
-                self.file_tree_expanded_dirs.retain(|path| {
-                    path != &entry_path && !path.starts_with(&format!("{entry_path}/"))
-                });
-                self.refresh_file_tree_cache();
-                self.selected_file_entry = None;
-                self.file_preview = "select a file to preview it".to_string();
-                self.file_editable = false;
-                self.file_dirty = false;
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.status_message = format!("moved file entry to trash: {entry_path}");
+        let count = paths.len();
+        let mut latest_files = None;
+        for entry_path in &paths {
+            match self.runtime_service.delete_project_file_entry(
+                &project_path,
+                entry_path,
+                directory.as_deref(),
+            ) {
+                Ok(files) => {
+                    latest_files = Some(files);
+                    self.file_tree_expanded_dirs.retain(|path| {
+                        path != entry_path && !path.starts_with(&format!("{entry_path}/"))
+                    });
+                }
+                Err(error) => {
+                    self.status_message = format!("failed to delete file entry: {error}");
+                    cx.notify();
+                    return;
+                }
             }
-            Err(error) => self.status_message = format!("failed to delete file entry: {error}"),
         }
+        if let Some(files) = latest_files {
+            self.state.files = files;
+        }
+        self.refresh_file_tree_cache();
+        self.clear_file_selection();
+        self.file_preview = "select a file to preview it".to_string();
+        self.file_editable = false;
+        self.file_dirty = false;
+        self.state.git = self.runtime_service.reload_project_git(&project_path);
+        self.normalize_selected_git_file();
+        self.normalize_selected_git_branch();
+        self.status_message = format!("moved {count} file item{} to trash", plural(count));
         cx.notify();
     }
 
@@ -3963,7 +5248,7 @@ impl CoduxApp {
                     file_directory_option(&self.file_directory),
                 );
                 self.refresh_file_tree_cache();
-                self.selected_file_entry = Some(entry_path.clone());
+                self.set_single_file_selection(entry_path.clone());
                 self.state.git = self.runtime_service.reload_project_git(&project_path);
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
@@ -3975,6 +5260,11 @@ impl CoduxApp {
     }
 
     fn rename_selected_file_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_file_entry().is_none() {
+            self.status_message = "no selected file entry to rename".to_string();
+            cx.notify();
+            return;
+        }
         self.start_file_name_draft(FileNameDraftKind::Rename, None, cx);
     }
 
@@ -4011,7 +5301,7 @@ impl CoduxApp {
                     self.file_tree_expanded_dirs.insert(renamed_path.clone());
                 }
                 self.refresh_file_tree_cache();
-                self.selected_file_entry = Some(renamed_path.clone());
+                self.set_single_file_selection(renamed_path.clone());
                 if matches!(entry.kind, FileKind::File) {
                     match self
                         .runtime_service
@@ -4037,12 +5327,131 @@ impl CoduxApp {
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
                 self.file_name_draft_kind = None;
+                self.file_name_draft_target = None;
                 self.file_name_draft_value.clear();
                 self.status_message = format!("renamed file entry: {renamed_path}");
             }
             Err(error) => self.status_message = format!("failed to rename file entry: {error}"),
         }
         cx.notify();
+    }
+
+    fn selected_file_entry_paths(&self) -> Vec<String> {
+        let mut paths = if self.selected_file_entries.is_empty() {
+            self.selected_file_entry
+                .clone()
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            self.selected_file_entries
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+
+    fn copy_selected_file_paths_to_clipboard(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for file copy".to_string();
+            cx.notify();
+            return true;
+        };
+        let paths = self.selected_file_entry_paths();
+        if paths.is_empty() {
+            self.status_message = "no selected file entry to copy".to_string();
+            cx.notify();
+            return true;
+        }
+        let full_paths = paths
+            .iter()
+            .map(|path| {
+                Path::new(&project.path)
+                    .join(path)
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        let external_paths = full_paths.iter().map(PathBuf::from).collect::<Vec<_>>();
+        cx.write_to_clipboard(ClipboardItem {
+            entries: vec![
+                gpui::ClipboardEntry::ExternalPaths(gpui::ExternalPaths(external_paths.into())),
+                gpui::ClipboardEntry::String(gpui::ClipboardString::new(full_paths.join("\n"))),
+            ],
+        });
+        self.status_message = format!("copied {} file path{}", paths.len(), plural(paths.len()));
+        cx.notify();
+        true
+    }
+
+    fn paste_clipboard_file_entries(
+        &mut self,
+        paths: Vec<String>,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for file paste".to_string();
+            cx.notify();
+            return true;
+        };
+        let paths = paths
+            .into_iter()
+            .filter(|path| Path::new(path).exists())
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            self.status_message = "clipboard has no file paths to paste".to_string();
+            cx.notify();
+            return true;
+        }
+        let target_directory = self
+            .selected_file_entry()
+            .map(|entry| {
+                if matches!(entry.kind, FileKind::Directory) {
+                    entry.relative_path
+                } else {
+                    parent_relative_directory(&entry.relative_path)
+                }
+            })
+            .unwrap_or_else(|| self.file_directory.clone());
+        let directory = file_directory_option(&target_directory).map(str::to_string);
+        let project_path = project.path.clone();
+        match self.runtime_service.import_external_project_files(
+            &project_path,
+            paths,
+            directory.as_deref(),
+        ) {
+            Ok((files, selected)) => {
+                self.state.files = files;
+                self.refresh_file_tree_cache();
+                if let Some(path) = selected.clone() {
+                    self.set_single_file_selection(path.clone());
+                    match self
+                        .runtime_service
+                        .read_project_file_edit_buffer(&project_path, &path)
+                    {
+                        Ok((content, editable)) => {
+                            self.file_preview = content;
+                            self.file_editable = editable;
+                        }
+                        Err(_) => {
+                            self.file_preview = "clipboard file pasted".to_string();
+                            self.file_editable = false;
+                        }
+                    }
+                }
+                self.file_dirty = false;
+                self.state.git = self.runtime_service.reload_project_git(&project_path);
+                self.normalize_selected_git_file();
+                self.normalize_selected_git_branch();
+                self.status_message = "clipboard file pasted".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to paste clipboard file: {error}"),
+        }
+        cx.notify();
+        true
     }
 
     fn copy_selected_file_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -4071,7 +5480,7 @@ impl CoduxApp {
             Ok((files, copied_path)) => {
                 self.state.files = files;
                 self.refresh_file_tree_cache();
-                self.selected_file_entry = Some(copied_path.clone());
+                self.set_single_file_selection(copied_path.clone());
                 if matches!(entry.kind, FileKind::File) {
                     match self
                         .runtime_service
@@ -4172,12 +5581,87 @@ impl CoduxApp {
         cx.notify();
     }
 
+    fn paste_external_file_entries(
+        &mut self,
+        paths: Vec<String>,
+        target_entry: FileEntry,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for file paste".to_string();
+            cx.notify();
+            return;
+        };
+        let paths = paths
+            .into_iter()
+            .filter(|path| Path::new(path).exists())
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            self.status_message = "clipboard has no file paths to paste".to_string();
+            cx.notify();
+            return;
+        }
+        let target_directory = if matches!(target_entry.kind, FileKind::Directory) {
+            target_entry.relative_path.clone()
+        } else {
+            parent_relative_directory(&target_entry.relative_path)
+        };
+        let directory = file_directory_option(&target_directory).map(str::to_string);
+        let project_path = project.path.clone();
+        match self.runtime_service.import_external_project_files(
+            &project_path,
+            paths,
+            directory.as_deref(),
+        ) {
+            Ok((files, selected)) => {
+                self.state.files = files;
+                self.refresh_file_tree_cache();
+                if let Some(path) = selected.clone() {
+                    self.set_single_file_selection(path.clone());
+                    match self
+                        .runtime_service
+                        .read_project_file_edit_buffer(&project_path, &path)
+                    {
+                        Ok((content, editable)) => {
+                            self.file_preview = content;
+                            self.file_editable = editable;
+                        }
+                        Err(_) => {
+                            self.file_preview = "clipboard file pasted".to_string();
+                            self.file_editable = false;
+                        }
+                    }
+                }
+                self.file_dirty = false;
+                self.state.git = self.runtime_service.reload_project_git(&project_path);
+                self.normalize_selected_git_file();
+                self.normalize_selected_git_branch();
+                self.status_message = "clipboard file pasted".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to paste clipboard file: {error}"),
+        }
+        cx.notify();
+    }
+
     fn reveal_selected_file_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.run_selected_file_system_action("reveal", cx);
     }
 
     fn open_selected_file_entry(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.run_selected_file_system_action("open", cx);
+    }
+
+    fn send_file_path_to_active_terminal(&mut self, relative_path: String, cx: &mut Context<Self>) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for terminal path".to_string();
+            cx.notify();
+            return;
+        };
+        let full_path = Path::new(&project.path).join(&relative_path);
+        self.send_to_active_terminal(&shell_quote(&full_path.to_string_lossy()), cx);
+        self.status_message = format!("file path sent to terminal: {relative_path}");
+        cx.notify();
     }
 
     fn run_selected_file_system_action(&mut self, action: &str, cx: &mut Context<Self>) {
@@ -4309,13 +5793,12 @@ impl CoduxApp {
         &mut self,
         value: String,
         _window: &mut Window,
-        cx: &mut Context<Self>,
+        _cx: &mut Context<Self>,
     ) {
         if self.git_commit_message == value {
             return;
         }
         self.git_commit_message = value;
-        cx.notify();
     }
 
     fn generate_git_commit_message_with_ai(
@@ -4381,6 +5864,8 @@ impl CoduxApp {
                     });
                 if selected_matches {
                     self.git_commit_message = message.clone();
+                    self.git_commit_message_revision =
+                        self.git_commit_message_revision.saturating_add(1);
                     self.status_message = format!("AI commit message generated: {message}");
                 } else {
                     self.status_message =
@@ -4389,9 +5874,38 @@ impl CoduxApp {
             }
             Err(error) => {
                 self.status_message = format!("failed to generate commit message: {error}");
+                self.show_git_commit_message_generation_error(error, cx);
             }
         }
         cx.notify();
+    }
+
+    fn show_git_commit_message_generation_error(&self, error: String, cx: &mut Context<Self>) {
+        let service = self.runtime_service.clone();
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let dialog_error = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_alert_dialog(LocalizedAlertDialogRequest {
+                    title: "生成提交说明失败".to_string(),
+                    message: error,
+                    button_label: "确定".to_string(),
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result)
+            .err();
+
+            if let Some(dialog_error) = dialog_error {
+                let _ = this.update(cx, |app, cx| {
+                    app.status_message =
+                        format!("failed to show commit message alert: {dialog_error}");
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn clone_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -4511,9 +6025,15 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn toggle_git_status_dir(&mut self, directory_path: String, cx: &mut Context<Self>) {
-        if self.git_expanded_dirs.contains(&directory_path) {
-            self.git_expanded_dirs.remove(&directory_path);
+    fn toggle_git_status_dir(
+        &mut self,
+        section_id: String,
+        directory_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let tree_key = git_status_tree_key(&section_id, &directory_path);
+        if self.git_expanded_dirs.contains(&tree_key) {
+            self.git_expanded_dirs.remove(&tree_key);
             cx.notify();
             return;
         }
@@ -4524,13 +6044,13 @@ impl CoduxApp {
             return;
         };
 
-        if !self.git_tree_children.contains_key(&directory_path) {
+        if !self.git_tree_children.contains_key(&tree_key) {
             match self
                 .runtime_service
                 .read_project_git_path_status(&project.path, &directory_path)
             {
                 Ok(files) => {
-                    self.git_tree_children.insert(directory_path.clone(), files);
+                    self.git_tree_children.insert(tree_key.clone(), files);
                 }
                 Err(error) => {
                     self.status_message = format!("failed to load Git tree: {error}");
@@ -4540,12 +6060,56 @@ impl CoduxApp {
             }
         }
 
-        self.git_expanded_dirs.insert(directory_path.clone());
+        self.git_expanded_dirs.insert(tree_key);
         self.status_message = format!("git tree expanded: {directory_path}");
         cx.notify();
     }
 
     fn select_git_file(&mut self, file_path: String, _window: &mut Window, cx: &mut Context<Self>) {
+        self.selected_git_files.clear();
+        self.selected_git_files.insert(file_path.clone());
+        self.load_git_file_diff(file_path, cx);
+    }
+
+    fn toggle_git_file_selection(&mut self, file_path: String, cx: &mut Context<Self>) {
+        if !self
+            .git_review
+            .files
+            .iter()
+            .any(|file| file.path == file_path)
+            && !self
+                .state
+                .git
+                .changed_files
+                .iter()
+                .any(|file| file.path == file_path)
+        {
+            self.status_message = "Git file is no longer available".to_string();
+            cx.notify();
+            return;
+        }
+        if !self.selected_git_files.insert(file_path.clone()) {
+            self.selected_git_files.remove(&file_path);
+        }
+        if self.selected_git_files.is_empty() {
+            self.selected_git_file = None;
+            self.git_diff_preview = "select a changed file to preview its diff".to_string();
+            self.git_review_content = None;
+        } else {
+            self.load_git_file_diff(file_path, cx);
+        }
+        cx.notify();
+    }
+
+    fn selected_git_action_paths(&self, fallback: &str) -> Vec<String> {
+        if self.selected_git_files.contains(fallback) && !self.selected_git_files.is_empty() {
+            self.selected_git_files.iter().cloned().collect()
+        } else {
+            vec![fallback.to_string()]
+        }
+    }
+
+    fn load_git_file_diff(&mut self, file_path: String, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git diff".to_string();
             cx.notify();
@@ -4596,11 +6160,7 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, size(px(920.0), px(680.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some(format!("Diff - {selected_file}").into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar(format!("Diff - {selected_file}"))),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(720.0), px(520.0))),
                 ..Default::default()
@@ -4678,6 +6238,7 @@ impl CoduxApp {
             .unwrap_or(false);
         if !selected_still_exists {
             self.selected_git_file = None;
+            self.selected_git_files.clear();
             self.git_diff_preview = "select a changed file to preview its diff".to_string();
             self.git_review_content = None;
         }
@@ -5088,6 +6649,8 @@ impl CoduxApp {
         {
             Ok(message) if !message.trim().is_empty() => {
                 self.git_commit_message = message;
+                self.git_commit_message_revision =
+                    self.git_commit_message_revision.saturating_add(1);
                 self.status_message = "loaded last Git commit message".to_string();
             }
             Ok(_) => {
@@ -5437,10 +7000,13 @@ impl CoduxApp {
                 if selected_matches {
                     if completion.reload_state {
                         self.state = self.runtime_service.reload_state();
+                        self.sync_project_list_store(cx);
                     }
                     self.state.git = summary;
                     if completion.clear_commit_message {
                         self.git_commit_message.clear();
+                        self.git_commit_message_revision =
+                            self.git_commit_message_revision.saturating_add(1);
                     }
                     if completion.clear_remote_url {
                         self.git_remote_url.clear();
@@ -5521,6 +7087,7 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();
+                self.sync_project_list_store(cx);
                 self.status_message = match remote_name {
                     Some(remote_name) => format!("default Git push remote saved: {remote_name}"),
                     None => "default Git push remote cleared".to_string(),
@@ -5982,70 +7549,58 @@ impl CoduxApp {
     }
 
     fn reload_ai_history(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.refresh_ai_history_summaries_for_selected_project() {
-            Ok(project_name) => {
-                self.status_message = format!("AI history reloaded for {project_name}");
-            }
-            Err(error) => {
-                self.status_message = error;
-            }
-        }
+        self.start_ai_history_refresh(true, cx);
         cx.notify();
     }
 
-    fn refresh_ai_history_summaries_for_selected_project(&mut self) -> Result<String, String> {
-        let Some(project) = &self.state.selected_project else {
-            return Err("no selected project to refresh".to_string());
+    pub(crate) fn start_ai_history_refresh(&mut self, show_progress: bool, cx: &mut Context<Self>) {
+        let Some(project) = self.state.selected_project.clone() else {
+            self.status_message = "no selected project to refresh".to_string();
+            return;
         };
-        let selected_project = ai_history_project_request(project);
-        let project_name = selected_project.name.clone();
-        let projects = ai_history_project_requests(&self.state.projects);
 
-        let mut errors = Vec::new();
-        let mut project_index_state = None;
+        if show_progress {
+            self.ai_index_progress_generation = self.ai_index_progress_generation.wrapping_add(1);
+            self.ai_index_progress_visible_until = app_now_seconds() + 3.0;
+            self.state.ai_history.is_loading = true;
+            self.state.ai_history.queued = true;
+            self.state.ai_history.progress = Some(0.0);
+            self.state.ai_history.detail = "queued".to_string();
+            self.schedule_ai_index_progress_expiry(self.ai_index_progress_generation, cx);
+        }
+
+        let request = ai_history_project_request(&project);
         match self
             .runtime_service
-            .indexed_project_ai_history_summary(selected_project.clone())
+            .refresh_indexed_project_ai_history(request)
         {
-            Ok(state) => {
-                if let Some(summary) = ai_history_summary_from_project_state(&state) {
-                    self.state.ai_history = summary;
+            Ok(()) => {
+                self.ai_history_active_index_count =
+                    self.runtime_service.active_ai_history_index_count();
+                self.status_message = format!("AI history indexing queued for {}", project.name);
+            }
+            Err(error) => {
+                self.state.ai_history.is_loading = false;
+                self.state.ai_history.queued = false;
+                self.ai_history_active_index_count =
+                    self.runtime_service.active_ai_history_index_count();
+                self.state.ai_history.error = Some(error.clone());
+                self.status_message = format!("failed to queue AI history indexing: {error}");
+            }
+        }
+    }
+
+    fn schedule_ai_index_progress_expiry(&self, generation: u64, cx: &mut Context<Self>) {
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_secs(3)).await;
+            let _ = this.update(cx, |app, cx| {
+                if app.ai_index_progress_generation == generation {
+                    cx.notify();
                 }
-                project_index_state = Some(state);
-            }
-            Err(error) => {
-                errors.push(format!("indexed project AI history failed: {error}"));
-            }
-        }
-        match self
-            .runtime_service
-            .indexed_global_ai_history_summary(projects)
-        {
-            Ok(snapshot) => {
-                self.state.ai_global_history =
-                    normalized_global_ai_history_snapshot_to_summary(snapshot);
-            }
-            Err(error) => {
-                self.state.ai_global_history = self.runtime_service.reload_global_ai_history();
-                self.state.ai_global_history.error = Some(error);
-                errors.push("indexed global AI history failed".to_string());
-            }
-        }
-        if self.state.ai_history.sessions.is_empty() {
-            self.state.ai_history = self
-                .runtime_service
-                .reload_project_ai_history(&selected_project.path);
-        }
-        if let Some(state) = project_index_state.as_ref() {
-            apply_ai_history_project_state(&mut self.state.ai_history, state);
-        }
-        self.normalize_selected_ai_session();
-        self.reload_selected_ai_session_detail();
-        if errors.is_empty() {
-            Ok(project_name)
-        } else {
-            Ok(format!("{project_name} ({})", errors.join("; ")))
-        }
+            });
+        })
+        .detach();
     }
 
     fn select_ai_session(
@@ -6344,7 +7899,7 @@ impl CoduxApp {
         self.memory_processing = false;
         match result {
             Ok(status) => {
-                let history_refresh = self.refresh_ai_history_summaries_for_selected_project();
+                self.start_ai_history_refresh(false, cx);
                 self.state.memory = self.runtime_service.reload_memory(
                     self.state
                         .selected_project
@@ -6354,16 +7909,10 @@ impl CoduxApp {
                 self.reload_memory_manager_snapshot();
                 self.normalize_selected_memory_entry();
                 self.normalize_selected_memory_summary();
-                self.status_message = match history_refresh {
-                    Ok(project_name) => format!(
-                        "memory indexed for {project_name} · checked {} · enqueued {} · pending {}",
-                        status.checked_count, status.enqueued_count, status.pending_count
-                    ),
-                    Err(error) => format!(
-                        "memory indexed · checked {} · enqueued {} · pending {} · {error}",
-                        status.checked_count, status.enqueued_count, status.pending_count
-                    ),
-                };
+                self.status_message = format!(
+                    "memory indexed · checked {} · enqueued {} · pending {}",
+                    status.checked_count, status.enqueued_count, status.pending_count
+                );
             }
             Err(error) => self.status_message = format!("failed to process memory: {error}"),
         }
@@ -6967,6 +8516,7 @@ impl CoduxApp {
     }
 
     fn new_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.ssh_draft_open = true;
         self.ssh_draft_id = None;
         self.ssh_draft_name.clear();
         self.ssh_draft_host.clear();
@@ -7005,6 +8555,7 @@ impl CoduxApp {
             return;
         };
         self.apply_ssh_draft(profile);
+        self.ssh_draft_open = true;
         self.status_message = "SSH profile loaded into editor".to_string();
         cx.notify();
     }
@@ -7066,6 +8617,39 @@ impl CoduxApp {
         cx.notify();
     }
 
+    fn choose_ssh_private_key_path(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self
+            .runtime_service
+            .localized_open_dialog(LocalizedOpenDialogRequest {
+                title: "选择 SSH 私钥".to_string(),
+                message: "选择用于 SSH 连接的私钥文件。".to_string(),
+                prompt: "选择".to_string(),
+                default_path: if self.ssh_draft_private_key_path.trim().is_empty() {
+                    None
+                } else {
+                    Some(self.ssh_draft_private_key_path.clone())
+                },
+                filters: Vec::new(),
+                directory: false,
+                multiple: false,
+                can_create_directories: Some(false),
+            }) {
+            Ok(Some(paths)) => {
+                if let Some(path) = paths.first() {
+                    self.ssh_draft_private_key_path = path.clone();
+                    self.status_message = "SSH private key selected".to_string();
+                } else {
+                    self.status_message = "SSH private key selection canceled".to_string();
+                }
+            }
+            Ok(None) => self.status_message = "SSH private key selection canceled".to_string(),
+            Err(error) => {
+                self.status_message = format!("failed to choose SSH private key: {error}")
+            }
+        }
+        cx.notify();
+    }
+
     fn set_ssh_draft_password(
         &mut self,
         value: String,
@@ -7105,7 +8689,7 @@ impl CoduxApp {
         })
     }
 
-    fn save_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn save_ssh_profile_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let request = match self.ssh_draft_request() {
             Ok(request) => request,
             Err(error) => {
@@ -7126,7 +8710,12 @@ impl CoduxApp {
                         .map(|profile| profile.id.clone())
                 });
                 self.normalize_selected_ssh_profile();
+                self.ssh_draft_open = false;
                 self.status_message = "SSH profile saved".to_string();
+                publish_ssh_update();
+                if self.window_mode == AppWindowMode::SshProfileEditor {
+                    window.remove_window();
+                }
             }
             Err(error) => self.status_message = format!("failed to save SSH profile: {error}"),
         }
@@ -7147,7 +8736,7 @@ impl CoduxApp {
             Ok(_) => {
                 self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
                 self.normalize_selected_ssh_profile();
-                self.new_ssh_profile_draft(_window, cx);
+                self.ssh_draft_open = false;
                 self.status_message = "SSH profile deleted".to_string();
             }
             Err(error) => self.status_message = format!("failed to delete SSH profile: {error}"),
@@ -7232,19 +8821,16 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn register_native_menu_actions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn register_native_menu_actions(
+        &mut self,
+        mut root: gpui::Div,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         macro_rules! register {
             ($action:ty, $handler:expr) => {
-                cx.on_action(
-                    TypeId::of::<$action>(),
-                    window,
-                    |app, _action, phase, window, cx| {
-                        if phase == DispatchPhase::Bubble {
-                            ($handler)(app, window, cx);
-                            cx.stop_propagation();
-                        }
-                    },
-                );
+                root = root.on_action(cx.listener(|app, _action: &$action, window, cx| {
+                    ($handler)(app, window, cx);
+                }));
             };
         }
 
@@ -7356,8 +8942,12 @@ impl CoduxApp {
         );
         register!(
             native_menu::CloseWindow,
-            |_app: &mut CoduxApp, window: &mut Window, _cx: &mut Context<CoduxApp>| {
-                window.remove_window()
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                if app.window_mode == AppWindowMode::Main {
+                    app.close_active_workspace_item(window, cx);
+                } else {
+                    window.remove_window();
+                }
             }
         );
         register!(
@@ -7464,6 +9054,44 @@ impl CoduxApp {
         >| {
             window.toggle_fullscreen()
         });
+        root
+    }
+
+    fn register_close_window_action(
+        &mut self,
+        root: gpui::Div,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let focus_handle = self.root_focus_handle(cx);
+        root.track_focus(&focus_handle).on_action(cx.listener(
+            |app, _action: &native_menu::CloseWindow, window, cx| {
+                if app.window_mode == AppWindowMode::Main {
+                    app.close_active_workspace_item(window, cx);
+                } else {
+                    window.remove_window();
+                }
+            },
+        ))
+    }
+
+    fn root_focus_handle(&mut self, cx: &mut Context<Self>) -> FocusHandle {
+        if let Some(handle) = &self.root_focus_handle {
+            return handle.clone();
+        }
+        let handle = cx.focus_handle();
+        self.root_focus_handle = Some(handle.clone());
+        handle
+    }
+
+    fn focus_root_if_needed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.window_mode == AppWindowMode::Main {
+            return;
+        }
+
+        let focus_handle = self.root_focus_handle(cx);
+        if !focus_handle.contains_focused(window, cx) {
+            focus_handle.focus(window, cx);
+        }
     }
 
     fn toggle_remote_host(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -7565,12 +9193,10 @@ impl CoduxApp {
         let generation = self.remote_pairing_poll_generation;
         let service = self.runtime_service.clone();
 
+        let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             loop {
-                let _ = codux_runtime::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(Duration::from_secs(1));
-                })
-                .await;
+                timer.timer(Duration::from_secs(1)).await;
 
                 let should_poll = this
                     .update(cx, |app, _| {
@@ -7828,23 +9454,30 @@ impl CoduxApp {
             usize::from(self.sync_pet_custom_install_event_for_activity_tick());
         let applied_pet_update_events = usize::from(self.sync_pet_update_event_for_activity_tick());
         let ai_history_events = self.runtime_service.drain_ai_history_events();
-        let applied_ai_history_events = self.apply_ai_history_events(ai_history_events);
+        let applied_ai_history_events = self.apply_ai_history_events(ai_history_events, cx);
         let file_events = self.runtime_service.drain_file_change_events();
         let applied_file_events = self.apply_file_change_events(file_events);
         let remote_events = self.runtime_service.drain_remote_events();
         if let Some(remote) = remote_events.last().cloned() {
             self.state.remote = remote;
             self.normalize_selected_remote_device();
-        } else if include_scheduled_tick {
-            self.state.remote = self.runtime_service.reload_remote();
+        }
+        let scheduled_refresh = self.pending_runtime_refresh.take();
+        let has_scheduled_refresh = scheduled_refresh.is_some();
+        if let Some(refresh) = scheduled_refresh {
+            self.state.runtime_activity = refresh.runtime_activity;
+            self.state.runtime_events = refresh.runtime_events;
+            self.state.remote = refresh.remote;
+            self.state.terminal_runtime = refresh.terminal_runtime;
+            self.state.notifications = refresh.notifications;
             self.normalize_selected_remote_device();
+            self.normalize_selected_notification_channel();
+            self.normalize_selected_runtime_session();
         }
         let drained = self
             .runtime_service
             .drain_ai_runtime_events_and_enqueue_memory();
         self.dispatch_ai_completion_notifications(&drained.events);
-        self.state.runtime_activity = self.runtime_service.reload_runtime_activity();
-        self.state.runtime_events = self.runtime_service.reload_runtime_events();
         let live_ai_snapshot = self.runtime_service.ai_runtime_state_snapshot();
         let mut ai_state_error = None;
         self.state.ai_runtime_state = match self
@@ -7862,14 +9495,7 @@ impl CoduxApp {
             }
         };
         if include_scheduled_tick {
-            self.state.terminal_runtime = self.runtime_service.reload_terminal_runtime();
-            self.state.notifications = self.runtime_service.reload_notifications();
             self.refresh_global_today_ai_tokens();
-            self.normalize_selected_notification_channel();
-            if self.state.settings.developer_hud {
-                self.state.performance = self.runtime_service.reload_performance();
-            }
-            self.normalize_selected_runtime_session();
         }
         if !drained.memory.is_empty() {
             self.state.memory = self.runtime_service.reload_memory(
@@ -7898,7 +9524,7 @@ impl CoduxApp {
                 || !remote_events.is_empty()
                 || !drained.events.is_empty()
                 || !drained.memory.is_empty()
-                || include_scheduled_tick
+                || has_scheduled_refresh
                 || ai_state_error.is_some(),
             ai_state_error,
         }
@@ -7970,7 +9596,11 @@ impl CoduxApp {
         }
     }
 
-    fn apply_ai_history_events(&mut self, events: Vec<AIHistoryEvent>) -> usize {
+    fn apply_ai_history_events(
+        &mut self,
+        events: Vec<AIHistoryEvent>,
+        cx: &mut Context<Self>,
+    ) -> usize {
         let selected_project = self.state.selected_project.clone();
         let selected_id = selected_project.as_ref().map(|project| project.id.as_str());
         let selected_path = selected_project
@@ -7984,10 +9614,22 @@ impl CoduxApp {
                     if selected_id == Some(state.project_id.as_str())
                         || selected_path == Some(state.project_path.as_str()) =>
                 {
+                    let is_loading = state.is_loading || state.queued;
                     if let Some(summary) = ai_history_summary_from_project_state(&state) {
                         self.state.ai_history = summary;
                     } else {
                         apply_ai_history_project_state(&mut self.state.ai_history, &state);
+                    }
+                    if is_loading {
+                        self.ai_index_progress_visible_until = self
+                            .ai_index_progress_visible_until
+                            .max(app_now_seconds() + 3.0);
+                        self.ai_index_progress_generation =
+                            self.ai_index_progress_generation.wrapping_add(1);
+                        self.schedule_ai_index_progress_expiry(
+                            self.ai_index_progress_generation,
+                            cx,
+                        );
                     }
                     self.normalize_selected_ai_session();
                     applied += 1;
@@ -8009,6 +9651,11 @@ impl CoduxApp {
                 }
                 _ => {}
             }
+        }
+
+        if applied > 0 {
+            self.ai_history_active_index_count =
+                self.runtime_service.active_ai_history_index_count();
         }
 
         applied
@@ -8083,14 +9730,14 @@ impl CoduxApp {
             .selected_project
             .as_ref()
             .map(|project| project.path.clone());
-        let mut applied = 0;
+        let applied = events
+            .iter()
+            .filter(|event| selected_path.as_deref() == Some(event.project_path.as_str()))
+            .count();
 
-        for event in events {
-            if selected_path.as_deref() == Some(event.project_path.as_str()) {
-                self.refresh_file_tree_cache();
-                self.normalize_selected_file_entry();
-                applied += 1;
-            }
+        if applied > 0 {
+            self.refresh_file_tree_cache();
+            self.normalize_selected_file_entry();
         }
 
         applied
@@ -8163,9 +9810,8 @@ impl CoduxApp {
 
     fn refresh_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self.runtime_service.refresh_pet_from_indexed_history() {
-            Ok(summary) => {
-                self.state.pet = summary;
-                self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+            Ok(_) => {
+                self.refresh_pet_cache();
                 if self.window_mode == AppWindowMode::Main {
                     self.sync_desktop_pet_window(false, cx);
                 }
@@ -8202,17 +9848,13 @@ impl CoduxApp {
                 let state = self.runtime_service.reload_state();
                 self.state.settings = state.settings;
                 self.state.pet = state.pet;
-                self.desktop_pet_line_skipped = action_id == DESKTOP_PET_SKIP_LINE;
-                if self.desktop_pet_line_skipped {
+                if action_id == DESKTOP_PET_SKIP_LINE {
                     self.desktop_pet_line.clear();
-                } else if matches!(action_id, DESKTOP_PET_SPEAK_MORE | DESKTOP_PET_SPEAK_LESS) {
-                    self.request_desktop_pet_speech("idle", desktop_pet_fallback_line(), cx);
+                    self.desktop_pet_tone = DesktopPetActivityTone::Normal;
+                    self.runtime_service.desktop_pet_set_bubble_visible(false);
+                } else if action_id == DESKTOP_PET_HIDE {
+                    self.runtime_service.desktop_pet_set_bubble_visible(false);
                 }
-                self.runtime_service
-                    .desktop_pet_set_bubble_visible(!matches!(
-                        action_id,
-                        DESKTOP_PET_SKIP_LINE | DESKTOP_PET_HIDE
-                    ));
                 self.status_message = match action_id {
                     DESKTOP_PET_MUTE_30_MINUTES => "desktop pet muted for 30 minutes".to_string(),
                     DESKTOP_PET_MUTE_1_HOUR => "desktop pet muted for 1 hour".to_string(),
@@ -8234,58 +9876,47 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn request_desktop_pet_speech(
+    fn open_project_help_native_menu(
         &mut self,
-        event: &'static str,
-        fallback_text: &'static str,
+        language: String,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.desktop_pet_line_skipped = false;
-        self.desktop_pet_line = fallback_text.to_string();
-
-        let service = self.runtime_service.clone();
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let request = codux_runtime::llm::PetIdleSpeechRequest {
-                event: event.to_string(),
-                fallback_text: fallback_text.to_string(),
-            };
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                service.pet_idle_speech(request)
-            })
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|result| result);
-
-            let _ = this.update(cx, |app, cx| {
-                app.apply_desktop_pet_speech_result(result, cx);
-            });
-        })
-        .detach();
-        cx.notify();
+        macos_window::spawn_native_popup_menu(
+            window,
+            position,
+            project_help_menu_entries(&language),
+            CoduxApp::apply_project_help_action,
+            cx,
+        );
     }
 
-    fn apply_desktop_pet_speech_result(
+    fn apply_project_help_action(
         &mut self,
-        result: Result<codux_runtime::llm::PetIdleSpeechResponse, String>,
+        action_id: &'static str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.desktop_pet_line_skipped {
-            return;
-        }
-        if let Ok(response) = result {
-            let text = response.text.trim();
-            if !text.is_empty() {
-                self.desktop_pet_line = text.to_string();
-                self.runtime_service.desktop_pet_set_bubble_visible(true);
-                cx.notify();
-            }
+        match action_id {
+            "help:about" => self.open_about_window(window, cx),
+            "help:check-updates" => self.reload_update(window, cx),
+            "help:export-diagnostics" => self.export_diagnostics(cx),
+            "help:runtime-log" => self.open_runtime_log(cx),
+            "help:live-log" => self.open_live_log(cx),
+            #[cfg(debug_assertions)]
+            "help:devtools" => window.toggle_inspector(cx),
+            "help:website" => self.open_codux_website(cx),
+            "help:github" => self.open_codux_github(cx),
+            _ => {}
         }
     }
 
-    fn set_pet_install_url(&mut self, value: String, _window: &mut Window, cx: &mut Context<Self>) {
+    fn set_pet_install_url(&mut self, value: String, window: &mut Window, cx: &mut Context<Self>) {
         self.pet_install_url = value;
         self.pet_install_preview = None;
         self.pet_install_error = None;
+        resize_pet_custom_install_window(window, PET_CUSTOM_INSTALL_INPUT_HEIGHT);
         cx.notify();
     }
 
@@ -8300,7 +9931,7 @@ impl CoduxApp {
         cx.notify();
     }
 
-    fn preview_custom_pet_install(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn preview_custom_pet_install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
             self.pet_install_error = Some("custom pet install task is already running".to_string());
@@ -8324,6 +9955,11 @@ impl CoduxApp {
         self.pet_install_previewing = true;
         self.pet_install_error = None;
         self.status_message = "custom pet preview loading".to_string();
+        window.resize(size(
+            px(PET_CUSTOM_INSTALL_WINDOW_WIDTH),
+            px(PET_CUSTOM_INSTALL_INPUT_HEIGHT),
+        ));
+        let window_handle = window.window_handle();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn(async move {
                 service.resolve_custom_pet_install(request).await
@@ -8333,7 +9969,13 @@ impl CoduxApp {
             .and_then(|result| result);
 
             let _ = this.update(cx, |app, cx| {
-                app.apply_custom_pet_preview_result(page_url, display_name, result, cx);
+                app.apply_custom_pet_preview_result(
+                    page_url,
+                    display_name,
+                    result,
+                    window_handle,
+                    cx,
+                );
             });
         })
         .detach();
@@ -8345,6 +9987,7 @@ impl CoduxApp {
         page_url: String,
         display_name: String,
         result: Result<PetCustomPetInstallPreview, String>,
+        window_handle: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
         self.pet_install_previewing = false;
@@ -8360,12 +10003,22 @@ impl CoduxApp {
                     format!("custom pet preview loaded: {}", preview.display_name);
                 self.pet_install_preview = Some(preview);
                 self.pet_install_error = None;
+                resize_pet_custom_install_window_handle(
+                    window_handle,
+                    PET_CUSTOM_INSTALL_READY_HEIGHT,
+                    cx,
+                );
             }
             Err(error) => {
                 self.pet_install_preview = None;
                 let message = format!("failed to preview custom pet: {error}");
                 self.status_message = message.clone();
                 self.pet_install_error = Some(message);
+                resize_pet_custom_install_window_handle(
+                    window_handle,
+                    PET_CUSTOM_INSTALL_ERROR_HEIGHT,
+                    cx,
+                );
             }
         }
         cx.notify();
@@ -8458,10 +10111,9 @@ impl CoduxApp {
     ) {
         self.pet_installing = false;
         match result {
-            Ok((pet, custom_pet_id, status_message)) => {
+            Ok((_pet, custom_pet_id, status_message)) => {
                 let matches_input = self.pet_install_input_matches(&page_url, &display_name);
-                self.state.pet = pet;
-                self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                self.refresh_pet_cache();
                 let revision = publish_pet_custom_install(custom_pet_id);
                 if revision > 0 {
                     self.pet_custom_install_seen_revision = revision;
@@ -8512,8 +10164,7 @@ impl CoduxApp {
                 };
                 match self.runtime_service.claim_pet_from_indexed_history(request) {
                     Ok(_) => {
-                        self.state.pet = self.runtime_service.reload_pet();
-                        self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                        self.refresh_pet_cache();
                         let revision = publish_pet_update();
                         if revision > 0 {
                             self.pet_update_seen_revision = revision;
@@ -8553,7 +10204,7 @@ impl CoduxApp {
 
         match self.runtime_service.claim_pet_from_indexed_history(request) {
             Ok(_) => {
-                self.state.pet = self.runtime_service.reload_pet();
+                self.refresh_pet_cache();
                 let revision = publish_pet_update();
                 if revision > 0 {
                     self.pet_update_seen_revision = revision;
@@ -8585,7 +10236,7 @@ impl CoduxApp {
             custom_name: custom_name.trim().to_string(),
         }) {
             Ok(_) => {
-                self.state.pet = self.runtime_service.reload_pet();
+                self.refresh_pet_cache();
                 let revision = publish_pet_update();
                 if revision > 0 {
                     self.pet_update_seen_revision = revision;
@@ -8617,6 +10268,7 @@ impl CoduxApp {
 
     fn show_pet_dex_spotlight(&mut self, spotlight: PetDexSpotlight, cx: &mut Context<Self>) {
         self.pet_dex_spotlight = Some(spotlight);
+        self.start_pet_sprite_animation_loop(cx);
         self.status_message = "pet dex detail opened".to_string();
         cx.notify();
     }
@@ -8636,8 +10288,7 @@ impl CoduxApp {
     fn archive_current_pet_confirmed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self.runtime_service.archive_current_pet() {
             Ok(_) => {
-                self.state.pet = self.runtime_service.reload_pet();
-                self.pet_custom_pets = self.runtime_service.pet_catalog().custom_pets;
+                self.refresh_pet_cache();
                 self.pet_dex_spotlight = None;
                 let revision = publish_pet_update();
                 if revision > 0 {
@@ -9302,10 +10953,113 @@ impl CoduxApp {
             .map(|slot| slot.pane.view.clone())
     }
 
-    fn desktop_pet_window(&self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let app_entity = cx.entity();
-        let level = self.state.pet.level.max(1);
-        let progress = self.state.pet.progress.clamp(0.0, 1.0) as f32;
+    fn desktop_pet_side(&self, window: &mut Window, cx: &mut Context<Self>) -> DesktopPetSide {
+        let bounds = window.bounds();
+        let display = cx.primary_display();
+        let visible_bounds = display
+            .as_ref()
+            .map(|display| display.visible_bounds())
+            .unwrap_or_else(|| Bounds::centered(None, size(px(1280.0), px(820.0)), cx));
+        let work_area = DesktopPetWorkArea {
+            x: visible_bounds.origin.x.to_f64(),
+            y: visible_bounds.origin.y.to_f64(),
+            width: visible_bounds.size.width.to_f64(),
+            height: visible_bounds.size.height.to_f64(),
+            scale_factor: 1.0,
+        };
+        let side = self
+            .runtime_service
+            .desktop_pet_placement(
+                codux_runtime::desktop_pet::DesktopPetPhysicalPosition {
+                    x: bounds.origin.x.to_f64(),
+                    y: bounds.origin.y.to_f64(),
+                },
+                codux_runtime::desktop_pet::DesktopPetPhysicalSize {
+                    width: bounds.size.width.to_f64(),
+                    height: bounds.size.height.to_f64(),
+                },
+                work_area,
+            )
+            .side;
+        if side.as_str() == DesktopPetSide::Right.as_str() {
+            DesktopPetSide::Right
+        } else {
+            DesktopPetSide::Left
+        }
+    }
+
+    fn desktop_pet_animation(&self) -> DesktopPetAnimation {
+        if !self.state.pet.claimed {
+            return DesktopPetAnimation {
+                row: 6,
+                frame_count: PET_WAITING_FRAME_COUNT,
+            };
+        }
+        if self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .any(|session| session.state == "needs-input")
+        {
+            return DesktopPetAnimation {
+                row: 8,
+                frame_count: PET_REVIEW_FRAME_COUNT,
+            };
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        if let Some(session) = self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .filter(|session| {
+                session.state != "running"
+                    && session.state != "needs-input"
+                    && session.has_completed_turn
+                    && now - session.updated_at <= 30.0
+            })
+            .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+        {
+            return if session.was_interrupted {
+                DesktopPetAnimation {
+                    row: 5,
+                    frame_count: PET_FAILED_FRAME_COUNT,
+                }
+            } else {
+                DesktopPetAnimation {
+                    row: 3,
+                    frame_count: PET_WAVING_FRAME_COUNT,
+                }
+            };
+        }
+
+        if self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .any(|session| session.state == "running")
+            || self.state.pet.daily_xp > 0
+        {
+            return DesktopPetAnimation {
+                row: 7,
+                frame_count: PET_RUNNING_FRAME_COUNT,
+            };
+        }
+
+        DesktopPetAnimation {
+            row: 0,
+            frame_count: PET_IDLE_FRAME_COUNT,
+        }
+    }
+
+    fn desktop_pet_window(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let focus_handle = self.root_focus_handle.clone();
         let line = self.desktop_pet_line.trim().to_string();
         let sprite_path = pet_sprite_path(
             &self.runtime.source_root,
@@ -9313,206 +11067,201 @@ impl CoduxApp {
             &self.state.pet,
             &self.pet_custom_pets,
         );
-        let name = if self.state.pet.claimed && !self.state.pet.display_name.is_empty() {
-            self.state.pet.display_name.clone()
-        } else {
-            "Codux Pet".to_string()
-        };
-        let pet_labels = desktop_pet_labels(&self.state.settings.language);
-        let menu_labels = pet_labels.clone();
+        let animation = self.desktop_pet_animation();
+        let sprite_frame = self.visible_pet_sprite_frame(animation.frame_count);
+        let menu_entries = desktop_pet_menu_entries(&self.state.settings.language);
+        let side = self.desktop_pet_side(window, cx);
+        let bubble_is_left_tail = side == DesktopPetSide::Right;
+        let tone = self.desktop_pet_tone;
 
         div()
             .size_full()
-            .font_family("SF Pro Text")
             .text_color(cx.theme().foreground)
             .bg(cx.theme().transparent)
-            .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
-                window.start_window_move();
+            .when_some(focus_handle.as_ref(), |this, focus_handle| {
+                this.track_focus(focus_handle)
             })
+            .on_key_down(cx.listener(Self::on_key_down))
+            .on_mouse_down(MouseButton::Left, |event, window, _cx| {
+                if desktop_pet_point_is_in_sprite(event.position) {
+                    window.start_window_move();
+                }
+            })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |_app, event: &gpui::MouseDownEvent, window, cx| {
+                    macos_window::spawn_desktop_pet_native_menu(
+                        window,
+                        event.position,
+                        menu_entries.clone(),
+                        cx,
+                    );
+                    cx.stop_propagation();
+                }),
+            )
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|app, _event, window, cx| {
                     app.save_desktop_pet_window_origin(window, cx)
                 }),
             )
-            .context_menu(move |menu, _window, _cx| {
-                desktop_pet_context_menu(menu, app_entity.clone(), menu_labels.clone())
-            })
             .child(
                 div()
                     .size_full()
-                    .p_3()
-                    .flex()
-                    .items_end()
-                    .gap_3()
+                    .relative()
+                    .bg(cx.theme().transparent)
+                    .when(!line.is_empty(), |this| {
+                        this.child(desktop_pet_bubble(line, tone, bubble_is_left_tail))
+                    })
                     .child(
                         div()
-                            .w(px(204.0))
-                            .rounded(px(14.0))
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .bg(cx.theme().popover.opacity(0.94))
-                            .p_3()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .min_w_0()
-                                            .text_size(px(14.0))
-                                            .line_height(px(18.0))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .truncate()
-                                            .child(name),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_none()
-                                            .px_2()
-                                            .h(px(20.0))
-                                            .rounded_sm()
-                                            .flex()
-                                            .items_center()
-                                            .text_size(px(12.0))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .bg(cx.theme().accent)
-                                            .text_color(cx.theme().accent_foreground)
-                                            .child(format!("Lv.{level}")),
-                                    ),
-                            )
-                            .when(!line.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .mt_2()
-                                        .text_size(px(12.0))
-                                        .line_height(px(16.0))
-                                        .text_color(cx.theme().secondary_foreground)
-                                        .child(line),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .h(px(5.0))
-                                    .rounded_full()
-                                    .overflow_hidden()
-                                    .bg(cx.theme().secondary)
-                                    .child(
-                                        div()
-                                            .h_full()
-                                            .w(gpui::relative(progress))
-                                            .rounded_full()
-                                            .bg(cx.theme().primary),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .flex()
-                                    .flex_col()
-                                    .items_end()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_1()
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-mute-30",
-                                                pet_labels.mute_30.clone(),
-                                                IconName::Moon,
-                                                DESKTOP_PET_MUTE_30_MINUTES,
-                                                cx,
-                                            ))
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-mute-hour",
-                                                pet_labels.mute_1_hour.clone(),
-                                                IconName::Bell,
-                                                DESKTOP_PET_MUTE_1_HOUR,
-                                                cx,
-                                            ))
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-mute-today",
-                                                pet_labels.mute_today.clone(),
-                                                IconName::Calendar,
-                                                DESKTOP_PET_MUTE_TODAY,
-                                                cx,
-                                            )),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_1()
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-skip",
-                                                pet_labels.skip_line.clone(),
-                                                IconName::Pause,
-                                                DESKTOP_PET_SKIP_LINE,
-                                                cx,
-                                            ))
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-speak-less",
-                                                pet_labels.speak_less.clone(),
-                                                IconName::Minus,
-                                                DESKTOP_PET_SPEAK_LESS,
-                                                cx,
-                                            ))
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-speak-more",
-                                                pet_labels.speak_more.clone(),
-                                                IconName::Plus,
-                                                DESKTOP_PET_SPEAK_MORE,
-                                                cx,
-                                            ))
-                                            .child(desktop_pet_action_button(
-                                                "desktop-pet-hide",
-                                                pet_labels.hide.clone(),
-                                                IconName::Close,
-                                                DESKTOP_PET_HIDE,
-                                                cx,
-                                            )),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .size(px(112.0))
+                            .absolute()
+                            .bottom(px(DESKTOP_PET_SPRITE_BOTTOM))
+                            .size(px(DESKTOP_PET_SPRITE_SIZE))
                             .overflow_hidden()
+                            .when(side == DesktopPetSide::Right, |this| {
+                                this.left(px(DESKTOP_PET_SPRITE_SIDE))
+                            })
+                            .when(side == DesktopPetSide::Left, |this| {
+                                this.right(px(DESKTOP_PET_SPRITE_SIDE))
+                            })
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(desktop_pet_sprite(sprite_path, cx)),
+                            .child(desktop_pet_sprite(
+                                sprite_path,
+                                sprite_frame,
+                                animation.row,
+                                cx,
+                            )),
                     ),
             )
     }
 }
 
-fn desktop_pet_sprite(sprite_path: PathBuf, cx: &mut Context<CoduxApp>) -> AnyElement {
-    let frame = cx
-        .entity()
-        .read(cx)
-        .visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
+fn desktop_pet_sprite(
+    sprite_path: PathBuf,
+    frame: usize,
+    row: usize,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
     pet_sprite_element(
         sprite_path,
         DESKTOP_PET_SPRITE_SIZE,
         frame,
+        row,
         cx.theme().primary,
     )
+}
+
+fn desktop_pet_point_is_in_sprite(point: gpui::Point<gpui::Pixels>) -> bool {
+    let left_x = DESKTOP_PET_SPRITE_SIDE;
+    let right_x = DESKTOP_PET_BASE_WIDTH as f32 - DESKTOP_PET_SPRITE_SIDE - DESKTOP_PET_SPRITE_SIZE;
+    let y = DESKTOP_PET_BASE_HEIGHT as f32 - DESKTOP_PET_SPRITE_BOTTOM - DESKTOP_PET_SPRITE_SIZE;
+    let x = point.x.as_f32();
+    let y_pos = point.y.as_f32();
+    let in_left_sprite = x >= left_x
+        && x <= left_x + DESKTOP_PET_SPRITE_SIZE
+        && y_pos >= y
+        && y_pos <= y + DESKTOP_PET_SPRITE_SIZE;
+    let in_right_sprite = x >= right_x
+        && x <= right_x + DESKTOP_PET_SPRITE_SIZE
+        && y_pos >= y
+        && y_pos <= y + DESKTOP_PET_SPRITE_SIZE;
+    in_left_sprite || in_right_sprite
+}
+
+fn desktop_pet_bubble(line: String, tone: DesktopPetActivityTone, left_tail: bool) -> AnyElement {
+    let (fill, stroke, text) = match tone {
+        DesktopPetActivityTone::Normal => (0x292B36, 0xFFFFFF, 0xF0EDE1),
+        DesktopPetActivityTone::Attention => (0x6B330D, 0xFFAE38, 0xFFF1D6),
+        DesktopPetActivityTone::Success => (0x144D29, 0x8CF275, 0xE1FFD1),
+        DesktopPetActivityTone::Warning => (0x610D12, 0xFF6B5C, 0xFFE8E1),
+    };
+    let text_pad_left = if left_tail { 21.0 } else { 13.0 };
+    let text_pad_right = if left_tail { 13.0 } else { 21.0 };
+
+    div()
+        .absolute()
+        .top(px(DESKTOP_PET_BUBBLE_TOP))
+        .w(px(DESKTOP_PET_BUBBLE_WIDTH))
+        .min_h(px(DESKTOP_PET_BUBBLE_MIN_HEIGHT))
+        .when(left_tail, |this| this.right(px(DESKTOP_PET_BUBBLE_EDGE)))
+        .when(!left_tail, |this| this.left(px(DESKTOP_PET_BUBBLE_EDGE)))
+        .child(pixel_bubble_body(stroke, 0.0, left_tail))
+        .child(pixel_bubble_body(fill, 3.0, left_tail))
+        .child(
+            div()
+                .relative()
+                .min_h(px(DESKTOP_PET_BUBBLE_MIN_HEIGHT))
+                .pt(px(10.0))
+                .pb(px(10.0))
+                .pl(px(text_pad_left))
+                .pr(px(text_pad_right))
+                .flex()
+                .items_center()
+                .justify_center()
+                .overflow_hidden()
+                .font_family("SF Mono")
+                .text_size(px(14.0))
+                .line_height(px(17.0))
+                .font_weight(FontWeight::BOLD)
+                .text_center()
+                .text_color(color(text))
+                .line_clamp(3)
+                .child(line),
+        )
+        .into_any_element()
+}
+
+fn pixel_bubble_body(color_hex: u32, inset: f32, left_tail: bool) -> AnyElement {
+    let left = if left_tail {
+        DESKTOP_PET_BUBBLE_TAIL_SIZE + inset
+    } else {
+        inset
+    };
+    let right = if left_tail {
+        inset
+    } else {
+        DESKTOP_PET_BUBBLE_TAIL_SIZE + inset
+    };
+    let tail_y = DESKTOP_PET_BUBBLE_MIN_HEIGHT / 2.0;
+    div()
+        .absolute()
+        .top(px(inset))
+        .bottom(px(inset))
+        .left(px(left))
+        .right(px(right))
+        .bg(color(color_hex))
+        .child(
+            div()
+                .absolute()
+                .top(px(tail_y - DESKTOP_PET_BUBBLE_TAIL_SIZE / 2.0))
+                .when(left_tail, |this| {
+                    this.left(px(-DESKTOP_PET_BUBBLE_TAIL_SIZE))
+                })
+                .when(!left_tail, |this| {
+                    this.right(px(-DESKTOP_PET_BUBBLE_TAIL_SIZE))
+                })
+                .w(px(DESKTOP_PET_BUBBLE_TAIL_SIZE))
+                .h(px(DESKTOP_PET_BUBBLE_TAIL_SIZE))
+                .bg(color(color_hex)),
+        )
+        .into_any_element()
 }
 
 fn pet_sprite_element(
     sprite_path: PathBuf,
     size: f32,
     frame: usize,
+    row: usize,
     fallback_color: gpui::Hsla,
 ) -> AnyElement {
     let visible_width = pet_sprite_visible_width(size);
     let frame = frame % PET_ATLAS_COLUMNS as usize;
-    let offset = -(frame as f32) * visible_width;
+    let row = row % PET_ATLAS_ROWS as usize;
+    let x_offset = -(frame as f32) * visible_width;
+    let y_offset = -(row as f32) * size;
 
     div()
         .size(px(size))
@@ -9522,7 +11271,8 @@ fn pet_sprite_element(
             img(sprite_path)
                 .w(px(PET_ATLAS_COLUMNS * visible_width))
                 .h(px(PET_ATLAS_ROWS * size))
-                .ml(px(offset))
+                .ml(px(x_offset))
+                .mt(px(y_offset))
                 .object_fit(ObjectFit::Fill)
                 .with_fallback(move || {
                     div()
@@ -9541,6 +11291,37 @@ fn pet_sprite_element(
 }
 
 impl CoduxApp {
+    fn selected_project_id(&self) -> Option<String> {
+        self.state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone())
+    }
+
+    fn ensure_project_list_store(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<ProjectListStore> {
+        if let Some(store) = &self.project_list_store {
+            return store.clone();
+        }
+
+        let store = cx.new(|_| {
+            ProjectListStore::new(self.state.projects.clone(), self.selected_project_id())
+        });
+        self.project_list_store = Some(store.clone());
+        store
+    }
+
+    fn sync_project_list_store(&mut self, cx: &mut Context<Self>) {
+        let store = self.ensure_project_list_store(cx);
+        let projects = self.state.projects.clone();
+        let selected_project_id = self.selected_project_id();
+        store.update(cx, |store, cx| {
+            store.set_snapshot(projects, selected_project_id, cx);
+        });
+    }
+
     pub(in crate::app) fn visible_pet_sprite_frame(&self, frame_count: usize) -> usize {
         if self.state.settings.pet_static_mode {
             0
@@ -9548,31 +11329,209 @@ impl CoduxApp {
             self.pet_sprite_frame % frame_count.max(1)
         }
     }
+
+    fn project_column_view(&mut self, cx: &mut Context<Self>) -> gpui::Entity<ProjectColumnView> {
+        let app_entity = cx.entity();
+        let project_store = self.ensure_project_list_store(cx);
+        let collapsed = self.project_column_collapsed;
+        let language = self.state.settings.language.clone();
+        let has_project = self.state.selected_project.is_some();
+        let has_projects = !self.state.projects.is_empty();
+        let has_worktree = self.state.worktrees.selected_worktree_id.is_some();
+        let scroll_handle = self.project_scroll_handle.clone();
+
+        if let Some(view) = &self.project_column_view {
+            view.update(cx, |view, cx| {
+                let changed = view.collapsed != collapsed
+                    || view.language != language
+                    || view.has_project != has_project
+                    || view.has_projects != has_projects
+                    || view.has_worktree != has_worktree;
+
+                if !changed {
+                    return;
+                }
+
+                view.collapsed = collapsed;
+                view.language = language;
+                view.has_project = has_project;
+                view.has_projects = has_projects;
+                view.has_worktree = has_worktree;
+                view.scroll_handle = scroll_handle;
+                cx.notify();
+            });
+            return view.clone();
+        }
+        let view = cx.new(|_| ProjectColumnView {
+            app_entity: app_entity.clone(),
+            project_store,
+            collapsed,
+            language,
+            has_project,
+            has_projects,
+            has_worktree,
+            scroll_handle,
+            _observe_project_store: None,
+        });
+        view.update(cx, |view, cx| {
+            view._observe_project_store =
+                Some(cx.observe(&view.project_store, |_, _, cx| cx.notify()));
+        });
+        self.project_column_view = Some(view.clone());
+        view
+    }
+
+    fn task_column_view(&mut self, cx: &mut Context<Self>) -> gpui::Entity<TaskColumnView> {
+        if let Some(view) = &self.task_column_view {
+            return view.clone();
+        }
+        let app_entity = cx.entity();
+        let view = cx.new(|_| TaskColumnView {
+            app_entity: app_entity.clone(),
+        });
+        self.task_column_view = Some(view.clone());
+        view
+    }
+
+    fn workspace_column_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<WorkspaceColumnView> {
+        if let Some(view) = &self.workspace_column_view {
+            return view.clone();
+        }
+        let app_entity = cx.entity();
+        let view = cx.new(|_| WorkspaceColumnView {
+            app_entity: app_entity.clone(),
+        });
+        self.workspace_column_view = Some(view.clone());
+        view
+    }
+
+    pub(in crate::app) fn file_sidebar_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<FileSidebarView> {
+        let project_name = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.name.clone())
+            .unwrap_or_else(|| "Project".to_string());
+        let files = self.state.files.clone();
+        let tree_children = self.file_tree_children.clone();
+        let expanded_dirs = self.file_tree_expanded_dirs.clone();
+        let file_directory = self.file_directory.clone();
+        let selected_entry = self.selected_file_entry.clone();
+        let selected_entries = self.selected_file_entries.clone();
+        let draft_kind = self.file_name_draft_kind;
+        let draft_target = self.file_name_draft_target.clone();
+        let draft_value = self.file_name_draft_value.clone();
+        let draft_select_all = self.file_name_draft_select_all;
+        let scroll_handle = self.file_tree_scroll_handle.clone();
+
+        if let Some(view) = &self.file_sidebar_view {
+            view.update(cx, |view, cx| {
+                let changed = view.project_name != project_name
+                    || view.files != files
+                    || view.tree_children != tree_children
+                    || view.expanded_dirs != expanded_dirs
+                    || view.file_directory != file_directory
+                    || view.selected_entry != selected_entry
+                    || view.selected_entries != selected_entries
+                    || view.draft_kind != draft_kind
+                    || view.draft_target != draft_target
+                    || view.draft_value != draft_value
+                    || view.draft_select_all != draft_select_all;
+                if !changed {
+                    return;
+                }
+                let rows = Rc::new(file_tree_rows(
+                    &files,
+                    &tree_children,
+                    &expanded_dirs,
+                    selected_entry.as_deref(),
+                    &selected_entries,
+                    draft_kind,
+                    draft_target.as_deref(),
+                    &draft_value,
+                    0,
+                ));
+                view.project_name = project_name;
+                view.files = files;
+                view.tree_children = tree_children;
+                view.expanded_dirs = expanded_dirs;
+                view.file_directory = file_directory;
+                view.selected_entry = selected_entry;
+                view.selected_entries = selected_entries;
+                view.draft_kind = draft_kind;
+                view.draft_target = draft_target;
+                view.draft_value = draft_value;
+                view.draft_select_all = draft_select_all;
+                view.scroll_handle = scroll_handle;
+                view.rows = rows;
+                cx.notify();
+            });
+            return view.clone();
+        }
+
+        let app_entity = cx.entity();
+        let rows = Rc::new(file_tree_rows(
+            &files,
+            &tree_children,
+            &expanded_dirs,
+            selected_entry.as_deref(),
+            &selected_entries,
+            draft_kind,
+            draft_target.as_deref(),
+            &draft_value,
+            0,
+        ));
+        let view = cx.new(|cx| FileSidebarView {
+            app_entity: app_entity.clone(),
+            focus_handle: cx.focus_handle(),
+            project_name,
+            files,
+            tree_children,
+            expanded_dirs,
+            file_directory,
+            selected_entry,
+            selected_entries,
+            draft_kind,
+            draft_target,
+            draft_value,
+            draft_select_all,
+            rows,
+            scroll_handle,
+        });
+        self.file_sidebar_view = Some(view.clone());
+        view
+    }
 }
 
 impl Render for CoduxApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.register_native_menu_actions(window, cx);
+        self.focus_root_if_needed(window, cx);
 
         if self.window_mode == AppWindowMode::DesktopPet {
             return self.desktop_pet_window(window, cx).into_any_element();
         }
 
         if self.window_mode == AppWindowMode::About {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
-                .child(self.about_workspace(window, cx))
+                .child(self.about_workspace(window, cx));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::GitDiff {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
@@ -9581,14 +11540,15 @@ impl Render for CoduxApp {
                     &self.git_diff_window_content,
                     self.git_diff_window_error.as_deref(),
                     cx,
-                ))
+                ));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::MemoryManager {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
@@ -9600,86 +11560,253 @@ impl Render for CoduxApp {
                     self.memory_processing,
                     window,
                     cx,
-                ))
+                ));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::PetClaim {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
-                .child(self.pet_claim_workspace(window, cx))
+                .child(self.pet_claim_workspace(window, cx));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::PetCustomInstall {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
-                .child(self.pet_custom_install_workspace(window, cx))
+                .child(self.pet_custom_install_workspace(window, cx));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::PetDex {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
-                .child(self.pet_dex_workspace(window, cx))
+                .child(self.pet_dex_workspace(window, cx));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::Settings {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
-                .child(self.settings_workspace(window, cx))
+                .child(self.settings_workspace(window, cx));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
         if self.window_mode == AppWindowMode::ProjectEditor {
-            return div()
+            let root = div()
                 .size_full()
-                .font_family("SF Pro Text")
                 .text_color(color(theme::TEXT))
                 .bg(color(theme::BG))
                 .on_key_down(cx.listener(Self::on_key_down))
-                .child(self.project_editor_workspace(window, cx))
+                .child(self.project_editor_workspace(window, cx));
+            return self
+                .register_close_window_action(root, cx)
                 .into_any_element();
         }
 
-        div()
+        if self.window_mode == AppWindowMode::SshProfileEditor {
+            let root = div()
+                .size_full()
+                .text_color(color(theme::TEXT))
+                .bg(color(theme::BG))
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(ssh_profile_editor_workspace(
+                    self,
+                    self.ssh_testing,
+                    window,
+                    cx,
+                ));
+            return self
+                .register_close_window_action(root, cx)
+                .into_any_element();
+        }
+
+        let project_column_view = self.project_column_view(cx);
+        let task_column_view = self.task_column_view(cx);
+        let workspace_column_view = self.workspace_column_view(cx);
+        let project_column_width = px(if self.project_column_collapsed {
+            80.0
+        } else {
+            232.0
+        });
+
+        let focus_handle = self.root_focus_handle(cx);
+        let root = div()
             .size_full()
             .flex()
             .flex_col()
-            .font_family("SF Pro Text")
             .text_color(color(theme::TEXT))
             .bg(color(theme::BG))
+            .track_focus(&focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
             .child(
                 div()
                     .flex()
                     .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
-                    .child(self.project_column(cx))
-                    .when(!self.task_column_collapsed, |this| {
-                        this.child(self.task_column(cx))
-                    })
-                    .child(self.main_workspace_column(window, cx)),
+                    .child(
+                        gpui::AnyView::from(project_column_view).cached(
+                            gpui::StyleRefinement::default()
+                                .flex()
+                                .flex_shrink_0()
+                                .w(project_column_width)
+                                .h_full(),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(
+                                h_resizable("main-column-resizable")
+                                    .child(
+                                        resizable_panel()
+                                            .visible(!self.task_column_collapsed)
+                                            .size(px(220.0))
+                                            .size_range(px(180.0)..px(420.0))
+                                            .child(
+                                                gpui::AnyView::from(task_column_view).cached(
+                                                    gpui::StyleRefinement::default()
+                                                        .flex()
+                                                        .h_full()
+                                                        .w_full(),
+                                                ),
+                                            ),
+                                    )
+                                    .child(
+                                        resizable_panel().child(
+                                            gpui::AnyView::from(workspace_column_view).cached(
+                                                gpui::StyleRefinement::default()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .w_full()
+                                                    .min_w_0()
+                                                    .h_full(),
+                                            ),
+                                        ),
+                                    ),
+                            ),
+                    ),
             )
-            .child(self.status_bar(cx))
+            .child(self.status_bar(cx));
+
+        self.register_native_menu_actions(root, cx)
             .into_any_element()
+    }
+}
+
+struct ProjectColumnView {
+    app_entity: gpui::Entity<CoduxApp>,
+    project_store: gpui::Entity<ProjectListStore>,
+    collapsed: bool,
+    language: String,
+    has_project: bool,
+    has_projects: bool,
+    has_worktree: bool,
+    scroll_handle: UniformListScrollHandle,
+    _observe_project_store: Option<Subscription>,
+}
+
+struct TaskColumnView {
+    app_entity: gpui::Entity<CoduxApp>,
+}
+
+struct WorkspaceColumnView {
+    app_entity: gpui::Entity<CoduxApp>,
+}
+
+pub(in crate::app) struct FileSidebarView {
+    app_entity: gpui::Entity<CoduxApp>,
+    focus_handle: FocusHandle,
+    project_name: String,
+    files: Vec<FileEntry>,
+    tree_children: HashMap<String, Vec<FileEntry>>,
+    expanded_dirs: HashSet<String>,
+    file_directory: String,
+    selected_entry: Option<String>,
+    selected_entries: HashSet<String>,
+    draft_kind: Option<FileNameDraftKind>,
+    draft_target: Option<String>,
+    draft_value: String,
+    draft_select_all: bool,
+    rows: Rc<Vec<FileTreeRow>>,
+    scroll_handle: UniformListScrollHandle,
+}
+
+struct ProjectListStore {
+    projects: Rc<Vec<ProjectInfo>>,
+    selected_project_id: Option<String>,
+    revision: u64,
+}
+
+impl ProjectListStore {
+    fn new(projects: Vec<ProjectInfo>, selected_project_id: Option<String>) -> Self {
+        Self {
+            projects: Rc::new(projects),
+            selected_project_id,
+            revision: 0,
+        }
+    }
+
+    fn set_snapshot(
+        &mut self,
+        projects: Vec<ProjectInfo>,
+        selected_project_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.projects = Rc::new(projects);
+        self.selected_project_id = selected_project_id;
+        self.revision = self.revision.wrapping_add(1);
+        cx.notify();
+    }
+}
+
+impl Render for TaskColumnView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.app_entity
+            .update(cx, |app, cx| app.task_column(cx).into_any_element())
+    }
+}
+
+impl Render for WorkspaceColumnView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.app_entity.update(cx, |app, cx| {
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .w_full()
+                .h_full()
+                .child(app.main_workspace_column(window, cx))
+                .into_any_element()
+        })
     }
 }
 
@@ -9689,28 +11816,6 @@ impl Drop for CoduxApp {
             self.shutdown_runtime_state_from_drop();
         }
     }
-}
-
-fn desktop_pet_action_button(
-    id: &'static str,
-    tooltip: String,
-    icon: IconName,
-    action_id: &'static str,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    Button::new(id)
-        .compact()
-        .ghost()
-        .tooltip(tooltip)
-        .text_color(cx.theme().secondary_foreground)
-        .icon(
-            Icon::new(icon)
-                .size_3p5()
-                .text_color(cx.theme().secondary_foreground),
-        )
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.apply_desktop_pet_action(action_id, window, cx)
-        }))
 }
 
 #[derive(Clone)]
@@ -9738,70 +11843,86 @@ fn desktop_pet_labels(language: &str) -> DesktopPetLabels {
     }
 }
 
-fn desktop_pet_context_menu(
-    menu: PopupMenu,
-    app_entity: gpui::Entity<CoduxApp>,
-    labels: DesktopPetLabels,
-) -> PopupMenu {
-    fn item(
-        label: String,
-        icon: IconName,
-        action_id: &'static str,
-        app_entity: gpui::Entity<CoduxApp>,
-    ) -> PopupMenuItem {
-        PopupMenuItem::new(label)
-            .icon(icon)
-            .on_click(move |_, window, cx| {
-                cx.update_entity(&app_entity, |app, cx| {
-                    app.apply_desktop_pet_action(action_id, window, cx);
-                });
-            })
-    }
+fn desktop_pet_menu_entries(language: &str) -> Vec<macos_window::NativeMenuEntry> {
+    use macos_window::NativeMenuEntry::{Item, Separator};
+    let labels = desktop_pet_labels(language);
+    vec![
+        Item {
+            label: labels.mute_30,
+            action_id: DESKTOP_PET_MUTE_30_MINUTES,
+        },
+        Item {
+            label: labels.mute_1_hour,
+            action_id: DESKTOP_PET_MUTE_1_HOUR,
+        },
+        Item {
+            label: labels.mute_today,
+            action_id: DESKTOP_PET_MUTE_TODAY,
+        },
+        Separator,
+        Item {
+            label: labels.skip_line,
+            action_id: DESKTOP_PET_SKIP_LINE,
+        },
+        Item {
+            label: labels.speak_more,
+            action_id: DESKTOP_PET_SPEAK_MORE,
+        },
+        Item {
+            label: labels.speak_less,
+            action_id: DESKTOP_PET_SPEAK_LESS,
+        },
+        Separator,
+        Item {
+            label: labels.hide,
+            action_id: DESKTOP_PET_HIDE,
+        },
+    ]
+}
 
-    menu.item(item(
-        labels.mute_30,
-        IconName::Moon,
-        DESKTOP_PET_MUTE_30_MINUTES,
-        app_entity.clone(),
-    ))
-    .item(item(
-        labels.mute_1_hour,
-        IconName::Bell,
-        DESKTOP_PET_MUTE_1_HOUR,
-        app_entity.clone(),
-    ))
-    .item(item(
-        labels.mute_today,
-        IconName::Calendar,
-        DESKTOP_PET_MUTE_TODAY,
-        app_entity.clone(),
-    ))
-    .separator()
-    .item(item(
-        labels.skip_line,
-        IconName::Pause,
-        DESKTOP_PET_SKIP_LINE,
-        app_entity.clone(),
-    ))
-    .item(item(
-        labels.speak_more,
-        IconName::Plus,
-        DESKTOP_PET_SPEAK_MORE,
-        app_entity.clone(),
-    ))
-    .item(item(
-        labels.speak_less,
-        IconName::Minus,
-        DESKTOP_PET_SPEAK_LESS,
-        app_entity.clone(),
-    ))
-    .separator()
-    .item(item(
-        labels.hide,
-        IconName::Close,
-        DESKTOP_PET_HIDE,
-        app_entity,
-    ))
+fn project_help_menu_entries(language: &str) -> Vec<macos_window::NativeMenuEntry> {
+    use macos_window::NativeMenuEntry::{Item, Separator};
+    let label = |key: &str, fallback: &str| {
+        translate(&locale_from_language_setting(language), key, fallback)
+    };
+    let about = label("menu.app.about_format", "About %@").replace("%@", app_display_name());
+    vec![
+        Item {
+            label: about,
+            action_id: "help:about",
+        },
+        Item {
+            label: label("about.updates", "Check for Updates"),
+            action_id: "help:check-updates",
+        },
+        Item {
+            label: label("menu.help.export_diagnostics", "Export Diagnostics..."),
+            action_id: "help:export-diagnostics",
+        },
+        Separator,
+        Item {
+            label: label("menu.help.open_runtime_log", "Open Runtime Log"),
+            action_id: "help:runtime-log",
+        },
+        Item {
+            label: label("menu.help.open_live_log", "Open Live Log"),
+            action_id: "help:live-log",
+        },
+        #[cfg(debug_assertions)]
+        Item {
+            label: label("menu.help.developer_tools", "Developer Tools"),
+            action_id: "help:devtools",
+        },
+        Separator,
+        Item {
+            label: label("menu.help.website", "Website"),
+            action_id: "help:website",
+        },
+        Item {
+            label: label("menu.help.github", "GitHub"),
+            action_id: "help:github",
+        },
+    ]
 }
 
 fn column_header(content: impl IntoElement) -> impl IntoElement {

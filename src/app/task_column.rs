@@ -14,11 +14,10 @@ impl CoduxApp {
         div()
             .flex()
             .flex_col()
-            .w(px(286.0))
+            .w_full()
+            .min_w_0()
             .h_full()
             .bg(color(theme::BG_PANEL))
-            .border_r_1()
-            .border_color(color(theme::BORDER_SOFT))
             .child(column_header(
                 div()
                     .flex()
@@ -28,7 +27,6 @@ impl CoduxApp {
                     .child(
                         div()
                             .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(color(theme::TEXT))
                             .truncate()
                             .child(project_name),
@@ -61,51 +59,35 @@ impl CoduxApp {
     }
 
     fn task_list_area(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tasks = &self.state.worktrees.tasks;
-        let selected_worktree_id = self.state.worktrees.selected_worktree_id.as_deref();
+        let rows = Rc::new(self.state.worktrees.worktrees.clone());
+        let selected_worktree_id = self.state.worktrees.selected_worktree_id.clone();
+        let scroll_handle = self.task_scroll_handle.clone();
         div().flex().flex_col().size_full().min_h_0().child(
             div()
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_h_0()
-                .gap_1()
                 .p_3()
-                .overflow_y_scrollbar()
-                .children(tasks.iter().take(12).map(|task| {
-                    let active = selected_worktree_id
-                        .map(|id| id == task.worktree_id)
-                        .unwrap_or(false);
-                    let git_summary = self
-                        .state
-                        .worktrees
-                        .worktrees
-                        .iter()
-                        .find(|worktree| worktree.id == task.worktree_id)
-                        .map(|worktree| worktree.git_summary.clone())
-                        .unwrap_or_else(|| {
-                            worktree_git_summary_from_git(&self.state.worktrees.active_git)
-                        });
-                    task_row(task.clone(), active, git_summary, cx).into_any_element()
-                }))
-                .children(
-                    self.state
-                        .worktrees
-                        .worktrees
-                        .iter()
-                        .take(4)
-                        .cloned()
-                        .map(|worktree| {
-                            let active = self
-                                .state
-                                .worktrees
-                                .selected_worktree_id
-                                .as_ref()
-                                .map(|id| id == &worktree.id)
-                                .unwrap_or(false);
-                            worktree_compact_row(worktree, active, cx).into_any_element()
-                        }),
-                ),
+                .overflow_hidden()
+                .child(codux_uniform_list(
+                    "task-column-worktrees",
+                    rows,
+                    scroll_handle,
+                    None,
+                    cx,
+                    move |worktree, _index, _window, cx| {
+                        let active = selected_worktree_id
+                            .as_deref()
+                            .map(|id| id == worktree.id)
+                            .unwrap_or(false);
+                        div()
+                            .w_full()
+                            .pb(px(4.0))
+                            .child(worktree_compact_row(worktree, active, cx))
+                            .into_any_element()
+                    },
+                )),
         )
     }
 
@@ -122,6 +104,10 @@ impl CoduxApp {
             })
             .cloned();
 
+        let sessions = Rc::new(self.state.ai_history.sessions.clone());
+        let selected_session_id = self.selected_ai_session_id.clone();
+        let scroll_handle = self.session_scroll_handle.clone();
+
         div()
             .relative()
             .flex()
@@ -135,21 +121,27 @@ impl CoduxApp {
             ))
             .child(
                 div()
-                    .flex()
-                    .flex_col()
+                    .relative()
                     .flex_1()
                     .min_h_0()
-                    .gap_2()
                     .p_2()
-                    .overflow_y_scrollbar()
-                    .children(self.state.ai_history.sessions.iter().take(16).cloned().map(
-                        |session| {
-                            let active = self
-                                .selected_ai_session_id
+                    .overflow_hidden()
+                    .child(codux_uniform_list(
+                        "task-column-recent-sessions",
+                        sessions,
+                        scroll_handle,
+                        None,
+                        cx,
+                        move |session, _index, _window, cx| {
+                            let active = selected_session_id
                                 .as_deref()
                                 .map(|id| id == session.id)
                                 .unwrap_or(false);
-                            ai_session_compact_row(session, active, cx).into_any_element()
+                            div()
+                                .w_full()
+                                .pb(px(4.0))
+                                .child(ai_session_compact_row(session, active, cx))
+                                .into_any_element()
                         },
                     )),
             )
@@ -179,102 +171,10 @@ fn session_section_heading(
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT))
                 .child(title),
         )
         .child(Tag::secondary().rounded_full().child(count.to_string()))
-}
-
-fn task_row(
-    task: WorktreeTaskInfo,
-    active: bool,
-    git: ProjectWorktreeGitSummary,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    let worktree_id = task.worktree_id.clone();
-    let branch_label = if task.base_branch.trim().is_empty() {
-        task.title
-    } else {
-        task.base_branch
-    };
-    div()
-        .id(SharedString::from(format!("task-{}", task.worktree_id)))
-        .rounded(px(8.0))
-        .px_4()
-        .py_1()
-        .flex()
-        .items_center()
-        .gap_4()
-        .bg(color(if active {
-            theme::BG_ROW_HOVER
-        } else {
-            theme::BG_COLUMN
-        }))
-        .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.select_worktree(worktree_id.clone(), window, cx)
-        }))
-        .child(
-            div()
-                .w(px(10.0))
-                .h(px(10.0))
-                .rounded_full()
-                .flex_shrink_0()
-                .bg(color(theme::ACCENT)),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .overflow_hidden()
-                .gap(px(6.0))
-                .child(
-                    div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(branch_label),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .truncate()
-                                .child(format!("{} 个变更", git.changes)),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(
-                                    div()
-                                        .text_color(color(0x3EE66B))
-                                        .child(format!("+{}", git.additions.max(0))),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(color(0xFF5C68))
-                                        .child(format!("-{}", git.deletions.max(0))),
-                                ),
-                        ),
-                ),
-        )
 }
 
 fn worktree_compact_row(
@@ -284,22 +184,21 @@ fn worktree_compact_row(
 ) -> impl IntoElement {
     let worktree_id = worktree.id.clone();
     let git = worktree.git_summary.clone();
+    let title = worktree_row_title(&worktree);
     div()
         .id(SharedString::from(format!(
             "compact-worktree-{}",
             worktree.id
         )))
+        .w_full()
+        .min_w_0()
         .rounded(px(8.0))
         .px_4()
         .py_1()
         .flex()
         .items_center()
         .gap_4()
-        .bg(color(if active {
-            theme::BG_ROW_HOVER
-        } else {
-            theme::BG_COLUMN
-        }))
+        .when(active, |this| this.bg(color(theme::BG_ROW_HOVER)))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |app, _event, window, cx| {
@@ -317,6 +216,7 @@ fn worktree_compact_row(
             div()
                 .flex()
                 .flex_col()
+                .min_w_0()
                 .flex_1()
                 .overflow_hidden()
                 .gap(px(6.0))
@@ -324,10 +224,9 @@ fn worktree_compact_row(
                     div()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
-                        .child(worktree.branch),
+                        .child(title),
                 )
                 .child(
                     div()
@@ -366,14 +265,26 @@ fn worktree_compact_row(
         )
 }
 
-fn worktree_git_summary_from_git(git: &GitSummary) -> ProjectWorktreeGitSummary {
-    ProjectWorktreeGitSummary {
-        changes: git.staged + git.unstaged + git.untracked,
-        incoming: git.behind,
-        outgoing: git.ahead,
-        additions: 0,
-        deletions: 0,
+fn worktree_row_title(worktree: &WorktreeInfo) -> String {
+    let branch = if worktree.branch.trim().is_empty() {
+        "main"
+    } else {
+        worktree.branch.trim()
+    };
+    if worktree.is_default {
+        return branch.to_string();
     }
+
+    let name = worktree.name.trim();
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    branch
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .next_back()
+        .unwrap_or(branch)
+        .to_string()
 }
 
 fn ai_session_compact_row(
@@ -392,17 +303,15 @@ fn ai_session_compact_row(
             "compact-session-{}",
             session.id
         )))
+        .w_full()
+        .min_w_0()
         .flex()
         .flex_col()
         .gap(px(2.0))
         .rounded(px(8.0))
         .px_2()
         .py_2()
-        .bg(color(if active {
-            theme::BG_ROW_HOVER
-        } else {
-            theme::BG_PANEL
-        }))
+        .when(active, |this| this.bg(color(theme::BG_ROW_HOVER)))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |app, _event, window, cx| {
@@ -424,11 +333,12 @@ fn ai_session_compact_row(
                 .items_center()
                 .justify_between()
                 .gap_3()
+                .min_w_0()
                 .child(
                     div()
+                        .min_w_0()
                         .flex_1()
                         .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.title),
@@ -447,14 +357,10 @@ fn ai_session_compact_row(
                 .items_center()
                 .justify_between()
                 .gap_3()
+                .min_w_0()
                 .text_xs()
                 .text_color(color(theme::TEXT_DIM))
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(session.source),
-                )
+                .child(div().min_w_0().flex_1().truncate().child(session.source))
                 .child(
                     div()
                         .flex_shrink_0()
@@ -527,7 +433,6 @@ fn ai_session_delete_confirm_overlay(
                                 .flex_1()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .truncate()
                                 .child("删除会话记录"),
                         ),

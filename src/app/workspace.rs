@@ -10,7 +10,7 @@ use gpui_component::{
 
 impl CoduxApp {
     pub(in crate::app) fn main_workspace_column(
-        &self,
+        &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -18,6 +18,8 @@ impl CoduxApp {
             .flex()
             .flex_col()
             .flex_1()
+            .min_w_0()
+            .w_full()
             .h_full()
             .bg(color(theme::BG))
             .child(self.workspace_toolbar(window, cx))
@@ -25,6 +27,7 @@ impl CoduxApp {
                 div()
                     .flex()
                     .flex_1()
+                    .min_w_0()
                     .min_h_0()
                     .child(div().flex().flex_col().flex_1().min_w_0().child(
                         match self.workspace_view {
@@ -49,9 +52,10 @@ impl CoduxApp {
             WorkspaceView::Files => 1,
             WorkspaceView::Review => 2,
         };
-        let pet_snapshot = self.runtime_service.pet_snapshot().ok();
+        let pet_snapshot = self.pet_snapshot.clone();
         let today_level_tokens = workspace_today_level_tokens(&self.state);
         let has_project_context = self.state.selected_project.is_some();
+        let pet_sprite_frame = self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
         column_header(
             div()
                 .flex()
@@ -73,7 +77,7 @@ impl CoduxApp {
                         .when(self.state.settings.pet_enabled, |this| {
                             this.child(workspace_pet_button(
                                 &self.state.pet,
-                                pet_snapshot.as_ref(),
+                                Some(&pet_snapshot),
                                 &self.pet_custom_pets,
                                 &self.runtime.source_root,
                                 &self.state.support_dir,
@@ -85,6 +89,7 @@ impl CoduxApp {
                                 self.pet_install_previewing,
                                 self.pet_installing,
                                 self.pet_name_editing,
+                                pet_sprite_frame,
                                 window,
                                 cx,
                             ))
@@ -136,6 +141,8 @@ impl CoduxApp {
             .flex()
             .flex_col()
             .flex_1()
+            .min_w_0()
+            .w_full()
             .bg(color(theme::BG_TERMINAL))
             .child(
                 v_resizable("workspace-terminal-split")
@@ -159,6 +166,7 @@ impl CoduxApp {
             .flex()
             .flex_col()
             .size_full()
+            .min_w_0()
             .min_h_0()
             .child(self.terminal_panes(cx))
     }
@@ -225,88 +233,18 @@ impl CoduxApp {
         div()
             .flex()
             .flex_1()
-            .bg(color(theme::BG))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .w(px(292.0))
-                    .border_r_1()
-                    .border_color(color(theme::BORDER_SOFT))
-                    .child(
-                        div()
-                            .h(px(34.0))
-                            .px_3()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .border_b_1()
-                            .border_color(color(theme::BORDER_SOFT))
-                            .child(header_icon_button(
-                                "files-up",
-                                IconName::ArrowUp,
-                                cx,
-                                |app, _event, window, cx| {
-                                    app.open_parent_file_directory(window, cx)
-                                },
-                            ))
-                            .child(header_icon_button(
-                                "files-new",
-                                IconName::Plus,
-                                cx,
-                                |app, _event, window, cx| app.create_project_file(window, cx),
-                            ))
-                            .child(header_icon_button(
-                                "files-import",
-                                IconName::ExternalLink,
-                                cx,
-                                |app, _event, window, cx| {
-                                    app.import_external_file_entries(window, cx)
-                                },
-                            ))
-                            .child(header_icon_button(
-                                "files-save",
-                                IconName::Check,
-                                cx,
-                                |app, _event, window, cx| {
-                                    app.save_selected_file_preview(window, cx)
-                                },
-                            )),
-                    )
-                    .child(file_section(
-                        self.state
-                            .selected_project
-                            .as_ref()
-                            .map(|project| project.name.as_str())
-                            .unwrap_or("Project"),
-                        &self.state.files,
-                        &self.file_tree_children,
-                        &self.file_tree_expanded_dirs,
-                        &self.file_directory,
-                        self.selected_file_entry.as_deref(),
-                        self.file_name_draft_kind,
-                        &self.file_name_draft_value,
-                        window,
-                        cx,
-                    )),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .bg(color(theme::BG_TERMINAL))
-                    .child(file_preview_workspace(
-                        &self.file_preview,
-                        self.file_editable,
-                        self.file_dirty,
-                        self.file_search_open,
-                        &self.file_search_query,
-                        self.file_search_match_index,
-                        window,
-                        cx,
-                    )),
-            )
+            .bg(color(theme::BG_TERMINAL))
+            .child(file_preview_workspace(
+                &self.file_preview,
+                self.file_editable,
+                self.file_dirty,
+                self.file_search_open,
+                &self.file_search_query,
+                self.file_search_match_index,
+                self.file_preview_scroll_handle.clone(),
+                window,
+                cx,
+            ))
     }
 
     fn review_workspace_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -392,11 +330,8 @@ impl CoduxApp {
                 .child("No terminal");
         };
 
-        div()
-            .flex()
-            .flex_1()
-            .overflow_hidden()
-            .children(active.panes.iter().enumerate().map(|(index, slot)| {
+        div().flex().flex_1().min_w_0().overflow_hidden().children(
+            active.panes.iter().enumerate().map(|(index, slot)| {
                 let close_id = SharedString::from(format!("terminal-pane-close-{index}"));
                 div()
                     .relative()
@@ -404,6 +339,7 @@ impl CoduxApp {
                     .flex()
                     .flex_col()
                     .flex_1()
+                    .min_w_0()
                     .overflow_hidden()
                     .border_l_1()
                     .border_color(color(if index == 0 {
@@ -448,9 +384,15 @@ impl CoduxApp {
                                     })),
                             ),
                     )
-                    .child(div().flex_1().child(slot.pane.view.clone()))
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            gpui::AnyView::from(slot.pane.view.clone())
+                                .cached(gpui::StyleRefinement::default().flex().size_full()),
+                        ),
+                    )
                     .into_any_element()
-            }))
+            }),
+        )
     }
 }
 
@@ -474,93 +416,91 @@ fn workspace_open_button(
     has_project: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let applications = applications.to_vec();
+    let applications = applications
+        .iter()
+        .filter(|application| application.installed)
+        .cloned()
+        .collect::<Vec<_>>();
     let app_entity = cx.entity();
+    let reveal_entity = app_entity.clone();
 
-    workspace_header_button("workspace-open", cx)
-        .secondary()
-        .text_color(cx.theme().foreground)
+    div()
+        .flex()
+        .items_center()
+        .rounded(px(6.0))
+        .overflow_hidden()
+        .bg(cx.theme().secondary)
         .child(
             div()
-                .h(px(20.0))
+                .id("workspace-open-folder")
+                .h(px(28.0))
+                .w(px(38.0))
                 .flex()
                 .items_center()
-                .gap_1()
-                .text_color(cx.theme().foreground)
+                .justify_center()
+                .cursor_pointer()
+                .when(!has_project, |this| this.opacity(0.45))
+                .hover(|style| style.bg(cx.theme().secondary_hover))
+                .on_click(move |_, window, cx| {
+                    if has_project {
+                        cx.update_entity(&reveal_entity, |app, cx| {
+                            app.reveal_selected_project_in_file_manager(window, cx);
+                        });
+                    }
+                })
                 .child(
-                    Icon::new(IconName::ExternalLink)
+                    Icon::new(IconName::FolderOpen)
                         .size_3p5()
                         .text_color(cx.theme().foreground),
-                )
-                .child(
-                    div()
-                        .w(px(1.0))
-                        .h(px(14.0))
-                        .bg(color(0xFFFFFF).opacity(0.10)),
-                )
+                ),
+        )
+        .child(
+            div()
+                .w(px(1.0))
+                .h(px(18.0))
+                .bg(color(0xFFFFFF).opacity(0.10)),
+        )
+        .child(
+            Button::new("workspace-open-apps")
+                .text()
+                .h(px(28.0))
+                .w(px(30.0))
+                .cursor_pointer()
+                .text_color(cx.theme().foreground)
                 .child(
                     Icon::new(IconName::ChevronDown)
                         .size_2()
                         .text_color(cx.theme().foreground),
-                ),
-        )
-        .dropdown_menu(move |menu, _window, _cx| {
-            let reveal_entity = app_entity.clone();
-            let refresh_entity = app_entity.clone();
-            let menu = menu
-                .item(
-                    PopupMenuItem::new("在文件管理器中显示")
-                        .icon(IconName::FolderOpen)
-                        .disabled(!has_project)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&reveal_entity, |app, cx| {
-                                app.reveal_selected_project_in_file_manager(window, cx);
-                            });
-                        }),
                 )
-                .item(
-                    PopupMenuItem::new("刷新应用列表")
-                        .icon(IconName::Redo2)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&refresh_entity, |app, cx| {
-                                app.reload_project_open_applications(window, cx);
-                            });
-                        }),
-                )
-                .separator();
-
-            if applications.is_empty() {
-                menu.item(PopupMenuItem::new("暂无可用应用").icon(IconName::ExternalLink))
-            } else {
-                applications.iter().fold(menu, |menu, application| {
-                    let app_entity = app_entity.clone();
-                    let application_id = application.id.clone();
-                    let label = if application.installed {
-                        application.label.clone()
+                .dropdown_menu(move |menu, _window, _cx| {
+                    if applications.is_empty() {
+                        menu.item(PopupMenuItem::new("暂无已安装应用").icon(IconName::ExternalLink))
                     } else {
-                        format!("{}（未安装）", application.label)
-                    };
-                    menu.item(
-                        PopupMenuItem::new(label)
-                            .icon(if application.category == "primary" {
-                                IconName::ExternalLink
-                            } else {
-                                IconName::File
-                            })
-                            .disabled(!has_project || !application.installed)
-                            .on_click(move |_, window, cx| {
-                                cx.update_entity(&app_entity, |app, cx| {
-                                    app.open_selected_project_in_application(
-                                        application_id.clone(),
-                                        window,
-                                        cx,
-                                    );
-                                });
-                            }),
-                    )
-                })
-            }
-        })
+                        applications.iter().fold(menu, |menu, application| {
+                            let app_entity = app_entity.clone();
+                            let application_id = application.id.clone();
+                            menu.item(
+                                PopupMenuItem::new(application.label.clone())
+                                    .icon(if application.category == "primary" {
+                                        IconName::ExternalLink
+                                    } else {
+                                        IconName::File
+                                    })
+                                    .disabled(!has_project)
+                                    .on_click(move |_, window, cx| {
+                                        cx.update_entity(&app_entity, |app, cx| {
+                                            app.open_selected_project_in_application(
+                                                application_id.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                            )
+                        })
+                    }
+                }),
+        )
 }
 
 fn workspace_level_button(
@@ -646,6 +586,7 @@ fn workspace_pet_button(
     _install_previewing: bool,
     _installing: bool,
     pet_name_editing: bool,
+    pet_sprite_frame: usize,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -683,6 +624,7 @@ fn workspace_pet_button(
         pet_snapshot,
         pet_sprite_path,
         pet_name_editing,
+        pet_sprite_frame,
         language.clone(),
         app_entity.clone(),
         window,
@@ -691,6 +633,7 @@ fn workspace_pet_button(
 
     Popover::new("workspace-pet-popover")
         .anchor(Anchor::TopRight)
+        .appearance(false)
         .w(px(324.0))
         .trigger(trigger)
         .child(content)
@@ -784,7 +727,6 @@ fn workspace_header_badge_button_content(
         .child(
             div()
                 .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(cx.theme().foreground)
                 .child(label.into()),
         )
@@ -894,13 +836,7 @@ fn workspace_daily_level_button_content(
         .gap_1()
         .text_color(cx.theme().foreground)
         .child(daily_level_badge(&tier, 18.0, 8.0))
-        .child(
-            div()
-                .text_size(px(12.0))
-                .line_height(px(12.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label),
-        )
+        .child(div().text_size(px(12.0)).line_height(px(12.0)).child(label))
 }
 
 fn workspace_level_popover_content(
@@ -1059,6 +995,7 @@ fn workspace_pet_popover_content(
     pet_snapshot: Option<PetSnapshot>,
     pet_sprite_path: std::path::PathBuf,
     pet_name_editing: bool,
+    _pet_sprite_frame: usize,
     language: String,
     app_entity: gpui::Entity<CoduxApp>,
     window: &mut Window,
@@ -1067,7 +1004,7 @@ fn workspace_pet_popover_content(
     let name = if pet.claimed && !pet.display_name.is_empty() {
         pet.display_name.clone()
     } else {
-        "还没有领取宠物".to_string()
+        workspace_i18n(&language, "pet.unclaimed", "No pet claimed")
     };
     let species_name = pet_snapshot
         .as_ref()
@@ -1108,10 +1045,27 @@ fn workspace_pet_popover_content(
     let xp_label = workspace_i18n(&language, "pet.xp.label", "Experience");
     let stats_title = workspace_i18n(&language, "pet.stats.title", "Traits");
     let total_xp_label = workspace_i18n(&language, "pet.total_xp", "Total XP");
+    let wisdom_label = workspace_i18n(&language, "pet.attribute.wisdom", "Wisdom");
+    let chaos_label = workspace_i18n(&language, "pet.attribute.chaos", "Chaos");
+    let night_label = workspace_i18n(&language, "pet.attribute.night", "Night");
+    let stamina_label = workspace_i18n(&language, "pet.attribute.stamina", "Stamina");
+    let empathy_label = workspace_i18n(&language, "pet.attribute.empathy", "Empathy");
+    let trait_label_width = pet_trait_label_width([
+        &wisdom_label,
+        &chaos_label,
+        &night_label,
+        &stamina_label,
+        &empathy_label,
+    ]);
 
     div()
         .flex()
         .flex_col()
+        .rounded(px(12.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
+        .shadow_lg()
         .text_color(color(theme::TEXT))
         .child(
             div()
@@ -1119,19 +1073,18 @@ fn workspace_pet_popover_content(
                 .flex()
                 .flex_col()
                 .items_center()
-                .px(px(14.0))
-                .pt(px(18.0))
-                .pb(px(14.0))
+                .p(px(10.0))
                 .child(
                     div()
-                        .size(px(110.0))
+                        .size(px(104.0))
                         .flex()
                         .items_center()
                         .justify_center()
                         .child(pet_sprite_element(
                             pet_sprite_path,
-                            110.0,
-                            cx.entity().read(cx).visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
+                            104.0,
+                            0,
+                            0,
                             sprite_fallback_color,
                         )),
                 )
@@ -1141,8 +1094,8 @@ fn workspace_pet_popover_content(
                         .ghost()
                         .tooltip(dex_tooltip)
                         .absolute()
-                        .right(px(12.0))
-                        .top(px(12.0))
+                        .right(px(10.0))
+                        .top(px(10.0))
                         .icon(Icon::new(IconName::BookOpen).size_3p5())
                         .on_click(move |_, window, cx| {
                             cx.update_entity(&app_entity, |app, cx| {
@@ -1182,7 +1135,7 @@ fn workspace_pet_popover_content(
                 ),
         )
         .child(workspace_popover_separator())
-        .child(div().px(px(14.0)).py(px(12.0)).child(workspace_pet_meter(
+        .child(div().p(px(10.0)).child(workspace_pet_meter(
             xp_label,
             format!(
                 "{} / {}",
@@ -1195,11 +1148,10 @@ fn workspace_pet_popover_content(
         .child(workspace_popover_separator())
         .child(
             div()
-                .px(px(14.0))
-                .py(px(12.0))
+                .p(px(10.0))
                 .child(
                     div()
-                        .mb(px(8.0))
+                        .mb(px(6.0))
                         .text_size(px(12.0))
                         .line_height(px(16.0))
                         .font_weight(FontWeight::MEDIUM)
@@ -1213,9 +1165,10 @@ fn workspace_pet_popover_content(
                         .gap_2()
                         .child(workspace_pet_trait(
                             "brain",
-                            workspace_i18n(&language, "pet.attribute.wisdom", "Wisdom"),
+                            wisdom_label,
                             stats.wisdom,
                             0x2F8FFF,
+                            trait_label_width,
                             workspace_i18n(
                                 &language,
                                 "pet.attribute.wisdom.help",
@@ -1224,9 +1177,10 @@ fn workspace_pet_popover_content(
                         ))
                         .child(workspace_pet_trait(
                             "flame",
-                            workspace_i18n(&language, "pet.attribute.chaos", "Chaos"),
+                            chaos_label,
                             stats.chaos,
                             0xFF6030,
+                            trait_label_width,
                             workspace_i18n(
                                 &language,
                                 "pet.attribute.chaos.help",
@@ -1235,9 +1189,10 @@ fn workspace_pet_popover_content(
                         ))
                         .child(workspace_pet_trait(
                             "moon",
-                            workspace_i18n(&language, "pet.attribute.night", "Night"),
+                            night_label,
                             stats.night,
                             0x6060CC,
+                            trait_label_width,
                             workspace_i18n(
                                 &language,
                                 "pet.attribute.night.help",
@@ -1246,9 +1201,10 @@ fn workspace_pet_popover_content(
                         ))
                         .child(workspace_pet_trait(
                             "arm",
-                            workspace_i18n(&language, "pet.attribute.stamina", "Stamina"),
+                            stamina_label,
                             stats.stamina,
                             0x20A060,
+                            trait_label_width,
                             workspace_i18n(
                                 &language,
                                 "pet.attribute.stamina.help",
@@ -1257,9 +1213,10 @@ fn workspace_pet_popover_content(
                         ))
                         .child(workspace_pet_trait(
                             "bandage",
-                            workspace_i18n(&language, "pet.attribute.empathy", "Empathy"),
+                            empathy_label,
                             stats.empathy,
                             0xE060A0,
+                            trait_label_width,
                             workspace_i18n(
                                 &language,
                                 "pet.attribute.empathy.help",
@@ -1271,7 +1228,7 @@ fn workspace_pet_popover_content(
         .child(workspace_popover_separator())
         .child(
             div()
-                .py(px(10.0))
+                .p(px(10.0))
                 .text_center()
                 .child(
                     div()
@@ -1293,15 +1250,14 @@ fn workspace_pet_popover_content(
         .when_some(pet.error, |this, error| {
             this.child(
                 div()
-                    .px(px(14.0))
-                    .pb(px(12.0))
+                    .p(px(10.0))
                     .child(workspace_popover_notice(error)),
             )
         })
 }
 
 fn workspace_popover_separator() -> impl IntoElement {
-    div().mx(px(14.0)).h(px(1.0)).bg(color(theme::BORDER_SOFT))
+    div().mx(px(10.0)).h(px(1.0)).bg(color(theme::BORDER_SOFT))
 }
 
 fn workspace_pet_meter(
@@ -1354,21 +1310,23 @@ fn workspace_pet_trait(
     label: String,
     value: i64,
     accent: u32,
+    label_width: f32,
     help: String,
 ) -> impl IntoElement {
     let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
     div()
         .id(SharedString::from(format!("pet-trait-{emoji_kind}")))
         .tooltip(move |window, cx| Tooltip::new(help.clone()).build(window, cx))
-        .grid()
-        .grid_cols(4)
+        .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(px(8.0))
         .text_size(px(12.0))
         .line_height(px(16.0))
         .child(pet_trait_emoji(emoji_kind))
         .child(
             div()
+                .w(px(label_width))
+                .flex_none()
                 .text_color(color(theme::TEXT_MUTED))
                 .font_weight(FontWeight::MEDIUM)
                 .truncate()
@@ -1376,6 +1334,8 @@ fn workspace_pet_trait(
         )
         .child(
             div()
+                .flex_1()
+                .min_w(px(0.0))
                 .h(px(5.0))
                 .rounded_full()
                 .overflow_hidden()
@@ -1390,11 +1350,26 @@ fn workspace_pet_trait(
         )
         .child(
             div()
+                .w(px(34.0))
+                .flex_none()
                 .text_right()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT_DIM))
                 .child(compact_number(value)),
         )
+}
+
+fn pet_trait_label_width<'a>(labels: impl IntoIterator<Item = &'a String>) -> f32 {
+    let max_units = labels
+        .into_iter()
+        .map(|label| {
+            label
+                .chars()
+                .map(|ch| if ch.is_ascii() { 0.58 } else { 1.0 })
+                .sum::<f32>()
+        })
+        .fold(0.0, f32::max);
+    (max_units * 12.0).ceil().clamp(32.0, 76.0)
 }
 
 fn pet_trait_emoji(kind: &'static str) -> impl IntoElement {
@@ -1604,23 +1579,25 @@ pub(in crate::app) fn workspace_pet_install_form(
     .detach();
 
     div()
-        .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
-        .p(px(14.0))
+        .flex()
+        .flex_col()
+        .gap(px(16.0))
+        .text_size(px(14.0))
+        .line_height(px(18.0))
         .child(
             div()
-                .mb(px(8.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color(theme::TEXT_MUTED))
-                .child("Petdex 页面 URL"),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(12.0))
+                .rounded(px(8.0))
+                .bg(color(0xFFFFFF).opacity(0.055))
+                .p(px(14.0))
+                .child(
+                    div()
+                        .mb(px(8.0))
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child("Petdex 页面 URL"),
+                )
                 .child(
                     div()
                         .flex()
@@ -1628,12 +1605,11 @@ pub(in crate::app) fn workspace_pet_install_form(
                         .gap_2()
                         .child(
                             div().flex_1().min_w_0().child(
-                                Input::new(&url_state).with_size(gpui_component::Size::Small),
+                                Input::new(&url_state).with_size(gpui_component::Size::Medium),
                             ),
                         )
                         .child(
                             Button::new("pet-custom-market")
-                                .compact()
                                 .ghost()
                                 .tooltip("打开 Petdex")
                                 .text_color(cx.theme().secondary_foreground)
@@ -1642,14 +1618,13 @@ pub(in crate::app) fn workspace_pet_install_form(
                                         .size_3p5()
                                         .text_color(cx.theme().secondary_foreground),
                                 )
-                                .label("获取宠物")
+                                .child(workspace_pet_install_button_label("获取宠物"))
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.open_pet_market(window, cx)
                                 })),
                         )
                         .child(
                             Button::new("pet-preview-custom")
-                                .compact()
                                 .secondary()
                                 .loading(install_previewing)
                                 .disabled(
@@ -1664,43 +1639,43 @@ pub(in crate::app) fn workspace_pet_install_form(
                                         .size_3p5()
                                         .text_color(cx.theme().secondary_foreground),
                                 )
-                                .label(if install_previewing {
+                                .child(workspace_pet_install_button_label(if install_previewing {
                                     "读取中"
                                 } else if install_preview.is_some() {
                                     "重新解析"
                                 } else {
                                     "解析"
-                                })
+                                }))
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.preview_custom_pet_install(window, cx)
                                 })),
                         ),
-                )
-                .when_some(install_preview.cloned(), |this, preview| {
-                    this.child(workspace_pet_install_preview(
-                        preview,
-                        &name_state,
-                        installing,
-                    ))
-                })
-                .when(installing, |this| {
-                    this.child(
-                        div()
-                            .rounded(px(8.0))
-                            .bg(color(theme::ACCENT).opacity(0.1))
-                            .px(px(12.0))
-                            .py(px(8.0))
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(color(theme::ACCENT))
-                            .child("正在下载、解包并校验宠物包。"),
-                    )
-                })
-                .when_some(install_error.map(str::to_string), |this, error| {
-                    this.child(workspace_pet_install_error(error))
-                }),
+                ),
         )
+        .when_some(install_preview.cloned(), |this, preview| {
+            this.child(workspace_pet_install_preview(
+                preview,
+                &name_state,
+                installing,
+            ))
+        })
+        .when(installing, |this| {
+            this.child(
+                div()
+                    .rounded(px(8.0))
+                    .bg(color(theme::ACCENT).opacity(0.1))
+                    .px(px(12.0))
+                    .py(px(8.0))
+                    .text_size(px(12.0))
+                    .line_height(px(16.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(color(theme::ACCENT))
+                    .child("正在下载、解包并校验宠物包。"),
+            )
+        })
+        .when_some(install_error.map(str::to_string), |this, error| {
+            this.child(workspace_pet_install_error(error))
+        })
 }
 
 fn workspace_pet_install_preview(
@@ -1708,29 +1683,44 @@ fn workspace_pet_install_preview(
     name_state: &gpui::Entity<InputState>,
     installing: bool,
 ) -> impl IntoElement {
-    let image = match preview.image_url.clone() {
-        Some(url) if !url.trim().is_empty() => img(url)
+    let image = if let Some(path) = preview
+        .local_image_path
+        .as_ref()
+        .filter(|path| !path.trim().is_empty())
+    {
+        img(PathBuf::from(path))
             .size_full()
             .object_fit(ObjectFit::Cover)
             .with_fallback(|| workspace_pet_install_preview_fallback())
-            .into_any_element(),
-        _ => workspace_pet_install_preview_fallback(),
+            .into_any_element()
+    } else if let Some(url) = preview
+        .image_url
+        .as_ref()
+        .filter(|url| !url.trim().is_empty())
+    {
+        img(url.clone())
+            .size_full()
+            .object_fit(ObjectFit::Cover)
+            .with_fallback(|| workspace_pet_install_preview_fallback())
+            .into_any_element()
+    } else {
+        workspace_pet_install_preview_fallback()
     };
 
     div()
         .flex()
         .flex_col()
         .gap(px(12.0))
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .bg(color(0xFFFFFF).opacity(0.035))
+        .p(px(14.0))
         .child(
             div()
-                .grid()
-                .grid_cols(2)
+                .flex()
+                .items_center()
                 .gap(px(14.0))
-                .rounded(px(10.0))
-                .border_1()
-                .border_color(color(theme::BORDER_SOFT))
-                .bg(color(0xFFFFFF).opacity(0.035))
-                .p(px(14.0))
                 .child(
                     div()
                         .size(px(104.0))
@@ -1744,21 +1734,19 @@ fn workspace_pet_install_preview(
                 )
                 .child(
                     div()
+                        .flex_1()
                         .min_w_0()
-                        .self_center()
                         .child(
                             div()
                                 .truncate()
-                                .text_size(px(17.0))
-                                .line_height(px(22.0))
+                                .text_size(px(14.0))
+                                .line_height(px(18.0))
                                 .font_weight(FontWeight::BOLD)
                                 .child(preview.display_name.clone()),
                         )
                         .child(
                             div()
                                 .mt(px(4.0))
-                                .max_h(px(72.0))
-                                .overflow_y_scrollbar()
                                 .text_size(px(12.0))
                                 .line_height(px(20.0))
                                 .text_color(color(theme::TEXT_MUTED))
@@ -1770,12 +1758,17 @@ fn workspace_pet_install_preview(
                                 .flex()
                                 .items_center()
                                 .gap(px(6.0))
-                                .text_size(px(11.0))
-                                .line_height(px(14.0))
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(Icon::new(IconName::ExternalLink).size_3())
-                                .child(pet_install_host_label(&preview.page_url)),
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .child(pet_install_host_label(&preview.page_url)),
+                                ),
                         ),
                 ),
         )
@@ -1807,6 +1800,13 @@ fn workspace_pet_install_preview(
                 .child(workspace_pet_install_check("已找到宠物包链接"))
                 .child(workspace_pet_install_check("安装时会校验 Codex 格式")),
         )
+}
+
+fn workspace_pet_install_button_label(label: impl Into<SharedString>) -> impl IntoElement {
+    div()
+        .text_size(px(14.0))
+        .line_height(px(18.0))
+        .child(label.into())
 }
 
 fn workspace_pet_install_preview_fallback() -> AnyElement {
@@ -1966,14 +1966,7 @@ fn workspace_segmented_tab(
                         .justify_center()
                         .child(Icon::new(icon).size_3()),
                 )
-                .child(
-                    div()
-                        .flex_none()
-                        .mt(px(1.0))
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(label),
-                ),
+                .child(div().flex_none().mt(px(1.0)).text_xs().child(label)),
         )
 }
 
@@ -2008,13 +2001,7 @@ fn terminal_bottom_tab_button(
         .on_click(cx.listener(move |app, _event, window, cx| {
             app.select_terminal_tab(terminal_id, window, cx)
         }))
-        .child(
-            div()
-                .text_xs()
-                .line_height(px(14.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(label),
-        )
+        .child(div().text_xs().line_height(px(14.0)).child(label))
         .child(
             div()
                 .id(SharedString::from(format!(

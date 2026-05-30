@@ -79,7 +79,7 @@ pub struct AIRuntimeDrainResult {
     pub memory: Vec<MemoryEnqueueResult>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileEntry {
     pub name: String,
     pub relative_path: String,
@@ -87,7 +87,7 @@ pub struct FileEntry {
     pub size: u64,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileKind {
     Directory,
     File,

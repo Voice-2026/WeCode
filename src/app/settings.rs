@@ -1,13 +1,9 @@
 use super::{CoduxApp, empty_label};
+use crate::app::scroll_compat::ScrollableElement;
 use crate::theme::{self, color};
 use codux_runtime::{
-    memory::MemorySummary,
-    notification::NotificationSummary,
-    remote::RemoteSummary,
-    settings::SettingsSummary,
-    ssh::{SSHProfileSummary, SSHSummary},
-    tool_permissions::ToolPermissionsSummary,
-    update::UpdateSummary,
+    memory::MemorySummary, notification::NotificationSummary, remote::RemoteSummary,
+    settings::SettingsSummary, tool_permissions::ToolPermissionsSummary, update::UpdateSummary,
 };
 use gpui::{
     AnyElement, AppContext, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -18,7 +14,6 @@ use gpui_component::{
     Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
-    scroll::ScrollableElement,
     select::{Select, SelectEvent, SelectItem, SelectState},
     switch::Switch,
 };
@@ -66,7 +61,6 @@ pub(super) enum SettingsPane {
     Git,
     Memory,
     Notifications,
-    SSH,
     Remote,
     Shortcuts,
     Experiments,
@@ -83,7 +77,6 @@ impl SettingsPane {
             Self::Git => "Git",
             Self::Memory => "记忆",
             Self::Notifications => "通知",
-            Self::SSH => "SSH",
             Self::Remote => "远程",
             Self::Shortcuts => "快捷键",
             Self::Experiments => "实验",
@@ -100,7 +93,6 @@ impl SettingsPane {
             Self::Git => "Git 提交消息生成与格式。",
             Self::Memory => "记忆注入、提取和索引。",
             Self::Notifications => "推送渠道和通知开关。",
-            Self::SSH => "SSH 连接配置、凭据方式和连接测试。",
             Self::Remote => "远程连接、配对设备和中继状态。",
             Self::Shortcuts => "应用快捷键和项目切换快捷键。",
             Self::Experiments => "实验性功能开关。",
@@ -117,7 +109,6 @@ impl SettingsPane {
             Self::Git => IconName::Github,
             Self::Memory => IconName::BookOpen,
             Self::Notifications => IconName::Bell,
-            Self::SSH => IconName::SquareTerminal,
             Self::Remote => IconName::Globe,
             Self::Shortcuts => IconName::CaseSensitive,
             Self::Experiments => IconName::Asterisk,
@@ -126,7 +117,7 @@ impl SettingsPane {
     }
 }
 
-const SETTINGS_PANES: [SettingsPane; 12] = [
+const SETTINGS_PANES: [SettingsPane; 11] = [
     SettingsPane::General,
     SettingsPane::Appearance,
     SettingsPane::Pet,
@@ -134,7 +125,6 @@ const SETTINGS_PANES: [SettingsPane; 12] = [
     SettingsPane::Git,
     SettingsPane::Memory,
     SettingsPane::Notifications,
-    SettingsPane::SSH,
     SettingsPane::Remote,
     SettingsPane::Shortcuts,
     SettingsPane::Experiments,
@@ -201,7 +191,6 @@ impl CoduxApp {
                                 div()
                                     .text_size(px(20.0))
                                     .line_height(px(26.0))
-                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(theme::TEXT))
                                     .child(pane.label()),
                             )
@@ -259,11 +248,6 @@ fn settings_nav_row(
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(if active {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::NORMAL
-                })
                 .child(pane.label()),
         )
 }
@@ -296,14 +280,6 @@ fn settings_pane_body(
             &app.state.notifications,
             app.selected_notification_channel_id.as_deref(),
             app.notification_testing_channel_id.as_deref(),
-            window,
-            cx,
-        ),
-        SettingsPane::SSH => settings_ssh_pane(
-            &app.state.ssh,
-            app.selected_ssh_profile_id.as_deref(),
-            app,
-            app.ssh_testing,
             window,
             cx,
         ),
@@ -356,7 +332,6 @@ fn settings_card(
                         .when(title.is_none(), |this| this.hidden())
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(title.unwrap_or("").to_string()),
                 )
@@ -404,7 +379,6 @@ fn settings_row(
                     div()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
@@ -628,7 +602,6 @@ fn settings_status_tag(value: impl Into<String>, accent: u32) -> AnyElement {
         .items_center()
         .text_size(px(12.0))
         .line_height(px(16.0))
-        .font_weight(FontWeight::SEMIBOLD)
         .child(value.into())
         .into_any_element()
 }
@@ -679,11 +652,6 @@ fn settings_selectable_tile(
                 .text_align(gpui::TextAlign::Center)
                 .text_size(px(12.0))
                 .line_height(px(16.0))
-                .font_weight(if selected {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::NORMAL
-                })
                 .truncate()
                 .child(label.into()),
         )
@@ -706,7 +674,6 @@ fn theme_preview_grid(
                     .px(px(2.0))
                     .text_size(px(12.0))
                     .line_height(px(16.0))
-                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color(theme::TEXT_DIM))
                     .child(title.unwrap_or_default()),
             )
@@ -1429,7 +1396,6 @@ fn settings_ai_pane(
                 div()
                     .text_size(px(14.0))
                     .line_height(px(18.0))
-                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(color(theme::TEXT))
                     .child("AI 提供方"),
             )
@@ -1791,308 +1757,6 @@ fn settings_notifications_pane(
     .into_any_element()
 }
 
-fn settings_ssh_pane(
-    ssh: &SSHSummary,
-    selected_profile_id: Option<&str>,
-    app: &CoduxApp,
-    ssh_testing: bool,
-    window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-) -> AnyElement {
-    let profile_rows = if ssh.profiles.is_empty() {
-        vec![
-            div()
-                .py(px(12.0))
-                .text_size(px(14.0))
-                .line_height(px(18.0))
-                .text_color(color(theme::TEXT_DIM))
-                .child("还没有 SSH 配置。")
-                .into_any_element(),
-        ]
-    } else {
-        ssh.profiles
-            .iter()
-            .cloned()
-            .map(|profile| settings_ssh_profile_row(profile, selected_profile_id, cx))
-            .collect::<Vec<_>>()
-    };
-
-    settings_form(vec![
-        settings_card(
-            Some("连接配置"),
-            Some(format!(
-                "{} 个连接，包装器{}。",
-                ssh.profiles.len(),
-                if ssh.wrapper_available {
-                    "可用"
-                } else {
-                    "未就绪"
-                }
-            )),
-            {
-                let mut rows = vec![
-                    div()
-                        .pb(px(10.0))
-                        .flex()
-                        .items_center()
-                        .justify_end()
-                        .gap(px(8.0))
-                        .child(settings_small_button(
-                            "settings-ssh-new",
-                            "新增",
-                            cx,
-                            |app, _event, window, cx| app.new_ssh_profile_draft(window, cx),
-                        ))
-                        .child(settings_small_button(
-                            "settings-ssh-edit",
-                            "编辑选中",
-                            cx,
-                            |app, _event, window, cx| {
-                                app.load_selected_ssh_profile_draft(window, cx)
-                            },
-                        ))
-                        .child(settings_small_button(
-                            "settings-ssh-refresh",
-                            "刷新",
-                            cx,
-                            |app, _event, window, cx| app.reload_ssh(window, cx),
-                        ))
-                        .into_any_element(),
-                ];
-                rows.extend(profile_rows);
-                if let Some(error) = &ssh.error {
-                    rows.push(
-                        div()
-                            .pt(px(10.0))
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .text_color(color(theme::ORANGE))
-                            .child(error.clone())
-                            .into_any_element(),
-                    );
-                }
-                rows
-            },
-        )
-        .into_any_element(),
-        settings_card(
-            Some("编辑连接"),
-            app.ssh_draft_id
-                .as_ref()
-                .map(|id| format!("正在编辑 {}", empty_label(id)))
-                .or_else(|| Some("保存时会创建新的 SSH 配置。".to_string())),
-            vec![
-                settings_row(
-                    "名称",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-name",
-                        &app.ssh_draft_name,
-                        "生产服务器",
-                        false,
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_ssh_draft_name(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "主机",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-host",
-                        &app.ssh_draft_host,
-                        "example.com",
-                        false,
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_ssh_draft_host(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "端口",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-port",
-                        &app.ssh_draft_port,
-                        "22",
-                        false,
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_ssh_draft_port(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "用户名",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-username",
-                        &app.ssh_draft_username,
-                        "root",
-                        false,
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_ssh_draft_username(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "凭据方式",
-                    None,
-                    settings_select(
-                        "settings-ssh-credential-kind",
-                        &app.ssh_draft_credential_kind,
-                        ssh_credential_options(),
-                        window,
-                        cx,
-                        |app, value, window, cx| {
-                            app.set_ssh_draft_credential_kind(value, window, cx)
-                        },
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "私钥路径",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-private-key-path",
-                        &app.ssh_draft_private_key_path,
-                        "~/.ssh/id_ed25519",
-                        false,
-                        window,
-                        cx,
-                        |app, value, window, cx| {
-                            app.set_ssh_draft_private_key_path(value, window, cx)
-                        },
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "密码",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-password",
-                        &app.ssh_draft_password,
-                        "password",
-                        true,
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_ssh_draft_password(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    "私钥口令",
-                    None,
-                    settings_text_input(
-                        "settings-ssh-key-passphrase",
-                        &app.ssh_draft_key_passphrase,
-                        "passphrase",
-                        true,
-                        window,
-                        cx,
-                        |app, value, window, cx| {
-                            app.set_ssh_draft_key_passphrase(value, window, cx)
-                        },
-                    ),
-                )
-                .into_any_element(),
-                div()
-                    .pt(px(8.0))
-                    .flex()
-                    .justify_end()
-                    .gap(px(8.0))
-                    .child(settings_small_button_state(
-                        "settings-ssh-test",
-                        if ssh_testing { "测试中" } else { "测试" },
-                        ssh_testing,
-                        ssh_testing,
-                        cx,
-                        |app, _event, window, cx| app.test_ssh_profile_draft(window, cx),
-                    ))
-                    .child(settings_small_button(
-                        "settings-ssh-delete",
-                        "删除",
-                        cx,
-                        |app, _event, window, cx| app.delete_selected_ssh_profile(window, cx),
-                    ))
-                    .child(settings_small_button(
-                        "settings-ssh-save",
-                        "保存",
-                        cx,
-                        |app, _event, window, cx| app.save_ssh_profile_draft(window, cx),
-                    ))
-                    .into_any_element(),
-            ],
-        )
-        .into_any_element(),
-    ])
-    .into_any_element()
-}
-
-fn settings_ssh_profile_row(
-    profile: SSHProfileSummary,
-    selected_profile_id: Option<&str>,
-    cx: &mut Context<CoduxApp>,
-) -> AnyElement {
-    let active = selected_profile_id
-        .map(|id| id == profile.id)
-        .unwrap_or(false);
-    let profile_id = profile.id.clone();
-    div()
-        .id(SharedString::from(format!(
-            "settings-ssh-profile-{}",
-            profile.id
-        )))
-        .min_h(px(58.0))
-        .py(px(10.0))
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(18.0))
-        .cursor_pointer()
-        .bg(if active {
-            color(theme::BG_ROW_HOVER)
-        } else {
-            color(0xFFFFFF).opacity(0.0)
-        })
-        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.select_ssh_profile(profile_id.clone(), window, cx)
-        }))
-        .child(
-            div()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(profile.name),
-                )
-                .child(
-                    div()
-                        .mt(px(3.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(profile.endpoint),
-                ),
-        )
-        .child(settings_status_tag(
-            profile.credential_kind,
-            theme::TEXT_DIM,
-        ))
-        .into_any_element()
-}
-
 fn settings_remote_pane(
     remote: &RemoteSummary,
     _selected_device_id: Option<&str>,
@@ -2120,7 +1784,6 @@ fn settings_remote_pane(
                                 div()
                                     .text_size(px(14.0))
                                     .line_height(px(18.0))
-                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(theme::TEXT))
                                     .child("当前配对码"),
                             )
@@ -2186,7 +1849,6 @@ fn settings_remote_pane(
                             div()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .truncate()
                                 .child(empty_label(&pairing.device_name)),
@@ -2272,7 +1934,6 @@ fn settings_remote_pane(
                                 div()
                                     .text_size(px(14.0))
                                     .line_height(px(18.0))
-                                    .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(color(theme::TEXT))
                                     .child(empty_label(&device.name)),
                             )
@@ -2501,7 +2162,7 @@ fn shortcut_definitions() -> Vec<ShortcutDefinition> {
         },
         ShortcutDefinition {
             id: "editor.save",
-            label: "保存文件",
+            label: "保存",
             default_value: primary_static(primary, "S"),
         },
         ShortcutDefinition {
@@ -2685,7 +2346,6 @@ fn settings_runtime_tool_block(
         div()
             .text_size(px(14.0))
             .line_height(px(18.0))
-            .font_weight(FontWeight::SEMIBOLD)
             .text_color(color(theme::TEXT))
             .child(label)
             .into_any_element(),
@@ -2773,7 +2433,6 @@ fn settings_runtime_tools_header(
                     div()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(format!("{} 个完整权限工具", permissions.full_access_count)),
                 )
@@ -2866,7 +2525,6 @@ fn settings_ai_provider_card(
                         .min_w_0()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(provider.display_name.clone()),
@@ -3076,7 +2734,6 @@ fn settings_notification_card(
                             div()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .child(channel.label.clone()),
                         )
@@ -3597,17 +3254,6 @@ fn runtime_tool_permission_options() -> Vec<(String, SharedString)> {
         .into_iter()
         .map(|(value, label)| opt(value, label))
         .collect()
-}
-
-fn ssh_credential_options() -> Vec<(String, SharedString)> {
-    vec![
-        ("none", "SSH Agent"),
-        ("password", "密码"),
-        ("privateKey", "私钥"),
-    ]
-    .into_iter()
-    .map(|(value, label)| opt(value, label))
-    .collect()
 }
 
 fn codex_effort_options() -> Vec<(String, SharedString)> {

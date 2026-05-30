@@ -346,8 +346,21 @@ fn capture_raw_sample(cache: &Mutex<ProcessCache>) -> Option<RawSample> {
         cache.refreshed_at = Some(now);
     }
 
+    fn process_cpu_percent_from_ps(pid: pid_t) -> Option<f64> {
+        let output = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "%cpu="])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let value = String::from_utf8_lossy(&output.stdout);
+        value.trim().parse::<f64>().ok()
+    }
+
     let captured_at = Instant::now();
     let main = process_sample(unsafe { libc::getpid() })?;
+    let cpu_percent_override = process_cpu_percent_from_ps(main.pid);
     let mut cpu_seconds = main.cpu_seconds;
     let mut memory_bytes = main.footprint_bytes;
     let mut memory = PerformanceMemorySnapshot {
@@ -381,6 +394,6 @@ fn capture_raw_sample(cache: &Mutex<ProcessCache>) -> Option<RawSample> {
         cpu_seconds,
         memory_bytes,
         memory,
-        cpu_percent_override: None,
+        cpu_percent_override,
     })
 }

@@ -1,5 +1,7 @@
 use super::*;
+use gpui::{ClickEvent, ListSizingBehavior, Pixels};
 use gpui_component::input::{Input, InputEvent, InputState};
+use std::ops::Range;
 
 pub(in crate::app) fn git_section(
     git: &GitSummary,
@@ -7,6 +9,7 @@ pub(in crate::app) fn git_section(
     expanded_dirs: &HashSet<String>,
     tree_children: &HashMap<String, Vec<GitFileStatus>>,
     selected_file: Option<&str>,
+    selected_files: &HashSet<String>,
     selected_branch: Option<&str>,
     default_push_remote: Option<&str>,
     clone_remote_url: &str,
@@ -15,6 +18,9 @@ pub(in crate::app) fn git_section(
     remote_url: &str,
     running_operation: Option<&GitRunningOperation>,
     commit_message: &str,
+    commit_message_revision: u64,
+    files_scroll_handle: VirtualListScrollHandle,
+    history_scroll_handle: VirtualListScrollHandle,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -26,6 +32,8 @@ pub(in crate::app) fn git_section(
 
     div()
         .flex()
+        .flex_1()
+        .h_full()
         .min_h_0()
         .flex_col()
         .child(git_panel_header(
@@ -43,10 +51,14 @@ pub(in crate::app) fn git_section(
                 expanded_dirs,
                 tree_children,
                 selected_file,
+                selected_files,
                 remote_editor_open,
                 remote_name,
                 remote_url,
                 commit_message,
+                commit_message_revision,
+                files_scroll_handle,
+                history_scroll_handle,
                 window,
                 cx,
             )
@@ -588,10 +600,14 @@ fn git_repository_panel(
     expanded_dirs: &HashSet<String>,
     tree_children: &HashMap<String, Vec<GitFileStatus>>,
     selected_file: Option<&str>,
+    selected_files: &HashSet<String>,
     remote_editor_open: bool,
     remote_name: &str,
     remote_url: &str,
     commit_message: &str,
+    commit_message_revision: u64,
+    files_scroll_handle: VirtualListScrollHandle,
+    history_scroll_handle: VirtualListScrollHandle,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -619,7 +635,12 @@ fn git_repository_panel(
         .flex_1()
         .min_h_0()
         .flex_col()
-        .child(git_commit_panel(commit_message, window, cx))
+        .child(git_commit_panel(
+            commit_message,
+            commit_message_revision,
+            window,
+            cx,
+        ))
         .when(remote_editor_open, |this| {
             this.child(git_remote_editor_panel(remote_name, remote_url, window, cx))
         })
@@ -636,6 +657,8 @@ fn git_repository_panel(
                             expanded_dirs,
                             tree_children,
                             selected_file,
+                            selected_files,
+                            files_scroll_handle,
                             cx,
                         )),
                 )
@@ -643,7 +666,7 @@ fn git_repository_panel(
                     resizable_panel()
                         .size(px(260.0))
                         .size_range(px(180.0)..px(420.0))
-                        .child(git_history_panel(git, cx)),
+                        .child(git_history_panel(git, history_scroll_handle, cx)),
                 ),
         )
 }
@@ -753,22 +776,24 @@ fn git_remote_editor_panel(
 
 fn git_commit_panel(
     commit_message: &str,
+    commit_message_revision: u64,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let button_bg = color(theme::ACCENT).opacity(0.70);
     let app_entity = cx.entity();
     let value = commit_message.to_string();
-    let input_state = window.use_keyed_state("git-commit-message", cx, |window, cx| {
-        InputState::new(window, cx)
-            .default_value(value.clone())
-            .placeholder("填写提交说明")
-    });
-    input_state.update(cx, |state, cx| {
-        if state.value().as_ref() != commit_message {
-            state.set_value(commit_message.to_string(), window, cx);
-        }
-    });
+    let input_state = window.use_keyed_state(
+        SharedString::from(format!("git-commit-message-{commit_message_revision}")),
+        cx,
+        |window, cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .rows(3)
+                .default_value(value.clone())
+                .placeholder("填写提交说明")
+        },
+    );
     cx.subscribe_in(&input_state, window, |app, state, event, window, cx| {
         if matches!(event, InputEvent::Change) {
             app.set_git_commit_message(state.read(cx).value().to_string(), window, cx);
@@ -777,23 +802,15 @@ fn git_commit_panel(
     .detach();
 
     div()
-        .h(px(158.0))
+        .h(px(162.0))
         .flex_shrink_0()
         .p(px(12.0))
         .border_b_1()
         .border_color(color(theme::BORDER_SOFT))
         .child(
-            div()
-                .h(px(90.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(color(0xFFFFFF).opacity(0.06))
-                .bg(color(0xFFFFFF).opacity(0.06))
-                .p(px(14.0))
-                .text_size(px(14.0))
-                .line_height(px(18.0))
-                .text_color(color(theme::TEXT_DIM))
-                .child(Input::new(&input_state).with_size(gpui_component::Size::Medium)),
+            Input::new(&input_state)
+                .with_size(gpui_component::Size::Medium)
+                .h(px(86.0)),
         )
         .child(
             div()
@@ -905,50 +922,51 @@ fn git_files_panel(
     expanded_dirs: &HashSet<String>,
     tree_children: &HashMap<String, Vec<GitFileStatus>>,
     selected_file: Option<&str>,
+    selected_files: &HashSet<String>,
+    scroll_handle: VirtualListScrollHandle,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let rows = Rc::new(git_status_virtual_rows(
+        staged,
+        changed,
+        untracked,
+        expanded_sections,
+        expanded_dirs,
+        tree_children,
+        selected_file,
+        selected_files,
+    ));
+    let item_sizes = Rc::new(
+        rows.iter()
+            .map(|row| size(px(1.0), row.height()))
+            .collect::<Vec<_>>(),
+    );
     div()
         .flex()
         .flex_col()
         .size_full()
         .min_h_0()
-        .overflow_y_scrollbar()
-        .child(git_status_group(
-            "staged",
-            "已暂存",
-            staged.len(),
-            staged,
-            expanded_sections.contains("staged"),
-            expanded_dirs,
-            tree_children,
-            selected_file,
-            "暂无暂存文件",
-            cx,
-        ))
-        .child(git_status_group(
-            "changed",
-            "更改",
-            changed.len(),
-            changed,
-            expanded_sections.contains("changed"),
-            expanded_dirs,
-            tree_children,
-            selected_file,
-            "没有工作区更改",
-            cx,
-        ))
-        .child(git_status_group(
-            "untracked",
-            "未跟踪",
-            untracked.len(),
-            untracked,
-            expanded_sections.contains("untracked"),
-            expanded_dirs,
-            tree_children,
-            selected_file,
-            "暂无未跟踪文件",
-            cx,
-        ))
+        .relative()
+        .overflow_hidden()
+        .child(
+            v_virtual_list(
+                cx.entity().clone(),
+                "git-files-list",
+                item_sizes,
+                move |_app, visible_range: Range<usize>, _window, cx| {
+                    visible_range
+                        .filter_map(|index| {
+                            rows.get(index)
+                                .cloned()
+                                .map(|row: GitStatusVirtualRow| row.render(cx))
+                        })
+                        .collect::<Vec<_>>()
+                },
+            )
+            .track_scroll(&scroll_handle)
+            .with_sizing_behavior(ListSizingBehavior::Auto),
+        )
+        .vertical_scrollbar(&scroll_handle)
 }
 
 fn git_empty_repository_panel(
@@ -1051,205 +1069,215 @@ fn git_empty_repository_panel(
         )
 }
 
-fn git_status_group(
-    id: &'static str,
-    title: &'static str,
-    count: usize,
-    files: &[GitFileStatus],
-    expanded: bool,
-    expanded_dirs: &HashSet<String>,
-    tree_children: &HashMap<String, Vec<GitFileStatus>>,
-    selected_file: Option<&str>,
-    empty_text: &'static str,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    let action_paths = files
-        .iter()
-        .map(|file| file.path.clone())
-        .collect::<Vec<_>>();
-    let rows = if expanded {
-        if files.is_empty() {
-            vec![
-                div()
-                    .px_3()
-                    .py_3()
-                    .text_size(px(14.0))
-                    .line_height(px(18.0))
-                    .text_color(color(theme::TEXT_DIM))
-                    .child(empty_text)
-                    .into_any_element(),
-            ]
-        } else {
-            git_status_tree_rows(id, files, expanded_dirs, tree_children, selected_file, cx)
-        }
-    } else {
-        Vec::new()
-    };
-
-    div()
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .id(SharedString::from(format!("git-status-group-{id}")))
-                .h(px(40.0))
-                .px_3()
-                .flex()
-                .items_center()
-                .justify_between()
-                .border_t_1()
-                .border_color(color(theme::BORDER_SOFT))
-                .bg(color(0xFFFFFF).opacity(0.02))
-                .cursor_pointer()
-                .on_click(cx.listener(move |app, _event, _window, cx| {
-                    app.toggle_git_status_section(id, cx)
-                }))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .min_w_0()
-                        .gap_2()
-                        .child(
-                            Icon::new(if expanded {
-                                IconName::ChevronDown
-                            } else {
-                                IconName::ChevronRight
-                            })
-                            .size_3p5()
-                            .text_color(color(theme::TEXT_DIM)),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(color(theme::TEXT_MUTED))
-                                .child(title),
-                        )
-                        .child(
-                            div()
-                                .px_1p5()
-                                .h(px(18.0))
-                                .min_w(px(18.0))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(5.0))
-                                .bg(color(0xFFFFFF).opacity(0.07))
-                                .text_size(px(12.0))
-                                .line_height(px(14.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .child(count.to_string()),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .text_color(color(theme::TEXT_DIM))
-                        .children(git_status_group_actions(id, action_paths, cx)),
-                ),
-        )
-        .children(rows)
+#[derive(Clone)]
+enum GitStatusVirtualRow {
+    GroupHeader {
+        id: &'static str,
+        title: &'static str,
+        count: usize,
+        files: Vec<GitFileStatus>,
+        expanded: bool,
+        first: bool,
+    },
+    Spacer {
+        height: f32,
+    },
+    Empty {
+        text: &'static str,
+    },
+    Dir {
+        section_id: &'static str,
+        name: String,
+        path: String,
+        expanded: bool,
+        depth: usize,
+    },
+    File {
+        file: GitFileStatus,
+        active: bool,
+        selected_files: HashSet<String>,
+        depth: usize,
+    },
+    Limit {
+        count: usize,
+    },
 }
 
-fn git_status_group_actions(
-    section_id: &'static str,
-    paths: Vec<String>,
-    cx: &mut Context<CoduxApp>,
-) -> Vec<AnyElement> {
-    match section_id {
-        "staged" => vec![
-            git_status_group_action_button("unstage", IconName::Minus, paths, cx)
+const GIT_STATUS_GROUP_TOP_PADDING: f32 = 4.0;
+const GIT_STATUS_GROUP_BOTTOM_PADDING: f32 = 8.0;
+
+impl GitStatusVirtualRow {
+    fn height(&self) -> Pixels {
+        match self {
+            Self::GroupHeader { .. } => px(40.0),
+            Self::Spacer { height } => px(*height),
+            Self::Empty { .. } => px(42.0),
+            Self::Dir { .. } | Self::File { .. } => px(24.0),
+            Self::Limit { .. } => px(32.0),
+        }
+    }
+
+    fn render(self, cx: &mut Context<CoduxApp>) -> AnyElement {
+        match self {
+            Self::GroupHeader {
+                id,
+                title,
+                count,
+                files,
+                expanded,
+                first,
+            } => git_status_group_header(id, title, count, files, expanded, first, cx)
                 .into_any_element(),
-        ],
-        "changed" => vec![
-            git_status_group_action_button("stage", IconName::Plus, paths.clone(), cx)
+            Self::Spacer { height } => div().h(px(height)).into_any_element(),
+            Self::Empty { text } => div()
+                .px_3()
+                .py_3()
+                .text_size(px(14.0))
+                .line_height(px(18.0))
+                .text_color(color(theme::TEXT_DIM))
+                .child(text)
                 .into_any_element(),
-            git_status_group_action_button("discard", IconName::Undo, paths, cx).into_any_element(),
-        ],
-        "untracked" => vec![
-            git_status_group_action_button("stage", IconName::Plus, paths.clone(), cx)
+            Self::Dir {
+                section_id,
+                name,
+                path,
+                expanded,
+                depth,
+            } => {
+                git_status_dir_row(section_id, &name, &path, expanded, depth, cx).into_any_element()
+            }
+            Self::File {
+                file,
+                active,
+                selected_files,
+                depth,
+            } => {
+                let selected_path = active.then(|| file.path.clone());
+                git_status_file_row(file, selected_path.as_deref(), &selected_files, depth, cx)
+                    .into_any_element()
+            }
+            Self::Limit { count } => div()
+                .px_3()
+                .py_2()
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .text_color(color(theme::TEXT_DIM))
+                .child(format!("已显示前 {count} 项，继续展开目录查看子级"))
                 .into_any_element(),
-            git_status_group_action_button("ignore", IconName::Close, paths, cx).into_any_element(),
-        ],
-        _ => Vec::new(),
+        }
     }
 }
 
-fn git_status_group_action_button(
-    action: &'static str,
-    icon: IconName,
-    paths: Vec<String>,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    Button::new(SharedString::from(format!("git-group-action-{action}")))
-        .compact()
-        .ghost()
-        .text_color(cx.theme().secondary_foreground)
-        .icon(
-            Icon::new(icon)
-                .size_3p5()
-                .text_color(cx.theme().secondary_foreground),
-        )
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            cx.stop_propagation();
-            window.prevent_default();
-            match action {
-                "stage" => app.stage_git_paths(paths.clone(), window, cx),
-                "unstage" => app.unstage_git_paths(paths.clone(), window, cx),
-                "discard" => app.discard_git_paths(paths.clone(), window, cx),
-                "ignore" => app.append_project_gitignore_paths(paths.clone(), window, cx),
-                _ => {}
-            }
-        }))
-}
-
-struct GitImmediateDir {
-    path: String,
-    count: usize,
-}
-
-const MAX_GIT_STATUS_TREE_ROWS: usize = 600;
-
-fn git_status_tree_rows(
-    section: &'static str,
-    files: &[GitFileStatus],
+fn git_status_virtual_rows(
+    staged: &[GitFileStatus],
+    changed: &[GitFileStatus],
+    untracked: &[GitFileStatus],
+    expanded_sections: &HashSet<String>,
     expanded_dirs: &HashSet<String>,
     tree_children: &HashMap<String, Vec<GitFileStatus>>,
     selected_file: Option<&str>,
-    cx: &mut Context<CoduxApp>,
-) -> Vec<AnyElement> {
+    selected_files: &HashSet<String>,
+) -> Vec<GitStatusVirtualRow> {
     let mut rows = Vec::new();
-    append_git_status_directory_rows(
-        section,
+    append_git_status_group_virtual_rows(
+        "staged",
+        "已暂存",
+        staged,
+        expanded_sections,
+        expanded_dirs,
+        tree_children,
+        selected_file,
+        selected_files,
+        "暂无暂存文件",
+        rows.is_empty(),
+        &mut rows,
+    );
+    append_git_status_group_virtual_rows(
+        "changed",
+        "更改",
+        changed,
+        expanded_sections,
+        expanded_dirs,
+        tree_children,
+        selected_file,
+        selected_files,
+        "没有工作区更改",
+        rows.is_empty(),
+        &mut rows,
+    );
+    append_git_status_group_virtual_rows(
+        "untracked",
+        "未跟踪",
+        untracked,
+        expanded_sections,
+        expanded_dirs,
+        tree_children,
+        selected_file,
+        selected_files,
+        "暂无未跟踪文件",
+        rows.is_empty(),
+        &mut rows,
+    );
+    rows
+}
+
+fn append_git_status_group_virtual_rows(
+    id: &'static str,
+    title: &'static str,
+    files: &[GitFileStatus],
+    expanded_sections: &HashSet<String>,
+    expanded_dirs: &HashSet<String>,
+    tree_children: &HashMap<String, Vec<GitFileStatus>>,
+    selected_file: Option<&str>,
+    selected_files: &HashSet<String>,
+    empty_text: &'static str,
+    first: bool,
+    rows: &mut Vec<GitStatusVirtualRow>,
+) {
+    let expanded = expanded_sections.contains(id);
+    rows.push(GitStatusVirtualRow::GroupHeader {
+        id,
+        title,
+        count: files.len(),
+        files: files.to_vec(),
+        expanded,
+        first,
+    });
+    if !expanded {
+        return;
+    }
+    rows.push(GitStatusVirtualRow::Spacer {
+        height: GIT_STATUS_GROUP_TOP_PADDING,
+    });
+    if files.is_empty() {
+        rows.push(GitStatusVirtualRow::Empty { text: empty_text });
+        rows.push(GitStatusVirtualRow::Spacer {
+            height: GIT_STATUS_GROUP_BOTTOM_PADDING,
+        });
+        return;
+    }
+    let start_len = rows.len();
+    append_git_status_virtual_directory_rows(
+        id,
         "",
         files,
         0,
         expanded_dirs,
         tree_children,
         selected_file,
-        &mut rows,
-        cx,
+        selected_files,
+        rows,
     );
-    if rows.len() >= MAX_GIT_STATUS_TREE_ROWS {
-        rows.push(
-            div()
-                .px_3()
-                .py_2()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_DIM))
-                .child(format!("已显示前 {} 项，继续展开目录查看子级", rows.len()))
-                .into_any_element(),
-        );
+    let appended = rows.len().saturating_sub(start_len);
+    if appended >= MAX_GIT_STATUS_TREE_ROWS {
+        rows.push(GitStatusVirtualRow::Limit { count: appended });
     }
-    rows
+    rows.push(GitStatusVirtualRow::Spacer {
+        height: GIT_STATUS_GROUP_BOTTOM_PADDING,
+    });
 }
 
-fn append_git_status_directory_rows(
+fn append_git_status_virtual_directory_rows(
     section_id: &'static str,
     base_path: &str,
     files: &[GitFileStatus],
@@ -1257,8 +1285,8 @@ fn append_git_status_directory_rows(
     expanded_dirs: &HashSet<String>,
     tree_children: &HashMap<String, Vec<GitFileStatus>>,
     selected_file: Option<&str>,
-    rows: &mut Vec<AnyElement>,
-    cx: &mut Context<CoduxApp>,
+    selected_files: &HashSet<String>,
+    rows: &mut Vec<GitStatusVirtualRow>,
 ) {
     if rows.len() >= MAX_GIT_STATUS_TREE_ROWS {
         return;
@@ -1270,13 +1298,18 @@ fn append_git_status_directory_rows(
         if rows.len() >= MAX_GIT_STATUS_TREE_ROWS {
             return;
         }
-        let expanded = expanded_dirs.contains(&dir.path);
-        rows.push(
-            git_status_dir_row(&name, &dir.path, dir.count, expanded, depth, cx).into_any_element(),
-        );
+        let tree_key = git_status_tree_key(section_id, &dir.path);
+        let expanded = expanded_dirs.contains(&tree_key);
+        rows.push(GitStatusVirtualRow::Dir {
+            section_id,
+            name,
+            path: dir.path.clone(),
+            expanded,
+            depth,
+        });
         if expanded {
-            if let Some(children) = tree_children.get(&dir.path) {
-                append_git_status_directory_rows(
+            if let Some(children) = tree_children.get(&tree_key) {
+                append_git_status_virtual_directory_rows(
                     section_id,
                     &dir.path,
                     children,
@@ -1284,8 +1317,8 @@ fn append_git_status_directory_rows(
                     expanded_dirs,
                     tree_children,
                     selected_file,
+                    selected_files,
                     rows,
-                    cx,
                 );
             }
         }
@@ -1294,9 +1327,90 @@ fn append_git_status_directory_rows(
         if rows.len() >= MAX_GIT_STATUS_TREE_ROWS {
             return;
         }
-        rows.push(git_status_file_row(file, selected_file, depth, cx).into_any_element());
+        let active = selected_file
+            .map(|path| path == file.path.as_str())
+            .unwrap_or(false);
+        rows.push(GitStatusVirtualRow::File {
+            file,
+            active,
+            selected_files: selected_files.clone(),
+            depth,
+        });
     }
 }
+
+fn git_status_group_header(
+    id: &'static str,
+    title: &'static str,
+    count: usize,
+    _files: Vec<GitFileStatus>,
+    expanded: bool,
+    first: bool,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("git-status-group-{id}")))
+        .w_full()
+        .min_w_0()
+        .h(px(40.0))
+        .px_3()
+        .flex()
+        .items_center()
+        .justify_between()
+        .border_color(color(theme::BORDER_SOFT))
+        .when(!first, |this| this.border_t_1())
+        .bg(color(0xFFFFFF).opacity(0.02))
+        .cursor_pointer()
+        .on_click(
+            cx.listener(move |app, _event, _window, cx| app.toggle_git_status_section(id, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_1()
+                .items_center()
+                .min_w_0()
+                .gap_2()
+                .child(
+                    Icon::new(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .size_3p5()
+                    .text_color(color(theme::TEXT_DIM)),
+                )
+                .child(
+                    div()
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .px_1p5()
+                        .h(px(18.0))
+                        .min_w(px(18.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(5.0))
+                        .bg(color(0xFFFFFF).opacity(0.07))
+                        .text_size(px(12.0))
+                        .line_height(px(14.0))
+                        .text_color(color(theme::TEXT_DIM))
+                        .child(count.to_string()),
+                ),
+        )
+}
+
+struct GitImmediateDir {
+    path: String,
+    count: usize,
+}
+
+const MAX_GIT_STATUS_TREE_ROWS: usize = 600;
 
 fn collect_immediate_git_status_entries(
     section_id: &'static str,
@@ -1367,6 +1481,10 @@ fn join_git_path(base_path: &str, name: &str) -> String {
     }
 }
 
+fn git_status_tree_key(section_id: &str, path: &str) -> String {
+    format!("{section_id}:{}", path.trim_matches('/'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1428,38 +1546,51 @@ mod tests {
         );
         assert!(bulk_files.is_empty());
     }
+
+    #[test]
+    fn git_tree_keys_scope_same_directory_by_section() {
+        assert_eq!(git_status_tree_key("changed", "src"), "changed:src");
+        assert_eq!(git_status_tree_key("untracked", "src"), "untracked:src");
+        assert_ne!(
+            git_status_tree_key("changed", "src"),
+            git_status_tree_key("untracked", "src")
+        );
+    }
 }
 
 fn git_status_dir_row(
+    section_id: &'static str,
     name: &str,
     path: &str,
-    count: usize,
     expanded: bool,
     depth: usize,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let directory_path = path.to_string();
-    let ignore_path = format!("{}/", path.trim_end_matches('/'));
+    let directory_section = section_id.to_string();
 
     div()
-        .id(SharedString::from(format!("git-sidebar-dir-{path}")))
-        .h(px(28.0))
-        .pl(px(18.0 + depth as f32 * 22.0))
+        .id(SharedString::from(format!(
+            "git-sidebar-dir-{section_id}-{path}"
+        )))
+        .w_full()
+        .min_w_0()
+        .h(px(24.0))
+        .pl(px(18.0 + depth as f32 * 18.0))
         .pr_3()
         .flex()
         .items_center()
-        .justify_between()
         .text_color(color(theme::TEXT_MUTED))
         .cursor_pointer()
         .hover(|style| style.bg(color(0xFFFFFF).opacity(0.05)))
         .on_click(cx.listener(move |app, _event, _window, cx| {
-            app.toggle_git_status_dir(directory_path.clone(), cx)
+            app.toggle_git_status_dir(directory_section.clone(), directory_path.clone(), cx)
         }))
         .child(
             div()
                 .flex()
+                .flex_1()
                 .items_center()
-                .gap_2()
                 .min_w_0()
                 .child(
                     Icon::new(if expanded {
@@ -1472,47 +1603,37 @@ fn git_status_dir_row(
                 .child(
                     Icon::new(IconName::Folder)
                         .size_4()
+                        .ml(px(8.0))
                         .text_color(color(theme::ACCENT)),
                 )
                 .child(
                     div()
+                        .ml(px(8.0))
+                        .min_w_0()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
                         .truncate()
                         .child(name.to_string()),
                 ),
         )
-        .child(
-            div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_DIM))
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(git_file_action_button(
-                    "ignore",
-                    IconName::Close,
-                    ignore_path,
-                    cx,
-                ))
-                .child(count.to_string()),
-        )
 }
 
 fn git_status_file_row(
     file: GitFileStatus,
     selected_file: Option<&str>,
+    selected_files: &HashSet<String>,
     depth: usize,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let status = git_file_status_label(&file);
+    let status_color = git_file_status_color(&status);
     let can_stage = is_git_worktree_file(&file) || is_git_untracked_file(&file);
     let can_unstage = is_git_staged_file(&file);
     let can_discard = is_git_worktree_file(&file) || is_git_untracked_file(&file);
-    let active = selected_file.map(|path| path == file.path).unwrap_or(false);
+    let active = selected_file.map(|path| path == file.path).unwrap_or(false)
+        || selected_files.contains(&file.path);
     let file_path = file.path.clone();
-    let diff_file_path = file.path.clone();
+    let menu_file_path = file.path.clone();
     let file_name = file
         .path
         .trim_end_matches('/')
@@ -1522,45 +1643,17 @@ fn git_status_file_row(
         .unwrap_or(file.path.as_str())
         .to_string();
     let is_dir_status = file.path.ends_with('/');
-    let mut actions = Vec::new();
-    if can_stage {
-        actions.push(
-            git_file_action_button("stage", IconName::Plus, file.path.clone(), cx)
-                .into_any_element(),
-        );
-    }
-    if can_unstage {
-        actions.push(
-            git_file_action_button("unstage", IconName::Minus, file.path.clone(), cx)
-                .into_any_element(),
-        );
-    }
-    if can_discard {
-        actions.push(
-            git_file_action_button("discard", IconName::Undo, file.path.clone(), cx)
-                .into_any_element(),
-        );
-    }
-    if is_git_untracked_file(&file) || is_dir_status {
-        actions.push(
-            git_file_action_button("ignore", IconName::Close, file.path.clone(), cx)
-                .into_any_element(),
-        );
-    }
-    if !is_dir_status {
-        actions.push(
-            git_file_action_button("diff", IconName::ExternalLink, diff_file_path, cx)
-                .into_any_element(),
-        );
-    }
+    let app_entity = cx.entity();
 
     div()
         .id(SharedString::from(format!(
             "git-sidebar-file-{}",
             file.path
         )))
-        .h(px(28.0))
-        .pl(px(46.0 + depth as f32 * 22.0))
+        .w_full()
+        .min_w_0()
+        .h(px(24.0))
+        .pl(px(46.0 + depth as f32 * 18.0))
         .pr_3()
         .flex()
         .items_center()
@@ -1572,14 +1665,18 @@ fn git_status_file_row(
         })
         .cursor_pointer()
         .hover(|style| style.bg(color(0xFFFFFF).opacity(0.05)))
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.select_git_file(file_path.clone(), window, cx)
+        .on_click(cx.listener(move |app, event: &ClickEvent, window, cx| {
+            if event.modifiers().shift {
+                app.toggle_git_file_selection(file_path.clone(), cx);
+            } else {
+                app.select_git_file(file_path.clone(), window, cx)
+            }
         }))
         .child(
             div()
                 .flex()
+                .flex_1()
                 .items_center()
-                .gap_2()
                 .min_w_0()
                 .text_color(color(theme::TEXT_MUTED))
                 .child(
@@ -1592,6 +1689,8 @@ fn git_status_file_row(
                 )
                 .child(
                     div()
+                        .ml(px(8.0))
+                        .min_w_0()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
                         .truncate()
@@ -1599,67 +1698,125 @@ fn git_status_file_row(
                 ),
         )
         .child(
-            div()
-                .ml_2()
-                .flex()
-                .items_center()
-                .gap_1()
-                .children(actions)
-                .child(
-                    div()
-                        .min_w(px(18.0))
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(if status == "U" {
-                            theme::GREEN
-                        } else {
-                            theme::TEXT_DIM
-                        }))
-                        .child(status),
-                ),
+            div().ml_2().flex().items_center().gap_1().child(
+                div()
+                    .min_w(px(18.0))
+                    .text_size(px(14.0))
+                    .line_height(px(18.0))
+                    .text_color(color(status_color))
+                    .child(status),
+            ),
         )
+        .context_menu(move |menu, _window, _cx| {
+            let stage_entity = app_entity.clone();
+            let stage_path = menu_file_path.clone();
+            let unstage_entity = app_entity.clone();
+            let unstage_path = menu_file_path.clone();
+            let discard_entity = app_entity.clone();
+            let discard_path = menu_file_path.clone();
+            let ignore_entity = app_entity.clone();
+            let ignore_path = menu_file_path.clone();
+            let diff_entity = app_entity.clone();
+            let diff_path = menu_file_path.clone();
+
+            let menu = if can_stage {
+                menu.item(git_context_menu_item("暂存", IconName::Plus).on_click(
+                    move |_, window, cx| {
+                        cx.update_entity(&stage_entity, |app, cx| {
+                            app.select_git_file(stage_path.clone(), window, cx);
+                            app.stage_git_paths(
+                                app.selected_git_action_paths(&stage_path),
+                                window,
+                                cx,
+                            );
+                        });
+                    },
+                ))
+            } else {
+                menu
+            };
+            let menu = if can_unstage {
+                menu.item(git_context_menu_item("取消暂存", IconName::Minus).on_click(
+                    move |_, window, cx| {
+                        cx.update_entity(&unstage_entity, |app, cx| {
+                            app.select_git_file(unstage_path.clone(), window, cx);
+                            app.unstage_git_paths(
+                                app.selected_git_action_paths(&unstage_path),
+                                window,
+                                cx,
+                            );
+                        });
+                    },
+                ))
+            } else {
+                menu
+            };
+            let menu = if !is_dir_status {
+                menu.item(
+                    git_context_menu_item("打开 Diff", IconName::ExternalLink).on_click(
+                        move |_, window, cx| {
+                            cx.update_entity(&diff_entity, |app, cx| {
+                                app.open_git_diff_window(diff_path.clone(), window, cx);
+                            });
+                        },
+                    ),
+                )
+            } else {
+                menu
+            };
+            let menu = if can_discard {
+                menu.separator()
+                    .item(git_context_menu_item("丢弃更改", IconName::Undo).on_click(
+                        move |_, window, cx| {
+                            cx.update_entity(&discard_entity, |app, cx| {
+                                app.select_git_file(discard_path.clone(), window, cx);
+                                app.discard_git_paths(
+                                    app.selected_git_action_paths(&discard_path),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        },
+                    ))
+            } else {
+                menu
+            };
+            if is_git_untracked_file(&file) || is_dir_status {
+                menu.item(
+                    git_context_menu_item("加入 .gitignore", IconName::Close).on_click(
+                        move |_, window, cx| {
+                            cx.update_entity(&ignore_entity, |app, cx| {
+                                app.append_project_gitignore_paths(
+                                    app.selected_git_action_paths(&ignore_path),
+                                    window,
+                                    cx,
+                                );
+                            });
+                        },
+                    ),
+                )
+            } else {
+                menu
+            }
+        })
 }
 
-fn git_file_action_button(
-    action: &'static str,
-    icon: IconName,
-    file_path: String,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    let id_path = file_path.replace('/', "-");
-    Button::new(SharedString::from(format!(
-        "git-file-action-{action}-{id_path}"
-    )))
-    .compact()
-    .ghost()
-    .text_color(cx.theme().secondary_foreground)
-    .icon(
-        Icon::new(icon)
-            .size_3p5()
-            .text_color(cx.theme().secondary_foreground),
-    )
-    .on_click(cx.listener(move |app, _event, window, cx| {
-        cx.stop_propagation();
-        window.prevent_default();
-        match action {
-            "stage" => {
-                app.select_git_file(file_path.clone(), window, cx);
-                app.stage_selected_git_file(window, cx);
-            }
-            "unstage" => {
-                app.select_git_file(file_path.clone(), window, cx);
-                app.unstage_selected_git_file(window, cx);
-            }
-            "discard" => {
-                app.select_git_file(file_path.clone(), window, cx);
-                app.discard_selected_git_file(window, cx);
-            }
-            "ignore" => app.append_project_gitignore_path(file_path.clone(), window, cx),
-            "diff" => app.open_git_diff_window(file_path.clone(), window, cx),
-            _ => {}
-        }
-    }))
+fn git_context_menu_item(label: &'static str, icon: IconName) -> PopupMenuItem {
+    PopupMenuItem::element(move |_window, cx| {
+        div()
+            .flex()
+            .items_center()
+            .min_w(px(132.0))
+            .text_size(px(14.0))
+            .line_height(px(18.0))
+            .text_color(cx.theme().foreground)
+            .child(
+                Icon::new(icon.clone())
+                    .size_3p5()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .child(div().ml(px(10.0)).child(label))
+    })
 }
 
 pub(in crate::app) fn git_diff_window_workspace(
@@ -1796,7 +1953,14 @@ fn git_diff_line_row(line: &str) -> impl IntoElement {
         .child(line.to_string())
 }
 
-fn git_history_panel(git: &GitSummary, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn git_history_panel(
+    git: &GitSummary,
+    scroll_handle: VirtualListScrollHandle,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let commits = Rc::new(git.commits.clone());
+    let commit_count = commits.len();
+    let item_sizes = Rc::new(vec![size(px(1.0), px(44.0)); commit_count]);
     div()
         .size_full()
         .min_h_0()
@@ -1814,7 +1978,6 @@ fn git_history_panel(git: &GitSummary, cx: &mut Context<CoduxApp>) -> impl IntoE
                 .bg(color(0xFFFFFF).opacity(0.02))
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT_DIM))
                 .child("Git 历史"),
         )
@@ -1832,19 +1995,35 @@ fn git_history_panel(git: &GitSummary, cx: &mut Context<CoduxApp>) -> impl IntoE
             div()
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scrollbar()
-                .flex()
-                .flex_col()
-                .py_1()
-                .children(
-                    git.commits
-                        .iter()
-                        .take(24)
-                        .enumerate()
-                        .map(|(index, commit)| {
-                            git_history_timeline_row(commit, index == 0, cx).into_any_element()
-                        }),
+                .relative()
+                .overflow_hidden()
+                .py(px(6.0))
+                .child(
+                    v_virtual_list(
+                        cx.entity().clone(),
+                        "git-history-list",
+                        item_sizes,
+                        move |_app, visible_range: Range<usize>, _window, cx| {
+                            visible_range
+                                .filter_map(|index| {
+                                    commits.get(index).cloned().map(|commit| {
+                                        git_history_timeline_row(
+                                            &commit,
+                                            index == 0,
+                                            index == 0,
+                                            index + 1 >= commit_count,
+                                            cx,
+                                        )
+                                        .into_any_element()
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                    )
+                    .track_scroll(&scroll_handle)
+                    .with_sizing_behavior(ListSizingBehavior::Auto),
                 )
+                .vertical_scrollbar(&scroll_handle)
                 .into_any_element()
         })
 }
@@ -1852,6 +2031,8 @@ fn git_history_panel(git: &GitSummary, cx: &mut Context<CoduxApp>) -> impl IntoE
 fn git_history_timeline_row(
     commit: &GitCommitSummary,
     active: bool,
+    is_first: bool,
+    is_last: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let title = commit.title.clone();
@@ -1860,6 +2041,8 @@ fn git_history_timeline_row(
     let hash = commit.hash.clone();
     let menu_hash = hash.clone();
     let app_entity = cx.entity();
+    let context_entity = app_entity.clone();
+    let context_hash = menu_hash.clone();
     let tooltip = format!(
         "{}\n{}\n{} · {}",
         commit.hash, commit.title, commit.author, commit.relative_time
@@ -1867,10 +2050,12 @@ fn git_history_timeline_row(
 
     div()
         .id(SharedString::from(format!("git-history-{}", commit.hash)))
+        .w_full()
+        .min_w_0()
         .relative()
-        .min_h(px(60.0))
+        .h(px(44.0))
         .px_3()
-        .py_1()
+        .py(px(4.0))
         .flex()
         .gap_2()
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
@@ -1878,24 +2063,37 @@ fn git_history_timeline_row(
         .child(
             div()
                 .w(px(18.0))
-                .h_full()
+                .h(px(36.0))
                 .relative()
                 .flex_shrink_0()
+                .when(!is_first, |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .left(px(8.5))
+                            .top(px(-4.0))
+                            .h(px(13.0))
+                            .w(px(1.0))
+                            .bg(color(0x7A8599).opacity(0.82)),
+                    )
+                })
+                .when(!is_last, |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .left(px(8.5))
+                            .top(px(21.0))
+                            .bottom(px(-4.0))
+                            .w(px(1.0))
+                            .bg(color(0x7A8599).opacity(0.82)),
+                    )
+                })
                 .child(
                     div()
                         .absolute()
-                        .left(px(8.0))
-                        .top(px(0.0))
-                        .bottom(px(0.0))
-                        .w(px(1.0))
-                        .bg(color(theme::ACCENT).opacity(0.46)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(2.0))
-                        .top(px(13.0))
-                        .size(px(13.0))
+                        .left(px(2.5))
+                        .top(px(12.0))
+                        .size(px(12.0))
                         .rounded_full()
                         .border_1()
                         .border_color(color(theme::BG_COLUMN))
@@ -1912,7 +2110,7 @@ fn git_history_timeline_row(
                 .flex_1()
                 .flex()
                 .flex_col()
-                .gap(px(4.0))
+                .gap(px(2.0))
                 .child(
                     div()
                         .flex()
@@ -1925,7 +2123,6 @@ fn git_history_timeline_row(
                                 .flex_1()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .truncate()
                                 .child(title),
@@ -1938,7 +2135,6 @@ fn git_history_timeline_row(
                                 .bg(color(theme::ACCENT).opacity(0.16))
                                 .text_size(px(12.0))
                                 .line_height(px(14.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::ACCENT))
                                 .child("HEAD->main")
                                 .into_any_element()
@@ -1955,55 +2151,41 @@ fn git_history_timeline_row(
                         .child(format!("{author} · {relative_time} · {hash}")),
                 ),
         )
-        .child(
-            Button::new(SharedString::from(format!(
-                "git-history-actions-{menu_hash}"
-            )))
-            .compact()
-            .ghost()
-            .tooltip("提交操作")
-            .text_color(cx.theme().secondary_foreground)
-            .icon(
-                Icon::new(IconName::Ellipsis)
-                    .size_3p5()
-                    .text_color(cx.theme().secondary_foreground),
+        .context_menu(move |menu, _window, _cx| {
+            let checkout_hash = context_hash.clone();
+            let revert_hash = context_hash.clone();
+            let restore_hash = context_hash.clone();
+            let checkout_entity = context_entity.clone();
+            let revert_entity = context_entity.clone();
+            let restore_entity = context_entity.clone();
+            menu.item(
+                PopupMenuItem::new("检出此提交")
+                    .icon(IconName::Github)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&checkout_entity, |app, cx| {
+                            app.checkout_git_commit(checkout_hash.clone(), window, cx);
+                        });
+                    }),
             )
-            .dropdown_menu(move |menu, _window, _cx| {
-                let checkout_hash = menu_hash.clone();
-                let revert_hash = menu_hash.clone();
-                let restore_hash = menu_hash.clone();
-                let checkout_entity = app_entity.clone();
-                let revert_entity = app_entity.clone();
-                let restore_entity = app_entity.clone();
-                menu.item(
-                    PopupMenuItem::new("检出此提交")
-                        .icon(IconName::Github)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&checkout_entity, |app, cx| {
-                                app.checkout_git_commit(checkout_hash.clone(), window, cx);
-                            });
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new("回滚此提交")
-                        .icon(IconName::Undo2)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&revert_entity, |app, cx| {
-                                app.revert_git_commit(revert_hash.clone(), window, cx);
-                            });
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new("恢复到此提交")
-                        .icon(IconName::Redo2)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&restore_entity, |app, cx| {
-                                app.restore_git_commit(restore_hash.clone(), window, cx);
-                            });
-                        }),
-                )
-            }),
-        )
+            .item(
+                PopupMenuItem::new("回滚此提交")
+                    .icon(IconName::Undo2)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&revert_entity, |app, cx| {
+                            app.revert_git_commit(revert_hash.clone(), window, cx);
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new("恢复到此提交")
+                    .icon(IconName::Redo2)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&restore_entity, |app, cx| {
+                            app.restore_git_commit(restore_hash.clone(), window, cx);
+                        });
+                    }),
+            )
+        })
 }
 
 fn is_git_staged_file(file: &GitFileStatus) -> bool {
@@ -2021,7 +2203,7 @@ fn is_git_untracked_file(file: &GitFileStatus) -> bool {
 
 fn git_file_status_label(file: &GitFileStatus) -> String {
     if is_git_untracked_file(file) {
-        "U".to_string()
+        "A".to_string()
     } else {
         let status = format!(
             "{}{}",
@@ -2033,6 +2215,16 @@ fn git_file_status_label(file: &GitFileStatus) -> String {
         } else {
             status
         }
+    }
+}
+
+fn git_file_status_color(status: &str) -> u32 {
+    match status.chars().next().unwrap_or('?') {
+        'A' | '?' => theme::GREEN,
+        'D' => theme::ACCENT,
+        'M' => theme::ORANGE,
+        'R' | 'C' | 'T' => theme::ORANGE,
+        _ => theme::TEXT_DIM,
     }
 }
 

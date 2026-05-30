@@ -1,14 +1,33 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(in crate::app) fn compact_number(value: i64) -> String {
-    let abs = value.abs();
-    if abs >= 1_000_000 {
-        format!("{:.2}M", value as f64 / 1_000_000.0)
+    let abs = value.saturating_abs();
+    if abs >= 1_000_000_000 {
+        compact_unit(value, 1_000_000_000.0, "B")
+    } else if abs >= 1_000_000 {
+        compact_unit(value, 1_000_000.0, "M")
     } else if abs >= 1_000 {
-        format!("{:.1}K", value as f64 / 1_000.0)
+        compact_unit(value, 1_000.0, "K")
     } else {
         value.to_string()
     }
+}
+
+fn compact_unit(value: i64, divisor: f64, suffix: &str) -> String {
+    let scaled = value as f64 / divisor;
+    let abs_scaled = scaled.abs();
+    let formatted = if abs_scaled >= 100.0 {
+        format!("{scaled:.0}")
+    } else if abs_scaled >= 10.0 {
+        format!("{scaled:.1}")
+    } else {
+        format!("{scaled:.2}")
+    };
+    format!(
+        "{}{}",
+        formatted.trim_end_matches('0').trim_end_matches('.'),
+        suffix
+    )
 }
 
 pub(in crate::app) fn relative_time_label(timestamp: f64) -> String {

@@ -66,6 +66,35 @@ impl RuntimeService {
         ))
     }
 
+    pub fn move_project_file_entry(
+        &self,
+        project_path: &str,
+        entry_path: &str,
+        target_directory_path: &str,
+        directory_path: Option<&str>,
+    ) -> Result<(Vec<FileEntry>, String), String> {
+        let entry = FilesService::move_to_directory(project_path, entry_path, target_directory_path)?;
+        Ok((
+            load_file_entries(project_path, directory_path),
+            entry.relative_path,
+        ))
+    }
+
+    pub fn move_project_file_entry_overwrite(
+        &self,
+        project_path: &str,
+        entry_path: &str,
+        target_directory_path: &str,
+        directory_path: Option<&str>,
+    ) -> Result<(Vec<FileEntry>, String), String> {
+        let entry =
+            FilesService::move_to_directory_overwrite(project_path, entry_path, target_directory_path)?;
+        Ok((
+            load_file_entries(project_path, directory_path),
+            entry.relative_path,
+        ))
+    }
+
     pub fn import_external_project_files(
         &self,
         project_path: &str,

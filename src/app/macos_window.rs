@@ -1,0 +1,498 @@
+#![allow(unexpected_cfgs)]
+
+#[cfg(target_os = "macos")]
+use cocoa::{
+    appkit::{NSApp, NSColor, NSMenu, NSMenuItem, NSView, NSWindow, NSWindowStyleMask},
+    base::{NO, YES, id, nil},
+    foundation::{NSAutoreleasePool, NSPoint, NSString},
+};
+use gpui::Window;
+#[cfg(target_os = "macos")]
+use objc::{
+    class,
+    declare::ClassDecl,
+    msg_send,
+    runtime::{
+        Class, Imp, Object, Sel, class_getInstanceMethod, method_getImplementation,
+        method_setImplementation,
+    },
+    sel, sel_impl,
+};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use std::time::Duration;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::{
+    Foundation::{HWND, POINT},
+    Graphics::Gdi::ClientToScreen,
+    UI::WindowsAndMessaging::{
+        AppendMenuW, CreatePopupMenu, DestroyMenu, MF_SEPARATOR, MF_STRING, SetForegroundWindow,
+        TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN, TrackPopupMenu,
+    },
+};
+
+#[derive(Clone)]
+pub(in crate::app) enum NativeMenuEntry {
+    Item {
+        label: String,
+        action_id: &'static str,
+    },
+    Separator,
+}
+
+#[cfg(target_os = "macos")]
+static SELECTED_MENU_TAG: AtomicIsize = AtomicIsize::new(-1);
+#[cfg(target_os = "macos")]
+static REOPEN_HANDLER_INSTALLED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+static ORIGINAL_REOPEN_HANDLER: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(crate) fn install_dock_reopen_handler() {
+    if REOPEN_HANDLER_INSTALLED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    unsafe {
+        let app = NSApp();
+        let delegate: id = msg_send![app, delegate];
+        if delegate.is_null() {
+            REOPEN_HANDLER_INSTALLED.store(false, Ordering::SeqCst);
+            return;
+        }
+
+        let delegate_class: *const Class = msg_send![delegate, class];
+        let method = class_getInstanceMethod(
+            delegate_class,
+            Sel::register("applicationShouldHandleReopen:hasVisibleWindows:"),
+        );
+        if method.is_null() {
+            REOPEN_HANDLER_INSTALLED.store(false, Ordering::SeqCst);
+            return;
+        }
+
+        let original = method_getImplementation(method);
+        ORIGINAL_REOPEN_HANDLER.store(original as usize, Ordering::SeqCst);
+        let replacement: Imp = std::mem::transmute(
+            dock_should_handle_reopen as unsafe extern "C" fn(&mut Object, Sel, id, bool),
+        );
+        let _ = method_setImplementation(method.cast_mut(), replacement);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn install_dock_reopen_handler() {}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" fn dock_should_handle_reopen(
+    this: &mut Object,
+    cmd: Sel,
+    application: id,
+    _has_visible_windows: bool,
+) {
+    let original = ORIGINAL_REOPEN_HANDLER.load(Ordering::SeqCst);
+    if original == 0 {
+        return;
+    }
+
+    let original: unsafe extern "C" fn(&mut Object, Sel, id, bool) =
+        unsafe { std::mem::transmute(original) };
+    unsafe {
+        original(this, cmd, application, false);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(in crate::app) fn make_desktop_pet_window_transparent(window: &mut Window) {
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return;
+    };
+
+    unsafe {
+        let ns_view = handle.ns_view.as_ptr() as id;
+        if ns_view.is_null() {
+            return;
+        }
+        let ns_window: id = msg_send![ns_view, window];
+        if ns_window.is_null() {
+            return;
+        }
+
+        let style_mask = ns_window.styleMask();
+        ns_window.setStyleMask_(
+            style_mask
+                - NSWindowStyleMask::NSTitledWindowMask
+                - NSWindowStyleMask::NSClosableWindowMask
+                - NSWindowStyleMask::NSMiniaturizableWindowMask,
+        );
+        ns_window.setOpaque_(NO);
+        ns_window.setHasShadow_(NO);
+        ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+
+        let content_view = ns_window.contentView();
+        clear_layer_background(content_view);
+        clear_layer_background(ns_view);
+
+        let _: () = msg_send![ns_window, setIgnoresMouseEvents: NO];
+        let _: () = msg_send![ns_window, setMovableByWindowBackground: YES];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(in crate::app) fn make_desktop_pet_window_transparent(_window: &mut gpui::Window) {}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(in crate::app) fn show_desktop_pet_native_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: &[NativeMenuEntry],
+) -> Option<&'static str> {
+    let ns_view = appkit_view(window)?;
+    show_desktop_pet_native_menu_for_view(ns_view, position, entries)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(in crate::app) fn spawn_native_popup_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: Vec<NativeMenuEntry>,
+    on_select: fn(
+        &mut crate::app::CoduxApp,
+        &'static str,
+        &mut Window,
+        &mut gpui::Context<crate::app::CoduxApp>,
+    ),
+    cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+    let Some(ns_view) = appkit_view(window) else {
+        return;
+    };
+    let Some(window_handle) = Window::window_handle(window).downcast::<crate::app::CoduxApp>()
+    else {
+        return;
+    };
+    cx.spawn(
+        async move |_this: gpui::WeakEntity<crate::app::CoduxApp>, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(1))
+                .await;
+            if let Some(action_id) =
+                show_desktop_pet_native_menu_for_view(ns_view, position, &entries)
+            {
+                let _ = window_handle.update(cx, |app, window, cx| {
+                    on_select(app, action_id, window, cx);
+                });
+            }
+        },
+    )
+    .detach();
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(in crate::app) fn spawn_desktop_pet_native_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: Vec<NativeMenuEntry>,
+    cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+    spawn_native_popup_menu(
+        window,
+        position,
+        entries,
+        crate::app::CoduxApp::apply_desktop_pet_action,
+        cx,
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn show_desktop_pet_native_menu_for_view(
+    ns_view: id,
+    position: gpui::Point<gpui::Pixels>,
+    entries: &[NativeMenuEntry],
+) -> Option<&'static str> {
+    let menu_point = NSPoint::new(position.x.to_f64(), position.y.to_f64());
+
+    unsafe {
+        let _pool = NSAutoreleasePool::new(nil);
+        SELECTED_MENU_TAG.store(-1, Ordering::SeqCst);
+        let menu = NSMenu::new(nil);
+        menu.setAutoenablesItems(NO);
+        let target: id = msg_send![desktop_pet_menu_target_class(), new];
+
+        for (index, entry) in entries.iter().enumerate() {
+            match entry {
+                NativeMenuEntry::Separator => menu.addItem_(NSMenuItem::separatorItem(nil)),
+                NativeMenuEntry::Item { label, .. } => {
+                    let title = NSString::alloc(nil).init_str(label);
+                    let item = NSMenuItem::alloc(nil).initWithTitle_action_keyEquivalent_(
+                        title,
+                        sel!(desktopPetMenuItemSelected:),
+                        NSString::alloc(nil).init_str(""),
+                    );
+                    let _: () = msg_send![item, setTag: index as isize];
+                    let _: () = msg_send![item, setTarget: target];
+                    menu.addItem_(item);
+                }
+            }
+        }
+
+        let _: bool = msg_send![
+            menu,
+            popUpMenuPositioningItem: nil
+            atLocation: menu_point
+            inView: ns_view
+        ];
+        let _: () = msg_send![target, release];
+        let _: () = msg_send![menu, release];
+
+        let tag = SELECTED_MENU_TAG.load(Ordering::SeqCst);
+        if tag < 0 {
+            return None;
+        }
+        match entries.get(tag as usize) {
+            Some(NativeMenuEntry::Item { action_id, .. }) => Some(*action_id),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn desktop_pet_menu_target_class() -> &'static Class {
+    static CLASS: std::sync::OnceLock<&'static Class> = std::sync::OnceLock::new();
+    CLASS.get_or_init(|| unsafe {
+        let superclass = class!(NSObject);
+        let mut decl = ClassDecl::new("CoduxDesktopPetMenuTarget", superclass)
+            .expect("CoduxDesktopPetMenuTarget class should register once");
+        decl.add_method(
+            sel!(desktopPetMenuItemSelected:),
+            desktop_pet_menu_item_selected as extern "C" fn(&Object, Sel, id),
+        );
+        decl.register()
+    })
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn desktop_pet_menu_item_selected(_this: &Object, _cmd: Sel, sender: id) {
+    unsafe {
+        let tag: isize = msg_send![sender, tag];
+        SELECTED_MENU_TAG.store(tag, Ordering::SeqCst);
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(in crate::app) fn spawn_desktop_pet_native_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: Vec<NativeMenuEntry>,
+    cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+    spawn_native_popup_menu(
+        window,
+        position,
+        entries,
+        crate::app::CoduxApp::apply_desktop_pet_action,
+        cx,
+    );
+}
+
+#[cfg(target_os = "windows")]
+pub(in crate::app) fn spawn_native_popup_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: Vec<NativeMenuEntry>,
+    on_select: fn(
+        &mut crate::app::CoduxApp,
+        &'static str,
+        &mut Window,
+        &mut gpui::Context<crate::app::CoduxApp>,
+    ),
+    cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+    let Some(hwnd) = win32_hwnd(window) else {
+        return;
+    };
+    let Some(window_handle) = Window::window_handle(window).downcast::<crate::app::CoduxApp>()
+    else {
+        return;
+    };
+    cx.spawn(
+        async move |_this: gpui::WeakEntity<crate::app::CoduxApp>, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(1))
+                .await;
+            if let Some(action_id) = show_desktop_pet_native_menu_for_hwnd(hwnd, position, &entries)
+            {
+                let _ = window_handle.update(cx, |app, window, cx| {
+                    on_select(app, action_id, window, cx);
+                });
+            }
+        },
+    )
+    .detach();
+}
+
+#[cfg(target_os = "windows")]
+pub(in crate::app) fn show_desktop_pet_native_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: &[NativeMenuEntry],
+) -> Option<&'static str> {
+    let hwnd = win32_hwnd(window)?;
+    show_desktop_pet_native_menu_for_hwnd(hwnd, position, entries)
+}
+
+#[cfg(target_os = "windows")]
+pub(in crate::app) fn spawn_desktop_pet_native_menu(
+    window: &mut Window,
+    position: gpui::Point<gpui::Pixels>,
+    entries: Vec<NativeMenuEntry>,
+    cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+    spawn_native_popup_menu(
+        window,
+        position,
+        entries,
+        crate::app::CoduxApp::apply_desktop_pet_action,
+        cx,
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn show_desktop_pet_native_menu_for_hwnd(
+    hwnd: HWND,
+    position: gpui::Point<gpui::Pixels>,
+    entries: &[NativeMenuEntry],
+) -> Option<&'static str> {
+    unsafe {
+        let menu = CreatePopupMenu();
+        if menu.is_null() {
+            return None;
+        }
+
+        let mut menu_id = 1usize;
+        let mut action_ids = Vec::new();
+        for entry in entries {
+            match entry {
+                NativeMenuEntry::Separator => {
+                    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+                }
+                NativeMenuEntry::Item { label, action_id } => {
+                    let label = wide_string(label);
+                    let _ = AppendMenuW(menu, MF_STRING, menu_id, label.as_ptr());
+                    action_ids.push(*action_id);
+                    menu_id += 1;
+                }
+            }
+        }
+
+        let mut point = POINT {
+            x: position.x.as_f32().round() as i32,
+            y: position.y.as_f32().round() as i32,
+        };
+        let _ = ClientToScreen(hwnd, &mut point);
+        let _ = SetForegroundWindow(hwnd);
+        let command = TrackPopupMenu(
+            menu,
+            TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD,
+            point.x,
+            point.y,
+            0,
+            hwnd,
+            std::ptr::null(),
+        );
+        let _ = DestroyMenu(menu);
+
+        if command <= 0 {
+            return None;
+        }
+        let index = command as usize - 1;
+        action_ids.get(index).copied()
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(in crate::app) fn spawn_desktop_pet_native_menu(
+    _window: &mut Window,
+    _position: gpui::Point<gpui::Pixels>,
+    _entries: Vec<NativeMenuEntry>,
+    _cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(in crate::app) fn spawn_native_popup_menu(
+    _window: &mut Window,
+    _position: gpui::Point<gpui::Pixels>,
+    _entries: Vec<NativeMenuEntry>,
+    _on_select: fn(
+        &mut crate::app::CoduxApp,
+        &'static str,
+        &mut Window,
+        &mut gpui::Context<crate::app::CoduxApp>,
+    ),
+    _cx: &mut gpui::Context<crate::app::CoduxApp>,
+) {
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(in crate::app) fn show_desktop_pet_native_menu(
+    _window: &mut Window,
+    _position: gpui::Point<gpui::Pixels>,
+    _entries: &[NativeMenuEntry],
+) -> Option<&'static str> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+unsafe fn clear_layer_background(view: id) {
+    if view.is_null() {
+        return;
+    }
+    unsafe {
+        view.setWantsLayer(YES);
+        let layer: id = view.layer();
+        if layer.is_null() {
+            return;
+        }
+        let _: () = msg_send![layer, setOpaque: NO];
+        let _: () = msg_send![layer, setBackgroundColor: nil];
+        let _: () = msg_send![layer, setCornerRadius: 0f64];
+        let _: () = msg_send![layer, setMasksToBounds: NO];
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_view(window: &mut Window) -> Option<id> {
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return None;
+    };
+    let ns_view = handle.ns_view.as_ptr() as id;
+    (!ns_view.is_null()).then_some(ns_view)
+}
+
+#[cfg(target_os = "windows")]
+fn win32_hwnd(window: &mut Window) -> Option<HWND> {
+    let handle = HasWindowHandle::window_handle(window).ok()?;
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return None;
+    };
+    Some(handle.hwnd.get() as HWND)
+}
+
+#[cfg(target_os = "windows")]
+fn wide_string(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
+}

@@ -25,15 +25,12 @@ pub fn sync_process_locale_preference(settings: &AppSettings) {
 }
 
 fn locale_from_system_setting() -> &'static str {
-    let locale = std::env::var("LC_ALL")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| {
-            std::env::var("LANG")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-        });
-    locale
+    #[cfg(target_os = "macos")]
+    if let Some(locale) = macos_global_preferred_locale() {
+        return locale_from_system_locale(&locale);
+    }
+
+    sys_locale::get_locale()
         .as_deref()
         .map(locale_from_system_locale)
         .unwrap_or("en")
@@ -75,6 +72,75 @@ fn locale_from_system_locale(locale: &str) -> &'static str {
         return "en";
     }
     "en"
+}
+
+#[cfg(target_os = "macos")]
+fn macos_global_preferred_locale() -> Option<String> {
+    use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetValueAtIndex};
+    use core_foundation_sys::base::{CFRelease, kCFAllocatorDefault};
+    use core_foundation_sys::preferences::{
+        CFPreferencesCopyAppValue, kCFPreferencesAnyApplication,
+    };
+    use core_foundation_sys::string::{CFStringCreateWithCString, CFStringRef, kCFStringEncodingUTF8};
+    use std::ffi::CString;
+
+    let key = CString::new("AppleLanguages").ok()?;
+    let key_ref = unsafe {
+        CFStringCreateWithCString(kCFAllocatorDefault, key.as_ptr(), kCFStringEncodingUTF8)
+    };
+    if key_ref.is_null() {
+        return None;
+    }
+
+    let value_ref = unsafe { CFPreferencesCopyAppValue(key_ref, kCFPreferencesAnyApplication) };
+    unsafe {
+        CFRelease(key_ref.cast());
+    }
+    if value_ref.is_null() {
+        return None;
+    }
+
+    let locale = unsafe {
+        let count = CFArrayGetCount(value_ref.cast());
+        let locale = if count > 0 {
+            let first_ref = CFArrayGetValueAtIndex(value_ref.cast(), 0) as CFStringRef;
+            cf_string_to_string(first_ref)
+        } else {
+            None
+        };
+        CFRelease(value_ref.cast());
+        locale
+    };
+
+    locale
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn cf_string_to_string(value: core_foundation_sys::string::CFStringRef) -> Option<String> {
+    use core_foundation_sys::string::{CFStringGetCString, kCFStringEncodingUTF8};
+    use std::ffi::CStr;
+
+    if value.is_null() {
+        return None;
+    }
+
+    let mut buffer = [0i8; 128];
+    if unsafe {
+        CFStringGetCString(
+            value,
+            buffer.as_mut_ptr(),
+            buffer.len() as isize,
+            kCFStringEncodingUTF8,
+        )
+    } == 0
+    {
+        return None;
+    }
+
+    unsafe { CStr::from_ptr(buffer.as_ptr()) }
+        .to_str()
+        .ok()
+        .map(str::to_string)
 }
 
 #[cfg(target_os = "macos")]

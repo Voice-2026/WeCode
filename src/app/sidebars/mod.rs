@@ -8,6 +8,7 @@ mod ssh;
 use ai::ai_stats_sidebar;
 pub(in crate::app) use ai::memory_manager_window_workspace;
 pub(in crate::app) use files::file_section;
+pub(in crate::app) use files::{FileTreeRow, clipboard_external_paths, file_tree_rows};
 pub(in crate::app) use git::git_section;
 pub(in crate::app) use ssh::ssh_section;
 
@@ -29,14 +30,14 @@ pub(super) enum AssistantPanel {
 
 impl CoduxApp {
     pub(super) fn assistant_column(
-        &self,
+        &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let Some(panel) = self.assistant_panel else {
             return div().into_any_element();
         };
-        if self.state.selected_project.is_none() {
+        if self.state.selected_project.is_none() && panel != AssistantPanel::SSH {
             return div().into_any_element();
         }
 
@@ -51,6 +52,8 @@ impl CoduxApp {
             .child(match panel {
                 AssistantPanel::AIStats => div()
                     .flex()
+                    .flex_1()
+                    .h_full()
                     .min_h_0()
                     .flex_col()
                     .child(ai_stats_sidebar(
@@ -61,56 +64,45 @@ impl CoduxApp {
                             .as_ref()
                             .map(|project| project.id.as_str()),
                         &self.state.settings.statistics_mode,
-                        &self.state.memory,
-                        &self.state.memory_manager,
-                        self.memory_manager_tab,
-                        &self.state.runtime_events,
                         &self.state.ai_runtime_state,
-                        &self.state.runtime_activity,
-                        &self.runtime_ingress,
-                        self.state.ai_session_detail.as_ref(),
-                        self.selected_ai_session_id.as_deref(),
-                        self.selected_memory_entry_id.as_deref(),
-                        self.selected_memory_summary_id.as_deref(),
-                        self.memory_processing,
-                        self.selected_runtime_session(),
-                        window,
                         cx,
                     ))
                     .into_any_element(),
                 AssistantPanel::SSH => div()
                     .flex()
+                    .flex_1()
+                    .h_full()
                     .min_h_0()
                     .flex_col()
                     .child(ssh_section(
                         &self.state.ssh,
                         self.selected_ssh_profile_id.as_deref(),
+                        self.ssh_scroll_handle.clone(),
+                        window,
                         cx,
                     ))
                     .into_any_element(),
                 AssistantPanel::FileManager => div()
                     .flex()
+                    .flex_1()
+                    .h_full()
                     .min_h_0()
                     .flex_col()
-                    .child(file_section(
-                        self.state
-                            .selected_project
-                            .as_ref()
-                            .map(|project| project.name.as_str())
-                            .unwrap_or("Project"),
-                        &self.state.files,
-                        &self.file_tree_children,
-                        &self.file_tree_expanded_dirs,
-                        &self.file_directory,
-                        self.selected_file_entry.as_deref(),
-                        self.file_name_draft_kind,
-                        &self.file_name_draft_value,
-                        window,
-                        cx,
-                    ))
+                    .child(
+                        gpui::AnyView::from(self.file_sidebar_view(cx)).cached(
+                            gpui::StyleRefinement::default()
+                                .flex()
+                                .flex_col()
+                                .w_full()
+                                .h_full()
+                                .min_h_0(),
+                        ),
+                    )
                     .into_any_element(),
                 AssistantPanel::Git => div()
                     .flex()
+                    .flex_1()
+                    .h_full()
                     .min_h_0()
                     .flex_col()
                     .child(git_section(
@@ -119,6 +111,7 @@ impl CoduxApp {
                         &self.git_expanded_dirs,
                         &self.git_tree_children,
                         self.selected_git_file.as_deref(),
+                        &self.selected_git_files,
                         self.selected_git_branch.as_deref(),
                         self.state
                             .selected_project
@@ -130,12 +123,39 @@ impl CoduxApp {
                         &self.git_remote_url,
                         self.git_running_operation.as_ref(),
                         &self.git_commit_message,
+                        self.git_commit_message_revision,
+                        self.git_files_scroll_handle.clone(),
+                        self.git_history_scroll_handle.clone(),
                         window,
                         cx,
                     ))
                     .into_any_element(),
             })
             .into_any_element()
+    }
+}
+
+impl Render for FileSidebarView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        file_section(
+            self.app_entity.clone(),
+            self.focus_handle.clone(),
+            &self.project_name,
+            &self.files,
+            &self.tree_children,
+            &self.expanded_dirs,
+            &self.file_directory,
+            self.selected_entry.as_deref(),
+            &self.selected_entries,
+            self.draft_kind,
+            &self.draft_value,
+            self.draft_select_all,
+            self.rows.clone(),
+            self.scroll_handle.clone(),
+            window,
+            cx,
+        )
+        .into_any_element()
     }
 }
 
@@ -167,7 +187,6 @@ fn assistant_panel_header(
                         .ml(px(8.0))
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(title),
                 ),

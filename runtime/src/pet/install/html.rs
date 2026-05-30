@@ -21,6 +21,7 @@ pub(super) fn resolve_custom_pet_install_from_html(
         display_name,
         description: install.description.unwrap_or_default(),
         image_url: install.image_url.map(|url| url.to_string()),
+        local_image_path: None,
     })
 }
 

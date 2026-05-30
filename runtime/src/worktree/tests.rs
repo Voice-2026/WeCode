@@ -169,6 +169,84 @@ fn merge_snapshot_replaces_project_worktrees_and_preserves_existing_task_metadat
 }
 
 #[test]
+fn merge_snapshot_preserves_existing_non_default_worktree_name() {
+    let mut raw = serde_json::from_value::<Value>(json!({
+        "worktrees": [
+            {"id": "p1", "projectId": "p1", "name": "main", "branch": "main", "path": "/tmp/main", "status": "todo", "isDefault": true},
+            {"id": "w1", "projectId": "p1", "name": "20260527-105412", "branch": "20260527-105412", "path": "/tmp/main/.codux/worktrees/20260527-105412", "status": "todo", "isDefault": false}
+        ],
+        "worktreeTasks": [
+            {"worktreeId": "w1", "title": "20260527-105412", "baseBranch": "main", "status": "todo"}
+        ],
+        "selectedWorktreeIdByProject": {"p1": "w1"}
+    }))
+    .unwrap()
+    .as_object()
+    .cloned()
+    .unwrap();
+
+    merge_worktree_snapshot(
+        &mut raw,
+        "p1",
+        ScannedWorktreeSnapshot {
+            selected_worktree_id: "p1".to_string(),
+            worktrees: vec![
+                ScannedWorktree {
+                    id: "p1".to_string(),
+                    project_id: "p1".to_string(),
+                    name: "main".to_string(),
+                    branch: "main".to_string(),
+                    path: "/tmp/main".to_string(),
+                    status: "todo".to_string(),
+                    is_default: true,
+                    created_at: 100,
+                    updated_at: 100,
+                },
+                ScannedWorktree {
+                    id: "w1".to_string(),
+                    project_id: "p1".to_string(),
+                    name: "main".to_string(),
+                    branch: "20260527-105412".to_string(),
+                    path: "/tmp/main/.codux/worktrees/20260527-105412".to_string(),
+                    status: "todo".to_string(),
+                    is_default: false,
+                    created_at: 100,
+                    updated_at: 100,
+                },
+            ],
+            tasks: vec![ScannedTask {
+                worktree_id: "w1".to_string(),
+                title: "main".to_string(),
+                base_branch: "main".to_string(),
+                base_commit: None,
+                status: "todo".to_string(),
+                created_at: 100,
+                updated_at: 100,
+                started_at: None,
+                completed_at: None,
+            }],
+        },
+    )
+    .unwrap();
+
+    let value = Value::Object(raw);
+    let worktree = value["worktrees"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|worktree| worktree["id"] == "w1")
+        .unwrap();
+    assert_eq!(worktree["name"], "20260527-105412");
+    let task = value["worktreeTasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|task| task["worktreeId"] == "w1")
+        .unwrap();
+    assert_eq!(task["title"], "20260527-105412");
+}
+
+#[test]
 fn tauri_snapshot_reports_non_git_repository_without_failing() {
     let support_dir = temp_dir("worktree-tauri-snapshot-support");
     let project_dir = temp_dir("worktree-tauri-snapshot-project");

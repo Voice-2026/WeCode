@@ -114,6 +114,20 @@ impl RuntimeService {
         crate::dialog::localized_save_dialog(request)
     }
 
+    pub fn localized_confirm_dialog(
+        &self,
+        request: LocalizedConfirmDialogRequest,
+    ) -> Result<bool, String> {
+        crate::dialog::localized_confirm_dialog(request)
+    }
+
+    pub fn localized_alert_dialog(
+        &self,
+        request: LocalizedAlertDialogRequest,
+    ) -> Result<(), String> {
+        crate::dialog::localized_alert_dialog(request)
+    }
+
     pub fn desktop_pet_saved_origin(&self) -> Option<DesktopPetSavedOrigin> {
         DesktopPetService::new(self.support_dir.clone()).saved_origin()
     }
@@ -285,7 +299,9 @@ impl RuntimeService {
         &self,
         request: PetCustomPetInstallRequest,
     ) -> Result<PetCustomPetInstallPreview, String> {
-        PetService::resolve_custom_pet_install(request).await
+        PetService::new(self.support_dir.clone())
+            .resolve_custom_pet_install(request)
+            .await
     }
 
     pub async fn install_custom_pet(

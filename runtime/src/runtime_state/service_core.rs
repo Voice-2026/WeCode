@@ -85,7 +85,10 @@ impl RuntimeService {
             project_activity: project_activity.clone(),
             shows_dock_badge: settings.shows_dock_badge,
             attention_count: runtime_attention_count(&ai_runtime_state),
-            dock_badge_count: runtime_dock_badge_count(settings.shows_dock_badge, &ai_runtime_state),
+            dock_badge_count: runtime_dock_badge_count(
+                settings.shows_dock_badge,
+                &ai_runtime_state,
+            ),
         };
 
         let snapshot = AppRuntimeReadySnapshot {
@@ -322,6 +325,10 @@ impl RuntimeService {
         self.ai_history_indexer.refresh_project(project)
     }
 
+    pub fn active_ai_history_index_count(&self) -> usize {
+        self.ai_history_indexer.active_project_count()
+    }
+
     pub fn indexed_project_ai_history_state(
         &self,
         project: AIHistoryProjectRequest,
@@ -542,11 +549,14 @@ mod app_runtime_ready_tests {
         .expect("write pet state");
 
         let service = RuntimeService::new(PathBuf::from(&support_dir));
-        service
-            .app_runtime_ready(true, true);
+        service.app_runtime_ready(true, true);
 
         service
-            .update_project("project-1", "New Project", new_project_dir.to_str().unwrap())
+            .update_project(
+                "project-1",
+                "New Project",
+                new_project_dir.to_str().unwrap(),
+            )
             .expect("update project");
 
         let expected_watch_path = new_project_dir
@@ -708,9 +718,10 @@ mod app_runtime_ready_tests {
             })
             .expect("close first project");
         let pet = service.pet_snapshot().expect("pet snapshot after close");
-        assert!(!pet
-            .project_normalized_token_watermarks
-            .contains_key("project-1"));
+        assert!(
+            !pet.project_normalized_token_watermarks
+                .contains_key("project-1")
+        );
         assert_eq!(
             pet.project_normalized_token_watermarks.get("project-2"),
             Some(&20)
@@ -729,10 +740,8 @@ mod app_runtime_ready_tests {
 
     #[test]
     fn file_watch_events_are_queued_and_drained_for_gpui() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-file-watch-events-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-file-watch-events-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&support_dir).expect("create support dir");
         let service = RuntimeService::new(PathBuf::from(&support_dir));
 

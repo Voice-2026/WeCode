@@ -26,7 +26,7 @@ use constants::*;
 use crypto::pet_state_cipher_key;
 use crypto::{decode_pet_state_data, encode_pet_state_data};
 pub use history_inputs::{claim_input_from_indexed_history, refresh_input_from_indexed_history};
-use install::{install_custom_pet, resolve_custom_pet_install};
+use install::install_custom_pet;
 use migration::{load_mac_pet_state, migrate_mac_custom_pets_if_needed};
 use progress::{default_persona_id, pet_progress_info};
 use refresh::{apply_derived_snapshot_fields, refresh_state, sanitize_project_totals};

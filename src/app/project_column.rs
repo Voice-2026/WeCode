@@ -1,11 +1,15 @@
 use super::*;
-use codux_runtime::{
-    i18n::translate, runtime_paths::app_display_name, settings::locale_from_language_setting,
-};
+use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
-impl CoduxApp {
-    pub(super) fn project_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let collapsed = self.project_column_collapsed;
+impl Render for ProjectColumnView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let collapsed = self.collapsed;
+        let (projects, selected_project_id) = self.project_store.update(cx, |store, _cx| {
+            (store.projects.clone(), store.selected_project_id.clone())
+        });
+        let app_entity = self.app_entity.clone();
+        let scroll_handle = self.scroll_handle.clone();
+
         div()
             .flex()
             .flex_col()
@@ -14,7 +18,12 @@ impl CoduxApp {
             .bg(color(theme::BG_COLUMN))
             .border_r_1()
             .border_color(color(theme::BORDER_SOFT))
-            .child(project_column_header(collapsed, cx))
+            .child(project_column_header(
+                collapsed,
+                app_entity.clone(),
+                window,
+                cx,
+            ))
             .child(
                 div()
                     .id("project-list-scroll")
@@ -24,94 +33,55 @@ impl CoduxApp {
                     .min_h_0()
                     .px(if collapsed { px(7.0) } else { px(10.0) })
                     .pt(if collapsed { px(10.0) } else { px(10.0) })
-                    .overflow_y_scrollbar()
-                    .children(self.state.projects.iter().cloned().map(|project| {
-                        let project_id = project.id.clone();
-                        project_row(
-                            &project,
-                            self.state
-                                .selected_project
-                                .as_ref()
-                                .map(|selected| selected.id == project.id)
-                                .unwrap_or(false),
-                            cx,
-                            project_id,
-                            collapsed,
-                        )
-                        .into_any_element()
-                    })),
-            )
-            .child(self.project_tools(collapsed, cx))
-    }
-
-    fn project_tools(&self, collapsed: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let base = div()
-            .flex()
-            .flex_shrink_0()
-            .gap(if collapsed { px(10.0) } else { px(4.0) })
-            .px(if collapsed { px(20.0) } else { px(10.0) })
-            .py_3();
-        if collapsed {
-            base.flex_col()
-                .items_center()
-                .child(project_tool_button(
-                    IconName::Plus,
-                    None,
-                    "project-add-footer",
-                    cx,
-                    |app, _event, window, cx| app.open_project_create_window(window, cx),
-                ))
-                .child(project_tool_button(
-                    IconName::Settings,
-                    None,
-                    "project-settings-footer",
-                    cx,
-                    |app, _event, window, cx| app.open_settings_window(window, cx),
-                ))
-                .child(project_more_button(
-                    None,
-                    &self.state.settings.language,
-                    self.state.selected_project.is_some(),
-                    !self.state.projects.is_empty(),
-                    self.state.worktrees.selected_worktree_id.is_some(),
-                    cx,
-                ))
-                .into_any_element()
-        } else {
-            let language = self.state.settings.language.as_str();
-            base.flex_col()
-                .child(project_tool_button(
-                    IconName::Plus,
-                    Some(project_column_text(
-                        language,
-                        "sidebar.footer.add_project",
-                        "Add Project",
+                    .pb(if collapsed { px(10.0) } else { px(10.0) })
+                    .relative()
+                    .overflow_hidden()
+                    .child(codux_uniform_list(
+                        "project-list",
+                        projects,
+                        scroll_handle,
+                        None,
+                        cx,
+                        move |project, _index, window, _cx| {
+                            let project_id = project.id.clone();
+                            let active = selected_project_id
+                                .as_deref()
+                                .map(|selected| selected == project.id)
+                                .unwrap_or(false);
+                            div()
+                                .w_full()
+                                .pb(px(4.0))
+                                .child(project_row(
+                                    project,
+                                    active,
+                                    app_entity.clone(),
+                                    project_id,
+                                    collapsed,
+                                    window,
+                                ))
+                                .into_any_element()
+                        },
                     )),
-                    "project-add-footer",
-                    cx,
-                    |app, _event, window, cx| app.open_project_create_window(window, cx),
-                ))
-                .child(project_tool_button(
-                    IconName::Settings,
-                    Some(project_column_text(language, "menu.settings", "Settings")),
-                    "project-settings-footer",
-                    cx,
-                    |app, _event, window, cx| app.open_settings_window(window, cx),
-                ))
-                .child(project_more_button(
-                    Some(project_column_text(language, "sidebar.footer.help", "Help")),
-                    language,
-                    self.state.selected_project.is_some(),
-                    !self.state.projects.is_empty(),
-                    self.state.worktrees.selected_worktree_id.is_some(),
-                    cx,
-                ))
-                .into_any_element()
-        }
+            )
+            .child(project_tools_snapshot(
+                collapsed,
+                self.language.as_str(),
+                self.has_project,
+                self.has_projects,
+                self.has_worktree,
+                self.app_entity.clone(),
+                window,
+                cx,
+            ))
     }
 }
 
-fn project_column_header(collapsed: bool, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn project_column_header(
+    collapsed: bool,
+    app_entity: gpui::Entity<CoduxApp>,
+    window: &mut Window,
+    cx: &mut Context<ProjectColumnView>,
+) -> impl IntoElement {
     if collapsed {
         div()
             .h(px(74.0))
@@ -123,7 +93,9 @@ fn project_column_header(collapsed: bool, cx: &mut Context<CoduxApp>) -> impl In
             .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
                 window.start_window_move();
             })
-            .child(project_column_toggle_button(collapsed, cx))
+            .child(project_column_toggle_button(
+                collapsed, app_entity, window, cx,
+            ))
             .into_any_element()
     } else {
         div()
@@ -137,7 +109,95 @@ fn project_column_header(collapsed: bool, cx: &mut Context<CoduxApp>) -> impl In
             })
             .border_b_1()
             .border_color(color(theme::BORDER_SOFT))
-            .child(project_column_toggle_button(collapsed, cx))
+            .child(project_column_toggle_button(
+                collapsed, app_entity, window, cx,
+            ))
+            .into_any_element()
+    }
+}
+
+fn project_tools_snapshot(
+    collapsed: bool,
+    language: &str,
+    has_project: bool,
+    has_projects: bool,
+    has_worktree: bool,
+    app_entity: gpui::Entity<CoduxApp>,
+    window: &mut Window,
+    cx: &mut Context<ProjectColumnView>,
+) -> AnyElement {
+    let base = div()
+        .flex()
+        .flex_shrink_0()
+        .gap(if collapsed { px(10.0) } else { px(4.0) })
+        .px(if collapsed { px(20.0) } else { px(10.0) })
+        .py_3();
+
+    if collapsed {
+        base.flex_col()
+            .items_center()
+            .child(project_tool_button(
+                IconName::Plus,
+                None,
+                "project-add-footer",
+                app_entity.clone(),
+                window,
+                cx,
+                |app, _event, window, cx| app.open_project_create_window(window, cx),
+            ))
+            .child(project_tool_button(
+                IconName::Settings,
+                None,
+                "project-settings-footer",
+                app_entity.clone(),
+                window,
+                cx,
+                |app, _event, window, cx| app.open_settings_window(window, cx),
+            ))
+            .child(project_more_button(
+                None,
+                language,
+                has_project,
+                has_projects,
+                has_worktree,
+                app_entity,
+                cx,
+            ))
+            .into_any_element()
+    } else {
+        base.flex_col()
+            .items_start()
+            .child(project_tool_button(
+                IconName::Plus,
+                Some(project_column_text(
+                    language,
+                    "sidebar.footer.add_project",
+                    "Add Project",
+                )),
+                "project-add-footer",
+                app_entity.clone(),
+                window,
+                cx,
+                |app, _event, window, cx| app.open_project_create_window(window, cx),
+            ))
+            .child(project_tool_button(
+                IconName::Settings,
+                Some(project_column_text(language, "menu.settings", "Settings")),
+                "project-settings-footer",
+                app_entity.clone(),
+                window,
+                cx,
+                |app, _event, window, cx| app.open_settings_window(window, cx),
+            ))
+            .child(project_more_button(
+                Some(project_column_text(language, "sidebar.footer.help", "Help")),
+                language,
+                has_project,
+                has_projects,
+                has_worktree,
+                app_entity,
+                cx,
+            ))
             .into_any_element()
     }
 }
@@ -146,38 +206,71 @@ fn project_tool_button(
     icon: IconName,
     label: Option<String>,
     id: &'static str,
-    cx: &mut Context<CoduxApp>,
+    app_entity: gpui::Entity<CoduxApp>,
+    window: &mut Window,
+    cx: &mut Context<ProjectColumnView>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
+    let has_label = label.is_some();
     let button = Button::new(SharedString::from(format!("project-tool-{id}")))
         .ghost()
         .text_color(cx.theme().secondary_foreground)
-        .w(if label.is_some() { px(212.0) } else { px(40.0) });
+        .w(if has_label { px(212.0) } else { px(40.0) });
 
-    let button = if label.is_some() {
+    let button = if has_label {
         button.justify_start()
     } else {
         button
     };
 
     button
-        .on_click(cx.listener(on_click))
-        .child(
-            div()
-                .w(px(20.0))
-                .flex()
-                .justify_center()
-                .text_color(cx.theme().secondary_foreground)
-                .child(Icon::new(icon).text_color(cx.theme().secondary_foreground)),
-        )
-        .children(label.map(|label| {
-            div()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().secondary_foreground)
-                .child(label)
-                .into_any_element()
-        }))
+        .on_click(window.listener_for(&app_entity, on_click))
+        .child(project_tool_content(icon, label, cx))
+}
+
+fn project_tool_content(
+    icon: IconName,
+    label: Option<String>,
+    cx: &mut Context<ProjectColumnView>,
+) -> AnyElement {
+    if let Some(label) = label {
+        div()
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_start()
+            .gap(px(16.0))
+            .child(
+                div()
+                    .w(px(20.0))
+                    .flex()
+                    .justify_center()
+                    .text_color(cx.theme().secondary_foreground)
+                    .child(Icon::new(icon).text_color(cx.theme().secondary_foreground)),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().secondary_foreground)
+                    .child(label),
+            )
+            .into_any_element()
+    } else {
+        div()
+            .w_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .w(px(20.0))
+                    .flex()
+                    .justify_center()
+                    .text_color(cx.theme().secondary_foreground)
+                    .child(Icon::new(icon).text_color(cx.theme().secondary_foreground)),
+            )
+            .into_any_element()
+    }
 }
 
 fn project_more_button(
@@ -186,142 +279,28 @@ fn project_more_button(
     _has_project: bool,
     _has_projects: bool,
     _has_worktree: bool,
-    cx: &mut Context<CoduxApp>,
+    app_entity: gpui::Entity<CoduxApp>,
+    cx: &mut Context<ProjectColumnView>,
 ) -> impl IntoElement {
-    let app_entity = cx.entity();
-    let about_label = project_column_text(language, "menu.app.about_format", "About %@")
-        .replace("%@", app_display_name());
-    let updates_label = project_column_text(language, "about.updates", "Check for Updates");
-    let diagnostics_label = project_column_text(
-        language,
-        "menu.help.export_diagnostics",
-        "Export Diagnostics...",
-    );
-    let runtime_log_label =
-        project_column_text(language, "menu.help.open_runtime_log", "Open Runtime Log");
-    let live_log_label = project_column_text(language, "menu.help.open_live_log", "Open Live Log");
-    let devtools_label =
-        project_column_text(language, "menu.help.developer_tools", "Developer Tools");
-    let website_label = project_column_text(language, "menu.help.website", "Website");
-    let github_label = project_column_text(language, "menu.help.github", "GitHub");
+    let language = language.to_string();
+    let has_label = label.is_some();
     let button = Button::new("project-tool-project-more-footer")
         .ghost()
         .text_color(cx.theme().secondary_foreground)
-        .w(if label.is_some() { px(212.0) } else { px(40.0) });
-    let button = if label.is_some() {
+        .w(if has_label { px(212.0) } else { px(40.0) });
+    let button = if has_label {
         button.justify_start()
     } else {
         button
     };
 
     button
-        .child(
-            div()
-                .w(px(20.0))
-                .flex()
-                .justify_center()
-                .text_color(cx.theme().secondary_foreground)
-                .child(Icon::new(IconName::Ellipsis).text_color(cx.theme().secondary_foreground)),
-        )
-        .children(label.map(|label| {
-            div()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(cx.theme().secondary_foreground)
-                .child(label)
-                .into_any_element()
-        }))
-        .dropdown_menu(move |menu, _window, _cx| {
-            let about_entity = app_entity.clone();
-            let update_entity = app_entity.clone();
-            let diagnostics_entity = app_entity.clone();
-            let runtime_log_entity = app_entity.clone();
-            let live_log_entity = app_entity.clone();
-            let inspector_entity = app_entity.clone();
-            let website_entity = app_entity.clone();
-            let github_entity = app_entity.clone();
-
-            menu.item(
-                PopupMenuItem::new(about_label.clone())
-                    .icon(IconName::Info)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&about_entity, |app, cx| {
-                            app.open_about_window(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(updates_label.clone())
-                    .icon(IconName::Redo2)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&update_entity, |app, cx| {
-                            app.reload_update(window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(diagnostics_label.clone())
-                    .icon(IconName::File)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&diagnostics_entity, |app, cx| {
-                            let _ = window;
-                            app.export_diagnostics(cx);
-                        });
-                    }),
-            )
-            .separator()
-            .item(
-                PopupMenuItem::new(runtime_log_label.clone())
-                    .icon(IconName::File)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&runtime_log_entity, |app, cx| {
-                            let _ = window;
-                            app.open_runtime_log(cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(live_log_label.clone())
-                    .icon(IconName::File)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&live_log_entity, |app, cx| {
-                            let _ = window;
-                            app.open_live_log(cx);
-                        });
-                    }),
-            )
-            .when(cfg!(debug_assertions), |menu| {
-                menu.item(
-                    PopupMenuItem::new(devtools_label.clone())
-                        .icon(IconName::Inspector)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&inspector_entity, |_app, cx| {
-                                window.toggle_inspector(cx);
-                            });
-                        }),
-                )
-            })
-            .separator()
-            .item(
-                PopupMenuItem::new(website_label.clone())
-                    .icon(IconName::ExternalLink)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&website_entity, |app, cx| {
-                            let _ = window;
-                            app.open_codux_website(cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(github_label.clone())
-                    .icon(IconName::Github)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&github_entity, |app, cx| {
-                            let _ = window;
-                            app.open_codux_github(cx);
-                        });
-                    }),
-            )
+        .child(project_tool_content(IconName::Ellipsis, label, cx))
+        .on_click(move |_, window, cx| {
+            let position = window.mouse_position();
+            cx.update_entity(&app_entity, |app, cx| {
+                app.open_project_help_native_menu(language.clone(), position, window, cx);
+            });
         })
 }
 
@@ -330,112 +309,127 @@ fn project_column_text(language: &str, key: &str, fallback: &str) -> String {
     translate(&locale, key, fallback)
 }
 
-fn project_column_toggle_button(collapsed: bool, cx: &mut Context<CoduxApp>) -> impl IntoElement {
-    header_icon_button(
-        "project-column-toggle",
-        if collapsed {
-            IconName::PanelLeftOpen
-        } else {
-            IconName::PanelLeftClose
-        },
-        cx,
-        |app, _event, window, cx| app.toggle_project_column(window, cx),
-    )
+fn project_column_toggle_button(
+    collapsed: bool,
+    app_entity: gpui::Entity<CoduxApp>,
+    window: &mut Window,
+    cx: &mut Context<ProjectColumnView>,
+) -> impl IntoElement {
+    let icon = if collapsed {
+        IconName::PanelLeftOpen
+    } else {
+        IconName::PanelLeftClose
+    };
+    Button::new("project-column-toggle")
+        .ghost()
+        .text_color(cx.theme().secondary_foreground)
+        .icon(Icon::new(icon).text_color(cx.theme().secondary_foreground))
+        .on_click(window.listener_for(&app_entity, |app, _event, window, cx| {
+            app.toggle_project_column(window, cx)
+        }))
 }
 
 fn project_row(
-    project: &ProjectInfo,
+    project: ProjectInfo,
     active: bool,
-    cx: &mut Context<CoduxApp>,
+    app_entity: gpui::Entity<CoduxApp>,
     project_id: String,
     collapsed: bool,
-) -> impl IntoElement {
+    window: &mut Window,
+) -> AnyElement {
     if collapsed {
         return div()
             .id(SharedString::from(format!("project-{}", project.id)))
             .w_full()
-            .h(px(48.0))
-            .mb(px(4.0))
+            .h(px(44.0))
             .flex()
             .items_center()
             .justify_center()
-            .cursor_pointer()
-            .on_click(cx.listener(move |app, _event, window, cx| {
-                app.select_project(project_id.clone(), window, cx)
-            }))
             .child(
                 div()
-                    .w(px(46.0))
-                    .h(px(46.0))
+                    .id(SharedString::from(format!("project-icon-{}", project.id)))
+                    .w(px(44.0))
+                    .h(px(44.0))
                     .rounded(px(8.0))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .bg(color(if active {
-                        theme::BG_ROW_HOVER
-                    } else {
-                        theme::BG_COLUMN
-                    }))
-                    .hover(|style| {
-                        style.bg(color(if active {
-                            theme::BG_ROW_HOVER
-                        } else {
-                            theme::BG_ROW_HOVER
-                        }))
-                    })
-                    .child(project_icon(project, active)),
-            );
+                    .cursor_pointer()
+                    .when(active, |this| this.bg(color(theme::BG_ROW_HOVER)))
+                    .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                    .on_click(
+                        window.listener_for(&app_entity, move |app, _event, window, cx| {
+                            app.select_project(project_id.clone(), window, cx)
+                        }),
+                    )
+                    .child(project_icon(&project, active)),
+            )
+            .into_any_element();
     }
 
     div()
         .id(SharedString::from(format!("project-{}", project.id)))
-        .flex()
-        .items_center()
-        .gap_2()
+        .w_full()
+        .min_w_0()
         .h(px(52.0))
-        .mb(px(8.0))
-        .px(px(8.0))
-        .rounded(px(8.0))
-        .bg(color(if active {
-            theme::BG_ROW_HOVER
-        } else {
-            theme::BG_COLUMN
-        }))
-        .cursor_pointer()
-        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.select_project(project_id.clone(), window, cx)
-        }))
-        .child(project_icon(project, active))
+        .flex()
+        .flex_col()
+        .justify_start()
         .child(
             div()
+                .id(SharedString::from(format!(
+                    "project-row-inner-{}",
+                    project.id
+                )))
                 .flex()
-                .flex_col()
-                .overflow_hidden()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(if project.exists {
-                            theme::TEXT
-                        } else {
-                            theme::TEXT_DIM
-                        }))
-                        .truncate()
-                        .child(project.name.clone()),
+                .items_center()
+                .gap_2()
+                .h(px(52.0))
+                .w_full()
+                .min_w_0()
+                .px(px(8.0))
+                .rounded(px(8.0))
+                .when(active, |this| this.bg(color(theme::BG_ROW_HOVER)))
+                .cursor_pointer()
+                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                .on_click(
+                    window.listener_for(&app_entity, move |app, _event, window, cx| {
+                        app.select_project(project_id.clone(), window, cx)
+                    }),
                 )
+                .child(project_icon(&project, active))
                 .child(
                     div()
-                        .text_xs()
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(project.path.clone()),
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(color(if project.exists {
+                                    theme::TEXT
+                                } else {
+                                    theme::TEXT_DIM
+                                }))
+                                .truncate()
+                                .child(project.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(color(theme::TEXT_DIM))
+                                .truncate()
+                                .child(project.path.clone()),
+                        ),
                 ),
         )
+        .into_any_element()
 }
 
 fn project_icon(project: &ProjectInfo, active: bool) -> impl IntoElement {
-    let (from, to, text) = match project
+    let (background, _accent, text) = match project
         .badge_color_hex
         .as_deref()
         .and_then(project_icon_hex_color)
@@ -457,11 +451,7 @@ fn project_icon(project: &ProjectInfo, active: bool) -> impl IntoElement {
         .items_center()
         .justify_center()
         .flex_shrink_0()
-        .bg(linear_gradient(
-            150.0,
-            linear_color_stop(color(from), 0.0),
-            linear_color_stop(color(to), 1.0),
-        ))
+        .bg(color(background))
         .text_size(px(14.0))
         .line_height(px(14.0))
         .text_color(color(text))

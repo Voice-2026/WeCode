@@ -1,26 +1,32 @@
 use super::*;
+use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::ai_runtime_state::AIRuntimeStateSummary;
 use gpui_component::input::{Input, InputState};
+
+const AI_RECENT_USAGE_COLUMNS: usize = 20;
+const AI_RECENT_USAGE_CELL_SIZE: f32 = 10.0;
+const AI_RECENT_USAGE_GAP: f32 = 3.0;
+
+#[derive(Clone)]
+struct AIUsageCell {
+    value: i64,
+    request_count: i64,
+    is_known: bool,
+    tooltip: String,
+}
+
+struct AITodayUsageBucket {
+    value: i64,
+    request_count: i64,
+    tooltip: String,
+}
 
 pub(in crate::app) fn ai_stats_sidebar(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     selected_project_id: Option<&str>,
     statistics_mode: &str,
-    _memory: &MemorySummary,
-    _memory_manager: &MemoryManagerSnapshot,
-    _memory_manager_tab: MemoryManagerTab,
-    _runtime_events: &RuntimeEventSummary,
     ai_runtime_state: &AIRuntimeStateSummary,
-    _runtime_activity: &RuntimeActivitySummary,
-    _runtime_ingress: &RuntimeIngressStatus,
-    _selected_detail: Option<&AISessionDetail>,
-    _selected_session_id: Option<&str>,
-    _selected_memory_entry_id: Option<&str>,
-    _selected_memory_summary_id: Option<&str>,
-    _memory_processing: bool,
-    _selected_runtime_session: Option<&RuntimeSessionSummary>,
-    _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let include_cached = statistics_mode == "includingCache";
@@ -53,6 +59,8 @@ pub(in crate::app) fn ai_stats_sidebar(
 
     div()
         .flex()
+        .flex_1()
+        .h_full()
         .min_h_0()
         .flex_col()
         .child(assistant_panel_header(
@@ -62,10 +70,7 @@ pub(in crate::app) fn ai_stats_sidebar(
                 "ai-stats-refresh",
                 IconName::Redo2,
                 cx,
-                |app, _event, window, cx| {
-                    app.reload_ai_history(window, cx);
-                    app.reload_runtime_activity(window, cx);
-                },
+                |app, _event, _window, cx| app.start_ai_history_refresh(true, cx),
             ),
         ))
         .child(
@@ -119,7 +124,6 @@ pub(in crate::app) fn ai_stats_sidebar(
                         .child(ai_ranking_card("模型排行", model_rows, cx)),
                 ),
         )
-        .child(ai_indexing_status_bar(history, cx))
 }
 
 fn ai_live_sessions<'a>(
@@ -332,7 +336,6 @@ fn ai_stats_card(title: &'static str, cx: &mut Context<CoduxApp>) -> gpui::Div {
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT))
                 .child(title),
         )
@@ -352,7 +355,6 @@ fn ai_current_session_card(
                 .justify_center()
                 .text_size(px(12.0))
                 .line_height(px(16.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT_DIM))
                 .child("当前没有可显示的 AI 会话")
                 .into_any_element()
@@ -394,7 +396,6 @@ fn ai_live_session_row(
                     div()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(if session.tool.trim().is_empty() {
@@ -421,7 +422,6 @@ fn ai_live_session_row(
                     div()
                         .text_size(px(16.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .child(compact_number(ai_display_tokens(
                             if session.raw_total_tokens > 0 {
@@ -446,103 +446,6 @@ fn ai_live_session_row(
                         .child("会话累计"),
                 ),
         )
-}
-
-fn ai_indexing_status_bar(
-    history: &AIHistorySummary,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    let (label, accent) = if let Some(error) = history.error.as_ref() {
-        (format!("索引失败 · {error}"), theme::ORANGE)
-    } else if history.is_loading {
-        let progress = history
-            .progress
-            .map(|value| format!("{}%", (value.clamp(0.0, 1.0) * 100.0).round() as i64));
-        let detail = ai_indexing_detail_label(&history.detail);
-        let label = match (history.queued, progress) {
-            (true, Some(progress)) => format!("AI 历史排队中 · {progress}"),
-            (true, None) => "AI 历史排队中".to_string(),
-            (false, Some(progress)) => format!("AI 历史索引中 · {progress} · {detail}"),
-            (false, None) => format!("AI 历史索引中 · {detail}"),
-        };
-        (label, theme::ORANGE)
-    } else if history.indexed {
-        ("AI 历史索引已完成".to_string(), theme::GREEN)
-    } else {
-        ("AI 历史等待索引".to_string(), theme::TEXT_MUTED)
-    };
-
-    div()
-        .flex_shrink_0()
-        .h(px(34.0))
-        .border_t_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .px_3()
-        .flex()
-        .items_center()
-        .justify_between()
-        .bg(color(theme::BG_PANEL).opacity(0.72))
-        .child(
-            div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap_2()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_DIM))
-                .child(div().size(px(7.0)).rounded_full().bg(color(accent)))
-                .child(div().min_w_0().truncate().child(label)),
-        )
-        .child(
-            div()
-                .ml(px(8.0))
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .gap_1()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .text_color(color(theme::TEXT_MUTED))
-                .child(format!("{} 会话", history.session_count))
-                .when(
-                    (history.error.is_some() || history.indexed) && !history.is_loading,
-                    |this| {
-                        this.child(
-                            Button::new("ai-indexing-status-refresh")
-                                .compact()
-                                .ghost()
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(IconName::Redo2)
-                                        .size_3()
-                                        .text_color(cx.theme().secondary_foreground),
-                                )
-                                .label(if history.error.is_some() {
-                                    "重试"
-                                } else {
-                                    "刷新"
-                                })
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.reload_ai_history(window, cx);
-                                    app.reload_runtime_activity(window, cx);
-                                })),
-                        )
-                    },
-                ),
-        )
-}
-
-fn ai_indexing_detail_label(detail: &str) -> &'static str {
-    match detail {
-        "queued" => "排队中",
-        "indexing" => "索引中",
-        "readingSources" => "读取来源",
-        "aggregating" => "聚合统计",
-        "completed" => "已完成",
-        "failed" => "失败",
-        _ => "处理中",
-    }
 }
 
 fn ai_runtime_sessions_card(
@@ -636,7 +539,6 @@ fn ai_runtime_sessions_card(
                                 .flex_1()
                                 .text_size(px(12.0))
                                 .line_height(px(16.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .truncate()
                                 .child("Supervisor"),
@@ -691,7 +593,6 @@ fn ai_runtime_sessions_card(
                     div()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.session_title),
@@ -782,7 +683,6 @@ fn ai_runtime_infrastructure_card(
                     div()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(runtime_ingress.message.clone()),
@@ -903,7 +803,6 @@ fn ai_runtime_session_row(
                         .flex_1()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.session_title),
@@ -913,7 +812,6 @@ fn ai_runtime_session_row(
                         .flex_shrink_0()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(state_color))
                         .child(session.state),
                 ),
@@ -1126,7 +1024,6 @@ fn ai_memory_manager_card(
                         .flex_1()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(target),
@@ -1321,7 +1218,6 @@ pub(in crate::app) fn memory_manager_window_workspace(
                             div()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .child("记忆管理"),
                         )
@@ -1407,7 +1303,6 @@ fn ai_memory_manager_tab_button(
         .cursor_pointer()
         .text_size(px(12.0))
         .line_height(px(16.0))
-        .font_weight(FontWeight::SEMIBOLD)
         .text_color(if active {
             color(theme::TEXT)
         } else {
@@ -1501,7 +1396,6 @@ fn ai_memory_project_profile_row(
                         .flex_1()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child("项目 Profile"),
@@ -1553,7 +1447,6 @@ fn ai_memory_project_profile_empty_row(cx: &mut Context<CoduxApp>) -> impl IntoE
                         .flex_1()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child("项目 Profile"),
@@ -1644,7 +1537,6 @@ fn ai_memory_manager_summary_row(
                         .flex_1()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(format!("{} v{}", summary.scope, summary.version)),
@@ -1737,7 +1629,6 @@ fn ai_memory_manager_entry_row(
                             div()
                                 .text_size(px(12.0))
                                 .line_height(px(16.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .truncate()
                                 .child(entry.content.clone()),
@@ -1874,7 +1765,6 @@ fn ai_memory_entry_row(
                             div()
                                 .text_size(px(12.0))
                                 .line_height(px(16.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .truncate()
                                 .child(entry.content.clone()),
@@ -1962,7 +1852,6 @@ fn ai_metric_card(
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT_MUTED))
                 .child(label),
         )
@@ -1992,7 +1881,12 @@ fn ai_today_usage_chart(
         indexed_baselines,
         include_cached,
     );
-    let max_value = values.iter().copied().max().unwrap_or(0).max(1);
+    let max_value = values
+        .iter()
+        .map(|bucket| bucket.value)
+        .max()
+        .unwrap_or(0)
+        .max(1);
 
     ai_stats_card("今日用量", cx)
         .min_h(px(134.0))
@@ -2003,16 +1897,23 @@ fn ai_today_usage_chart(
                 .items_end()
                 .justify_center()
                 .h(px(62.0))
-                .children(values.into_iter().enumerate().map(|(index, value)| {
-                    let ratio = value as f32 / max_value as f32;
+                .children(values.into_iter().enumerate().map(|(index, bucket)| {
+                    let ratio = bucket.value as f32 / max_value as f32;
                     div()
+                        .id(SharedString::from(format!("ai-today-usage-{index}")))
                         .flex_1()
                         .min_w(px(2.0))
                         .ml(if index == 0 { px(0.0) } else { px(1.0) })
                         .h(px(10.0 + ratio * 56.0))
                         .rounded(px(3.0))
                         .bg(color(theme::ACCENT))
-                        .opacity(if value > 0 { 1.0 } else { 0.35 })
+                        .opacity(if bucket.value > 0 { 1.0 } else { 0.35 })
+                        .tooltip(move |window, cx| {
+                            Tooltip::new(bucket.tooltip.clone())
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .build(window, cx)
+                        })
                         .into_any_element()
                 })),
         )
@@ -2053,25 +1954,56 @@ fn ai_recent_usage_heatmap(
         indexed_baselines,
         include_cached,
     );
-    let max_value = values.iter().copied().max().unwrap_or(0).max(1);
+    let mut non_zero = values
+        .iter()
+        .filter_map(|cell| (cell.value > 0).then_some(cell.value))
+        .collect::<Vec<_>>();
+    non_zero.sort_unstable();
     let inactive_surface = ai_stats_track_surface(cx);
-    ai_stats_card("近期用量", cx).child(div().mt(px(12.0)).flex().flex_wrap().children(
-        values.into_iter().map(|value| {
-            let ratio = value as f32 / max_value as f32;
+    let grid_height = 7.0 * AI_RECENT_USAGE_CELL_SIZE + 6.0 * AI_RECENT_USAGE_GAP;
+    let grid_width = AI_RECENT_USAGE_COLUMNS as f32 * AI_RECENT_USAGE_CELL_SIZE
+        + (AI_RECENT_USAGE_COLUMNS - 1) as f32 * AI_RECENT_USAGE_GAP;
+
+    ai_stats_card("近期用量", cx).p(px(20.0)).child(
+        div().mt(px(14.0)).w_full().flex().justify_center().child(
             div()
-                .size(px(10.0))
-                .mr(px(6.0))
-                .mb(px(6.0))
-                .rounded(px(3.0))
-                .bg(if value > 0 {
-                    color(theme::ACCENT)
-                } else {
-                    inactive_surface
-                })
-                .opacity(if value > 0 { 0.35 + ratio * 0.65 } else { 1.0 })
-                .into_any_element()
-        }),
-    ))
+                .flex()
+                .gap(px(AI_RECENT_USAGE_GAP))
+                .w(px(grid_width))
+                .h(px(grid_height))
+                .children(values.chunks(7).enumerate().map(|(column, days)| {
+                    let non_zero = non_zero.clone();
+                    div()
+                        .flex()
+                        .w(px(AI_RECENT_USAGE_CELL_SIZE))
+                        .flex_col()
+                        .gap(px(AI_RECENT_USAGE_GAP))
+                        .children(days.iter().cloned().enumerate().map(move |(row, cell)| {
+                            let opacity = ai_usage_heatmap_opacity(cell.value, &non_zero);
+                            div()
+                                .id(SharedString::from(format!(
+                                    "ai-recent-usage-{column}-{row}"
+                                )))
+                                .size(px(AI_RECENT_USAGE_CELL_SIZE))
+                                .rounded(px(3.0))
+                                .bg(if cell.is_known {
+                                    color(theme::ACCENT)
+                                } else {
+                                    inactive_surface
+                                })
+                                .opacity(if cell.is_known { opacity } else { 1.0 })
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(cell.tooltip.clone())
+                                        .text_size(px(12.0))
+                                        .line_height(px(16.0))
+                                        .build(window, cx)
+                                })
+                                .into_any_element()
+                        }))
+                        .into_any_element()
+                })),
+        ),
+    )
 }
 
 fn ai_ranking_card(
@@ -2106,32 +2038,60 @@ fn ai_ranking_row(
     percent: f32,
     track_surface: gpui::Hsla,
 ) -> impl IntoElement {
+    let value_label = compact_number(value);
+    let tooltip = format!("{label} · {value_label} tokens");
     div()
+        .id(SharedString::from(format!("ai-ranking-row-{label}")))
         .mb(px(10.0))
+        .tooltip(move |window, cx| {
+            Tooltip::new(tooltip.clone())
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .build(window, cx)
+        })
         .child(
             div()
                 .flex()
                 .items_center()
                 .justify_between()
+                .gap(px(12.0))
                 .child(
                     div()
-                        .mr(px(8.0))
                         .flex_1()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
+                        .min_w_0()
+                        .text_size(px(13.0))
+                        .line_height(px(20.0))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(label),
                 )
                 .child(
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
                         .flex_shrink_0()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(color(theme::TEXT_MUTED))
-                        .child(compact_number(value)),
+                        .child(
+                            div()
+                                .w(px(78.0))
+                                .text_right()
+                                .text_size(px(13.0))
+                                .line_height(px(20.0))
+                                .text_color(color(theme::TEXT_MUTED))
+                                .child(value_label),
+                        )
+                        .child(
+                            div()
+                                .w(px(34.0))
+                                .text_right()
+                                .text_size(px(11.0))
+                                .line_height(px(20.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(format!(
+                                    "{}%",
+                                    (percent.clamp(0.0, 1.0) * 100.0).round() as i64
+                                )),
+                        ),
                 ),
         )
         .child(
@@ -2173,14 +2133,118 @@ fn ai_local_day_start_seconds(timestamp: f64) -> f64 {
     codux_runtime::ai_history_normalized::local_day_start_seconds(timestamp)
 }
 
+fn ai_usage_tooltip(label: String, tokens: i64, request_count: i64) -> String {
+    let requests = if request_count > 0 {
+        format!(" · 请求 {} 次", request_count)
+    } else {
+        String::new()
+    };
+    format!(
+        "{label} · {} tokens{requests}",
+        compact_number(tokens.max(0))
+    )
+}
+
+fn ai_usage_heatmap_opacity(value: i64, non_zero: &[i64]) -> f32 {
+    if value <= 0 {
+        return 0.14;
+    }
+    if non_zero.len() <= 1 {
+        return 1.0;
+    }
+
+    let upper = non_zero
+        .iter()
+        .position(|candidate| *candidate > value)
+        .unwrap_or(non_zero.len());
+    let rank = upper.saturating_sub(1);
+    let ratio = rank as f32 / (non_zero.len().saturating_sub(1)).max(1) as f32;
+
+    if ratio < 0.1 {
+        0.14
+    } else if ratio < 0.2 {
+        0.22
+    } else if ratio < 0.32 {
+        0.30
+    } else if ratio < 0.44 {
+        0.40
+    } else if ratio < 0.56 {
+        0.52
+    } else if ratio < 0.68 {
+        0.64
+    } else if ratio < 0.8 {
+        0.76
+    } else if ratio < 0.92 {
+        0.88
+    } else {
+        1.0
+    }
+}
+
+fn ai_time_label(timestamp: f64) -> String {
+    chrono::Local
+        .timestamp_opt(timestamp as i64, 0)
+        .single()
+        .map(|date| format!("{:02}:{:02}", date.hour(), date.minute()))
+        .unwrap_or_else(|| "00:00".to_string())
+}
+
+fn ai_time_label_with_seconds(timestamp: f64) -> String {
+    chrono::Local
+        .timestamp_opt(timestamp as i64, 0)
+        .single()
+        .map(|date| {
+            format!(
+                "{:02}:{:02}:{:02}",
+                date.hour(),
+                date.minute(),
+                date.second()
+            )
+        })
+        .unwrap_or_else(|| "23:59:59".to_string())
+}
+
+fn ai_date_label(timestamp: f64) -> String {
+    chrono::Local
+        .timestamp_opt(timestamp as i64, 0)
+        .single()
+        .map(|date| {
+            format!(
+                "{}/{} {}",
+                date.month(),
+                date.day(),
+                ai_weekday_label(date.weekday())
+            )
+        })
+        .unwrap_or_else(|| "未知日期".to_string())
+}
+
+fn ai_weekday_label(weekday: chrono::Weekday) -> &'static str {
+    match weekday {
+        chrono::Weekday::Mon => "周一",
+        chrono::Weekday::Tue => "周二",
+        chrono::Weekday::Wed => "周三",
+        chrono::Weekday::Thu => "周四",
+        chrono::Weekday::Fri => "周五",
+        chrono::Weekday::Sat => "周六",
+        chrono::Weekday::Sun => "周日",
+    }
+}
+
 fn ai_today_bucket_values(
     global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
-) -> [i64; 48] {
-    let mut buckets = [0_i64; 48];
+) -> Vec<AITodayUsageBucket> {
+    let mut buckets = (0..48)
+        .map(|_| AITodayUsageBucket {
+            value: 0,
+            request_count: 0,
+            tooltip: String::new(),
+        })
+        .collect::<Vec<_>>();
     let mut has_indexed_buckets = false;
     let now = ai_now_seconds();
     let day_start = ai_local_day_start_seconds(now);
@@ -2192,13 +2256,14 @@ fn ai_today_bucket_values(
             let index = (((bucket.start - day_start) / 86_400.0) * buckets.len() as f64)
                 .floor()
                 .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-            buckets[index] += ai_display_tokens(
+            buckets[index].value += ai_display_tokens(
                 bucket.total_tokens,
                 bucket.cached_input_tokens,
                 include_cached,
             );
+            buckets[index].request_count += bucket.request_count.max(0);
         }
-        has_indexed_buckets = buckets.iter().any(|value| *value > 0);
+        has_indexed_buckets = buckets.iter().any(|bucket| bucket.value > 0);
     }
 
     if !has_indexed_buckets {
@@ -2209,11 +2274,12 @@ fn ai_today_bucket_values(
             let bucket = (((session.last_seen_at - day_start) / 86_400.0) * buckets.len() as f64)
                 .floor()
                 .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-            buckets[bucket] += ai_display_tokens(
+            buckets[bucket].value += ai_display_tokens(
                 session.total_tokens,
                 session.cached_input_tokens,
                 include_cached,
             );
+            buckets[bucket].request_count += session.request_count.max(0);
         }
     }
 
@@ -2224,7 +2290,7 @@ fn ai_today_bucket_values(
         let bucket = (((session.updated_at - day_start) / 86_400.0) * buckets.len() as f64)
             .floor()
             .clamp(0.0, (buckets.len() - 1) as f64) as usize;
-        buckets[bucket] += ai_live_session_delta_tokens(
+        buckets[bucket].value += ai_live_session_delta_tokens(
             session,
             indexed_baselines,
             include_cached,
@@ -2232,13 +2298,36 @@ fn ai_today_bucket_values(
         );
     }
 
-    if buckets.iter().all(|value| *value == 0) {
-        buckets[buckets.len() - 1] = ai_display_tokens(
+    if buckets.iter().all(|bucket| bucket.value == 0) {
+        let last = buckets.len() - 1;
+        buckets[last].value = ai_display_tokens(
             global.today_total_tokens,
             global.today_cached_input_tokens,
             include_cached,
         )
         .max(ai_history_today_total(history, include_cached));
+    }
+
+    for (index, bucket) in buckets.iter_mut().enumerate() {
+        let start = day_start + index as f64 * 1800.0;
+        let end = if index == 47 {
+            day_start + 86_399.0
+        } else {
+            start + 1800.0
+        };
+        bucket.tooltip = ai_usage_tooltip(
+            format!(
+                "{} - {}",
+                ai_time_label(start),
+                if index == 47 {
+                    ai_time_label_with_seconds(end)
+                } else {
+                    ai_time_label(end)
+                }
+            ),
+            bucket.value,
+            bucket.request_count,
+        );
     }
 
     buckets
@@ -2250,26 +2339,38 @@ fn ai_recent_heatmap_values(
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
-) -> [i64; 84] {
-    let mut values = [0_i64; 84];
+) -> Vec<AIUsageCell> {
+    let now = ai_now_seconds();
+    let today = ai_local_day_start_seconds(now);
+    let first_day = today - (AI_RECENT_USAGE_COLUMNS * 7 - 1) as f64 * 86_400.0;
+    let mut values = (0..AI_RECENT_USAGE_COLUMNS)
+        .flat_map(|column| {
+            (0..7).map(move |row| {
+                let day = first_day + (column * 7 + row) as f64 * 86_400.0;
+                AIUsageCell {
+                    value: 0,
+                    request_count: 0,
+                    is_known: false,
+                    tooltip: ai_usage_tooltip(ai_date_label(day), 0, 0),
+                }
+            })
+        })
+        .collect::<Vec<_>>();
     let mut has_indexed_heatmap = false;
     if !history.heatmap.is_empty() {
-        let now = ai_now_seconds();
-        let today = ai_local_day_start_seconds(now);
         for day in &history.heatmap {
             let day_start = ai_local_day_start_seconds(day.day);
             let day_offset = ((today - day_start) / 86_400.0).round() as isize;
             if (0..values.len() as isize).contains(&day_offset) {
                 let index = values.len() - 1 - day_offset as usize;
-                values[index] +=
+                values[index].value +=
                     ai_display_tokens(day.total_tokens, day.cached_input_tokens, include_cached);
+                values[index].request_count += day.request_count.max(0);
+                values[index].is_known = true;
             }
         }
-        has_indexed_heatmap = values.iter().any(|value| *value > 0);
+        has_indexed_heatmap = values.iter().any(|cell| cell.value > 0);
     }
-
-    let now = ai_now_seconds();
-    let today = ai_local_day_start_seconds(now);
 
     if !has_indexed_heatmap {
         for session in ai_history_sessions(history, global) {
@@ -2277,11 +2378,13 @@ fn ai_recent_heatmap_values(
             let day_offset = ((today - session_day) / 86_400.0).round() as isize;
             if (0..values.len() as isize).contains(&day_offset) {
                 let index = values.len() - 1 - day_offset as usize;
-                values[index] += ai_display_tokens(
+                values[index].value += ai_display_tokens(
                     session.total_tokens,
                     session.cached_input_tokens,
                     include_cached,
                 );
+                values[index].request_count += session.request_count.max(0);
+                values[index].is_known = true;
             }
         }
     }
@@ -2291,18 +2394,27 @@ fn ai_recent_heatmap_values(
         let day_offset = ((today - session_day) / 86_400.0).round() as isize;
         if (0..values.len() as isize).contains(&day_offset) {
             let index = values.len() - 1 - day_offset as usize;
-            values[index] +=
+            values[index].value +=
                 ai_live_session_delta_tokens(session, indexed_baselines, include_cached, None);
+            values[index].request_count += 1;
+            values[index].is_known = true;
         }
     }
 
-    if values.iter().all(|value| *value == 0) {
-        values[values.len() - 1] = ai_display_tokens(
+    if values.iter().all(|cell| cell.value == 0) {
+        let last = values.len() - 1;
+        values[last].value = ai_display_tokens(
             global.today_total_tokens,
             global.today_cached_input_tokens,
             include_cached,
         )
         .max(ai_history_today_total(history, include_cached));
+        values[last].is_known = values[last].value > 0;
+    }
+
+    for (index, cell) in values.iter_mut().enumerate() {
+        let day = first_day + index as f64 * 86_400.0;
+        cell.tooltip = ai_usage_tooltip(ai_date_label(day), cell.value, cell.request_count);
     }
 
     values
@@ -2483,7 +2595,6 @@ fn ai_sessions_panel(
                             div()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .child("会话记录"),
                         )
@@ -2497,7 +2608,6 @@ fn ai_sessions_panel(
                                 .items_center()
                                 .text_size(px(12.0))
                                 .line_height(px(16.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT_MUTED))
                                 .bg(ai_stats_track_surface(cx))
                                 .child(history.session_count.to_string()),
@@ -2600,7 +2710,6 @@ fn ai_session_list_row(
                         .flex_1()
                         .text_size(px(14.0))
                         .line_height(px(18.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.title),

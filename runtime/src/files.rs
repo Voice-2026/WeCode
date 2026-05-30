@@ -65,6 +65,14 @@ pub fn file_copy(request: FileCopyRequest) -> Result<FileEntry, String> {
     )
 }
 
+pub fn file_move(request: FileMoveRequest) -> Result<FileEntry, String> {
+    FilesService::move_to_directory(
+        &request.root_path,
+        &request.source_path,
+        &request.target_directory_path,
+    )
+}
+
 pub fn file_import_external(request: FileExternalCopyRequest) -> Result<Vec<FileEntry>, String> {
     let root = canonical_root(&request.root_path)?;
     let target_directory = match request.target_directory_path.as_deref().and_then(non_empty) {
@@ -234,6 +242,62 @@ impl FilesService {
         ensure_within_root(&root, &destination)?;
         if destination.exists() {
             return Err("A file with this name already exists.".to_string());
+        }
+        fs::rename(&source, &destination).map_err(|error| error.to_string())?;
+        file_entry(&root, destination)
+    }
+
+    pub fn move_to_directory(
+        root_path: &str,
+        path: &str,
+        target_directory_path: &str,
+    ) -> Result<FileEntry, String> {
+        Self::move_to_directory_with_options(root_path, path, target_directory_path, false)
+    }
+
+    pub fn move_to_directory_overwrite(
+        root_path: &str,
+        path: &str,
+        target_directory_path: &str,
+    ) -> Result<FileEntry, String> {
+        Self::move_to_directory_with_options(root_path, path, target_directory_path, true)
+    }
+
+    fn move_to_directory_with_options(
+        root_path: &str,
+        path: &str,
+        target_directory_path: &str,
+        overwrite: bool,
+    ) -> Result<FileEntry, String> {
+        let root = canonical_root(root_path)?;
+        let source = resolve_existing_path(&root, path)?;
+        let target_directory = resolve_existing_path(&root, target_directory_path)?;
+        if source == root {
+            return Err("Project root cannot be moved.".to_string());
+        }
+        if !target_directory.is_dir() {
+            return Err("Target path is not a directory.".to_string());
+        }
+        if source.is_dir() && target_directory.starts_with(&source) {
+            return Err("Cannot move a directory into itself.".to_string());
+        }
+        let file_name = source
+            .file_name()
+            .ok_or_else(|| "Cannot move project root.".to_string())?;
+        let destination = target_directory.join(file_name);
+        ensure_within_root(&root, &destination)?;
+        if source == destination {
+            return Ok(file_entry(&root, source)?);
+        }
+        if destination.exists() {
+            if !overwrite {
+                return Err("A file with this name already exists.".to_string());
+            }
+            if destination.is_dir() {
+                fs::remove_dir_all(&destination).map_err(|error| error.to_string())?;
+            } else {
+                fs::remove_file(&destination).map_err(|error| error.to_string())?;
+            }
         }
         fs::rename(&source, &destination).map_err(|error| error.to_string())?;
         file_entry(&root, destination)

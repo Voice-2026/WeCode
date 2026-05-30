@@ -91,14 +91,16 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if Self::activate_child_window(&mut self.about_window, cx) {
+            self.status_message = "about window already opened".to_string();
+            cx.notify();
+            return;
+        }
+
         let bounds = Bounds::centered(None, size(px(420.0), px(520.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("About Codux".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar("About Codux")),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(380.0), px(480.0))),
                 ..Default::default()
@@ -113,7 +115,10 @@ impl CoduxApp {
         );
 
         self.status_message = match result {
-            Ok(_) => "about window opened".to_string(),
+            Ok(handle) => {
+                self.about_window = Some(handle.into());
+                "about window opened".to_string()
+            }
             Err(error) => format!("failed to open about window: {error}"),
         };
         cx.notify();
@@ -124,14 +129,16 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if Self::activate_child_window(&mut self.memory_manager_window, cx) {
+            self.status_message = "memory manager window already opened".to_string();
+            cx.notify();
+            return;
+        }
+
         let bounds = Bounds::centered(None, size(px(900.0), px(720.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Memory Manager".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
+                titlebar: Some(theme::codux_titlebar("Memory Manager")),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(720.0), px(560.0))),
                 ..Default::default()
@@ -148,7 +155,10 @@ impl CoduxApp {
         );
 
         self.status_message = match result {
-            Ok(_) => "memory manager window opened".to_string(),
+            Ok(handle) => {
+                self.memory_manager_window = Some(handle.into());
+                "memory manager window opened".to_string()
+            }
             Err(error) => format!("failed to open memory manager window: {error}"),
         };
         cx.notify();

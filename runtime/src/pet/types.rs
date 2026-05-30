@@ -108,6 +108,7 @@ pub struct PetCustomPetInstallPreview {
     pub display_name: String,
     pub description: String,
     pub image_url: Option<String>,
+    pub local_image_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

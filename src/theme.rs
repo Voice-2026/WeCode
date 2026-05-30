@@ -1,4 +1,4 @@
-use gpui::{App, Hsla, Window, rgb};
+use gpui::{App, Hsla, SharedString, TitlebarOptions, Window, point, px, rgb};
 use gpui_component::{Colorize, Theme, ThemeMode};
 
 pub const BG: u32 = 0x0F1117;
@@ -21,6 +21,24 @@ pub const GREEN: u32 = 0x78D891;
 pub const STATUS_BAR: u32 = 0x1C1F25;
 pub fn color(hex: u32) -> Hsla {
     rgb(hex).into()
+}
+
+pub fn codux_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
+    TitlebarOptions {
+        title: Some(title.into()),
+        appears_transparent: true,
+        traffic_light_position: codux_traffic_light_position(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn codux_traffic_light_position() -> Option<gpui::Point<gpui::Pixels>> {
+    Some(point(px(14.0), px(16.0)))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn codux_traffic_light_position() -> Option<gpui::Point<gpui::Pixels>> {
+    None
 }
 
 pub fn apply_component_theme_for_name(
