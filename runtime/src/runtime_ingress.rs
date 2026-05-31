@@ -1,3 +1,4 @@
+use crate::ai_runtime::AIRuntimeBridge;
 use std::{
     fs,
     io::{Read, Write},
@@ -34,11 +35,18 @@ impl RuntimeIngressService {
     }
 
     pub fn start_background(&self) -> RuntimeIngressStatus {
-        start_background_at(self.runtime_temp_dir.clone())
+        start_background_at(self.runtime_temp_dir.clone(), None)
+    }
+
+    pub fn start_background_with_ai_runtime(&self, ai_runtime: Arc<AIRuntimeBridge>) -> RuntimeIngressStatus {
+        start_background_at(self.runtime_temp_dir.clone(), Some(ai_runtime))
     }
 }
 
-fn start_background_at(runtime_temp_dir: PathBuf) -> RuntimeIngressStatus {
+fn start_background_at(
+    runtime_temp_dir: PathBuf,
+    ai_runtime: Option<Arc<AIRuntimeBridge>>,
+) -> RuntimeIngressStatus {
     let socket_path = runtime_temp_dir.join("runtime-events.sock");
     let event_dir = runtime_temp_dir.join("runtime-events");
 
@@ -99,6 +107,7 @@ fn start_background_at(runtime_temp_dir: PathBuf) -> RuntimeIngressStatus {
         let thread_socket = socket_path.clone();
         let thread_event_dir = event_dir.clone();
         let thread_shutdown = shutdown.clone();
+        let thread_ai_runtime = ai_runtime.clone();
         let spawn_result = thread::Builder::new()
             .name("codux-gpui-runtime-ingress".to_string())
             .spawn(move || {
@@ -111,6 +120,11 @@ fn start_background_at(runtime_temp_dir: PathBuf) -> RuntimeIngressStatus {
                     };
                     let mut data = Vec::new();
                     if stream.read_to_end(&mut data).is_ok() && !data.is_empty() {
+                        if let Some(ai_runtime) = &thread_ai_runtime {
+                            if ai_runtime.submit_runtime_frame(data.clone()).is_ok() {
+                                continue;
+                            }
+                        }
                         let _ = persist_runtime_frame(&thread_event_dir, &data);
                     }
                 }
@@ -198,7 +212,7 @@ mod tests {
                 .take(8)
                 .collect::<String>()
         ));
-        let status = start_background_at(runtime_dir.clone());
+        let status = start_background_at(runtime_dir.clone(), None);
 
         #[cfg(unix)]
         {

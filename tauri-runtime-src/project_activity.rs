@@ -20,6 +20,7 @@ const TICK_SECONDS: u64 = 30;
 const MIN_GIT_REFRESH_SECONDS: u64 = 15;
 const MIN_AI_REFRESH_SECONDS: u64 = 120;
 const MAX_BACKGROUND_GIT_REFRESH_PER_TICK: usize = 2;
+const MAX_AI_REFRESH_PER_TICK: usize = 1;
 
 #[derive(Debug, Clone)]
 struct TrackedProject {
@@ -422,17 +423,48 @@ impl ProjectActivityCoordinator {
             .and_then(|value| value.clone());
         let is_foreground = self.main_window_visible.load(Ordering::Relaxed)
             || self.main_window_focused.load(Ordering::Relaxed);
-        projects_due_by_interval_mut(
-            &self.projects,
-            |project| {
-                if is_foreground && active_project_id.as_deref() == Some(project.id.as_str()) {
-                    foreground_interval
-                } else {
-                    background_interval
+        let now = Instant::now();
+        let Ok(mut projects) = self.projects.lock() else {
+            return Vec::new();
+        };
+        let mut due = Vec::new();
+        let mut background_due = None;
+
+        for project in projects.values_mut() {
+            let is_active =
+                is_foreground && active_project_id.as_deref() == Some(project.id.as_str());
+            let interval = if is_active {
+                foreground_interval
+            } else {
+                background_interval
+            };
+            let is_due = project
+                .last_ai_refresh
+                .map(|last| now.duration_since(last) >= interval)
+                .unwrap_or(false);
+            if !is_due {
+                continue;
+            }
+            if is_active {
+                project.last_ai_refresh = Some(now);
+                due.push(project.clone());
+                break;
+            } else if background_due.is_none() {
+                background_due = Some(project.id.clone());
+            }
+        }
+
+        if due.is_empty() {
+            if let Some(project_id) = background_due {
+                if let Some(project) = projects.get_mut(&project_id) {
+                    project.last_ai_refresh = Some(now);
+                    due.push(project.clone());
                 }
-            },
-            |project| &mut project.last_ai_refresh,
-        )
+            }
+        }
+
+        due.truncate(MAX_AI_REFRESH_PER_TICK);
+        due
     }
 }
 

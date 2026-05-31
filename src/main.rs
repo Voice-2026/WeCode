@@ -41,10 +41,16 @@ fn main() -> Result<()> {
     app.run(move |cx: &mut App| {
         app::macos_window::install_dock_reopen_handler();
         gpui_component::init(cx);
-        theme::apply_component_theme_for_name("GitHub Dark", None, cx);
         disable_root_tab_focus_bindings(cx);
         cx.on_action(|_: &crate::app::native_menu::QuitCodux, cx| cx.quit());
         let initial_state = codux_runtime::runtime_state::RuntimeState::load();
+        app::set_active_settings_snapshot(initial_state.settings.clone());
+        theme::apply_component_theme(
+            &initial_state.settings.theme,
+            &initial_state.settings.theme_color,
+            None,
+            cx,
+        );
         cx.set_menus(crate::app::native_menu::codux_menus(
             &initial_state.settings.language,
         ));
@@ -65,7 +71,7 @@ fn open_main_window(cx: &mut App, main_window_handle: &Rc<Cell<Option<AnyWindowH
         WindowOptions {
             titlebar: Some(theme::codux_titlebar("Codux GPUI")),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(960.0), px(640.0))),
+            window_min_size: Some(size(px(1120.0), px(640.0))),
             ..Default::default()
         },
         |window, cx| {
@@ -127,5 +133,61 @@ fn disable_root_tab_focus_bindings(cx: &mut App) {
         KeyBinding::new("shift-tab", Unbind("root::TabPrev".into()), Some("Root")),
         KeyBinding::new("cmd-w", crate::app::native_menu::CloseWindow, None),
         KeyBinding::new("ctrl-w", crate::app::native_menu::CloseWindow, None),
+        KeyBinding::new("cmd-n", crate::app::native_menu::NewProject, None),
+        KeyBinding::new("ctrl-n", crate::app::native_menu::NewProject, None),
+        KeyBinding::new("cmd-o", crate::app::native_menu::OpenProjectFolder, None),
+        KeyBinding::new("ctrl-o", crate::app::native_menu::OpenProjectFolder, None),
+        KeyBinding::new("cmd-,", crate::app::native_menu::OpenSettings, None),
+        KeyBinding::new("ctrl-,", crate::app::native_menu::OpenSettings, None),
+        KeyBinding::new("cmd-1", crate::app::native_menu::ViewTerminal, None),
+        KeyBinding::new("ctrl-1", crate::app::native_menu::ViewTerminal, None),
+        KeyBinding::new("cmd-2", crate::app::native_menu::ViewFiles, None),
+        KeyBinding::new("ctrl-2", crate::app::native_menu::ViewFiles, None),
+        KeyBinding::new("cmd-3", crate::app::native_menu::ViewReview, None),
+        KeyBinding::new("ctrl-3", crate::app::native_menu::ViewReview, None),
+        KeyBinding::new("cmd-alt-p", crate::app::native_menu::ToggleProjects, None),
+        KeyBinding::new("ctrl-alt-p", crate::app::native_menu::ToggleProjects, None),
+        KeyBinding::new("cmd-alt-t", crate::app::native_menu::ToggleTasks, None),
+        KeyBinding::new("ctrl-alt-t", crate::app::native_menu::ToggleTasks, None),
+        KeyBinding::new("cmd-shift-g", crate::app::native_menu::OpenGitPanel, None),
+        KeyBinding::new("ctrl-shift-g", crate::app::native_menu::OpenGitPanel, None),
+        KeyBinding::new("cmd-shift-f", crate::app::native_menu::OpenFilesPanel, None),
+        KeyBinding::new(
+            "ctrl-shift-f",
+            crate::app::native_menu::OpenFilesPanel,
+            None,
+        ),
+        KeyBinding::new("cmd-shift-a", crate::app::native_menu::OpenAiPanel, None),
+        KeyBinding::new("ctrl-shift-a", crate::app::native_menu::OpenAiPanel, None),
+        KeyBinding::new("cmd-shift-s", crate::app::native_menu::OpenSshPanel, None),
+        KeyBinding::new("ctrl-shift-s", crate::app::native_menu::OpenSshPanel, None),
+        KeyBinding::new("cmd-shift-\\", crate::app::native_menu::CreateSplit, None),
+        KeyBinding::new("ctrl-shift-\\", crate::app::native_menu::CreateSplit, None),
+        KeyBinding::new("cmd-shift-t", crate::app::native_menu::CreateTab, None),
+        KeyBinding::new("ctrl-shift-t", crate::app::native_menu::CreateTab, None),
+        KeyBinding::new("cmd-shift-n", crate::app::native_menu::CreateTask, None),
+        KeyBinding::new("ctrl-shift-n", crate::app::native_menu::CreateTask, None),
+        KeyBinding::new("cmd-s", crate::app::native_menu::EditorSave, None),
+        KeyBinding::new("ctrl-s", crate::app::native_menu::EditorSave, None),
+        KeyBinding::new("cmd-f", crate::app::native_menu::EditorSearch, None),
+        KeyBinding::new("ctrl-f", crate::app::native_menu::EditorSearch, None),
+        KeyBinding::new("cmd-q", crate::app::native_menu::QuitCodux, None),
+        KeyBinding::new("ctrl-q", crate::app::native_menu::QuitCodux, None),
+        KeyBinding::new("cmd-m", crate::app::native_menu::MinimizeWindow, None),
+        KeyBinding::new("ctrl-m", crate::app::native_menu::MinimizeWindow, None),
+        KeyBinding::new("cmd-alt-m", crate::app::native_menu::MinimizeWindow, None),
+        KeyBinding::new("ctrl-alt-m", crate::app::native_menu::MinimizeWindow, None),
+        KeyBinding::new(
+            "cmd-ctrl-f",
+            crate::app::native_menu::ToggleFullscreen,
+            None,
+        ),
+        KeyBinding::new(
+            "ctrl-shift-f11",
+            crate::app::native_menu::ToggleFullscreen,
+            None,
+        ),
+        KeyBinding::new("cmd-h", crate::app::native_menu::HideCodux, None),
+        KeyBinding::new("cmd-alt-h", crate::app::native_menu::HideOthers, None),
     ]);
 }

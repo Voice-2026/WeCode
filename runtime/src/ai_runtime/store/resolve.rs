@@ -1,6 +1,8 @@
 use crate::ai_runtime::{
+    constants::COMPLETION_TIMESTAMP_SKEW_SECONDS,
     payload::{AIHookEventMetadata, AIHookEventPayload},
     probe::probe_runtime,
+    runtime_log_line,
     snapshot::{AIRuntimeContextSnapshot, AIRuntimeProbeRequest, AISessionSnapshot},
     state::{canonical_tool_name, normalized_string},
 };
@@ -194,11 +196,46 @@ fn with_fallback(
     event
 }
 
-fn merge_snapshot_into_hook(
+pub(in crate::ai_runtime::store) fn merge_snapshot_into_hook(
     event: AIHookEventPayload,
     snapshot: AIRuntimeContextSnapshot,
     fallback: Option<&AISessionSnapshot>,
 ) -> AIHookEventPayload {
+    let prompt_turn_started_at = fallback
+        .and_then(|session| session.active_turn_started_at.or(session.started_at))
+        .unwrap_or(event.updated_at);
+    let snapshot_completed_at = snapshot.completed_at.or_else(|| {
+        (snapshot.was_interrupted || snapshot.has_completed_turn).then_some(snapshot.updated_at)
+    });
+    let stale_completion = event.kind == "turnCompleted"
+        && snapshot.response_state.as_deref() != Some("responding")
+        && fallback
+            .map(|session| session.state == "responding")
+            .unwrap_or(false)
+        && snapshot_completed_at
+            .map(|completed_at| {
+                completed_at + COMPLETION_TIMESTAMP_SKEW_SECONDS < prompt_turn_started_at
+            })
+            .unwrap_or(false);
+    if event.kind == "turnCompleted" {
+        runtime_log_line(
+            "runtime-probe",
+            &format!(
+                "turnCompleted probe terminal={} response_state={} completed_at={} updated_at={} prompt_started_at={} has_completed={} stale_completion={} transcript={}",
+                event.terminal_id,
+                snapshot.response_state.as_deref().unwrap_or("none"),
+                snapshot
+                    .completed_at
+                    .map(|value| format!("{value:.3}"))
+                    .unwrap_or_else(|| "none".to_string()),
+                snapshot.updated_at,
+                prompt_turn_started_at,
+                snapshot.has_completed_turn,
+                stale_completion,
+                snapshot.transcript_path.as_deref().unwrap_or("none")
+            ),
+        );
+    }
     let was_interrupted = snapshot.was_interrupted
         || event
             .metadata
@@ -222,10 +259,18 @@ fn merge_snapshot_into_hook(
         was_interrupted: None,
         has_completed_turn: None,
     });
-    metadata.was_interrupted = Some(was_interrupted);
-    metadata.has_completed_turn = Some(has_completed_turn);
+    metadata.was_interrupted = Some(if stale_completion {
+        false
+    } else {
+        was_interrupted
+    });
+    metadata.has_completed_turn = Some(if stale_completion {
+        false
+    } else {
+        has_completed_turn
+    });
     AIHookEventPayload {
-        kind: if snapshot.response_state.as_deref() == Some("responding") {
+        kind: if snapshot.response_state.as_deref() == Some("responding") || stale_completion {
             "promptSubmitted".to_string()
         } else {
             event.kind

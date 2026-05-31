@@ -1,4 +1,4 @@
-use crate::runtime_paths::app_support_dir;
+use crate::runtime_paths::{app_support_candidates, app_support_dir, runtime_temp_dir};
 use std::{
     fs,
     io::Write,
@@ -42,7 +42,7 @@ pub fn runtime_trace_elapsed(category: &str, action: &str, started_at: Instant, 
 fn prepare_runtime_log(path: &Path) {
     if RUNTIME_LOG_STARTED.get().is_none() {
         let _ = RUNTIME_LOG_STARTED.set(());
-        rotate_runtime_log(path);
+        clear_runtime_logs(path);
         return;
     }
     let Ok(metadata) = fs::metadata(path) else {
@@ -50,6 +50,58 @@ fn prepare_runtime_log(path: &Path) {
     };
     if metadata.len() > RUNTIME_LOG_MAX_BYTES {
         rotate_runtime_log(path);
+    }
+}
+
+fn clear_runtime_logs(path: &Path) {
+    clear_log_family(path);
+    for index in 1..=RUNTIME_LOG_ROTATION_COUNT {
+        let _ = fs::remove_file(rotated_log_path(path, index));
+    }
+    for support_dir in app_support_candidates() {
+        clear_log_family(&support_dir.join("runtime.log"));
+        clear_logs_dir(&support_dir.join("logs"));
+    }
+    let temp_dir = runtime_temp_dir();
+    clear_log_family(&temp_dir.join("live.log"));
+    let _ = fs::remove_file(temp_dir.join("runtime-log-preview.txt"));
+}
+
+fn clear_log_family(path: &Path) {
+    let _ = fs::remove_file(path);
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    let prefix = format!("{file_name}.");
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        let Some(name) = entry_path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.starts_with(&prefix) {
+            let _ = fs::remove_file(entry_path);
+        }
+    }
+}
+
+fn clear_logs_dir(path: &Path) {
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        let Some(name) = entry_path.file_name().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        if name.contains(".log") || name == "runtime-log-preview.txt" {
+            let _ = fs::remove_file(entry_path);
+        }
     }
 }
 

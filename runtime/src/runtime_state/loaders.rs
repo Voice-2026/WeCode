@@ -152,17 +152,9 @@ fn load_runtime_events() -> RuntimeEventSummary {
 
 fn load_ai_runtime_state(
     support_dir: &Path,
-    runtime_events: &RuntimeEventSummary,
+    _runtime_events: &RuntimeEventSummary,
 ) -> AIRuntimeStateSummary {
-    let service = AIRuntimeStateService::new(support_dir.to_path_buf());
-    match service.save_from_events(runtime_events) {
-        Ok(summary) => summary,
-        Err(error) => {
-            let mut summary = service.summary();
-            summary.error = Some(error);
-            summary
-        }
-    }
+    AIRuntimeStateService::new(support_dir.to_path_buf()).summary()
 }
 
 fn load_remote(support_dir: &Path) -> RemoteSummary {

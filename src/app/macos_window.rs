@@ -353,22 +353,6 @@ pub(in crate::app) fn show_desktop_pet_native_menu(
 }
 
 #[cfg(target_os = "windows")]
-pub(in crate::app) fn spawn_desktop_pet_native_menu(
-    window: &mut Window,
-    position: gpui::Point<gpui::Pixels>,
-    entries: Vec<NativeMenuEntry>,
-    cx: &mut gpui::Context<crate::app::CoduxApp>,
-) {
-    spawn_native_popup_menu(
-        window,
-        position,
-        entries,
-        crate::app::CoduxApp::apply_desktop_pet_action,
-        cx,
-    );
-}
-
-#[cfg(target_os = "windows")]
 fn show_desktop_pet_native_menu_for_hwnd(
     hwnd: HWND,
     position: gpui::Point<gpui::Pixels>,

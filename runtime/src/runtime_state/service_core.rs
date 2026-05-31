@@ -1,12 +1,17 @@
 static POWER_MANAGER: OnceLock<Arc<PowerManager>> = OnceLock::new();
+static AI_HISTORY_INDEXER: OnceLock<AIHistoryIndexer> = OnceLock::new();
 
 fn shared_power_manager() -> Arc<PowerManager> {
     Arc::clone(POWER_MANAGER.get_or_init(|| Arc::new(PowerManager::default())))
 }
 
+fn shared_ai_history_indexer() -> AIHistoryIndexer {
+    AI_HISTORY_INDEXER.get_or_init(AIHistoryIndexer::new).clone()
+}
+
 impl RuntimeService {
     pub fn new(support_dir: PathBuf) -> Self {
-        let ai_history_indexer = AIHistoryIndexer::new();
+        let ai_history_indexer = shared_ai_history_indexer();
         let project_activity = Arc::new(ProjectActivityCoordinator::new(
             support_dir.clone(),
             ai_history_indexer.clone(),

@@ -17,8 +17,7 @@ mod tests;
 mod types;
 
 use git_jobs::{GitJob, GitJobQueue};
-use intervals::{configured_interval_seconds, projects_due_by_interval_mut};
-use intervals::{projects_due_for_git_interval, upsert_project};
+use intervals::{configured_interval_seconds, projects_due_for_git_interval, upsert_project};
 use types::TrackedProject;
 pub use types::{
     GitProjectChangedEvent, GitReviewEvent, GitStatusEvent, ProjectActivityEvent,
@@ -27,7 +26,8 @@ pub use types::{
 
 const MIN_GIT_REFRESH_SECONDS: u64 = 15;
 const MIN_AI_REFRESH_SECONDS: u64 = 120;
-const MAX_BACKGROUND_GIT_REFRESH_PER_TICK: usize = 2;
+const MAX_BACKGROUND_GIT_REFRESH_PER_TICK: usize = 0;
+const MAX_AI_REFRESH_PER_TICK: usize = 1;
 
 pub struct ProjectActivityCoordinator {
     support_dir: std::path::PathBuf,

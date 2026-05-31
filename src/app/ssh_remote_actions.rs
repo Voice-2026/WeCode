@@ -1,0 +1,1305 @@
+use super::*;
+
+impl CoduxApp {
+    pub(super) fn reload_ssh(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+        self.normalize_selected_ssh_profile();
+        self.status_message = "SSH profiles reloaded".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn selected_ssh_profile(&self) -> Option<&SSHProfileSummary> {
+        self.selected_ssh_profile_id
+            .as_deref()
+            .and_then(|id| {
+                self.state
+                    .ssh
+                    .profiles
+                    .iter()
+                    .find(|profile| profile.id == id)
+            })
+            .or_else(|| self.state.ssh.profiles.first())
+    }
+
+    pub(super) fn normalize_selected_ssh_profile(&mut self) {
+        let selected_still_exists = self
+            .selected_ssh_profile_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .ssh
+                    .profiles
+                    .iter()
+                    .any(|profile| profile.id == id)
+            })
+            .unwrap_or(false);
+        if !selected_still_exists {
+            self.selected_ssh_profile_id = None;
+        }
+    }
+
+    pub(super) fn select_ssh_profile(
+        &mut self,
+        profile_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(profile) = self
+            .state
+            .ssh
+            .profiles
+            .iter()
+            .find(|profile| profile.id == profile_id)
+        else {
+            self.status_message = "SSH profile is no longer available".to_string();
+            self.normalize_selected_ssh_profile();
+            cx.notify();
+            return;
+        };
+        self.selected_ssh_profile_id = Some(profile.id.clone());
+        self.status_message = format!("selected SSH profile: {}", profile.name);
+        cx.notify();
+    }
+
+    pub(super) fn connect_selected_ssh_profile(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.state.ssh.wrapper_available {
+            self.status_message = "codux-ssh wrapper is not available".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(profile) = self.selected_ssh_profile().cloned() else {
+            self.status_message = "no SSH profile selected".to_string();
+            cx.notify();
+            return;
+        };
+        match self.runtime_service.ssh_launch_command(profile.id.clone()) {
+            Ok(command) => {
+                self.send_to_active_terminal(&format!("{}\n", command.command), cx);
+                if let Some(view) = self.active_terminal_view() {
+                    view.read(cx).focus_handle().focus(window, cx);
+                }
+                self.status_message = format!("SSH connect sent: {}", profile.name);
+            }
+            Err(error) => {
+                self.status_message = format!("failed to build SSH launch command: {error}");
+            }
+        }
+        self.sync_project_activity_store(cx);
+        self.notify_task_column(cx);
+        cx.notify();
+    }
+
+    pub(super) fn new_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.ssh_draft_open = true;
+        self.ssh_draft_id = None;
+        self.ssh_draft_name.clear();
+        self.ssh_draft_host.clear();
+        self.ssh_draft_port = "22".to_string();
+        self.ssh_draft_username.clear();
+        self.ssh_draft_credential_kind = "none".to_string();
+        self.ssh_draft_private_key_path.clear();
+        self.ssh_draft_password.clear();
+        self.ssh_draft_key_passphrase.clear();
+        self.status_message = "new SSH profile draft".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn load_selected_ssh_profile_draft(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let selected_id = self.selected_ssh_profile_id.clone().or_else(|| {
+            self.state
+                .ssh
+                .profiles
+                .first()
+                .map(|profile| profile.id.clone())
+        });
+        let Some(profile_id) = selected_id else {
+            self.status_message = "no SSH profile selected".to_string();
+            cx.notify();
+            return;
+        };
+        let snapshot = self.runtime_service.ssh_profiles();
+        let Some(profile) = snapshot
+            .profiles
+            .into_iter()
+            .find(|profile| profile.id == profile_id)
+        else {
+            self.status_message = "SSH profile is no longer available".to_string();
+            self.normalize_selected_ssh_profile();
+            cx.notify();
+            return;
+        };
+        self.apply_ssh_draft(profile);
+        self.ssh_draft_open = true;
+        self.status_message = "SSH profile loaded into editor".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn apply_ssh_draft(&mut self, profile: SSHConnectionProfile) {
+        self.ssh_draft_id = Some(profile.id);
+        self.ssh_draft_name = profile.name;
+        self.ssh_draft_host = profile.host;
+        self.ssh_draft_port = profile.port.to_string();
+        self.ssh_draft_username = profile.username;
+        self.ssh_draft_credential_kind = profile.credential_kind;
+        self.ssh_draft_private_key_path = profile.private_key_path;
+        self.ssh_draft_password = profile.password.unwrap_or_default();
+        self.ssh_draft_key_passphrase = profile.key_passphrase.unwrap_or_default();
+    }
+
+    pub(super) fn set_ssh_draft_name(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_name = value;
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_host(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_host = value;
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_port(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_port = value;
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_username(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_username = value;
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_credential_kind(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_credential_kind = value;
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_private_key_path(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_private_key_path = value;
+        cx.notify();
+    }
+
+    pub(super) fn choose_ssh_private_key_path(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        match self
+            .runtime_service
+            .localized_open_dialog(LocalizedOpenDialogRequest {
+                title: translate(
+                    &locale,
+                    "ssh.profile.choose_key.title",
+                    "Choose Private Key",
+                ),
+                message: translate(
+                    &locale,
+                    "ssh.profile.choose_key.message",
+                    "Choose the private key used for this SSH connection.",
+                ),
+                prompt: translate(&locale, "common.choose", "Choose"),
+                default_path: if self.ssh_draft_private_key_path.trim().is_empty() {
+                    None
+                } else {
+                    Some(self.ssh_draft_private_key_path.clone())
+                },
+                filters: Vec::new(),
+                directory: false,
+                multiple: false,
+                can_create_directories: Some(false),
+            }) {
+            Ok(Some(paths)) => {
+                if let Some(path) = paths.first() {
+                    self.ssh_draft_private_key_path = path.clone();
+                    self.status_message = "SSH private key selected".to_string();
+                } else {
+                    self.status_message = "SSH private key selection canceled".to_string();
+                }
+            }
+            Ok(None) => self.status_message = "SSH private key selection canceled".to_string(),
+            Err(error) => {
+                self.status_message = format!("failed to choose SSH private key: {error}")
+            }
+        }
+        self.sync_project_activity_store(cx);
+        self.notify_task_column(cx);
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_password(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_password = value;
+        cx.notify();
+    }
+
+    pub(super) fn set_ssh_draft_key_passphrase(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_draft_key_passphrase = value;
+        cx.notify();
+    }
+
+    pub(super) fn ssh_draft_request(&self) -> Result<SSHProfileUpsertRequest, String> {
+        let port = self
+            .ssh_draft_port
+            .trim()
+            .parse::<u16>()
+            .map_err(|_| "SSH port must be a number from 1 to 65535.".to_string())?;
+        Ok(SSHProfileUpsertRequest {
+            id: self.ssh_draft_id.clone(),
+            name: self.ssh_draft_name.clone(),
+            host: self.ssh_draft_host.clone(),
+            port,
+            username: self.ssh_draft_username.clone(),
+            credential_kind: self.ssh_draft_credential_kind.clone(),
+            private_key_path: Some(self.ssh_draft_private_key_path.clone()),
+            password: Some(self.ssh_draft_password.clone()),
+            key_passphrase: Some(self.ssh_draft_key_passphrase.clone()),
+        })
+    }
+
+    pub(super) fn save_ssh_profile_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let request = match self.ssh_draft_request() {
+            Ok(request) => request,
+            Err(error) => {
+                self.status_message = format!("failed to save SSH profile: {error}");
+                cx.notify();
+                return;
+            }
+        };
+        let requested_id = request.id.clone();
+        match self.runtime_service.upsert_ssh_profile(request) {
+            Ok(snapshot) => {
+                self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+                self.selected_ssh_profile_id = requested_id.or_else(|| {
+                    snapshot
+                        .profiles
+                        .iter()
+                        .max_by_key(|profile| profile.updated_at)
+                        .map(|profile| profile.id.clone())
+                });
+                self.normalize_selected_ssh_profile();
+                self.ssh_draft_open = false;
+                self.status_message = "SSH profile saved".to_string();
+                publish_ssh_update();
+                if self.window_mode == AppWindowMode::SshProfileEditor {
+                    window.remove_window();
+                }
+            }
+            Err(error) => self.status_message = format!("failed to save SSH profile: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn delete_selected_ssh_profile(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(profile_id) = self
+            .ssh_draft_id
+            .clone()
+            .or_else(|| self.selected_ssh_profile_id.clone())
+        else {
+            self.status_message = "no SSH profile selected".to_string();
+            cx.notify();
+            return;
+        };
+        match self.runtime_service.delete_ssh_profile(profile_id) {
+            Ok(_) => {
+                self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+                self.normalize_selected_ssh_profile();
+                self.ssh_draft_open = false;
+                self.status_message = "SSH profile deleted".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to delete SSH profile: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn test_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.ssh_testing {
+            self.status_message = "SSH test is already running".to_string();
+            cx.notify();
+            return;
+        }
+        let request = match self.ssh_draft_request() {
+            Ok(request) => request,
+            Err(error) => {
+                self.status_message = format!("SSH test failed: {error}");
+                cx.notify();
+                return;
+            }
+        };
+        let service = self.runtime_service.clone();
+        let runtime_root = self.runtime.root.clone();
+        self.ssh_testing = true;
+        self.status_message = "SSH test started".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.test_ssh_profile(request, runtime_root)
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                app.apply_ssh_test_result(result, cx);
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn apply_ssh_test_result(
+        &mut self,
+        result: Result<codux_runtime::ssh::SSHProfileTestResult, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.ssh_testing = false;
+        match result {
+            Ok(result) => self.status_message = result.message,
+            Err(error) => self.status_message = format!("SSH test failed: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn toggle_remote_host(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let next = !self.state.remote.enabled;
+        match self.runtime_service.set_remote_enabled(next) {
+            Ok(remote) => {
+                let settings = self.runtime_service.reload_state().settings;
+                self.apply_settings_summary(settings);
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = format!(
+                    "remote host setting saved: {}",
+                    if self.state.remote.enabled {
+                        "on"
+                    } else {
+                        "off"
+                    }
+                );
+            }
+            Err(error) => self.status_message = format!("failed to save remote setting: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn set_remote_server_url(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.set_remote_server_url(&value) {
+            Ok(remote) => {
+                let settings = self.runtime_service.reload_state().settings;
+                self.apply_settings_summary(settings);
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = "remote server saved".to_string();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to save remote server: {error}");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn reconnect_remote(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.reconnect_remote() {
+            Ok(remote) => {
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = "remote reconnect requested".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to reconnect remote: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn refresh_remote_devices(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.refresh_remote_devices() {
+            Ok(remote) => {
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = "remote devices refreshed".to_string();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to refresh remote devices: {error}")
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn create_remote_pairing(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.create_remote_pairing() {
+            Ok(remote) => {
+                let code = remote
+                    .pairing
+                    .as_ref()
+                    .map(|pairing| pairing.code.clone())
+                    .unwrap_or_default();
+                let pairing = remote.pairing.clone();
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = if code.is_empty() {
+                    "remote pairing created".to_string()
+                } else {
+                    format!("remote pairing code: {code}")
+                };
+                if let Some(pairing) = pairing {
+                    self.start_remote_pairing_poll(pairing, cx);
+                }
+            }
+            Err(error) => self.status_message = format!("failed to create remote pairing: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn start_remote_pairing_poll(
+        &mut self,
+        pairing: RemotePairingInfo,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_pairing_poll_generation = self.remote_pairing_poll_generation.wrapping_add(1);
+        let generation = self.remote_pairing_poll_generation;
+        let service = self.runtime_service.clone();
+
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_secs(1)).await;
+
+                let should_poll = this
+                    .update(cx, |app, _| {
+                        app.remote_pairing_poll_generation == generation
+                            && app
+                                .state
+                                .remote
+                                .pairing
+                                .as_ref()
+                                .map(|current| current.pairing_id == pairing.pairing_id)
+                                .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if !should_poll {
+                    return;
+                }
+
+                let worker_pairing = pairing.clone();
+                let worker_service = service.clone();
+                let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                    worker_service.poll_remote_pairing_status(&worker_pairing)
+                })
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result);
+
+                let finished = this
+                    .update(cx, |app, cx| {
+                        app.apply_remote_pairing_poll_result(generation, &pairing, result, cx)
+                    })
+                    .unwrap_or(true);
+                if finished {
+                    return;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn apply_remote_pairing_poll_result(
+        &mut self,
+        generation: u64,
+        pairing: &RemotePairingInfo,
+        result: Result<RemotePairingPollResult, String>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.remote_pairing_poll_generation != generation
+            || self
+                .state
+                .remote
+                .pairing
+                .as_ref()
+                .map(|current| current.pairing_id.as_str())
+                != Some(pairing.pairing_id.as_str())
+        {
+            return true;
+        }
+
+        match result {
+            Ok(result) => {
+                let finished = result.finished;
+                self.state.remote = result.summary;
+                self.normalize_selected_remote_device();
+                self.status_message = self.state.remote.message.clone();
+                cx.notify();
+                finished
+            }
+            Err(error) => {
+                self.state.remote.pairing = None;
+                self.status_message = format!("remote pairing poll failed: {error}");
+                cx.notify();
+                true
+            }
+        }
+    }
+
+    pub(super) fn cancel_remote_pairing(
+        &mut self,
+        pairing_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_pairing_poll_generation = self.remote_pairing_poll_generation.wrapping_add(1);
+        match self.runtime_service.cancel_remote_pairing(&pairing_id) {
+            Ok(remote) => {
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = "remote pairing cancelled".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to cancel remote pairing: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn confirm_remote_pairing(
+        &mut self,
+        pairing_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_pairing_poll_generation = self.remote_pairing_poll_generation.wrapping_add(1);
+        match self.runtime_service.confirm_remote_pairing(&pairing_id) {
+            Ok(remote) => {
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = "remote pairing confirmed".to_string();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to confirm remote pairing: {error}");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn reject_remote_pairing(
+        &mut self,
+        pairing_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_pairing_poll_generation = self.remote_pairing_poll_generation.wrapping_add(1);
+        match self.runtime_service.reject_remote_pairing(&pairing_id) {
+            Ok(remote) => {
+                self.state.remote = remote;
+                self.normalize_selected_remote_device();
+                self.status_message = "remote pairing rejected".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to reject remote pairing: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn selected_remote_device(&self) -> Option<&RemoteDeviceSummary> {
+        self.selected_remote_device_id
+            .as_deref()
+            .and_then(|id| {
+                self.state
+                    .remote
+                    .device_list
+                    .iter()
+                    .find(|device| device.id == id)
+            })
+            .or_else(|| self.state.remote.device_list.first())
+    }
+
+    pub(super) fn normalize_selected_remote_device(&mut self) {
+        let selected_still_exists = self
+            .selected_remote_device_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .remote
+                    .device_list
+                    .iter()
+                    .any(|device| device.id == id)
+            })
+            .unwrap_or(false);
+        if !selected_still_exists {
+            self.selected_remote_device_id = self
+                .state
+                .remote
+                .device_list
+                .first()
+                .map(|device| device.id.clone());
+        }
+    }
+
+    pub(super) fn select_remote_device(
+        &mut self,
+        device_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(device) = self
+            .state
+            .remote
+            .device_list
+            .iter()
+            .find(|device| device.id == device_id)
+        else {
+            self.status_message = "remote device is no longer available".to_string();
+            self.normalize_selected_remote_device();
+            cx.notify();
+            return;
+        };
+        self.selected_remote_device_id = Some(device.id.clone());
+        self.status_message = format!("selected remote device: {}", empty_label(&device.name));
+        cx.notify();
+    }
+
+    pub(super) fn revoke_selected_remote_device(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(device) = self.selected_remote_device().cloned() else {
+            self.status_message = "no remote device selected".to_string();
+            cx.notify();
+            return;
+        };
+        match self.runtime_service.revoke_remote_device(&device.id) {
+            Ok(remote) => {
+                self.state.remote = remote;
+                self.state.settings = self.runtime_service.reload_state().settings;
+                self.selected_remote_device_id = None;
+                self.normalize_selected_remote_device();
+                self.status_message =
+                    format!("remote device revoked: {}", empty_label(&device.name));
+            }
+            Err(error) => self.status_message = format!("failed to revoke remote device: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn reload_runtime_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let result = self.apply_runtime_activity_tick(true, window.is_window_active(), true, cx);
+        if result.pet_update_events > 0 {
+            self.sync_desktop_pet_window(false, cx);
+        }
+        self.status_message = format!(
+            "runtime activity reloaded · project events {} · file events {} · pet catalog {} · pet updates {} · AI history {} · AI events {} · memory queued {} · badge {}",
+            result.project_events,
+            result.file_events,
+            result.pet_events,
+            result.pet_update_events,
+            result.ai_history_events,
+            result.ai_events,
+            result.memory_events,
+            result
+                .dock_badge_count
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "off".to_string())
+        );
+        if let Some(error) = result.ai_state_error {
+            self.status_message
+                .push_str(&format!(" · AI state save failed: {error}"));
+        }
+        self.runtime_trace(
+            "runtime-activity",
+            &format!(
+                "manual_reload project_events={} file_events={} pet_catalog={} pet_updates={} ai_history={} ai_events={} memory_events={} badge={}",
+                result.project_events,
+                result.file_events,
+                result.pet_events,
+                result.pet_update_events,
+                result.ai_history_events,
+                result.ai_events,
+                result.memory_events,
+                result
+                    .dock_badge_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "off".to_string())
+            ),
+        );
+        cx.notify();
+    }
+
+    pub(super) fn apply_runtime_activity_tick(
+        &mut self,
+        visible: bool,
+        focused: bool,
+        include_scheduled_tick: bool,
+        cx: &mut Context<Self>,
+    ) -> RuntimeActivityTickResult {
+        let dock_badge_count = if include_scheduled_tick {
+            let window_state = self.runtime_service.app_window_state(visible, focused);
+            let _ = self
+                .runtime_service
+                .set_dock_badge_count(window_state.dock_badge_count);
+            window_state.dock_badge_count
+        } else {
+            let _ = self
+                .runtime_service
+                .mark_main_window_state(visible, focused);
+            None
+        };
+        if include_scheduled_tick {
+            self.runtime_service.tick_project_activity();
+        }
+        let applied_settings_events = usize::from(self.apply_settings_update_event(cx));
+        let project_events = self.runtime_service.drain_project_activity_events();
+        let applied_project_events = self.apply_project_activity_events(project_events, cx);
+        let applied_pet_events =
+            usize::from(self.sync_pet_custom_install_event_for_activity_tick());
+        let applied_pet_update_events = usize::from(self.sync_pet_update_event_for_activity_tick());
+        let ai_history_events = self.runtime_service.drain_ai_history_events();
+        let applied_ai_history_events = self.apply_ai_history_events(ai_history_events, cx);
+        let file_events = self.runtime_service.drain_file_change_events();
+        let applied_file_events = self.apply_file_change_events(file_events);
+        let remote_events = self.runtime_service.drain_remote_events();
+        if let Some(remote) = remote_events.last().cloned() {
+            self.state.remote = remote;
+            self.normalize_selected_remote_device();
+        }
+        let scheduled_refresh = self.pending_runtime_refresh.take();
+        let has_scheduled_refresh = scheduled_refresh.is_some();
+        if let Some(refresh) = scheduled_refresh {
+            self.state.runtime_activity = refresh.runtime_activity;
+            self.state.remote = refresh.remote;
+            self.normalize_selected_remote_device();
+        }
+        let drained = self
+            .runtime_service
+            .drain_ai_runtime_events_and_enqueue_memory();
+        self.dispatch_ai_completion_notifications(&drained.events);
+        let mut ai_state_error = None;
+        self.ai_runtime_state_save_tick = self.ai_runtime_state_save_tick.wrapping_add(1);
+        let should_save_ai_state = include_scheduled_tick
+            || !drained.events.is_empty()
+            || self.ai_runtime_state_save_tick % 30 == 0;
+        if should_save_ai_state {
+            let live_ai_snapshot = self.runtime_service.ai_runtime_state_snapshot();
+            self.state.ai_runtime_state = match self
+                .runtime_service
+                .save_ai_runtime_state_snapshot(&live_ai_snapshot)
+            {
+                Ok(summary) => summary,
+                Err(error) => {
+                    ai_state_error = Some(error.clone());
+                    let mut summary = self
+                        .runtime_service
+                        .reload_ai_runtime_state(&self.state.runtime_events);
+                    summary.error = Some(error);
+                    summary
+                }
+            };
+        }
+        if include_scheduled_tick {
+            self.refresh_global_today_ai_tokens();
+        }
+        if !drained.memory.is_empty() {
+            self.state.memory = self.runtime_service.reload_memory(
+                self.state
+                    .selected_project
+                    .as_ref()
+                    .map(|project| project.id.as_str()),
+            );
+            self.reload_memory_manager_snapshot();
+        }
+        let changed = applied_project_events > 0
+            || applied_file_events > 0
+            || applied_ai_history_events > 0
+            || applied_pet_events > 0
+            || applied_pet_update_events > 0
+            || applied_settings_events > 0
+            || !remote_events.is_empty()
+            || !drained.events.is_empty()
+            || !drained.memory.is_empty()
+            || has_scheduled_refresh
+            || ai_state_error.is_some();
+        if changed {
+            if !drained.events.is_empty() || ai_state_error.is_some() {
+                self.sync_project_activity_store(cx);
+                self.notify_task_column(cx);
+            }
+            self.runtime_trace(
+                "runtime-activity",
+                &format!(
+                    "tick scheduled={} settings={} project={} files={} pet_catalog={} pet_updates={} ai_history={} ai_events={} memory={} remote={} scheduled_refresh={} ai_state_error={}",
+                    include_scheduled_tick,
+                    applied_settings_events,
+                    applied_project_events,
+                    applied_file_events,
+                    applied_pet_events,
+                    applied_pet_update_events,
+                    applied_ai_history_events,
+                    drained.events.len(),
+                    drained.memory.len(),
+                    remote_events.len(),
+                    has_scheduled_refresh,
+                    ai_state_error.as_deref().unwrap_or("none")
+                ),
+            );
+        }
+        RuntimeActivityTickResult {
+            project_events: applied_project_events,
+            file_events: applied_file_events,
+            ai_history_events: applied_ai_history_events,
+            pet_events: applied_pet_events,
+            pet_update_events: applied_pet_update_events,
+            ai_events: drained.events.len(),
+            memory_events: drained.memory.len(),
+            dock_badge_count,
+            changed,
+            ai_state_error,
+        }
+    }
+
+    pub(super) fn apply_ai_runtime_activity_tick(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> RuntimeActivityTickResult {
+        let drained = self
+            .runtime_service
+            .drain_ai_runtime_events_and_enqueue_memory();
+        if drained.events.is_empty() && drained.memory.is_empty() {
+            return RuntimeActivityTickResult::default();
+        }
+
+        self.dispatch_ai_completion_notifications(&drained.events);
+        let mut ai_state_error = None;
+        let live_ai_snapshot = self.runtime_service.ai_runtime_state_snapshot();
+        self.state.ai_runtime_state = match self
+            .runtime_service
+            .save_ai_runtime_state_snapshot(&live_ai_snapshot)
+        {
+            Ok(summary) => summary,
+            Err(error) => {
+                ai_state_error = Some(error.clone());
+                let mut summary = self
+                    .runtime_service
+                    .reload_ai_runtime_state(&self.state.runtime_events);
+                summary.error = Some(error);
+                summary
+            }
+        };
+
+        if !drained.memory.is_empty() {
+            self.state.memory = self.runtime_service.reload_memory(
+                self.state
+                    .selected_project
+                    .as_ref()
+                    .map(|project| project.id.as_str()),
+            );
+            self.reload_memory_manager_snapshot();
+        }
+
+        self.sync_project_activity_store(cx);
+        self.notify_task_column(cx);
+        self.runtime_trace(
+            "runtime-activity",
+            &format!(
+                "ai_fast_tick ai_events={} memory={} ai_state_error={}",
+                drained.events.len(),
+                drained.memory.len(),
+                ai_state_error.as_deref().unwrap_or("none")
+            ),
+        );
+
+        RuntimeActivityTickResult {
+            ai_events: drained.events.len(),
+            memory_events: drained.memory.len(),
+            changed: true,
+            ai_state_error,
+            ..RuntimeActivityTickResult::default()
+        }
+    }
+
+    pub(super) fn dispatch_ai_completion_notifications(
+        &self,
+        events: &[codux_runtime::ai_runtime::AIRuntimeSupervisorEvent],
+    ) {
+        let completions = events
+            .iter()
+            .filter_map(|event| match event {
+                codux_runtime::ai_runtime::AIRuntimeSupervisorEvent::Completion { completion } => {
+                    Some(completion.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if completions.is_empty() {
+            return;
+        }
+
+        let channels = self
+            .state
+            .notifications
+            .channels
+            .iter()
+            .filter(|channel| channel.enabled && !channel.endpoint.trim().is_empty())
+            .map(|channel| NotificationChannelConfig {
+                id: channel.id.clone(),
+                endpoint: channel.endpoint.clone(),
+                token: channel.token.clone(),
+            })
+            .collect::<Vec<_>>();
+        let locale = locale_from_language_setting(&self.state.settings.language);
+
+        for completion in completions {
+            let service = self.runtime_service.clone();
+            let channels = channels.clone();
+            let locale = locale.clone();
+            codux_runtime::async_runtime::spawn_blocking(move || {
+                let title = if completion.was_interrupted {
+                    translate(
+                        &locale,
+                        "ai.notification.task_interrupted",
+                        "Task interrupted",
+                    )
+                } else {
+                    translate(&locale, "ai.notification.task_completed", "Task completed")
+                };
+                let body = format!("{} · {}", completion.project_name, completion.tool);
+                let group = "codux-task";
+                if let Err(error) = service.show_native_notification(&title, &body, group) {
+                    service.runtime_trace_frontend(
+                        "notification",
+                        &format!("native notification failed error={error}"),
+                    );
+                }
+                if !channels.is_empty() {
+                    service.dispatch_notification_channels(NotificationDispatchRequest {
+                        channels,
+                        title,
+                        body,
+                        group: group.to_string(),
+                    });
+                }
+            });
+        }
+    }
+
+    pub(super) fn refresh_global_today_ai_tokens(&mut self) {
+        if let Ok(tokens) = self.runtime_service.global_today_normalized_ai_tokens() {
+            self.state.ai_global_history.today_total_tokens = tokens.max(0);
+        }
+    }
+
+    pub(super) fn apply_ai_history_events(
+        &mut self,
+        events: Vec<AIHistoryEvent>,
+        cx: &mut Context<Self>,
+    ) -> usize {
+        let selected_project = self.state.selected_project.clone();
+        let selected_id = selected_project.as_ref().map(|project| project.id.as_str());
+        let selected_path = selected_project
+            .as_ref()
+            .map(|project| project.path.as_str());
+        let mut applied = 0;
+
+        for event in events {
+            match event {
+                AIHistoryEvent::ProjectState { state }
+                    if selected_id == Some(state.project_id.as_str())
+                        || selected_path == Some(state.project_path.as_str()) =>
+                {
+                    let is_loading = state.is_loading || state.queued;
+                    if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                        self.state.ai_history = summary;
+                    } else {
+                        apply_ai_history_project_state(&mut self.state.ai_history, &state);
+                    }
+                    if is_loading {
+                        self.ai_index_progress_visible_until = self
+                            .ai_index_progress_visible_until
+                            .max(app_now_seconds() + 3.0);
+                        self.ai_index_progress_generation =
+                            self.ai_index_progress_generation.wrapping_add(1);
+                        self.schedule_ai_index_progress_expiry(
+                            self.ai_index_progress_generation,
+                            cx,
+                        );
+                    }
+                    self.normalize_selected_ai_session();
+                    applied += 1;
+                }
+                AIHistoryEvent::Project { snapshot }
+                    if selected_id == Some(snapshot.project_id.as_str()) =>
+                {
+                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                    self.normalize_selected_ai_session();
+                    applied += 1;
+                }
+                AIHistoryEvent::Global { snapshot } => {
+                    self.state.ai_global_history =
+                        normalized_global_ai_history_snapshot_to_summary(snapshot);
+                    applied += 1;
+                }
+                AIHistoryEvent::Status { project_id, .. }
+                    if project_id.as_deref().is_none() || project_id.as_deref() == selected_id =>
+                {
+                    applied += 1;
+                }
+                _ => {}
+            }
+        }
+
+        if applied > 0 {
+            self.ai_history_active_index_count =
+                self.runtime_service.active_ai_history_index_count();
+            self.cache_current_project_view();
+            self.notify_task_column(cx);
+        }
+
+        applied
+    }
+
+    pub(super) fn apply_project_activity_events(
+        &mut self,
+        events: Vec<ProjectActivityEvent>,
+        cx: &mut Context<Self>,
+    ) -> usize {
+        let selected_project = self.state.selected_project.clone();
+        let selected_path = selected_project
+            .as_ref()
+            .map(|project| project.path.as_str());
+        let selected_id = selected_project.as_ref().map(|project| project.id.as_str());
+        let mut applied = 0;
+
+        for event in events {
+            match event {
+                ProjectActivityEvent::GitStatus {
+                    project_path,
+                    snapshot,
+                    ..
+                } if selected_path == Some(project_path.as_str()) => {
+                    self.state.git = snapshot;
+                    self.normalize_selected_git_file();
+                    self.normalize_selected_git_branch();
+                    applied += 1;
+                }
+                ProjectActivityEvent::GitReview {
+                    project_path,
+                    snapshot,
+                    ..
+                } if selected_path == Some(project_path.as_str()) => {
+                    self.git_review = snapshot;
+                    self.normalize_selected_git_file();
+                    applied += 1;
+                }
+                ProjectActivityEvent::WorktreeSnapshot {
+                    project_id,
+                    project_path,
+                    snapshot,
+                } if selected_id == Some(project_id.as_str())
+                    || selected_path == Some(project_path.as_str()) =>
+                {
+                    self.state.worktrees = snapshot;
+                    self.cache_current_project_view();
+                    applied += 1;
+                }
+                ProjectActivityEvent::GitChanged { project_path, .. }
+                    if selected_path == Some(project_path.as_str()) =>
+                {
+                    applied += 1;
+                }
+                ProjectActivityEvent::AIHistory {
+                    project_id,
+                    project_path,
+                    snapshot,
+                    ..
+                } if selected_id == Some(project_id.as_str())
+                    || selected_path == Some(project_path.as_str()) =>
+                {
+                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
+                    self.normalize_selected_ai_session();
+                    self.cache_current_project_view();
+                    applied += 1;
+                }
+                _ => {}
+            }
+        }
+
+        if applied > 0 {
+            self.notify_task_column(cx);
+        }
+
+        applied
+    }
+
+    pub(super) fn apply_file_change_events(&mut self, events: Vec<FileChangeEvent>) -> usize {
+        let selected_path = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.path.clone());
+        let applied = events
+            .iter()
+            .filter(|event| selected_path.as_deref() == Some(event.project_path.as_str()))
+            .count();
+
+        if applied > 0 {
+            self.refresh_file_tree_cache();
+            self.normalize_selected_file_entry();
+        }
+
+        applied
+    }
+
+    pub(super) fn poll_ai_runtime_state(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.poll_ai_runtime_state() {
+            Ok(snapshot) => {
+                match self
+                    .runtime_service
+                    .save_ai_runtime_state_snapshot(&snapshot)
+                {
+                    Ok(summary) => {
+                        self.state.ai_runtime_state = summary;
+                        self.status_message = format!(
+                            "AI runtime polled · running {} · waiting {} · completed {}",
+                            self.state.ai_runtime_state.running_count,
+                            self.state.ai_runtime_state.needs_input_count,
+                            self.state.ai_runtime_state.completed_count
+                        );
+                        self.runtime_trace(
+                            "ai-runtime",
+                            &format!(
+                                "poll ok running={} waiting={} completed={}",
+                                self.state.ai_runtime_state.running_count,
+                                self.state.ai_runtime_state.needs_input_count,
+                                self.state.ai_runtime_state.completed_count
+                            ),
+                        );
+                    }
+                    Err(error) => {
+                        let mut summary = self
+                            .runtime_service
+                            .reload_ai_runtime_state(&self.state.runtime_events);
+                        summary.error = Some(error);
+                        self.state.ai_runtime_state = summary;
+                        self.status_message = "AI runtime polled; state save failed".to_string();
+                        self.runtime_trace("ai-runtime", "poll state_save_failed");
+                    }
+                }
+            }
+            Err(error) => {
+                self.runtime_trace("ai-runtime", &format!("poll failed error={error}"));
+                self.status_message = format!("failed to poll AI runtime: {error}");
+            }
+        }
+        self.sync_project_activity_store(cx);
+        self.notify_task_column(cx);
+        cx.notify();
+    }
+
+    pub(super) fn dismiss_selected_project_ai_completion(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.state.selected_project.as_ref() else {
+            self.status_message = "no selected project for AI completion dismiss".to_string();
+            cx.notify();
+            return;
+        };
+        let snapshot = self
+            .runtime_service
+            .dismiss_ai_runtime_completion(&project.id);
+        match self
+            .runtime_service
+            .save_ai_runtime_state_snapshot(&snapshot)
+        {
+            Ok(summary) => {
+                self.state.ai_runtime_state = summary;
+                self.status_message = format!("AI completion dismissed for {}", project.name);
+            }
+            Err(error) => {
+                let mut summary = self
+                    .runtime_service
+                    .reload_ai_runtime_state(&self.state.runtime_events);
+                summary.error = Some(error.clone());
+                self.state.ai_runtime_state = summary;
+                self.status_message =
+                    format!("AI completion dismissed; state save failed: {error}");
+            }
+        }
+        self.sync_project_activity_store(cx);
+        self.notify_task_column(cx);
+        cx.notify();
+    }
+
+    pub(super) fn dismiss_worktree_ai_completion(
+        &mut self,
+        worktree_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if worktree_id.trim().is_empty() {
+            return;
+        }
+        let changed = self
+            .runtime_service
+            .ai_runtime_dismiss_completion(worktree_id);
+        if !changed {
+            return;
+        }
+        self.dismissed_worktree_ai_completion_at
+            .insert(worktree_id.to_string(), app_now_seconds());
+        self.sync_project_activity_store(cx);
+        self.notify_task_column(cx);
+        cx.notify();
+
+        let runtime_service = self.runtime_service.clone();
+        let snapshot = self.runtime_service.ai_runtime_state_snapshot();
+        codux_runtime::async_runtime::spawn(async move {
+            let _ = runtime_service.save_ai_runtime_state_snapshot(&snapshot);
+        });
+    }
+}

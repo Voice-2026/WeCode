@@ -31,6 +31,7 @@ impl ProjectActivityCoordinator {
 
     pub fn mark_project_active(&self, project: ProjectSummary) {
         self.mark_project_summary(&project);
+        let mut should_refresh_sidecars = true;
         if let Ok(mut active) = self.active_project_id.lock() {
             let is_same_active = active.as_deref() == Some(project.id.as_str());
             *active = Some(project.id.clone());
@@ -43,9 +44,12 @@ impl ProjectActivityCoordinator {
             {
                 return;
             }
+            should_refresh_sidecars = is_same_active;
         }
         let is_first_git_activation = self.mark_git_activation(&project.id);
-        self.refresh_git_sidecars_by_path(project.clone());
+        if should_refresh_sidecars || is_first_git_activation {
+            self.refresh_git_sidecars_by_path(project.clone());
+        }
         if is_first_git_activation {
             self.refresh_git_once(&project);
         }

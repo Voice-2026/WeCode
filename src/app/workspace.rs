@@ -9,44 +9,11 @@ use gpui_component::{
 };
 
 impl CoduxApp {
-    pub(in crate::app) fn main_workspace_column(
-        &mut self,
+    pub(in crate::app) fn workspace_toolbar(
+        &self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .w_full()
-            .h_full()
-            .bg(color(theme::BG))
-            .child(self.workspace_toolbar(window, cx))
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .child(div().flex().flex_col().flex_1().min_w_0().child(
-                        match self.workspace_view {
-                            WorkspaceView::Terminal => {
-                                self.terminal_workspace_body(cx).into_any_element()
-                            }
-                            WorkspaceView::Files => {
-                                self.files_workspace_body(window, cx).into_any_element()
-                            }
-                            WorkspaceView::Review => {
-                                self.review_workspace_body(cx).into_any_element()
-                            }
-                        },
-                    ))
-                    .child(self.assistant_column(window, cx)),
-            )
-    }
-
-    fn workspace_toolbar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let active_index = match self.workspace_view {
             WorkspaceView::Terminal => 0,
             WorkspaceView::Files => 1,
@@ -67,7 +34,11 @@ impl CoduxApp {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(workspace_segmented_tabs(active_index, cx)),
+                        .child(workspace_segmented_tabs(
+                            active_index,
+                            &self.state.settings.language,
+                            cx,
+                        )),
                 )
                 .child(
                     div()
@@ -105,6 +76,7 @@ impl CoduxApp {
                             this.child(workspace_open_button(
                                 &self.project_open_applications,
                                 true,
+                                &self.state.settings.language,
                                 cx,
                             ))
                             .child(workspace_assistant_button(
@@ -133,16 +105,65 @@ impl CoduxApp {
                             ))
                         }),
                 ),
+            cx,
         )
     }
 
-    fn terminal_workspace_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(in crate::app) fn workspace_body(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         div()
             .flex()
             .flex_col()
             .flex_1()
-            .min_w_0()
+            .flex_basis(px(0.0))
             .w_full()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .child(match self.workspace_view {
+                WorkspaceView::Terminal => self.terminal_workspace_body(cx).into_any_element(),
+                WorkspaceView::Files => self.files_workspace_body(window, cx).into_any_element(),
+                WorkspaceView::Review => self.review_workspace_body(cx).into_any_element(),
+            })
+    }
+
+    fn terminal_workspace_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let has_bottom_tabs = self.bottom_terminals().next().is_some();
+        if !has_bottom_tabs {
+            return div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .flex_basis(px(0.0))
+                .min_w_0()
+                .min_h_0()
+                .w_full()
+                .h_full()
+                .bg(color(theme::BG_TERMINAL))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex_basis(px(0.0))
+                        .min_w_0()
+                        .min_h_0()
+                        .w_full()
+                        .child(self.terminal_main_split_area(cx)),
+                )
+                .child(div().h(px(40.0)).child(self.terminal_bottom_tabs_area(cx)));
+        }
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .flex_basis(px(0.0))
+            .min_w_0()
+            .min_h_0()
+            .w_full()
+            .h_full()
             .bg(color(theme::BG_TERMINAL))
             .child(
                 v_resizable("workspace-terminal-split")
@@ -165,6 +186,7 @@ impl CoduxApp {
         div()
             .flex()
             .flex_col()
+            .flex_1()
             .size_full()
             .min_w_0()
             .min_h_0()
@@ -172,12 +194,14 @@ impl CoduxApp {
     }
 
     fn terminal_bottom_tabs_area(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let active = self.active_terminal();
+        let active = self.active_bottom_terminal();
+        let has_bottom_tabs = active.is_some();
 
         div()
             .flex()
             .flex_col()
             .size_full()
+            .min_w_0()
             .min_h_0()
             .child(
                 div()
@@ -188,7 +212,7 @@ impl CoduxApp {
                     .gap_2()
                     .px_2()
                     .border_t_1()
-                    .border_color(color(theme::BORDER_SOFT))
+                    .border_color(cx.theme().border)
                     .child(
                         div()
                             .flex()
@@ -197,7 +221,17 @@ impl CoduxApp {
                             .flex_1()
                             .min_w_0()
                             .overflow_hidden()
-                            .children(self.terminals.iter().map(|terminal| {
+                            .when(!has_bottom_tabs, |this| {
+                                this.child(
+                                    div()
+                                        .px_2()
+                                        .text_xs()
+                                        .line_height(px(16.0))
+                                        .text_color(cx.theme().secondary_foreground)
+                                        .child("终端"),
+                                )
+                            })
+                            .children(self.bottom_terminals().map(|terminal| {
                                 terminal_bottom_tab_button(
                                     terminal.id,
                                     terminal.label.clone(),
@@ -209,20 +243,9 @@ impl CoduxApp {
                     )
                     .child(terminal_bottom_add_button(cx)),
             )
-            .child(
-                div().flex_1().min_h_0().child(match active {
-                    Some(tab) => terminal_bottom_summary(tab).into_any_element(),
-                    None => div()
-                        .size_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_xs()
-                        .text_color(color(theme::TEXT_DIM))
-                        .child("No terminal")
-                        .into_any_element(),
-                }),
-            )
+            .when_some(active, |this, tab| {
+                this.child(div().flex_1().min_h_0().child(terminal_bottom_content(tab)))
+            })
     }
 
     fn files_workspace_body(
@@ -252,7 +275,7 @@ impl CoduxApp {
             .flex()
             .flex_col()
             .flex_1()
-            .bg(color(theme::BG))
+            .bg(color(theme::BG_TERMINAL))
             .child(
                 div()
                     .h(px(44.0))
@@ -261,7 +284,8 @@ impl CoduxApp {
                     .items_center()
                     .justify_between()
                     .border_b_1()
-                    .border_color(color(theme::BORDER_SOFT))
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().title_bar)
                     .child(
                         div()
                             .flex()
@@ -320,19 +344,16 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn terminal_panes(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(active) = self.active_terminal() else {
-            return div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(color(theme::TEXT_DIM))
-                .child("No terminal");
+        let Some(active) = self.main_terminal() else {
+            return div().flex_1().size_full().bg(color(theme::BG_TERMINAL));
         };
+        let pane_count = active.panes.len();
 
         div().flex().flex_1().min_w_0().overflow_hidden().children(
             active.panes.iter().enumerate().map(|(index, slot)| {
                 let close_id = SharedString::from(format!("terminal-pane-close-{index}"));
+                let float_id = SharedString::from(format!("terminal-pane-float-{index}"));
+                let add_id = SharedString::from(format!("terminal-pane-add-{index}"));
                 div()
                     .relative()
                     .group("terminal-pane")
@@ -348,51 +369,118 @@ impl CoduxApp {
                         theme::BORDER_SOFT
                     }))
                     .child(
+                        div().flex_1().min_w_0().child(match &slot.pane {
+                            Some(pane) => gpui::AnyView::from(pane.view.clone())
+                                .cached(gpui::StyleRefinement::default().flex().size_full())
+                                .into_any_element(),
+                            None => div()
+                                .size_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_color(color(theme::TEXT_DIM))
+                                .child("Terminal mounting...")
+                                .into_any_element(),
+                        }),
+                    )
+                    .child(
                         div()
                             .absolute()
-                            .top_1()
-                            .right_1()
-                            .invisible()
+                            .top_2()
+                            .right_2()
                             .flex()
                             .items_center()
                             .gap_1()
-                            .group_hover("terminal-pane", |style| style.visible())
-                            .child(
-                                Button::new(SharedString::from(format!(
-                                    "terminal-pane-add-{index}"
-                                )))
-                                .ghost()
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(IconName::Plus)
-                                        .text_color(cx.theme().secondary_foreground),
-                                )
-                                .on_click(cx.listener(
-                                    move |app, _event, window, cx| app.split_terminal(window, cx),
-                                )),
-                            )
-                            .child(
-                                Button::new(close_id)
-                                    .ghost()
-                                    .text_color(cx.theme().secondary_foreground)
-                                    .icon(
-                                        Icon::new(IconName::Close)
-                                            .text_color(cx.theme().secondary_foreground),
-                                    )
-                                    .on_click(cx.listener(move |app, _event, window, cx| {
-                                        app.close_terminal_pane(index, window, cx)
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div().flex_1().min_w_0().child(
-                            gpui::AnyView::from(slot.pane.view.clone())
-                                .cached(gpui::StyleRefinement::default().flex().size_full()),
-                        ),
+                            .child(terminal_pane_control_button(
+                                float_id,
+                                IconName::ExternalLink,
+                                "浮窗",
+                                pane_count > 1,
+                                cx,
+                                move |app, _event, window, cx| {
+                                    app.float_terminal_pane(index, window, cx)
+                                },
+                            ))
+                            .child(terminal_pane_control_button(
+                                add_id,
+                                IconName::Plus,
+                                "新建分屏",
+                                true,
+                                cx,
+                                |app, _event, window, cx| app.split_terminal(window, cx),
+                            ))
+                            .child(terminal_pane_control_button(
+                                close_id,
+                                IconName::Close,
+                                "关闭分屏",
+                                pane_count > 1,
+                                cx,
+                                move |app, _event, window, cx| {
+                                    app.close_terminal_pane(index, window, cx)
+                                },
+                            )),
                     )
                     .into_any_element()
             }),
         )
+    }
+}
+
+fn terminal_bottom_content(tab: &TerminalTab) -> impl IntoElement {
+    div().size_full().min_h_0().child(
+        match tab.panes.first().and_then(|slot| slot.pane.as_ref()) {
+            Some(pane) => gpui::AnyView::from(pane.view.clone())
+                .cached(gpui::StyleRefinement::default().flex().size_full())
+                .into_any_element(),
+            None => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(color(theme::TEXT_DIM))
+                .child("Terminal mounting...")
+                .into_any_element(),
+        },
+    )
+}
+
+fn terminal_pane_control_button(
+    id: SharedString,
+    icon: IconName,
+    tooltip: &'static str,
+    enabled: bool,
+    cx: &mut Context<CoduxApp>,
+    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> AnyElement {
+    let text_color = if enabled {
+        cx.theme().secondary_foreground
+    } else {
+        color(theme::TEXT_DIM)
+    };
+    let button = div()
+        .id(id)
+        .size(px(28.0))
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .rounded_sm()
+        .text_color(text_color)
+        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .child(Icon::new(icon).size_3p5().text_color(text_color));
+
+    if enabled {
+        button
+            .cursor_pointer()
+            .hover(|style| style.bg(cx.theme().secondary_hover))
+            .on_click(cx.listener(move |app, event, window, cx| {
+                cx.stop_propagation();
+                window.prevent_default();
+                on_click(app, event, window, cx);
+            }))
+            .into_any_element()
+    } else {
+        button.opacity(0.45).into_any_element()
     }
 }
 
@@ -414,6 +502,7 @@ fn metric_inline(label: &'static str, value: String) -> impl IntoElement {
 fn workspace_open_button(
     applications: &[ProjectOpenApplicationSummary],
     has_project: bool,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let applications = applications
@@ -423,6 +512,7 @@ fn workspace_open_button(
         .collect::<Vec<_>>();
     let app_entity = cx.entity();
     let reveal_entity = app_entity.clone();
+    let language = language.to_string();
 
     div()
         .flex()
@@ -454,12 +544,7 @@ fn workspace_open_button(
                         .text_color(cx.theme().foreground),
                 ),
         )
-        .child(
-            div()
-                .w(px(1.0))
-                .h(px(18.0))
-                .bg(color(0xFFFFFF).opacity(0.10)),
-        )
+        .child(div().w(px(1.0)).h(px(18.0)).bg(cx.theme().border))
         .child(
             Button::new("workspace-open-apps")
                 .text()
@@ -474,7 +559,12 @@ fn workspace_open_button(
                 )
                 .dropdown_menu(move |menu, _window, _cx| {
                     if applications.is_empty() {
-                        menu.item(PopupMenuItem::new("暂无已安装应用").icon(IconName::ExternalLink))
+                        let label = workspace_i18n(
+                            &language,
+                            "workspace.open.installed_apps_empty",
+                            "No installed apps",
+                        );
+                        menu.item(PopupMenuItem::new(label).icon(IconName::ExternalLink))
                     } else {
                         applications.iter().fold(menu, |menu, application| {
                             let app_entity = app_entity.clone();
@@ -526,8 +616,15 @@ fn workspace_level_button(
                     cx,
                 )),
         )
-        .content(move |_, _, _| {
-            workspace_level_popover_content(tokens, tier.clone(), language.clone())
+        .content(move |_, _, cx| {
+            let theme = cx.theme();
+            workspace_level_popover_content(
+                tokens,
+                tier.clone(),
+                language.clone(),
+                theme.secondary_hover,
+                theme.transparent,
+            )
         })
 }
 
@@ -599,7 +696,7 @@ fn workspace_pet_button(
     let label = if pet.claimed {
         format!("Lv.{}", pet.level.max(1))
     } else {
-        "领取".to_string()
+        workspace_i18n(&language, "pet.claim.action", "Claim Pet")
     };
     let trigger = workspace_header_button("workspace-pet", cx)
         .secondary()
@@ -750,56 +847,56 @@ enum DailyLevelIcon {
 const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
     DailyLevelTier {
         id: "iron",
-        title: "黑铁",
+        title: "Iron",
         min: 0,
         color: 0x5B616D,
         icon: DailyLevelIcon::Component(IconName::Minus),
     },
     DailyLevelTier {
         id: "bronze",
-        title: "青铜",
+        title: "Bronze",
         min: 1_000_000,
         color: 0xC98663,
         icon: DailyLevelIcon::Asset("rank-icons/zap.svg"),
     },
     DailyLevelTier {
         id: "silver",
-        title: "白银",
+        title: "Silver",
         min: 3_000_000,
         color: 0xC8D1E3,
         icon: DailyLevelIcon::Asset("rank-icons/shield-check.svg"),
     },
     DailyLevelTier {
         id: "gold",
-        title: "黄金",
+        title: "Gold",
         min: 6_000_000,
         color: 0xE8AA34,
         icon: DailyLevelIcon::Component(IconName::Star),
     },
     DailyLevelTier {
         id: "platinum",
-        title: "铂金",
+        title: "Platinum",
         min: 10_000_000,
         color: 0x7ED6D8,
         icon: DailyLevelIcon::Component(IconName::Star),
     },
     DailyLevelTier {
         id: "diamond",
-        title: "钻石",
+        title: "Diamond",
         min: 18_000_000,
         color: 0x59A7FF,
         icon: DailyLevelIcon::Asset("rank-icons/sparkles.svg"),
     },
     DailyLevelTier {
         id: "master",
-        title: "大师",
+        title: "Master",
         min: 30_000_000,
         color: 0x9A72FF,
         icon: DailyLevelIcon::Asset("rank-icons/trophy.svg"),
     },
     DailyLevelTier {
         id: "grandmaster",
-        title: "宗师",
+        title: "Grandmaster",
         min: 50_000_000,
         color: 0xFF5E8E,
         icon: DailyLevelIcon::Asset("rank-icons/flame.svg"),
@@ -843,6 +940,8 @@ fn workspace_level_popover_content(
     tokens: i64,
     current_tier: DailyLevelTier,
     language: String,
+    hover_surface: gpui::Hsla,
+    transparent: gpui::Hsla,
 ) -> impl IntoElement {
     let tokens = tokens.max(0);
     let current_title = daily_level_title(&current_tier, &language);
@@ -915,16 +1014,12 @@ fn workspace_level_popover_content(
                     .flex()
                     .items_center()
                     .gap_2()
-                    .bg(if current {
-                        color(0xFFFFFF).opacity(0.075)
-                    } else {
-                        color(0xFFFFFF).opacity(0.0)
-                    })
+                    .bg(if current { hover_surface } else { transparent })
                     .border_1()
                     .border_color(if current {
                         color(tier.color).opacity(0.28)
                     } else {
-                        color(0xFFFFFF).opacity(0.0)
+                        transparent
                     })
                     .child(daily_level_badge(&tier, 24.0, 10.0))
                     .child(
@@ -1500,7 +1595,7 @@ fn workspace_pet_name_row(
             Button::new("pet-rename-current")
                 .compact()
                 .ghost()
-                .tooltip("保存宠物昵称")
+                .tooltip(workspace_i18n(&language, "pet.name.save", "Save pet name"))
                 .text_color(cx.theme().secondary_foreground)
                 .icon(
                     Icon::new(IconName::Check)
@@ -1516,7 +1611,7 @@ fn workspace_pet_name_row(
             Button::new("pet-rename-cancel")
                 .compact()
                 .ghost()
-                .tooltip("取消")
+                .tooltip(workspace_i18n(&language, "common.cancel", "Cancel"))
                 .text_color(cx.theme().secondary_foreground)
                 .icon(
                     Icon::new(IconName::Close)
@@ -1539,15 +1634,22 @@ pub(in crate::app) fn workspace_pet_install_form(
     install_error: Option<&str>,
     install_previewing: bool,
     installing: bool,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let url_value = install_url.to_string();
     let name_value = install_display_name.to_string();
+    let url_placeholder = workspace_i18n(
+        language,
+        "pet.custom.install.url.placeholder",
+        "https://petdex.crafter.run/zh/pets/boba",
+    );
+    let name_placeholder = workspace_i18n(language, "pet.custom.install.name.label", "Pet Name");
     let url_state = window.use_keyed_state("pet-install-url", cx, |window, cx| {
         InputState::new(window, cx)
             .default_value(url_value.clone())
-            .placeholder("Petdex URL")
+            .placeholder(url_placeholder.clone())
     });
     url_state.update(cx, |state, cx| {
         if state.value().as_ref() != install_url {
@@ -1564,7 +1666,7 @@ pub(in crate::app) fn workspace_pet_install_form(
     let name_state = window.use_keyed_state("pet-install-display-name", cx, |window, cx| {
         InputState::new(window, cx)
             .default_value(name_value.clone())
-            .placeholder("显示名")
+            .placeholder(name_placeholder.clone())
     });
     name_state.update(cx, |state, cx| {
         if state.value().as_ref() != install_display_name {
@@ -1587,16 +1689,19 @@ pub(in crate::app) fn workspace_pet_install_form(
         .child(
             div()
                 .rounded(px(8.0))
-                .bg(color(0xFFFFFF).opacity(0.055))
+                .bg(cx.theme().group_box)
                 .p(px(14.0))
                 .child(
                     div()
                         .mb(px(8.0))
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT_MUTED))
-                        .child("Petdex 页面 URL"),
+                        .child(workspace_i18n(
+                            &language,
+                            "pet.custom.install.url.label",
+                            "Petdex Page URL",
+                        )),
                 )
                 .child(
                     div()
@@ -1611,14 +1716,22 @@ pub(in crate::app) fn workspace_pet_install_form(
                         .child(
                             Button::new("pet-custom-market")
                                 .ghost()
-                                .tooltip("打开 Petdex")
+                                .tooltip(workspace_i18n(
+                                    &language,
+                                    "pet.custom.market.title",
+                                    "Petdex Marketplace",
+                                ))
                                 .text_color(cx.theme().secondary_foreground)
                                 .icon(
                                     Icon::new(IconName::ExternalLink)
                                         .size_3p5()
                                         .text_color(cx.theme().secondary_foreground),
                                 )
-                                .child(workspace_pet_install_button_label("获取宠物"))
+                                .child(workspace_pet_install_button_label(workspace_i18n(
+                                    &language,
+                                    "pet.custom.market.action",
+                                    "Get Pets",
+                                )))
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.open_pet_market(window, cx)
                                 })),
@@ -1632,7 +1745,11 @@ pub(in crate::app) fn workspace_pet_install_form(
                                         || install_previewing
                                         || installing,
                                 )
-                                .tooltip("解析自定义宠物")
+                                .tooltip(workspace_i18n(
+                                    &language,
+                                    "pet.custom.install.preview.label",
+                                    "Pet Preview",
+                                ))
                                 .text_color(cx.theme().secondary_foreground)
                                 .icon(
                                     Icon::new(IconName::Eye)
@@ -1640,11 +1757,19 @@ pub(in crate::app) fn workspace_pet_install_form(
                                         .text_color(cx.theme().secondary_foreground),
                                 )
                                 .child(workspace_pet_install_button_label(if install_previewing {
-                                    "读取中"
+                                    workspace_i18n(
+                                        &language,
+                                        "pet.custom.install.resolving",
+                                        "Reading Petdex page...",
+                                    )
                                 } else if install_preview.is_some() {
-                                    "重新解析"
+                                    workspace_i18n(
+                                        &language,
+                                        "pet.custom.install.resolve_again",
+                                        "Parse Again",
+                                    )
                                 } else {
-                                    "解析"
+                                    workspace_i18n(&language, "pet.custom.install.resolve", "Parse")
                                 }))
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.preview_custom_pet_install(window, cx)
@@ -1657,6 +1782,8 @@ pub(in crate::app) fn workspace_pet_install_form(
                 preview,
                 &name_state,
                 installing,
+                &language,
+                cx,
             ))
         })
         .when(installing, |this| {
@@ -1670,7 +1797,11 @@ pub(in crate::app) fn workspace_pet_install_form(
                     .line_height(px(16.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(color(theme::ACCENT))
-                    .child("正在下载、解包并校验宠物包。"),
+                    .child(workspace_i18n(
+                        &language,
+                        "pet.custom.install.installing.detail",
+                        "Downloading, unpacking, and validating the pet package.",
+                    )),
             )
         })
         .when_some(install_error.map(str::to_string), |this, error| {
@@ -1682,6 +1813,8 @@ fn workspace_pet_install_preview(
     preview: PetCustomPetInstallPreview,
     name_state: &gpui::Entity<InputState>,
     installing: bool,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let image = if let Some(path) = preview
         .local_image_path
@@ -1714,7 +1847,7 @@ fn workspace_pet_install_preview(
         .rounded(px(10.0))
         .border_1()
         .border_color(color(theme::BORDER_SOFT))
-        .bg(color(0xFFFFFF).opacity(0.035))
+        .bg(cx.theme().group_box)
         .p(px(14.0))
         .child(
             div()
@@ -1741,7 +1874,6 @@ fn workspace_pet_install_preview(
                                 .truncate()
                                 .text_size(px(14.0))
                                 .line_height(px(18.0))
-                                .font_weight(FontWeight::BOLD)
                                 .child(preview.display_name.clone()),
                         )
                         .child(
@@ -1781,9 +1913,12 @@ fn workspace_pet_install_preview(
                     div()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT_MUTED))
-                        .child("宠物名称"),
+                        .child(workspace_i18n(
+                            language,
+                            "pet.custom.install.name.label",
+                            "Pet Name",
+                        )),
                 )
                 .child(
                     Input::new(name_state)
@@ -1796,9 +1931,21 @@ fn workspace_pet_install_preview(
                 .flex()
                 .flex_col()
                 .gap(px(7.0))
-                .child(workspace_pet_install_check("Petdex 页面已验证"))
-                .child(workspace_pet_install_check("已找到宠物包链接"))
-                .child(workspace_pet_install_check("安装时会校验 Codex 格式")),
+                .child(workspace_pet_install_check(workspace_i18n(
+                    language,
+                    "pet.custom.install.validation.page",
+                    "Petdex page verified",
+                )))
+                .child(workspace_pet_install_check(workspace_i18n(
+                    language,
+                    "pet.custom.install.validation.package",
+                    "Package link found",
+                )))
+                .child(workspace_pet_install_check(workspace_i18n(
+                    language,
+                    "pet.custom.install.validation.format",
+                    "Codex-format check runs during install",
+                ))),
         )
 }
 
@@ -1823,7 +1970,7 @@ fn workspace_pet_install_preview_fallback() -> AnyElement {
         .into_any_element()
 }
 
-fn workspace_pet_install_check(text: &'static str) -> impl IntoElement {
+fn workspace_pet_install_check(text: String) -> impl IntoElement {
     div()
         .flex()
         .items_center()
@@ -1877,7 +2024,15 @@ fn workspace_popover_notice(message: String) -> impl IntoElement {
         .child(message)
 }
 
-fn workspace_segmented_tabs(active_index: usize, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn workspace_segmented_tabs(
+    active_index: usize,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let locale = locale_from_language_setting(language);
+    let terminal_label = translate(&locale, "workspace.create_split.terminal", "Terminal");
+    let files_label = translate(&locale, "titlebar.files", "Files");
+    let review_label = translate(&locale, "titlebar.review", "Review");
     div()
         .flex()
         .items_center()
@@ -1885,24 +2040,24 @@ fn workspace_segmented_tabs(active_index: usize, cx: &mut Context<CoduxApp>) -> 
         .h(px(32.0))
         .p(px(4.0))
         .rounded_sm()
-        .bg(color(0xFFFFFF).opacity(0.06))
+        .bg(cx.theme().secondary)
         .child(workspace_segmented_tab(
             0,
-            "终端",
+            terminal_label,
             IconName::SquareTerminal,
             active_index == 0,
             cx,
         ))
         .child(workspace_segmented_tab(
             1,
-            "文件",
+            files_label,
             IconName::File,
             active_index == 1,
             cx,
         ))
         .child(workspace_segmented_tab(
             2,
-            "评审",
+            review_label,
             IconName::Github,
             active_index == 2,
             cx,
@@ -1911,11 +2066,12 @@ fn workspace_segmented_tabs(active_index: usize, cx: &mut Context<CoduxApp>) -> 
 
 fn workspace_segmented_tab(
     index: usize,
-    label: &'static str,
+    label: impl Into<SharedString>,
     icon: IconName,
     active: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let label = label.into();
     div()
         .id(SharedString::from(format!("workspace-view-tab-{index}")))
         .h(px(22.0))
@@ -1939,7 +2095,7 @@ fn workspace_segmented_tab(
             if active {
                 style.bg(cx.theme().primary)
             } else {
-                style.bg(cx.theme().secondary_hover.opacity(0.72))
+                style.bg(cx.theme().secondary_hover)
             }
         })
         .on_click(cx.listener(move |app, _event, window, cx| {
@@ -1982,6 +2138,7 @@ fn terminal_bottom_tab_button(
         )))
         .h(px(32.0))
         .px_3()
+        .relative()
         .flex()
         .items_center()
         .gap_2()
@@ -2050,20 +2207,4 @@ pub(in crate::app) fn workspace_text_button(
         .text_color(cx.theme().secondary_foreground)
         .label(label)
         .on_click(cx.listener(on_click))
-}
-
-fn terminal_bottom_summary(tab: &TerminalTab) -> impl IntoElement {
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_xs()
-        .text_color(color(theme::TEXT_DIM))
-        .child(format!(
-            "{} · {} pane{}",
-            tab.label,
-            tab.panes.len(),
-            if tab.panes.len() == 1 { "" } else { "s" }
-        ))
 }

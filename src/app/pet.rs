@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::app_events::PetUpdateEvent;
 use codux_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetStats};
 use gpui::{Hsla, ListSizingBehavior};
 use gpui_component::{
@@ -88,7 +89,12 @@ impl CoduxApp {
             },
             move |window, cx| {
                 let app = CoduxApp::new_pet_window(mode);
-                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                theme::apply_component_theme(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    Some(window),
+                    cx,
+                );
                 let view = cx.new(|_| app);
                 view.update(cx, |app, cx| {
                     app.start_pet_event_sync_loop(cx);
@@ -236,11 +242,10 @@ impl CoduxApp {
             .find(|item| item.species == selected_species)
             .cloned();
 
-        child_window_shell(pet_catalog_text(
-            &language,
-            "pet.claim.window.title",
-            "Claim Pet",
-        ))
+        child_window_shell(
+            pet_catalog_text(&language, "pet.claim.window.title", "Claim Pet"),
+            cx,
+        )
         .child(
             div()
                 .min_h_0()
@@ -366,11 +371,10 @@ impl CoduxApp {
     ) -> impl IntoElement {
         let language = self.state.settings.language.clone();
 
-        child_window_shell(pet_catalog_text(
-            &language,
-            "pet.custom.install.title",
-            "Add Custom Pet",
-        ))
+        child_window_shell(
+            pet_catalog_text(&language, "pet.custom.install.title", "Add Custom Pet"),
+            cx,
+        )
         .child(
             div()
                 .flex_1()
@@ -384,6 +388,7 @@ impl CoduxApp {
                     self.pet_install_error.as_deref(),
                     self.pet_install_previewing,
                     self.pet_installing,
+                    &language,
                     window,
                     cx,
                 )),
@@ -499,11 +504,10 @@ impl CoduxApp {
         )
         .into_any_element();
 
-        child_window_shell(pet_catalog_text(
-            &language,
-            "pet.dex.window.title",
-            "Pet Dex",
-        ))
+        child_window_shell(
+            pet_catalog_text(&language, "pet.dex.window.title", "Pet Dex"),
+            cx,
+        )
         .child(
             div()
                 .min_h_0()
@@ -535,6 +539,7 @@ impl CoduxApp {
                                         unlocked_count,
                                         total_count,
                                         collection_subtitle,
+                                        cx,
                                     ))
                                     .child(pet_dex_current_card(
                                         &self.state.pet,
@@ -722,7 +727,7 @@ impl PetDexVirtualRow {
                 .w_full()
                 .px(px(20.0))
                 .pt(px(12.0))
-                .child(pet_dex_empty_state(message.clone())),
+                .child(pet_dex_empty_state(message.clone(), cx)),
             PetDexVirtualRow::LegacyRow {
                 record,
                 sprite_path,
@@ -912,12 +917,12 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
                     color(theme::BORDER_SOFT)
                 })
                 .bg(if unlocked {
-                    color(0xFFFFFF).opacity(0.035)
+                    cx.theme().secondary
                 } else {
-                    color(0xFFFFFF).opacity(0.025)
+                    cx.theme().group_box
                 })
                 .opacity(if unlocked { 1.0 } else { 0.8 })
-                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                .hover(|style| style.bg(cx.theme().secondary_hover))
                 .on_click(cx.listener(move |app, _event, _window, cx| {
                     if unlocked {
                         app.show_pet_dex_spotlight(PetDexSpotlight::Bundled(species.clone()), cx);
@@ -933,7 +938,7 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
                         .bg(if unlocked {
                             color(pet_accent_color(&item.species)).opacity(0.16)
                         } else {
-                            color(0xFFFFFF).opacity(0.04)
+                            cx.theme().secondary
                         })
                         .child(if unlocked && sprite_path.is_some() {
                             pet_sprite_element(
@@ -987,8 +992,8 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
             pet_dex_card_frame(SharedString::from(format!("pet-dex-custom-{pet_id}")))
                 .cursor_pointer()
                 .border_color(color(theme::ACCENT).opacity(0.25))
-                .bg(color(0xFFFFFF).opacity(0.035))
-                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                .bg(cx.theme().secondary)
+                .hover(|style| style.bg(cx.theme().secondary_hover))
                 .on_click(cx.listener(move |app, _event, _window, cx| {
                     app.show_pet_dex_spotlight(PetDexSpotlight::Custom(pet_id.clone()), cx);
                 }))
@@ -1033,12 +1038,12 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
     }
 }
 
-fn pet_dex_empty_state(message: String) -> impl IntoElement {
+fn pet_dex_empty_state(message: String, cx: &mut Context<CoduxApp>) -> impl IntoElement {
     div()
         .rounded(px(10.0))
         .border_1()
         .border_color(color(theme::BORDER_SOFT))
-        .bg(color(0xFFFFFF).opacity(0.02))
+        .bg(cx.theme().group_box)
         .px(px(14.0))
         .py(px(24.0))
         .text_center()
@@ -1067,13 +1072,13 @@ fn pet_legacy_row(
 
     div()
         .rounded(px(9.0))
-        .bg(color(0xFFFFFF).opacity(0.035))
+        .bg(cx.theme().secondary)
         .px(px(12.0))
         .py(px(10.0))
         .flex()
         .items_center()
         .gap(px(12.0))
-        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+        .hover(|style| style.bg(cx.theme().secondary_hover))
         .child(
             div()
                 .size(px(44.0))
@@ -1083,7 +1088,7 @@ fn pet_legacy_row(
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(color(0xFFFFFF).opacity(0.05))
+                .bg(cx.theme().group_box)
                 .child(pet_sprite_element(
                     sprite_path,
                     38.0,
@@ -1345,7 +1350,7 @@ fn pet_claim_option_row(
         selected,
         title,
         subtitle,
-        pet_claim_sprite_thumb(sprite_path, cx.theme().primary),
+        pet_claim_sprite_thumb(sprite_path, cx.theme().primary, cx),
         cx,
     )
     .on_click(cx.listener(move |app, _event, _window, cx| {
@@ -1372,7 +1377,7 @@ fn pet_claim_custom_row(
         selected,
         title,
         subtitle,
-        pet_claim_sprite_thumb(sprite_path, cx.theme().primary),
+        pet_claim_sprite_thumb(sprite_path, cx.theme().primary, cx),
         cx,
     )
     .on_click(cx.listener(move |app, _event, _window, cx| {
@@ -1408,7 +1413,7 @@ fn pet_select_row(
         .bg(if selected {
             color(theme::ACCENT).opacity(0.1)
         } else {
-            color(0xFFFFFF).opacity(0.035)
+            cx.theme().secondary
         })
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .child(leading)
@@ -1451,7 +1456,11 @@ fn pet_select_row(
         )
 }
 
-fn pet_claim_sprite_thumb(sprite_path: PathBuf, fallback_color: gpui::Hsla) -> AnyElement {
+fn pet_claim_sprite_thumb(
+    sprite_path: PathBuf,
+    fallback_color: gpui::Hsla,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
     div()
         .size(px(44.0))
         .rounded(px(8.0))
@@ -1459,7 +1468,7 @@ fn pet_claim_sprite_thumb(sprite_path: PathBuf, fallback_color: gpui::Hsla) -> A
         .flex()
         .items_center()
         .justify_center()
-        .bg(color(0xFFFFFF).opacity(0.04))
+        .bg(cx.theme().group_box)
         .child(pet_sprite_element(sprite_path, 44.0, 0, 0, fallback_color))
         .into_any_element()
 }
@@ -1757,7 +1766,7 @@ fn pet_dex_current_card(
             div()
                 .mt(px(12.0))
                 .rounded(px(8.0))
-                .bg(color(0xFFFFFF).opacity(0.045))
+                .bg(cx.theme().group_box)
                 .px(px(12.0))
                 .py(px(9.0))
                 .flex()
@@ -1831,6 +1840,7 @@ fn pet_dex_sidebar_overview(
     unlocked_count: usize,
     total_count: usize,
     collection_subtitle: String,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     div()
         .child(
@@ -1873,16 +1883,19 @@ fn pet_dex_sidebar_overview(
                     pet_catalog_text(language, "pet.dex.current_companion", "Current Companion"),
                     current_level,
                     current_name,
+                    cx,
                 ))
                 .child(pet_dex_summary_row(
                     pet_catalog_text(language, "pet.dex.archived", "Archived"),
                     archived_subtitle.to_string(),
                     archived_count.to_string(),
+                    cx,
                 ))
                 .child(pet_dex_summary_row(
                     pet_catalog_text(language, "pet.dex.collection", "Dex Collection"),
                     collection_subtitle.to_string(),
                     format!("{unlocked_count}/{}", total_count.max(1)),
+                    cx,
                 )),
         )
         .child(pet_dex_separator())
@@ -1896,10 +1909,15 @@ fn pet_dex_separator() -> impl IntoElement {
         .bg(color(theme::BORDER_SOFT).opacity(0.75))
 }
 
-fn pet_dex_summary_row(label: String, subtitle: String, value: String) -> impl IntoElement {
+fn pet_dex_summary_row(
+    label: String,
+    subtitle: String,
+    value: String,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
     div()
         .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.045))
+        .bg(cx.theme().group_box)
         .px(px(12.0))
         .py(px(10.0))
         .flex()
@@ -1966,7 +1984,7 @@ fn pet_date_label(timestamp: i64) -> String {
         .timestamp_opt(timestamp, 0)
         .single()
         .map(|date| format!("{}/{}/{}", date.year(), date.month(), date.day()))
-        .unwrap_or_else(|| "未知日期".to_string())
+        .unwrap_or_else(|| "Unknown date".to_string())
 }
 
 fn pet_accent_color(species: &str) -> u32 {
@@ -2053,7 +2071,7 @@ fn pet_dex_spotlight_overlay(
         .flex()
         .items_center()
         .justify_center()
-        .bg(color(0x000000).opacity(0.62))
+        .bg(cx.theme().overlay)
         .p(px(24.0))
         .on_click(cx.listener(|app, _event, _window, cx| app.close_pet_dex_spotlight(cx)))
         .child(
@@ -2126,7 +2144,7 @@ fn pet_dex_archive_confirm_overlay(language: &str, cx: &mut Context<CoduxApp>) -
         .flex()
         .items_center()
         .justify_center()
-        .bg(color(0x000000).opacity(0.35))
+        .bg(cx.theme().overlay)
         .p(px(24.0))
         .on_click(cx.listener(|app, _event, _window, cx| app.close_pet_dex_spotlight(cx)))
         .child(
@@ -2273,19 +2291,19 @@ fn pet_species_name(species: &str) -> String {
 
 fn pet_species_subtitle(species: &str) -> String {
     match species.strip_prefix("custom:").unwrap_or(species) {
-        "voidcat" => "安静观察代码变化",
-        "rusthound" => "偏爱 Rust 和编译反馈",
-        "goose" => "会盯住任务节奏",
-        "chaossprite" => "适合高频试验",
-        "code" => "默认编码伙伴",
-        "sheep" => "温和的长线陪伴",
-        "ox" => "稳定推进任务",
-        "dragon" => "适合重构和冲刺",
-        "phoenix" => "适合恢复和复盘",
-        "dolphin" => "适合协作和探索",
-        "penguin" => "适合终端工作流",
-        "panda" => "适合安静维护",
-        _ => "Codux 宠物伙伴",
+        "voidcat" => "Quietly watches code changes",
+        "rusthound" => "Likes Rust and compiler feedback",
+        "goose" => "Keeps an eye on task rhythm",
+        "chaossprite" => "Best for fast experiments",
+        "code" => "Default coding companion",
+        "sheep" => "Gentle long-running companion",
+        "ox" => "Steady task mover",
+        "dragon" => "Built for refactors and sprints",
+        "phoenix" => "Good for recovery and review",
+        "dolphin" => "Good for collaboration and exploration",
+        "penguin" => "Good for terminal workflows",
+        "panda" => "Good for quiet maintenance",
+        _ => "Codux pet companion",
     }
     .to_string()
 }

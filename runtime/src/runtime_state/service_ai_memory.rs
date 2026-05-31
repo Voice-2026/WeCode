@@ -68,6 +68,12 @@ impl RuntimeService {
         MemoryService::new(self.support_dir.clone()).cancel_extraction_queue()
     }
 
+    pub fn recover_interrupted_memory_extraction_queue(
+        &self,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        MemoryService::new(self.support_dir.clone()).recover_interrupted_extraction_tasks()
+    }
+
     pub fn enqueue_memory_extraction_candidates(
         &self,
     ) -> Result<MemoryManualEnqueueResult, String> {

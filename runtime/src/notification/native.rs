@@ -8,35 +8,12 @@ pub fn show_native_notification_blocking(
 
 #[cfg(target_os = "macos")]
 fn show_native_notification_impl(title: &str, body: &str, group: &str) -> Result<(), String> {
-    let script = format!(
-        "display notification {} with title {} subtitle {}",
-        applescript_string(body),
-        applescript_string(title),
-        applescript_string(group),
-    );
-    let status = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .status()
-        .map_err(|error| error.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("native notification failed: {status}"))
-    }
+    let _ = (title, body, group);
+    Err("macOS native notifications are unavailable in the current dev launch mode".to_string())
 }
 
 #[cfg(not(target_os = "macos"))]
 fn show_native_notification_impl(title: &str, body: &str, group: &str) -> Result<(), String> {
     let _ = (title, body, group);
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn applescript_string(value: &str) -> String {
-    let escaped = value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', " ");
-    format!("\"{escaped}\"")
 }

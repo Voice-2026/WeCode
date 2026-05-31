@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use crate::ai_runtime::{AIRuntimeRegistry, AIRuntimeTerminalBinding};
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,7 +11,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 #[cfg(not(windows))]
-use std::{process::Command, sync::OnceLock};
+use std::{
+    process::{Command, Stdio},
+    sync::OnceLock,
+};
 use uuid::Uuid;
 
 #[cfg(windows)]
@@ -211,12 +215,21 @@ pub type EventSink = Arc<dyn Fn(TerminalEvent) + Send + Sync + 'static>;
 
 pub struct TerminalManager {
     sessions: parking_lot::Mutex<HashMap<String, Arc<TerminalPtySession>>>,
+    ai_runtime_registry: Option<Arc<AIRuntimeRegistry>>,
 }
 
 impl TerminalManager {
     pub fn new() -> Self {
         Self {
             sessions: parking_lot::Mutex::new(HashMap::new()),
+            ai_runtime_registry: None,
+        }
+    }
+
+    pub fn with_ai_runtime_registry(ai_runtime_registry: Arc<AIRuntimeRegistry>) -> Self {
+        Self {
+            sessions: parking_lot::Mutex::new(HashMap::new()),
+            ai_runtime_registry: Some(ai_runtime_registry),
         }
     }
 
@@ -264,6 +277,7 @@ impl TerminalManager {
             TerminalPtySession::spawn(config, context, Some(emit.clone()))?;
         let session = Arc::new(session);
         let id = session.id().to_string();
+        self.register_ai_runtime_terminal(&session);
         let rx = session.subscribe_output(true);
         let event_subscribers = session.event_subscribers.clone();
         self.sessions.lock().insert(id.clone(), session.clone());
@@ -283,11 +297,20 @@ impl TerminalManager {
         let Some(session) = self.sessions.lock().remove(session_id) else {
             return Err(anyhow!("terminal session not found: {session_id}"));
         };
+        self.remove_ai_runtime_terminal(&session);
         session.kill()
     }
 
     pub fn snapshot(&self, session_id: &str) -> Result<String> {
         Ok(self.session(session_id)?.snapshot())
+    }
+
+    pub fn input_snapshot(&self, session_id: &str) -> Result<TerminalInputSnapshot> {
+        Ok(self.session(session_id)?.input_snapshot())
+    }
+
+    pub fn output_snapshot(&self, session_id: &str) -> Result<TerminalOutputSnapshot> {
+        Ok(self.session(session_id)?.output_snapshot())
     }
 
     pub fn buffer_characters(&self, session_id: &str) -> Result<usize> {
@@ -306,6 +329,20 @@ impl TerminalManager {
             .cloned()
             .ok_or_else(|| anyhow!("terminal session not found: {session_id}"))
     }
+
+    fn register_ai_runtime_terminal(&self, session: &TerminalPtySession) {
+        let Some(registry) = &self.ai_runtime_registry else {
+            return;
+        };
+        registry.upsert(session.ai_runtime_binding());
+    }
+
+    fn remove_ai_runtime_terminal(&self, session: &TerminalPtySession) {
+        let Some(registry) = &self.ai_runtime_registry else {
+            return;
+        };
+        registry.remove(session.id());
+    }
 }
 
 impl Default for TerminalManager {
@@ -323,6 +360,7 @@ pub struct TerminalPtySession {
     output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
     event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+    ai_runtime_binding: AIRuntimeTerminalBinding,
     _child: Arc<parking_lot::Mutex<Box<dyn Child + Send + Sync>>>,
     killer: Arc<parking_lot::Mutex<Box<dyn ChildKiller + Send + Sync>>>,
     pty_master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
@@ -425,15 +463,31 @@ impl TerminalPtySession {
             .filter(|value| !value.trim().is_empty())
             .or_else(|| context.map(|context| context.project_id.clone()))
             .unwrap_or_else(|| project_name.clone());
+        let slot_id = config
+            .slot_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| context.and_then(|context| context.slot_id.clone()))
+            .unwrap_or_default();
+        let session_key = config
+            .session_key
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| context.and_then(|context| context.session_key.clone()));
+        let session_instance_id = context
+            .and_then(|context| context.session_instance_id.clone())
+            .or_else(|| Some(Uuid::new_v4().to_string().to_lowercase()));
+        let title = config
+            .title
+            .clone()
+            .unwrap_or_else(|| "Terminal".to_string());
+        let info_cwd = cwd.clone().unwrap_or(project_path);
         let info = Arc::new(parking_lot::Mutex::new(TerminalSessionSnapshot {
             id: id.clone(),
-            title: config
-                .title
-                .clone()
-                .unwrap_or_else(|| "Terminal".to_string()),
-            project_id,
+            title: title.clone(),
+            project_id: project_id.clone(),
             project_name,
-            cwd: cwd.clone().unwrap_or(project_path),
+            cwd: info_cwd.clone(),
             shell: shell.clone(),
             command: initial_command.clone().unwrap_or_default(),
             cols,
@@ -445,6 +499,17 @@ impl TerminalPtySession {
             buffer_characters: 0,
             has_buffer: false,
         }));
+        let ai_runtime_binding = AIRuntimeTerminalBinding {
+            terminal_id: id.clone(),
+            project_id,
+            slot_id,
+            title,
+            cwd: info_cwd,
+            tool: config.tool.clone(),
+            is_active: false,
+            session_key,
+            terminal_instance_id: session_instance_id,
+        };
         let pty_master = Arc::new(parking_lot::Mutex::new(pair.master));
         let child = Arc::new(parking_lot::Mutex::new(child));
 
@@ -475,6 +540,7 @@ impl TerminalPtySession {
                 output_subscribers,
                 event_subscribers,
                 info,
+                ai_runtime_binding,
                 _child: child,
                 killer: Arc::new(parking_lot::Mutex::new(killer)),
                 pty_master,
@@ -549,6 +615,10 @@ impl TerminalPtySession {
         info.buffer_characters = self.buffer_characters();
         info.has_buffer = info.buffer_characters > 0;
         info
+    }
+
+    pub fn ai_runtime_binding(&self) -> AIRuntimeTerminalBinding {
+        self.ai_runtime_binding.clone()
     }
 
     pub fn input_snapshot(&self) -> TerminalInputSnapshot {
@@ -964,7 +1034,7 @@ pub fn terminal_environment(
         .or_else(|| context.and_then(|context| context.session_title.clone()))
         .unwrap_or_else(|| "Terminal".to_string());
 
-    let mut values = HashMap::new();
+    let mut values = captured_shell_environment(shell, &session_cwd, &home_text, &user);
     values.insert("HOME".to_string(), home_text.clone());
     values.insert("USER".to_string(), user.clone());
     values.insert("LOGNAME".to_string(), user.clone());
@@ -979,11 +1049,14 @@ pub fn terminal_environment(
         values.entry(key).or_insert(value);
     }
 
+    let shell_path = values.get("PATH").cloned();
+    let process_path = std::env::var("PATH").ok();
     let mut path = merged_executable_path(
         shell,
         &home_text,
         &user,
-        std::env::var("PATH").ok().as_deref(),
+        shell_path.as_deref().or(process_path.as_deref()),
+        shell_path.is_none(),
     );
     if let Some(context) = context {
         let wrapper_bin = context
@@ -1001,24 +1074,6 @@ pub fn terminal_environment(
                 .display()
                 .to_string(),
         );
-        values.insert(
-            "DMUX_ZSH_HOOK_SCRIPT".to_string(),
-            context
-                .runtime_root
-                .join("scripts/shell-hooks/dmux-ai-hook.zsh")
-                .display()
-                .to_string(),
-        );
-        if shell_name(shell).as_deref() == Some("zsh") {
-            values.insert(
-                "ZDOTDIR".to_string(),
-                context
-                    .runtime_root
-                    .join("scripts/shell-hooks/zsh")
-                    .display()
-                    .to_string(),
-            );
-        }
         if let Some(path) = &context.tool_permissions_file {
             values.insert(
                 "DMUX_TOOL_PERMISSION_SETTINGS_FILE".to_string(),
@@ -1167,6 +1222,121 @@ fn append_env_keys(values: &mut HashMap<String, String>, keys: &[&str]) {
             }
         }
     }
+}
+
+fn captured_shell_environment(
+    shell: &str,
+    cwd: &str,
+    home: &str,
+    user: &str,
+) -> HashMap<String, String> {
+    #[cfg(windows)]
+    {
+        let _ = shell;
+        let _ = cwd;
+        let _ = home;
+        let _ = user;
+        HashMap::new()
+    }
+
+    #[cfg(not(windows))]
+    {
+        static CACHE: OnceLock<parking_lot::Mutex<HashMap<String, HashMap<String, String>>>> =
+            OnceLock::new();
+        let cache = CACHE.get_or_init(|| parking_lot::Mutex::new(HashMap::new()));
+        let key = format!("{shell}|{cwd}|{home}|{user}");
+        if let Some(value) = cache.lock().get(&key) {
+            return value.clone();
+        }
+        let value = capture_shell_environment_uncached(shell, cwd, home, user).unwrap_or_default();
+        cache.lock().insert(key, value.clone());
+        value
+    }
+}
+
+#[cfg(not(windows))]
+fn capture_shell_environment_uncached(
+    shell: &str,
+    cwd: &str,
+    home: &str,
+    user: &str,
+) -> Option<HashMap<String, String>> {
+    let begin_marker = "__CODUX_SHELL_ENV_BEGIN__";
+    let end_marker = "__CODUX_SHELL_ENV_END__";
+    let command = format!(
+        "cd {}; printf '%s\\000' '{}'; command env -0; printf '%s\\000' '{}'",
+        shell_quote(cwd),
+        begin_marker,
+        end_marker
+    );
+    let mut capture = Command::new(shell);
+    capture
+        .args(["-l", "-i", "-c", &command])
+        .env_clear()
+        .env("HOME", home)
+        .env("USER", user)
+        .env("LOGNAME", user)
+        .env("SHELL", shell)
+        .env("TERM", "xterm-256color")
+        .env(
+            "PATH",
+            std::env::var("PATH").unwrap_or_else(|_| FALLBACK_PATH.to_string()),
+        )
+        .stdin(Stdio::null());
+    for key in COMMON_PASSTHROUGH_ENV_KEYS
+        .iter()
+        .chain(UNIX_PASSTHROUGH_ENV_KEYS.iter())
+    {
+        if let Ok(value) = std::env::var(key) {
+            if !value.is_empty() {
+                capture.env(key, value);
+            }
+        }
+    }
+    let output = capture.output().ok()?;
+    parse_captured_shell_environment(&output.stdout, begin_marker, end_marker)
+}
+
+#[cfg(not(windows))]
+fn parse_captured_shell_environment(
+    output: &[u8],
+    begin_marker: &str,
+    end_marker: &str,
+) -> Option<HashMap<String, String>> {
+    let begin = find_bytes(output, begin_marker.as_bytes())? + begin_marker.len();
+    let rest = &output[begin..];
+    let end = find_bytes(rest, end_marker.as_bytes())?;
+    let mut body = &rest[..end];
+    while matches!(body.first(), Some(0 | b'\n' | b'\r')) {
+        body = &body[1..];
+    }
+
+    let mut values = HashMap::new();
+    for entry in body.split(|byte| *byte == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let Some(eq) = entry.iter().position(|byte| *byte == b'=') else {
+            continue;
+        };
+        if eq == 0 {
+            continue;
+        }
+        let key = String::from_utf8_lossy(&entry[..eq]).to_string();
+        let value = String::from_utf8_lossy(&entry[eq + 1..]).to_string();
+        values.insert(key, value);
+    }
+    Some(values)
+}
+
+#[cfg(not(windows))]
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }
 
 fn configured_dotenv(home: &str) -> HashMap<String, String> {
@@ -1547,11 +1717,14 @@ fn merged_executable_path(
     home: &str,
     user: &str,
     inherited_path: Option<&str>,
+    include_login_shell_path: bool,
 ) -> String {
     let default_path = inherited_path
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(FALLBACK_PATH);
-    let login_shell_path = resolved_login_shell_path(shell, home, user);
+    let login_shell_path = include_login_shell_path
+        .then(|| resolved_login_shell_path(shell, home, user))
+        .flatten();
     let user_tool_paths = [
         "/opt/homebrew/bin".to_string(),
         "/usr/local/bin".to_string(),
@@ -1605,6 +1778,10 @@ fn prepend_path_component(component: &str, path: &str) -> String {
     } else {
         format!("{component}{PATH_SEPARATOR}{path}")
     }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn resolved_login_shell_path(shell: &str, home: &str, user: &str) -> Option<String> {
@@ -1733,6 +1910,18 @@ mod tests {
     }
 
     #[test]
+    fn output_replay_uses_terminal_history_not_limited_tail() {
+        let mut history = RingHistory::new(1024);
+        history.push_text("hello");
+        history.push_text(" world");
+        assert_eq!(history.to_text(), "hello world");
+
+        let mut capture = TerminalOutputCapture::new(5);
+        capture.push(b"hello world");
+        assert_eq!(capture.snapshot().tail, "world");
+    }
+
+    #[test]
     fn input_capture_keeps_limited_history_and_total_bytes() {
         let mut capture = TerminalInputCapture::new(2);
         capture.push(b"ls\n");
@@ -1832,6 +2021,30 @@ mod tests {
             env.get("DMUX_AI_MEMORY_INDEX_FILE").map(String::as_str),
             Some("/tmp/codux/memory-workspaces/project-1/MEMORY.md")
         );
+        assert_ne!(
+            env.get("ZDOTDIR").map(String::as_str),
+            Some("/runtime-assets/scripts/shell-hooks/zsh")
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn parses_noisy_shell_environment_capture() {
+        let mut output = Vec::new();
+        output.extend_from_slice(b"startup noise");
+        output.extend_from_slice(b"__BEGIN__\0PATH=/opt/bin:/usr/bin\0HISTFILE=/tmp/history\0");
+        output.extend_from_slice(b"__END__\0more noise");
+
+        let env = parse_captured_shell_environment(&output, "__BEGIN__", "__END__").unwrap();
+
+        assert_eq!(
+            env.get("PATH").map(String::as_str),
+            Some("/opt/bin:/usr/bin")
+        );
+        assert_eq!(
+            env.get("HISTFILE").map(String::as_str),
+            Some("/tmp/history")
+        );
     }
 
     #[cfg(unix)]
@@ -1881,6 +2094,42 @@ mod tests {
         );
 
         let _ = first_session.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_manager_registers_ai_runtime_terminal_lifecycle() {
+        let registry = AIRuntimeRegistry::shared();
+        let manager = TerminalManager::with_ai_runtime_registry(Arc::clone(&registry));
+        let terminal_id = format!("test-ai-terminal-{}", Uuid::new_v4());
+        let config = TerminalPtyConfig {
+            terminal_id: Some(terminal_id.clone()),
+            project_id: Some("project-1".to_string()),
+            slot_id: Some("slot-1".to_string()),
+            session_key: Some("session-key-1".to_string()),
+            title: Some("Codex".to_string()),
+            tool: Some("codex".to_string()),
+            shell: Some("/bin/cat".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            scrollback_lines: Some(100),
+            ..Default::default()
+        };
+        let emit: EventSink = Arc::new(|_| {});
+
+        let (session, _) = manager
+            .attach_or_create_with_context(config, None, emit)
+            .expect("terminal should start");
+
+        let terminals = registry.snapshot();
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals[0].terminal_id, terminal_id);
+        assert_eq!(terminals[0].project_id, "project-1");
+        assert_eq!(terminals[0].slot_id, "slot-1");
+        assert_eq!(terminals[0].tool.as_deref(), Some("codex"));
+
+        manager.kill(session.id()).expect("terminal should stop");
+        assert!(registry.snapshot().is_empty());
     }
 
     #[cfg(unix)]

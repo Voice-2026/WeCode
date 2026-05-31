@@ -1,3 +1,4 @@
+use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(in crate::app) fn compact_number(value: i64) -> String {
@@ -30,9 +31,11 @@ fn compact_unit(value: i64, divisor: f64, suffix: &str) -> String {
     )
 }
 
-pub(in crate::app) fn relative_time_label(timestamp: f64) -> String {
+pub(in crate::app) fn relative_time_label_for_language(timestamp: f64, language: &str) -> String {
+    let locale = locale_from_language_setting(language);
+    let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
     if timestamp <= 0.0 {
-        return "刚刚".to_string();
+        return tr("time.relative.just_now", "Just now");
     }
 
     let now = SystemTime::now()
@@ -42,14 +45,18 @@ pub(in crate::app) fn relative_time_label(timestamp: f64) -> String {
     let seconds = (now - timestamp).max(0.0);
 
     if seconds < 60.0 {
-        "刚刚".to_string()
+        tr("time.relative.just_now", "Just now")
     } else if seconds < 3600.0 {
-        format!("{} 分钟前", (seconds / 60.0).floor() as i64)
+        tr("time.relative.minutes_ago_format", "%d minutes ago")
+            .replace("%d", &((seconds / 60.0).floor() as i64).to_string())
     } else if seconds < 86_400.0 {
-        format!("{} 小时前", (seconds / 3600.0).floor() as i64)
+        tr("time.relative.hours_ago_format", "%d hours ago")
+            .replace("%d", &((seconds / 3600.0).floor() as i64).to_string())
     } else if seconds < 604_800.0 {
-        format!("{} 天前", (seconds / 86_400.0).floor() as i64)
+        tr("time.relative.days_ago_format", "%d days ago")
+            .replace("%d", &((seconds / 86_400.0).floor() as i64).to_string())
     } else {
-        format!("{} 周前", (seconds / 604_800.0).floor() as i64)
+        tr("time.relative.weeks_ago_format", "%d weeks ago")
+            .replace("%d", &((seconds / 604_800.0).floor() as i64).to_string())
     }
 }

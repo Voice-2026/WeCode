@@ -99,6 +99,19 @@ impl MemoryService {
         self.extraction_status_snapshot()
     }
 
+    pub fn recover_interrupted_extraction_tasks(
+        &self,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        self.ensure_queue_schema()?;
+        let conn = self.open_connection()?;
+        conn.execute(
+            "UPDATE memory_extraction_queue SET status = 'pending', error = NULL WHERE status = 'running';",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+        self.extraction_status_snapshot()
+    }
+
     pub(super) fn enqueue_extraction_if_needed(
         &self,
         project_id: &str,

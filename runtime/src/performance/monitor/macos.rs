@@ -395,5 +395,6 @@ fn capture_raw_sample(cache: &Mutex<ProcessCache>) -> Option<RawSample> {
         memory_bytes,
         memory,
         cpu_percent_override,
+        gpu_percent: None,
     })
 }

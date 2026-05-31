@@ -1,11 +1,11 @@
-use crate::app_settings::{locale_from_language_setting, AppSettingsStore};
+use crate::app_settings::{AppSettingsStore, locale_from_language_setting};
 use crate::i18n::translate;
 use crate::memory::MemoryStore;
-use crate::notify_channels::{dispatch_notification_channels, NotificationDispatchRequest};
+use crate::notify_channels::{NotificationDispatchRequest, dispatch_notification_channels};
 use crate::paths::{app_slug, home_dir, runtime_temp_dir};
 use crate::project_store::ProjectStore;
 use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue, Value};
+use serde_json::{Value, value::RawValue};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -20,8 +20,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use tauri::async_runtime::{channel, Receiver, Sender};
 use tauri::Emitter;
+use tauri::async_runtime::{Receiver, Sender, channel};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::NotificationExt;
 
@@ -1162,10 +1162,12 @@ fn poll_runtime_sessions(
 fn start_ai_runtime_poll_loop(tx: Sender<AIRuntimeSupervisorMessage>) {
     let _ = thread::Builder::new()
         .name("codux-ai-runtime-poller".to_string())
-        .spawn(move || loop {
-            thread::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECONDS));
-            if tx.blocking_send(AIRuntimeSupervisorMessage::Poll).is_err() {
-                break;
+        .spawn(move || {
+            loop {
+                thread::sleep(std::time::Duration::from_secs(POLL_INTERVAL_SECONDS));
+                if tx.blocking_send(AIRuntimeSupervisorMessage::Poll).is_err() {
+                    break;
+                }
             }
         });
 }
@@ -1177,30 +1179,32 @@ fn start_ai_runtime_transcript_monitor_loop(
 ) {
     let _ = thread::Builder::new()
         .name("codux-ai-runtime-transcript-monitor".to_string())
-        .spawn(move || loop {
-            thread::sleep(std::time::Duration::from_millis(
-                TRANSCRIPT_MONITOR_INTERVAL_MS,
-            ));
-            let changed = match monitors.lock() {
-                Ok(mut monitors) => {
-                    if monitors.is_empty() {
-                        Vec::new()
-                    } else {
-                        scan_transcript_monitors(&mut monitors, now_seconds())
+        .spawn(move || {
+            loop {
+                thread::sleep(std::time::Duration::from_millis(
+                    TRANSCRIPT_MONITOR_INTERVAL_MS,
+                ));
+                let changed = match monitors.lock() {
+                    Ok(mut monitors) => {
+                        if monitors.is_empty() {
+                            Vec::new()
+                        } else {
+                            scan_transcript_monitors(&mut monitors, now_seconds())
+                        }
                     }
+                    Err(_) => Vec::new(),
+                };
+                if changed.is_empty() {
+                    drain_runtime_event_dir(&tx, &runtime_event_dir);
+                    continue;
                 }
-                Err(_) => Vec::new(),
-            };
-            if changed.is_empty() {
                 drain_runtime_event_dir(&tx, &runtime_event_dir);
-                continue;
-            }
-            drain_runtime_event_dir(&tx, &runtime_event_dir);
-            if tx
-                .blocking_send(AIRuntimeSupervisorMessage::TranscriptTail(changed))
-                .is_err()
-            {
-                break;
+                if tx
+                    .blocking_send(AIRuntimeSupervisorMessage::TranscriptTail(changed))
+                    .is_err()
+                {
+                    break;
+                }
             }
         });
 }
@@ -3106,7 +3110,7 @@ fn reset_runtime_live_log() {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    rotate_runtime_log(&path);
+    clear_runtime_log_family(&path);
     let _ = fs::write(path, "");
 }
 
@@ -3147,6 +3151,14 @@ fn rotate_runtime_log(path: &Path) {
         let _ = fs::rename(current, next);
     }
     let _ = fs::rename(path, rotated_log_path(path, 1));
+}
+
+fn clear_runtime_log_family(path: &Path) {
+    const ROTATION_COUNT: usize = 5;
+    let _ = fs::remove_file(path);
+    for index in 1..=ROTATION_COUNT {
+        let _ = fs::remove_file(rotated_log_path(path, index));
+    }
 }
 
 fn rotated_log_path(path: &Path, index: usize) -> PathBuf {
@@ -3735,7 +3747,9 @@ fn codex_command_hook_trust_hash(
             "{{\"event_name\":{},\"hooks\":[{{\"async\":false,\"command\":{},\"statusMessage\":{},\"timeout\":{},\"type\":\"command\"}}],\"matcher\":{}}}",
             json_string_literal(event_label),
             json_string_literal(command),
-            status_message.map(json_string_literal).unwrap_or_else(|| "null".to_string()),
+            status_message
+                .map(json_string_literal)
+                .unwrap_or_else(|| "null".to_string()),
             timeout,
             json_string_literal(matcher)
         )

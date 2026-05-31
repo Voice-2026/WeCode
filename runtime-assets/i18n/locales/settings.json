@@ -316,7 +316,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "KI-Anbieter",
       "settings.ai.git_commit_message_provider.automatic": "Automatisch",
-      "settings.ai.git_commit_message_provider.off": "Aus"
+      "settings.ai.git_commit_message_provider.off": "Aus",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "en": {
       "settings.ai_auto_refresh": "AI Auto Refresh",
@@ -636,7 +638,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "AI Provider",
       "settings.ai.git_commit_message_provider.automatic": "Automatic",
-      "settings.ai.git_commit_message_provider.off": "Off"
+      "settings.ai.git_commit_message_provider.off": "Off",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "es": {
       "settings.ai_auto_refresh": "Actualización automática de IA",
@@ -954,7 +958,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "Proveedor de IA",
       "settings.ai.git_commit_message_provider.automatic": "Automático",
-      "settings.ai.git_commit_message_provider.off": "Desactivado"
+      "settings.ai.git_commit_message_provider.off": "Desactivado",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "fr": {
       "settings.ai_auto_refresh": "Actualisation auto IA",
@@ -1272,7 +1278,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "Fournisseur IA",
       "settings.ai.git_commit_message_provider.automatic": "Automatique",
-      "settings.ai.git_commit_message_provider.off": "Désactivé"
+      "settings.ai.git_commit_message_provider.off": "Désactivé",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "ja": {
       "settings.ai_auto_refresh": "AI 自動更新",
@@ -1590,7 +1598,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "AI プロバイダー",
       "settings.ai.git_commit_message_provider.automatic": "自動",
-      "settings.ai.git_commit_message_provider.off": "オフ"
+      "settings.ai.git_commit_message_provider.off": "オフ",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "ko": {
       "settings.ai_auto_refresh": "AI 자동 새로고침",
@@ -1908,7 +1918,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "AI 제공자",
       "settings.ai.git_commit_message_provider.automatic": "자동",
-      "settings.ai.git_commit_message_provider.off": "끄기"
+      "settings.ai.git_commit_message_provider.off": "끄기",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "pt-BR": {
       "settings.ai_auto_refresh": "Atualização automática de IA",
@@ -2226,7 +2238,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "Provedor de IA",
       "settings.ai.git_commit_message_provider.automatic": "Automático",
-      "settings.ai.git_commit_message_provider.off": "Desativado"
+      "settings.ai.git_commit_message_provider.off": "Desativado",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "ru": {
       "settings.ai_auto_refresh": "Автообновление ИИ",
@@ -2544,7 +2558,9 @@
       "settings.ai.git_commit_message_language.follow": "Follow",
       "settings.ai.git_commit_message_provider": "Поставщик ИИ",
       "settings.ai.git_commit_message_provider.automatic": "Автоматически",
-      "settings.ai.git_commit_message_provider.off": "Отключено"
+      "settings.ai.git_commit_message_provider.off": "Отключено",
+      "settings.remote.devices_summary_format": "%d devices, %d online, %d pending pairings.",
+      "settings.tools.full_access_count_format": "%d full-access tools"
     },
     "zh-Hans": {
       "settings.ai_auto_refresh": "AI 自动刷新",
@@ -2864,7 +2880,9 @@
       "settings.ai.git_commit_message_language.follow": "跟随",
       "settings.ai.git_commit_message_provider": "AI 提供方",
       "settings.ai.git_commit_message_provider.automatic": "自动",
-      "settings.ai.git_commit_message_provider.off": "关闭"
+      "settings.ai.git_commit_message_provider.off": "关闭",
+      "settings.remote.devices_summary_format": "%d 个设备，%d 个在线，%d 个等待配对。",
+      "settings.tools.full_access_count_format": "%d 个完整权限工具"
     },
     "zh-Hant": {
       "settings.ai_auto_refresh": "AI 自動重新整理",
@@ -3184,7 +3202,9 @@
       "settings.ai.git_commit_message_language.follow": "跟隨",
       "settings.ai.git_commit_message_provider": "AI 提供方",
       "settings.ai.git_commit_message_provider.automatic": "自動",
-      "settings.ai.git_commit_message_provider.off": "關閉"
+      "settings.ai.git_commit_message_provider.off": "關閉",
+      "settings.remote.devices_summary_format": "%d 個裝置，%d 個線上，%d 個等待配對。",
+      "settings.tools.full_access_count_format": "%d 個完整權限工具"
     }
   }
 }

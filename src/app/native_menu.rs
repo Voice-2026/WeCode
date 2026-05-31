@@ -12,7 +12,6 @@ actions!(
         ExportDiagnostics,
         OpenRuntimeLog,
         OpenLiveLog,
-        ToggleInspector,
         OpenWebsite,
         OpenGithub,
         HideCodux,
@@ -93,7 +92,6 @@ struct MenuLabels {
     diagnostics: String,
     runtime_log: String,
     live_log: String,
-    devtools: String,
     website: String,
     github: String,
 }
@@ -151,7 +149,6 @@ impl MenuLabels {
             diagnostics: tr("menu.help.export_diagnostics", "Export Diagnostics..."),
             runtime_log: tr("menu.help.open_runtime_log", "Open Runtime Log"),
             live_log: tr("menu.help.open_live_log", "Open Live Log"),
-            devtools: tr("menu.help.developer_tools", "Developer Tools"),
             website: tr("menu.help.website", "Official Website"),
             github: tr("menu.help.github", "GitHub"),
         }
@@ -165,8 +162,8 @@ pub(crate) fn codux_menus(language: &str) -> Vec<Menu> {
             name: labels.app_name.into(),
             disabled: false,
             items: vec![
-                MenuItem::action(labels.about, ShowAbout),
-                MenuItem::action(labels.check_updates, CheckUpdates),
+                MenuItem::action(labels.about.clone(), ShowAbout),
+                MenuItem::action(labels.check_updates.clone(), CheckUpdates),
                 MenuItem::separator(),
                 MenuItem::action(labels.settings, OpenSettings),
                 MenuItem::separator(),
@@ -251,16 +248,15 @@ pub(crate) fn codux_menus(language: &str) -> Vec<Menu> {
             name: labels.help.into(),
             disabled: false,
             items: vec![
+                MenuItem::action(labels.about, ShowAbout),
+                MenuItem::action(labels.check_updates, CheckUpdates),
+                MenuItem::separator(),
                 MenuItem::action(labels.diagnostics, ExportDiagnostics),
                 MenuItem::action(labels.runtime_log, OpenRuntimeLog),
                 MenuItem::action(labels.live_log, OpenLiveLog),
                 MenuItem::separator(),
                 MenuItem::action(labels.website, OpenWebsite),
                 MenuItem::action(labels.github, OpenGithub),
-                #[cfg(debug_assertions)]
-                MenuItem::separator(),
-                #[cfg(debug_assertions)]
-                MenuItem::action(labels.devtools, ToggleInspector),
             ],
         },
     ]

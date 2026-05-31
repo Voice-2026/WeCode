@@ -26,7 +26,7 @@ pub(in crate::app) struct TerminalTab {
 pub(in crate::app) struct TerminalPaneSlot {
     pub(in crate::app) title: String,
     pub(in crate::app) launch_context: Option<TerminalLaunchContext>,
-    pub(in crate::app) pane: TerminalPane,
+    pub(in crate::app) pane: Option<TerminalPane>,
     pub(in crate::app) restored_output_bytes: usize,
     pub(in crate::app) restored_output_tail: String,
 }

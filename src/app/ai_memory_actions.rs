@@ -1,0 +1,972 @@
+use super::*;
+
+impl CoduxApp {
+    pub(super) fn reload_ai_history(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.start_ai_history_refresh(true, cx);
+        cx.notify();
+    }
+
+    pub(super) fn refresh_ai_history_after_project_switch(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.state.selected_project.clone() else {
+            return;
+        };
+
+        if self
+            .ai_history_refresh_project_ids
+            .insert(project.id.clone())
+        {
+            self.start_ai_history_refresh(true, cx);
+            return;
+        }
+
+        let request = ai_history_project_request(&project);
+        match self
+            .runtime_service
+            .indexed_project_ai_history_state(request)
+        {
+            Ok(state) => {
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
+                } else {
+                    apply_ai_history_project_state(&mut self.state.ai_history, &state);
+                }
+                self.ai_history_active_index_count =
+                    self.runtime_service.active_ai_history_index_count();
+                self.refresh_ai_global_history_summary();
+                self.normalize_selected_ai_session();
+                self.reload_selected_ai_session_detail();
+                self.cache_current_project_view();
+                self.notify_task_column(cx);
+            }
+            Err(error) => {
+                self.state.ai_history.error = Some(error.clone());
+                self.status_message = format!("failed to load AI history state: {error}");
+            }
+        }
+    }
+
+    pub(super) fn schedule_ai_index_progress_expiry(
+        &self,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_secs(3)).await;
+            let _ = this.update(cx, |app, cx| {
+                if app.ai_index_progress_generation == generation {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn show_memory_progress_for_at_least(
+        &mut self,
+        seconds: f64,
+        cx: &mut Context<Self>,
+    ) {
+        self.memory_progress_generation = self.memory_progress_generation.wrapping_add(1);
+        self.memory_progress_visible_until = app_now_seconds() + seconds;
+        let generation = self.memory_progress_generation;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_secs_f64(seconds)).await;
+            let _ = this.update(cx, |app, cx| {
+                if app.memory_progress_generation == generation {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn select_ai_session(
+        &mut self,
+        session_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((session_id, session_title)) = self
+            .state
+            .ai_history
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(|session| (session.id.clone(), session.title.clone()))
+        else {
+            self.status_message = "AI session is no longer available".to_string();
+            self.normalize_selected_ai_session();
+            cx.notify();
+            return;
+        };
+        self.selected_ai_session_id = Some(session_id);
+        self.reload_selected_ai_session_detail();
+        self.status_message = format!("selected AI session: {session_title}");
+        cx.notify();
+    }
+
+    pub(super) fn selected_ai_session(&self) -> Option<&AISessionSummary> {
+        self.selected_ai_session_id
+            .as_deref()
+            .and_then(|id| {
+                self.state
+                    .ai_history
+                    .sessions
+                    .iter()
+                    .find(|session| session.id == id)
+            })
+            .or_else(|| self.state.ai_history.sessions.first())
+    }
+
+    pub(super) fn normalize_selected_ai_session(&mut self) {
+        let selected_still_exists = self
+            .selected_ai_session_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .ai_history
+                    .sessions
+                    .iter()
+                    .any(|session| session.id == id)
+            })
+            .unwrap_or(false);
+        if !selected_still_exists {
+            self.selected_ai_session_id = self
+                .state
+                .ai_history
+                .sessions
+                .first()
+                .map(|session| session.id.clone());
+        }
+        if self
+            .ai_session_delete_confirm_id
+            .as_deref()
+            .map(|id| {
+                !self
+                    .state
+                    .ai_history
+                    .sessions
+                    .iter()
+                    .any(|session| session.id == id)
+            })
+            .unwrap_or(false)
+        {
+            self.ai_session_delete_confirm_id = None;
+        }
+        self.reload_selected_ai_session_detail();
+    }
+
+    pub(super) fn reload_selected_ai_session_detail(&mut self) {
+        let Some(project) = self.state.selected_project.as_ref() else {
+            self.state.ai_session_detail = None;
+            return;
+        };
+        let Some(session_id) = self.selected_ai_session_id.as_deref() else {
+            self.state.ai_session_detail = None;
+            return;
+        };
+        self.state.ai_session_detail = Some(
+            self.runtime_service
+                .reload_project_ai_session_detail(&project.path, session_id),
+        );
+    }
+
+    pub(super) fn remove_selected_ai_session(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for AI session removal".to_string();
+            cx.notify();
+            return;
+        };
+        let project_request = ai_history_project_request(project);
+        let Some(session) = self.selected_ai_session().cloned() else {
+            self.status_message = "no AI session to remove".to_string();
+            cx.notify();
+            return;
+        };
+        match self
+            .runtime_service
+            .remove_indexed_ai_session(project_request, session.id.clone())
+        {
+            Ok(state) => {
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
+                }
+                self.refresh_ai_global_history_summary();
+                self.selected_ai_session_id = None;
+                self.ai_session_delete_confirm_id = None;
+                self.normalize_selected_ai_session();
+                self.reload_selected_ai_session_detail();
+                self.status_message = "selected AI session removed from index".to_string();
+            }
+            Err(error) => {
+                self.ai_session_delete_confirm_id = None;
+                self.status_message = format!("failed to remove AI session: {error}");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn request_remove_ai_session(
+        &mut self,
+        session_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((session_id, session_title)) = self
+            .state
+            .ai_history
+            .sessions
+            .iter()
+            .find(|session| session.id == session_id)
+            .map(|session| (session.id.clone(), session.title.clone()))
+        else {
+            self.status_message = "AI session is no longer available".to_string();
+            self.normalize_selected_ai_session();
+            cx.notify();
+            return;
+        };
+        self.selected_ai_session_id = Some(session_id.clone());
+        self.ai_session_delete_confirm_id = Some(session_id);
+        self.reload_selected_ai_session_detail();
+        self.status_message = format!("confirm AI session removal: {session_title}");
+        cx.notify();
+    }
+
+    pub(super) fn cancel_remove_ai_session(&mut self, cx: &mut Context<Self>) {
+        self.ai_session_delete_confirm_id = None;
+        self.status_message = "AI session removal cancelled".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn confirm_remove_ai_session(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session_id) = self.ai_session_delete_confirm_id.clone() else {
+            self.status_message = "no AI session removal to confirm".to_string();
+            cx.notify();
+            return;
+        };
+        self.selected_ai_session_id = Some(session_id);
+        self.remove_selected_ai_session(window, cx);
+    }
+
+    pub(super) fn rename_selected_ai_session_to(
+        &mut self,
+        title: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            self.status_message = "AI session title cannot be empty".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for AI session rename".to_string();
+            cx.notify();
+            return;
+        };
+        let project_request = ai_history_project_request(project);
+        let Some(session) = self.selected_ai_session().cloned() else {
+            self.status_message = "no AI session to rename".to_string();
+            cx.notify();
+            return;
+        };
+        match self.runtime_service.rename_indexed_ai_session(
+            project_request,
+            session.id.clone(),
+            title.clone(),
+        ) {
+            Ok(state) => {
+                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    self.state.ai_history = summary;
+                }
+                self.refresh_ai_global_history_summary();
+                self.selected_ai_session_id = Some(session.id);
+                self.reload_selected_ai_session_detail();
+                self.status_message = format!("AI session renamed: {title}");
+            }
+            Err(error) => self.status_message = format!("failed to rename AI session: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn refresh_ai_global_history_summary(&mut self) {
+        let projects = ai_history_project_requests(&self.state.projects);
+        match self
+            .runtime_service
+            .indexed_global_ai_history_summary(projects)
+        {
+            Ok(snapshot) => {
+                self.state.ai_global_history =
+                    normalized_global_ai_history_snapshot_to_summary(snapshot);
+            }
+            Err(error) => {
+                self.state.ai_global_history = self.runtime_service.reload_global_ai_history();
+                self.state.ai_global_history.error = Some(error);
+            }
+        }
+    }
+
+    pub(super) fn restore_selected_ai_session(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.selected_project.is_none() {
+            self.status_message = "no selected project for AI session restore".to_string();
+            cx.notify();
+            return;
+        }
+        let Some(session) = self.selected_ai_session().cloned() else {
+            self.status_message = "no AI session to restore".to_string();
+            cx.notify();
+            return;
+        };
+        prepare_memory_launch_artifacts(&self.state);
+        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
+        let command = ai_session_restore_command(&session);
+        self.restore_ai_session_in_main_split(session.title.clone(), command, window, cx);
+    }
+
+    pub(super) fn reload_memory(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.state.memory = self.runtime_service.reload_memory(
+            self.state
+                .selected_project
+                .as_ref()
+                .map(|project| project.id.as_str()),
+        );
+        self.reload_memory_manager_snapshot();
+        self.normalize_selected_memory_entry();
+        self.normalize_selected_memory_summary();
+        self.status_message = "memory summary reloaded".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn process_memory_sessions_now(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.memory_processing {
+            self.status_message = "memory processing is already running".to_string();
+            cx.notify();
+            return;
+        }
+
+        let service = self.runtime_service.clone();
+        self.memory_processing = true;
+        self.show_memory_progress_for_at_least(3.0, cx);
+        self.status_message = "memory processing started".to_string();
+        self.runtime_trace("memory", "manual_process start");
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn(async move {
+                service.process_memory_sessions_now().await
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+            let _ = this.update(cx, |app, cx| {
+                app.apply_memory_processing_result(result, cx);
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn apply_memory_processing_result(
+        &mut self,
+        result: Result<MemoryExtractionStatusSnapshot, String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.memory_processing = false;
+        match result {
+            Ok(status) => {
+                self.show_memory_progress_for_at_least(3.0, cx);
+                self.start_ai_history_refresh(false, cx);
+                self.state.memory = self.runtime_service.reload_memory(
+                    self.state
+                        .selected_project
+                        .as_ref()
+                        .map(|project| project.id.as_str()),
+                );
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_entry();
+                self.normalize_selected_memory_summary();
+                self.status_message = format!(
+                    "memory indexed · checked {} · enqueued {} · pending {}",
+                    status.checked_count, status.enqueued_count, status.pending_count
+                );
+                self.runtime_trace(
+                    "memory",
+                    &format!(
+                        "manual_process ok checked={} enqueued={} pending={} running={} last_error={}",
+                        status.checked_count,
+                        status.enqueued_count,
+                        status.pending_count,
+                        status.running_count,
+                        status.last_error.as_deref().unwrap_or("none")
+                    ),
+                );
+            }
+            Err(error) => {
+                self.runtime_trace("memory", &format!("manual_process failed error={error}"));
+                self.status_message = format!("failed to process memory: {error}");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn cancel_memory_extraction_queue(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.cancel_memory_extraction_queue() {
+            Ok(status) => {
+                self.state.memory = self.runtime_service.reload_memory(
+                    self.state
+                        .selected_project
+                        .as_ref()
+                        .map(|project| project.id.as_str()),
+                );
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_entry();
+                self.normalize_selected_memory_summary();
+                self.status_message = format!(
+                    "memory queue cancelled · pending {} · running {}",
+                    status.pending_count, status.running_count
+                );
+                self.runtime_trace(
+                    "memory",
+                    &format!(
+                        "cancel_queue ok pending={} running={} last_error={}",
+                        status.pending_count,
+                        status.running_count,
+                        status.last_error.as_deref().unwrap_or("none")
+                    ),
+                );
+            }
+            Err(error) => {
+                self.runtime_trace("memory", &format!("cancel_queue failed error={error}"));
+                self.status_message = format!("failed to cancel memory queue: {error}");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn select_memory_entry(
+        &mut self,
+        entry_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = self
+            .state
+            .memory
+            .recent_entries
+            .iter()
+            .chain(self.state.memory_manager.entries.iter())
+            .find(|entry| entry.id == entry_id)
+        else {
+            self.status_message = "memory entry is no longer available".to_string();
+            self.normalize_selected_memory_entry();
+            cx.notify();
+            return;
+        };
+        self.selected_memory_entry_id = Some(entry.id.clone());
+        self.status_message = format!("selected memory: {}", entry.content);
+        cx.notify();
+    }
+
+    pub(super) fn archive_selected_memory_entry(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_selected_memory_status("archived", cx);
+    }
+
+    pub(super) fn restore_selected_memory_entry(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_selected_memory_status("active", cx);
+    }
+
+    pub(super) fn delete_selected_memory_entry(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry_id) = self.selected_memory_entry_id.clone().or_else(|| {
+            self.state
+                .memory_manager
+                .entries
+                .first()
+                .map(|entry| entry.id.clone())
+        }) else {
+            self.status_message = "no memory entry selected".to_string();
+            cx.notify();
+            return;
+        };
+        let project_id = self.memory_manager_project_id.as_deref();
+        match self
+            .runtime_service
+            .delete_memory_entry(project_id, &entry_id)
+        {
+            Ok(memory) => {
+                self.state.memory = memory;
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_entry();
+                self.status_message = "memory entry deleted".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to delete memory: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn delete_selected_memory_summary(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(summary_id) = self.selected_memory_summary_id.clone().or_else(|| {
+            self.state
+                .memory_manager
+                .summaries
+                .first()
+                .map(|summary| summary.id.clone())
+        }) else {
+            self.status_message = "no memory summary selected".to_string();
+            cx.notify();
+            return;
+        };
+        let project_id = self.memory_manager_project_id.as_deref();
+        match self
+            .runtime_service
+            .delete_memory_summary(project_id, &summary_id)
+        {
+            Ok(memory) => {
+                self.state.memory = memory;
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_summary();
+                self.status_message = "memory summary deleted".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to delete memory summary: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn update_memory_summary_content(
+        &mut self,
+        summary_id: String,
+        content: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let content = content.trim().to_string();
+        if content.is_empty() {
+            self.status_message = "memory summary content cannot be empty".to_string();
+            cx.notify();
+            return;
+        }
+        match self
+            .runtime_service
+            .update_memory_summary(MemorySummaryUpdateRequest {
+                summary_id: summary_id.clone(),
+                content,
+                max_versions: Some(20),
+            }) {
+            Ok(_) => {
+                self.selected_memory_summary_id = Some(summary_id);
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_summary();
+                self.status_message = "memory summary updated".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to update memory summary: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn delete_selected_memory_project_profile(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self.memory_manager_project_id.clone() else {
+            self.status_message = "no selected project profile".to_string();
+            cx.notify();
+            return;
+        };
+        match self
+            .runtime_service
+            .delete_memory_project_profile(&project_id)
+        {
+            Ok(memory) => {
+                self.state.memory = memory;
+                self.reload_memory_manager_snapshot();
+                self.status_message = "memory project profile deleted".to_string();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to delete project profile: {error}")
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn delete_selected_memory_project(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self.memory_manager_project_id.clone() else {
+            self.status_message = "no selected project memory".to_string();
+            cx.notify();
+            return;
+        };
+        match self.runtime_service.delete_memory_project(&project_id) {
+            Ok(memory) => {
+                self.state.memory = memory;
+                self.selected_memory_entry_id = None;
+                self.selected_memory_summary_id = None;
+                self.reload_memory_manager_snapshot();
+                self.status_message = "project memory deleted".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to delete project memory: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn migrate_selected_memory_project_to(
+        &mut self,
+        to_project_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(from_project_id) = self.memory_manager_project_id.clone() else {
+            self.status_message = "no selected project memory to migrate".to_string();
+            cx.notify();
+            return;
+        };
+        match self
+            .runtime_service
+            .migrate_memory_project(MemoryProjectMigrationRequest {
+                from_project_id: from_project_id.clone(),
+                to_project_id: to_project_id.clone(),
+                overwrite: false,
+            }) {
+            Ok(memory) => {
+                self.state.memory = memory;
+                self.selected_memory_entry_id = None;
+                self.selected_memory_summary_id = None;
+                self.memory_manager_scope = "project".to_string();
+                self.memory_manager_project_id = Some(to_project_id.clone());
+                self.reload_memory_manager_snapshot();
+                self.status_message =
+                    format!("project memory migrated from {from_project_id} to {to_project_id}");
+            }
+            Err(error) => {
+                self.status_message = format!("failed to migrate project memory: {error}")
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn refresh_selected_memory_project_profile(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self.memory_manager_project_id.clone() else {
+            self.status_message = "no selected project profile".to_string();
+            cx.notify();
+            return;
+        };
+        let service = self.runtime_service.clone();
+        self.status_message = "memory project profile refresh started".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn(async move {
+                service
+                    .force_refresh_memory_project_profile_with_llm(&project_id)
+                    .await
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                app.apply_memory_project_profile_refresh_result(result, cx);
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn apply_memory_project_profile_refresh_result(
+        &mut self,
+        result: Result<MemoryProjectProfileRefreshResult, String>,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(result) => {
+                self.state.memory = self.runtime_service.reload_memory(
+                    self.state
+                        .selected_project
+                        .as_ref()
+                        .map(|project| project.id.as_str()),
+                );
+                self.reload_memory_manager_snapshot();
+                self.status_message = if result.used_llm {
+                    format!(
+                        "memory project profile refreshed with LLM · {} chars",
+                        result.profile.content.chars().count()
+                    )
+                } else {
+                    format!(
+                        "memory project profile refreshed locally · {} chars{}",
+                        result.profile.content.chars().count(),
+                        result
+                            .fallback_reason
+                            .as_ref()
+                            .map(|reason| format!(" · {reason}"))
+                            .unwrap_or_default()
+                    )
+                };
+            }
+            Err(error) => {
+                self.status_message = format!("failed to refresh project profile: {error}")
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn set_memory_manager_tab(&mut self, tab: MemoryManagerTab, cx: &mut Context<Self>) {
+        self.memory_manager_tab = tab;
+        self.reload_memory_manager_snapshot();
+        self.normalize_selected_memory_entry();
+        self.normalize_selected_memory_summary();
+        self.status_message = format!("memory manager tab: {}", tab.as_str());
+        cx.notify();
+    }
+
+    pub(super) fn select_memory_manager_target(
+        &mut self,
+        scope: String,
+        project_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.memory_manager_scope = if scope == "user" {
+            "user".to_string()
+        } else {
+            "project".to_string()
+        };
+        self.memory_manager_project_id = if self.memory_manager_scope == "project" {
+            project_id
+        } else {
+            None
+        };
+        self.selected_memory_entry_id = None;
+        self.selected_memory_summary_id = None;
+        self.reload_memory_manager_snapshot();
+        self.normalize_selected_memory_entry();
+        self.normalize_selected_memory_summary();
+        cx.notify();
+    }
+
+    pub(super) fn update_selected_memory_status(&mut self, status: &str, cx: &mut Context<Self>) {
+        let Some(entry_id) = self.selected_memory_entry_id.clone().or_else(|| {
+            self.state
+                .memory
+                .recent_entries
+                .first()
+                .map(|entry| entry.id.clone())
+        }) else {
+            self.status_message = "no memory entry selected".to_string();
+            cx.notify();
+            return;
+        };
+        let project_id = self.memory_manager_project_id.as_deref();
+        let result = if status == "archived" {
+            self.runtime_service
+                .archive_memory_entry(project_id, &entry_id)
+        } else {
+            self.runtime_service
+                .restore_memory_entry(project_id, &entry_id)
+        };
+        match result {
+            Ok(memory) => {
+                self.state.memory = memory;
+                self.selected_memory_entry_id = Some(entry_id);
+                self.reload_memory_manager_snapshot();
+                self.normalize_selected_memory_entry();
+                self.status_message = format!("memory entry set to {status}");
+            }
+            Err(error) => self.status_message = format!("failed to update memory: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn normalize_selected_memory_entry(&mut self) {
+        let selected_still_exists = self
+            .selected_memory_entry_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .memory
+                    .recent_entries
+                    .iter()
+                    .any(|entry| entry.id == id)
+            })
+            .unwrap_or(false);
+        if !selected_still_exists {
+            self.selected_memory_entry_id = self
+                .state
+                .memory_manager
+                .entries
+                .first()
+                .map(|entry| entry.id.clone());
+        }
+    }
+
+    pub(super) fn normalize_selected_memory_summary(&mut self) {
+        let selected_still_exists = self
+            .selected_memory_summary_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .memory_manager
+                    .summaries
+                    .iter()
+                    .any(|summary| summary.id == id)
+            })
+            .unwrap_or(false);
+        if !selected_still_exists {
+            self.selected_memory_summary_id = self
+                .state
+                .memory_manager
+                .summaries
+                .first()
+                .map(|summary| summary.id.clone());
+        }
+    }
+
+    pub(super) fn reload_memory_manager_snapshot(&mut self) {
+        self.state.memory_manager = self.runtime_service.reload_memory_manager(
+            &self.state.projects,
+            &self.memory_manager_scope,
+            self.memory_manager_project_id.as_deref(),
+            self.memory_manager_tab.as_str(),
+        );
+    }
+
+    pub(super) fn selected_runtime_session(&self) -> Option<&RuntimeSessionSummary> {
+        self.selected_runtime_terminal_id
+            .as_deref()
+            .and_then(|id| {
+                self.state
+                    .runtime_events
+                    .sessions
+                    .iter()
+                    .find(|session| session.terminal_id == id)
+            })
+            .or_else(|| self.state.runtime_events.sessions.first())
+    }
+
+    pub(super) fn normalize_selected_runtime_session(&mut self) {
+        let selected_still_exists = self
+            .selected_runtime_terminal_id
+            .as_deref()
+            .map(|id| {
+                self.state
+                    .runtime_events
+                    .sessions
+                    .iter()
+                    .any(|session| session.terminal_id == id)
+            })
+            .unwrap_or(false);
+        if !selected_still_exists {
+            self.selected_runtime_terminal_id = self
+                .state
+                .runtime_events
+                .sessions
+                .first()
+                .map(|session| session.terminal_id.clone());
+        }
+    }
+
+    pub(super) fn select_runtime_session(
+        &mut self,
+        terminal_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(session) = self
+            .state
+            .runtime_events
+            .sessions
+            .iter()
+            .find(|session| session.terminal_id == terminal_id)
+        else {
+            self.status_message = "runtime session is no longer available".to_string();
+            self.normalize_selected_runtime_session();
+            cx.notify();
+            return;
+        };
+        let session_title = session.session_title.clone();
+        let session_terminal_id = session.terminal_id.clone();
+        self.selected_runtime_terminal_id = Some(session_terminal_id.clone());
+        let matched_terminal_id = self
+            .terminals
+            .iter()
+            .find(|tab| {
+                tab.panes.iter().any(|slot| {
+                    slot.launch_context
+                        .as_ref()
+                        .and_then(|context| context.terminal_id.as_deref())
+                        .map(|id| id == session_terminal_id)
+                        .unwrap_or(false)
+                        || slot
+                            .launch_context
+                            .as_ref()
+                            .and_then(|context| context.slot_id.as_deref())
+                            .map(|id| id == session_terminal_id)
+                            .unwrap_or(false)
+                })
+            })
+            .map(|tab| tab.id);
+        if let Some(tab_id) = matched_terminal_id {
+            self.refresh_terminal_slot_snapshots();
+            self.active_terminal_id = tab_id;
+            if let Err(error) = self.ensure_active_terminal_mounted(cx) {
+                self.status_message = format!("failed to focus terminal session: {error}");
+                cx.notify();
+                return;
+            }
+            if let Some(view) = self.active_terminal_view() {
+                view.read(cx).focus_handle().focus(window, cx);
+            }
+            self.detach_inactive_terminal_views();
+            self.status_message = format!(
+                "selected runtime session {} and focused terminal {}",
+                session_title, tab_id
+            );
+        } else {
+            self.status_message = format!(
+                "selected runtime session {} ({})",
+                session_title, session_terminal_id
+            );
+        }
+        cx.notify();
+    }
+}

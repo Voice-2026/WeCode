@@ -2,40 +2,61 @@ use super::types::{
     TerminalPanePlan, TerminalPaneSlot, TerminalRestorePlan, TerminalTab, TerminalTabPlan,
 };
 use crate::terminal::{
-    TerminalConfig, TerminalLaunchContext, TerminalPane, terminal_config_with_font_family,
+    ColorPalette, TerminalConfig, TerminalLaunchContext, TerminalPane,
+    terminal_config_with_font_family,
 };
+use crate::theme;
 use anyhow::Result;
 use codux_runtime::{
+    i18n::translate,
     memory::{MemoryLaunchRequest, MemoryService, launch_artifact_paths},
     runtime_bridge::RuntimeInventory,
     runtime_state::RuntimeState,
-    settings::{AppSettingsStore, SettingsSummary},
+    settings::{AppSettingsStore, SettingsSummary, locale_from_language_setting},
     terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
     terminal_pty::TerminalManager,
     terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     tool_permissions::ToolPermissionsSummary,
+    worktree::WorktreeInfo,
 };
 use gpui::px;
 use std::{path::PathBuf, sync::Arc};
 use uuid::Uuid;
 
+#[cfg(test)]
 pub(in crate::app) fn terminal_restore_plan(
     layout: &TerminalLayoutSummary,
     runtime: &TerminalRuntimeSummary,
 ) -> TerminalRestorePlan {
+    terminal_restore_plan_for_language(layout, runtime, "simplifiedChinese")
+}
+
+pub(in crate::app) fn terminal_restore_plan_for_language(
+    layout: &TerminalLayoutSummary,
+    runtime: &TerminalRuntimeSummary,
+    language: &str,
+) -> TerminalRestorePlan {
+    let locale = locale_from_language_setting(language);
+    let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
+    let tab_title = |index: usize| {
+        tr("terminal.tab.default_format", "Terminal %d").replace("%d", &index.to_string())
+    };
+    let split_title = |index: usize| {
+        tr("terminal.split.default_format", "Split %d").replace("%d", &index.to_string())
+    };
     let mut tabs = Vec::new();
     if !layout.top_panes.is_empty() {
         tabs.push(TerminalTabPlan {
             source_id: None,
             terminal_id: None,
-            label: "主终端".to_string(),
+            label: tr("terminal.main", "Main Terminal"),
             panes: layout
                 .top_panes
                 .iter()
                 .enumerate()
                 .map(|(index, pane)| {
                     let title = if pane.title.trim().is_empty() {
-                        format!("分屏 {}", index + 1)
+                        split_title(index + 1)
                     } else {
                         pane.title.clone()
                     };
@@ -61,7 +82,7 @@ pub(in crate::app) fn terminal_restore_plan(
     }
     tabs.extend(layout.tabs.iter().enumerate().map(|(index, tab)| {
         let label = if tab.label.trim().is_empty() {
-            format!("标签页 {}", index + 1)
+            tab_title(index + 1)
         } else {
             tab.label.clone()
         };
@@ -87,14 +108,15 @@ pub(in crate::app) fn terminal_restore_plan(
         }
     }));
     if tabs.is_empty() {
+        let default_title = tab_title(1);
         tabs.push(TerminalTabPlan {
             source_id: None,
             terminal_id: None,
-            label: "终端 1".to_string(),
+            label: default_title.clone(),
             panes: vec![TerminalPanePlan {
                 source_id: None,
                 terminal_id: None,
-                title: "终端 1".to_string(),
+                title: default_title,
                 restored_output_bytes: restored_terminal_output_bytes(runtime, None, None),
                 restored_output_tail: restored_terminal_output_tail(runtime, None, None),
             }],
@@ -105,7 +127,7 @@ pub(in crate::app) fn terminal_restore_plan(
             tab.panes.push(TerminalPanePlan {
                 source_id: tab.source_id.clone(),
                 terminal_id: tab.terminal_id.clone(),
-                title: format!("分屏 {}", index + 1),
+                title: split_title(index + 1),
                 restored_output_bytes: restored_terminal_output_bytes(
                     runtime,
                     tab.terminal_id.as_deref(),
@@ -201,22 +223,29 @@ where
 {
     let mut next_id = 1;
     let mut tabs = Vec::new();
-    for tab_plan in &plan.tabs {
+    for (tab_plan_index, tab_plan) in plan.tabs.iter().enumerate() {
         let tab_id = next_id;
         next_id += 1;
         let mut panes = Vec::new();
+        let mount_tab = tab_plan_index == plan.active_index
+            || (tab_plan.source_id.is_none() && tab_plan.terminal_id.is_none());
         for (pane_index, pane_plan) in tab_plan.panes.iter().enumerate() {
             let pane_context =
                 terminal_pane_launch_context(launch_context, tab_id, pane_index, pane_plan);
-            panes.push(TerminalPaneSlot {
-                title: pane_plan.title.clone(),
-                launch_context: pane_context.clone(),
-                pane: TerminalPane::spawn_with_context_and_config(
+            let pane = if mount_tab {
+                Some(TerminalPane::spawn_with_context_and_config(
                     cx,
                     terminal_manager.clone(),
                     pane_context.as_ref(),
                     terminal_config.clone(),
-                )?,
+                )?)
+            } else {
+                None
+            };
+            panes.push(TerminalPaneSlot {
+                title: pane_plan.title.clone(),
+                launch_context: pane_context.clone(),
+                pane,
                 restored_output_bytes: pane_plan.restored_output_bytes,
                 restored_output_tail: pane_plan.restored_output_tail.clone(),
             });
@@ -230,15 +259,20 @@ where
                 restored_output_tail: String::new(),
             };
             let pane_context = terminal_pane_launch_context(launch_context, tab_id, 0, &pane_plan);
-            panes.push(TerminalPaneSlot {
-                title: tab_plan.label.clone(),
-                launch_context: pane_context.clone(),
-                pane: TerminalPane::spawn_with_context_and_config(
+            let pane = if mount_tab {
+                Some(TerminalPane::spawn_with_context_and_config(
                     cx,
                     terminal_manager.clone(),
                     pane_context.as_ref(),
                     terminal_config.clone(),
-                )?,
+                )?)
+            } else {
+                None
+            };
+            panes.push(TerminalPaneSlot {
+                title: tab_plan.label.clone(),
+                launch_context: pane_context.clone(),
+                pane,
                 restored_output_bytes: pane_plan.restored_output_bytes,
                 restored_output_tail: pane_plan.restored_output_tail,
             });
@@ -265,20 +299,42 @@ pub(in crate::app) fn terminal_launch_context(
     tool_permissions: &ToolPermissionsSummary,
 ) -> Option<TerminalLaunchContext> {
     let project = state.selected_project.as_ref()?;
+    let worktree = super::ai_runtime_status::selected_worktree_info(state);
+    let workspace_id = worktree
+        .as_ref()
+        .map(|worktree| worktree.id.clone())
+        .unwrap_or_else(|| project.id.clone());
+    let workspace_name = worktree
+        .as_ref()
+        .filter(|worktree| !worktree.is_default)
+        .map(|worktree| format!("{} · {}", project.name, worktree_row_context_name(worktree)))
+        .unwrap_or_else(|| project.name.clone());
+    let workspace_path = worktree
+        .as_ref()
+        .map(|worktree| worktree.path.clone())
+        .unwrap_or_else(|| project.path.clone());
+    let default_terminal_id = format!("gpui-term-{}-1", workspace_id);
+    let default_slot_id = format!("gpui-pane-{}-1", workspace_id);
+    let default_session_key = format!(
+        "gpui:{}:{}:{}",
+        workspace_id, default_terminal_id, default_slot_id
+    );
+    let default_session_instance_id =
+        Uuid::new_v5(&Uuid::NAMESPACE_URL, default_session_key.as_bytes()).to_string();
     let memory_artifacts = (state.memory.available && state.settings.memory_enabled)
-        .then(|| launch_artifact_paths(&project.id));
+        .then(|| launch_artifact_paths(&workspace_id));
     Some(TerminalLaunchContext {
-        project_id: project.id.clone(),
-        project_name: project.name.clone(),
-        project_path: PathBuf::from(&project.path),
+        project_id: workspace_id,
+        project_name: workspace_name,
+        project_path: PathBuf::from(workspace_path),
         support_dir: state.support_dir.clone(),
         runtime_root: runtime.root.clone(),
-        terminal_id: None,
-        slot_id: None,
-        session_key: None,
+        terminal_id: Some(default_terminal_id),
+        slot_id: Some(default_slot_id),
+        session_key: Some(default_session_key),
         session_title: None,
         session_cwd: None,
-        session_instance_id: None,
+        session_instance_id: Some(default_session_instance_id),
         tool_permissions_file: tool_permissions
             .error
             .is_none()
@@ -293,6 +349,24 @@ pub(in crate::app) fn terminal_launch_context(
     })
 }
 
+fn worktree_row_context_name(worktree: &WorktreeInfo) -> String {
+    let name = worktree.name.trim();
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    let branch = worktree.branch.trim();
+    if branch.is_empty() {
+        "main".to_string()
+    } else {
+        branch
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .next_back()
+            .unwrap_or(branch)
+            .to_string()
+    }
+}
+
 pub(in crate::app) fn terminal_config_for_settings(settings: &SettingsSummary) -> TerminalConfig {
     let mut config = terminal_config_with_font_family(&settings.terminal_font_family);
     let font_size = settings
@@ -301,7 +375,67 @@ pub(in crate::app) fn terminal_config_for_settings(settings: &SettingsSummary) -
         .unwrap_or(14.0)
         .clamp(10.0, 28.0);
     config.font_size = px(font_size);
+    config.colors = terminal_color_palette(&settings.theme, &settings.theme_color);
     config
+}
+
+fn terminal_color_palette(theme_name: &str, theme_color: &str) -> ColorPalette {
+    let palette = theme::terminal_theme_palette(theme_name);
+    let accent = theme::theme_color_value(theme_color);
+    let rgb = |hex: u32| -> (u8, u8, u8) {
+        (
+            ((hex >> 16) & 0xff) as u8,
+            ((hex >> 8) & 0xff) as u8,
+            (hex & 0xff) as u8,
+        )
+    };
+    let (br, bg, bb) = rgb(palette.background);
+    let (fr, fg, fb) = rgb(palette.foreground);
+    let cursor_hex = if theme_color.trim().is_empty() {
+        palette.cursor
+    } else {
+        accent
+    };
+    let (cr, cg, cb) = rgb(cursor_hex);
+    let (sr, sg, sb) = rgb(palette.selection);
+    let (r0, g0, b0) = rgb(palette.black);
+    let (r1, g1, b1) = rgb(palette.red);
+    let (r2, g2, b2) = rgb(palette.green);
+    let (r3, g3, b3) = rgb(palette.yellow);
+    let (r4, g4, b4) = rgb(palette.blue);
+    let (r5, g5, b5) = rgb(palette.magenta);
+    let (r6, g6, b6) = rgb(palette.cyan);
+    let (r7, g7, b7) = rgb(palette.white);
+    let (r8, g8, b8) = rgb(palette.bright_black);
+    let (r9, g9, b9) = rgb(palette.bright_red);
+    let (r10, g10, b10) = rgb(palette.bright_green);
+    let (r11, g11, b11) = rgb(palette.bright_yellow);
+    let (r12, g12, b12) = rgb(palette.bright_blue);
+    let (r13, g13, b13) = rgb(palette.bright_magenta);
+    let (r14, g14, b14) = rgb(palette.bright_cyan);
+    let (r15, g15, b15) = rgb(palette.bright_white);
+    ColorPalette::builder()
+        .background(br, bg, bb)
+        .foreground(fr, fg, fb)
+        .cursor(cr, cg, cb)
+        .selection(sr, sg, sb)
+        .black(r0, g0, b0)
+        .red(r1, g1, b1)
+        .green(r2, g2, b2)
+        .yellow(r3, g3, b3)
+        .blue(r4, g4, b4)
+        .magenta(r5, g5, b5)
+        .cyan(r6, g6, b6)
+        .white(r7, g7, b7)
+        .bright_black(r8, g8, b8)
+        .bright_red(r9, g9, b9)
+        .bright_green(r10, g10, b10)
+        .bright_yellow(r11, g11, b11)
+        .bright_blue(r12, g12, b12)
+        .bright_magenta(r13, g13, b13)
+        .bright_cyan(r14, g14, b14)
+        .bright_white(r15, g15, b15)
+        .build()
 }
 
 pub(in crate::app) fn terminal_pane_launch_context(
@@ -315,12 +449,20 @@ pub(in crate::app) fn terminal_pane_launch_context(
         .terminal_id
         .clone()
         .filter(|id| !id.trim().is_empty())
-        .unwrap_or_else(|| format!("gpui-term-{tab_id}"));
+        .map(|id| project_terminal_id(&context.project_id, &id))
+        .unwrap_or_else(|| format!("gpui-term-{}-{tab_id}", context.project_id));
     let slot_id = pane
         .source_id
         .clone()
         .filter(|id| !id.trim().is_empty())
-        .unwrap_or_else(|| format!("gpui-pane-{tab_id}-{}", pane_index + 1));
+        .map(|id| project_slot_id(&context.project_id, &id))
+        .unwrap_or_else(|| {
+            format!(
+                "gpui-pane-{}-{tab_id}-{}",
+                context.project_id,
+                pane_index + 1
+            )
+        });
     let session_key = format!("gpui:{}:{terminal_id}:{slot_id}", context.project_id);
     let session_instance_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, session_key.as_bytes());
     context.terminal_id = Some(terminal_id);
@@ -330,6 +472,26 @@ pub(in crate::app) fn terminal_pane_launch_context(
     context.session_cwd = Some(context.project_path.clone());
     context.session_instance_id = Some(session_instance_id.to_string());
     Some(context)
+}
+
+fn project_terminal_id(project_id: &str, terminal_id: &str) -> String {
+    if terminal_id.starts_with(&format!("gpui-term-{project_id}-")) {
+        terminal_id.to_string()
+    } else if let Some(suffix) = terminal_id.strip_prefix("gpui-term-") {
+        format!("gpui-term-{project_id}-{suffix}")
+    } else {
+        terminal_id.to_string()
+    }
+}
+
+fn project_slot_id(project_id: &str, slot_id: &str) -> String {
+    if slot_id.starts_with(&format!("gpui-pane-{project_id}-")) {
+        slot_id.to_string()
+    } else if let Some(suffix) = slot_id.strip_prefix("gpui-pane-") {
+        format!("gpui-pane-{project_id}-{suffix}")
+    } else {
+        slot_id.to_string()
+    }
 }
 
 pub(in crate::app) fn prepare_memory_launch_artifacts(state: &RuntimeState) {

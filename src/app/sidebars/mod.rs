@@ -7,8 +7,8 @@ mod ssh;
 
 use ai::ai_stats_sidebar;
 pub(in crate::app) use ai::memory_manager_window_workspace;
-pub(in crate::app) use files::file_section;
-pub(in crate::app) use files::{FileTreeRow, clipboard_external_paths, file_tree_rows};
+pub(in crate::app) use files::{FileTreeRow, file_section};
+pub(in crate::app) use files::{clipboard_external_paths, file_tree_rows};
 pub(in crate::app) use git::git_section;
 pub(in crate::app) use ssh::ssh_section;
 
@@ -48,7 +48,7 @@ impl CoduxApp {
             .h_full()
             .bg(color(theme::BG_COLUMN))
             .border_l_1()
-            .border_color(color(theme::BORDER_SOFT))
+            .border_color(cx.theme().sidebar_border)
             .child(match panel {
                 AssistantPanel::AIStats => div()
                     .flex()
@@ -65,6 +65,7 @@ impl CoduxApp {
                             .map(|project| project.id.as_str()),
                         &self.state.settings.statistics_mode,
                         &self.state.ai_runtime_state,
+                        &self.state.settings.language,
                         cx,
                     ))
                     .into_any_element(),
@@ -78,6 +79,7 @@ impl CoduxApp {
                         &self.state.ssh,
                         self.selected_ssh_profile_id.as_deref(),
                         self.ssh_scroll_handle.clone(),
+                        &self.state.settings.language,
                         window,
                         cx,
                     ))
@@ -118,6 +120,7 @@ impl CoduxApp {
                             .as_ref()
                             .and_then(|project| project.git_default_push_remote_name.as_deref()),
                         &self.git_clone_remote_url,
+                        &self.state.settings.language,
                         self.git_remote_editor_open,
                         &self.git_remote_name,
                         &self.git_remote_url,
@@ -133,6 +136,131 @@ impl CoduxApp {
             })
             .into_any_element()
     }
+}
+
+impl CoduxApp {
+    pub(in crate::app) fn file_sidebar_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<FileSidebarView> {
+        let project_name = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.name.clone())
+            .unwrap_or_else(|| "Project".to_string());
+        let files = self.state.files.clone();
+        let tree_children = self.file_tree_children.clone();
+        let expanded_dirs = self.file_tree_expanded_dirs.clone();
+        let file_directory = self.file_directory.clone();
+        let selected_entry = self.selected_file_entry.clone();
+        let selected_entries = self.selected_file_entries.clone();
+        let draft_kind = self.file_name_draft_kind;
+        let draft_target = self.file_name_draft_target.clone();
+        let draft_value = self.file_name_draft_value.clone();
+        let draft_select_all = self.file_name_draft_select_all;
+        let scroll_handle = self.file_tree_scroll_handle.clone();
+        let language = self.state.settings.language.clone();
+
+        if let Some(view) = &self.file_sidebar_view {
+            view.update(cx, |view, cx| {
+                let changed = view.project_name != project_name
+                    || view.files != files
+                    || view.tree_children != tree_children
+                    || view.expanded_dirs != expanded_dirs
+                    || view.file_directory != file_directory
+                    || view.selected_entry != selected_entry
+                    || view.selected_entries != selected_entries
+                    || view.draft_kind != draft_kind
+                    || view.draft_target != draft_target
+                    || view.draft_value != draft_value
+                    || view.draft_select_all != draft_select_all
+                    || view.language != language;
+                if !changed {
+                    return;
+                }
+                let rows = Rc::new(file_tree_rows(
+                    &files,
+                    &tree_children,
+                    &expanded_dirs,
+                    selected_entry.as_deref(),
+                    &selected_entries,
+                    draft_kind,
+                    draft_target.as_deref(),
+                    &draft_value,
+                    0,
+                ));
+                view.project_name = project_name;
+                view.files = files;
+                view.tree_children = tree_children;
+                view.expanded_dirs = expanded_dirs;
+                view.file_directory = file_directory;
+                view.selected_entry = selected_entry;
+                view.selected_entries = selected_entries;
+                view.draft_kind = draft_kind;
+                view.draft_target = draft_target;
+                view.draft_value = draft_value;
+                view.draft_select_all = draft_select_all;
+                view.language = language;
+                view.scroll_handle = scroll_handle;
+                view.rows = rows;
+                cx.notify();
+            });
+            return view.clone();
+        }
+
+        let app_entity = cx.entity();
+        let rows = Rc::new(file_tree_rows(
+            &files,
+            &tree_children,
+            &expanded_dirs,
+            selected_entry.as_deref(),
+            &selected_entries,
+            draft_kind,
+            draft_target.as_deref(),
+            &draft_value,
+            0,
+        ));
+        let view = cx.new(|cx| FileSidebarView {
+            app_entity: app_entity.clone(),
+            focus_handle: cx.focus_handle(),
+            project_name,
+            files,
+            tree_children,
+            expanded_dirs,
+            file_directory,
+            selected_entry,
+            selected_entries,
+            draft_kind,
+            draft_target,
+            draft_value,
+            draft_select_all,
+            language,
+            rows,
+            scroll_handle,
+        });
+        self.file_sidebar_view = Some(view.clone());
+        view
+    }
+}
+
+pub(in crate::app) struct FileSidebarView {
+    app_entity: gpui::Entity<CoduxApp>,
+    focus_handle: FocusHandle,
+    project_name: String,
+    files: Vec<FileEntry>,
+    tree_children: HashMap<String, Vec<FileEntry>>,
+    expanded_dirs: HashSet<String>,
+    file_directory: String,
+    selected_entry: Option<String>,
+    selected_entries: HashSet<String>,
+    draft_kind: Option<FileNameDraftKind>,
+    draft_target: Option<String>,
+    draft_value: String,
+    draft_select_all: bool,
+    language: String,
+    rows: Rc<Vec<FileTreeRow>>,
+    scroll_handle: UniformListScrollHandle,
 }
 
 impl Render for FileSidebarView {
@@ -152,6 +280,7 @@ impl Render for FileSidebarView {
             self.draft_select_all,
             self.rows.clone(),
             self.scroll_handle.clone(),
+            &self.language,
             window,
             cx,
         )
@@ -173,6 +302,7 @@ fn assistant_panel_header(
         .justify_between()
         .border_b_1()
         .border_color(color(theme::BORDER_SOFT))
+        .bg(color(theme::BG_HEADER))
         .child(
             div()
                 .flex()
@@ -195,17 +325,9 @@ fn assistant_panel_header(
 }
 
 fn ai_stats_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
-    if cx.theme().is_dark() {
-        color(0xFFFFFF).opacity(0.06)
-    } else {
-        color(0x000000).opacity(0.045)
-    }
+    cx.theme().secondary
 }
 
 fn ai_stats_track_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
-    if cx.theme().is_dark() {
-        color(0xFFFFFF).opacity(0.10)
-    } else {
-        color(0x000000).opacity(0.07)
-    }
+    cx.theme().secondary_hover
 }

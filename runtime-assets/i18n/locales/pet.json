@@ -241,7 +241,8 @@
       "pet.today_tokens": "Heute",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "en": {
       "pet.activity.completed_format": "%@ completed",
@@ -484,7 +485,8 @@
       "pet.custom.install.validation.format": "Codex-format check runs during install",
       "pet.speech.llm.idle_system_prompt_format": "You are a desktop pixel pet named %@. Personality: %@. Write a casual idle monologue in Simplified Chinese. Use at most 2 short lines and 36 characters total. Do not mention code, files, secrets, commands, or exact task results. Do not explain. Output only the line.",
       "pet.speech.llm.idle_user_prompt_format": "Idle event: %@\nCurrent hour: %@\nRecent tool: %@ / model: %@\nProject nickname: %@",
-      "pet.today_tokens": "Today"
+      "pet.today_tokens": "Today",
+      "pet.name.save": "Save pet name"
     },
     "es": {
       "pet.activity.completed_format": "%@ completado",
@@ -727,7 +729,8 @@
       "pet.today_tokens": "Hoy",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "fr": {
       "pet.activity.completed_format": "%@ terminé",
@@ -970,7 +973,8 @@
       "pet.today_tokens": "Aujourd’hui",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "ja": {
       "pet.activity.completed_format": "%@ 完了",
@@ -1213,7 +1217,8 @@
       "pet.today_tokens": "今日",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "ko": {
       "pet.activity.completed_format": "%@ 완료",
@@ -1456,7 +1461,8 @@
       "pet.today_tokens": "오늘",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "pt-BR": {
       "pet.activity.completed_format": "%@ concluído",
@@ -1699,7 +1705,8 @@
       "pet.today_tokens": "Hoje",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "ru": {
       "pet.activity.completed_format": "%@ завершено",
@@ -1942,7 +1949,8 @@
       "pet.today_tokens": "Сегодня",
       "pet.tooltip.pet": "Pet",
       "pet.total_xp": "Total XP",
-      "pet.xp.label": "Experience"
+      "pet.xp.label": "Experience",
+      "pet.name.save": "Save pet name"
     },
     "zh-Hans": {
       "pet.activity.completed_format": "%@ 已完成",
@@ -2185,7 +2193,8 @@
       "pet.today_tokens": "今日",
       "pet.tooltip.pet": "宠物",
       "pet.total_xp": "总 XP",
-      "pet.xp.label": "经验值"
+      "pet.xp.label": "经验值",
+      "pet.name.save": "保存宠物昵称"
     },
     "zh-Hant": {
       "pet.activity.completed_format": "%@ 已完成",
@@ -2428,7 +2437,8 @@
       "pet.today_tokens": "今日",
       "pet.tooltip.pet": "寵物",
       "pet.total_xp": "總 XP",
-      "pet.xp.label": "經驗值"
+      "pet.xp.label": "經驗值",
+      "pet.name.save": "儲存寵物暱稱"
     }
   }
 }

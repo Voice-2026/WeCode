@@ -16,7 +16,7 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 const MAX_DIFF_BYTES: usize = 96 * 1024;
 const REVIEW_UNTRACKED_LINE_COUNT_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
-const GIT_WATCH_DEBOUNCE_MS: u64 = 250;
+const GIT_WATCH_DEBOUNCE_MS: u64 = 900;
 const COMMIT_CONTEXT_MAX_CHARS: usize = 24_000;
 const COMMIT_CONTEXT_MAX_FILES: usize = 80;
 const COMMIT_CONTEXT_MAX_LINES_PER_FILE: usize = 80;

@@ -6,6 +6,7 @@ use std::time::Instant;
 #[serde(rename_all = "camelCase")]
 pub struct PerformanceSnapshot {
     pub cpu_percent: f64,
+    pub gpu_percent: f64,
     pub memory_bytes: u64,
     pub memory: PerformanceMemorySnapshot,
 }
@@ -33,6 +34,7 @@ struct RawSample {
     memory_bytes: u64,
     memory: PerformanceMemorySnapshot,
     cpu_percent_override: Option<f64>,
+    gpu_percent: Option<f64>,
 }
 
 impl PerformanceMonitor {
@@ -40,6 +42,7 @@ impl PerformanceMonitor {
         let Some(raw) = self.capture_raw_sample() else {
             return PerformanceSnapshot {
                 cpu_percent: 0.0,
+                gpu_percent: 0.0,
                 memory_bytes: 0,
                 memory: PerformanceMemorySnapshot::default(),
             };
@@ -48,6 +51,7 @@ impl PerformanceMonitor {
         let cpu_percent = self.cpu_percent(&raw);
         PerformanceSnapshot {
             cpu_percent,
+            gpu_percent: raw.gpu_percent.unwrap_or(0.0),
             memory_bytes: raw.memory_bytes,
             memory: raw.memory.clone(),
         }

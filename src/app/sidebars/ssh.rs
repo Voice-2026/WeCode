@@ -1,12 +1,21 @@
 use super::*;
+use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) fn ssh_section(
     ssh: &SSHSummary,
     selected_profile_id: Option<&str>,
     scroll_handle: UniformListScrollHandle,
+    language: &str,
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let locale = locale_from_language_setting(language);
+    let title = translate(&locale, "ssh.panel.title", "SSH");
+    let empty_label = translate(&locale, "ssh.panel.empty.title", "No SSH Connections");
+    let connect_label = translate(&locale, "ssh.profile.connect", "Connect");
+    let open_label = translate(&locale, "common.open", "Open");
+    let edit_label = translate(&locale, "ssh.profile.edit", "Edit SSH Connection");
+    let remove_label = translate(&locale, "common.remove", "Remove");
     let profiles = Rc::new(ssh.profiles.clone());
     let selected_profile_id = selected_profile_id.map(str::to_string);
     let error_row = ssh.error.as_ref().map(|error| {
@@ -30,7 +39,7 @@ pub(in crate::app) fn ssh_section(
         .flex_col()
         .relative()
         .child(assistant_panel_header(
-            "SSH",
+            title,
             IconName::SquareTerminal,
             header_icon_button(
                 "ssh-add-profile",
@@ -47,15 +56,23 @@ pub(in crate::app) fn ssh_section(
                 .relative()
                 .overflow_y_scrollbar()
                 .child(if profiles.is_empty() {
-                    ssh_empty_state(cx).into_any_element()
+                    ssh_empty_state(empty_label.clone(), cx).into_any_element()
                 } else {
                     let _ = scroll_handle;
                     div()
                         .flex()
                         .flex_col()
                         .children(profiles.iter().cloned().map(|profile| {
-                            ssh_profile_row(profile, selected_profile_id.as_deref(), cx)
-                                .into_any_element()
+                            ssh_profile_row(
+                                profile,
+                                selected_profile_id.as_deref(),
+                                connect_label.clone(),
+                                open_label.clone(),
+                                edit_label.clone(),
+                                remove_label.clone(),
+                                cx,
+                            )
+                            .into_any_element()
                         }))
                         .into_any_element()
                 })
@@ -63,7 +80,7 @@ pub(in crate::app) fn ssh_section(
         )
 }
 
-fn ssh_empty_state(cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn ssh_empty_state(label: String, cx: &mut Context<CoduxApp>) -> impl IntoElement {
     div()
         .size_full()
         .flex()
@@ -91,13 +108,17 @@ fn ssh_empty_state(cx: &mut Context<CoduxApp>) -> impl IntoElement {
                 .text_size(px(13.0))
                 .line_height(px(18.0))
                 .text_color(color(theme::TEXT_MUTED))
-                .child("暂无 SSH 配置"),
+                .child(label),
         )
 }
 
 fn ssh_profile_row(
     profile: SSHProfileSummary,
     selected_profile_id: Option<&str>,
+    connect_label: String,
+    open_label: String,
+    edit_label: String,
+    remove_label: String,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let active = selected_profile_id
@@ -121,7 +142,7 @@ fn ssh_profile_row(
         .bg(if active {
             ai_stats_track_surface(cx)
         } else {
-            color(0xFFFFFF).opacity(0.0)
+            cx.theme().transparent
         })
         .cursor_pointer()
         .hover(move |style| style.bg(hover_surface))
@@ -183,7 +204,7 @@ fn ssh_profile_row(
                         .size_3p5()
                         .text_color(cx.theme().secondary_foreground),
                 )
-                .tooltip("连接")
+                .tooltip(connect_label)
                 .on_click(cx.listener(move |app, _event, window, cx| {
                     cx.stop_propagation();
                     app.select_ssh_profile(connect_profile_id.clone(), window, cx);
@@ -199,7 +220,7 @@ fn ssh_profile_row(
             let remove_profile_id = menu_profile_id.clone();
 
             menu.item(
-                PopupMenuItem::new("打开")
+                PopupMenuItem::new(open_label.clone())
                     .icon(IconName::ExternalLink)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&open_entity, |app, cx| {
@@ -209,7 +230,7 @@ fn ssh_profile_row(
                     }),
             )
             .item(
-                PopupMenuItem::new("编辑")
+                PopupMenuItem::new(edit_label.clone())
                     .icon(IconName::CaseSensitive)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&edit_entity, |app, cx| {
@@ -219,13 +240,15 @@ fn ssh_profile_row(
                     }),
             )
             .separator()
-            .item(PopupMenuItem::new("移除").icon(IconName::Delete).on_click(
-                move |_, window, cx| {
-                    cx.update_entity(&remove_entity, |app, cx| {
-                        app.select_ssh_profile(remove_profile_id.clone(), window, cx);
-                        app.delete_selected_ssh_profile(window, cx);
-                    });
-                },
-            ))
+            .item(
+                PopupMenuItem::new(remove_label.clone())
+                    .icon(IconName::Delete)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&remove_entity, |app, cx| {
+                            app.select_ssh_profile(remove_profile_id.clone(), window, cx);
+                            app.delete_selected_ssh_profile(window, cx);
+                        });
+                    }),
+            )
         })
 }

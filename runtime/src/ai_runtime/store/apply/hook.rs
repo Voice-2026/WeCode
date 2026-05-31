@@ -36,6 +36,14 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
 
     let previous = core.sessions.get(&terminal_id).cloned();
     let terminal_instance_id = normalized_string(event.terminal_instance_id.as_deref());
+    if event.kind == "sessionStarted"
+        && previous
+            .as_ref()
+            .map(|session| event.updated_at < session.updated_at)
+            .unwrap_or(false)
+    {
+        return false;
+    }
     if previous
         .as_ref()
         .and_then(|session| session.terminal_instance_id.as_deref())
@@ -118,6 +126,8 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
             .as_ref()
             .and_then(|metadata| metadata.was_interrupted)
             .unwrap_or(false)
+    } else if state == "responding" || state == "needsInput" {
+        false
     } else {
         base.map(|session| session.was_interrupted).unwrap_or(false)
     };
@@ -130,6 +140,8 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
     } else if event.kind == "sessionEnded" {
         base.map(|session| session.has_completed_turn)
             .unwrap_or(false)
+    } else if event.kind == "sessionStarted" {
+        false
     } else {
         base.map(|session| session.has_completed_turn)
             .unwrap_or(false)

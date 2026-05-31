@@ -67,7 +67,16 @@
       "ai.sessions.recent_limit_format": "Letzte %d",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d Anfragen",
+      "ai.metric.request_count_format": "%d Anfragen",
+      "ai.sessions.empty_project": "Für dieses Projekt wurden noch keine KI-Sitzungen indiziert.",
+      "ai.status.index_count": "Index",
+      "ai.runtime.events": "Ereignisse",
+      "ai.runtime.processes": "Prozesse",
+      "ai.runtime.ingress": "Runtime-Eingang",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "nicht erstellt"
     },
     "en": {
       "ai.action.refresh_current_project": "Refresh AI stats for the current project.",
@@ -136,7 +145,16 @@
       "ai.sessions.recent_limit_format": "Recent %d",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d requests",
+      "ai.metric.request_count_format": "%d requests",
+      "ai.sessions.empty_project": "No AI sessions have been indexed for this project yet.",
+      "ai.status.index_count": "Index",
+      "ai.runtime.events": "Events",
+      "ai.runtime.processes": "Processes",
+      "ai.runtime.ingress": "Runtime Ingress",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "not created"
     },
     "es": {
       "ai.action.refresh_current_project": "Actualizar las estadísticas de IA del proyecto actual.",
@@ -205,7 +223,16 @@
       "ai.sessions.recent_limit_format": "Recientes %d",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d solicitudes",
+      "ai.metric.request_count_format": "%d solicitudes",
+      "ai.sessions.empty_project": "Aún no se han indexado sesiones de IA para este proyecto.",
+      "ai.status.index_count": "Índice",
+      "ai.runtime.events": "Eventos",
+      "ai.runtime.processes": "Procesos",
+      "ai.runtime.ingress": "Entrada runtime",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "no creado"
     },
     "fr": {
       "ai.action.refresh_current_project": "Actualiser les statistiques IA du projet actuel.",
@@ -274,7 +301,16 @@
       "ai.sessions.recent_limit_format": "%d récents",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d requêtes",
+      "ai.metric.request_count_format": "%d requêtes",
+      "ai.sessions.empty_project": "Aucune session IA n’a encore été indexée pour ce projet.",
+      "ai.status.index_count": "Index",
+      "ai.runtime.events": "Événements",
+      "ai.runtime.processes": "Processus",
+      "ai.runtime.ingress": "Entrée runtime",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "non créé"
     },
     "ja": {
       "ai.action.refresh_current_project": "現在のプロジェクトの AI 統計を更新します。",
@@ -343,7 +379,16 @@
       "ai.sessions.recent_limit_format": "最近 %d 件",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d リクエスト",
+      "ai.metric.request_count_format": "%d リクエスト",
+      "ai.sessions.empty_project": "このプロジェクトでは AI セッションがまだインデックスされていません。",
+      "ai.status.index_count": "インデックス",
+      "ai.runtime.events": "イベント",
+      "ai.runtime.processes": "プロセス",
+      "ai.runtime.ingress": "Runtime 入口",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "未作成"
     },
     "ko": {
       "ai.action.refresh_current_project": "현재 프로젝트에 대한 AI 통계를 새로 고칩니다.",
@@ -412,7 +457,16 @@
       "ai.sessions.recent_limit_format": "최근 %d개",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d 요청",
+      "ai.metric.request_count_format": "%d 요청",
+      "ai.sessions.empty_project": "이 프로젝트에는 아직 인덱싱된 AI 세션이 없습니다.",
+      "ai.status.index_count": "인덱스",
+      "ai.runtime.events": "이벤트",
+      "ai.runtime.processes": "프로세스",
+      "ai.runtime.ingress": "런타임 인입",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "생성되지 않음"
     },
     "pt-BR": {
       "ai.action.refresh_current_project": "Atualizar as estatísticas de IA do projeto atual.",
@@ -481,7 +535,16 @@
       "ai.sessions.recent_limit_format": "Recentes %d",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d solicitações",
+      "ai.metric.request_count_format": "%d solicitações",
+      "ai.sessions.empty_project": "Nenhuma sessão de IA foi indexada para este projeto ainda.",
+      "ai.status.index_count": "Índice",
+      "ai.runtime.events": "Eventos",
+      "ai.runtime.processes": "Processos",
+      "ai.runtime.ingress": "Entrada do runtime",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "não criado"
     },
     "ru": {
       "ai.action.refresh_current_project": "Обновить статистику ИИ для текущего проекта.",
@@ -550,7 +613,16 @@
       "ai.sessions.recent_limit_format": "Последние %d",
       "ai.panel.statistics_title": "AI Stats",
       "ai.sessions.actions_format": "%@ Actions",
-      "ai.sessions.delete_confirm_format": "Delete %@?"
+      "ai.sessions.delete_confirm_format": "Delete %@?",
+      "ai.metric.requests_format": "%d запросов",
+      "ai.metric.request_count_format": "%d запросов",
+      "ai.sessions.empty_project": "Для этого проекта еще не проиндексированы сеансы ИИ.",
+      "ai.status.index_count": "Индекс",
+      "ai.runtime.events": "События",
+      "ai.runtime.processes": "Процессы",
+      "ai.runtime.ingress": "Вход runtime",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "не создан"
     },
     "zh-Hans": {
       "ai.action.refresh_current_project": "刷新当前项目的 AI 统计。",
@@ -619,7 +691,16 @@
       "ai.sessions.recent_limit_format": "最近 %d 条",
       "ai.panel.statistics_title": "AI 统计",
       "ai.sessions.actions_format": "%@ 操作",
-      "ai.sessions.delete_confirm_format": "删除 %@？"
+      "ai.sessions.delete_confirm_format": "删除 %@？",
+      "ai.metric.requests_format": "%d 请求",
+      "ai.metric.request_count_format": "%d 次请求",
+      "ai.sessions.empty_project": "当前项目还没有索引到 AI 会话。",
+      "ai.status.index_count": "索引",
+      "ai.runtime.events": "事件",
+      "ai.runtime.processes": "进程",
+      "ai.runtime.ingress": "运行时入口",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "未生成"
     },
     "zh-Hant": {
       "ai.action.refresh_current_project": "刷新目前專案的 AI 統計資料。",
@@ -688,7 +769,16 @@
       "ai.sessions.recent_limit_format": "最近 %d 筆",
       "ai.panel.statistics_title": "AI 統計",
       "ai.sessions.actions_format": "%@ 操作",
-      "ai.sessions.delete_confirm_format": "刪除 %@？"
+      "ai.sessions.delete_confirm_format": "刪除 %@？",
+      "ai.metric.requests_format": "%d 請求",
+      "ai.metric.request_count_format": "%d 次請求",
+      "ai.sessions.empty_project": "目前專案尚未索引到 AI 會話。",
+      "ai.status.index_count": "索引",
+      "ai.runtime.events": "事件",
+      "ai.runtime.processes": "程序",
+      "ai.runtime.ingress": "執行階段入口",
+      "ai.runtime.ingress_metric": "Ingress",
+      "ai.runtime.log_missing": "未產生"
     }
   }
 }

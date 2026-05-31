@@ -73,6 +73,12 @@ pub struct RuntimeService {
     remote_host: Arc<RemoteHostRuntime>,
 }
 
+impl RuntimeService {
+    pub fn ai_runtime_bridge(&self) -> Arc<AIRuntimeBridge> {
+        Arc::clone(&self.ai_runtime)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AIRuntimeDrainResult {
     pub events: Vec<AIRuntimeSupervisorEvent>,

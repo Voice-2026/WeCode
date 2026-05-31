@@ -1,12 +1,76 @@
+use super::ai_runtime_status::AIActivityState;
 use super::*;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
+
+pub(in crate::app) struct ProjectColumnView {
+    pub(in crate::app) app_entity: gpui::Entity<CoduxApp>,
+    pub(in crate::app) project_store: gpui::Entity<ProjectListStore>,
+    pub(in crate::app) collapsed: bool,
+    pub(in crate::app) language: String,
+    pub(in crate::app) has_project: bool,
+    pub(in crate::app) has_projects: bool,
+    pub(in crate::app) has_worktree: bool,
+    pub(in crate::app) scroll_handle: UniformListScrollHandle,
+    pub(in crate::app) _observe_project_store: Option<Subscription>,
+}
+
+pub(in crate::app) struct ProjectListStore {
+    pub(in crate::app) projects: Rc<Vec<ProjectInfo>>,
+    pub(in crate::app) selected_project_id: Option<String>,
+    pub(in crate::app) activity: HashMap<String, AIActivityState>,
+    revision: u64,
+}
+
+impl ProjectListStore {
+    pub(in crate::app) fn new(
+        projects: Vec<ProjectInfo>,
+        selected_project_id: Option<String>,
+    ) -> Self {
+        Self {
+            projects: Rc::new(projects),
+            selected_project_id,
+            activity: HashMap::new(),
+            revision: 0,
+        }
+    }
+
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        projects: Vec<ProjectInfo>,
+        selected_project_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.projects = Rc::new(projects);
+        self.selected_project_id = selected_project_id;
+        self.revision = self.revision.wrapping_add(1);
+        cx.notify();
+    }
+
+    pub(in crate::app) fn set_activity(
+        &mut self,
+        activity: HashMap<String, AIActivityState>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.activity == activity {
+            return;
+        }
+        self.activity = activity;
+        self.revision = self.revision.wrapping_add(1);
+        cx.notify();
+    }
+}
 
 impl Render for ProjectColumnView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = self.collapsed;
-        let (projects, selected_project_id) = self.project_store.update(cx, |store, _cx| {
-            (store.projects.clone(), store.selected_project_id.clone())
-        });
+        let (projects, selected_project_id, activity) =
+            self.project_store.update(cx, |store, _cx| {
+                (
+                    store.projects.clone(),
+                    store.selected_project_id.clone(),
+                    store.activity.clone(),
+                )
+            });
         let app_entity = self.app_entity.clone();
         let scroll_handle = self.scroll_handle.clone();
 
@@ -15,9 +79,9 @@ impl Render for ProjectColumnView {
             .flex_col()
             .w(px(if collapsed { 80.0 } else { 232.0 }))
             .h_full()
-            .bg(color(theme::BG_COLUMN))
+            .bg(cx.theme().sidebar)
             .border_r_1()
-            .border_color(color(theme::BORDER_SOFT))
+            .border_color(cx.theme().sidebar_border)
             .child(project_column_header(
                 collapsed,
                 app_entity.clone(),
@@ -42,12 +106,16 @@ impl Render for ProjectColumnView {
                         scroll_handle,
                         None,
                         cx,
-                        move |project, _index, window, _cx| {
+                        move |project, _index, window, cx| {
                             let project_id = project.id.clone();
                             let active = selected_project_id
                                 .as_deref()
                                 .map(|selected| selected == project.id)
                                 .unwrap_or(false);
+                            let activity_state = activity
+                                .get(project.id.as_str())
+                                .copied()
+                                .unwrap_or(AIActivityState::Idle);
                             div()
                                 .w_full()
                                 .pb(px(4.0))
@@ -56,8 +124,10 @@ impl Render for ProjectColumnView {
                                     active,
                                     app_entity.clone(),
                                     project_id,
+                                    activity_state,
                                     collapsed,
                                     window,
+                                    cx,
                                 ))
                                 .into_any_element()
                         },
@@ -282,8 +352,8 @@ fn project_more_button(
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<ProjectColumnView>,
 ) -> impl IntoElement {
-    let language = language.to_string();
     let has_label = label.is_some();
+    let language = language.to_string();
     let button = Button::new("project-tool-project-more-footer")
         .ghost()
         .text_color(cx.theme().secondary_foreground)
@@ -296,12 +366,98 @@ fn project_more_button(
 
     button
         .child(project_tool_content(IconName::Ellipsis, label, cx))
-        .on_click(move |_, window, cx| {
-            let position = window.mouse_position();
-            cx.update_entity(&app_entity, |app, cx| {
-                app.open_project_help_native_menu(language.clone(), position, window, cx);
-            });
+        .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+            let fallback_entity = app_entity.clone();
+            let about_entity = app_entity.clone();
+            let updates_entity = app_entity.clone();
+            let diagnostics_entity = app_entity.clone();
+            let runtime_log_entity = app_entity.clone();
+            let live_log_entity = app_entity.clone();
+            let website_entity = app_entity.clone();
+            let github_entity = app_entity.clone();
+            let entries = project_help_menu_entries(&language);
+            entries
+                .into_iter()
+                .fold(menu, move |menu, entry| match entry {
+                    ProjectHelpMenuEntry::Separator => menu.separator(),
+                    ProjectHelpMenuEntry::Item {
+                        label,
+                        icon,
+                        action_id,
+                    } => {
+                        let entity = match action_id {
+                            "help:about" => about_entity.clone(),
+                            "help:check-updates" => updates_entity.clone(),
+                            "help:export-diagnostics" => diagnostics_entity.clone(),
+                            "help:runtime-log" => runtime_log_entity.clone(),
+                            "help:live-log" => live_log_entity.clone(),
+                            "help:website" => website_entity.clone(),
+                            "help:github" => github_entity.clone(),
+                            _ => fallback_entity.clone(),
+                        };
+                        menu.item(PopupMenuItem::new(label).icon(icon).on_click(
+                            move |_, window, cx| {
+                                cx.update_entity(&entity, |app, cx| {
+                                    app.apply_project_help_action(action_id, window, cx);
+                                });
+                            },
+                        ))
+                    }
+                })
         })
+}
+
+enum ProjectHelpMenuEntry {
+    Item {
+        label: String,
+        icon: IconName,
+        action_id: &'static str,
+    },
+    Separator,
+}
+
+fn project_help_menu_entries(language: &str) -> Vec<ProjectHelpMenuEntry> {
+    use ProjectHelpMenuEntry::{Item, Separator};
+    let label = |key: &str, fallback: &str| project_column_text(language, key, fallback);
+    vec![
+        Item {
+            label: label("menu.app.about_format", "About Codux").replace("%@", "Codux"),
+            icon: IconName::Info,
+            action_id: "help:about",
+        },
+        Item {
+            label: label("menu.app.check_updates", "Check for Updates..."),
+            icon: IconName::Redo2,
+            action_id: "help:check-updates",
+        },
+        Separator,
+        Item {
+            label: label("menu.help.export_diagnostics", "Export Diagnostics..."),
+            icon: IconName::File,
+            action_id: "help:export-diagnostics",
+        },
+        Item {
+            label: label("menu.help.open_runtime_log", "Open Runtime Log"),
+            icon: IconName::File,
+            action_id: "help:runtime-log",
+        },
+        Item {
+            label: label("menu.help.open_live_log", "Open Live Log"),
+            icon: IconName::File,
+            action_id: "help:live-log",
+        },
+        Separator,
+        Item {
+            label: label("menu.help.website", "Official Website"),
+            icon: IconName::ExternalLink,
+            action_id: "help:website",
+        },
+        Item {
+            label: label("menu.help.github", "GitHub"),
+            icon: IconName::Github,
+            action_id: "help:github",
+        },
+    ]
 }
 
 fn project_column_text(language: &str, key: &str, fallback: &str) -> String {
@@ -334,8 +490,10 @@ fn project_row(
     active: bool,
     app_entity: gpui::Entity<CoduxApp>,
     project_id: String,
+    activity_state: AIActivityState,
     collapsed: bool,
     window: &mut Window,
+    cx: &mut Context<ProjectColumnView>,
 ) -> AnyElement {
     if collapsed {
         return div()
@@ -355,14 +513,21 @@ fn project_row(
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .when(active, |this| this.bg(color(theme::BG_ROW_HOVER)))
-                    .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                    .when(active, |this| this.bg(cx.theme().list_hover))
+                    .hover(|style| style.bg(cx.theme().list_hover))
                     .on_click(
                         window.listener_for(&app_entity, move |app, _event, window, cx| {
                             app.select_project(project_id.clone(), window, cx)
                         }),
                     )
-                    .child(project_icon(&project, active)),
+                    .child(
+                        div()
+                            .relative()
+                            .child(project_icon(&project, active))
+                            .when(activity_state.is_active(), |this| {
+                                this.child(project_activity_badge(activity_state, cx))
+                            }),
+                    ),
             )
             .into_any_element();
     }
@@ -389,15 +554,22 @@ fn project_row(
                 .min_w_0()
                 .px(px(8.0))
                 .rounded(px(8.0))
-                .when(active, |this| this.bg(color(theme::BG_ROW_HOVER)))
+                .when(active, |this| this.bg(cx.theme().list_hover))
                 .cursor_pointer()
-                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                .hover(|style| style.bg(cx.theme().list_hover))
                 .on_click(
                     window.listener_for(&app_entity, move |app, _event, window, cx| {
                         app.select_project(project_id.clone(), window, cx)
                     }),
                 )
-                .child(project_icon(&project, active))
+                .child(
+                    div()
+                        .relative()
+                        .child(project_icon(&project, active))
+                        .when(activity_state.is_active(), |this| {
+                            this.child(project_activity_badge(activity_state, cx))
+                        }),
+                )
                 .child(
                     div()
                         .flex()
@@ -426,6 +598,48 @@ fn project_row(
                 ),
         )
         .into_any_element()
+}
+
+fn project_activity_badge(
+    state: AIActivityState,
+    cx: &mut Context<ProjectColumnView>,
+) -> AnyElement {
+    match state {
+        AIActivityState::Running => div()
+            .absolute()
+            .right(px(-2.0))
+            .top(px(-2.0))
+            .w(px(12.0))
+            .h(px(12.0))
+            .rounded_full()
+            .border_2()
+            .border_color(color(theme::ORANGE))
+            .bg(color(theme::BG_COLUMN))
+            .into_any_element(),
+        AIActivityState::Review => div()
+            .absolute()
+            .right(px(-2.0))
+            .top(px(-2.0))
+            .w(px(10.0))
+            .h(px(10.0))
+            .rounded_full()
+            .border_2()
+            .border_color(color(theme::ORANGE))
+            .bg(color(theme::BG_COLUMN))
+            .into_any_element(),
+        AIActivityState::Done => div()
+            .absolute()
+            .right(px(-2.0))
+            .top(px(-2.0))
+            .w(px(10.0))
+            .h(px(10.0))
+            .rounded_full()
+            .border_1()
+            .border_color(cx.theme().sidebar)
+            .bg(color(theme::GREEN))
+            .into_any_element(),
+        AIActivityState::Idle => div().into_any_element(),
+    }
 }
 
 fn project_icon(project: &ProjectInfo, active: bool) -> impl IntoElement {

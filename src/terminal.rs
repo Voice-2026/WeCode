@@ -24,6 +24,8 @@ use gpui::{
 };
 use parking_lot::Mutex;
 use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
     io::Write,
     ops::Range,
     sync::{Arc, mpsc},
@@ -207,6 +209,8 @@ fn default_terminal_font_family() -> &'static str {
     }
 }
 
+const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
 pub struct TerminalView {
     state: TerminalState,
     renderer: TerminalRenderer,
@@ -224,7 +228,9 @@ pub struct TerminalView {
     exited: bool,
     cursor_visible: bool,
     pending_scroll_lines: i32,
+    pending_scroll_pixels: f32,
     scroll_frame_pending: bool,
+    selection_autoscroll: Option<SelectionAutoScroll>,
     _reader_task: Task<()>,
     _cursor_blink_task: Task<()>,
 }
@@ -304,7 +310,9 @@ impl TerminalView {
             exited: false,
             cursor_visible: true,
             pending_scroll_lines: 0,
+            pending_scroll_pixels: 0.0,
             scroll_frame_pending: false,
+            selection_autoscroll: None,
             _reader_task: reader_task,
             _cursor_blink_task: cursor_blink_task,
         }
@@ -377,10 +385,13 @@ impl TerminalView {
         match event.button {
             MouseButton::Left => {
                 if let Some(point) = point {
-                    self.selection.lock().start(point);
+                    self.selection
+                        .lock()
+                        .start(self.selection_point_from_cell(point));
                 } else {
                     self.selection.lock().clear();
                 }
+                self.selection_autoscroll = None;
             }
             MouseButton::Middle => {
                 if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
@@ -394,7 +405,7 @@ impl TerminalView {
     }
 
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(point) = self.layout.lock().cell_at(event.position) {
+        if let Some((point, _)) = self.layout.lock().drag_cell_at(event.position) {
             if self.should_report_mouse(event.modifiers.shift) {
                 self.send_mouse_report(
                     Some(event.button),
@@ -406,10 +417,13 @@ impl TerminalView {
                 cx.notify();
                 return;
             }
-            self.selection.lock().finish(point);
+            self.selection
+                .lock()
+                .finish(self.selection_point_from_cell(point));
         } else {
             self.selection.lock().dragging = false;
         }
+        self.selection_autoscroll = None;
         cx.stop_propagation();
         cx.notify();
     }
@@ -420,10 +434,10 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(point) = self.layout.lock().cell_at(event.position) else {
-            return;
-        };
         if self.should_report_mouse(event.modifiers.shift) {
+            let Some(point) = self.layout.lock().cell_at(event.position) else {
+                return;
+            };
             self.send_mouse_report(
                 event.pressed_button,
                 point,
@@ -434,7 +448,20 @@ impl TerminalView {
             return;
         }
         if event.dragging() {
-            self.selection.lock().update(point);
+            let Some((point, scroll_lines)) = self.layout.lock().drag_cell_at(event.position)
+            else {
+                return;
+            };
+            self.selection
+                .lock()
+                .update(self.selection_point_from_cell(point));
+            self.selection_autoscroll = (scroll_lines != 0).then_some(SelectionAutoScroll {
+                edge_cell: point,
+                lines: scroll_lines,
+            });
+            if scroll_lines != 0 {
+                self.queue_display_scroll(scroll_lines, cx);
+            }
             cx.stop_propagation();
             cx.notify();
         }
@@ -447,8 +474,10 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let pixels: f32 = event.delta.pixel_delta(px(20.0)).y.into();
-        let lines = (pixels / 20.0).round() as i32;
+        self.pending_scroll_pixels += pixels;
+        let lines = (self.pending_scroll_pixels / 20.0) as i32;
         if lines != 0 {
+            self.pending_scroll_pixels -= lines as f32 * 20.0;
             if let Some(point) = self.layout.lock().cell_at(event.position)
                 && self.should_report_mouse(event.modifiers.shift)
             {
@@ -471,29 +500,66 @@ impl TerminalView {
                     self.write_bytes(sequence);
                 }
             } else {
-                self.queue_display_scroll(lines, _window, cx);
+                self.queue_display_scroll(lines, cx);
             }
             cx.stop_propagation();
         }
     }
 
-    fn queue_display_scroll(&mut self, lines: i32, window: &Window, cx: &mut Context<Self>) {
+    fn queue_display_scroll(&mut self, lines: i32, cx: &mut Context<Self>) {
         self.pending_scroll_lines = self.pending_scroll_lines.saturating_add(lines);
-        if !self.scroll_frame_pending {
-            self.scroll_frame_pending = true;
-            cx.defer_in(window, |terminal, _window, cx| {
-                terminal.flush_pending_scroll();
-                cx.notify();
-            });
-        }
+        self.schedule_scroll_flush(cx);
     }
 
-    fn flush_pending_scroll(&mut self) {
+    fn schedule_scroll_flush(&mut self, cx: &mut Context<Self>) {
+        if self.scroll_frame_pending {
+            return;
+        }
+
+        self.scroll_frame_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
+            let _ = terminal.update(cx, |terminal, cx| {
+                if let Some(flush) = terminal.flush_pending_scroll() {
+                    if let Some(lines) = flush.next_lines {
+                        terminal.pending_scroll_lines =
+                            terminal.pending_scroll_lines.saturating_add(lines);
+                        terminal.schedule_scroll_flush(cx);
+                    }
+                    if flush.did_scroll {
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn flush_pending_scroll(&mut self) -> Option<ScrollFlushResult> {
         self.scroll_frame_pending = false;
         let lines = std::mem::take(&mut self.pending_scroll_lines);
-        if lines != 0 {
-            self.state.scroll_display(lines);
+        if lines == 0 {
+            return None;
         }
+
+        let did_scroll = self.state.scroll_display(lines);
+        if did_scroll
+            && let Some(autoscroll) = self.selection_autoscroll
+            && self.selection.lock().dragging
+        {
+            let point = self.selection_point_from_cell(autoscroll.edge_cell);
+            self.selection.lock().update(point);
+            return Some(ScrollFlushResult {
+                did_scroll,
+                next_lines: Some(autoscroll.lines),
+            });
+        }
+
+        Some(ScrollFlushResult {
+            did_scroll,
+            next_lines: None,
+        })
     }
 
     fn process_events(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -594,6 +660,13 @@ impl TerminalView {
         (!text.is_empty()).then_some(text)
     }
 
+    fn selection_point_from_cell(&self, point: TerminalCellPoint) -> TerminalSelectionPoint {
+        TerminalSelectionPoint {
+            line: point.row as i32 - self.state.display_offset() as i32,
+            col: point.col,
+        }
+    }
+
     fn set_marked_text(&mut self, text: String, cx: &mut Context<Self>) {
         if text.is_empty() {
             self.clear_marked_text(cx);
@@ -622,12 +695,11 @@ fn should_send_alternate_scroll(mode: TermMode, shift_pressed: bool) -> bool {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.flush_pending_scroll();
         self.process_events(window, cx);
 
+        self.renderer.measure_cell(window);
         let term = self.state.term.clone();
         let renderer = self.renderer.clone();
-        let resize_handle = self.resize_handle.clone();
         let layout = self.layout.clone();
         let selection = self.selection.clone();
         let focus_handle = self.focus_handle.clone();
@@ -636,6 +708,7 @@ impl Render for TerminalView {
         let marked_text = self.marked_text.clone();
         let padding = self.config.padding;
         let cursor_visible = !self.focus_handle.contains_focused(window, cx) || self.cursor_visible;
+        let resize_handle = self.resize_handle.clone();
 
         div()
             .size_full()
@@ -654,9 +727,6 @@ impl Render for TerminalView {
                 canvas(
                     move |bounds, _window, _cx| bounds,
                     move |bounds, _, window, cx| {
-                        let mut renderer = renderer.clone();
-                        renderer.measure_cell(window);
-
                         let available_width =
                             (bounds.size.width - padding.left - padding.right).max(px(1.0));
                         let available_height =
@@ -678,10 +748,10 @@ impl Render for TerminalView {
 
                         let mut term = term.lock();
                         if cols != term.columns() || rows != term.screen_lines() {
+                            term.resize(TermSize::new(cols, rows));
                             if let Err(error) = resize_handle.resize(cols as u16, rows as u16) {
                                 eprintln!("failed to resize terminal pty: {error}");
                             }
-                            term.resize(TermSize::new(cols, rows));
                         }
                         let selection = selection.lock().range();
                         renderer.paint(
@@ -748,11 +818,18 @@ impl TerminalState {
         *self.term.lock().mode()
     }
 
-    fn scroll_display(&self, lines: i32) {
+    fn display_offset(&self) -> usize {
+        self.term.lock().grid().display_offset()
+    }
+
+    fn scroll_display(&self, lines: i32) -> bool {
         use alacritty_terminal::grid::Scroll;
 
+        let mut term = self.term.lock();
+        let before = term.grid().display_offset();
         let scroll = Scroll::Delta(lines);
-        self.term.lock().scroll_display(scroll);
+        term.scroll_display(scroll);
+        term.grid().display_offset() != before
     }
 
     fn selected_text(&self, selection: SelectionRange) -> String {
@@ -762,16 +839,20 @@ impl TerminalState {
         let end = selection.end;
         let mut text = String::new();
 
-        for row in start.row..=end.row {
-            let start_col = if row == start.row { start.col } else { 0 };
-            let end_col = if row == end.row {
+        for term_line in start.line..=end.line {
+            let start_col = if term_line == start.line {
+                start.col
+            } else {
+                0
+            };
+            let end_col = if term_line == end.line {
                 end.col
             } else {
-                grid.columns().saturating_sub(1)
+                grid.columns()
             };
-            let mut line = String::new();
-            for col in start_col..=end_col.min(grid.columns().saturating_sub(1)) {
-                let cell = &grid[TerminalPoint::new(Line(row as i32), Column(col))];
+            let mut line_text = String::new();
+            for col in start_col..end_col.min(grid.columns()) {
+                let cell = &grid[TerminalPoint::new(Line(term_line), Column(col))];
                 if cell
                     .flags
                     .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
@@ -779,17 +860,17 @@ impl TerminalState {
                     continue;
                 }
                 if cell.c != '\0' {
-                    line.push(cell.c);
+                    line_text.push(cell.c);
                     for c in cell.zerowidth().into_iter().flatten() {
-                        line.push(*c);
+                        line_text.push(*c);
                     }
                 }
             }
-            if row != end.row {
-                text.push_str(line.trim_end());
+            if term_line != end.line {
+                text.push_str(line_text.trim_end());
                 text.push('\n');
             } else {
-                text.push_str(line.trim_end());
+                text.push_str(line_text.trim_end());
             }
         }
 
@@ -803,40 +884,51 @@ struct TerminalCellPoint {
     col: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SelectionRange {
-    start: TerminalCellPoint,
-    end: TerminalCellPoint,
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+struct TerminalSelectionPoint {
+    line: i32,
+    col: usize,
 }
 
-impl SelectionRange {
-    fn contains(&self, point: TerminalCellPoint) -> bool {
-        point >= self.start && point <= self.end
-    }
+#[derive(Clone, Copy, Debug)]
+struct SelectionAutoScroll {
+    edge_cell: TerminalCellPoint,
+    lines: i32,
+}
+
+struct ScrollFlushResult {
+    did_scroll: bool,
+    next_lines: Option<i32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SelectionRange {
+    start: TerminalSelectionPoint,
+    end: TerminalSelectionPoint,
 }
 
 #[derive(Clone, Debug, Default)]
 struct SelectionState {
-    anchor: Option<TerminalCellPoint>,
-    head: Option<TerminalCellPoint>,
+    anchor: Option<TerminalSelectionPoint>,
+    head: Option<TerminalSelectionPoint>,
     dragging: bool,
 }
 
 impl SelectionState {
-    fn start(&mut self, point: TerminalCellPoint) {
+    fn start(&mut self, point: TerminalSelectionPoint) {
         self.anchor = Some(point);
         self.head = Some(point);
         self.dragging = true;
     }
 
-    fn update(&mut self, point: TerminalCellPoint) {
+    fn update(&mut self, point: TerminalSelectionPoint) {
         if self.anchor.is_some() {
             self.head = Some(point);
             self.dragging = true;
         }
     }
 
-    fn finish(&mut self, point: TerminalCellPoint) {
+    fn finish(&mut self, point: TerminalSelectionPoint) {
         if self.anchor.is_some() {
             self.head = Some(point);
         }
@@ -939,6 +1031,48 @@ impl TerminalLayoutMetrics {
             row: ((relative_y / self.cell_height) as usize).min(self.rows.saturating_sub(1)),
             col: ((relative_x / self.cell_width) as usize).min(self.cols.saturating_sub(1)),
         })
+    }
+
+    fn drag_cell_at(&self, position: Point<Pixels>) -> Option<(TerminalCellPoint, i32)> {
+        if self.cols == 0 || self.rows == 0 {
+            return None;
+        }
+
+        let origin = Point {
+            x: self.bounds.origin.x + self.padding.left,
+            y: self.bounds.origin.y + self.padding.top,
+        };
+        let relative_x = position.x - origin.x;
+        let relative_y = position.y - origin.y;
+        let width = self.cell_width * self.cols as f32;
+        let height = self.cell_height * self.rows as f32;
+        if relative_x < px(0.0) || relative_x >= width {
+            return None;
+        }
+
+        let col = ((relative_x / self.cell_width) as usize).min(self.cols.saturating_sub(1));
+        if relative_y < px(0.0) {
+            let lines = ((-relative_y / self.cell_height) as i32 + 1).clamp(1, 8);
+            return Some((TerminalCellPoint { row: 0, col }, lines));
+        }
+        if relative_y >= height {
+            let lines = (((relative_y - height) / self.cell_height) as i32 + 1).clamp(1, 8);
+            return Some((
+                TerminalCellPoint {
+                    row: self.rows.saturating_sub(1),
+                    col,
+                },
+                -lines,
+            ));
+        }
+
+        Some((
+            TerminalCellPoint {
+                row: ((relative_y / self.cell_height) as usize).min(self.rows.saturating_sub(1)),
+                col,
+            },
+            0,
+        ))
     }
 
     fn input_bounds(&self) -> Bounds<Pixels> {
@@ -1450,10 +1584,10 @@ fn normalize_terminal_key(key: &str) -> String {
         "del" => "delete",
         "pgup" | "page_up" => "pageup",
         "pgdn" | "page_down" => "pagedown",
-        "arrowup" => "up",
-        "arrowdown" => "down",
-        "arrowleft" => "left",
-        "arrowright" => "right",
+        "arrowup" | "arrow_up" | "up_arrow" => "up",
+        "arrowdown" | "arrow_down" | "down_arrow" => "down",
+        "arrowleft" | "arrow_left" | "left_arrow" => "left",
+        "arrowright" | "arrow_right" | "right_arrow" => "right",
         _ => normalized.as_str(),
     }
     .to_string()
@@ -1676,6 +1810,24 @@ struct TerminalRenderer {
     cell_width: Pixels,
     cell_height: Pixels,
     palette: ColorPalette,
+    measured_key: Option<TerminalCellMeasurementKey>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TerminalCellMeasurementKey {
+    font_family: String,
+    font_size_bits: u32,
+    line_height_bits: u32,
+}
+
+impl TerminalCellMeasurementKey {
+    fn new(font_family: &str, font_size: Pixels, line_height_multiplier: f32) -> Self {
+        Self {
+            font_family: font_family.to_string(),
+            font_size_bits: f32::from(font_size).to_bits(),
+            line_height_bits: line_height_multiplier.to_bits(),
+        }
+    }
 }
 
 impl TerminalRenderer {
@@ -1692,10 +1844,19 @@ impl TerminalRenderer {
             cell_width: font_size * 0.6,
             cell_height: font_size * 1.4,
             palette,
+            measured_key: None,
         }
     }
 
     fn measure_cell(&mut self, window: &mut Window) {
+        let key = TerminalCellMeasurementKey::new(
+            &self.font_family,
+            self.font_size,
+            self.line_height_multiplier,
+        );
+        if self.measured_key.as_ref() == Some(&key) {
+            return;
+        }
         let font = self.font(FontWeight::NORMAL, FontStyle::Normal);
         let text_system = window.text_system();
         let font_id = text_system.resolve_font(&font);
@@ -1704,6 +1865,7 @@ impl TerminalRenderer {
             .map(|size| size.width)
             .unwrap_or(self.font_size * 0.6);
         self.cell_height = self.font_size * self.line_height_multiplier;
+        self.measured_key = Some(key);
     }
 
     fn font(&self, weight: FontWeight, style: FontStyle) -> Font {
@@ -1745,6 +1907,7 @@ impl TerminalRenderer {
             x: bounds.origin.x + padding.left,
             y: bounds.origin.y + padding.top,
         };
+        let content_right = bounds.origin.x + bounds.size.width - padding.right;
         let display_offset = grid.display_offset() as i32;
 
         for row in 0..grid.screen_lines() {
@@ -1758,6 +1921,7 @@ impl TerminalRenderer {
                 origin,
                 default_bg,
                 selection,
+                content_right,
                 window,
             );
             self.paint_row_text(line, row, grid.columns(), grid, colors, origin, window, cx);
@@ -1778,21 +1942,18 @@ impl TerminalRenderer {
         origin: Point<Pixels>,
         default_bg: Hsla,
         selection: Option<SelectionRange>,
+        content_right: Pixels,
         window: &mut Window,
     ) {
         let mut start_col = 0;
-        let mut current = default_bg;
-        let selection_bg = selection_color(self.palette.foreground());
+        let mut current = self
+            .palette
+            .resolve(Color::Named(NamedColor::Background), colors);
 
         for col in 0..=columns {
             let bg = if col < columns {
                 let cell = &grid[TerminalPoint::new(line, Column(col))];
-                let point = TerminalCellPoint { row, col };
-                if selection.is_some_and(|selection| selection.contains(point)) {
-                    selection_bg
-                } else {
-                    self.palette.resolve(cell.bg, colors)
-                }
+                self.palette.resolve(cell.bg, colors)
             } else {
                 Hsla::default()
             };
@@ -1800,27 +1961,22 @@ impl TerminalRenderer {
                 current = bg;
             }
             if col == columns || bg != current {
-                if current != default_bg {
-                    let x = origin.x + self.cell_width * start_col as f32;
-                    let y = origin.y + self.cell_height * row as f32;
-                    window.paint_quad(quad(
-                        Bounds {
-                            origin: Point { x, y },
-                            size: Size {
-                                width: self.cell_width * (col - start_col) as f32,
-                                height: self.cell_height,
-                            },
-                        },
-                        px(0.0),
-                        current,
-                        Edges::<Pixels>::default(),
-                        transparent_black(),
-                        Default::default(),
-                    ));
-                }
+                self.paint_cell_background(
+                    row,
+                    start_col,
+                    col - start_col,
+                    current,
+                    default_bg,
+                    origin,
+                    window,
+                );
                 start_col = col;
                 current = bg;
             }
+        }
+
+        if let Some(selection) = selection {
+            self.paint_selection(line, row, columns, origin, content_right, selection, window);
         }
     }
 
@@ -1835,14 +1991,26 @@ impl TerminalRenderer {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let mut text_runs = Vec::new();
         let mut current_run: Option<TerminalTextRun> = None;
+        let mut pending_spaces = 0usize;
         for col in 0..columns {
             let cell = &grid[TerminalPoint::new(line, Column(col))];
-            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) || cell.c == ' ' || cell.c == '\0' {
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) || cell.c == '\0' {
+                pending_spaces = 0;
+                continue;
+            }
+            if cell.c == ' ' {
+                if current_run.is_some() {
+                    pending_spaces += 1;
+                }
                 continue;
             }
 
-            let fg = self.palette.resolve(cell.fg, colors);
+            let fg = readable_terminal_foreground(
+                self.palette.resolve(cell.fg, colors),
+                self.palette.resolve(cell.bg, colors),
+            );
             let font = self.font(
                 if cell.flags.contains(Flags::BOLD) {
                     FontWeight::SEMIBOLD
@@ -1878,22 +2046,117 @@ impl TerminalRenderer {
             };
             if current_run
                 .as_ref()
-                .is_some_and(|current| current.can_append(col, cell_width, &run))
+                .is_some_and(|current| current.can_append(col, cell_width, pending_spaces, &run))
             {
                 if let Some(current) = current_run.as_mut() {
+                    current.append_spaces(pending_spaces);
                     current.append(cell.c, cell_width);
                 }
             } else {
                 if let Some(current) = current_run.take() {
-                    current.paint(self, row, origin, window, cx);
+                    text_runs.push(current);
                 }
                 current_run = Some(TerminalTextRun::new(col, cell.c, cell_width, run));
             }
+            pending_spaces = 0;
         }
 
         if let Some(current) = current_run {
-            current.paint(self, row, origin, window, cx);
+            text_runs.push(current);
         }
+
+        for text_run in &text_runs {
+            text_run.paint(self, row, origin, window, cx);
+        }
+    }
+
+    fn paint_cell_background(
+        &self,
+        row: usize,
+        start_col: usize,
+        width_cols: usize,
+        color: Hsla,
+        default_bg: Hsla,
+        origin: Point<Pixels>,
+        window: &mut Window,
+    ) {
+        if width_cols == 0 || color == default_bg {
+            return;
+        }
+
+        let x = origin.x + self.cell_width * start_col as f32;
+        let y = origin.y + self.cell_height * row as f32;
+        window.paint_quad(quad(
+            Bounds {
+                origin: Point { x, y },
+                size: Size {
+                    width: self.cell_width * width_cols as f32,
+                    height: self.cell_height,
+                },
+            },
+            px(0.0),
+            color,
+            Edges::<Pixels>::default(),
+            transparent_black(),
+            Default::default(),
+        ));
+    }
+
+    fn paint_selection(
+        &self,
+        line: Line,
+        row: usize,
+        columns: usize,
+        origin: Point<Pixels>,
+        content_right: Pixels,
+        selection: SelectionRange,
+        window: &mut Window,
+    ) {
+        if line.0 < selection.start.line || line.0 > selection.end.line {
+            return;
+        }
+
+        let start_col = if line.0 == selection.start.line {
+            selection.start.col
+        } else {
+            0
+        };
+        let end_col = if line.0 == selection.end.line {
+            selection.end.col
+        } else {
+            columns
+        };
+        if start_col >= end_col || start_col >= columns {
+            return;
+        }
+
+        let x = origin.x + self.cell_width * start_col as f32;
+        let width = if end_col >= columns {
+            content_right - x
+        } else {
+            self.cell_width * end_col.saturating_sub(start_col) as f32
+        };
+        if width <= px(0.0) {
+            return;
+        }
+
+        window.paint_quad(quad(
+            Bounds {
+                origin: Point {
+                    x,
+                    y: origin.y + self.cell_height * row as f32,
+                },
+                size: Size {
+                    width,
+                    height: self.cell_height,
+                },
+            },
+            px(0.0),
+            self.palette.selection,
+            Edges::<Pixels>::default(),
+            transparent_black(),
+            Default::default(),
+        ));
     }
 
     fn paint_cursor(
@@ -1988,25 +2251,36 @@ impl TerminalRenderer {
     }
 }
 
+#[derive(Clone)]
 struct TerminalTextRun {
     start_col: usize,
     width_cols: usize,
     text: String,
     style: TextRun,
+    text_hash: u64,
 }
 
 impl TerminalTextRun {
     fn new(start_col: usize, c: char, width_cols: usize, style: TextRun) -> Self {
+        let mut hasher = DefaultHasher::new();
+        c.hash(&mut hasher);
         Self {
             start_col,
             width_cols,
             text: c.to_string(),
             style,
+            text_hash: hasher.finish(),
         }
     }
 
-    fn can_append(&self, col: usize, width_cols: usize, style: &TextRun) -> bool {
-        self.start_col + self.width_cols == col
+    fn can_append(
+        &self,
+        col: usize,
+        width_cols: usize,
+        pending_spaces: usize,
+        style: &TextRun,
+    ) -> bool {
+        self.start_col + self.width_cols + pending_spaces == col
             && width_cols == 1
             && self.width_cols == self.text.chars().count()
             && self.style.font == style.font
@@ -2016,14 +2290,24 @@ impl TerminalTextRun {
             && self.style.strikethrough == style.strikethrough
     }
 
+    fn append_spaces(&mut self, count: usize) {
+        for _ in 0..count {
+            self.append(' ', 1);
+        }
+    }
+
     fn append(&mut self, c: char, width_cols: usize) {
+        let mut hasher = DefaultHasher::new();
+        self.text_hash.hash(&mut hasher);
+        c.hash(&mut hasher);
+        self.text_hash = hasher.finish();
         self.text.push(c);
         self.width_cols += width_cols;
         self.style.len += c.len_utf8();
     }
 
     fn paint(
-        self,
+        &self,
         renderer: &TerminalRenderer,
         row: usize,
         origin: Point<Pixels>,
@@ -2032,13 +2316,16 @@ impl TerminalTextRun {
     ) {
         let run = TextRun {
             len: self.text.len(),
-            ..self.style
+            ..self.style.clone()
         };
-        let shaped = window.text_system().shape_line(
-            SharedString::from(self.text),
+        let text = self.text.as_str();
+        let shaped = window.text_system().shape_line_by_hash(
+            self.text_hash,
+            text.len(),
             renderer.font_size,
             &[run],
             None,
+            || SharedString::from(text.to_string()),
         );
         let _ = shaped.paint(
             Point {
@@ -2061,6 +2348,7 @@ pub struct ColorPalette {
     foreground: Hsla,
     background: Hsla,
     cursor: Hsla,
+    selection: Hsla,
 }
 
 impl Default for ColorPalette {
@@ -2189,6 +2477,11 @@ impl Default for ColorPalette {
                 g: 0xc9,
                 b: 0x6b,
             }),
+            selection: rgb_to_hsla(Rgb {
+                r: 0x26,
+                g: 0x4f,
+                b: 0x78,
+            }),
         }
     }
 }
@@ -2196,10 +2489,6 @@ impl Default for ColorPalette {
 impl ColorPalette {
     pub fn builder() -> ColorPaletteBuilder {
         ColorPaletteBuilder::new()
-    }
-
-    fn foreground(&self) -> Hsla {
-        self.foreground
     }
 
     fn background(&self) -> Hsla {
@@ -2264,6 +2553,11 @@ impl ColorPaletteBuilder {
 
     pub fn cursor(mut self, r: u8, g: u8, b: u8) -> Self {
         self.palette.cursor = rgb_to_hsla(Rgb { r, g, b });
+        self
+    }
+
+    pub fn selection(mut self, r: u8, g: u8, b: u8) -> Self {
+        self.palette.selection = rgb_to_hsla(Rgb { r, g, b });
         self
     }
 
@@ -2346,10 +2640,12 @@ fn brighten_color(mut color: Hsla) -> Hsla {
     color
 }
 
-fn selection_color(mut color: Hsla) -> Hsla {
-    color.l = if color.l > 0.5 { 0.28 } else { 0.72 };
-    color.a = 0.42;
-    color
+fn readable_terminal_foreground(mut foreground: Hsla, background: Hsla) -> Hsla {
+    if (foreground.l - background.l).abs() >= 0.38 {
+        return foreground;
+    }
+    foreground.l = if background.l < 0.45 { 0.92 } else { 0.14 };
+    foreground
 }
 
 #[cfg(test)]
@@ -2433,6 +2729,8 @@ mod tests {
         assert_eq!(bytes(keystroke("down"), TermMode::NONE), b"\x1b[B");
         assert_eq!(bytes(keystroke("right"), TermMode::NONE), b"\x1b[C");
         assert_eq!(bytes(keystroke("left"), TermMode::NONE), b"\x1b[D");
+        assert_eq!(bytes(keystroke("arrow_up"), TermMode::NONE), b"\x1b[A");
+        assert_eq!(bytes(keystroke("down_arrow"), TermMode::NONE), b"\x1b[B");
         assert_eq!(bytes(keystroke("home"), TermMode::NONE), b"\x1b[H");
         assert_eq!(bytes(keystroke("end"), TermMode::NONE), b"\x1b[F");
 
@@ -2623,8 +2921,8 @@ mod tests {
 
         assert_eq!(
             state.selected_text(SelectionRange {
-                start: TerminalCellPoint { row: 0, col: 0 },
-                end: TerminalCellPoint { row: 1, col: 4 },
+                start: TerminalSelectionPoint { line: 0, col: 0 },
+                end: TerminalSelectionPoint { line: 1, col: 4 },
             }),
             "hello\nworld"
         );
@@ -2637,8 +2935,8 @@ mod tests {
 
         assert_eq!(
             state.selected_text(SelectionRange {
-                start: TerminalCellPoint { row: 0, col: 0 },
-                end: TerminalCellPoint { row: 0, col: 11 },
+                start: TerminalSelectionPoint { line: 0, col: 0 },
+                end: TerminalSelectionPoint { line: 0, col: 11 },
             }),
             "中文恢复记录"
         );

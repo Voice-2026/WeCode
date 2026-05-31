@@ -236,7 +236,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Diff öffnen",
+      "git.files.tree_limit_format": "Die ersten %@ Elemente werden angezeigt. Öffne einen Ordner, um seine Unterelemente zu sehen."
     },
     "en": {
       "git.auth.cancelled": "Git authentication was cancelled.",
@@ -474,7 +476,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Open Diff",
+      "git.files.tree_limit_format": "Showing the first %@ items. Expand a directory to view its children."
     },
     "es": {
       "git.auth.cancelled": "Se canceló la autenticación Git.",
@@ -712,7 +716,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Abrir diff",
+      "git.files.tree_limit_format": "Se muestran los primeros %@ elementos. Expande un directorio para ver sus elementos secundarios."
     },
     "fr": {
       "git.auth.cancelled": "L'authentification Git a été annulée.",
@@ -950,7 +956,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Ouvrir le diff",
+      "git.files.tree_limit_format": "Affichage des %@ premiers éléments. Développez un dossier pour voir ses éléments enfants."
     },
     "ja": {
       "git.auth.cancelled": "Git 認証がキャンセルされました。",
@@ -1188,7 +1196,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "差分を開く",
+      "git.files.tree_limit_format": "先頭の %@ 件を表示しています。ディレクトリを展開すると子項目を確認できます。"
     },
     "ko": {
       "git.auth.cancelled": "Git 인증이 취소되었습니다.",
@@ -1426,7 +1436,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Diff 열기",
+      "git.files.tree_limit_format": "처음 %@개 항목을 표시합니다. 하위 항목을 보려면 디렉터리를 펼치세요."
     },
     "pt-BR": {
       "git.auth.cancelled": "A autenticação Git foi cancelada.",
@@ -1664,7 +1676,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Abrir diff",
+      "git.files.tree_limit_format": "Mostrando os primeiros %@ itens. Expanda um diretório para ver seus itens filhos."
     },
     "ru": {
       "git.auth.cancelled": "Аутентификация Git отменена.",
@@ -1902,7 +1916,9 @@
       "git.remote.remove.loading": "Removing Remote...",
       "git.repository.init.loading": "Initializing Repository...",
       "git.stage.loading": "Staging Changes...",
-      "git.unstage.loading": "Unstaging Changes..."
+      "git.unstage.loading": "Unstaging Changes...",
+      "git.diff.open": "Открыть diff",
+      "git.files.tree_limit_format": "Показаны первые %@ элементов. Разверните каталог, чтобы увидеть дочерние элементы."
     },
     "zh-Hans": {
       "git.auth.cancelled": "已取消 Git 鉴权。",
@@ -2140,7 +2156,9 @@
       "git.remote.remove.loading": "正在移除远程仓库...",
       "git.repository.init.loading": "正在初始化仓库...",
       "git.stage.loading": "正在暂存更改...",
-      "git.unstage.loading": "正在取消暂存..."
+      "git.unstage.loading": "正在取消暂存...",
+      "git.diff.open": "打开 Diff",
+      "git.files.tree_limit_format": "已显示前 %@ 项，继续展开目录查看子级。"
     },
     "zh-Hant": {
       "git.auth.cancelled": "Git 驗證已取消。",
@@ -2378,7 +2396,9 @@
       "git.remote.remove.loading": "正在移除遠端...",
       "git.repository.init.loading": "正在初始化倉庫...",
       "git.stage.loading": "正在暫存變更...",
-      "git.unstage.loading": "正在取消暫存..."
+      "git.unstage.loading": "正在取消暫存...",
+      "git.diff.open": "開啟 Diff",
+      "git.files.tree_limit_format": "已顯示前 %@ 項，繼續展開目錄查看子項目。"
     }
   }
 }

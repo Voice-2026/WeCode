@@ -17,7 +17,10 @@
       "terminal.detached.missing_session": "Terminalsitzung fehlt.",
       "terminal.detached.mounting": "Terminal wird eingebunden...",
       "terminal.split.close": "Split schließen",
-      "terminal.tab.close": "Tab schließen"
+      "terminal.tab.close": "Tab schließen",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "en": {
       "terminal.closed": "Closed terminal.",
@@ -36,7 +39,10 @@
       "terminal.detached.missing_session": "Missing terminal session.",
       "terminal.detached.mounting": "Mounting terminal...",
       "terminal.split.close": "Close Split",
-      "terminal.tab.close": "Close Tab"
+      "terminal.tab.close": "Close Tab",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "es": {
       "terminal.closed": "Closed terminal.",
@@ -55,7 +61,10 @@
       "terminal.detached.missing_session": "Falta la sesión de terminal.",
       "terminal.detached.mounting": "Montando terminal...",
       "terminal.split.close": "Cerrar división",
-      "terminal.tab.close": "Cerrar pestaña"
+      "terminal.tab.close": "Cerrar pestaña",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "fr": {
       "terminal.closed": "Closed terminal.",
@@ -74,7 +83,10 @@
       "terminal.detached.missing_session": "Session de terminal manquante.",
       "terminal.detached.mounting": "Montage du terminal...",
       "terminal.split.close": "Fermer le split",
-      "terminal.tab.close": "Fermer l’onglet"
+      "terminal.tab.close": "Fermer l’onglet",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "ja": {
       "terminal.closed": "Closed terminal.",
@@ -93,7 +105,10 @@
       "terminal.detached.missing_session": "ターミナルセッションが見つかりません。",
       "terminal.detached.mounting": "ターミナルをマウント中...",
       "terminal.split.close": "分割を閉じる",
-      "terminal.tab.close": "タブを閉じる"
+      "terminal.tab.close": "タブを閉じる",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "ko": {
       "terminal.closed": "Closed terminal.",
@@ -112,7 +127,10 @@
       "terminal.detached.missing_session": "터미널 세션이 없습니다.",
       "terminal.detached.mounting": "터미널 연결 중...",
       "terminal.split.close": "분할 닫기",
-      "terminal.tab.close": "탭 닫기"
+      "terminal.tab.close": "탭 닫기",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "pt-BR": {
       "terminal.closed": "Closed terminal.",
@@ -131,7 +149,10 @@
       "terminal.detached.missing_session": "Sessão de terminal ausente.",
       "terminal.detached.mounting": "Montando terminal...",
       "terminal.split.close": "Fechar divisão",
-      "terminal.tab.close": "Fechar aba"
+      "terminal.tab.close": "Fechar aba",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "ru": {
       "terminal.closed": "Closed terminal.",
@@ -150,7 +171,10 @@
       "terminal.detached.missing_session": "Сеанс терминала отсутствует.",
       "terminal.detached.mounting": "Подключение терминала...",
       "terminal.split.close": "Закрыть сплит",
-      "terminal.tab.close": "Закрыть вкладку"
+      "terminal.tab.close": "Закрыть вкладку",
+      "terminal.main": "Main Terminal",
+      "terminal.tab.default_format": "Terminal %d",
+      "terminal.split.default_format": "Split %d"
     },
     "zh-Hans": {
       "terminal.closed": "已关闭终端。",
@@ -169,7 +193,10 @@
       "terminal.detached.missing_session": "缺少终端会话",
       "terminal.detached.mounting": "正在挂载终端",
       "terminal.split.close": "关闭分屏",
-      "terminal.tab.close": "关闭标签页"
+      "terminal.tab.close": "关闭标签页",
+      "terminal.main": "主终端",
+      "terminal.tab.default_format": "终端 %d",
+      "terminal.split.default_format": "分屏 %d"
     },
     "zh-Hant": {
       "terminal.closed": "已關閉終端機。",
@@ -188,7 +215,10 @@
       "terminal.detached.missing_session": "缺少終端機工作階段",
       "terminal.detached.mounting": "正在掛載終端機",
       "terminal.split.close": "關閉分屏",
-      "terminal.tab.close": "關閉分頁"
+      "terminal.tab.close": "關閉分頁",
+      "terminal.main": "主終端",
+      "terminal.tab.default_format": "終端 %d",
+      "terminal.split.default_format": "分屏 %d"
     }
   }
 }

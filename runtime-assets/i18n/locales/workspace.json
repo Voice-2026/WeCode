@@ -26,7 +26,8 @@
       "workspace.create_split.message": "Wähle einen Terminal-Split oder einen strukturierten Agent-Chat-Split.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Split erstellen",
-      "workspace.split_format": "Split %@"
+      "workspace.split_format": "Split %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "en": {
       "workspace.bottom_terminal.title": "Terminal",
@@ -54,7 +55,8 @@
       "workspace.create_split.message": "Choose a terminal split or a structured agent chat split.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Create Split",
-      "workspace.split_format": "Split %@"
+      "workspace.split_format": "Split %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "es": {
       "workspace.bottom_terminal.title": "Terminal",
@@ -82,7 +84,8 @@
       "workspace.create_split.message": "Elige una división de terminal o una división de chat de agente estructurado.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Crear división",
-      "workspace.split_format": "División %@"
+      "workspace.split_format": "División %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "fr": {
       "workspace.bottom_terminal.title": "Terminal",
@@ -110,7 +113,8 @@
       "workspace.create_split.message": "Choisissez un split de terminal ou un split de chat agent structuré.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Créer un split",
-      "workspace.split_format": "Split %@"
+      "workspace.split_format": "Split %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "ja": {
       "workspace.bottom_terminal.title": "ターミナル",
@@ -138,7 +142,8 @@
       "workspace.create_split.message": "ターミナル分割または構造化エージェントチャット分割を選択します。",
       "workspace.create_split.terminal": "ターミナル",
       "workspace.create_split.title": "分割を作成",
-      "workspace.split_format": "分割 %@"
+      "workspace.split_format": "分割 %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "ko": {
       "workspace.bottom_terminal.title": "터미널",
@@ -166,7 +171,8 @@
       "workspace.create_split.message": "터미널 분할 또는 구조화된 에이전트 채팅 분할을 선택합니다.",
       "workspace.create_split.terminal": "터미널",
       "workspace.create_split.title": "분할 만들기",
-      "workspace.split_format": "분할 %@"
+      "workspace.split_format": "분할 %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "pt-BR": {
       "workspace.bottom_terminal.title": "Terminal",
@@ -194,7 +200,8 @@
       "workspace.create_split.message": "Escolha uma divisão de terminal ou uma divisão de chat de agente estruturado.",
       "workspace.create_split.terminal": "Terminal",
       "workspace.create_split.title": "Criar divisão",
-      "workspace.split_format": "Divisão %@"
+      "workspace.split_format": "Divisão %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "ru": {
       "workspace.bottom_terminal.title": "Терминал",
@@ -222,7 +229,8 @@
       "workspace.create_split.message": "Выберите разделение терминала или структурированный чат агента.",
       "workspace.create_split.terminal": "Терминал",
       "workspace.create_split.title": "Создать разделение",
-      "workspace.split_format": "Разделение %@"
+      "workspace.split_format": "Разделение %@",
+      "workspace.open.installed_apps_empty": "No installed apps"
     },
     "zh-Hans": {
       "workspace.bottom_terminal.title": "终端",
@@ -250,7 +258,8 @@
       "workspace.create_split.message": "选择终端分屏或结构化 Agent 聊天分屏。",
       "workspace.create_split.terminal": "终端",
       "workspace.create_split.title": "创建分屏",
-      "workspace.split_format": "分屏 %@"
+      "workspace.split_format": "分屏 %@",
+      "workspace.open.installed_apps_empty": "暂无已安装应用"
     },
     "zh-Hant": {
       "workspace.bottom_terminal.title": "終端",
@@ -278,7 +287,8 @@
       "workspace.create_split.message": "選擇終端分屏或結構化 Agent 聊天分屏。",
       "workspace.create_split.terminal": "終端",
       "workspace.create_split.title": "建立分屏",
-      "workspace.split_format": "分屏 %@"
+      "workspace.split_format": "分屏 %@",
+      "workspace.open.installed_apps_empty": "暫無已安裝應用"
     }
   }
 }

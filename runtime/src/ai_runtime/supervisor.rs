@@ -158,6 +158,14 @@ fn supervisor_loop(
                     },
                 );
                 let mutation = state.apply_hook(payload);
+                runtime_log_line(
+                    "runtime-ingress",
+                    if mutation.did_change {
+                        "apply hook result=changed"
+                    } else {
+                        "apply hook result=no-change"
+                    },
+                );
                 after_mutation(&state, &transcript_monitors, &events, mutation);
             }
             AIRuntimeSupervisorMessage::Poll => {
@@ -297,25 +305,13 @@ fn now_seconds() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_runtime::registry::AIRuntimeTerminalBinding;
 
     #[test]
     fn supervisor_applies_hook_frames_and_drains_events() {
         let supervisor = AIRuntimeSupervisor::new();
         let registry = AIRuntimeRegistry::shared();
-        registry.upsert(AIRuntimeTerminalBinding {
-            terminal_id: "term-1".to_string(),
-            project_id: "project-1".to_string(),
-            slot_id: "slot-1".to_string(),
-            title: "Codex".to_string(),
-            cwd: "/tmp/project".to_string(),
-            tool: Some("codex".to_string()),
-            is_active: true,
-            session_key: None,
-            terminal_instance_id: None,
-        });
         let dir = std::env::temp_dir().join(format!("codux-supervisor-{}", uuid::Uuid::new_v4()));
-        supervisor.start(registry, dir.clone()).unwrap();
+        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
         supervisor
             .submit_frame(
                 br#"{"kind":"ai-hook","payload":{"kind":"promptSubmitted","terminalID":"term-1","projectID":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Task","tool":"codex","updatedAt":10}}"#
@@ -336,6 +332,56 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, AIRuntimeSupervisorEvent::State { .. }))
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn supervisor_uses_terminal_registry_to_keep_running_session_live() {
+        let supervisor = AIRuntimeSupervisor::new();
+        let registry = AIRuntimeRegistry::shared();
+        let dir = std::env::temp_dir().join(format!("codux-supervisor-{}", uuid::Uuid::new_v4()));
+        let started_at = now_seconds();
+        let prompt_at = started_at + 1.0;
+        registry.upsert(crate::ai_runtime::registry::AIRuntimeTerminalBinding {
+            terminal_id: "term-1".to_string(),
+            project_id: "project-1".to_string(),
+            slot_id: "slot-1".to_string(),
+            title: "Task".to_string(),
+            cwd: "/tmp/project".to_string(),
+            tool: Some("codex".to_string()),
+            is_active: true,
+            session_key: Some("session-key-1".to_string()),
+            terminal_instance_id: Some("instance-1".to_string()),
+        });
+        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
+        supervisor
+            .submit_frame(
+                format!(
+                    r#"{{"kind":"ai-hook","payload":{{"kind":"sessionStarted","terminalID":"term-1","terminalInstanceID":"instance-1","projectID":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Task","tool":"codex","aiSessionID":"session-1","updatedAt":{started_at}}}}}"#
+                )
+                .into_bytes(),
+            )
+            .unwrap();
+        supervisor
+            .submit_frame(
+                format!(
+                    r#"{{"kind":"ai-hook","payload":{{"kind":"promptSubmitted","terminalID":"term-1","terminalInstanceID":"instance-1","projectID":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Task","tool":"codex","aiSessionID":"session-1","updatedAt":{prompt_at}}}}}"#
+                )
+                .into_bytes(),
+            )
+            .unwrap();
+        supervisor.poll_once().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let snapshot = supervisor.state_snapshot();
+        assert_eq!(snapshot.running_count, 1);
+        assert_eq!(snapshot.completion_count, 0);
+        assert_eq!(snapshot.sessions[0].state, "responding");
+        assert!(!snapshot.sessions[0].was_interrupted);
+        let terminals = registry.snapshot();
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals[0].terminal_id, "term-1");
+        assert_eq!(terminals[0].terminal_instance_id.as_deref(), Some("instance-1"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

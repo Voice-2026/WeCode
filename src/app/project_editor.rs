@@ -7,15 +7,22 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let language = self.state.settings.language.as_str();
+        let locale = locale_from_language_setting(language);
+        let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
         let is_editing = self.project_editor_project_id.is_some();
         let title = if is_editing {
-            "编辑项目"
+            tr("project.edit.title", "Edit Project")
         } else {
-            "新建项目"
+            tr("project.create.title", "Create Project")
         };
-        let submit_label = if is_editing { "保存" } else { "创建" };
+        let submit_label = if is_editing {
+            tr("common.save", "Save")
+        } else {
+            tr("common.create", "Create")
+        };
 
-        child_window_shell(title)
+        child_window_shell(title, cx)
             .child(
                 div()
                     .min_h_0()
@@ -26,7 +33,7 @@ impl CoduxApp {
                     .gap(px(16.0))
                     .p(px(18.0))
                     .child(project_editor_field(
-                        "项目名称",
+                        tr("project.editor.name", "Project Name"),
                         "project-editor-name",
                         &self.project_editor_name,
                         "Project",
@@ -35,16 +42,21 @@ impl CoduxApp {
                         |app, value, window, cx| app.set_project_editor_name(value, window, cx),
                     ))
                     .child(project_editor_path_field(
+                        tr("project.editor.directory", "Project Directory"),
+                        tr("project.editor.choose_directory.prompt", "Choose"),
                         &self.project_editor_path,
                         window,
                         cx,
                     ))
                     .child(project_editor_symbol_field(
+                        tr("project.editor.icon", "Project Icon"),
+                        tr("common.none", "None"),
                         self.project_editor_badge_symbol.as_deref(),
                         &self.project_editor_badge_color_hex,
                         cx,
                     ))
                     .child(project_editor_color_field(
+                        tr("project.editor.color", "Project Color"),
                         &self.project_editor_badge_color_hex,
                         cx,
                     )),
@@ -79,15 +91,14 @@ impl CoduxApp {
                                 Button::new("project-editor-cancel")
                                     .ghost()
                                     .text_color(cx.theme().secondary_foreground)
-                                    .label("取消")
+                                    .label(tr("common.cancel", "Cancel"))
                                     .on_click(cx.listener(|_app, _event, window, _cx| {
                                         window.remove_window();
                                     })),
                             )
                             .child(
                                 Button::new("project-editor-save")
-                                    .secondary()
-                                    .text_color(cx.theme().secondary_foreground)
+                                    .primary()
                                     .label(submit_label)
                                     .on_click(cx.listener(|app, _event, window, cx| {
                                         app.save_project_editor(window, cx);
@@ -155,10 +166,10 @@ const PROJECT_EDITOR_SYMBOLS: &[ProjectEditorSymbol] = &[
 ];
 
 fn project_editor_field(
-    label: &'static str,
+    label: String,
     id: &'static str,
     value: &str,
-    placeholder: &'static str,
+    placeholder: impl Into<String>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
@@ -171,7 +182,6 @@ fn project_editor_field(
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT))
                 .child(label),
         )
@@ -187,6 +197,8 @@ fn project_editor_field(
 }
 
 fn project_editor_symbol_field(
+    label: String,
+    none_label: String,
     selected_symbol: Option<&str>,
     selected_color: &str,
     cx: &mut Context<CoduxApp>,
@@ -200,9 +212,8 @@ fn project_editor_symbol_field(
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT))
-                .child("项目图标"),
+                .child(label),
         )
         .child(
             div()
@@ -226,12 +237,16 @@ fn project_editor_symbol_field(
                         } else {
                             theme::BORDER_SOFT
                         }))
-                        .bg(color(0xFFFFFF).opacity(if selected { 0.10 } else { 0.04 }))
+                        .bg(if selected {
+                            cx.theme().secondary_hover
+                        } else {
+                            cx.theme().secondary
+                        })
                         .flex()
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.08)))
+                        .hover(|style| style.bg(cx.theme().secondary_hover))
                         .on_click(cx.listener(move |app, _event, window, cx| {
                             let next = (id != "none").then(|| id.to_string());
                             app.set_project_editor_badge_symbol(next, window, cx);
@@ -244,9 +259,8 @@ fn project_editor_symbol_field(
                             None => div()
                                 .text_size(px(12.0))
                                 .line_height(px(16.0))
-                                .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT_MUTED))
-                                .child("无")
+                                .child(none_label.clone())
                                 .into_any_element(),
                         })
                         .into_any_element()
@@ -255,7 +269,11 @@ fn project_editor_symbol_field(
         .into_any_element()
 }
 
-fn project_editor_color_field(selected_color: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn project_editor_color_field(
+    label: String,
+    selected_color: &str,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -264,9 +282,8 @@ fn project_editor_color_field(selected_color: &str, cx: &mut Context<CoduxApp>) 
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT))
-                .child("项目颜色"),
+                .child(label),
         )
         .child(
             div()
@@ -310,16 +327,17 @@ fn hex_color(value: &str) -> Option<u32> {
 fn project_editor_input(
     id: &'static str,
     value: &str,
-    placeholder: &'static str,
+    placeholder: impl Into<String>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
     let value = value.to_string();
+    let placeholder = placeholder.into();
     let input_state = window.use_keyed_state(SharedString::from(id), cx, |window, cx| {
         InputState::new(window, cx)
             .default_value(value.clone())
-            .placeholder(placeholder)
+            .placeholder(placeholder.clone())
     });
     input_state.update(cx, |state, cx| {
         if state.value().as_ref() != value {
@@ -343,6 +361,8 @@ fn project_editor_input(
 }
 
 fn project_editor_path_field(
+    label: String,
+    choose_label: String,
     path: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -355,9 +375,8 @@ fn project_editor_path_field(
             div()
                 .text_size(px(14.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT))
-                .child("项目目录"),
+                .child(label),
         )
         .child(
             div()
@@ -376,7 +395,7 @@ fn project_editor_path_field(
                     Button::new("project-editor-choose-path")
                         .secondary()
                         .text_color(cx.theme().secondary_foreground)
-                        .label("选择")
+                        .label(choose_label)
                         .on_click(cx.listener(|app, _event, window, cx| {
                             app.choose_project_editor_directory(window, cx);
                         })),

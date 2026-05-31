@@ -43,9 +43,23 @@ impl ProjectActivityCoordinator {
             return;
         };
         self.mark_project_summary(&project);
+        let now = Instant::now();
+        let mut should_refresh = true;
+        let mut should_refresh_sidecars = true;
         if let Ok(mut guard) = self.projects.lock() {
             if let Some(tracked) = guard.get_mut(&project.id) {
-                tracked.last_git_refresh = Some(Instant::now());
+                should_refresh = tracked
+                    .last_git_changed_refresh
+                    .map(|last| now.duration_since(last) >= Duration::from_millis(1200))
+                    .unwrap_or(true);
+                should_refresh_sidecars = tracked
+                    .last_git_refresh
+                    .map(|last| now.duration_since(last) >= Duration::from_millis(3000))
+                    .unwrap_or(true);
+                if should_refresh {
+                    tracked.last_git_changed_refresh = Some(now);
+                    tracked.last_git_refresh = Some(now);
+                }
             }
         }
         if let Ok(mut events) = self.events.lock() {
@@ -58,16 +72,21 @@ impl ProjectActivityCoordinator {
                 events.pop_front();
             }
         }
-        self.git_jobs.submit(GitJob::Worktree {
-            support_dir: self.support_dir.clone(),
-            project: project.clone(),
-        });
+        if !should_refresh {
+            return;
+        }
         self.git_jobs.submit(GitJob::Refresh {
             project: TrackedProject::from(project.clone()),
         });
-        self.git_jobs.submit(GitJob::Review {
-            project: TrackedProject::from(project),
-        });
+        if should_refresh_sidecars {
+            self.git_jobs.submit(GitJob::Worktree {
+                support_dir: self.support_dir.clone(),
+                project: project.clone(),
+            });
+            self.git_jobs.submit(GitJob::Review {
+                project: TrackedProject::from(project),
+            });
+        }
     }
 
     pub fn refresh_ai_once(&self, project: ProjectSummary) {
@@ -98,7 +117,14 @@ impl ProjectActivityCoordinator {
                 .checked_mul(4)
                 .unwrap_or_else(|| Duration::from_secs(MIN_GIT_REFRESH_SECONDS * 4))
                 .max(Duration::from_secs(MIN_GIT_REFRESH_SECONDS * 4));
-            for project in self.projects_due_for_git(interval, background_interval) {
+            let due_projects = self.projects_due_for_git(interval, background_interval);
+            if !due_projects.is_empty() {
+                runtime_trace(
+                    "project-activity",
+                    &format!("git interval refresh due count={}", due_projects.len()),
+                );
+            }
+            for project in due_projects {
                 self.git_jobs.submit(GitJob::Refresh { project });
             }
         }
@@ -111,7 +137,14 @@ impl ProjectActivityCoordinator {
                         .unwrap_or_else(|| Duration::from_secs(MIN_AI_REFRESH_SECONDS * 4))
                 })
                 .max(foreground_interval);
-            for project in self.projects_due_for_ai(foreground_interval, background_interval) {
+            let due_projects = self.projects_due_for_ai(foreground_interval, background_interval);
+            if !due_projects.is_empty() {
+                runtime_trace(
+                    "project-activity",
+                    &format!("ai interval refresh due count={}", due_projects.len()),
+                );
+            }
+            for project in due_projects {
                 self.refresh_ai_once(ProjectSummary::from(project));
             }
         }
@@ -150,16 +183,49 @@ impl ProjectActivityCoordinator {
         let active_project_id = self.active_project_id.lock().ok().and_then(|id| id.clone());
         let is_foreground = self.main_window_visible.load(Ordering::Relaxed)
             || self.main_window_focused.load(Ordering::Relaxed);
-        projects_due_by_interval_mut(
-            &self.projects,
-            |project| {
-                if is_foreground && active_project_id.as_deref() == Some(project.id.as_str()) {
-                    foreground_interval
-                } else {
-                    background_interval
+        if !is_foreground || active_project_id.is_none() {
+            return Vec::new();
+        }
+        let now = Instant::now();
+        let Ok(mut projects) = self.projects.lock() else {
+            return Vec::new();
+        };
+        let mut due = Vec::new();
+        let mut background_due = None;
+
+        for project in projects.values_mut() {
+            let is_active = Some(project.id.as_str()) == active_project_id.as_deref();
+            let interval = if is_active {
+                foreground_interval
+            } else {
+                background_interval
+            };
+            let is_due = project
+                .last_ai_refresh
+                .map(|value| now.duration_since(value) >= interval)
+                .unwrap_or(false);
+            if !is_due {
+                continue;
+            }
+            if is_active {
+                project.last_ai_refresh = Some(now);
+                due.push(project.clone());
+                break;
+            } else if background_due.is_none() {
+                background_due = Some(project.id.clone());
+            }
+        }
+
+        if due.is_empty() {
+            if let Some(project_id) = background_due {
+                if let Some(project) = projects.get_mut(&project_id) {
+                    project.last_ai_refresh = Some(now);
+                    due.push(project.clone());
                 }
-            },
-            |project| &mut project.last_ai_refresh,
-        )
+            }
+        }
+
+        due.truncate(MAX_AI_REFRESH_PER_TICK);
+        due
     }
 }

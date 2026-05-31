@@ -41,7 +41,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "Heute %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "Unbekanntes Datum"
     },
     "en": {
       "common.about": "About",
@@ -84,7 +90,13 @@
       "common.undo": "Undo",
       "common.click_anywhere_to_close": "Click anywhere to close",
       "common.tap_to_continue": "Tap to continue",
-      "common.processing": "Processing"
+      "common.processing": "Processing",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "Unknown date"
     },
     "es": {
       "common.about": "Acerca de",
@@ -127,7 +139,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "Hoy %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "Fecha desconocida"
     },
     "fr": {
       "common.about": "À propos",
@@ -170,7 +188,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "Aujourd'hui %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "Date inconnue"
     },
     "ja": {
       "common.about": "について",
@@ -213,7 +237,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "今日 %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "不明な日付"
     },
     "ko": {
       "common.about": "에 대한",
@@ -256,7 +286,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "오늘 %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "알 수 없는 날짜"
     },
     "pt-BR": {
       "common.about": "Sobre",
@@ -299,7 +335,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "Hoje %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "Data desconhecida"
     },
     "ru": {
       "common.about": "О",
@@ -342,7 +384,13 @@
       "common.sync": "Sync",
       "common.tap_to_continue": "Tap to continue",
       "common.today_format": "Сегодня %@",
-      "common.undo": "Undo"
+      "common.undo": "Undo",
+      "time.relative.just_now": "Just now",
+      "time.relative.minutes_ago_format": "%d minutes ago",
+      "time.relative.hours_ago_format": "%d hours ago",
+      "time.relative.days_ago_format": "%d days ago",
+      "time.relative.weeks_ago_format": "%d weeks ago",
+      "common.unknown_date": "Неизвестная дата"
     },
     "zh-Hans": {
       "common.about": "关于",
@@ -385,7 +433,13 @@
       "common.sync": "同步",
       "common.tap_to_continue": "点击继续",
       "common.today_format": "今日 %@",
-      "common.undo": "撤销"
+      "common.undo": "撤销",
+      "time.relative.just_now": "刚刚",
+      "time.relative.minutes_ago_format": "%d 分钟前",
+      "time.relative.hours_ago_format": "%d 小时前",
+      "time.relative.days_ago_format": "%d 天前",
+      "time.relative.weeks_ago_format": "%d 周前",
+      "common.unknown_date": "未知日期"
     },
     "zh-Hant": {
       "common.about": "關於",
@@ -428,7 +482,13 @@
       "common.sync": "同步",
       "common.tap_to_continue": "點擊繼續",
       "common.today_format": "今天 %@",
-      "common.undo": "復原"
+      "common.undo": "復原",
+      "time.relative.just_now": "剛剛",
+      "time.relative.minutes_ago_format": "%d 分鐘前",
+      "time.relative.hours_ago_format": "%d 小時前",
+      "time.relative.days_ago_format": "%d 天前",
+      "time.relative.weeks_ago_format": "%d 週前",
+      "common.unknown_date": "未知日期"
     }
   }
 }

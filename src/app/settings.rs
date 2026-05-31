@@ -2,16 +2,20 @@ use super::{CoduxApp, empty_label};
 use crate::app::scroll_compat::ScrollableElement;
 use crate::theme::{self, color};
 use codux_runtime::{
-    memory::MemorySummary, notification::NotificationSummary, remote::RemoteSummary,
-    settings::SettingsSummary, tool_permissions::ToolPermissionsSummary, update::UpdateSummary,
+    i18n::translate,
+    memory::MemorySummary,
+    notification::NotificationSummary,
+    remote::RemoteSummary,
+    settings::{SettingsSummary, locale_from_language_setting},
+    tool_permissions::ToolPermissionsSummary,
+    update::UpdateSummary,
 };
 use gpui::{
-    AnyElement, AppContext, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder as _, px,
-    relative,
+    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder as _, px, relative,
 };
 use gpui_component::{
-    Disableable, Icon, IconName, Sizable,
+    ActiveTheme, Disableable, Icon, IconName, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectItem, SelectState},
@@ -68,35 +72,85 @@ pub(super) enum SettingsPane {
 }
 
 impl SettingsPane {
-    pub(super) fn label(self) -> &'static str {
+    pub(super) fn label(self, language: &str) -> String {
+        let key = match self {
+            Self::General => "settings.tab.general",
+            Self::Appearance => "settings.tab.appearance",
+            Self::Pet => "settings.tab.pet",
+            Self::AI => "settings.tab.ai",
+            Self::Git => "settings.tab.git",
+            Self::Memory => "settings.tab.memory",
+            Self::Notifications => "settings.tab.notifications",
+            Self::Remote => "settings.tab.remote",
+            Self::Shortcuts => "settings.tab.shortcuts",
+            Self::Experiments => "settings.tab.experiments",
+            Self::Developer => "settings.tab.developer",
+        };
         match self {
-            Self::General => "通用",
-            Self::Appearance => "外观",
-            Self::Pet => "宠物",
-            Self::AI => "AI",
-            Self::Git => "Git",
-            Self::Memory => "记忆",
-            Self::Notifications => "通知",
-            Self::Remote => "远程",
-            Self::Shortcuts => "快捷键",
-            Self::Experiments => "实验",
-            Self::Developer => "开发",
+            Self::General => settings_text(language, key, "General"),
+            Self::Appearance => settings_text(language, key, "Appearance"),
+            Self::Pet => settings_text(language, key, "Pet"),
+            Self::AI => settings_text(language, key, "AI"),
+            Self::Git => settings_text(language, key, "Git"),
+            Self::Memory => settings_text(language, key, "Memory"),
+            Self::Notifications => settings_text(language, key, "Notifications"),
+            Self::Remote => settings_text(language, key, "Remote"),
+            Self::Shortcuts => settings_text(language, key, "Shortcuts"),
+            Self::Experiments => settings_text(language, key, "Experiments"),
+            Self::Developer => settings_text(language, key, "Developer"),
         }
     }
 
-    fn description(self) -> &'static str {
+    fn description(self, language: &str) -> String {
+        let key = match self {
+            Self::General => "settings.tab.general.description",
+            Self::Appearance => "settings.tab.appearance.description",
+            Self::Pet => "settings.tab.pet.description",
+            Self::AI => "settings.tab.ai.description",
+            Self::Git => "settings.tab.git.description",
+            Self::Memory => "settings.tab.memory.description",
+            Self::Notifications => "settings.tab.notifications.description",
+            Self::Remote => "settings.tab.remote.description",
+            Self::Shortcuts => "settings.tab.shortcuts.description",
+            Self::Experiments => "settings.tab.experiments.description",
+            Self::Developer => "settings.tab.developer.description",
+        };
         match self {
-            Self::General => "语言、默认 Shell、刷新频率和统计方式。",
-            Self::Appearance => "主题、强调色、图标和终端文字。",
-            Self::Pet => "桌面宠物、语音、提醒和 LLM 润色。",
-            Self::AI => "AI CLI 工具、全局提示词和 API 通道。",
-            Self::Git => "Git 提交消息生成与格式。",
-            Self::Memory => "记忆注入、提取和索引。",
-            Self::Notifications => "推送渠道和通知开关。",
-            Self::Remote => "远程连接、配对设备和中继状态。",
-            Self::Shortcuts => "应用快捷键和项目切换快捷键。",
-            Self::Experiments => "实验性功能开关。",
-            Self::Developer => "开发者 HUD 和刷新间隔。",
+            Self::General => {
+                settings_text(language, key, "Language, shell, refresh, and statistics.")
+            }
+            Self::Appearance => settings_text(
+                language,
+                key,
+                "Theme, accent color, icon, and terminal text.",
+            ),
+            Self::Pet => settings_text(
+                language,
+                key,
+                "Pet, desktop pet, speech, LLM, and reminders.",
+            ),
+            Self::AI => settings_text(language, key, "AI CLI tools and provider defaults."),
+            Self::Git => settings_text(language, key, "Git commit message generation and format."),
+            Self::Memory => {
+                settings_text(language, key, "Memory injection, extraction, and indexing.")
+            }
+            Self::Notifications => {
+                settings_text(language, key, "Notification channels and switches.")
+            }
+            Self::Remote => settings_text(
+                language,
+                key,
+                "Relay server, remote hosts, and device pairing.",
+            ),
+            Self::Shortcuts => {
+                settings_text(language, key, "Split, tab, panel, and project shortcuts.")
+            }
+            Self::Experiments => {
+                settings_text(language, key, "Experimental split and agent workflows.")
+            }
+            Self::Developer => {
+                settings_text(language, key, "Debug performance HUD and diagnostics.")
+            }
         }
     }
 
@@ -131,6 +185,11 @@ const SETTINGS_PANES: [SettingsPane; 11] = [
     SettingsPane::Developer,
 ];
 
+fn settings_text(language: &str, key: &str, fallback: &str) -> String {
+    let locale = locale_from_language_setting(language);
+    translate(&locale, key, fallback)
+}
+
 impl CoduxApp {
     pub(super) fn settings_workspace(
         &self,
@@ -138,12 +197,13 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let pane = self.active_settings_pane;
+        let language = self.state.settings.language.as_str();
 
         div()
             .flex()
             .flex_1()
             .h_full()
-            .bg(color(theme::BG))
+            .bg(cx.theme().background)
             .child(
                 div()
                     .flex()
@@ -152,8 +212,8 @@ impl CoduxApp {
                     .h_full()
                     .flex_shrink_0()
                     .border_r_1()
-                    .border_color(color(theme::BORDER_SOFT))
-                    .bg(color(theme::BG_COLUMN))
+                    .border_color(cx.theme().sidebar_border)
+                    .bg(cx.theme().sidebar)
                     .child(div().h(px(54.0)).flex_shrink_0())
                     .child(
                         div()
@@ -165,7 +225,8 @@ impl CoduxApp {
                             .pb_3()
                             .overflow_y_scrollbar()
                             .children(SETTINGS_PANES.into_iter().map(|item| {
-                                settings_nav_row(item, pane == item, cx).into_any_element()
+                                settings_nav_row(item, pane == item, language, cx)
+                                    .into_any_element()
                             })),
                     ),
             )
@@ -177,7 +238,7 @@ impl CoduxApp {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .bg(color(0xFFFFFF).opacity(0.025))
+                    .bg(cx.theme().tab_bar)
                     .child(
                         div()
                             .h(px(92.0))
@@ -191,16 +252,16 @@ impl CoduxApp {
                                 div()
                                     .text_size(px(20.0))
                                     .line_height(px(26.0))
-                                    .text_color(color(theme::TEXT))
-                                    .child(pane.label()),
+                                    .text_color(cx.theme().foreground)
+                                    .child(pane.label(language)),
                             )
                             .child(
                                 div()
                                     .mt(px(8.0))
                                     .text_size(px(14.0))
                                     .line_height(px(20.0))
-                                    .text_color(color(theme::TEXT_MUTED))
-                                    .child(pane.description()),
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(pane.description(language)),
                             ),
                     )
                     .child(
@@ -219,8 +280,10 @@ impl CoduxApp {
 fn settings_nav_row(
     pane: SettingsPane,
     active: bool,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let label = pane.label(language);
     div()
         .id(SharedString::from(format!("settings-nav-{:?}", pane)))
         .h(px(32.0))
@@ -231,25 +294,20 @@ fn settings_nav_row(
         .items_center()
         .gap(px(10.0))
         .cursor_pointer()
-        .text_color(color(if active {
-            theme::TEXT
+        .text_color(if active {
+            cx.theme().foreground
         } else {
-            theme::TEXT_MUTED
-        }))
-        .bg(if active {
-            color(theme::BG_ROW_ACTIVE)
-        } else {
-            color(0xFFFFFF).opacity(0.0)
+            cx.theme().muted_foreground
         })
-        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+        .bg(if active {
+            cx.theme().accent
+        } else {
+            cx.theme().transparent
+        })
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(move |app, _event, _window, cx| app.set_settings_pane(pane, cx)))
         .child(Icon::new(pane.icon()).size_3p5())
-        .child(
-            div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
-                .child(pane.label()),
-        )
+        .child(div().text_size(px(14.0)).line_height(px(18.0)).child(label))
 }
 
 fn settings_pane_body(
@@ -280,12 +338,14 @@ fn settings_pane_body(
             &app.state.notifications,
             app.selected_notification_channel_id.as_deref(),
             app.notification_testing_channel_id.as_deref(),
+            app.state.settings.language.as_str(),
             window,
             cx,
         ),
         SettingsPane::Remote => settings_remote_pane(
             &app.state.remote,
             app.selected_remote_device_id.as_deref(),
+            app.state.settings.language.as_str(),
             window,
             cx,
         ),
@@ -294,7 +354,11 @@ fn settings_pane_body(
             app.recording_shortcut_id.as_deref(),
             cx,
         ),
-        SettingsPane::Experiments => settings_experiments_pane(app.agent_split_enabled, cx),
+        SettingsPane::Experiments => settings_experiments_pane(
+            app.agent_split_enabled,
+            app.state.settings.language.as_str(),
+            cx,
+        ),
         SettingsPane::Developer => settings_developer_pane(&app.state.settings, window, cx),
     }
     .into_any_element()
@@ -311,15 +375,16 @@ fn settings_form(children: Vec<AnyElement>) -> impl IntoElement {
 }
 
 fn settings_card(
-    title: Option<&'static str>,
+    title: Option<String>,
     description: Option<String>,
     children: Vec<AnyElement>,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     div()
         .flex()
         .flex_col()
         .rounded(px(12.0))
-        .bg(color(0x000000).opacity(0.14))
+        .bg(cx.theme().group_box)
         .px(px(22.0))
         .py(px(18.0))
         .child(if title.is_some() || description.is_some() {
@@ -333,7 +398,7 @@ fn settings_card(
                         .text_size(px(14.0))
                         .line_height(px(18.0))
                         .text_color(color(theme::TEXT))
-                        .child(title.unwrap_or("").to_string()),
+                        .child(title.clone().unwrap_or_default()),
                 )
                 .child(
                     div()
@@ -359,10 +424,11 @@ fn settings_card(
 }
 
 fn settings_row(
-    label: &'static str,
+    label: impl Into<String>,
     description: Option<String>,
     control: AnyElement,
 ) -> impl IntoElement {
+    let label = label.into();
     div()
         .min_h(px(58.0))
         .py(px(10.0))
@@ -469,12 +535,13 @@ fn settings_textarea(
     id: &'static str,
     value: &str,
     rows: usize,
-    placeholder: &'static str,
+    placeholder: impl Into<String>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
     let value = value.to_string();
+    let placeholder = placeholder.into();
     let state = window.use_keyed_state(
         SharedString::from(format!("settings-textarea-{id}")),
         cx,
@@ -483,7 +550,7 @@ fn settings_textarea(
                 .multi_line(true)
                 .rows(rows)
                 .default_value(value.clone())
-                .placeholder(placeholder)
+                .placeholder(placeholder.clone())
         },
     );
     state.update(cx, |state, cx| {
@@ -526,27 +593,17 @@ fn settings_toggle(
         .into_any_element()
 }
 
-fn settings_select(
-    id: impl Into<String>,
-    value: &str,
-    options: Vec<(String, SharedString)>,
-    window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
-) -> AnyElement {
-    settings_select_impl(id, value, options, false, window, cx, action)
-}
-
 fn settings_select_impl(
     id: impl Into<String>,
     value: &str,
     options: Vec<(String, SharedString)>,
-    searchable: bool,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
+    language: &str,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
     let id = id.into();
+    let searchable = false;
     let items = settings_select_options(options.clone());
     let selected_index = items.iter().position(|item| item.value == value);
     let state = window.use_keyed_state(
@@ -584,7 +641,7 @@ fn settings_select_impl(
         .w(relative(0.3))
         .child(
             Select::new(&state)
-                .placeholder("选择")
+                .placeholder(settings_text(&language, "common.choose", "Choose"))
                 .menu_width(if searchable { px(320.0) } else { px(220.0) })
                 .with_size(gpui_component::Size::Medium),
         )
@@ -659,7 +716,7 @@ fn settings_selectable_tile(
 }
 
 fn theme_preview_grid(
-    title: Option<&'static str>,
+    title: Option<String>,
     options: Vec<(&'static str, &'static str)>,
     selected: &str,
     cx: &mut Context<CoduxApp>,
@@ -675,7 +732,7 @@ fn theme_preview_grid(
                     .text_size(px(12.0))
                     .line_height(px(16.0))
                     .text_color(color(theme::TEXT_DIM))
-                    .child(title.unwrap_or_default()),
+                    .child(title.clone().unwrap_or_default()),
             )
         })
         .child(
@@ -711,7 +768,7 @@ fn theme_preview_button(
             } else {
                 theme::BORDER_SOFT
             }))
-            .bg(color(preview.background))
+            .bg(theme::fixed_color(preview.background))
             .hover(|style| style.border_color(color(theme::BORDER)))
             .child(
                 div()
@@ -724,21 +781,21 @@ fn theme_preview_button(
                             .h(px(3.0))
                             .w(px(20.0))
                             .rounded_full()
-                            .bg(color(preview.muted_foreground)),
+                            .bg(theme::fixed_color(preview.muted_foreground)),
                     )
                     .child(
                         div()
                             .h(px(3.0))
                             .w(px(46.0))
                             .rounded(px(1.0))
-                            .bg(color(preview.foreground)),
+                            .bg(theme::fixed_color(preview.foreground)),
                     )
                     .child(
                         div()
                             .h(px(8.0))
                             .w(px(58.0))
                             .rounded(px(2.0))
-                            .bg(color(preview.selection)),
+                            .bg(theme::fixed_color(preview.selection)),
                     ),
             )
             .child(settings_checkmark(selected))
@@ -828,7 +885,6 @@ fn app_icon_preview(style: &'static str, selected: bool) -> AnyElement {
                 .top(px(17.0))
                 .text_size(px(18.0))
                 .line_height(px(18.0))
-                .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(0xFFFFFF))
                 .child(">"),
         )
@@ -842,39 +898,46 @@ fn settings_general_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     settings_form(vec![
         settings_card(
             None,
             None,
             vec![
                 settings_row(
-                    "语言",
-                    None,
-                    settings_select(
+                    settings_text(language, "settings.language", "Language"),
+                    Some(settings_text(
+                        language,
+                        "settings.language.restart_message",
+                        "Restart Codux to apply the selected language.",
+                    )),
+                    settings_select_impl(
                         "settings-language",
                         &settings.language,
-                        language_options(),
+                        language_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_language(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "默认终端",
+                    settings_text(language, "settings.default_shell", "Default Shell"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-shell",
                         &settings.shell,
-                        shell_options(),
+                        shell_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_shell(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "程序坞角标",
+                    settings_text(language, "settings.dock_badge", "Dock Badge"),
                     None,
                     settings_toggle(
                         "settings-dock-badge",
@@ -885,89 +948,103 @@ fn settings_general_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "阻止系统休眠",
-                    Some(
-                        "允许显示器按系统设置关闭，但启用时会阻止当前设备进入空闲休眠。"
-                            .to_string(),
-                    ),
-                    settings_select(
+                    settings_text(language, "settings.sleep_prevention", "Prevent System Sleep"),
+                    Some(settings_text(
+                        language,
+                        "settings.sleep_prevention.help",
+                        "Allows the display to turn off, but prevents this device from idle sleeping while enabled.",
+                    )),
+                    settings_select_impl(
                         "settings-sleep-mode",
                         &settings.sleep_mode,
-                        sleep_mode_options(),
+                        sleep_mode_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_sleep_mode(value, window, cx),
                     ),
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
             None,
             None,
             vec![
                 settings_row(
-                    "Git 自动刷新",
+                    settings_text(language, "settings.git_auto_refresh", "Git Auto Refresh"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-git-refresh",
                         &settings.git_refresh,
                         git_refresh_options(),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_git_refresh(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "AI 自动刷新",
+                    settings_text(language, "settings.ai_auto_refresh", "AI Auto Refresh"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-ai-refresh",
                         &settings.ai_refresh,
                         ai_refresh_options(),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_ai_refresh(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "AI 后台刷新",
+                    settings_text(
+                        language,
+                        "settings.ai_background_refresh",
+                        "AI Background Refresh",
+                    ),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-ai-background-refresh",
                         &settings.ai_background_refresh,
                         ai_background_refresh_options(),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_ai_background_refresh(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "AI 统计显示方式",
+                    settings_text(language, "settings.ai_statistics_mode", "AI Statistics Mode"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-statistics-mode",
                         &settings.statistics_mode,
-                        statistics_mode_options(),
+                        statistics_mode_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_statistics_mode(value, window, cx),
                     ),
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
-            Some("更新"),
-            Some("更新会直接从所选通道的 GitHub Release 检查。".to_string()),
+            Some(settings_text(language, "settings.update.section", "Updates")),
+            Some(settings_text(
+                language,
+                "settings.update.description",
+                "Updates are checked from the selected GitHub Release channel.",
+            )),
             vec![
                 settings_row(
-                    "启用检查更新",
+                    settings_text(language, "settings.update.enabled", "Enable Update Checks"),
                     None,
                     settings_toggle(
                         "settings-update-enabled",
@@ -978,28 +1055,29 @@ fn settings_general_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "更新通道",
+                    settings_text(language, "settings.update.channel", "Update Channel"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-update-channel",
                         &settings.update_channel,
-                        update_channel_options(),
+                        update_channel_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_update_channel(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "更新状态",
-                    Some(update_status_text(update)),
+                    settings_text(language, "settings.update.status", "Update Status"),
+                    Some(update_status_text(update, language)),
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.0))
                         .child(settings_small_button_state(
                             "settings-check-update",
-                            "检查更新",
+                            settings_text(language, "about.updates", "Check for Updates"),
                             false,
                             !settings.update_enabled,
                             cx,
@@ -1009,21 +1087,25 @@ fn settings_general_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "关于 Codux",
-                    Some("查看版本信息，打开官网，导出诊断，查看运行日志。".to_string()),
+                    "Codux",
+                    None,
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.0))
                         .child(settings_small_button(
                             "settings-open-about",
-                            "关于",
+                            settings_text(language, "common.about", "About"),
                             cx,
                             |app, _event, window, cx| app.open_about_window(window, cx),
                         ))
                         .child(settings_small_button(
                             "settings-export-diagnostics",
-                            "导出诊断",
+                            settings_text(
+                                language,
+                                "menu.help.export_diagnostics",
+                                "Export Diagnostics...",
+                            ),
                             cx,
                             |app, _event, _window, cx| app.export_diagnostics(cx),
                         ))
@@ -1037,27 +1119,53 @@ fn settings_general_pane(
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
     ])
     .into_any_element()
 }
 
-fn update_status_text(update: &UpdateSummary) -> String {
+fn update_status_text(update: &UpdateSummary, language: &str) -> String {
     if let Some(error) = &update.error {
-        return format!("检查失败: {error}");
+        return format!(
+            "{}: {error}",
+            settings_text(
+                language,
+                "settings.update.status.error",
+                "Update check failed"
+            )
+        );
     }
     if let Some(version) = &update.latest_version {
         let notes = update.notes_preview.trim();
+        let available = settings_text(
+            language,
+            "settings.update.status.available_format",
+            "Version %@ is available. Current version: %@.",
+        )
+        .replacen("%@", version, 1)
+        .replacen("%@", env!("CARGO_PKG_VERSION"), 1);
         if notes.is_empty() {
-            return format!("最新版本 {version} · {}", update.channel);
+            return available;
         }
-        return format!("最新版本 {version} · {notes}");
+        return format!("{available} · {notes}");
     }
     if update.enabled {
-        format!("通道 {} · 等待检查", update.channel)
+        format!(
+            "{} · {}",
+            update.channel,
+            settings_text(
+                language,
+                "settings.update.status.checking_github",
+                "Waiting to check"
+            )
+        )
     } else {
-        "更新检查已关闭".to_string()
+        settings_text(
+            language,
+            "settings.update.status.disabled",
+            "Update checks are turned off.",
+        )
     }
 }
 
@@ -1066,10 +1174,15 @@ fn settings_appearance_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     let mut cards = vec![
         settings_card(
-            Some("终端主题"),
-            Some("主题和终端配色会在重启后完整应用到所有终端。".to_string()),
+            Some(settings_text(language, "settings.terminal_theme", "Terminal Theme")),
+            Some(settings_text(
+                language,
+                "settings.terminal_theme.help",
+                "Applies to the app surface and all terminals.",
+            )),
             vec![
                 div()
                     .flex()
@@ -1082,33 +1195,37 @@ fn settings_appearance_pane(
                         cx,
                     ))
                     .child(theme_preview_grid(
-                        Some("深色"),
+                        Some(settings_text(language, "settings.theme.group.dark", "Dark")),
                         dark_theme_options(),
                         &settings.theme,
                         cx,
                     ))
                     .child(theme_preview_grid(
-                        Some("浅色"),
+                        Some(settings_text(language, "settings.theme.group.light", "Light")),
                         light_theme_options(),
                         &settings.theme,
                         cx,
                     ))
                     .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
-            Some("主题色"),
-            Some("应用到按钮、选中状态、顶部 Tab、焦点环、链接和其他高亮色。".to_string()),
+            Some(settings_text(language, "settings.theme_color", "Theme Color")),
+            Some(settings_text(
+                language,
+                "settings.theme_color.help",
+                "Used for buttons, selected states, tabs, focus rings, links, and other highlights.",
+            )),
             vec![theme_color_grid(&settings.theme_color, cx)],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
-            Some("终端文字"),
+            Some(settings_text(language, "settings.terminal_text", "Terminal Text")),
             None,
             vec![
                 settings_row(
-                    "终端字号",
+                    settings_text(language, "settings.terminal_font_size", "Terminal Font Size"),
                     None,
                     settings_text_input(
                         "settings-terminal-font-size",
@@ -1122,14 +1239,19 @@ fn settings_appearance_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "终端历史",
-                    Some("限制终端滚动历史和恢复输出，减少长会话内存占用。".to_string()),
-                    settings_select(
+                    settings_text(language, "settings.terminal_scrollback", "Terminal Scrollback"),
+                    Some(settings_text(
+                        language,
+                        "settings.terminal_scrollback.help",
+                        "Limit terminal scrollback and restored output to reduce long-session memory usage.",
+                    )),
+                    settings_select_impl(
                         "settings-terminal-scrollback",
                         &settings.terminal_scrollback_lines,
                         terminal_scrollback_options(),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| {
                             app.set_terminal_scrollback_lines(value, window, cx)
                         },
@@ -1137,16 +1259,21 @@ fn settings_appearance_pane(
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
     ];
 
     if cfg!(target_os = "macos") {
         cards.push(
             settings_card(
-                Some("应用图标"),
-                Some("图标变化会在重启后完整生效。".to_string()),
+                Some(settings_text(language, "settings.app_icon", "App Icon")),
+                Some(settings_text(
+                    language,
+                    "settings.app_icon.restart_message",
+                    "Icon changes fully apply after restart.",
+                )),
                 vec![app_icon_grid(&settings.icon_style, cx)],
+                cx,
             )
             .into_any_element(),
         );
@@ -1160,13 +1287,14 @@ fn settings_pet_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     settings_form(vec![
         settings_card(
-            Some("通用"),
+            Some(settings_text(language, "settings.pet.section.general", "General")),
             None,
             vec![
                 settings_row(
-                    "启用宠物",
+                    settings_text(language, "settings.pet.enabled", "Enable Pet"),
                     None,
                     settings_toggle(
                         "settings-pet-enabled",
@@ -1177,7 +1305,7 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "桌面宠物",
+                    settings_text(language, "settings.pet.desktop_widget", "Desktop Pet"),
                     None,
                     settings_toggle(
                         "settings-pet-desktop",
@@ -1188,7 +1316,7 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "静态宠物精灵",
+                    settings_text(language, "settings.pet.static_mode", "Static Pet Sprite"),
                     None,
                     settings_toggle(
                         "settings-pet-static",
@@ -1199,40 +1327,46 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
-            Some("宠物语音"),
+            Some(settings_text(language, "settings.pet.speech.section", "Pet Speech")),
             None,
             vec![
                 settings_row(
-                    "模式",
+                    settings_text(language, "settings.pet.speech.mode", "Mode"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-pet-speech-mode",
                         &settings.pet_speech_mode,
-                        pet_speech_mode_options(),
+                        pet_speech_mode_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_pet_speech_mode(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "频率",
+                    settings_text(language, "settings.pet.speech.frequency", "Frequency"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-pet-speech-frequency",
                         &settings.pet_speech_frequency,
-                        pet_speech_frequency_options(),
+                        pet_speech_frequency_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_pet_speech_frequency(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "工作时少说话",
+                    settings_text(
+                        language,
+                        "settings.pet.speech.quiet_during_work",
+                        "Speak Less During Work",
+                    ),
                     None,
                     settings_toggle(
                         "settings-pet-speech-work",
@@ -1243,7 +1377,11 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "夜间多说话",
+                    settings_text(
+                        language,
+                        "settings.pet.speech.louder_at_night",
+                        "Speak More at Night",
+                    ),
                     None,
                     settings_toggle(
                         "settings-pet-speech-night",
@@ -1254,7 +1392,11 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "全屏静音",
+                    settings_text(
+                        language,
+                        "settings.pet.speech.mute_on_fullscreen",
+                        "Mute in Full Screen",
+                    ),
                     None,
                     settings_toggle(
                         "settings-pet-speech-fullscreen",
@@ -1265,7 +1407,11 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "安静时段 22:00-08:00",
+                    settings_text(
+                        language,
+                        "settings.pet.speech.quiet_hours",
+                        "Quiet Hours 22:00-08:00",
+                    ),
                     None,
                     settings_toggle(
                         "settings-pet-quiet-hours",
@@ -1282,26 +1428,38 @@ fn settings_pet_pane(
                     .gap(px(8.0))
                     .child(settings_small_button(
                         "settings-pet-mute-30",
-                        "静音 30 分钟",
+                        settings_text(
+                            language,
+                            "settings.pet.speech.mute_30_minutes",
+                            "Mute for 30 Minutes",
+                        ),
                         cx,
                         |app, _event, _window, cx| app.set_pet_speech_temporary_mute(true, cx),
                     ))
                     .child(settings_small_button(
                         "settings-pet-unmute",
-                        "取消临时静音",
+                        settings_text(
+                            language,
+                            "settings.pet.speech.unmute",
+                            "Clear Temporary Mute",
+                        ),
                         cx,
                         |app, _event, _window, cx| app.set_pet_speech_temporary_mute(false, cx),
                     ))
                     .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
-            Some("宠物 LLM"),
-            Some("只有节奏和里程碑消息会尝试 LLM 润色，失败时会回退到模板台词。".to_string()),
+            Some(settings_text(language, "settings.pet.llm.section", "Pet LLM")),
+            Some(settings_text(
+                language,
+                "settings.pet.llm.help",
+                "Only rhythm and milestone messages use LLM refinement. Templates are used on failure.",
+            )),
             vec![
                 settings_row(
-                    "启用 LLM 台词润色",
+                    settings_text(language, "settings.pet.llm.enabled", "Enable LLM Refinement"),
                     None,
                     settings_toggle(
                         "settings-pet-llm",
@@ -1312,27 +1470,36 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "LLM 通道",
+                    settings_text(language, "settings.pet.llm.channel", "LLM Provider"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "pet-speech-provider",
                         &settings.pet_speech_provider_id,
-                        ai_provider_options(settings, "petSpeech"),
+                        ai_provider_options(settings, "petSpeech", language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_pet_speech_provider(value, window, cx),
                     ),
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
         settings_card(
-            Some("提醒"),
+            Some(settings_text(
+                language,
+                "settings.pet.section.reminders",
+                "Reminders",
+            )),
             None,
             vec![
                 settings_row(
-                    "喝水提醒",
+                    settings_text(
+                        language,
+                        "settings.pet.reminder.hydration",
+                        "Hydration Reminder",
+                    ),
                     None,
                     settings_toggle(
                         "settings-pet-reminders",
@@ -1343,7 +1510,7 @@ fn settings_pet_pane(
                 )
                 .into_any_element(),
             ],
-        )
+            cx,)
         .into_any_element(),
     ])
     .into_any_element()
@@ -1357,6 +1524,7 @@ fn settings_ai_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     let mut provider_rows = if settings.ai_providers.is_empty() {
         vec![
             div()
@@ -1364,7 +1532,11 @@ fn settings_ai_pane(
                 .text_size(px(14.0))
                 .line_height(px(18.0))
                 .text_color(color(theme::TEXT_DIM))
-                .child("尚未新增 API 通道。")
+                .child(settings_text(
+                    language,
+                    "settings.ai.provider.empty",
+                    "No API providers yet.",
+                ))
                 .into_any_element(),
         ]
     } else {
@@ -1377,6 +1549,7 @@ fn settings_ai_pane(
                     provider,
                     selected_provider_id,
                     testing_provider_id,
+                    language,
                     window,
                     cx,
                 )
@@ -1397,11 +1570,15 @@ fn settings_ai_pane(
                     .text_size(px(14.0))
                     .line_height(px(18.0))
                     .text_color(color(theme::TEXT))
-                    .child("AI 提供方"),
+                    .child(settings_text(
+                        language,
+                        "settings.ai.section.providers",
+                        "AI Providers",
+                    )),
             )
             .child(settings_small_button(
                 "settings-add-ai-provider",
-                "新增 API 通道",
+                settings_text(language, "settings.ai.provider.add", "Add API Provider"),
                 cx,
                 |app, _event, window, cx| app.add_ai_provider(window, cx),
             ))
@@ -1416,10 +1593,15 @@ fn settings_ai_pane(
             .into_any_element(),
     );
 
-    let mut runtime_tool_rows = vec![settings_runtime_tools_header(permissions, cx)];
+    let mut runtime_tool_rows = Vec::new();
     runtime_tool_rows.extend(vec![
         settings_runtime_tool_block(
-            "Codex 配置",
+            settings_text(
+                language,
+                "settings.ai.tool.configuration_format",
+                "%@ Configuration",
+            )
+            .replace("%@", "Codex"),
             "codex",
             "codexModel",
             &permissions.codex,
@@ -1427,11 +1609,17 @@ fn settings_ai_pane(
             "gpt-5.5",
             true,
             &permissions.codex_effort,
+            language,
             window,
             cx,
         ),
         settings_runtime_tool_block(
-            "Claude Code 配置",
+            settings_text(
+                language,
+                "settings.ai.tool.configuration_format",
+                "%@ Configuration",
+            )
+            .replace("%@", "Claude Code"),
             "claudeCode",
             "claudeCodeModel",
             &permissions.claude_code,
@@ -1439,11 +1627,17 @@ fn settings_ai_pane(
             "claude-sonnet-4.5",
             false,
             &permissions.codex_effort,
+            language,
             window,
             cx,
         ),
         settings_runtime_tool_block(
-            "Gemini 配置",
+            settings_text(
+                language,
+                "settings.ai.tool.configuration_format",
+                "%@ Configuration",
+            )
+            .replace("%@", "Gemini"),
             "gemini",
             "geminiModel",
             &permissions.gemini,
@@ -1451,11 +1645,17 @@ fn settings_ai_pane(
             "gemini-2.5-pro",
             false,
             &permissions.codex_effort,
+            language,
             window,
             cx,
         ),
         settings_runtime_tool_block(
-            "OpenCode 配置",
+            settings_text(
+                language,
+                "settings.ai.tool.configuration_format",
+                "%@ Configuration",
+            )
+            .replace("%@", "OpenCode"),
             "opencode",
             "opencodeModel",
             &permissions.opencode,
@@ -1463,11 +1663,17 @@ fn settings_ai_pane(
             "gpt-5.5",
             false,
             &permissions.codex_effort,
+            language,
             window,
             cx,
         ),
         settings_runtime_tool_block(
-            "Kiro 配置",
+            settings_text(
+                language,
+                "settings.ai.tool.configuration_format",
+                "%@ Configuration",
+            )
+            .replace("%@", "Kiro"),
             "kiro",
             "kiroModel",
             &permissions.kiro,
@@ -1475,6 +1681,7 @@ fn settings_ai_pane(
             "auto",
             false,
             &permissions.codex_effort,
+            language,
             window,
             cx,
         ),
@@ -1482,26 +1689,48 @@ fn settings_ai_pane(
 
     settings_form(vec![
         settings_card(
-            Some("运行时工具"),
-            Some("同步后会写入运行时 wrapper 使用的权限文件。".to_string()),
+            Some(settings_text(
+                language,
+                "settings.ai.section.runtime_tools",
+                "Runtime Tools",
+            )),
+            Some(settings_text(
+                language,
+                "settings.tools.hint",
+                "These defaults are written to the runtime wrapper permission file.",
+            )),
             runtime_tool_rows,
+            cx,
         )
         .into_any_element(),
         settings_card(
-            Some("全局提示词"),
-            Some("支持的工具启动时会注入，并会和记忆上下文合并写入启动上下文。".to_string()),
+            Some(settings_text(
+                language,
+                "settings.ai.global_prompt",
+                "Global Prompt",
+            )),
+            Some(settings_text(
+                language,
+                "settings.ai.global_prompt_help",
+                "Injected when supported tools start and merged with memory context.",
+            )),
             vec![settings_textarea(
                 "ai-global-prompt",
                 &settings.ai_global_prompt,
                 4,
-                "写入所有支持工具的全局提示词",
+                settings_text(
+                    language,
+                    "settings.ai.global_prompt",
+                    "Global prompt for supported tools",
+                ),
                 window,
                 cx,
                 |app, value, window, cx| app.set_ai_global_prompt(value, window, cx),
             )],
+            cx,
         )
         .into_any_element(),
-        settings_card(None, None, provider_rows).into_any_element(),
+        settings_card(None, None, provider_rows, cx).into_any_element(),
     ])
     .into_any_element()
 }
@@ -1511,58 +1740,82 @@ fn settings_git_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     settings_form(vec![
         settings_card(
-            Some("Git 提交消息"),
+            Some(settings_text(
+                language,
+                "settings.ai.git_commit_message",
+                "Git Commit Message",
+            )),
             None,
             vec![
                 settings_row(
-                    "AI 提供方",
+                    settings_text(
+                        language,
+                        "settings.ai.git_commit_message_provider",
+                        "AI Provider",
+                    ),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-git-provider-auto",
                         &settings.git_commit_provider_id,
-                        git_provider_options(settings),
+                        git_provider_options(settings, language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_git_commit_provider(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "语气",
+                    settings_text(language, "settings.ai.git_commit_message_tone", "Tone"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-git-tone",
                         &settings.git_commit_tone,
                         git_tone_options(),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_git_commit_tone(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "语言",
+                    settings_text(language, "settings.language", "Language"),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-git-language",
                         &settings.git_commit_language,
-                        git_language_options(),
+                        git_language_options(language),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_git_commit_language(value, window, cx),
                     ),
                 )
                 .into_any_element(),
                 settings_row(
-                    "风格规则",
-                    Some("例如：使用 Conventional Commits，标题不超过 72 个字符。".to_string()),
+                    settings_text(
+                        language,
+                        "settings.ai.git_commit_message_style_rules",
+                        "Style Rules",
+                    ),
+                    Some(settings_text(
+                        language,
+                        "settings.ai.git_commit_message_style_rules_placeholder",
+                        "Example: use Conventional Commits, keep subject under 72 characters.",
+                    )),
                     settings_textarea(
                         "git-style-rules",
                         &settings.git_commit_style_rules,
                         3,
-                        "Example: use Conventional Commits, keep subject under 72 characters.",
+                        settings_text(
+                            language,
+                            "settings.ai.git_commit_message_style_rules_placeholder",
+                            "Example: use Conventional Commits, keep subject under 72 characters.",
+                        ),
                         window,
                         cx,
                         |app, value, window, cx| app.set_git_commit_style_rules(value, window, cx),
@@ -1570,6 +1823,7 @@ fn settings_git_pane(
                 )
                 .into_any_element(),
             ],
+            cx,
         )
         .into_any_element(),
     ])
@@ -1582,13 +1836,18 @@ fn settings_memory_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     let mut cards = vec![
         settings_card(
-            Some("记忆"),
+            Some(settings_text(
+                language,
+                "settings.ai.section.memory",
+                "Memory",
+            )),
             None,
             vec![
                 settings_row(
-                    "启用记忆",
+                    settings_text(language, "settings.ai.memory.enabled", "Enable Memory"),
                     None,
                     settings_toggle(
                         "settings-memory-enabled",
@@ -1602,6 +1861,7 @@ fn settings_memory_pane(
                 )
                 .into_any_element(),
             ],
+            cx,
         )
         .into_any_element(),
     ];
@@ -1609,11 +1869,19 @@ fn settings_memory_pane(
     if settings.memory_enabled {
         cards.push(
             settings_card(
-                Some("自动注入"),
+                Some(settings_text(
+                    language,
+                    "settings.ai.memory.automatic_injection",
+                    "Automatic Injection",
+                )),
                 None,
                 vec![
                     settings_row(
-                        "自动注入",
+                        settings_text(
+                            language,
+                            "settings.ai.memory.automatic_injection",
+                            "Automatic Injection",
+                        ),
                         None,
                         settings_toggle(
                             "settings-memory-auto-injection",
@@ -1632,7 +1900,11 @@ fn settings_memory_pane(
                     )
                     .into_any_element(),
                     settings_row(
-                        "自动提取",
+                        settings_text(
+                            language,
+                            "settings.ai.memory.automatic_extraction",
+                            "Automatic Extraction",
+                        ),
                         None,
                         settings_toggle(
                             "settings-memory-auto-extraction",
@@ -1651,14 +1923,19 @@ fn settings_memory_pane(
                     )
                     .into_any_element(),
                     settings_row(
-                        "提取间隔",
+                        settings_text(
+                            language,
+                            "settings.ai.memory.extraction_interval",
+                            "Extraction Interval",
+                        ),
                         None,
-                        settings_select(
+                        settings_select_impl(
                             "settings-memory-extraction-interval",
                             &settings.memory_extraction_idle_delay_seconds,
                             memory_extraction_interval_options(),
                             window,
                             cx,
+                            language,
                             |app, value, window, cx| {
                                 app.set_ai_memory_number(
                                     "extractionIdleDelaySeconds",
@@ -1671,14 +1948,19 @@ fn settings_memory_pane(
                     )
                     .into_any_element(),
                     settings_row(
-                        "最大最近会话",
+                        settings_text(
+                            language,
+                            "settings.ai.memory.max_index_sessions",
+                            "Maximum Recent Sessions",
+                        ),
                         None,
-                        settings_select(
+                        settings_select_impl(
                             "settings-memory-max-index",
                             &settings.memory_max_index_sessions,
                             memory_max_index_options(),
                             window,
                             cx,
+                            language,
                             |app, value, window, cx| {
                                 app.set_ai_memory_number("maxIndexSessions", value, window, cx)
                             },
@@ -1686,7 +1968,11 @@ fn settings_memory_pane(
                     )
                     .into_any_element(),
                     settings_row(
-                        "跨项目用户记忆",
+                        settings_text(
+                            language,
+                            "settings.ai.memory.cross_project_user",
+                            "Cross-Project User Memory",
+                        ),
                         None,
                         settings_toggle(
                             "settings-memory-cross-project",
@@ -1706,28 +1992,39 @@ fn settings_memory_pane(
                     )
                     .into_any_element(),
                 ],
+                cx,
             )
             .into_any_element(),
         );
         cards.push(
             settings_card(
-                Some("默认提取通道"),
+                Some(settings_text(
+                    language,
+                    "settings.ai.memory.default_extraction_provider",
+                    "Default Extraction Provider",
+                )),
                 None,
                 vec![
                     settings_row(
-                        "默认提取通道",
+                        settings_text(
+                            language,
+                            "settings.ai.memory.default_extraction_provider",
+                            "Default Extraction Provider",
+                        ),
                         None,
-                        settings_select(
+                        settings_select_impl(
                             "settings-memory-provider",
                             &settings.memory_default_extractor_provider_id,
-                            ai_provider_options(settings, "memory"),
+                            ai_provider_options(settings, "memory", language),
                             window,
                             cx,
+                            language,
                             |app, value, window, cx| app.set_ai_memory_provider(value, window, cx),
                         ),
                     )
                     .into_any_element(),
                 ],
+                cx,
             )
             .into_any_element(),
         );
@@ -1740,6 +2037,7 @@ fn settings_notifications_pane(
     notifications: &NotificationSummary,
     _selected_channel_id: Option<&str>,
     testing_channel_id: Option<&str>,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -1749,7 +2047,7 @@ fn settings_notifications_pane(
             .iter()
             .cloned()
             .map(|channel| {
-                settings_notification_card(channel, testing_channel_id, window, cx)
+                settings_notification_card(channel, testing_channel_id, language, window, cx)
                     .into_any_element()
             })
             .collect::<Vec<_>>(),
@@ -1760,6 +2058,7 @@ fn settings_notifications_pane(
 fn settings_remote_pane(
     remote: &RemoteSummary,
     _selected_device_id: Option<&str>,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -1785,7 +2084,11 @@ fn settings_remote_pane(
                                     .text_size(px(14.0))
                                     .line_height(px(18.0))
                                     .text_color(color(theme::TEXT))
-                                    .child("当前配对码"),
+                                    .child(settings_text(
+                                        language,
+                                        "settings.remote.code",
+                                        "Pairing Code",
+                                    )),
                             )
                             .child(
                                 div()
@@ -1795,7 +2098,8 @@ fn settings_remote_pane(
                                     .text_color(color(theme::TEXT_DIM))
                                     .truncate()
                                     .child(format!(
-                                        "有效期至 {}",
+                                        "{} {}",
+                                        settings_text(language, "common.until", "Until"),
                                         empty_label(&pairing.expires_at)
                                     )),
                             ),
@@ -1808,7 +2112,7 @@ fn settings_remote_pane(
                             .child(settings_status_tag(pairing.code.clone(), theme::ACCENT))
                             .child(settings_small_button(
                                 format!("settings-remote-cancel-pairing-{}", pairing.pairing_id),
-                                "取消",
+                                settings_text(language, "common.cancel", "Cancel"),
                                 cx,
                                 move |app, _event, window, cx| {
                                     app.cancel_remote_pairing(pairing_id.clone(), window, cx)
@@ -1860,7 +2164,11 @@ fn settings_remote_pane(
                                 .line_height(px(16.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
-                                .child(format!("配对码 {}", empty_label(&pairing.code))),
+                                .child(format!(
+                                    "{} {}",
+                                    settings_text(language, "settings.remote.code", "Code"),
+                                    empty_label(&pairing.code)
+                                )),
                         ),
                 )
                 .child(
@@ -1870,7 +2178,7 @@ fn settings_remote_pane(
                         .gap(px(8.0))
                         .child(settings_small_button(
                             format!("settings-remote-confirm-pairing-{}", pairing.id),
-                            "确认",
+                            settings_text(language, "settings.remote.confirm_pairing", "Confirm"),
                             cx,
                             move |app, _event, window, cx| {
                                 app.confirm_remote_pairing(confirm_id.clone(), window, cx)
@@ -1878,7 +2186,7 @@ fn settings_remote_pane(
                         ))
                         .child(settings_small_button(
                             format!("settings-remote-reject-pairing-{}", pairing.id),
-                            "拒绝",
+                            settings_text(language, "settings.remote.reject_pairing", "Reject"),
                             cx,
                             move |app, _event, window, cx| {
                                 app.reject_remote_pairing(reject_id.clone(), window, cx)
@@ -1896,9 +2204,13 @@ fn settings_remote_pane(
                 .line_height(px(18.0))
                 .text_color(color(theme::TEXT_DIM))
                 .child(if remote.enabled {
-                    "还没有配对设备。"
+                    settings_text(language, "settings.remote.no_devices", "No paired devices.")
                 } else {
-                    "配对手机后可以在移动端控制终端。"
+                    settings_text(
+                        language,
+                        "settings.remote.configure_hint",
+                        "Configure a relay server before pairing mobile devices.",
+                    )
                 })
                 .into_any_element(),
         ]
@@ -1945,8 +2257,9 @@ fn settings_remote_pane(
                                     .text_color(color(theme::TEXT_DIM))
                                     .truncate()
                                     .child(format!(
-                                        "{} · last seen {}",
+                                        "{} · {} {}",
                                         empty_label(&device.id),
+                                        settings_text(language, "common.last_seen", "last seen"),
                                         empty_label(&device.last_seen)
                                     )),
                             ),
@@ -1957,13 +2270,19 @@ fn settings_remote_pane(
                             .items_center()
                             .gap(px(8.0))
                             .child(if device.online.unwrap_or(false) {
-                                settings_status_tag("在线", theme::GREEN)
+                                settings_status_tag(
+                                    settings_text(language, "common.online", "Online"),
+                                    theme::GREEN,
+                                )
                             } else {
-                                settings_status_tag("离线", theme::TEXT_DIM)
+                                settings_status_tag(
+                                    settings_text(language, "common.offline", "Offline"),
+                                    theme::TEXT_DIM,
+                                )
                             })
                             .child(settings_small_button(
                                 format!("settings-remote-remove-{}", device.id),
-                                "移除",
+                                settings_text(language, "settings.remote.revoke", "Remove"),
                                 cx,
                                 move |app, _event, window, cx| {
                                     app.select_remote_device(remove_id.clone(), window, cx);
@@ -1978,11 +2297,11 @@ fn settings_remote_pane(
 
     settings_form(vec![
         settings_card(
-            Some("服务器"),
+            Some(settings_text(language, "settings.remote.server", "Server")),
             None,
             vec![
                 settings_row(
-                    "中继服务器 URL",
+                    settings_text(language, "settings.remote.server_url", "Relay Server URL"),
                     None,
                     settings_text_input(
                         "settings-remote-server-url",
@@ -1996,7 +2315,7 @@ fn settings_remote_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "启用远程主机",
+                    settings_text(language, "settings.remote.enabled", "Enable Remote Host"),
                     None,
                     settings_toggle(
                         "settings-remote-enabled",
@@ -2029,24 +2348,35 @@ fn settings_remote_pane(
                             .line_height(px(16.0))
                             .text_color(color(theme::TEXT_DIM))
                             .truncate()
-                            .child(remote_status_label(&remote.status)),
+                            .child(remote_status_label(&remote.status, language)),
                     )
                     .child(settings_small_button(
                         "settings-remote-reconnect",
-                        "重连",
+                        settings_text(language, "settings.remote.reconnect", "Reconnect"),
                         cx,
                         |app, _event, window, cx| app.reconnect_remote(window, cx),
                     ))
                     .into_any_element(),
             ],
+            cx,
         )
         .into_any_element(),
         settings_card(
-            Some("设备"),
-            Some(format!(
-                "{} 个设备，{} 个在线，{} 个等待配对。",
-                remote.devices, remote.online_devices, remote.pending_pairings
+            Some(settings_text(
+                language,
+                "settings.remote.devices",
+                "Devices",
             )),
+            Some(
+                settings_text(
+                    language,
+                    "settings.remote.devices_summary_format",
+                    "%d devices, %d online, %d pending pairings.",
+                )
+                .replacen("%d", &remote.devices.to_string(), 1)
+                .replacen("%d", &remote.online_devices.to_string(), 1)
+                .replacen("%d", &remote.pending_pairings.to_string(), 1),
+            ),
             {
                 let mut rows = vec![
                     div()
@@ -2056,13 +2386,17 @@ fn settings_remote_pane(
                         .gap(px(8.0))
                         .child(settings_small_button(
                             "settings-remote-create-pairing",
-                            "创建配对",
+                            settings_text(
+                                language,
+                                "settings.remote.create_pairing",
+                                "Create Pairing QR",
+                            ),
                             cx,
                             |app, _event, window, cx| app.create_remote_pairing(window, cx),
                         ))
                         .child(settings_small_button(
                             "settings-remote-refresh",
-                            "刷新",
+                            settings_text(language, "settings.remote.refresh_devices", "Refresh"),
                             cx,
                             |app, _event, window, cx| app.refresh_remote_devices(window, cx),
                         ))
@@ -2073,6 +2407,7 @@ fn settings_remote_pane(
                 rows.extend(device_rows);
                 rows
             },
+            cx,
         )
         .into_any_element(),
     ])
@@ -2084,18 +2419,28 @@ fn settings_shortcuts_pane(
     recording_id: Option<&str>,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     settings_form(vec![
         settings_card(
-            Some("快捷键"),
+            Some(settings_text(
+                language,
+                "settings.tab.shortcuts",
+                "Shortcuts",
+            )),
             None,
             shortcut_definitions()
                 .into_iter()
-                .map(|shortcut| shortcut_row(shortcut, settings, recording_id, cx))
+                .map(|shortcut| shortcut_row(shortcut, settings, recording_id, language, cx))
                 .collect(),
+            cx,
         )
         .into_any_element(),
         settings_card(
-            Some("项目切换快捷键"),
+            Some(settings_text(
+                language,
+                "settings.shortcut.project_switch",
+                "Project Switch Shortcuts",
+            )),
             None,
             vec![
                 div()
@@ -2103,13 +2448,18 @@ fn settings_shortcuts_pane(
                     .text_size(px(12.0))
                     .line_height(px(16.0))
                     .text_color(color(theme::TEXT_DIM))
-                    .child(if cfg!(target_os = "macos") {
-                        "使用 ⌘1-⌘9 按侧边栏顺序切换项目。"
-                    } else {
-                        "使用 Ctrl+1-Ctrl+9 按侧边栏顺序切换项目。"
-                    })
+                    .child(settings_text(
+                        language,
+                        "settings.shortcut.project_switch_hint",
+                        if cfg!(target_os = "macos") {
+                            "Use ⌘1-⌘9 to switch projects in sidebar order."
+                        } else {
+                            "Use Ctrl+1-Ctrl+9 to switch projects in sidebar order."
+                        },
+                    ))
                     .into_any_element(),
             ],
+            cx,
         )
         .into_any_element(),
     ])
@@ -2119,7 +2469,8 @@ fn settings_shortcuts_pane(
 #[derive(Clone, Copy)]
 struct ShortcutDefinition {
     id: &'static str,
-    label: &'static str,
+    label_key: &'static str,
+    fallback: &'static str,
     default_value: &'static str,
 }
 
@@ -2132,47 +2483,56 @@ fn shortcut_definitions() -> Vec<ShortcutDefinition> {
     vec![
         ShortcutDefinition {
             id: "view.terminal",
-            label: "终端视图",
+            label_key: "shortcut.view.terminal",
+            fallback: "Terminal View",
             default_value: primary_static(primary, "1"),
         },
         ShortcutDefinition {
             id: "view.files",
-            label: "文件视图",
+            label_key: "shortcut.view.files",
+            fallback: "Files View",
             default_value: primary_static(primary, "2"),
         },
         ShortcutDefinition {
             id: "view.review",
-            label: "评审视图",
+            label_key: "shortcut.view.review",
+            fallback: "Review View",
             default_value: primary_static(primary, "3"),
         },
         ShortcutDefinition {
             id: "project.create",
-            label: "新建项目",
+            label_key: "shortcut.project.create",
+            fallback: "New Project",
             default_value: primary_static(primary, "N"),
         },
         ShortcutDefinition {
             id: "settings.open",
-            label: "打开设置",
+            label_key: "shortcut.settings.open",
+            fallback: "Open Settings",
             default_value: primary_static(primary, ","),
         },
         ShortcutDefinition {
             id: "task.create",
-            label: "新建工作树",
-            default_value: primary_static(primary, "N"),
+            label_key: "shortcut.task.create",
+            fallback: "New Worktree",
+            default_value: primary_static(primary, "Shift+N"),
         },
         ShortcutDefinition {
             id: "editor.save",
-            label: "保存",
+            label_key: "shortcut.editor.save",
+            fallback: "Save",
             default_value: primary_static(primary, "S"),
         },
         ShortcutDefinition {
             id: "editor.search",
-            label: "搜索文件",
+            label_key: "shortcut.editor.search",
+            fallback: "Search Files",
             default_value: primary_static(primary, "F"),
         },
         ShortcutDefinition {
             id: "close.active",
-            label: "关闭当前项目",
+            label_key: "shortcut.close.active",
+            fallback: "Close Current Project",
             default_value: primary_static(primary, "W"),
         },
     ]
@@ -2184,6 +2544,7 @@ fn primary_static(primary: &str, key: &str) -> &'static str {
         ("⌘", "2") => "⌘2",
         ("⌘", "3") => "⌘3",
         ("⌘", "N") => "⌘N",
+        ("⌘", "Shift+N") => "⌘⇧N",
         ("⌘", ",") => "⌘,",
         ("⌘", "S") => "⌘S",
         ("⌘", "F") => "⌘F",
@@ -2192,6 +2553,7 @@ fn primary_static(primary: &str, key: &str) -> &'static str {
         (_, "2") => "Ctrl+2",
         (_, "3") => "Ctrl+3",
         (_, "N") => "Ctrl+N",
+        (_, "Shift+N") => "Ctrl+Shift+N",
         (_, ",") => "Ctrl+,",
         (_, "S") => "Ctrl+S",
         (_, "F") => "Ctrl+F",
@@ -2204,12 +2566,13 @@ fn shortcut_row(
     shortcut: ShortcutDefinition,
     settings: &SettingsSummary,
     recording_id: Option<&str>,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let is_recording = recording_id == Some(shortcut.id);
     let customized = settings.shortcuts.contains_key(shortcut.id);
     let value = if is_recording {
-        "录制快捷键".to_string()
+        settings_text(language, "settings.shortcut.record", "Record Shortcut")
     } else {
         settings
             .shortcuts
@@ -2220,7 +2583,7 @@ fn shortcut_row(
 
     let shortcut_id = shortcut.id;
     settings_row(
-        shortcut.label,
+        settings_text(language, shortcut.label_key, shortcut.fallback),
         None,
         div()
             .w(relative(0.3))
@@ -2232,7 +2595,11 @@ fn shortcut_row(
                 Button::new(SharedString::from(format!("shortcut-record-{shortcut_id}")))
                     .secondary()
                     .text_color(color(theme::TEXT))
-                    .bg(color(0xFFFFFF).opacity(if is_recording { 0.10 } else { 0.055 }))
+                    .bg(if is_recording {
+                        cx.theme().secondary_hover
+                    } else {
+                        cx.theme().secondary
+                    })
                     .flex_1()
                     .justify_start()
                     .on_click(cx.listener(move |app, _event, window, cx| {
@@ -2249,7 +2616,7 @@ fn shortcut_row(
             .when(customized, |this| {
                 this.child(settings_small_button(
                     format!("shortcut-reset-{shortcut_id}"),
-                    "撤销",
+                    settings_text(language, "common.undo", "Undo"),
                     cx,
                     move |app, _event, window, cx| app.reset_shortcut(shortcut_id, window, cx),
                 ))
@@ -2259,18 +2626,27 @@ fn shortcut_row(
     .into_any_element()
 }
 
-fn settings_experiments_pane(agent_split_enabled: bool, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn settings_experiments_pane(
+    agent_split_enabled: bool,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
     settings_form(vec![
         settings_card(
-            Some("分屏窗格"),
+            Some(settings_text(
+                language,
+                "settings.experiments.section.split",
+                "Split Panes",
+            )),
             None,
             vec![
                 settings_row(
-                    "Agent Split",
-                    Some(
-                        "启用后，创建分屏时可以选择 Terminal 或 Agent。关闭时按普通终端分屏创建。"
-                            .to_string(),
-                    ),
+                    settings_text(language, "settings.experiments.agent_split", "Agent Split"),
+                    Some(settings_text(
+                        language,
+                        "settings.experiments.agent_split.help",
+                        "When enabled, creating a split lets you choose Terminal or Agent.",
+                    )),
                     settings_toggle(
                         "settings-agent-split",
                         agent_split_enabled,
@@ -2283,6 +2659,7 @@ fn settings_experiments_pane(agent_split_enabled: bool, cx: &mut Context<CoduxAp
                 )
                 .into_any_element(),
             ],
+            cx,
         )
         .into_any_element(),
     ])
@@ -2294,13 +2671,18 @@ fn settings_developer_pane(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    let language = settings.language.as_str();
     settings_form(vec![
         settings_card(
             None,
             None,
             vec![
                 settings_row(
-                    "Performance Monitor HUD",
+                    settings_text(
+                        language,
+                        "settings.developer.performance_monitor",
+                        "Performance Monitor HUD",
+                    ),
                     None,
                     settings_toggle(
                         "settings-dev-hud",
@@ -2311,19 +2693,25 @@ fn settings_developer_pane(
                 )
                 .into_any_element(),
                 settings_row(
-                    "Performance Monitor Interval",
+                    settings_text(
+                        language,
+                        "settings.developer.performance_monitor_interval",
+                        "Performance Monitor Interval",
+                    ),
                     None,
-                    settings_select(
+                    settings_select_impl(
                         "settings-dev-refresh",
                         &settings.developer_refresh,
                         developer_refresh_options(),
                         window,
                         cx,
+                        language,
                         |app, value, window, cx| app.set_developer_refresh(value, window, cx),
                     ),
                 )
                 .into_any_element(),
             ],
+            cx,
         )
         .into_any_element(),
     ])
@@ -2331,7 +2719,7 @@ fn settings_developer_pane(
 }
 
 fn settings_runtime_tool_block(
-    label: &'static str,
+    label: String,
     tool_key: &'static str,
     model_key: &'static str,
     permission: &str,
@@ -2339,6 +2727,7 @@ fn settings_runtime_tool_block(
     placeholder: &'static str,
     include_codex_effort: bool,
     codex_effort: &str,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -2350,14 +2739,19 @@ fn settings_runtime_tool_block(
             .child(label)
             .into_any_element(),
         settings_row(
-            "完整权限",
+            settings_text(
+                language,
+                "settings.ai.permission.full_access_toggle",
+                "Full Access",
+            ),
             None,
-            settings_select(
+            settings_select_impl(
                 tool_key,
                 permission,
-                runtime_tool_permission_options(),
+                runtime_tool_permission_options(language),
                 window,
                 cx,
+                language,
                 move |app, value, window, cx| {
                     app.set_runtime_tool_permission(tool_key, value, window, cx)
                 },
@@ -2365,7 +2759,7 @@ fn settings_runtime_tool_block(
         )
         .into_any_element(),
         settings_row(
-            "默认模型",
+            settings_text(language, "settings.ai.tool.default_model", "Default Model"),
             None,
             settings_text_input(
                 SharedString::from(format!("settings-{model_key}")),
@@ -2384,14 +2778,19 @@ fn settings_runtime_tool_block(
     if include_codex_effort {
         children.push(
             settings_row(
-                "推理强度",
+                settings_text(
+                    language,
+                    "settings.ai.tool.reasoning_effort",
+                    "Reasoning Effort",
+                ),
                 None,
-                settings_select(
+                settings_select_impl(
                     "settings-codex-effort",
                     codex_effort,
                     codex_effort_options(),
                     window,
                     cx,
+                    language,
                     |app, value, window, cx| app.set_codex_effort(value, window, cx),
                 ),
             )
@@ -2408,80 +2807,11 @@ fn settings_runtime_tool_block(
         .into_any_element()
 }
 
-fn settings_runtime_tools_header(
-    permissions: &ToolPermissionsSummary,
-    cx: &mut Context<CoduxApp>,
-) -> AnyElement {
-    let status = if permissions.available {
-        ("已同步", theme::GREEN)
-    } else {
-        ("未同步", theme::ORANGE)
-    };
-
-    div()
-        .py(px(8.0))
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(14.0))
-        .child(
-            div()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .child(
-                    div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
-                        .text_color(color(theme::TEXT))
-                        .child(format!("{} 个完整权限工具", permissions.full_access_count)),
-                )
-                .child(
-                    div()
-                        .mt(px(3.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(if permissions.path.is_empty() {
-                            "权限文件尚未生成".to_string()
-                        } else {
-                            permissions.path.clone()
-                        }),
-                )
-                .when_some(permissions.error.clone(), |this, error| {
-                    this.child(
-                        div()
-                            .mt(px(4.0))
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .text_color(color(theme::ORANGE))
-                            .truncate()
-                            .child(error),
-                    )
-                }),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .child(settings_status_tag(status.0, status.1))
-                .child(settings_small_button(
-                    "settings-sync-runtime-tools",
-                    "同步权限",
-                    cx,
-                    |app, _event, window, cx| app.sync_tool_permissions(window, cx),
-                )),
-        )
-        .into_any_element()
-}
-
 fn settings_ai_provider_card(
     provider: codux_runtime::settings::AIProviderSummary,
     selected_provider_id: Option<&str>,
     testing_provider_id: Option<&str>,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -2547,21 +2877,22 @@ fn settings_ai_provider_card(
                 )),
         )
         .child(settings_row(
-            "类型",
+            settings_text(language, "settings.ai.provider.type", "Type"),
             None,
-            settings_select(
+            settings_select_impl(
                 format!("settings-provider-kind-{}", provider.id),
                 &provider.kind,
                 ai_provider_kind_options(),
                 window,
                 cx,
+                language,
                 move |app, value, window, cx| {
                     app.update_ai_provider_string(kind_id.clone(), "kind", value, window, cx)
                 },
             ),
         ))
         .child(settings_row(
-            "名称",
+            settings_text(language, "settings.ai.provider.name", "Name"),
             None,
             settings_text_input(
                 SharedString::from(format!("settings-provider-name-{}", provider.id)),
@@ -2576,7 +2907,7 @@ fn settings_ai_provider_card(
             ),
         ))
         .child(settings_row(
-            "模型",
+            settings_text(language, "settings.ai.provider.model", "Model"),
             None,
             settings_text_input(
                 SharedString::from(format!("settings-provider-model-{}", provider.id)),
@@ -2591,7 +2922,7 @@ fn settings_ai_provider_card(
             ),
         ))
         .child(settings_row(
-            "Base URL",
+            settings_text(language, "settings.ai.provider.base_url", "Base URL"),
             None,
             settings_text_input(
                 SharedString::from(format!("settings-provider-base-url-{}", provider.id)),
@@ -2606,19 +2937,27 @@ fn settings_ai_provider_card(
             ),
         ))
         .child(settings_row(
-            "API Key",
+            settings_text(language, "settings.ai.provider.api_key", "API Key"),
             Some(if provider.api_key_configured {
-                "已配置。输入新值可替换。".to_string()
+                settings_text(
+                    language,
+                    "settings.ai.provider.api_key.configured",
+                    "Configured. Enter a new value to replace it.",
+                )
             } else {
-                "未配置。".to_string()
+                settings_text(
+                    language,
+                    "settings.ai.provider.api_key.not_configured",
+                    "Not configured.",
+                )
             }),
             settings_text_input(
                 SharedString::from(format!("settings-provider-api-key-{}", provider.id)),
                 "",
                 if provider.api_key_configured {
-                    "已配置"
+                    settings_text(language, "common.configured", "Configured")
                 } else {
-                    "API Key"
+                    settings_text(language, "settings.ai.provider.api_key", "API Key")
                 },
                 true,
                 window,
@@ -2637,7 +2976,11 @@ fn settings_ai_provider_card(
             ),
         ))
         .child(settings_row(
-            "用于记忆提取",
+            settings_text(
+                language,
+                "settings.ai.provider.use_for_memory_extraction",
+                "Use For Memory Extraction",
+            ),
             None,
             settings_toggle(
                 format!("settings-provider-memory-{}", provider.id),
@@ -2687,12 +3030,20 @@ fn settings_ai_provider_card(
                             .text_size(px(12.0))
                             .line_height(px(16.0))
                             .text_color(color(theme::TEXT))
-                            .child(if testing { "测试中" } else { "测试" }),
+                            .child(if testing {
+                                settings_text(
+                                    language,
+                                    "settings.ai.provider.test.running",
+                                    "Testing...",
+                                )
+                            } else {
+                                settings_text(language, "settings.ai.provider.test", "Test")
+                            }),
                     ),
                 )
                 .child(settings_small_button(
                     format!("settings-provider-remove-{}", provider.id),
-                    "移除",
+                    settings_text(language, "settings.ai.provider.remove", "Remove"),
                     cx,
                     {
                         let remove_id = provider.id.clone();
@@ -2708,6 +3059,7 @@ fn settings_ai_provider_card(
 fn settings_notification_card(
     channel: codux_runtime::notification::NotificationChannelSummary,
     testing_channel_id: Option<&str>,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -2718,119 +3070,140 @@ fn settings_notification_card(
         .map(|id| id == channel.id)
         .unwrap_or(false);
     let test_disabled = testing_channel_id.is_some() || channel.endpoint.trim().is_empty();
-    settings_card(None, None, {
-        let mut rows = vec![
-            div()
-                .flex()
-                .items_start()
-                .justify_between()
-                .gap(px(16.0))
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
-                                .text_color(color(theme::TEXT))
-                                .child(channel.label.clone()),
-                        )
-                        .child(
-                            div()
-                                .mt(px(4.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .child(notification_channel_description(&channel.id)),
-                        ),
-                )
-                .child(settings_toggle(
-                    format!("settings-notification-enabled-{}", channel.id),
-                    channel.enabled,
-                    cx,
-                    move |app, window, cx| {
-                        let next = !app
-                            .state
-                            .notifications
-                            .channels
-                            .iter()
-                            .find(|item| item.id == enabled_id)
-                            .map(|item| item.enabled)
-                            .unwrap_or(false);
-                        app.set_notification_channel_enabled(enabled_id.clone(), next, window, cx)
-                    },
-                ))
-                .into_any_element(),
-        ];
-        if channel.enabled {
-            rows.extend([
-                settings_row(
-                    notification_endpoint_label(&channel.id),
-                    None,
-                    settings_text_input(
-                        SharedString::from(format!(
-                            "settings-notification-endpoint-{}",
-                            channel.id
-                        )),
-                        channel.endpoint.clone(),
-                        notification_endpoint_label(&channel.id),
-                        false,
-                        window,
-                        cx,
-                        move |app, value, window, cx| {
-                            app.update_notification_channel_string(
-                                endpoint_id.clone(),
-                                "endpoint",
-                                value,
-                                window,
-                                cx,
-                            )
-                        },
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    notification_token_label(&channel.id),
-                    None,
-                    settings_text_input(
-                        SharedString::from(format!("settings-notification-token-{}", channel.id)),
-                        channel.token.clone(),
-                        notification_token_label(&channel.id),
-                        true,
-                        window,
-                        cx,
-                        move |app, value, window, cx| {
-                            app.update_notification_channel_string(
-                                token_id.clone(),
-                                "token",
-                                value,
-                                window,
-                                cx,
-                            )
-                        },
-                    ),
-                )
-                .into_any_element(),
+    settings_card(
+        None,
+        None,
+        {
+            let mut rows = vec![
                 div()
                     .flex()
-                    .justify_end()
-                    .child(settings_small_button_state(
-                        format!("settings-notification-test-{}", channel.id),
-                        if testing { "测试中" } else { "测试" },
-                        testing,
-                        test_disabled,
+                    .items_start()
+                    .justify_between()
+                    .gap(px(16.0))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .text_size(px(14.0))
+                                    .line_height(px(18.0))
+                                    .text_color(color(theme::TEXT))
+                                    .child(channel.label.clone()),
+                            )
+                            .child(
+                                div()
+                                    .mt(px(4.0))
+                                    .text_size(px(12.0))
+                                    .line_height(px(16.0))
+                                    .text_color(color(theme::TEXT_DIM))
+                                    .child(notification_channel_description(&channel.id, language)),
+                            ),
+                    )
+                    .child(settings_toggle(
+                        format!("settings-notification-enabled-{}", channel.id),
+                        channel.enabled,
                         cx,
-                        move |app, _event, window, cx| {
-                            app.test_notification_channel(channel.id.clone(), window, cx)
+                        move |app, window, cx| {
+                            let next = !app
+                                .state
+                                .notifications
+                                .channels
+                                .iter()
+                                .find(|item| item.id == enabled_id)
+                                .map(|item| item.enabled)
+                                .unwrap_or(false);
+                            app.set_notification_channel_enabled(
+                                enabled_id.clone(),
+                                next,
+                                window,
+                                cx,
+                            )
                         },
                     ))
                     .into_any_element(),
-            ]);
-        }
-        rows
-    })
+            ];
+            if channel.enabled {
+                rows.extend([
+                    settings_row(
+                        notification_endpoint_label(&channel.id, language),
+                        None,
+                        settings_text_input(
+                            SharedString::from(format!(
+                                "settings-notification-endpoint-{}",
+                                channel.id
+                            )),
+                            channel.endpoint.clone(),
+                            notification_endpoint_label(&channel.id, language),
+                            false,
+                            window,
+                            cx,
+                            move |app, value, window, cx| {
+                                app.update_notification_channel_string(
+                                    endpoint_id.clone(),
+                                    "endpoint",
+                                    value,
+                                    window,
+                                    cx,
+                                )
+                            },
+                        ),
+                    )
+                    .into_any_element(),
+                    settings_row(
+                        notification_token_label(&channel.id, language),
+                        None,
+                        settings_text_input(
+                            SharedString::from(format!(
+                                "settings-notification-token-{}",
+                                channel.id
+                            )),
+                            channel.token.clone(),
+                            notification_token_label(&channel.id, language),
+                            true,
+                            window,
+                            cx,
+                            move |app, value, window, cx| {
+                                app.update_notification_channel_string(
+                                    token_id.clone(),
+                                    "token",
+                                    value,
+                                    window,
+                                    cx,
+                                )
+                            },
+                        ),
+                    )
+                    .into_any_element(),
+                    div()
+                        .flex()
+                        .justify_end()
+                        .child(settings_small_button_state(
+                            format!("settings-notification-test-{}", channel.id),
+                            if testing {
+                                settings_text(
+                                    language,
+                                    "settings.ai.provider.test.running",
+                                    "Testing...",
+                                )
+                            } else {
+                                settings_text(language, "settings.ai.provider.test", "Test")
+                            },
+                            testing,
+                            test_disabled,
+                            cx,
+                            move |app, _event, window, cx| {
+                                app.test_notification_channel(channel.id.clone(), window, cx)
+                            },
+                        ))
+                        .into_any_element(),
+                ]);
+            }
+            rows
+        },
+        cx,
+    )
     .into_any_element()
 }
 
@@ -2858,48 +3231,67 @@ fn opt(value: &'static str, label: &'static str) -> (String, SharedString) {
     (value.to_string(), SharedString::from(label))
 }
 
-fn language_options() -> Vec<(String, SharedString)> {
+fn language_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
-        ("system", "跟随系统"),
-        ("simplifiedChinese", "简体中文"),
-        ("traditionalChinese", "繁體中文"),
-        ("english", "English"),
-        ("japanese", "日本語"),
-        ("korean", "한국어"),
-        ("french", "Français"),
-        ("german", "Deutsch"),
-        ("spanish", "Español"),
-        ("portugueseBrazil", "Português (Brasil)"),
-        ("russian", "Русский"),
+        (
+            "system",
+            settings_text(language, "settings.language.follow_system", "Follow System"),
+        ),
+        ("simplifiedChinese", "简体中文".to_string()),
+        ("traditionalChinese", "繁體中文".to_string()),
+        ("english", "English".to_string()),
+        ("japanese", "日本語".to_string()),
+        ("korean", "한국어".to_string()),
+        ("french", "Français".to_string()),
+        ("german", "Deutsch".to_string()),
+        ("spanish", "Español".to_string()),
+        ("portugueseBrazil", "Português (Brasil)".to_string()),
+        ("russian", "Русский".to_string()),
     ]
     .into_iter()
-    .map(|(value, label)| opt(value, label))
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
     .collect()
 }
 
-fn shell_options() -> Vec<(String, SharedString)> {
+fn shell_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
-        ("system", "跟随系统"),
-        ("zsh", "zsh"),
-        ("bash", "bash"),
-        ("sh", "sh"),
-        ("fish", "fish"),
-        ("pwsh.exe", "PowerShell 7"),
-        ("powershell.exe", "Windows PowerShell"),
+        (
+            "system",
+            settings_text(language, "settings.default_shell.system", "Follow System"),
+        ),
+        ("zsh", "zsh".to_string()),
+        ("bash", "bash".to_string()),
+        ("sh", "sh".to_string()),
+        ("fish", "fish".to_string()),
+        ("pwsh.exe", "PowerShell 7".to_string()),
+        ("powershell.exe", "Windows PowerShell".to_string()),
     ]
     .into_iter()
-    .map(|(value, label)| opt(value, label))
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
     .collect()
 }
 
-fn sleep_mode_options() -> Vec<(String, SharedString)> {
+fn sleep_mode_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
-        ("off", "关闭"),
-        ("always", "始终开启"),
-        ("powerAdapterOnly", "仅电源适配器"),
+        (
+            "off",
+            settings_text(language, "settings.sleep_prevention.mode.off", "Off"),
+        ),
+        (
+            "always",
+            settings_text(language, "settings.sleep_prevention.mode.always", "Always"),
+        ),
+        (
+            "powerAdapterOnly",
+            settings_text(
+                language,
+                "settings.sleep_prevention.mode.power_adapter_only",
+                "On Power Only",
+            ),
+        ),
     ]
     .into_iter()
-    .map(|(value, label)| opt(value, label))
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
     .collect()
 }
 
@@ -2949,22 +3341,48 @@ fn interval_options(options: &[(&'static str, &'static str)]) -> Vec<(String, Sh
         .collect()
 }
 
-fn statistics_mode_options() -> Vec<(String, SharedString)> {
-    vec![("normalized", "排除缓存"), ("includingCache", "包含缓存")]
-        .into_iter()
-        .map(|(value, label)| opt(value, label))
-        .collect()
+fn statistics_mode_options(language: &str) -> Vec<(String, SharedString)> {
+    vec![
+        (
+            "normalized",
+            settings_text(
+                language,
+                "settings.ai_statistics_mode.normalized",
+                "Exclude Cache",
+            ),
+        ),
+        (
+            "includingCache",
+            settings_text(
+                language,
+                "settings.ai_statistics_mode.including_cache",
+                "Include Cache",
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
+    .collect()
 }
 
-fn update_channel_options() -> Vec<(String, SharedString)> {
-    vec![("stable", "稳定版"), ("beta", "测试版")]
-        .into_iter()
-        .map(|(value, label)| opt(value, label))
-        .collect()
+fn update_channel_options(language: &str) -> Vec<(String, SharedString)> {
+    vec![
+        (
+            "stable",
+            settings_text(language, "settings.update.channel.stable", "Stable"),
+        ),
+        (
+            "beta",
+            settings_text(language, "settings.update.channel.beta", "Beta"),
+        ),
+    ]
+    .into_iter()
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
+    .collect()
 }
 
 fn system_theme_options() -> Vec<(&'static str, &'static str)> {
-    vec![("Auto", "跟随系统")]
+    vec![("Auto", "Follow System")]
 }
 
 fn dark_theme_options() -> Vec<(&'static str, &'static str)> {
@@ -3000,115 +3418,12 @@ fn light_theme_options() -> Vec<(&'static str, &'static str)> {
 }
 
 fn terminal_theme_preview(value: &str) -> TerminalThemePreview {
-    match value {
-        "Tokyo Night Day" => TerminalThemePreview {
-            background: 0xE1E2E7,
-            foreground: 0x3760BF,
-            muted_foreground: 0x848CB5,
-            selection: 0x99A7DF,
-        },
-        "GitHub Light" => TerminalThemePreview {
-            background: 0xFFFFFF,
-            foreground: 0x24292F,
-            muted_foreground: 0x6E7781,
-            selection: 0xDDEBFF,
-        },
-        "Catppuccin Latte" => TerminalThemePreview {
-            background: 0xEFF1F5,
-            foreground: 0x4C4F69,
-            muted_foreground: 0x8C8FA1,
-            selection: 0xBCC0CC,
-        },
-        "Flexoki Light" => TerminalThemePreview {
-            background: 0xFFFCF0,
-            foreground: 0x100F0F,
-            muted_foreground: 0x6F6E69,
-            selection: 0xE6E4D9,
-        },
-        "Gruvbox Light" | "Gruvbox Material Light" => TerminalThemePreview {
-            background: 0xFBF1C7,
-            foreground: 0x3C3836,
-            muted_foreground: 0x7C6F64,
-            selection: 0xD5C4A1,
-        },
-        "Nord Light" => TerminalThemePreview {
-            background: 0xECEFF4,
-            foreground: 0x2E3440,
-            muted_foreground: 0x6B7280,
-            selection: 0xD8DEE9,
-        },
-        "Atom One Light" => TerminalThemePreview {
-            background: 0xFAFAFA,
-            foreground: 0x383A42,
-            muted_foreground: 0xA0A1A7,
-            selection: 0xE5E5E6,
-        },
-        "Dracula" | "Dracula+" => TerminalThemePreview {
-            background: 0x282A36,
-            foreground: 0xF8F8F2,
-            muted_foreground: 0x6272A4,
-            selection: 0x44475A,
-        },
-        "Catppuccin Mocha" => TerminalThemePreview {
-            background: 0x1E1E2E,
-            foreground: 0xCDD6F4,
-            muted_foreground: 0x7F849C,
-            selection: 0x45475A,
-        },
-        "Rose Pine Moon" => TerminalThemePreview {
-            background: 0x232136,
-            foreground: 0xE0DEF4,
-            muted_foreground: 0x908CAA,
-            selection: 0x393552,
-        },
-        "Kanagawa Wave" => TerminalThemePreview {
-            background: 0x1F1F28,
-            foreground: 0xDCD7BA,
-            muted_foreground: 0x727169,
-            selection: 0x2D4F67,
-        },
-        "Material Ocean" => TerminalThemePreview {
-            background: 0x0F111A,
-            foreground: 0xA6ACCD,
-            muted_foreground: 0x676E95,
-            selection: 0x1F2233,
-        },
-        "Ayu Mirage" => TerminalThemePreview {
-            background: 0x1F2430,
-            foreground: 0xCBCCC6,
-            muted_foreground: 0x707A8C,
-            selection: 0x34455A,
-        },
-        "GitHub Dark" => TerminalThemePreview {
-            background: 0x0D1117,
-            foreground: 0xC9D1D9,
-            muted_foreground: 0x8B949E,
-            selection: 0x264F78,
-        },
-        "Gruvbox Dark" | "Gruvbox Material Dark" => TerminalThemePreview {
-            background: 0x282828,
-            foreground: 0xEBDBB2,
-            muted_foreground: 0xA89984,
-            selection: 0x504945,
-        },
-        "Nord" => TerminalThemePreview {
-            background: 0x2E3440,
-            foreground: 0xD8DEE9,
-            muted_foreground: 0x81A1C1,
-            selection: 0x434C5E,
-        },
-        "Flexoki Dark" => TerminalThemePreview {
-            background: 0x100F0F,
-            foreground: 0xCECDC3,
-            muted_foreground: 0x878580,
-            selection: 0x343331,
-        },
-        _ => TerminalThemePreview {
-            background: theme::BG_TERMINAL,
-            foreground: theme::TEXT,
-            muted_foreground: theme::TEXT_DIM,
-            selection: theme::BG_ROW_ACTIVE,
-        },
+    let palette = theme::terminal_theme_palette(value);
+    TerminalThemePreview {
+        background: palette.background,
+        foreground: palette.foreground,
+        muted_foreground: palette.muted_foreground,
+        selection: palette.selection,
     }
 }
 
@@ -3185,7 +3500,7 @@ fn icon_style_values() -> Vec<IconStyleValue> {
     vec![
         IconStyleValue {
             value: "default",
-            label: "默认",
+            label: "Default",
         },
         IconStyleValue {
             value: "cobalt",
@@ -3223,37 +3538,62 @@ fn terminal_scrollback_options() -> Vec<(String, SharedString)> {
         .collect()
 }
 
-fn pet_speech_mode_options() -> Vec<(String, SharedString)> {
+fn pet_speech_mode_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
-        ("mixed", "混合"),
-        ("off", "关闭"),
-        ("encourage", "鼓励"),
-        ("roast", "吐槽"),
-        ("flirty", "调皮"),
-        ("chuunibyou", "中二"),
+        ("mixed", settings_text(language, "common.mixed", "Mixed")),
+        ("off", settings_text(language, "common.off", "Off")),
+        (
+            "encourage",
+            settings_text(language, "common.encourage", "Encourage"),
+        ),
+        ("roast", settings_text(language, "common.roast", "Roast")),
+        (
+            "flirty",
+            settings_text(language, "common.playful", "Playful"),
+        ),
+        (
+            "chuunibyou",
+            settings_text(language, "common.chuunibyou", "Chuunibyou"),
+        ),
     ]
     .into_iter()
-    .map(|(value, label)| opt(value, label))
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
     .collect()
 }
 
-fn pet_speech_frequency_options() -> Vec<(String, SharedString)> {
+fn pet_speech_frequency_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
-        ("quiet", "安静"),
-        ("normal", "正常"),
-        ("lively", "活跃"),
-        ("chatterbox", "话痨"),
+        ("quiet", settings_text(language, "common.quiet", "Quiet")),
+        ("normal", settings_text(language, "common.normal", "Normal")),
+        ("lively", settings_text(language, "common.lively", "Lively")),
+        (
+            "chatterbox",
+            settings_text(language, "common.chatterbox", "Chatterbox"),
+        ),
     ]
     .into_iter()
-    .map(|(value, label)| opt(value, label))
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
     .collect()
 }
 
-fn runtime_tool_permission_options() -> Vec<(String, SharedString)> {
-    vec![("default", "默认"), ("fullAccess", "完整权限")]
-        .into_iter()
-        .map(|(value, label)| opt(value, label))
-        .collect()
+fn runtime_tool_permission_options(language: &str) -> Vec<(String, SharedString)> {
+    vec![
+        (
+            "default",
+            settings_text(language, "settings.tools.permission.default", "Default"),
+        ),
+        (
+            "fullAccess",
+            settings_text(
+                language,
+                "settings.tools.permission.full_access",
+                "Full Access",
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
+    .collect()
 }
 
 fn codex_effort_options() -> Vec<(String, SharedString)> {
@@ -3270,8 +3610,25 @@ fn codex_effort_options() -> Vec<(String, SharedString)> {
     .collect()
 }
 
-fn git_provider_options(settings: &SettingsSummary) -> Vec<(String, SharedString)> {
-    let mut options = vec![opt("automatic", "自动"), opt("off", "关闭")];
+fn git_provider_options(settings: &SettingsSummary, language: &str) -> Vec<(String, SharedString)> {
+    let mut options = vec![
+        (
+            "automatic".to_string(),
+            SharedString::from(settings_text(
+                language,
+                "settings.ai.git_commit_message_provider.automatic",
+                "Automatic",
+            )),
+        ),
+        (
+            "off".to_string(),
+            SharedString::from(settings_text(
+                language,
+                "settings.ai.git_commit_message_provider.off",
+                "Off",
+            )),
+        ),
+    ];
     options.extend(
         settings
             .ai_providers
@@ -3290,19 +3647,26 @@ fn git_provider_options(settings: &SettingsSummary) -> Vec<(String, SharedString
 fn git_tone_options() -> Vec<(String, SharedString)> {
     vec![
         ("conventional", "Conventional Commits"),
-        ("concise", "简洁"),
-        ("sentence", "普通句子"),
-        ("changelog", "更新日志"),
+        ("concise", "Concise"),
+        ("sentence", "Sentence"),
+        ("changelog", "Changelog"),
     ]
     .into_iter()
     .map(|(value, label)| opt(value, label))
     .collect()
 }
 
-fn git_language_options() -> Vec<(String, SharedString)> {
-    let mut options = vec![opt("application", "跟随应用")];
+fn git_language_options(language: &str) -> Vec<(String, SharedString)> {
+    let mut options = vec![(
+        "application".to_string(),
+        SharedString::from(settings_text(
+            language,
+            "settings.ai.git_commit_message_language.follow",
+            "Follow App",
+        )),
+    )];
     options.extend(
-        language_options()
+        language_options(language)
             .into_iter()
             .filter(|(value, _)| value != "system"),
     );
@@ -3325,7 +3689,11 @@ fn ai_provider_kind_options() -> Vec<(String, SharedString)> {
     .collect()
 }
 
-fn ai_provider_options(settings: &SettingsSummary, purpose: &str) -> Vec<(String, SharedString)> {
+fn ai_provider_options(
+    settings: &SettingsSummary,
+    purpose: &str,
+    language: &str,
+) -> Vec<(String, SharedString)> {
     let mut providers = settings
         .ai_providers
         .iter()
@@ -3342,7 +3710,14 @@ fn ai_provider_options(settings: &SettingsSummary, purpose: &str) -> Vec<(String
             .then_with(|| left.display_name.cmp(&right.display_name))
     });
 
-    let mut options = vec![opt("automatic", "自动")];
+    let mut options = vec![(
+        "automatic".to_string(),
+        SharedString::from(settings_text(
+            language,
+            "settings.ai.memory.extraction_provider.automatic",
+            "Automatic",
+        )),
+    )];
     options.extend(
         providers
             .into_iter()
@@ -3377,19 +3752,24 @@ fn memory_max_index_options() -> Vec<(String, SharedString)> {
         .collect()
 }
 
-fn notification_endpoint_label(channel_id: &str) -> &'static str {
-    match channel_id {
+fn notification_endpoint_label(channel_id: &str, language: &str) -> String {
+    let fallback = match channel_id {
         "bark" => "Server URL",
         "ntfy" => "Topic URL",
         "wxpusher" => "SPT Token",
         "telegram" => "Chat ID",
         "webhook" => "Request URL",
         _ => "Webhook URL",
-    }
+    };
+    settings_text(
+        language,
+        &format!("settings.notifications.channel.{channel_id}.endpoint"),
+        fallback,
+    )
 }
 
-fn notification_token_label(channel_id: &str) -> &'static str {
-    match channel_id {
+fn notification_token_label(channel_id: &str, language: &str) -> String {
+    let fallback = match channel_id {
         "bark" => "Device Key",
         "ntfy" => "Bearer Token",
         "wxpusher" => "Token",
@@ -3400,31 +3780,41 @@ fn notification_token_label(channel_id: &str) -> &'static str {
         "discord" | "slack" => "Optional Auth Token",
         "webhook" => "Bearer Token",
         _ => "Token",
-    }
+    };
+    settings_text(
+        language,
+        &format!("settings.notifications.channel.{channel_id}.token"),
+        fallback,
+    )
 }
 
-fn notification_channel_description(channel_id: &str) -> &'static str {
-    match channel_id {
-        "bark" => "通过 Bark 服务和设备 Key 发送推送。",
-        "ntfy" => "发布消息到 ntfy topic。",
-        "wxpusher" => "发送通知到 WxPusher SPT 目标。",
-        "feishu" => "通过飞书机器人 webhook 推送消息。",
-        "dingtalk" => "通过钉钉机器人 webhook 推送消息。",
-        "wecom" => "推送到企业微信群机器人。",
-        "telegram" => "通过 Telegram bot token 和 chat id 发送消息。",
-        "discord" => "发送通知到 Discord webhook。",
-        "slack" => "发送通知到 Slack incoming webhook。",
-        "webhook" => "向自定义端点发送 JSON POST 请求。",
-        _ => "自定义通知渠道。",
-    }
+fn notification_channel_description(channel_id: &str, language: &str) -> String {
+    let fallback = match channel_id {
+        "bark" => "Send push notifications through Bark service and device key.",
+        "ntfy" => "Publish notifications to an ntfy topic.",
+        "wxpusher" => "Send notifications to a WxPusher SPT target.",
+        "feishu" => "Send notifications through a Feishu bot webhook.",
+        "dingtalk" => "Send notifications through a DingTalk bot webhook.",
+        "wecom" => "Send notifications to a WeCom group bot.",
+        "telegram" => "Send notifications with a Telegram bot token and chat id.",
+        "discord" => "Send notifications to a Discord webhook.",
+        "slack" => "Send notifications to a Slack incoming webhook.",
+        "webhook" => "Send a JSON POST request to a custom endpoint.",
+        _ => "Custom notification channel.",
+    };
+    settings_text(
+        language,
+        &format!("settings.notifications.channel.{channel_id}.description"),
+        fallback,
+    )
 }
 
-fn remote_status_label(value: &str) -> &'static str {
-    match value {
-        "connected" => "已连接",
-        "connecting" => "连接中",
-        "registering" => "注册中",
-        "failed" => "失败",
-        _ => "未连接",
-    }
+fn remote_status_label(value: &str, language: &str) -> String {
+    let (key, fallback) = match value {
+        "connected" => ("remote.status.connected_label", "Connected"),
+        "connecting" | "registering" => ("remote.status.connecting_label", "Connecting"),
+        "failed" => ("remote.status.failed_label", "Failed"),
+        _ => ("remote.status.disconnected_label", "Disconnected"),
+    };
+    settings_text(language, key, fallback)
 }

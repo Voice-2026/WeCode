@@ -161,5 +161,6 @@ fn capture_raw_sample(cache: &Mutex<ProcessCache>) -> Option<RawSample> {
             other_bytes: total_memory_bytes.saturating_sub(memory_bytes),
         },
         cpu_percent_override: None,
+        gpu_percent: None,
     })
 }

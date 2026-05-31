@@ -1,9 +1,65 @@
 use super::*;
 
+pub(in crate::app) struct StatusBarView {
+    app_entity: gpui::Entity<CoduxApp>,
+}
+
+impl StatusBarView {
+    pub(in crate::app) fn new(app_entity: gpui::Entity<CoduxApp>) -> Self {
+        Self { app_entity }
+    }
+}
+
+impl Render for StatusBarView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.app_entity
+            .update(cx, |app, cx| app.status_bar(cx).into_any_element())
+    }
+}
+
 impl CoduxApp {
-    pub(super) fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(in crate::app) fn status_bar_view(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<StatusBarView> {
+        if let Some(view) = &self.status_bar_view {
+            return view.clone();
+        }
+        let app_entity = cx.entity();
+        let view = cx.new(|_| StatusBarView::new(app_entity));
+        self.status_bar_view = Some(view.clone());
+        view
+    }
+}
+
+impl CoduxApp {
+    pub(super) fn status_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let language = self.state.settings.language.clone();
+        let now = app_now_seconds();
+        let developer_hud = self.state.settings.developer_hud;
+        let cpu_label = self.state.performance.cpu_label.clone();
+        let memory_label = self.state.performance.memory_label.clone();
+        let ai_running_count = self.state.ai_runtime_state.running_count;
+        let ai_index_count = self.ai_history_active_index_count;
+        let ai_indexed = self.state.ai_history.indexed;
+        let ai_is_loading = self.state.ai_history.is_loading;
+        let ai_queued = self.state.ai_history.queued;
+        let ai_progress = self.state.ai_history.progress;
+        let ai_error = self.state.ai_history.error.clone();
+        let ai_show_progress = now < self.ai_index_progress_visible_until;
+        let memory_queued = self.state.memory_manager.extraction.queued;
+        let memory_running = self.state.memory_manager.extraction.running;
+        let memory_processing = self.memory_processing;
+        let memory_show_processing = now < self.memory_progress_visible_until;
+        let remote = self.state.remote.clone();
+        let git_branch = self.state.git.branch.clone();
+        let git_ahead = self.state.git.ahead;
+        let git_behind = self.state.git.behind;
+
         div()
             .h(px(28.0))
+            .w_full()
+            .min_w_0()
             .px_2()
             .flex_shrink_0()
             .flex()
@@ -14,74 +70,72 @@ impl CoduxApp {
             .bg(color(theme::STATUS_BAR))
             .text_color(color(theme::TEXT_MUTED))
             .text_xs()
-            .child(div().flex().items_center().gap_1().when(
-                self.state.settings.developer_hud,
-                |this| {
-                    this.child(status_metric(
-                        "status-performance-cpu",
-                        IconName::ChartPie,
-                        "CPU",
-                        self.state.performance.cpu_label.clone(),
-                    ))
-                    .child(status_separator())
-                    .child(status_metric(
-                        "status-performance-memory",
-                        IconName::GalleryVerticalEnd,
-                        "MEM",
-                        self.state.performance.memory_label.clone(),
-                    ))
-                    .child(status_separator())
-                    .child(status_metric(
-                        "status-performance-gpu",
-                        IconName::Frame,
-                        "GPU",
-                        self.state.performance.gpu_label.clone(),
-                    ))
-                },
-            ))
             .child(
                 div()
                     .flex()
+                    .min_w_0()
+                    .items_center()
+                    .gap_1()
+                    .when(developer_hud, |this| {
+                        this.child(status_metric(
+                            "status-performance-cpu",
+                            IconName::ChartPie,
+                            "CPU",
+                            cpu_label,
+                        ))
+                        .child(status_separator())
+                        .child(status_metric(
+                            "status-performance-memory",
+                            IconName::GalleryVerticalEnd,
+                            "MEM",
+                            memory_label,
+                        ))
+                        .child(status_separator())
+                    }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_0()
                     .items_center()
                     .gap_1()
                     .child(status_ai_segment(
-                        self.state.ai_runtime_state.running_count,
-                        self.ai_history_active_index_count,
-                        self.state.ai_history.indexed,
-                        self.state.ai_history.is_loading,
-                        self.state.ai_history.queued,
-                        self.state.ai_history.progress,
-                        self.state.ai_history.error.as_deref(),
-                        app_now_seconds() < self.ai_index_progress_visible_until,
+                        ai_running_count,
+                        ai_index_count,
+                        ai_indexed,
+                        ai_is_loading,
+                        ai_queued,
+                        ai_progress,
+                        ai_error.as_deref(),
+                        ai_show_progress,
+                        &language,
                         cx,
                     ))
                     .child(status_separator())
                     .child(status_memory_segment(
-                        self.state.memory_manager.extraction.queued,
-                        self.state.memory_manager.extraction.running,
+                        memory_queued,
+                        memory_running,
+                        memory_processing,
+                        memory_show_processing,
+                        &language,
                         cx,
                     ))
                     .child(status_separator())
-                    .child(status_remote_segment(&self.state.remote, cx))
+                    .child(status_remote_segment(&remote, &language, cx))
                     .child(status_separator())
                     .child(status_action_button(
                         IconName::Search,
-                        "Index",
+                        status_text(&language, "common.processing", "Index"),
                         "status-index",
                         cx,
                         |app, _event, window, cx| app.process_memory_sessions_now(window, cx),
                     ))
                     .child(status_separator())
-                    .child(status_git_segment(
-                        &self.state.git.branch,
-                        self.state.git.ahead,
-                        self.state.git.behind,
-                        cx,
-                    ))
+                    .child(status_git_segment(&git_branch, git_ahead, git_behind, cx))
                     .child(status_sync_action_button(
                         IconName::ArrowDown,
-                        "拉取",
-                        self.state.git.behind,
+                        status_text(&language, "git.remote.pull", "Pull"),
+                        git_behind,
                         0x6AA1FF,
                         "status-pull",
                         cx,
@@ -89,8 +143,8 @@ impl CoduxApp {
                     ))
                     .child(status_sync_action_button(
                         IconName::ArrowUp,
-                        "推送",
-                        self.state.git.ahead,
+                        status_text(&language, "git.remote.push", "Push"),
+                        git_ahead,
                         theme::GREEN,
                         "status-push",
                         cx,
@@ -102,7 +156,7 @@ impl CoduxApp {
 
 fn status_action_button(
     icon: IconName,
-    label: &'static str,
+    label: String,
     id: &'static str,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
@@ -118,7 +172,7 @@ fn status_action_button(
         .text_xs()
         .text_color(color(theme::TEXT_MUTED))
         .cursor_pointer()
-        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(on_click))
         .child(Icon::new(icon).size_2p5())
         .child(
@@ -131,7 +185,7 @@ fn status_action_button(
 
 fn status_sync_action_button(
     icon: IconName,
-    label: &'static str,
+    label: String,
     count: i64,
     accent: u32,
     id: &'static str,
@@ -169,7 +223,7 @@ fn status_sync_action_button(
         .text_xs()
         .text_color(color(theme::TEXT_MUTED))
         .cursor_pointer()
-        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(on_click))
         .child(leading)
         .child(
@@ -219,8 +273,15 @@ fn status_ai_segment(
     progress: Option<f64>,
     error: Option<&str>,
     show_progress: bool,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let running_label = status_text(language, "agent.status.running", "Running");
+    let index_count_label = status_text(language, "ai.status.index_count", "Index");
+    let index_failed_label = status_text(language, "ai.indexing.status.failed", "Index Failed");
+    let indexing_label = status_text(language, "ai.indexing.status.manual_refreshing", "Indexing");
+    let indexed_label = status_text(language, "ai.indexing.status.completed", "Indexed");
+    let unindexed_label = status_text(language, "ai.empty.no_stats", "Unindexed");
     let loading = error.is_none() && (is_indexing || is_queued || index_count > 0);
     let running_color = if running_count > 0 {
         theme::GREEN
@@ -242,13 +303,13 @@ fn status_ai_segment(
         theme::TEXT_DIM
     };
     let index_label = if error.is_some() {
-        "索引失败"
+        index_failed_label
     } else if loading {
-        "索引中"
+        indexing_label
     } else if indexed {
-        "已索引"
+        indexed_label
     } else {
-        "未索引"
+        unindexed_label
     };
     let progress_value = progress.unwrap_or(0.0).clamp(0.0, 1.0);
     let progress_loading = progress.is_none() || progress_value <= 0.0;
@@ -265,16 +326,12 @@ fn status_ai_segment(
         .text_color(color(theme::TEXT_MUTED))
         .rounded_sm()
         .cursor_pointer()
-        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(|app, _event, window, cx| {
             app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
         }))
         .child(if loading && !show_progress {
-            Spinner::new()
-                .icon(Icon::new(IconName::LoaderCircle))
-                .with_size(Size::Small)
-                .color(color(theme::ORANGE))
-                .into_any_element()
+            status_spinner().into_any_element()
         } else {
             Icon::new(IconName::Bot).size_2p5().into_any_element()
         })
@@ -283,13 +340,13 @@ fn status_ai_segment(
             div()
                 .mt(px(1.0))
                 .text_color(color(running_color))
-                .child(format!("{} 运行", running_count)),
+                .child(format!("{running_count} {running_label}")),
         )
         .child(
             div()
                 .mt(px(1.0))
                 .text_color(color(active_index_color))
-                .child(format!("{} 索引", index_count)),
+                .child(format!("{index_count} {index_count_label}")),
         )
         .child(
             div()
@@ -313,15 +370,21 @@ fn status_ai_segment(
 fn status_memory_segment(
     queued: i64,
     running: i64,
+    processing: bool,
+    show_processing: bool,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let running_label = status_text(language, "agent.status.running", "Running");
+    let index_count_label = status_text(language, "ai.status.index_count", "Index");
+    let indexed_label = status_text(language, "ai.indexing.status.completed", "Indexed");
+    let indexing_label = status_text(language, "memory.status.processing", "Indexing");
     let queued = queued.max(0);
     let running = running.max(0);
-    let queued_color = if queued > 0 {
-        theme::ORANGE
-    } else {
-        theme::TEXT_DIM
-    };
+    let total_queued = queued + running;
+    let loading = processing || running > 0;
+    let visible_loading = loading || show_processing;
+    let queued_color = theme::TEXT_DIM;
     let running_color = if running > 0 {
         theme::GREEN
     } else {
@@ -339,37 +402,69 @@ fn status_memory_segment(
         .text_color(color(theme::TEXT_MUTED))
         .rounded_sm()
         .cursor_pointer()
-        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(|app, _event, window, cx| app.open_memory_manager_window(window, cx)))
-        .child(Icon::new(IconName::BookOpen).size_2p5())
+        .child(if visible_loading {
+            status_spinner().into_any_element()
+        } else {
+            Icon::new(IconName::BookOpen).size_2p5().into_any_element()
+        })
         .child(
             div()
                 .mt(px(1.0))
                 .text_color(color(theme::TEXT))
-                .child("记忆"),
-        )
-        .child(
-            div()
-                .mt(px(1.0))
-                .text_color(color(queued_color))
-                .child(format!("{} 等待", queued)),
+                .child(status_text(
+                    language,
+                    "memory.manager.window.title",
+                    "Memory",
+                )),
         )
         .child(
             div()
                 .mt(px(1.0))
                 .text_color(color(running_color))
-                .child(format!("{} 索引中", running)),
+                .child(format!("{running} {running_label}")),
         )
+        .child(
+            div()
+                .mt(px(1.0))
+                .text_color(color(queued_color))
+                .child(format!("{total_queued} {index_count_label}")),
+        )
+        .when(visible_loading, |this| {
+            this.child(
+                div()
+                    .mt(px(1.0))
+                    .text_color(color(theme::ORANGE))
+                    .child(indexing_label),
+            )
+        })
+        .when(!visible_loading, |this| {
+            this.child(
+                div()
+                    .mt(px(1.0))
+                    .text_color(color(theme::GREEN))
+                    .child(indexed_label),
+            )
+        })
 }
 
-fn status_remote_segment(remote: &RemoteSummary, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn status_remote_segment(
+    remote: &RemoteSummary,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let remote_label = status_text(language, "settings.tab.remote", "Remote");
+    let connected_label = status_text(language, "status.connected", "Connected");
+    let connecting_label = status_text(language, "status.connecting", "Connecting");
+    let disconnected_label = status_text(language, "status.disconnected", "Disconnected");
     let connected = remote.enabled && (remote.online_devices > 0 || remote.status == "connected");
     let state_label = if connected {
-        "已连接"
+        connected_label
     } else if remote.enabled {
-        "连接中"
+        connecting_label
     } else {
-        "未连接"
+        disconnected_label
     };
     let state_color = if connected {
         theme::GREEN
@@ -390,7 +485,7 @@ fn status_remote_segment(remote: &RemoteSummary, cx: &mut Context<CoduxApp>) -> 
         .text_color(color(theme::TEXT_MUTED))
         .rounded_sm()
         .cursor_pointer()
-        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(
             cx.listener(|app, _event, window, cx| app.open_remote_settings_window(window, cx)),
         )
@@ -399,7 +494,7 @@ fn status_remote_segment(remote: &RemoteSummary, cx: &mut Context<CoduxApp>) -> 
             div()
                 .mt(px(1.0))
                 .text_color(color(theme::TEXT))
-                .child("远程"),
+                .child(remote_label),
         )
         .child(
             div()
@@ -413,6 +508,19 @@ fn status_remote_segment(remote: &RemoteSummary, cx: &mut Context<CoduxApp>) -> 
                 .text_color(color(theme::TEXT_DIM))
                 .child(format!("{}/{}", remote.online_devices, remote.devices)),
         )
+}
+
+fn status_text(language: &str, key: &str, fallback: &str) -> String {
+    translate(&locale_from_language_setting(language), key, fallback)
+}
+
+fn status_spinner() -> impl IntoElement {
+    div()
+        .w(px(10.0))
+        .h(px(10.0))
+        .rounded_full()
+        .border_2()
+        .border_color(color(theme::ORANGE))
 }
 
 fn status_git_segment(
@@ -431,7 +539,7 @@ fn status_git_segment(
         .text_xs()
         .rounded_sm()
         .cursor_pointer()
-        .hover(|style| style.bg(color(0xFFFFFF).opacity(0.10)))
+        .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(|app, _event, window, cx| {
             app.toggle_assistant_panel(AssistantPanel::Git, window, cx)
         }))

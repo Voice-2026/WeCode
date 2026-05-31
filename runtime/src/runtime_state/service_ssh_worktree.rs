@@ -50,6 +50,14 @@ impl RuntimeService {
         load_worktrees(&self.support_dir, project_id, project_path)
     }
 
+    pub fn reload_worktrees_from_state(
+        &self,
+        project_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> WorktreeSummary {
+        WorktreeService::new(self.support_dir.clone()).state_summary(project_id, project_path)
+    }
+
     pub fn worktree_snapshot(&self, project_id: String, project_path: String) -> WorktreeSnapshot {
         WorktreeService::new(self.support_dir.clone()).snapshot(project_id, project_path)
     }

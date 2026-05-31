@@ -1,0 +1,1099 @@
+use super::*;
+
+impl CoduxApp {
+    pub(super) fn new_desktop_pet_window() -> Self {
+        let mut app = Self::new_settings_window();
+        app.window_mode = AppWindowMode::DesktopPet;
+        app.status_message = "desktop pet window ready".to_string();
+        app
+    }
+
+    pub(super) fn new_pet_window(mode: AppWindowMode) -> Self {
+        let mut app = Self::new_settings_window();
+        app.window_mode = mode;
+        app.status_message = match mode {
+            AppWindowMode::PetClaim => "pet claim window ready".to_string(),
+            AppWindowMode::PetCustomInstall => "custom pet install window ready".to_string(),
+            AppWindowMode::PetDex => "pet dex window ready".to_string(),
+            _ => "pet window ready".to_string(),
+        };
+        app
+    }
+
+    pub(super) fn start_desktop_pet_speech_loop(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::DesktopPet {
+            return;
+        }
+
+        self.refresh_desktop_pet_activity_line(cx);
+        self.start_pet_sprite_animation_loop(cx);
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_secs(5)).await;
+
+                if this
+                    .update(cx, |app, cx| {
+                        app.state.runtime_events = app.runtime_service.reload_runtime_events();
+                        app.state.ai_runtime_state = app
+                            .runtime_service
+                            .reload_ai_runtime_state(&app.state.runtime_events);
+                        app.refresh_desktop_pet_activity_line(cx);
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn start_pet_event_sync_loop(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.window_mode,
+            AppWindowMode::PetClaim | AppWindowMode::PetCustomInstall | AppWindowMode::PetDex
+        ) {
+            return;
+        }
+
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_millis(300)).await;
+
+                match this.update(cx, |app, cx| {
+                    if !matches!(
+                        app.window_mode,
+                        AppWindowMode::PetClaim
+                            | AppWindowMode::PetCustomInstall
+                            | AppWindowMode::PetDex
+                    ) {
+                        return false;
+                    }
+
+                    let changed = app.sync_pet_custom_install_event_for_activity_tick()
+                        || app.sync_pet_update_event_for_activity_tick();
+                    if changed {
+                        cx.notify();
+                    }
+                    true
+                }) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => break,
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(in crate::app) fn start_pet_sprite_animation_loop(&mut self, cx: &mut Context<Self>) {
+        if !matches!(
+            self.window_mode,
+            AppWindowMode::DesktopPet | AppWindowMode::PetDex
+        ) {
+            return;
+        }
+        if self.state.settings.pet_static_mode {
+            return;
+        }
+        if self.pet_sprite_animation_active {
+            return;
+        }
+        self.pet_sprite_animation_active = true;
+
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let mut desktop_cycle_frame = 0usize;
+            loop {
+                let delay = this
+                    .read_with(cx, |app, _cx| {
+                        if app.window_mode == AppWindowMode::DesktopPet {
+                            DESKTOP_PET_FRAME_INTERVAL
+                        } else {
+                            PET_DEX_FRAME_INTERVAL
+                        }
+                    })
+                    .unwrap_or(PET_DEX_FRAME_INTERVAL);
+                timer.timer(delay).await;
+
+                match this.update(cx, |app, cx| {
+                    if app.window_mode == AppWindowMode::PetDex
+                        && !matches!(
+                            app.pet_dex_spotlight,
+                            Some(PetDexSpotlight::Bundled(_) | PetDexSpotlight::Custom(_))
+                        )
+                    {
+                        app.pet_sprite_animation_active = false;
+                        return false;
+                    }
+                    app.pet_sprite_frame = app.pet_sprite_frame.wrapping_add(1);
+                    if app.window_mode == AppWindowMode::DesktopPet {
+                        desktop_cycle_frame =
+                            desktop_cycle_frame.wrapping_add(1) % app.desktop_pet_frame_count();
+                    }
+                    cx.notify();
+                    true
+                }) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => break,
+                }
+
+                if desktop_cycle_frame == 0 {
+                    let should_rest = this
+                        .read_with(cx, |app, _cx| app.window_mode == AppWindowMode::DesktopPet)
+                        .unwrap_or(false);
+                    if should_rest {
+                        timer.timer(DESKTOP_PET_ANIMATION_REST).await;
+                    }
+                }
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn open_desktop_pet_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.desktop_pet_window {
+            if handle.update(cx, |_view, _window, _cx| {}).is_ok() {
+                self.status_message = "desktop pet window already opened".to_string();
+                cx.notify();
+                return;
+            }
+            self.desktop_pet_window = None;
+        }
+
+        match self.runtime_service.desktop_pet_should_show() {
+            Ok(true) => {}
+            Ok(false) => {
+                self.status_message =
+                    "desktop pet needs pet enabled, desktop widget enabled, and a claimed pet"
+                        .to_string();
+                cx.notify();
+                return;
+            }
+            Err(error) => {
+                self.status_message = format!("failed to check desktop pet: {error}");
+                cx.notify();
+                return;
+            }
+        }
+        self.runtime_service
+            .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
+
+        let display = cx.primary_display();
+        let display_id = display.as_ref().map(|display| display.id());
+        let visible_bounds = display
+            .as_ref()
+            .map(|display| display.visible_bounds())
+            .unwrap_or_else(|| Bounds::centered(None, size(px(1280.0), px(820.0)), cx));
+        let work_area = DesktopPetWorkArea {
+            x: visible_bounds.origin.x.to_f64(),
+            y: visible_bounds.origin.y.to_f64(),
+            width: visible_bounds.size.width.to_f64(),
+            height: visible_bounds.size.height.to_f64(),
+            scale_factor: 1.0,
+        };
+        let origin = self.runtime_service.desktop_pet_initial_position(work_area);
+        let bounds = Bounds::new(
+            point(px(origin.x as f32), px(origin.y as f32)),
+            size(
+                px(DESKTOP_PET_BASE_WIDTH as f32),
+                px(DESKTOP_PET_BASE_HEIGHT as f32),
+            ),
+        );
+
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: None,
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(
+                    px(DESKTOP_PET_BASE_WIDTH as f32),
+                    px(DESKTOP_PET_BASE_HEIGHT as f32),
+                )),
+                display_id,
+                focus: false,
+                show: true,
+                kind: WindowKind::PopUp,
+                is_resizable: false,
+                is_minimizable: false,
+                window_background: WindowBackgroundAppearance::Transparent,
+                ..Default::default()
+            },
+            |window, cx| {
+                macos_window::make_desktop_pet_window_transparent(window);
+                let app = CoduxApp::new_desktop_pet_window();
+                theme::apply_component_theme(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    Some(window),
+                    cx,
+                );
+                let view = cx.new(|_| app);
+                view.update(cx, |app, cx| app.start_desktop_pet_speech_loop(cx));
+                view
+            },
+        );
+
+        self.status_message = match result {
+            Ok(handle) => {
+                self.desktop_pet_window = Some(handle.into());
+                "desktop pet window opened".to_string()
+            }
+            Err(error) => format!("failed to open desktop pet window: {error}"),
+        };
+        cx.notify();
+    }
+
+    pub(super) fn close_desktop_pet_window(&mut self, cx: &mut Context<Self>) {
+        if let Some(handle) = self.desktop_pet_window.take() {
+            let _ = handle.update(cx, |_view, window, _cx| window.remove_window());
+        }
+        self.runtime_service.desktop_pet_set_bubble_visible(false);
+    }
+
+    pub(super) fn sync_desktop_pet_window(
+        &mut self,
+        report_unavailable: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.desktop_pet_should_show() {
+            Ok(true) => self.open_desktop_pet_window(cx),
+            Ok(false) => {
+                self.close_desktop_pet_window(cx);
+                if report_unavailable {
+                    self.status_message =
+                        "desktop pet needs pet enabled, desktop widget enabled, and a claimed pet"
+                            .to_string();
+                    cx.notify();
+                }
+            }
+            Err(error) => {
+                self.close_desktop_pet_window(cx);
+                if report_unavailable {
+                    self.status_message = format!("failed to check desktop pet: {error}");
+                    cx.notify();
+                }
+            }
+        }
+    }
+
+    pub(super) fn refresh_desktop_pet_activity_line(&mut self, cx: &mut Context<Self>) {
+        let line = desktop_pet_runtime_activity_line(
+            &self.state.ai_runtime_state,
+            &self.state.settings.language,
+        );
+        self.set_desktop_pet_activity_line(line.text, line.tone, cx);
+        self.request_desktop_pet_llm_line(cx);
+    }
+
+    pub(super) fn set_desktop_pet_activity_line(
+        &mut self,
+        line: String,
+        tone: DesktopPetActivityTone,
+        cx: &mut Context<Self>,
+    ) {
+        if self.desktop_pet_line != line || self.desktop_pet_tone != tone {
+            self.desktop_pet_line = line;
+            self.desktop_pet_tone = tone;
+            self.runtime_service
+                .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
+            cx.notify();
+        }
+    }
+
+    pub(super) fn request_desktop_pet_llm_line(&mut self, cx: &mut Context<Self>) {
+        let Some(context) =
+            desktop_pet_llm_context(&self.state.ai_runtime_state, &self.state.settings.language)
+        else {
+            self.desktop_pet_active_llm_key.clear();
+            return;
+        };
+        if !self.state.settings.pet_speech_llm_enabled
+            || self.state.settings.pet_speech_mode == "off"
+            || self.state.settings.pet_speech_temporary_muted
+        {
+            self.desktop_pet_active_llm_key.clear();
+            return;
+        }
+
+        let key = format!(
+            "{}:{}:{}:{}",
+            context.event, context.tool, context.updated_at, context.fallback_text
+        );
+        self.desktop_pet_active_llm_key = key.clone();
+        if self.desktop_pet_requested_llm_key == key {
+            return;
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        let cooldown = desktop_pet_llm_cooldown_seconds(&self.state.settings.pet_speech_frequency);
+        if now - self.desktop_pet_last_llm_requested_at < cooldown {
+            return;
+        }
+
+        self.desktop_pet_requested_llm_key = key.clone();
+        self.desktop_pet_last_llm_requested_at = now;
+        let service = self.runtime_service.clone();
+        let event = context.event.to_string();
+        let fallback_text = context.fallback_text.clone();
+        let tone = context.tone;
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let request = codux_runtime::llm::PetIdleSpeechRequest {
+                event,
+                fallback_text,
+            };
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.pet_idle_speech(request)
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                app.apply_desktop_pet_llm_line(key, tone, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn apply_desktop_pet_llm_line(
+        &mut self,
+        key: String,
+        tone: DesktopPetActivityTone,
+        result: Result<codux_runtime::llm::PetIdleSpeechResponse, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.desktop_pet_active_llm_key != key {
+            return;
+        }
+        if let Ok(response) = result {
+            let text = normalized_desktop_pet_preview(Some(&response.text)).unwrap_or_default();
+            if !text.is_empty() {
+                self.set_desktop_pet_activity_line(text, tone, cx);
+            }
+        }
+    }
+
+    pub(super) fn refresh_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.refresh_pet_from_indexed_history() {
+            Ok(_) => {
+                self.refresh_pet_cache();
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
+                }
+                self.status_message = "pet data refreshed".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to refresh pet: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn save_desktop_pet_window_origin(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let bounds = window.bounds();
+        let origin = DesktopPetSavedOrigin {
+            x: bounds.origin.x.to_f64(),
+            y: bounds.origin.y.to_f64(),
+        };
+        if let Err(error) = self.runtime_service.save_desktop_pet_origin(origin) {
+            self.status_message = format!("failed to save desktop pet position: {error}");
+            cx.notify();
+        }
+    }
+
+    pub(super) fn apply_desktop_pet_action(
+        &mut self,
+        action_id: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .apply_desktop_pet_menu_action(action_id)
+        {
+            Ok(_) => {
+                let state = self.runtime_service.reload_state();
+                self.state.settings = state.settings;
+                self.state.pet = state.pet;
+                if action_id == DESKTOP_PET_SKIP_LINE {
+                    self.desktop_pet_line.clear();
+                    self.desktop_pet_tone = DesktopPetActivityTone::Normal;
+                    self.runtime_service.desktop_pet_set_bubble_visible(false);
+                } else if action_id == DESKTOP_PET_HIDE {
+                    self.runtime_service.desktop_pet_set_bubble_visible(false);
+                }
+                self.status_message = match action_id {
+                    DESKTOP_PET_MUTE_30_MINUTES => "desktop pet muted for 30 minutes".to_string(),
+                    DESKTOP_PET_MUTE_1_HOUR => "desktop pet muted for 1 hour".to_string(),
+                    DESKTOP_PET_MUTE_TODAY => "desktop pet muted until tomorrow".to_string(),
+                    DESKTOP_PET_SKIP_LINE => "desktop pet line skipped".to_string(),
+                    DESKTOP_PET_SPEAK_MORE => "desktop pet speech frequency increased".to_string(),
+                    DESKTOP_PET_SPEAK_LESS => "desktop pet speech frequency lowered".to_string(),
+                    DESKTOP_PET_HIDE => {
+                        window.remove_window();
+                        "desktop pet hidden".to_string()
+                    }
+                    _ => "desktop pet action applied".to_string(),
+                };
+            }
+            Err(error) => {
+                self.status_message = format!("failed to apply desktop pet action: {error}");
+            }
+        }
+        cx.notify();
+    }
+
+    pub(in crate::app) fn apply_project_help_action(
+        &mut self,
+        action_id: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.runtime_trace("help", &format!("action {action_id}"));
+        match action_id {
+            "help:about" => self.open_about_window(window, cx),
+            "help:check-updates" => self.reload_update(window, cx),
+            "help:export-diagnostics" => self.export_diagnostics(cx),
+            "help:runtime-log" => self.open_runtime_log(cx),
+            "help:live-log" => self.open_live_log(cx),
+            "help:website" => self.open_codux_website(cx),
+            "help:github" => self.open_codux_github(cx),
+            _ => {}
+        }
+    }
+
+    pub(super) fn set_pet_install_url(
+        &mut self,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pet_install_url = value;
+        self.pet_install_preview = None;
+        self.pet_install_error = None;
+        resize_pet_custom_install_window(window, PET_CUSTOM_INSTALL_INPUT_HEIGHT);
+        cx.notify();
+    }
+
+    pub(super) fn set_pet_install_display_name(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pet_install_display_name = value;
+        self.pet_install_error = None;
+        cx.notify();
+    }
+
+    pub(super) fn preview_custom_pet_install(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pet_install_previewing || self.pet_installing {
+            self.status_message = "custom pet install task is already running".to_string();
+            self.pet_install_error = Some("custom pet install task is already running".to_string());
+            cx.notify();
+            return;
+        }
+        let page_url = self.pet_install_url.trim().to_string();
+        if page_url.is_empty() {
+            self.status_message = "enter a Petdex URL first".to_string();
+            self.pet_install_error = Some("enter a Petdex URL first".to_string());
+            cx.notify();
+            return;
+        }
+        let display_name = self.pet_install_display_name.trim().to_string();
+        let request = PetCustomPetInstallRequest {
+            page_url: page_url.clone(),
+            display_name: display_name.clone(),
+        };
+
+        let service = self.runtime_service.clone();
+        self.pet_install_previewing = true;
+        self.pet_install_error = None;
+        self.status_message = "custom pet preview loading".to_string();
+        window.resize(size(
+            px(PET_CUSTOM_INSTALL_WINDOW_WIDTH),
+            px(PET_CUSTOM_INSTALL_INPUT_HEIGHT),
+        ));
+        let window_handle = window.window_handle();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn(async move {
+                service.resolve_custom_pet_install(request).await
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                app.apply_custom_pet_preview_result(
+                    page_url,
+                    display_name,
+                    result,
+                    window_handle,
+                    cx,
+                );
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn apply_custom_pet_preview_result(
+        &mut self,
+        page_url: String,
+        display_name: String,
+        result: Result<PetCustomPetInstallPreview, String>,
+        window_handle: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        self.pet_install_previewing = false;
+        if !self.pet_install_input_matches(&page_url, &display_name) {
+            self.status_message = "stale custom pet preview ignored".to_string();
+            cx.notify();
+            return;
+        }
+        match result {
+            Ok(preview) => {
+                self.pet_install_display_name = preview.display_name.clone();
+                self.status_message =
+                    format!("custom pet preview loaded: {}", preview.display_name);
+                self.pet_install_preview = Some(preview);
+                self.pet_install_error = None;
+                resize_pet_custom_install_window_handle(
+                    window_handle,
+                    PET_CUSTOM_INSTALL_READY_HEIGHT,
+                    cx,
+                );
+            }
+            Err(error) => {
+                self.pet_install_preview = None;
+                let message = format!("failed to preview custom pet: {error}");
+                self.status_message = message.clone();
+                self.pet_install_error = Some(message);
+                resize_pet_custom_install_window_handle(
+                    window_handle,
+                    PET_CUSTOM_INSTALL_ERROR_HEIGHT,
+                    cx,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn open_pet_market(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        match self.runtime_service.open_url("https://petdex.crafter.run") {
+            Ok(_) => self.status_message = "Petdex opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open Petdex: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn open_pet_source_url(
+        &mut self,
+        url: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.open_url(&url) {
+            Ok(_) => self.status_message = "pet source opened".to_string(),
+            Err(error) => self.status_message = format!("failed to open pet source: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn install_custom_pet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pet_install_previewing || self.pet_installing {
+            self.status_message = "custom pet install task is already running".to_string();
+            self.pet_install_error = Some("custom pet install task is already running".to_string());
+            cx.notify();
+            return;
+        }
+        if self.pet_install_preview.is_none() {
+            self.status_message = "parse the Petdex page before installing".to_string();
+            self.pet_install_error = Some("parse the Petdex page before installing".to_string());
+            cx.notify();
+            return;
+        }
+        let page_url = self.pet_install_url.trim().to_string();
+        if page_url.is_empty() {
+            self.status_message = "enter a Petdex URL first".to_string();
+            self.pet_install_error = Some("enter a Petdex URL first".to_string());
+            cx.notify();
+            return;
+        }
+        let display_name = self.pet_install_display_name.trim().to_string();
+        if display_name.is_empty() {
+            self.status_message = "enter a pet name before installing".to_string();
+            self.pet_install_error = Some("enter a pet name before installing".to_string());
+            cx.notify();
+            return;
+        }
+        let request = PetCustomPetInstallRequest {
+            page_url: page_url.clone(),
+            display_name: display_name.clone(),
+        };
+
+        let service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.pet_installing = true;
+        self.pet_install_error = None;
+        self.status_message = "custom pet install started".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn(async move {
+                let custom_pet = service.install_custom_pet(request).await?;
+                Ok((
+                    service.reload_pet(),
+                    custom_pet.id,
+                    format!("custom pet installed: {}", custom_pet.display_name),
+                ))
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                let should_close = result.is_ok();
+                app.apply_custom_pet_install_result(page_url, display_name, result, cx);
+                if should_close {
+                    let _ = window_handle.update(cx, |_view, window, _cx| window.remove_window());
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(super) fn apply_custom_pet_install_result(
+        &mut self,
+        page_url: String,
+        display_name: String,
+        result: Result<(PetSummary, String, String), String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.pet_installing = false;
+        match result {
+            Ok((_pet, custom_pet_id, status_message)) => {
+                let matches_input = self.pet_install_input_matches(&page_url, &display_name);
+                self.refresh_pet_cache();
+                let revision = publish_pet_custom_install(custom_pet_id);
+                if revision > 0 {
+                    self.pet_custom_install_seen_revision = revision;
+                }
+                if matches_input {
+                    self.pet_install_url.clear();
+                    self.pet_install_display_name.clear();
+                    self.pet_install_preview = None;
+                }
+                self.pet_install_error = None;
+                self.status_message = status_message;
+            }
+            Err(error) => {
+                let message = format!("failed to install custom pet: {error}");
+                self.status_message = message.clone();
+                self.pet_install_error = Some(message);
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn pet_install_input_matches(&self, page_url: &str, display_name: &str) -> bool {
+        self.pet_install_url.trim() == page_url
+            && self.pet_install_display_name.trim() == display_name
+    }
+
+    pub(super) fn claim_pet_species(
+        &mut self,
+        species: String,
+        custom_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let trimmed_species = species.trim();
+        if let Some(custom_id) = trimmed_species.strip_prefix("custom:") {
+            if let Some(custom_pet) = self
+                .pet_custom_pets
+                .iter()
+                .find(|pet| pet.id == custom_id)
+                .cloned()
+            {
+                let custom_pet = self.runtime_service.hydrate_custom_pet_data_url(custom_pet);
+                let request = PetClaimRequest {
+                    species: format!("custom:{}", custom_pet.id),
+                    custom_name: custom_name.trim().to_string(),
+                    custom_pet: Some(custom_pet.clone()),
+                    _projects: Vec::new(),
+                };
+                match self.runtime_service.claim_pet_from_indexed_history(request) {
+                    Ok(_) => {
+                        self.refresh_pet_cache();
+                        let revision = publish_pet_update();
+                        if revision > 0 {
+                            self.pet_update_seen_revision = revision;
+                        }
+                        if self.window_mode == AppWindowMode::Main {
+                            self.sync_desktop_pet_window(false, cx);
+                        }
+                        self.status_message =
+                            format!("custom pet claimed: {}", custom_pet.display_name);
+                        window.remove_window();
+                    }
+                    Err(error) => {
+                        self.status_message = format!("failed to claim custom pet: {error}");
+                    }
+                }
+                cx.notify();
+                return;
+            }
+        }
+
+        let species = if trimmed_species.is_empty() {
+            self.runtime_service
+                .pet_catalog()
+                .species
+                .first()
+                .map(|item| item.species.clone())
+                .unwrap_or_else(|| "voidcat".to_string())
+        } else {
+            trimmed_species.to_string()
+        };
+        let request = PetClaimRequest {
+            species,
+            custom_name: custom_name.trim().to_string(),
+            custom_pet: None,
+            _projects: Vec::new(),
+        };
+
+        match self.runtime_service.claim_pet_from_indexed_history(request) {
+            Ok(_) => {
+                self.refresh_pet_cache();
+                let revision = publish_pet_update();
+                if revision > 0 {
+                    self.pet_update_seen_revision = revision;
+                }
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
+                }
+                self.status_message = "pet claimed".to_string();
+                window.remove_window();
+            }
+            Err(error) => self.status_message = format!("failed to claim pet: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn rename_current_pet_to(
+        &mut self,
+        custom_name: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.state.pet.claimed {
+            self.status_message = "no pet to rename".to_string();
+            cx.notify();
+            return;
+        }
+
+        match self.runtime_service.rename_pet(PetRenameRequest {
+            custom_name: custom_name.trim().to_string(),
+        }) {
+            Ok(_) => {
+                self.refresh_pet_cache();
+                let revision = publish_pet_update();
+                if revision > 0 {
+                    self.pet_update_seen_revision = revision;
+                }
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
+                }
+                self.pet_name_editing = false;
+                self.status_message = "pet renamed".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to rename pet: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn start_current_pet_rename(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.pet.claimed {
+            self.pet_name_editing = true;
+            self.status_message = "pet rename editor opened".to_string();
+        }
+        cx.notify();
+    }
+
+    pub(super) fn cancel_current_pet_rename(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pet_name_editing = false;
+        self.status_message = "pet rename cancelled".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn show_pet_dex_spotlight(
+        &mut self,
+        spotlight: PetDexSpotlight,
+        cx: &mut Context<Self>,
+    ) {
+        self.pet_dex_spotlight = Some(spotlight);
+        self.start_pet_sprite_animation_loop(cx);
+        self.status_message = "pet dex detail opened".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn close_pet_dex_spotlight(&mut self, cx: &mut Context<Self>) {
+        self.pet_dex_spotlight = None;
+        self.status_message = "pet dex detail closed".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn archive_current_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.pet_dex_spotlight = Some(PetDexSpotlight::ArchiveConfirm);
+        self.status_message = "confirm pet archive".to_string();
+        cx.notify();
+    }
+
+    pub(super) fn archive_current_pet_confirmed(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.archive_current_pet() {
+            Ok(_) => {
+                self.refresh_pet_cache();
+                self.pet_dex_spotlight = None;
+                let revision = publish_pet_update();
+                if revision > 0 {
+                    self.pet_update_seen_revision = revision;
+                }
+                if self.window_mode == AppWindowMode::Main {
+                    self.sync_desktop_pet_window(false, cx);
+                }
+                self.status_message = "pet archived".to_string();
+            }
+            Err(error) => self.status_message = format!("failed to archive pet: {error}"),
+        }
+        cx.notify();
+    }
+
+    pub(super) fn sync_tool_permissions(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
+        self.status_message = if let Some(error) = &self.state.tool_permissions.error {
+            format!("failed to sync tool permissions: {error}")
+        } else {
+            "tool permissions synced for runtime wrappers".to_string()
+        };
+        cx.notify();
+    }
+
+    pub(super) fn desktop_pet_side(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> DesktopPetSide {
+        let bounds = window.bounds();
+        let display = cx.primary_display();
+        let visible_bounds = display
+            .as_ref()
+            .map(|display| display.visible_bounds())
+            .unwrap_or_else(|| Bounds::centered(None, size(px(1280.0), px(820.0)), cx));
+        let work_area = DesktopPetWorkArea {
+            x: visible_bounds.origin.x.to_f64(),
+            y: visible_bounds.origin.y.to_f64(),
+            width: visible_bounds.size.width.to_f64(),
+            height: visible_bounds.size.height.to_f64(),
+            scale_factor: 1.0,
+        };
+        let side = self
+            .runtime_service
+            .desktop_pet_placement(
+                codux_runtime::desktop_pet::DesktopPetPhysicalPosition {
+                    x: bounds.origin.x.to_f64(),
+                    y: bounds.origin.y.to_f64(),
+                },
+                codux_runtime::desktop_pet::DesktopPetPhysicalSize {
+                    width: bounds.size.width.to_f64(),
+                    height: bounds.size.height.to_f64(),
+                },
+                work_area,
+            )
+            .side;
+        if side.as_str() == DesktopPetSide::Right.as_str() {
+            DesktopPetSide::Right
+        } else {
+            DesktopPetSide::Left
+        }
+    }
+
+    pub(super) fn desktop_pet_animation(&self) -> DesktopPetAnimation {
+        if !self.state.pet.claimed {
+            return DesktopPetAnimation {
+                row: 6,
+                frame_count: PET_WAITING_FRAME_COUNT,
+            };
+        }
+        if self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .any(|session| session.state == "needs-input")
+        {
+            return DesktopPetAnimation {
+                row: 8,
+                frame_count: PET_REVIEW_FRAME_COUNT,
+            };
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        if let Some(session) = self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .filter(|session| {
+                session.state != "running"
+                    && session.state != "needs-input"
+                    && session.has_completed_turn
+                    && now - session.updated_at <= 30.0
+            })
+            .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
+        {
+            return if session.was_interrupted {
+                DesktopPetAnimation {
+                    row: 5,
+                    frame_count: PET_FAILED_FRAME_COUNT,
+                }
+            } else {
+                DesktopPetAnimation {
+                    row: 3,
+                    frame_count: PET_WAVING_FRAME_COUNT,
+                }
+            };
+        }
+
+        if self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .any(|session| session.state == "running")
+            || self.state.pet.daily_xp > 0
+        {
+            return DesktopPetAnimation {
+                row: 7,
+                frame_count: PET_RUNNING_FRAME_COUNT,
+            };
+        }
+
+        DesktopPetAnimation {
+            row: 0,
+            frame_count: PET_IDLE_FRAME_COUNT,
+        }
+    }
+
+    pub(super) fn desktop_pet_frame_count(&self) -> usize {
+        self.desktop_pet_animation().frame_count.max(1)
+    }
+
+    pub(super) fn desktop_pet_window(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let focus_handle = self.root_focus_handle.clone();
+        let line = self.desktop_pet_line.trim().to_string();
+        let sprite_path = pet_sprite_path(
+            &self.runtime.source_root,
+            &self.state.support_dir,
+            &self.state.pet,
+            &self.pet_custom_pets,
+        );
+        let animation = self.desktop_pet_animation();
+        let sprite_frame = self.visible_pet_sprite_frame(animation.frame_count);
+        let menu_entries = desktop_pet_menu_entries(&self.state.settings.language);
+        let side = self.desktop_pet_side(window, cx);
+        let bubble_is_left_tail = side == DesktopPetSide::Right;
+        let tone = self.desktop_pet_tone;
+
+        div()
+            .size_full()
+            .text_color(cx.theme().foreground)
+            .bg(cx.theme().transparent)
+            .when_some(focus_handle.as_ref(), |this, focus_handle| {
+                this.track_focus(focus_handle)
+            })
+            .on_key_down(cx.listener(Self::on_key_down))
+            .on_mouse_down(MouseButton::Left, |event, window, _cx| {
+                if desktop_pet_point_is_in_sprite(event.position) {
+                    window.start_window_move();
+                }
+            })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |_app, event: &gpui::MouseDownEvent, window, cx| {
+                    macos_window::spawn_desktop_pet_native_menu(
+                        window,
+                        event.position,
+                        menu_entries.clone(),
+                        cx,
+                    );
+                    cx.stop_propagation();
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|app, _event, window, cx| {
+                    app.save_desktop_pet_window_origin(window, cx)
+                }),
+            )
+            .child(
+                div()
+                    .size_full()
+                    .relative()
+                    .bg(cx.theme().transparent)
+                    .when(!line.is_empty(), |this| {
+                        this.child(desktop_pet_bubble(line, tone, bubble_is_left_tail))
+                    })
+                    .child(
+                        div()
+                            .absolute()
+                            .bottom(px(DESKTOP_PET_SPRITE_BOTTOM))
+                            .size(px(DESKTOP_PET_SPRITE_SIZE))
+                            .overflow_hidden()
+                            .when(side == DesktopPetSide::Right, |this| {
+                                this.left(px(DESKTOP_PET_SPRITE_SIDE))
+                            })
+                            .when(side == DesktopPetSide::Left, |this| {
+                                this.right(px(DESKTOP_PET_SPRITE_SIDE))
+                            })
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(desktop_pet_sprite(
+                                sprite_path,
+                                sprite_frame,
+                                animation.row,
+                                cx,
+                            )),
+                    ),
+            )
+    }
+}

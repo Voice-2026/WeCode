@@ -235,8 +235,10 @@ fn normalize_hour(value: Option<i32>) -> Option<i32> {
 pub fn locale_from_language_setting(language: &str) -> String {
     match language {
         "english" => "en",
-        "simplifiedChinese" | "zh-CN" | "zh-Hans" => "zh-Hans",
-        "traditionalChinese" | "zh-TW" | "zh-Hant" => "zh-Hant",
+        "simplifiedChinese" | "zh-CN" | "zh_CN" | "zh-Hans" | "zh-Hans-CN"
+        | "zh_Hans_CN" => "zh-Hans",
+        "traditionalChinese" | "zh-TW" | "zh_TW" | "zh-Hant" | "zh-Hant-TW"
+        | "zh_Hant_TW" => "zh-Hant",
         "japanese" | "ja" => "ja",
         "korean" | "ko" => "ko",
         "french" | "fr" => "fr",

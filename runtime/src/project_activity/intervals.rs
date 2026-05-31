@@ -26,36 +26,11 @@ pub(super) fn upsert_project(
                 name,
                 path,
                 last_git_refresh: None,
+                last_git_changed_refresh: None,
                 last_ai_refresh: Some(Instant::now()),
             }
         });
     inserted
-}
-
-pub(super) fn projects_due_by_interval_mut(
-    projects: &Mutex<HashMap<String, TrackedProject>>,
-    interval_for_project: impl Fn(&TrackedProject) -> Duration,
-    last_refresh: impl Fn(&mut TrackedProject) -> &mut Option<Instant>,
-) -> Vec<TrackedProject> {
-    let now = Instant::now();
-    let Ok(mut guard) = projects.lock() else {
-        return Vec::new();
-    };
-    guard
-        .values_mut()
-        .filter_map(|project| {
-            let interval = interval_for_project(project);
-            let last = last_refresh(project);
-            let is_due = last
-                .map(|value| now.duration_since(value) >= interval)
-                .unwrap_or(true);
-            if !is_due {
-                return None;
-            }
-            *last = Some(now);
-            Some(project.clone())
-        })
-        .collect()
 }
 
 pub(super) fn projects_due_for_git_interval(

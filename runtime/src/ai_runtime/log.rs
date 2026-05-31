@@ -13,7 +13,7 @@ pub fn reset_runtime_live_log() {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    rotate_runtime_log(&path);
+    clear_runtime_log_family(&path);
     let _ = fs::write(path, "");
 }
 
@@ -52,6 +52,13 @@ fn rotate_runtime_log(path: &Path) {
         let _ = fs::rename(current, next);
     }
     let _ = fs::rename(path, rotated_log_path(path, 1));
+}
+
+fn clear_runtime_log_family(path: &Path) {
+    let _ = fs::remove_file(path);
+    for index in 1..=RUNTIME_LOG_ROTATION_COUNT {
+        let _ = fs::remove_file(rotated_log_path(path, index));
+    }
 }
 
 fn rotated_log_path(path: &Path, index: usize) -> PathBuf {

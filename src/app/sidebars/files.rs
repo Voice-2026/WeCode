@@ -1,9 +1,43 @@
 use super::*;
+use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::{ClickEvent, ClipboardEntry, Point, ScrollWheelEvent};
 use gpui_component::input::{Input, InputEvent, InputState, SelectAll};
 use std::ops::Neg;
 
 const FILE_TREE_DRAG_AND_DROP: bool = true;
+
+#[derive(Clone)]
+struct FileSidebarLabels {
+    title: String,
+    empty: String,
+    open: String,
+    reveal: String,
+    copy_path: String,
+    copy: String,
+    paste: String,
+    rename: String,
+    send_terminal: String,
+    delete: String,
+    items_count_format: String,
+}
+
+fn file_sidebar_labels(language: &str) -> FileSidebarLabels {
+    let locale = locale_from_language_setting(&language);
+    let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
+    FileSidebarLabels {
+        title: tr("files.panel.title", "Files"),
+        empty: tr("files.panel.empty", "No files"),
+        open: tr("files.panel.open", "Open"),
+        reveal: tr("files.panel.reveal_finder", "Show in File Manager"),
+        copy_path: tr("files.panel.copy_path", "Copy Path"),
+        copy: tr("files.panel.copy", "Copy"),
+        paste: tr("files.panel.paste", "Paste"),
+        rename: tr("common.rename", "Rename"),
+        send_terminal: tr("files.panel.insert_path_terminal", "Send to Terminal"),
+        delete: tr("files.panel.delete", "Delete"),
+        items_count_format: tr("files.panel.items_count_format", "%d file items"),
+    }
+}
 
 pub(in crate::app) fn file_directory_option(value: &str) -> Option<&str> {
     let trimmed = value.trim();
@@ -40,9 +74,11 @@ pub(in crate::app) fn file_section(
     draft_select_all: bool,
     rows: Rc<Vec<FileTreeRow>>,
     tree_scroll_handle: UniformListScrollHandle,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<FileSidebarView>,
 ) -> impl IntoElement {
+    let labels = file_sidebar_labels(language);
     let row_count = rows.len();
     let draft_at_top = draft_kind.is_some_and(|kind| kind != FileNameDraftKind::Rename);
     let menu_app_entity = app_entity.clone();
@@ -93,7 +129,7 @@ pub(in crate::app) fn file_section(
             }
         }))
         .child(assistant_panel_header(
-            "文件",
+            labels.title.clone(),
             IconName::Folder,
             div()
                 .flex()
@@ -152,9 +188,9 @@ pub(in crate::app) fn file_section(
                                 },
                             )
                             .child(if files.is_empty() && !draft_at_top {
-                                file_empty_state("暂无文件").into_any_element()
+                                file_empty_state(labels.empty.clone()).into_any_element()
                             } else if row_count == 0 && !draft_at_top {
-                                file_empty_state("暂无可显示文件").into_any_element()
+                                file_empty_state(labels.empty.clone()).into_any_element()
                             } else {
                                 div()
                                     .flex_1()
@@ -189,7 +225,7 @@ pub(in crate::app) fn file_section(
                                         let copy_paths_for_click = copy_paths.clone();
 
                                         menu.item(
-                                            PopupMenuItem::new("打开")
+                                            PopupMenuItem::new(labels.open.clone())
                                                 .icon(IconName::ExternalLink)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
@@ -199,7 +235,7 @@ pub(in crate::app) fn file_section(
                                                 }),
                                         )
                                         .item(
-                                            PopupMenuItem::new("在文件管理器中显示")
+                                            PopupMenuItem::new(labels.reveal.clone())
                                                 .icon(IconName::FolderOpen)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
@@ -209,7 +245,7 @@ pub(in crate::app) fn file_section(
                                                 }),
                                         )
                                         .item(
-                                            PopupMenuItem::new("复制路径")
+                                            PopupMenuItem::new(labels.copy_path.clone())
                                                 .icon(IconName::Copy)
                                                 .disabled(!has_selected)
                                                 .on_click(move |_, _window, cx| {
@@ -222,7 +258,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .separator()
                                         .item(
-                                            PopupMenuItem::new("复制")
+                                            PopupMenuItem::new(labels.copy.clone())
                                                 .icon(IconName::Copy)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
@@ -232,7 +268,7 @@ pub(in crate::app) fn file_section(
                                                 }),
                                         )
                                         .item(
-                                            PopupMenuItem::new("粘贴")
+                                            PopupMenuItem::new(labels.paste.clone())
                                                 .icon(IconName::Copy)
                                                 .on_click(move |_, window, cx| {
                                                     let paths = clipboard_external_paths(cx);
@@ -248,7 +284,7 @@ pub(in crate::app) fn file_section(
                                                 }),
                                         )
                                         .item(
-                                            PopupMenuItem::new("重命名")
+                                            PopupMenuItem::new(labels.rename.clone())
                                                 .icon(IconName::CaseSensitive)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
@@ -258,7 +294,7 @@ pub(in crate::app) fn file_section(
                                                 }),
                                         )
                                         .item(
-                                            PopupMenuItem::new("发送到终端")
+                                            PopupMenuItem::new(labels.send_terminal.clone())
                                                 .icon(IconName::SquareTerminal)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, _window, cx| {
@@ -275,7 +311,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .separator()
                                         .item(
-                                            PopupMenuItem::new("删除")
+                                            PopupMenuItem::new(labels.delete.clone())
                                                 .icon(IconName::Delete)
                                                 .disabled(!has_selected)
                                                 .on_click(move |_, window, cx| {
@@ -298,6 +334,7 @@ pub(in crate::app) fn file_section(
                                                 app_entity.clone(),
                                                 row,
                                                 index,
+                                                labels.items_count_format.clone(),
                                                 window,
                                                 cx,
                                             )
@@ -338,7 +375,8 @@ fn file_tree_blank_scroll_area(
         })
 }
 
-fn file_empty_state(label: &'static str) -> impl IntoElement {
+fn file_empty_state(label: impl Into<String>) -> impl IntoElement {
+    let label = label.into();
     div()
         .w_full()
         .min_h(px(120.0))
@@ -395,7 +433,7 @@ fn file_name_draft_row(
         .pr(px(8.0))
         .flex()
         .items_center()
-        .bg(color(0xFFFFFF).opacity(0.0))
+        .bg(cx.theme().transparent)
         .child(
             div()
                 .w(px(18.0))
@@ -523,6 +561,7 @@ pub(in crate::app) struct FileTreeRow {
 #[derive(Clone)]
 struct FileTreeDrag {
     paths: Vec<String>,
+    items_count_format: String,
 }
 
 impl Render for FileTreeDrag {
@@ -540,7 +579,8 @@ impl Render for FileTreeDrag {
             .child(if self.paths.len() == 1 {
                 self.paths[0].clone()
             } else {
-                format!("{} 个文件项", self.paths.len())
+                self.items_count_format
+                    .replace("%d", &self.paths.len().to_string())
             })
     }
 }
@@ -608,6 +648,7 @@ fn file_tree_entry_row(
     app_entity: gpui::Entity<CoduxApp>,
     row: FileTreeRow,
     index: usize,
+    items_count_format: String,
     window: &mut Window,
     cx: &mut Context<FileSidebarView>,
 ) -> impl IntoElement {
@@ -624,11 +665,7 @@ fn file_tree_entry_row(
     let right_click_entry = file.clone();
     let drop_entry = file.clone();
     let is_dir = matches!(file.kind, FileKind::Directory);
-    let hover_surface = if cx.theme().is_dark() {
-        color(0xFFFFFF).opacity(0.10)
-    } else {
-        color(0x000000).opacity(0.07)
-    };
+    let hover_surface = cx.theme().list_hover;
     let icon = if is_dir {
         if expanded {
             IconName::FolderOpen
@@ -671,13 +708,16 @@ fn file_tree_entry_row(
         }))
         .when(FILE_TREE_DRAG_AND_DROP, |this| {
             let drag_payload = drag_paths.clone();
+            let drag_items_count_format = items_count_format.clone();
             this.on_drag(
                 FileTreeDrag {
                     paths: drag_payload,
+                    items_count_format: drag_items_count_format,
                 },
                 move |drag, _, _, cx| {
                     cx.new(|_| FileTreeDrag {
                         paths: drag.paths.clone(),
+                        items_count_format: drag.items_count_format.clone(),
                     })
                 },
             )
@@ -957,8 +997,8 @@ fn file_preview_search_bar(
         .px_3()
         .py(px(8.0))
         .border_b_1()
-        .border_color(color(theme::BORDER_SOFT))
-        .bg(color(theme::BG_HEADER).opacity(0.76))
+        .border_color(cx.theme().border)
+        .bg(cx.theme().title_bar)
         .flex()
         .items_center()
         .gap_2()

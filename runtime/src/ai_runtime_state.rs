@@ -1,5 +1,5 @@
 use crate::{
-    ai_runtime::{AIProjectTotals, AIRuntimeStateSnapshot, AISessionSnapshot},
+    ai_runtime::{AIProjectPhase, AIProjectTotals, AIRuntimeStateSnapshot, AISessionSnapshot},
     runtime_event::{RuntimeEventSummary, RuntimeSessionSummary},
 };
 use serde::{Deserialize, Serialize};
@@ -23,9 +23,31 @@ pub struct AIRuntimeStateSummary {
     pub session_count: usize,
     pub global_total_tokens: i64,
     pub global_cached_input_tokens: i64,
+    pub project_states: Vec<AIRuntimeProjectStateSummary>,
     pub project_totals: Vec<AIRuntimeProjectTotalsSummary>,
     pub sessions: Vec<AIRuntimeSessionSummary>,
     pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeProjectStateSummary {
+    pub project_id: String,
+    pub project_phase: AIRuntimeProjectPhaseSummary,
+    pub completed_phase: AIRuntimeProjectPhaseSummary,
+    pub totals: AIRuntimeProjectTotalsSummary,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeProjectPhaseSummary {
+    pub kind: String,
+    #[serde(default)]
+    pub tool: Option<String>,
+    #[serde(default)]
+    pub was_interrupted: bool,
+    #[serde(default)]
+    pub updated_at: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -45,6 +67,8 @@ pub struct AIRuntimeSessionSummary {
     pub terminal_id: String,
     #[serde(default)]
     pub project_id: String,
+    #[serde(default)]
+    pub project_path: Option<String>,
     pub tool: String,
     #[serde(default, rename = "aiSessionId")]
     pub ai_session_id: Option<String>,
@@ -237,6 +261,7 @@ fn summary_from_raw(
             .unwrap_or(sessions.len()),
         global_total_tokens: raw_global_totals(raw).total_tokens,
         global_cached_input_tokens: raw_global_totals(raw).cached_input_tokens,
+        project_states: raw_project_states(raw),
         project_totals: raw_project_totals(raw),
         sessions,
         error,
@@ -247,6 +272,57 @@ fn raw_global_totals(raw: &Map<String, Value>) -> AIRuntimeProjectTotalsSummary 
     raw.get("globalTotals")
         .map(|value| runtime_totals_from_value(String::new(), value))
         .unwrap_or_default()
+}
+
+fn raw_project_states(raw: &Map<String, Value>) -> Vec<AIRuntimeProjectStateSummary> {
+    raw.get("projects")
+        .and_then(Value::as_array)
+        .map(|projects| {
+            projects
+                .iter()
+                .filter_map(|project| {
+                    let project_id = project
+                        .get("projectId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    (!project_id.is_empty()).then(|| AIRuntimeProjectStateSummary {
+                        totals: runtime_totals_from_value(
+                            project_id.clone(),
+                            project.get("totals").unwrap_or(&Value::Null),
+                        ),
+                        project_id,
+                        project_phase: runtime_phase_from_value(project.get("projectPhase")),
+                        completed_phase: runtime_phase_from_value(project.get("completedPhase")),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn runtime_phase_from_value(value: Option<&Value>) -> AIRuntimeProjectPhaseSummary {
+    let Some(value) = value else {
+        return AIRuntimeProjectPhaseSummary::default();
+    };
+    let Some(kind) = value.get("kind").and_then(Value::as_str) else {
+        return AIRuntimeProjectPhaseSummary::default();
+    };
+    AIRuntimeProjectPhaseSummary {
+        kind: kind.to_string(),
+        tool: value
+            .get("tool")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        was_interrupted: value
+            .get("wasInterrupted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        updated_at: value
+            .get("updatedAt")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0),
+    }
 }
 
 fn raw_project_totals(raw: &Map<String, Value>) -> Vec<AIRuntimeProjectTotalsSummary> {
@@ -271,6 +347,37 @@ fn raw_project_totals(raw: &Map<String, Value>) -> Vec<AIRuntimeProjectTotalsSum
                 .collect()
         })
         .unwrap_or_default()
+}
+
+impl From<&AIProjectPhase> for AIRuntimeProjectPhaseSummary {
+    fn from(phase: &AIProjectPhase) -> Self {
+        match phase {
+            AIProjectPhase::Idle => Self {
+                kind: "idle".to_string(),
+                ..Self::default()
+            },
+            AIProjectPhase::Running { tool } => Self {
+                kind: "running".to_string(),
+                tool: Some(tool.clone()),
+                ..Self::default()
+            },
+            AIProjectPhase::NeedsInput { tool } => Self {
+                kind: "needsInput".to_string(),
+                tool: Some(tool.clone()),
+                ..Self::default()
+            },
+            AIProjectPhase::Completed {
+                tool,
+                was_interrupted,
+                updated_at,
+            } => Self {
+                kind: "completed".to_string(),
+                tool: Some(tool.clone()),
+                was_interrupted: *was_interrupted,
+                updated_at: *updated_at,
+            },
+        }
+    }
 }
 
 fn runtime_totals_from_value(project_id: String, value: &Value) -> AIRuntimeProjectTotalsSummary {
@@ -321,6 +428,7 @@ fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessi
     AIRuntimeSessionSummary {
         terminal_id: session.terminal_id.clone(),
         project_id: String::new(),
+        project_path: None,
         tool: session.tool.clone(),
         ai_session_id: None,
         model: None,
@@ -350,6 +458,7 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
     AIRuntimeSessionSummary {
         terminal_id: session.terminal_id.clone(),
         project_id: session.project_id.clone(),
+        project_path: session.project_path.clone(),
         tool: session.tool.clone(),
         ai_session_id: session.ai_session_id.clone(),
         model: session.model.clone(),
@@ -575,6 +684,14 @@ mod tests {
         assert_eq!(summary.needs_input_count, 1);
         assert_eq!(summary.global_total_tokens, 100);
         assert_eq!(summary.global_cached_input_tokens, 15);
+        assert_eq!(summary.project_states.len(), 1);
+        assert_eq!(summary.project_states[0].project_id, "project-a");
+        assert_eq!(summary.project_states[0].project_phase.kind, "running");
+        assert_eq!(
+            summary.project_states[0].project_phase.tool.as_deref(),
+            Some("codex")
+        );
+        assert_eq!(summary.project_states[0].completed_phase.kind, "idle");
         assert_eq!(summary.project_totals.len(), 1);
         assert_eq!(summary.project_totals[0].project_id, "project-a");
         assert_eq!(summary.project_totals[0].total_tokens, 100);

@@ -114,24 +114,10 @@ real_bin="$(find_real_binary || true)"
 if [[ -z "$real_bin" ]]; then
   print -u2 -- "wrapper: failed to locate real binary for $tool_name"
   if [[ -x "${wrapper_dir}/dmux-ai-state.sh" && -n "${DMUX_SESSION_ID:-}" ]]; then
-    "${wrapper_dir}/dmux-ai-state.sh" stop codux-tauri "$tool_name" </dev/null >/dev/null 2>&1 || true
+    "${wrapper_dir}/dmux-ai-state.sh" stop "${DMUX_RUNTIME_OWNER:-}" "$tool_name" </dev/null >/dev/null 2>&1 || true
   fi
   exit 127
 fi
-
-codex_hooks_feature_flag() {
-  local features_output=""
-  features_output="$(env PATH="$search_path" "$real_bin" features list 2>/dev/null || true)"
-  if print -r -- "$features_output" | /usr/bin/grep -Eq '^hooks[[:space:]]'; then
-    print -r -- "hooks"
-    return 0
-  fi
-  if print -r -- "$features_output" | /usr/bin/grep -Eq '^codex_hooks[[:space:]]'; then
-    print -r -- "codex_hooks"
-    return 0
-  fi
-  print -r -- "hooks"
-}
 
 json_escape() {
   local value="$1"
@@ -627,9 +613,8 @@ if [[ "$tool_name" == "codex" ]]; then
     apply_codex_memory_workspace_args
     apply_codex_memory_developer_instructions
     launch_model="$(extract_model_target "${launch_args[@]}" || true)"
-    hooks_feature="$(codex_hooks_feature_flag)"
-    log_line "launch codex managed session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} binary=${real_bin} hooks=${hooks_feature}"
-    run_wrapped_command "" "${launch_model}" "" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable "${hooks_feature}" "${launch_args[@]}"
+    log_line "launch codex managed session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} binary=${real_bin} hooks=hooks"
+    run_wrapped_command "" "${launch_model}" "" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable hooks "${launch_args[@]}"
     exit $?
   fi
 fi

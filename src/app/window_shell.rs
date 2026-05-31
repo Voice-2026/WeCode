@@ -1,14 +1,17 @@
 use super::*;
 
-pub(in crate::app) fn child_window_shell(title: impl Into<SharedString>) -> gpui::Div {
+pub(in crate::app) fn child_window_shell<T>(
+    title: impl Into<SharedString>,
+    cx: &mut Context<T>,
+) -> gpui::Div {
     let title = title.into();
 
     div()
         .size_full()
         .flex()
         .flex_col()
-        .bg(color(theme::BG))
-        .text_color(color(theme::TEXT))
+        .bg(cx.theme().background)
+        .text_color(cx.theme().foreground)
         .child(
             div()
                 .h(px(48.0))
@@ -18,14 +21,14 @@ pub(in crate::app) fn child_window_shell(title: impl Into<SharedString>) -> gpui
                 .flex()
                 .items_center()
                 .border_b_1()
-                .border_color(color(theme::BORDER_SOFT).opacity(0.45))
+                .border_color(cx.theme().border)
+                .bg(cx.theme().title_bar)
                 .child(
                     div()
                         .min_w_0()
                         .truncate()
                         .text_size(px(14.0))
                         .line_height(px(14.0))
-                        .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 ),
         )

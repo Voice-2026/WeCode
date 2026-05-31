@@ -23,6 +23,8 @@ mod tests;
 use apply::{apply_hook_unlocked, apply_runtime_snapshot_unlocked};
 use helpers::{is_codex_transcript_session, mark_interrupted, now_seconds};
 pub use helpers::{probe_request_for_session, should_poll_runtime_session};
+#[cfg(test)]
+use resolve::merge_snapshot_into_hook;
 use resolve::resolve_hook_event;
 use summary::{completed_phase_unlocked, next_completion_event_unlocked, state_snapshot_unlocked};
 
@@ -131,16 +133,50 @@ impl AIRuntimeStateStore {
     }
 
     pub fn apply_hook(&self, event: AIHookEventPayload) -> AIRuntimeStateMutation {
+        let raw_kind = event.kind.clone();
+        let raw_terminal_id = event.terminal_id.clone();
         let previous = self
             .core
             .lock()
             .ok()
             .and_then(|core| core.sessions.get(event.terminal_id.trim()).cloned());
         let event = resolve_hook_event(event, previous.as_ref());
+        if raw_kind != event.kind {
+            super::runtime_log_line(
+                "runtime-ingress",
+                &format!(
+                    "resolve hook terminal={} raw_kind={} resolved_kind={} previous_state={} ai_session={}",
+                    raw_terminal_id,
+                    raw_kind,
+                    event.kind,
+                    previous
+                        .as_ref()
+                        .map(|session| session.state.as_str())
+                        .unwrap_or("none"),
+                    event.ai_session_id.as_deref().unwrap_or("none")
+                ),
+            );
+        }
         let Ok(mut core) = self.core.lock() else {
             return AIRuntimeStateMutation::default();
         };
         let did_change = apply_hook_unlocked(&mut core, event);
+        if did_change {
+            if let Some(session) = core.sessions.get(raw_terminal_id.trim()) {
+                super::runtime_log_line(
+                    "runtime-state",
+                    &format!(
+                        "hook terminal={} state={} completed={} interrupted={} updated_at={:.3} kind={}",
+                        session.terminal_id,
+                        session.state,
+                        session.has_completed_turn,
+                        session.was_interrupted,
+                        session.updated_at,
+                        raw_kind
+                    ),
+                );
+            }
+        }
         AIRuntimeStateMutation {
             did_change,
             completion: did_change
@@ -154,10 +190,37 @@ impl AIRuntimeStateStore {
         terminal_id: &str,
         snapshot: AIRuntimeContextSnapshot,
     ) -> AIRuntimeStateMutation {
+        let snapshot_response_state = snapshot.response_state.clone();
+        let snapshot_completed_at = snapshot.completed_at;
+        let snapshot_updated_at = snapshot.updated_at;
+        let snapshot_has_completed = snapshot.has_completed_turn;
+        let snapshot_was_interrupted = snapshot.was_interrupted;
         let Ok(mut core) = self.core.lock() else {
             return AIRuntimeStateMutation::default();
         };
         let did_change = apply_runtime_snapshot_unlocked(&mut core, terminal_id, snapshot);
+        if did_change {
+            if let Some(session) = core.sessions.get(terminal_id) {
+                super::runtime_log_line(
+                    "runtime-state",
+                    &format!(
+                        "snapshot terminal={} state={} completed={} interrupted={} updated_at={:.3} response_state={} snapshot_completed_at={} snapshot_updated_at={:.3} snapshot_completed={} snapshot_interrupted={}",
+                        session.terminal_id,
+                        session.state,
+                        session.has_completed_turn,
+                        session.was_interrupted,
+                        session.updated_at,
+                        snapshot_response_state.as_deref().unwrap_or("none"),
+                        snapshot_completed_at
+                            .map(|value| format!("{value:.3}"))
+                            .unwrap_or_else(|| "none".to_string()),
+                        snapshot_updated_at,
+                        snapshot_has_completed,
+                        snapshot_was_interrupted
+                    ),
+                );
+            }
+        }
         AIRuntimeStateMutation {
             did_change,
             completion: did_change

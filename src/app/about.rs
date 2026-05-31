@@ -14,6 +14,7 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let locale = locale_from_language_setting(&self.state.settings.language);
         let about = self
             .runtime_service
             .about_metadata(env!("CARGO_PKG_VERSION"), CODUX_IDENTIFIER);
@@ -62,18 +63,26 @@ impl CoduxApp {
                             .text_size(px(12.0))
                             .line_height(px(16.0))
                             .text_color(color(theme::TEXT_MUTED))
-                            .child("AI-Powered Terminal Workspace"),
+                            .child(translate(
+                                &locale,
+                                "about.tagline",
+                                "AI-Powered Terminal Workspace",
+                            )),
                     )
                     .child(
                         div()
                             .text_size(px(11.0))
                             .line_height(px(15.0))
                             .text_color(color(theme::TEXT_DIM))
-                            .child("Copyright (c) 2025 Codux contributors"),
+                            .child(translate(
+                                &locale,
+                                "about.copyright",
+                                "Copyright (c) 2025 Codux contributors",
+                            )),
                     ),
             )
-            .child(about_status_card(&about, &update))
-            .child(about_action_row(cx))
+            .child(about_status_card(&about, &update, &locale, cx))
+            .child(about_action_row(&locale, cx))
             .child(
                 div()
                     .mt(px(18.0))
@@ -108,7 +117,12 @@ impl CoduxApp {
             |window, cx| {
                 let mut app = CoduxApp::new_settings_window();
                 app.window_mode = AppWindowMode::About;
-                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                theme::apply_component_theme(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    Some(window),
+                    cx,
+                );
                 let view = cx.new(|_| app);
                 cx.new(|cx| Root::new(view, window, cx))
             },
@@ -148,7 +162,12 @@ impl CoduxApp {
                 app.window_mode = AppWindowMode::MemoryManager;
                 app.memory_manager_tab = MemoryManagerTab::Summary;
                 app.reload_memory_manager_snapshot();
-                theme::apply_component_theme_for_name(&app.state.settings.theme, Some(window), cx);
+                theme::apply_component_theme(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    Some(window),
+                    cx,
+                );
                 let view = cx.new(|_| app);
                 cx.new(|cx| Root::new(view, window, cx))
             },
@@ -181,6 +200,7 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn open_runtime_log(&mut self, cx: &mut Context<Self>) {
+        self.runtime_trace("help", "open_runtime_log");
         match self.runtime_service.open_runtime_log() {
             Ok(()) => self.status_message = "runtime log opened".to_string(),
             Err(error) => self.status_message = format!("failed to open runtime log: {error}"),
@@ -189,6 +209,7 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn open_live_log(&mut self, cx: &mut Context<Self>) {
+        self.runtime_trace("help", "open_live_log");
         match self.runtime_service.open_live_log() {
             Ok(()) => self.status_message = "live log opened".to_string(),
             Err(error) => self.status_message = format!("failed to open live log: {error}"),
@@ -205,13 +226,17 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn export_diagnostics(&mut self, cx: &mut Context<Self>) {
+        self.runtime_trace("help", "export_diagnostics choose_destination");
         let destination =
             match self
                 .runtime_service
                 .localized_save_dialog(LocalizedSaveDialogRequest {
-                    title: "导出诊断".to_string(),
-                    message: "选择诊断报告保存位置。".to_string(),
-                    prompt: "保存".to_string(),
+                    title: self.text("about.diagnostics.export", "Export Diagnostics"),
+                    message: self.text(
+                        "about.diagnostics.export.message",
+                        "Choose where to save the diagnostics report.",
+                    ),
+                    prompt: self.text("common.save", "Save"),
                     default_path: Some(format!("codux-diagnostics-{}.json", timestamp_slug())),
                     filters: vec![DialogFilter {
                         _name: "JSON".to_string(),
@@ -247,12 +272,20 @@ impl CoduxApp {
             update,
         ) {
             Ok(result) => {
+                self.runtime_trace(
+                    "help",
+                    &format!(
+                        "export_diagnostics success path={} bytes={}",
+                        result.path, result.bytes
+                    ),
+                );
                 self.status_message = format!(
                     "diagnostics exported: {} ({} bytes)",
                     result.path, result.bytes
                 );
             }
             Err(error) => {
+                self.runtime_trace("help", &format!("export_diagnostics failed error={error}"));
                 self.status_message = format!("failed to export diagnostics: {error}");
             }
         }
@@ -285,36 +318,48 @@ fn about_icon_mark() -> impl IntoElement {
 fn about_status_card(
     about: &AppAboutMetadata,
     update: &codux_runtime::update::UpdateStatus,
+    locale: &str,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let tr = |key: &str, fallback: &str| translate(locale, key, fallback);
     let update_label = if !update.configured {
-        "更新通道未配置".to_string()
+        tr("settings.update.mode.not_configured", "Not configured")
     } else if update.available {
         update
             .latest_version
             .as_ref()
-            .map(|version| format!("发现新版本 {version}"))
-            .unwrap_or_else(|| "发现新版本".to_string())
+            .map(|version| {
+                tr("about.update.available_format", "New version %@ available")
+                    .replace("%@", version)
+            })
+            .unwrap_or_else(|| tr("about.update.available", "New version available"))
     } else {
-        "当前已是最新版本".to_string()
+        tr("about.update.latest", "You are up to date")
     };
 
     div()
         .mt(px(22.0))
         .w(px(312.0))
         .rounded(px(8.0))
-        .bg(color(0xFFFFFF).opacity(0.055))
+        .bg(cx.theme().group_box)
         .border_1()
         .border_color(color(theme::BORDER_SOFT))
         .p(px(12.0))
         .flex()
         .flex_col()
         .gap(px(8.0))
-        .child(about_info_row("描述", about.description.clone()))
-        .child(about_info_row("更新", update_label))
-        .child(about_info_row("模式", update.installation_mode.clone()))
+        .child(about_info_row(
+            tr("about.description", "Description"),
+            about.description.clone(),
+        ))
+        .child(about_info_row(tr("about.updates", "Updates"), update_label))
+        .child(about_info_row(
+            tr("about.mode", "Mode"),
+            update.installation_mode.clone(),
+        ))
 }
 
-fn about_info_row(label: &'static str, value: String) -> impl IntoElement {
+fn about_info_row(label: String, value: String) -> impl IntoElement {
     div()
         .flex()
         .items_center()
@@ -339,7 +384,8 @@ fn about_info_row(label: &'static str, value: String) -> impl IntoElement {
         )
 }
 
-fn about_action_row(cx: &mut Context<CoduxApp>) -> impl IntoElement {
+fn about_action_row(locale: &str, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+    let tr = |key: &str, fallback: &str| translate(locale, key, fallback);
     div()
         .mt(px(20.0))
         .flex()
@@ -348,49 +394,49 @@ fn about_action_row(cx: &mut Context<CoduxApp>) -> impl IntoElement {
         .gap(px(8.0))
         .child(about_button(
             "about-website",
-            "官网",
+            tr("about.website", "Website"),
             IconName::ExternalLink,
             cx,
             |app, _event, _window, cx| app.open_codux_website(cx),
         ))
         .child(about_button(
             "about-check-updates",
-            "检查更新",
+            tr("about.updates", "Check for Updates"),
             IconName::Redo2,
             cx,
             |app, _event, window, cx| app.reload_update(window, cx),
         ))
         .child(about_button(
             "about-install-update",
-            "安装更新",
+            tr("about.install_update", "Install Update"),
             IconName::ExternalLink,
             cx,
             |app, _event, window, cx| app.install_update(window, cx),
         ))
         .child(about_button(
             "about-diagnostics",
-            "导出诊断",
+            tr("about.diagnostics.export", "Export Diagnostics"),
             IconName::File,
             cx,
             |app, _event, _window, cx| app.export_diagnostics(cx),
         ))
         .child(about_button(
             "about-runtime-log",
-            "Runtime Log",
+            tr("menu.help.open_runtime_log", "Runtime Log"),
             IconName::File,
             cx,
             |app, _event, _window, cx| app.open_runtime_log(cx),
         ))
         .child(about_button(
             "about-live-log",
-            "Live Log",
+            tr("menu.help.open_live_log", "Live Log"),
             IconName::File,
             cx,
             |app, _event, _window, cx| app.open_live_log(cx),
         ))
         .child(about_button(
             "about-restart",
-            "重启",
+            tr("common.restart_now", "Restart Now"),
             IconName::Redo2,
             cx,
             |app, _event, _window, cx| app.request_restart(cx),
@@ -399,7 +445,7 @@ fn about_action_row(cx: &mut Context<CoduxApp>) -> impl IntoElement {
 
 fn about_button(
     id: &'static str,
-    label: &'static str,
+    label: String,
     icon: IconName,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,

@@ -29,6 +29,7 @@ fn capture_raw_sample() -> Option<RawSample> {
                 ..PerformanceMemorySnapshot::default()
             },
             cpu_percent_override: None,
+            gpu_percent: None,
         })
     }
 }

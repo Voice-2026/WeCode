@@ -18,8 +18,6 @@ use std::{
 pub struct AIRuntimeBridgeSnapshot {
     pub socket_path: String,
     pub wrapper_bin_path: String,
-    pub zdotdir_path: String,
-    pub hook_script_path: String,
     pub managed_hook_script_path: String,
     pub hook_config: AIRuntimeHookConfigStatus,
     pub terminals: Vec<AIRuntimeTerminalState>,
@@ -46,8 +44,6 @@ pub struct AIRuntimeToolHookConfigStatus {
 pub struct AIRuntimeBridge {
     root_dir: PathBuf,
     wrapper_bin_dir: PathBuf,
-    zdotdir: PathBuf,
-    hook_script: PathBuf,
     managed_hook_script: PathBuf,
     runtime_event_dir: PathBuf,
     socket_path: PathBuf,
@@ -64,11 +60,6 @@ impl AIRuntimeBridge {
 
     fn with_paths(root_dir: PathBuf, temp_dir: PathBuf, home_dir: PathBuf) -> Self {
         let wrapper_bin_dir = root_dir.join("scripts").join("wrappers").join("bin");
-        let zdotdir = root_dir.join("scripts").join("shell-hooks").join("zsh");
-        let hook_script = root_dir
-            .join("scripts")
-            .join("shell-hooks")
-            .join("dmux-ai-hook.zsh");
         let managed_hook_script = root_dir
             .join("scripts")
             .join("wrappers")
@@ -76,8 +67,6 @@ impl AIRuntimeBridge {
         Self {
             root_dir,
             wrapper_bin_dir,
-            zdotdir,
-            hook_script,
             managed_hook_script,
             runtime_event_dir: temp_dir.join("runtime-events"),
             socket_path: temp_dir.join("runtime-events.sock"),
@@ -124,7 +113,6 @@ impl AIRuntimeBridge {
         fs::create_dir_all(self.wrapper_bin_dir.parent().unwrap_or(&self.root_dir))
             .map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.wrapper_bin_dir).map_err(|error| error.to_string())?;
-        fs::create_dir_all(&self.zdotdir).map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.temp_dir).map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.runtime_event_dir).map_err(|error| error.to_string())?;
         fs::create_dir_all(self.claude_session_map_dir()).map_err(|error| error.to_string())?;
@@ -132,18 +120,6 @@ impl AIRuntimeBridge {
         fs::create_dir_all(self.home_dir.join(".kiro").join("agents"))
             .map_err(|error| error.to_string())?;
 
-        stage_runtime_asset(
-            "scripts/shell-hooks/dmux-ai-hook.zsh",
-            &self.hook_script,
-            false,
-        )?;
-        for file in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
-            stage_runtime_asset(
-                &format!("scripts/shell-hooks/zsh/{file}"),
-                &self.zdotdir.join(file),
-                false,
-            )?;
-        }
         stage_runtime_asset(
             "scripts/wrappers/dmux-ai-state.sh",
             &self.managed_hook_script,
@@ -242,14 +218,6 @@ impl AIRuntimeBridge {
         &self.wrapper_bin_dir
     }
 
-    pub fn zdotdir(&self) -> &Path {
-        &self.zdotdir
-    }
-
-    pub fn hook_script(&self) -> &Path {
-        &self.hook_script
-    }
-
     pub fn managed_hook_script(&self) -> &Path {
         &self.managed_hook_script
     }
@@ -270,8 +238,6 @@ impl AIRuntimeBridge {
         AIRuntimeBridgeSnapshot {
             socket_path: self.socket_path.display().to_string(),
             wrapper_bin_path: self.wrapper_bin_dir.display().to_string(),
-            zdotdir_path: self.zdotdir.display().to_string(),
-            hook_script_path: self.hook_script.display().to_string(),
             managed_hook_script_path: self.managed_hook_script.display().to_string(),
             hook_config: hook_config_status(
                 &self

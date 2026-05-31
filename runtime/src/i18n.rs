@@ -237,6 +237,22 @@ mod tests {
         assert_eq!(
             bundle
                 .strings
+                .get("zh-Hans")
+                .and_then(|strings| strings.get("settings.language"))
+                .map(String::as_str),
+            Some("语言")
+        );
+        assert_eq!(
+            bundle
+                .strings
+                .get("zh-Hans")
+                .and_then(|strings| strings.get("worktree.sidebar.changed_format"))
+                .map(String::as_str),
+            Some("%@ 个变更")
+        );
+        assert_eq!(
+            bundle
+                .strings
                 .get("en")
                 .and_then(|strings| strings.get("titlebar.git"))
                 .map(String::as_str),
