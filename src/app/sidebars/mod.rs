@@ -290,7 +290,7 @@ impl Render for FileSidebarView {
 
 fn assistant_panel_header(
     title: impl Into<SharedString>,
-    icon: IconName,
+    icon: HeroIconName,
     action: impl IntoElement,
 ) -> impl IntoElement {
     let title = title.into();

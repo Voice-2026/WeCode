@@ -40,7 +40,7 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
         terminal_scrollback_lines: raw
             .get("terminalScrollbackLines")
             .and_then(Value::as_str)
-            .map(|value| numeric_string(value, 500, 200, 10_000).to_string())
+            .map(|value| numeric_string(value, 2000, 200, 10_000).to_string())
             .unwrap_or(defaults.terminal_scrollback_lines),
         git_refresh: raw
             .get("gitRefresh")

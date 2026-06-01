@@ -6,6 +6,68 @@ const WORKTREE_SIDEBAR_LOAD_RECENT_SECONDS: f64 = 3.0;
 const WORKTREE_SIDEBAR_LOAD_START_DEBOUNCE_SECONDS: f64 = 1.0;
 
 impl CoduxApp {
+    pub(super) fn refresh_task_column_async(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.state.selected_project.clone() else {
+            self.status_message = "no selected project to refresh".to_string();
+            cx.notify();
+            return;
+        };
+        if self.task_column_refreshing {
+            return;
+        }
+
+        self.task_column_refreshing = true;
+        self.status_message = format!("refreshing tasks for {}", project.name);
+        self.notify_task_column(cx);
+        cx.notify();
+
+        let runtime_service = self.runtime_service.clone();
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        let worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
+        let generation = self.project_switch_generation;
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                let worktrees =
+                    runtime_service.reload_worktrees(Some(&project_id), Some(&project_path));
+                let request = ai_history_worktree_request(&project, worktree.as_ref());
+                let ai_history = runtime_service.reload_project_ai_history(&request.path);
+                let ai_session_detail = ai_history.sessions.first().map(|session| {
+                    runtime_service.reload_project_ai_session_detail(&request.path, &session.id)
+                });
+                (
+                    ProjectSwitchTaskLoad {
+                        project_id: project_id.clone(),
+                        generation,
+                        worktrees,
+                    },
+                    ProjectSwitchPrimaryLoad {
+                        project_id: project_id.clone(),
+                        generation,
+                        ai_history,
+                        ai_session_detail,
+                    },
+                )
+            })
+            .await
+            .ok();
+
+            let _ = this.update(cx, |app, cx| {
+                app.task_column_refreshing = false;
+                if let Some((task_load, primary_load)) = result {
+                    app.apply_project_switch_task_load(task_load, cx);
+                    app.apply_project_switch_primary_load(primary_load, cx);
+                    app.status_message = "task list refreshed".to_string();
+                } else {
+                    app.status_message = "failed to refresh task list".to_string();
+                }
+                app.notify_task_column(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn refresh_files_panel_state(&mut self) {
         let Some(project_path) = self.selected_worktree_path() else {
             return;
@@ -1170,6 +1232,9 @@ impl CoduxApp {
             return;
         }
 
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
         let bounds = Bounds::centered(None, size(px(620.0), px(430.0)), cx);
         let result = cx.open_window(
             WindowOptions {
@@ -1183,7 +1248,11 @@ impl CoduxApp {
                 ..Default::default()
             },
             move |window, cx| {
-                let app = CoduxApp::new_project_creator_window();
+                let app = CoduxApp::new_project_creator_window_from_state(
+                    state.clone(),
+                    runtime.clone(),
+                    runtime_service.clone(),
+                );
                 theme::apply_component_theme(
                     &app.state.settings.theme,
                     &app.state.settings.theme_color,
@@ -1223,6 +1292,9 @@ impl CoduxApp {
             return;
         }
 
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
         let bounds = Bounds::centered(None, size(px(620.0), px(430.0)), cx);
         let result = cx.open_window(
             WindowOptions {
@@ -1236,7 +1308,12 @@ impl CoduxApp {
                 ..Default::default()
             },
             move |window, cx| {
-                let app = CoduxApp::new_project_editor_window(project);
+                let app = CoduxApp::new_project_editor_window_from_state(
+                    project,
+                    state.clone(),
+                    runtime.clone(),
+                    runtime_service.clone(),
+                );
                 theme::apply_component_theme(
                     &app.state.settings.theme,
                     &app.state.settings.theme_color,

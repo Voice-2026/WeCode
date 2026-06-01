@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::app_events::current_memory_update_event;
 
 impl CoduxApp {
     pub(super) fn text(&self, key: &str, fallback: &str) -> String {
@@ -25,6 +26,7 @@ impl CoduxApp {
         let runtime_ingress = RuntimeIngressService::new()
             .start_background_with_ai_runtime(runtime_service.ai_runtime_bridge());
         let _ = runtime_service.recover_interrupted_memory_extraction_queue();
+        let _ = runtime_service.clear_memory_extraction_failures();
         let power_sync_error = runtime_service.start_power_settings_sync().err();
         state.power = runtime_service.power_summary(&state.settings.sleep_mode);
         if let Some(error) = power_sync_error {
@@ -35,15 +37,9 @@ impl CoduxApp {
         let ai_runtime_status = match runtime_service.start_ai_runtime_event_processing() {
             Ok(_) => {
                 let snapshot = runtime_service.ai_runtime_state_snapshot();
-                match runtime_service.save_ai_runtime_state_snapshot(&snapshot) {
-                    Ok(summary) => {
-                        state.ai_runtime_state = summary;
-                        "AI runtime supervisor started".to_string()
-                    }
-                    Err(error) => {
-                        format!("AI runtime supervisor started, state save failed: {error}")
-                    }
-                }
+                state.ai_runtime_state =
+                    runtime_service.summarize_ai_runtime_state_snapshot(&snapshot);
+                "AI runtime supervisor started".to_string()
             }
             Err(error) => format!("AI runtime supervisor failed: {error}"),
         };
@@ -251,6 +247,7 @@ impl CoduxApp {
             pet_update_seen_revision: current_pet_update_event().revision,
             settings_seen_revision: current_settings_update_event().revision,
             ssh_seen_revision: current_ssh_update_event().revision,
+            memory_seen_revision: current_memory_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -258,6 +255,7 @@ impl CoduxApp {
             ai_session_delete_confirm_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
+            ai_provider_test_result: None,
             selected_memory_entry_id,
             selected_memory_summary_id,
             selected_notification_channel_id,
@@ -274,11 +272,15 @@ impl CoduxApp {
             project_task_load_in_flight: HashSet::new(),
             project_task_load_last_started_at: HashMap::new(),
             project_task_load_last_finished_at: HashMap::new(),
+            task_column_refreshing: false,
             worktree_sidebar_load_in_flight: HashSet::new(),
             worktree_sidebar_load_last_started_at: HashMap::new(),
             worktree_sidebar_load_last_finished_at: HashMap::new(),
             memory_progress_visible_until: 0.0,
             memory_progress_generation: 0,
+            memory_manager_refreshing: false,
+            memory_manager_refresh_generation: 0,
+            memory_project_profile_refreshing: false,
             performance_refresh_in_flight: false,
             pending_performance_refresh: None,
             today_level_day_start: codux_runtime::ai_history_normalized::local_day_start_seconds(
@@ -289,6 +291,7 @@ impl CoduxApp {
             memory_manager_scope: "project".to_string(),
             memory_manager_project_id,
             memory_processing: false,
+            memory_extraction_status_refreshing: false,
             selected_runtime_terminal_id,
             selected_ssh_profile_id,
             ssh_draft_open: false,
@@ -311,7 +314,7 @@ impl CoduxApp {
             agent_split_enabled: false,
             workspace_view: WorkspaceView::Terminal,
             assistant_panel: None,
-            project_column_collapsed: false,
+            project_column_collapsed: true,
             task_column_collapsed: false,
             project_list_store: None,
             project_column_view: None,

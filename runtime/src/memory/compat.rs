@@ -100,6 +100,7 @@ impl MemoryService {
                 queued: count_queue(&conn, &["queued", "pending"])?,
                 running: count_queue(&conn, &["running"])?,
                 failed: count_queue(&conn, &["failed"])?,
+                last_error: super::latest_failed_queue_error(&conn)?,
             },
             error: None,
         })

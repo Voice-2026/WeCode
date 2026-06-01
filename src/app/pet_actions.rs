@@ -1,15 +1,24 @@
 use super::*;
 
 impl CoduxApp {
-    pub(super) fn new_desktop_pet_window() -> Self {
-        let mut app = Self::new_settings_window();
+    pub(super) fn new_desktop_pet_window_from_state(
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
         app.window_mode = AppWindowMode::DesktopPet;
         app.status_message = "desktop pet window ready".to_string();
         app
     }
 
-    pub(super) fn new_pet_window(mode: AppWindowMode) -> Self {
-        let mut app = Self::new_settings_window();
+    pub(super) fn new_pet_window_from_state(
+        mode: AppWindowMode,
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
         app.window_mode = mode;
         app.status_message = match mode {
             AppWindowMode::PetClaim => "pet claim window ready".to_string(),
@@ -221,7 +230,11 @@ impl CoduxApp {
             },
             |window, cx| {
                 macos_window::make_desktop_pet_window_transparent(window);
-                let app = CoduxApp::new_desktop_pet_window();
+                let app = CoduxApp::new_desktop_pet_window_from_state(
+                    self.state.clone(),
+                    self.runtime.clone(),
+                    self.runtime_service.clone(),
+                );
                 theme::apply_component_theme(
                     &app.state.settings.theme,
                     &app.state.settings.theme_color,

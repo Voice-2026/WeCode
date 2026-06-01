@@ -9,7 +9,7 @@ use crate::{
     ai_runtime::{
         probe::paths::paths_equivalent, snapshot::AISessionSnapshot, state::normalized_string,
     },
-    runtime_state::ProjectInfo,
+    project_store::ProjectWorkspaceRecord,
     settings::{AIMemorySettings, AISettings},
 };
 use serde::Serialize;
@@ -27,7 +27,7 @@ impl MemoryService {
     pub fn enqueue_manual_extraction_candidates(
         &self,
         memory_settings: &AIMemorySettings,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
         runtime_sessions: &[AISessionSnapshot],
         history_sessions: &[AISessionSummary],
     ) -> Result<MemoryManualEnqueueResult, String> {
@@ -70,7 +70,7 @@ impl MemoryService {
     pub async fn process_memory_sessions_now(
         &self,
         settings: &AISettings,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
         runtime_sessions: &[AISessionSnapshot],
         history_sessions: &[AISessionSummary],
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
@@ -94,7 +94,7 @@ impl MemoryService {
 
     fn enqueue_session_for_manual_extraction(
         &self,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
         session: &AISessionSnapshot,
     ) -> Result<bool, String> {
         if session.state != "idle" || !session.has_completed_turn {
@@ -120,7 +120,7 @@ impl MemoryService {
 
 fn manual_extraction_candidates(
     memory_settings: &AIMemorySettings,
-    projects: &[ProjectInfo],
+    projects: &[ProjectWorkspaceRecord],
     sessions: &[AISessionSnapshot],
 ) -> Vec<AISessionSnapshot> {
     let limit = memory_settings.max_index_sessions.max(1) as usize;
@@ -147,7 +147,7 @@ fn manual_extraction_candidates(
 
 fn manual_extraction_candidates_from_history(
     memory_settings: &AIMemorySettings,
-    projects: &[ProjectInfo],
+    projects: &[ProjectWorkspaceRecord],
     sessions: &[AISessionSummary],
 ) -> Vec<AISessionSnapshot> {
     let limit = memory_settings.max_index_sessions.max(1) as usize;
@@ -214,40 +214,42 @@ fn deduplicate_manual_candidates(sessions: Vec<AISessionSnapshot>) -> Vec<AISess
 }
 
 fn memory_project_context(
-    projects: &[ProjectInfo],
+    projects: &[ProjectWorkspaceRecord],
     session: &AISessionSnapshot,
 ) -> Option<MemoryProjectContext> {
     projects
         .iter()
-        .find(|project| project.id == session.project_id)
+        .find(|project| project.id == session.project_id || project.root_project_id == session.project_id)
         .or_else(|| {
             session.project_path.as_ref().and_then(|path| {
-                projects
-                    .iter()
-                    .find(|project| paths_equivalent(Some(project.path.as_str()), path))
+                projects.iter().find(|project| {
+                    paths_equivalent(Some(project.workspace_path.as_str()), path)
+                        || paths_equivalent(Some(project.root_project_path.as_str()), path)
+                })
             })
         })
         .map(|project| MemoryProjectContext {
-            project_id: project.id.clone(),
-            project_name: project.name.clone(),
-            workspace_path: project.path.clone(),
+            project_id: project.root_project_id.clone(),
+            project_name: project.root_project_name.clone(),
+            workspace_path: project.workspace_path.clone(),
         })
 }
 
 fn memory_project_context_from_history(
-    projects: &[ProjectInfo],
+    projects: &[ProjectWorkspaceRecord],
     session: &AISessionSummary,
 ) -> Option<MemoryProjectContext> {
     projects
         .iter()
         .find(|project| {
-            project.id == session.project_id
-                || paths_equivalent(Some(project.path.as_str()), &session.project_path)
+            project.root_project_id == session.project_id
+                || paths_equivalent(Some(project.workspace_path.as_str()), &session.project_path)
+                || paths_equivalent(Some(project.root_project_path.as_str()), &session.project_path)
         })
         .map(|project| MemoryProjectContext {
-            project_id: project.id.clone(),
-            project_name: project.name.clone(),
-            workspace_path: project.path.clone(),
+            project_id: project.root_project_id.clone(),
+            project_name: project.root_project_name.clone(),
+            workspace_path: project.workspace_path.clone(),
         })
 }
 

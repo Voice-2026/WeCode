@@ -523,6 +523,9 @@ impl CoduxApp {
         let selected_project_id = project.id.clone();
         let selected_project_name = project.name.clone();
         let selected_file = file_path.clone();
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
         let bounds = Bounds::centered(None, size(px(920.0), px(680.0)), cx);
         let result = cx.open_window(
             WindowOptions {
@@ -532,23 +535,12 @@ impl CoduxApp {
                 ..Default::default()
             },
             move |window, cx| {
-                let mut app = CoduxApp::new_settings_window();
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::GitDiff;
                 app.git_diff_window_path = Some(selected_file.clone());
-                match app.runtime_service.read_project_git_review_diff(
-                    &project_path,
-                    &selected_file,
-                    app.git_review.base_branch.as_deref(),
-                ) {
-                    Ok(diff) => {
-                        app.git_diff_window_content = diff;
-                        app.git_diff_window_error = None;
-                    }
-                    Err(error) => {
-                        app.git_diff_window_content.clear();
-                        app.git_diff_window_error = Some(error);
-                    }
-                }
+                app.git_diff_window_content = "Loading diff...".to_string();
+                app.git_diff_window_error = None;
                 app.state.selected_project = Some(ProjectInfo {
                     id: selected_project_id.clone(),
                     name: selected_project_name.clone(),
@@ -566,6 +558,39 @@ impl CoduxApp {
                     cx,
                 );
                 let view = cx.new(|_| app);
+                let service = view.read(cx).runtime_service.clone();
+                let base_branch = view.read(cx).git_review.base_branch.clone();
+                let diff_project_path = project_path.clone();
+                let diff_selected_file = selected_file.clone();
+                view.update(cx, |_app, cx| {
+                    cx.spawn(async move |this: gpui::WeakEntity<CoduxApp>, cx| {
+                        let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                            service.read_project_git_review_diff(
+                                &diff_project_path,
+                                &diff_selected_file,
+                                base_branch.as_deref(),
+                            )
+                        })
+                        .await
+                        .map_err(|error| error.to_string())
+                        .and_then(|result| result);
+                        let _ = this.update(cx, |app, cx| {
+                            match result {
+                                Ok(diff) => {
+                                    app.git_diff_window_content = diff;
+                                    app.git_diff_window_error = None;
+                                }
+                                Err(error) => {
+                                    app.git_diff_window_content.clear();
+                                    app.git_diff_window_error = Some(error);
+                                }
+                            }
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                });
                 cx.new(|cx| Root::new(view, window, cx))
             },
         );

@@ -39,6 +39,17 @@ pub struct MemoryEntrySummary {
     pub access_count: i64,
     pub created_at: f64,
     pub updated_at: f64,
+    pub last_decision: Option<MemoryEntryDecisionSummary>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryEntryDecisionSummary {
+    pub kind: String,
+    pub entry_id: Option<String>,
+    pub target_entry_id: Option<String>,
+    pub reason: String,
+    pub created_at: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -147,6 +158,7 @@ pub struct MemoryExtractionSummary {
     pub queued: i64,
     pub running: i64,
     pub failed: i64,
+    pub last_error: Option<String>,
 }
 
 pub struct MemoryService {

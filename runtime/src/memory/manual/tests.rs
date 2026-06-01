@@ -1,4 +1,5 @@
 use super::*;
+use crate::project_store::ProjectWorkspaceRecord;
 use std::fs;
 use uuid::Uuid;
 
@@ -8,15 +9,13 @@ fn temp_support_dir() -> std::path::PathBuf {
     dir
 }
 
-fn project(path: &str) -> ProjectInfo {
-    ProjectInfo {
+fn project(path: &str) -> ProjectWorkspaceRecord {
+    ProjectWorkspaceRecord {
         id: "project-a".to_string(),
-        name: "Project A".to_string(),
-        path: path.to_string(),
-        exists: true,
-        badge: "PA".to_string(),
-        badge_symbol: None,
-        badge_color_hex: None,
+        root_project_id: "project-a".to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: path.to_string(),
+        workspace_path: path.to_string(),
         git_default_push_remote_name: None,
     }
 }

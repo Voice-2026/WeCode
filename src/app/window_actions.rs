@@ -1,17 +1,40 @@
 use super::*;
+use crate::app::app_events::current_memory_update_event;
 
 impl CoduxApp {
-    pub(super) fn new_settings_window() -> Self {
-        let mut state = RuntimeState::load();
+    pub(super) fn new_settings_window_from_state(
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut state = state;
         state.settings = settings_with_active_restart_locked_values(&state.settings);
-        let runtime = RuntimeInventory::load();
-        let runtime_service = RuntimeService::new(state.support_dir.clone());
-        state.remote = runtime_service.reload_remote();
-        let power_sync_error = runtime_service.start_power_settings_sync().err();
-        state.power = runtime_service.power_summary(&state.settings.sleep_mode);
-        if let Some(error) = power_sync_error {
-            state.power.error = Some(error);
-        }
+        Self::new_auxiliary_window_from_state(state, runtime, runtime_service)
+    }
+
+    pub(super) fn new_memory_manager_window(
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_auxiliary_window_from_state(state, runtime, runtime_service);
+        app.window_mode = AppWindowMode::MemoryManager;
+        app.memory_manager_tab = MemoryManagerTab::Summary;
+        app.memory_manager_scope = "project".to_string();
+        app.memory_manager_project_id = app
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone());
+        app.memory_manager_refreshing = true;
+        app
+    }
+
+    fn new_auxiliary_window_from_state(
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
         let selected_ai_provider_id = state
             .settings
             .ai_providers
@@ -154,6 +177,7 @@ impl CoduxApp {
             pet_update_seen_revision: current_pet_update_event().revision,
             settings_seen_revision: current_settings_update_event().revision,
             ssh_seen_revision: current_ssh_update_event().revision,
+            memory_seen_revision: current_memory_update_event().revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -161,6 +185,7 @@ impl CoduxApp {
             ai_session_delete_confirm_id: None,
             selected_ai_provider_id,
             ai_provider_testing_id: None,
+            ai_provider_test_result: None,
             selected_memory_entry_id,
             selected_memory_summary_id,
             selected_notification_channel_id,
@@ -177,11 +202,15 @@ impl CoduxApp {
             project_task_load_in_flight: HashSet::new(),
             project_task_load_last_started_at: HashMap::new(),
             project_task_load_last_finished_at: HashMap::new(),
+            task_column_refreshing: false,
             worktree_sidebar_load_in_flight: HashSet::new(),
             worktree_sidebar_load_last_started_at: HashMap::new(),
             worktree_sidebar_load_last_finished_at: HashMap::new(),
             memory_progress_visible_until: 0.0,
             memory_progress_generation: 0,
+            memory_manager_refreshing: false,
+            memory_manager_refresh_generation: 0,
+            memory_project_profile_refreshing: false,
             performance_refresh_in_flight: false,
             pending_performance_refresh: None,
             today_level_day_start: codux_runtime::ai_history_normalized::local_day_start_seconds(
@@ -192,6 +221,7 @@ impl CoduxApp {
             memory_manager_scope: "project".to_string(),
             memory_manager_project_id,
             memory_processing: false,
+            memory_extraction_status_refreshing: false,
             selected_runtime_terminal_id,
             selected_ssh_profile_id: None,
             ssh_draft_open: false,
@@ -214,7 +244,7 @@ impl CoduxApp {
             agent_split_enabled: false,
             workspace_view: WorkspaceView::Terminal,
             assistant_panel: None,
-            project_column_collapsed: false,
+            project_column_collapsed: true,
             task_column_collapsed: false,
             project_list_store: None,
             project_column_view: None,
@@ -237,8 +267,13 @@ impl CoduxApp {
         }
     }
 
-    pub(super) fn new_project_editor_window(project: ProjectInfo) -> Self {
-        let mut app = Self::new_settings_window();
+    pub(super) fn new_project_editor_window_from_state(
+        project: ProjectInfo,
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
         app.window_mode = AppWindowMode::ProjectEditor;
         app.status_message = format!("editing project: {}", project.name);
         app.project_editor_project_id = Some(project.id);
@@ -251,8 +286,12 @@ impl CoduxApp {
         app
     }
 
-    pub(super) fn new_project_creator_window() -> Self {
-        let mut app = Self::new_settings_window();
+    pub(super) fn new_project_creator_window_from_state(
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
         app.window_mode = AppWindowMode::ProjectEditor;
         app.status_message = "creating project".to_string();
         app.project_editor_project_id = None;
@@ -263,8 +302,13 @@ impl CoduxApp {
         app
     }
 
-    pub(super) fn new_ssh_profile_editor_window(profile: Option<SSHConnectionProfile>) -> Self {
-        let mut app = Self::new_settings_window();
+    pub(super) fn new_ssh_profile_editor_window_from_state(
+        profile: Option<SSHConnectionProfile>,
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
         app.window_mode = AppWindowMode::SshProfileEditor;
         app.ssh_draft_open = true;
         app.ssh_draft_id = None;
@@ -593,7 +637,11 @@ impl CoduxApp {
                 ..Default::default()
             },
             |window, cx| {
-                let mut app = CoduxApp::new_settings_window();
+                let mut app = CoduxApp::new_settings_window_from_state(
+                    self.state.clone(),
+                    self.runtime.clone(),
+                    self.runtime_service.clone(),
+                );
                 app.active_settings_pane = pane;
                 theme::apply_component_theme(
                     &app.state.settings.theme,
@@ -672,6 +720,9 @@ impl CoduxApp {
         } else {
             "Add SSH Profile"
         };
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
         let bounds = Bounds::centered(None, size(px(520.0), px(430.0)), cx);
         let result = cx.open_window(
             WindowOptions {
@@ -681,7 +732,12 @@ impl CoduxApp {
                 ..Default::default()
             },
             move |window, cx| {
-                let app = CoduxApp::new_ssh_profile_editor_window(profile);
+                let app = CoduxApp::new_ssh_profile_editor_window_from_state(
+                    profile,
+                    state.clone(),
+                    runtime.clone(),
+                    runtime_service.clone(),
+                );
                 theme::apply_component_theme(
                     &app.state.settings.theme,
                     &app.state.settings.theme_color,

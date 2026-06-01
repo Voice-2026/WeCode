@@ -412,11 +412,11 @@ impl RuntimeService {
         self.ai_runtime.runtime_state_snapshot()
     }
 
-    pub fn save_ai_runtime_state_snapshot(
+    pub fn summarize_ai_runtime_state_snapshot(
         &self,
         snapshot: &AIRuntimeStateSnapshot,
-    ) -> Result<AIRuntimeStateSummary, String> {
-        AIRuntimeStateService::new(self.support_dir.clone()).save_from_runtime_snapshot(snapshot)
+    ) -> AIRuntimeStateSummary {
+        AIRuntimeStateService::new(self.support_dir.clone()).summary_from_runtime_snapshot(snapshot)
     }
 
     pub fn poll_ai_runtime_state(&self) -> Result<AIRuntimeStateSnapshot, String> {

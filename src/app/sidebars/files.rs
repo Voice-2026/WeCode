@@ -130,13 +130,13 @@ pub(in crate::app) fn file_section(
         }))
         .child(assistant_panel_header(
             labels.title.clone(),
-            IconName::Folder,
+            HeroIconName::Folder,
             div()
                 .flex()
                 .items_center()
                 .child(assistant_header_icon_button(
                     "file-sidebar-new-file",
-                    IconName::File,
+                    HeroIconName::Document,
                     app_entity.clone(),
                     window,
                     cx,
@@ -144,19 +144,11 @@ pub(in crate::app) fn file_section(
                 ))
                 .child(assistant_header_icon_button(
                     "file-sidebar-new-dir",
-                    IconName::FolderClosed,
+                    HeroIconName::Folder,
                     app_entity.clone(),
                     window,
                     cx,
                     |app, _event, window, cx| app.create_project_directory(window, cx),
-                ))
-                .child(assistant_header_icon_button(
-                    "file-sidebar-refresh",
-                    IconName::Redo2,
-                    app_entity.clone(),
-                    window,
-                    cx,
-                    |app, _event, window, cx| app.reload_project_files(window, cx),
                 )),
         ))
         .child(
@@ -226,7 +218,7 @@ pub(in crate::app) fn file_section(
 
                                         menu.item(
                                             PopupMenuItem::new(labels.open.clone())
-                                                .icon(IconName::ExternalLink)
+                                                .icon(HeroIconName::ArrowTopRightOnSquare)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
                                                     cx.update_entity(&open_entity, |app, cx| {
@@ -236,7 +228,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .item(
                                             PopupMenuItem::new(labels.reveal.clone())
-                                                .icon(IconName::FolderOpen)
+                                                .icon(HeroIconName::FolderOpen)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
                                                     cx.update_entity(&reveal_entity, |app, cx| {
@@ -246,7 +238,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .item(
                                             PopupMenuItem::new(labels.copy_path.clone())
-                                                .icon(IconName::Copy)
+                                                .icon(HeroIconName::DocumentDuplicate)
                                                 .disabled(!has_selected)
                                                 .on_click(move |_, _window, cx| {
                                                     cx.write_to_clipboard(
@@ -259,7 +251,7 @@ pub(in crate::app) fn file_section(
                                         .separator()
                                         .item(
                                             PopupMenuItem::new(labels.copy.clone())
-                                                .icon(IconName::Copy)
+                                                .icon(HeroIconName::DocumentDuplicate)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
                                                     cx.update_entity(&copy_entity, |app, cx| {
@@ -269,7 +261,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .item(
                                             PopupMenuItem::new(labels.paste.clone())
-                                                .icon(IconName::Copy)
+                                                .icon(HeroIconName::DocumentDuplicate)
                                                 .on_click(move |_, window, cx| {
                                                     let paths = clipboard_external_paths(cx);
                                                     cx.update_entity(&paste_entity, |app, cx| {
@@ -285,7 +277,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .item(
                                             PopupMenuItem::new(labels.rename.clone())
-                                                .icon(IconName::CaseSensitive)
+                                                .icon(HeroIconName::Language)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, window, cx| {
                                                     cx.update_entity(&rename_entity, |app, cx| {
@@ -295,7 +287,7 @@ pub(in crate::app) fn file_section(
                                         )
                                         .item(
                                             PopupMenuItem::new(labels.send_terminal.clone())
-                                                .icon(IconName::SquareTerminal)
+                                                .icon(HeroIconName::CommandLine)
                                                 .disabled(!has_selected || multiple)
                                                 .on_click(move |_, _window, cx| {
                                                     cx.update_entity(&terminal_entity, |app, cx| {
@@ -312,7 +304,7 @@ pub(in crate::app) fn file_section(
                                         .separator()
                                         .item(
                                             PopupMenuItem::new(labels.delete.clone())
-                                                .icon(IconName::Delete)
+                                                .icon(HeroIconName::Trash)
                                                 .disabled(!has_selected)
                                                 .on_click(move |_, window, cx| {
                                                     cx.update_entity(&delete_entity, |app, cx| {
@@ -392,7 +384,7 @@ fn file_empty_state(label: impl Into<String>) -> impl IntoElement {
 
 fn assistant_header_icon_button(
     id: &'static str,
-    icon: IconName,
+    icon: HeroIconName,
     app_entity: gpui::Entity<CoduxApp>,
     window: &mut Window,
     cx: &mut Context<FileSidebarView>,
@@ -419,8 +411,8 @@ fn file_name_draft_row(
     cx: &mut Context<FileSidebarView>,
 ) -> impl IntoElement {
     let icon = match kind {
-        FileNameDraftKind::CreateDirectory => IconName::FolderClosed,
-        _ => IconName::File,
+        FileNameDraftKind::CreateDirectory => HeroIconName::Folder,
+        _ => HeroIconName::Document,
     };
     let input_state =
         file_name_draft_input_state(app_entity, kind, value, draft_select_all, window, cx);
@@ -668,12 +660,12 @@ fn file_tree_entry_row(
     let hover_surface = cx.theme().list_hover;
     let icon = if is_dir {
         if expanded {
-            IconName::FolderOpen
+            HeroIconName::FolderOpen
         } else {
-            IconName::FolderClosed
+            HeroIconName::Folder
         }
     } else {
-        IconName::File
+        HeroIconName::Document
     };
     let indent = px(8.0 + depth as f32 * 14.0);
 
@@ -763,9 +755,9 @@ fn file_tree_entry_row(
                 .justify_center()
                 .child(if is_dir {
                     Icon::new(if expanded {
-                        IconName::ChevronDown
+                        HeroIconName::ChevronDown
                     } else {
-                        IconName::ChevronRight
+                        HeroIconName::ChevronRight
                     })
                     .size_3()
                     .text_color(color(theme::TEXT_MUTED))
@@ -918,7 +910,7 @@ pub(in crate::app) fn file_preview_workspace(
                 )
                 .child(header_icon_button(
                     "file-preview-search",
-                    IconName::Search,
+                    HeroIconName::MagnifyingGlass,
                     cx,
                     |app, _event, _window, cx| app.open_file_search(cx),
                 )),
@@ -1023,13 +1015,13 @@ fn file_preview_search_bar(
         )
         .child(header_icon_button(
             "file-preview-search-prev",
-            IconName::ChevronUp,
+            HeroIconName::ChevronUp,
             cx,
             |app, _event, window, cx| app.select_previous_file_search_match(window, cx),
         ))
         .child(header_icon_button(
             "file-preview-search-next",
-            IconName::ChevronDown,
+            HeroIconName::ChevronDown,
             cx,
             |app, _event, window, cx| app.select_next_file_search_match(window, cx),
         ))
@@ -1043,7 +1035,7 @@ fn file_preview_search_bar(
         )
         .child(header_icon_button(
             "file-preview-search-close",
-            IconName::Close,
+            HeroIconName::XMark,
             cx,
             |app, _event, window, cx| app.close_file_search(window, cx),
         ))

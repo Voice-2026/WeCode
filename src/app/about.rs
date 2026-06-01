@@ -115,7 +115,11 @@ impl CoduxApp {
                 ..Default::default()
             },
             |window, cx| {
-                let mut app = CoduxApp::new_settings_window();
+                let mut app = CoduxApp::new_settings_window_from_state(
+                    self.state.clone(),
+                    self.runtime.clone(),
+                    self.runtime_service.clone(),
+                );
                 app.window_mode = AppWindowMode::About;
                 theme::apply_component_theme(
                     &app.state.settings.theme,
@@ -150,6 +154,9 @@ impl CoduxApp {
         }
 
         let bounds = Bounds::centered(None, size(px(900.0), px(720.0)), cx);
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
         let result = cx.open_window(
             WindowOptions {
                 titlebar: Some(theme::codux_titlebar("Memory Manager")),
@@ -158,10 +165,7 @@ impl CoduxApp {
                 ..Default::default()
             },
             |window, cx| {
-                let mut app = CoduxApp::new_settings_window();
-                app.window_mode = AppWindowMode::MemoryManager;
-                app.memory_manager_tab = MemoryManagerTab::Summary;
-                app.reload_memory_manager_snapshot();
+                let app = CoduxApp::new_memory_manager_window(state, runtime, runtime_service);
                 theme::apply_component_theme(
                     &app.state.settings.theme,
                     &app.state.settings.theme_color,
@@ -169,6 +173,7 @@ impl CoduxApp {
                     cx,
                 );
                 let view = cx.new(|_| app);
+                view.update(cx, |app, cx| app.reload_memory_manager_snapshot_async(cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },
         );
@@ -395,49 +400,49 @@ fn about_action_row(locale: &str, cx: &mut Context<CoduxApp>) -> impl IntoElemen
         .child(about_button(
             "about-website",
             tr("about.website", "Website"),
-            IconName::ExternalLink,
+            HeroIconName::ArrowTopRightOnSquare,
             cx,
             |app, _event, _window, cx| app.open_codux_website(cx),
         ))
         .child(about_button(
             "about-check-updates",
             tr("about.updates", "Check for Updates"),
-            IconName::Redo2,
+            HeroIconName::ArrowPath,
             cx,
             |app, _event, window, cx| app.reload_update(window, cx),
         ))
         .child(about_button(
             "about-install-update",
             tr("about.install_update", "Install Update"),
-            IconName::ExternalLink,
+            HeroIconName::ArrowTopRightOnSquare,
             cx,
             |app, _event, window, cx| app.install_update(window, cx),
         ))
         .child(about_button(
             "about-diagnostics",
             tr("about.diagnostics.export", "Export Diagnostics"),
-            IconName::File,
+            HeroIconName::Document,
             cx,
             |app, _event, _window, cx| app.export_diagnostics(cx),
         ))
         .child(about_button(
             "about-runtime-log",
             tr("menu.help.open_runtime_log", "Runtime Log"),
-            IconName::File,
+            HeroIconName::Document,
             cx,
             |app, _event, _window, cx| app.open_runtime_log(cx),
         ))
         .child(about_button(
             "about-live-log",
             tr("menu.help.open_live_log", "Live Log"),
-            IconName::File,
+            HeroIconName::Document,
             cx,
             |app, _event, _window, cx| app.open_live_log(cx),
         ))
         .child(about_button(
             "about-restart",
             tr("common.restart_now", "Restart Now"),
-            IconName::Redo2,
+            HeroIconName::ArrowUturnRight,
             cx,
             |app, _event, _window, cx| app.request_restart(cx),
         ))
@@ -446,7 +451,7 @@ fn about_action_row(locale: &str, cx: &mut Context<CoduxApp>) -> impl IntoElemen
 fn about_button(
     id: &'static str,
     label: String,
-    icon: IconName,
+    icon: HeroIconName,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {

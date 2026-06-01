@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::ui_helpers::with_codux_tooltip;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) fn ssh_section(
@@ -40,10 +41,10 @@ pub(in crate::app) fn ssh_section(
         .relative()
         .child(assistant_panel_header(
             title,
-            IconName::SquareTerminal,
+            HeroIconName::CommandLine,
             header_icon_button(
                 "ssh-add-profile",
-                IconName::Plus,
+                HeroIconName::Plus,
                 cx,
                 |app, _event, window, cx| app.open_ssh_profile_dialog(window, cx),
             ),
@@ -98,7 +99,7 @@ fn ssh_empty_state(label: String, cx: &mut Context<CoduxApp>) -> impl IntoElemen
                 .justify_center()
                 .bg(ai_stats_surface(cx))
                 .child(
-                    Icon::new(IconName::SquareTerminal)
+                    Icon::new(HeroIconName::CommandLine)
                         .size_5()
                         .text_color(color(theme::TEXT_MUTED)),
                 ),
@@ -164,7 +165,7 @@ fn ssh_profile_row(
                 .justify_center()
                 .bg(color(theme::ORANGE).opacity(0.14))
                 .child(
-                    Icon::new(IconName::SquareTerminal)
+                    Icon::new(HeroIconName::CommandLine)
                         .size_4()
                         .text_color(color(theme::ORANGE)),
                 ),
@@ -194,23 +195,24 @@ fn ssh_profile_row(
                         .child(profile.endpoint),
                 ),
         )
-        .child(
+        .child(with_codux_tooltip(
+            format!("ssh-connect-tooltip-{}", profile.id),
             Button::new(SharedString::from(format!("ssh-connect-{}", profile.id)))
                 .compact()
                 .ghost()
                 .text_color(cx.theme().secondary_foreground)
                 .icon(
-                    Icon::new(IconName::ExternalLink)
+                    Icon::new(HeroIconName::ArrowTopRightOnSquare)
                         .size_3p5()
                         .text_color(cx.theme().secondary_foreground),
                 )
-                .tooltip(connect_label)
                 .on_click(cx.listener(move |app, _event, window, cx| {
                     cx.stop_propagation();
                     app.select_ssh_profile(connect_profile_id.clone(), window, cx);
                     app.connect_selected_ssh_profile(window, cx);
                 })),
-        )
+            connect_label,
+        ))
         .context_menu(move |menu, _window, _cx| {
             let open_entity = app_entity.clone();
             let open_profile_id = menu_profile_id.clone();
@@ -221,7 +223,7 @@ fn ssh_profile_row(
 
             menu.item(
                 PopupMenuItem::new(open_label.clone())
-                    .icon(IconName::ExternalLink)
+                    .icon(HeroIconName::ArrowTopRightOnSquare)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&open_entity, |app, cx| {
                             app.select_ssh_profile(open_profile_id.clone(), window, cx);
@@ -231,7 +233,7 @@ fn ssh_profile_row(
             )
             .item(
                 PopupMenuItem::new(edit_label.clone())
-                    .icon(IconName::CaseSensitive)
+                    .icon(HeroIconName::Language)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&edit_entity, |app, cx| {
                             app.select_ssh_profile(edit_profile_id.clone(), window, cx);
@@ -242,7 +244,7 @@ fn ssh_profile_row(
             .separator()
             .item(
                 PopupMenuItem::new(remove_label.clone())
-                    .icon(IconName::Delete)
+                    .icon(HeroIconName::Trash)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&remove_entity, |app, cx| {
                             app.select_ssh_profile(remove_profile_id.clone(), window, cx);

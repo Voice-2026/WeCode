@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::ui_helpers::{codux_tooltip, with_codux_tooltip};
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::{Anchor, relative};
 use gpui_component::{
@@ -393,7 +394,7 @@ impl CoduxApp {
                             .gap_1()
                             .child(terminal_pane_control_button(
                                 float_id,
-                                IconName::ExternalLink,
+                                HeroIconName::ArrowTopRightOnSquare,
                                 "浮窗",
                                 pane_count > 1,
                                 cx,
@@ -403,7 +404,7 @@ impl CoduxApp {
                             ))
                             .child(terminal_pane_control_button(
                                 add_id,
-                                IconName::Plus,
+                                HeroIconName::Plus,
                                 "新建分屏",
                                 true,
                                 cx,
@@ -411,7 +412,7 @@ impl CoduxApp {
                             ))
                             .child(terminal_pane_control_button(
                                 close_id,
-                                IconName::Close,
+                                HeroIconName::XMark,
                                 "关闭分屏",
                                 pane_count > 1,
                                 cx,
@@ -446,7 +447,7 @@ fn terminal_bottom_content(tab: &TerminalTab) -> impl IntoElement {
 
 fn terminal_pane_control_button(
     id: SharedString,
-    icon: IconName,
+    icon: HeroIconName,
     tooltip: &'static str,
     enabled: bool,
     cx: &mut Context<CoduxApp>,
@@ -466,7 +467,7 @@ fn terminal_pane_control_button(
         .justify_center()
         .rounded_sm()
         .text_color(text_color)
-        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .tooltip(move |window, cx| codux_tooltip(tooltip, window, cx))
         .child(Icon::new(icon).size_3p5().text_color(text_color));
 
     if enabled {
@@ -539,7 +540,7 @@ fn workspace_open_button(
                     }
                 })
                 .child(
-                    Icon::new(IconName::FolderOpen)
+                    Icon::new(HeroIconName::FolderOpen)
                         .size_3p5()
                         .text_color(cx.theme().foreground),
                 ),
@@ -553,7 +554,7 @@ fn workspace_open_button(
                 .cursor_pointer()
                 .text_color(cx.theme().foreground)
                 .child(
-                    Icon::new(IconName::ChevronDown)
+                    Icon::new(HeroIconName::ChevronDown)
                         .size_2()
                         .text_color(cx.theme().foreground),
                 )
@@ -564,7 +565,9 @@ fn workspace_open_button(
                             "workspace.open.installed_apps_empty",
                             "No installed apps",
                         );
-                        menu.item(PopupMenuItem::new(label).icon(IconName::ExternalLink))
+                        menu.item(
+                            PopupMenuItem::new(label).icon(HeroIconName::ArrowTopRightOnSquare),
+                        )
                     } else {
                         applications.iter().fold(menu, |menu, application| {
                             let app_entity = app_entity.clone();
@@ -572,9 +575,9 @@ fn workspace_open_button(
                             menu.item(
                                 PopupMenuItem::new(application.label.clone())
                                     .icon(if application.category == "primary" {
-                                        IconName::ExternalLink
+                                        HeroIconName::ArrowTopRightOnSquare
                                     } else {
-                                        IconName::File
+                                        HeroIconName::Document
                                     })
                                     .disabled(!has_project)
                                     .on_click(move |_, window, cx| {
@@ -702,7 +705,7 @@ fn workspace_pet_button(
         .secondary()
         .text_color(cx.theme().foreground)
         .child(workspace_header_badge_button_content(
-            IconName::Heart,
+            HeroIconName::Heart,
             color(0x7C4DFF),
             label,
             cx,
@@ -760,35 +763,110 @@ fn workspace_assistant_button(
         button.ghost().text_color(cx.theme().secondary_foreground)
     };
 
-    button
-        .tooltip(label)
-        .on_click(
-            cx.listener(move |app, _event, window, cx| {
+    with_codux_tooltip(
+        match panel {
+            AssistantPanel::AIStats => "workspace-assistant-ai-tooltip",
+            AssistantPanel::SSH => "workspace-assistant-ssh-tooltip",
+            AssistantPanel::FileManager => "workspace-assistant-files-tooltip",
+            AssistantPanel::Git => "workspace-assistant-git-tooltip",
+        },
+        button
+            .on_click(cx.listener(move |app, _event, window, cx| {
                 app.toggle_assistant_panel(panel, window, cx)
-            }),
-        )
+            }))
+            .child(
+                div()
+                    .h(px(20.0))
+                    .w(px(20.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        Icon::new(match panel {
+                            AssistantPanel::AIStats => HeroIconName::Sparkles,
+                            AssistantPanel::SSH => HeroIconName::CommandLine,
+                            AssistantPanel::FileManager => HeroIconName::Document,
+                            AssistantPanel::Git => HeroIconName::ArrowPathRoundedSquare,
+                        })
+                        .size_3p5()
+                        .text_color(if active {
+                            cx.theme().foreground
+                        } else {
+                            cx.theme().secondary_foreground
+                        }),
+                    ),
+            ),
+        label,
+    )
+}
+
+fn workspace_pet_dex_button(
+    dex_tooltip: SharedString,
+    app_entity: gpui::Entity<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .id("workspace-pet-dex-tooltip")
+        .absolute()
+        .right(px(10.0))
+        .top(px(10.0))
+        .tooltip(move |window, cx| codux_tooltip(dex_tooltip.clone(), window, cx))
         .child(
-            div()
-                .h(px(20.0))
-                .w(px(20.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    Icon::new(match panel {
-                        AssistantPanel::AIStats => IconName::Bot,
-                        AssistantPanel::SSH => IconName::SquareTerminal,
-                        AssistantPanel::FileManager => IconName::File,
-                        AssistantPanel::Git => IconName::Github,
-                    })
-                    .size_3p5()
-                    .text_color(if active {
-                        cx.theme().foreground
-                    } else {
-                        cx.theme().secondary_foreground
-                    }),
-                ),
+            Button::new("workspace-pet-dex-open")
+                .compact()
+                .ghost()
+                .icon(Icon::new(HeroIconName::BookOpen).size_3p5())
+                .on_click(move |_, window, cx| {
+                    cx.update_entity(&app_entity, |app, cx| {
+                        app.open_pet_dex_window(window, cx);
+                    });
+                }),
         )
+}
+
+fn workspace_pet_rename_action_button(
+    id: &'static str,
+    icon: HeroIconName,
+    tooltip: SharedString,
+    cx: &mut Context<CoduxApp>,
+    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> impl IntoElement {
+    with_codux_tooltip(
+        format!("pet-rename-tooltip-{id}"),
+        Button::new(id)
+            .compact()
+            .ghost()
+            .text_color(cx.theme().secondary_foreground)
+            .icon(
+                Icon::new(icon)
+                    .size_3p5()
+                    .text_color(cx.theme().secondary_foreground),
+            )
+            .on_click(cx.listener(on_click)),
+        tooltip,
+    )
+}
+
+fn workspace_pet_install_action_button(
+    button: Button,
+    tooltip: SharedString,
+    label: SharedString,
+    icon: HeroIconName,
+    cx: &mut Context<CoduxApp>,
+    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> impl IntoElement {
+    with_codux_tooltip(
+        format!("pet-install-tooltip-{tooltip}"),
+        button
+            .text_color(cx.theme().secondary_foreground)
+            .icon(
+                Icon::new(icon)
+                    .size_3p5()
+                    .text_color(cx.theme().secondary_foreground),
+            )
+            .child(workspace_pet_install_button_label(label))
+            .on_click(cx.listener(on_click)),
+        tooltip,
+    )
 }
 
 fn workspace_header_button(id: &'static str, cx: &mut Context<CoduxApp>) -> Button {
@@ -799,7 +877,7 @@ fn workspace_header_button(id: &'static str, cx: &mut Context<CoduxApp>) -> Butt
 }
 
 fn workspace_header_badge_button_content(
-    icon: IconName,
+    icon: HeroIconName,
     icon_bg: gpui::Hsla,
     label: impl Into<SharedString>,
     cx: &mut Context<CoduxApp>,
@@ -840,7 +918,7 @@ struct DailyLevelTier {
 
 #[derive(Clone)]
 enum DailyLevelIcon {
-    Component(IconName),
+    Component(HeroIconName),
     Asset(&'static str),
 }
 
@@ -850,7 +928,7 @@ const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
         title: "Iron",
         min: 0,
         color: 0x5B616D,
-        icon: DailyLevelIcon::Component(IconName::Minus),
+        icon: DailyLevelIcon::Component(HeroIconName::Minus),
     },
     DailyLevelTier {
         id: "bronze",
@@ -871,14 +949,14 @@ const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
         title: "Gold",
         min: 6_000_000,
         color: 0xE8AA34,
-        icon: DailyLevelIcon::Component(IconName::Star),
+        icon: DailyLevelIcon::Component(HeroIconName::Star),
     },
     DailyLevelTier {
         id: "platinum",
         title: "Platinum",
         min: 10_000_000,
         color: 0x7ED6D8,
-        icon: DailyLevelIcon::Component(IconName::Star),
+        icon: DailyLevelIcon::Component(HeroIconName::Star),
     },
     DailyLevelTier {
         id: "diamond",
@@ -1183,21 +1261,7 @@ fn workspace_pet_popover_content(
                             sprite_fallback_color,
                         )),
                 )
-                .child(
-                    Button::new("workspace-pet-dex-open")
-                        .compact()
-                        .ghost()
-                        .tooltip(dex_tooltip)
-                        .absolute()
-                        .right(px(10.0))
-                        .top(px(10.0))
-                        .icon(Icon::new(IconName::BookOpen).size_3p5())
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&app_entity, |app, cx| {
-                                app.open_pet_dex_window(window, cx);
-                            });
-                        }),
-                )
+                .child(workspace_pet_dex_button(dex_tooltip.into(), app_entity))
                 .child(workspace_pet_name_row(
                     pet.clone(),
                     name,
@@ -1411,7 +1475,7 @@ fn workspace_pet_trait(
     let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
     div()
         .id(SharedString::from(format!("pet-trait-{emoji_kind}")))
-        .tooltip(move |window, cx| Tooltip::new(help.clone()).build(window, cx))
+        .tooltip(move |window, cx| codux_tooltip(help.clone(), window, cx))
         .flex()
         .items_center()
         .gap(px(8.0))
@@ -1591,39 +1655,23 @@ fn workspace_pet_name_row(
                 .w(px(150.0))
                 .child(Input::new(&name_state).with_size(gpui_component::Size::Small)),
         )
-        .child(
-            Button::new("pet-rename-current")
-                .compact()
-                .ghost()
-                .tooltip(workspace_i18n(&language, "pet.name.save", "Save pet name"))
-                .text_color(cx.theme().secondary_foreground)
-                .icon(
-                    Icon::new(IconName::Check)
-                        .size_3p5()
-                        .text_color(cx.theme().secondary_foreground),
-                )
-                .on_click(cx.listener(move |app, _event, window, cx| {
-                    let custom_name = save_state.read(cx).value().to_string();
-                    app.rename_current_pet_to(custom_name, window, cx)
-                })),
-        )
-        .child(
-            Button::new("pet-rename-cancel")
-                .compact()
-                .ghost()
-                .tooltip(workspace_i18n(&language, "common.cancel", "Cancel"))
-                .text_color(cx.theme().secondary_foreground)
-                .icon(
-                    Icon::new(IconName::Close)
-                        .size_3p5()
-                        .text_color(cx.theme().secondary_foreground),
-                )
-                .on_click(
-                    cx.listener(|app, _event, window, cx| {
-                        app.cancel_current_pet_rename(window, cx)
-                    }),
-                ),
-        )
+        .child(workspace_pet_rename_action_button(
+            "pet-rename-current",
+            HeroIconName::Check,
+            workspace_i18n(&language, "pet.name.save", "Save pet name").into(),
+            cx,
+            move |app, _event, window, cx| {
+                let custom_name = save_state.read(cx).value().to_string();
+                app.rename_current_pet_to(custom_name, window, cx)
+            },
+        ))
+        .child(workspace_pet_rename_action_button(
+            "pet-rename-cancel",
+            HeroIconName::XMark,
+            workspace_i18n(&language, "common.cancel", "Cancel").into(),
+            cx,
+            |app, _event, window, cx| app.cancel_current_pet_rename(window, cx),
+        ))
         .into_any_element()
 }
 
@@ -1713,30 +1761,21 @@ pub(in crate::app) fn workspace_pet_install_form(
                                 Input::new(&url_state).with_size(gpui_component::Size::Medium),
                             ),
                         )
-                        .child(
-                            Button::new("pet-custom-market")
-                                .ghost()
-                                .tooltip(workspace_i18n(
-                                    &language,
-                                    "pet.custom.market.title",
-                                    "Petdex Marketplace",
-                                ))
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(IconName::ExternalLink)
-                                        .size_3p5()
-                                        .text_color(cx.theme().secondary_foreground),
-                                )
-                                .child(workspace_pet_install_button_label(workspace_i18n(
-                                    &language,
-                                    "pet.custom.market.action",
-                                    "Get Pets",
-                                )))
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.open_pet_market(window, cx)
-                                })),
-                        )
-                        .child(
+                        .child(workspace_pet_install_action_button(
+                            Button::new("pet-custom-market").ghost(),
+                            workspace_i18n(
+                                &language,
+                                "pet.custom.market.title",
+                                "Petdex Marketplace",
+                            )
+                            .into(),
+                            workspace_i18n(&language, "pet.custom.market.action", "Get Pets")
+                                .into(),
+                            HeroIconName::ArrowTopRightOnSquare,
+                            cx,
+                            |app, _event, window, cx| app.open_pet_market(window, cx),
+                        ))
+                        .child(workspace_pet_install_action_button(
                             Button::new("pet-preview-custom")
                                 .secondary()
                                 .loading(install_previewing)
@@ -1744,37 +1783,35 @@ pub(in crate::app) fn workspace_pet_install_form(
                                     install_url.trim().is_empty()
                                         || install_previewing
                                         || installing,
-                                )
-                                .tooltip(workspace_i18n(
+                                ),
+                            workspace_i18n(
+                                &language,
+                                "pet.custom.install.preview.label",
+                                "Pet Preview",
+                            )
+                            .into(),
+                            if install_previewing {
+                                workspace_i18n(
                                     &language,
-                                    "pet.custom.install.preview.label",
-                                    "Pet Preview",
-                                ))
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(IconName::Eye)
-                                        .size_3p5()
-                                        .text_color(cx.theme().secondary_foreground),
+                                    "pet.custom.install.resolving",
+                                    "Reading Petdex page...",
                                 )
-                                .child(workspace_pet_install_button_label(if install_previewing {
-                                    workspace_i18n(
-                                        &language,
-                                        "pet.custom.install.resolving",
-                                        "Reading Petdex page...",
-                                    )
-                                } else if install_preview.is_some() {
-                                    workspace_i18n(
-                                        &language,
-                                        "pet.custom.install.resolve_again",
-                                        "Parse Again",
-                                    )
-                                } else {
-                                    workspace_i18n(&language, "pet.custom.install.resolve", "Parse")
-                                }))
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.preview_custom_pet_install(window, cx)
-                                })),
-                        ),
+                                .into()
+                            } else if install_preview.is_some() {
+                                workspace_i18n(
+                                    &language,
+                                    "pet.custom.install.resolve_again",
+                                    "Parse Again",
+                                )
+                                .into()
+                            } else {
+                                workspace_i18n(&language, "pet.custom.install.resolve", "Parse")
+                                    .into()
+                            },
+                            HeroIconName::Eye,
+                            cx,
+                            |app, _event, window, cx| app.preview_custom_pet_install(window, cx),
+                        )),
                 ),
         )
         .when_some(install_preview.cloned(), |this, preview| {
@@ -1894,7 +1931,7 @@ fn workspace_pet_install_preview(
                                 .line_height(px(16.0))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(theme::TEXT_DIM))
-                                .child(Icon::new(IconName::ExternalLink).size_3())
+                                .child(Icon::new(HeroIconName::ArrowTopRightOnSquare).size_3())
                                 .child(
                                     div()
                                         .min_w_0()
@@ -1963,7 +2000,7 @@ fn workspace_pet_install_preview_fallback() -> AnyElement {
         .items_center()
         .justify_center()
         .child(
-            Icon::new(IconName::Info)
+            Icon::new(HeroIconName::InformationCircle)
                 .size_8()
                 .text_color(color(theme::ACCENT)),
         )
@@ -1979,7 +2016,7 @@ fn workspace_pet_install_check(text: String) -> impl IntoElement {
         .line_height(px(16.0))
         .text_color(color(theme::TEXT_MUTED))
         .child(
-            Icon::new(IconName::CircleCheck)
+            Icon::new(HeroIconName::CheckCircle)
                 .size_3p5()
                 .text_color(color(theme::GREEN)),
         )
@@ -2044,21 +2081,21 @@ fn workspace_segmented_tabs(
         .child(workspace_segmented_tab(
             0,
             terminal_label,
-            IconName::SquareTerminal,
+            HeroIconName::CommandLine,
             active_index == 0,
             cx,
         ))
         .child(workspace_segmented_tab(
             1,
             files_label,
-            IconName::File,
+            HeroIconName::Document,
             active_index == 1,
             cx,
         ))
         .child(workspace_segmented_tab(
             2,
             review_label,
-            IconName::Github,
+            HeroIconName::ArrowPathRoundedSquare,
             active_index == 2,
             cx,
         ))
@@ -2067,7 +2104,7 @@ fn workspace_segmented_tabs(
 fn workspace_segmented_tab(
     index: usize,
     label: impl Into<SharedString>,
-    icon: IconName,
+    icon: HeroIconName,
     active: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -2176,7 +2213,7 @@ fn terminal_bottom_tab_button(
                     window.prevent_default();
                     app.close_terminal_tab(terminal_id, window, cx)
                 }))
-                .child(Icon::new(IconName::Close).size_3()),
+                .child(Icon::new(HeroIconName::XMark).size_3()),
         )
 }
 
@@ -2193,7 +2230,7 @@ fn terminal_bottom_add_button(cx: &mut Context<CoduxApp>) -> impl IntoElement {
         .text_color(cx.theme().secondary_foreground)
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(|app, _event, window, cx| app.add_terminal_tab(window, cx)))
-        .child(Icon::new(IconName::Plus).size_3p5())
+        .child(Icon::new(HeroIconName::Plus).size_3p5())
 }
 
 pub(in crate::app) fn workspace_text_button(

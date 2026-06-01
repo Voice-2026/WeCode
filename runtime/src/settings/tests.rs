@@ -7,6 +7,13 @@ mod tests {
     };
 
     #[test]
+    fn defaults_terminal_scrollback_to_2000_lines() {
+        let support_dir = temp_dir("settings-default-scrollback");
+        let summary = SettingsService::new(support_dir).summary();
+        assert_eq!(summary.terminal_scrollback_lines, "2000");
+    }
+
+    #[test]
     fn summarizes_ai_providers_without_secret_fields() {
         let support_dir = temp_dir("settings");
         fs::write(

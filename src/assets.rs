@@ -5,6 +5,8 @@ use std::borrow::Cow;
 
 #[derive(RustEmbed)]
 #[folder = "runtime-assets"]
+#[include = "app-icons/**/*.svg"]
+#[include = "heroicons/**/*.svg"]
 #[include = "icons/**/*.svg"]
 #[include = "rank-icons/**/*.svg"]
 struct RuntimeAssets;

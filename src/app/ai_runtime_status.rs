@@ -59,6 +59,16 @@ impl CoduxApp {
             );
         ai_activity_for_worktree_with_dismissed_at(&self.state, worktree, dismissed_at)
     }
+
+    pub(in crate::app) fn ai_activity_for_project(&self, project: &ProjectInfo) -> AIActivityState {
+        let dismissed_at = self
+            .dismissed_worktree_ai_completion_at
+            .get(&project.id)
+            .copied()
+            .unwrap_or(0.0);
+        ai_activity_for_id_with_dismissed_at(&self.state, &project.id, dismissed_at)
+            .unwrap_or(AIActivityState::Idle)
+    }
 }
 
 pub(in crate::app) fn ai_activity_for_worktree_with_dismissed_at(
@@ -77,52 +87,47 @@ pub(in crate::app) fn ai_activity_for_worktree_with_dismissed_at(
     phase_to_activity(phase)
 }
 
-pub(in crate::app) fn ai_activity_for_project_with_worktree_activity(
+fn ai_activity_for_id_with_dismissed_at(
     state: &RuntimeState,
-    project: &ProjectInfo,
+    id: &str,
+    dismissed_at: f64,
+) -> Option<AIActivityState> {
+    let project_state = runtime_project_state(state, id)?;
+    let phase =
+        resolve_displayed_phase(&project_state.project_phase, &project_state.completed_phase);
+    if phase.kind == "completed" && phase.updated_at <= dismissed_at {
+        return Some(AIActivityState::Idle);
+    }
+    Some(phase_to_activity(phase))
+}
+
+pub(in crate::app) fn aggregate_project_activity(
+    project_activity: AIActivityState,
+    project_id: &str,
+    worktrees: &[WorktreeInfo],
     worktree_activity: &HashMap<String, AIActivityState>,
 ) -> AIActivityState {
-    aggregate_project_activity(state, project, worktree_activity).unwrap_or(AIActivityState::Idle)
-}
-
-fn ai_activity_for_id(state: &RuntimeState, id: &str) -> Option<AIActivityState> {
-    let project_state = runtime_project_state(state, id)?;
-    Some(phase_to_activity(resolve_displayed_phase(
-        &project_state.project_phase,
-        &project_state.completed_phase,
-    )))
-}
-
-fn aggregate_project_activity(
-    state: &RuntimeState,
-    project: &ProjectInfo,
-    worktree_activity: &HashMap<String, AIActivityState>,
-) -> Option<AIActivityState> {
-    let mut activities =
-        vec![ai_activity_for_id(state, &project.id).unwrap_or(AIActivityState::Idle)];
-    for worktree in state
-        .worktrees
-        .worktrees
+    let mut activities = vec![project_activity];
+    for worktree in worktrees
         .iter()
-        .filter(|worktree| worktree.project_id == project.id)
+        .filter(|worktree| worktree.project_id == project_id)
     {
         let activity = worktree_activity
             .get(&worktree.id)
             .copied()
-            .or_else(|| ai_activity_for_id(state, &worktree.id))
             .unwrap_or(AIActivityState::Idle);
         activities.push(activity);
     }
     if activities.contains(&AIActivityState::Review) {
-        return Some(AIActivityState::Review);
+        return AIActivityState::Review;
     }
     if activities.contains(&AIActivityState::Running) {
-        return Some(AIActivityState::Running);
+        return AIActivityState::Running;
     }
     if activities.contains(&AIActivityState::Done) {
-        return Some(AIActivityState::Done);
+        return AIActivityState::Done;
     }
-    Some(AIActivityState::Idle)
+    AIActivityState::Idle
 }
 
 fn runtime_project_state<'a>(

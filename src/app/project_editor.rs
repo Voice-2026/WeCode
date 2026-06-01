@@ -111,7 +111,7 @@ impl CoduxApp {
 
 struct ProjectEditorSymbol {
     id: &'static str,
-    icon: Option<IconName>,
+    icon: Option<HeroIconName>,
 }
 
 const PROJECT_EDITOR_SYMBOLS: &[ProjectEditorSymbol] = &[
@@ -121,47 +121,47 @@ const PROJECT_EDITOR_SYMBOLS: &[ProjectEditorSymbol] = &[
     },
     ProjectEditorSymbol {
         id: "terminal",
-        icon: Some(IconName::SquareTerminal),
+        icon: Some(HeroIconName::CommandLine),
     },
     ProjectEditorSymbol {
         id: "folder",
-        icon: Some(IconName::Folder),
+        icon: Some(HeroIconName::Folder),
     },
     ProjectEditorSymbol {
         id: "shippingbox",
-        icon: Some(IconName::Bot),
+        icon: Some(HeroIconName::Sparkles),
     },
     ProjectEditorSymbol {
         id: "hammer",
-        icon: Some(IconName::Settings2),
+        icon: Some(HeroIconName::WrenchScrewdriver),
     },
     ProjectEditorSymbol {
         id: "server.rack",
-        icon: Some(IconName::Globe),
+        icon: Some(HeroIconName::GlobeAlt),
     },
     ProjectEditorSymbol {
         id: "globe",
-        icon: Some(IconName::Globe),
+        icon: Some(HeroIconName::GlobeAlt),
     },
     ProjectEditorSymbol {
         id: "bolt",
-        icon: Some(IconName::Star),
+        icon: Some(HeroIconName::Star),
     },
     ProjectEditorSymbol {
         id: "wrench",
-        icon: Some(IconName::Settings),
+        icon: Some(HeroIconName::Cog6Tooth),
     },
     ProjectEditorSymbol {
         id: "doc.text",
-        icon: Some(IconName::File),
+        icon: Some(HeroIconName::Document),
     },
     ProjectEditorSymbol {
         id: "book",
-        icon: Some(IconName::BookOpen),
+        icon: Some(HeroIconName::BookOpen),
     },
     ProjectEditorSymbol {
         id: "person.2",
-        icon: Some(IconName::CircleUser),
+        icon: Some(HeroIconName::UserCircle),
     },
 ];
 

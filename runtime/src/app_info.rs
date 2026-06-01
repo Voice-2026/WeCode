@@ -64,7 +64,6 @@ pub struct UpdateInstallProgressEvent {
 pub struct AppDiagnosticsSnapshot {
     pub settings: Value,
     pub projects: Value,
-    pub ai_runtime: Value,
     pub ai_state: Value,
     pub performance: Value,
     pub ssh: Value,
@@ -120,7 +119,6 @@ pub fn export_diagnostics(
         },
         "settings": redact_settings(snapshot.settings),
         "projects": snapshot.projects,
-        "aiRuntime": snapshot.ai_runtime,
         "aiState": snapshot.ai_state,
         "performance": snapshot.performance,
         "ssh": redact_ssh(snapshot.ssh),

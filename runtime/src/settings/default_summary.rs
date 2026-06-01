@@ -9,7 +9,7 @@ impl Default for SettingsSummary {
             shell: default_shell(),
             terminal_font_family: String::new(),
             terminal_font_size: "14".to_string(),
-            terminal_scrollback_lines: "500".to_string(),
+            terminal_scrollback_lines: "2000".to_string(),
             git_refresh: "60".to_string(),
             ai_refresh: "180".to_string(),
             ai_background_refresh: "600".to_string(),

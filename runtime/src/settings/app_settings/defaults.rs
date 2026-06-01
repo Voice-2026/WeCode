@@ -131,7 +131,7 @@ pub(super) fn default_terminal_font_size() -> String {
 }
 
 pub(super) fn default_terminal_scrollback_lines() -> String {
-    "500".to_string()
+    "2000".to_string()
 }
 
 pub(super) fn default_icon_style() -> String {

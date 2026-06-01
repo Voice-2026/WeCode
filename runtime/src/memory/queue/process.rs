@@ -37,7 +37,7 @@ impl MemoryService {
 
     pub fn resolve_extraction_task_transcript(
         &self,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
         task: &MemoryExtractionTask,
     ) -> Result<String, String> {
         let project = memory_project_context_for_task(projects, task)
@@ -48,7 +48,7 @@ impl MemoryService {
     pub async fn process_next_memory_extraction_task(
         &self,
         settings: &AISettings,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         if !settings.memory.enabled {
             return self.extraction_status_snapshot();
@@ -74,7 +74,7 @@ impl MemoryService {
     pub async fn process_memory_extraction_queue(
         &self,
         settings: &AISettings,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         loop {
             match self
@@ -93,7 +93,7 @@ impl MemoryService {
     async fn process_extraction_task(
         &self,
         settings: &AISettings,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
         task: MemoryExtractionTask,
     ) -> Result<(), String> {
         let project = memory_project_context_for_task(projects, &task)

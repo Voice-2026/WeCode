@@ -109,6 +109,7 @@ pub struct CoduxApp {
     pub(in crate::app) pet_update_seen_revision: u64,
     pub(in crate::app) settings_seen_revision: u64,
     pub(in crate::app) ssh_seen_revision: u64,
+    pub(in crate::app) memory_seen_revision: u64,
     pub(in crate::app) pet_claim_species: String,
     pub(in crate::app) pet_name_editing: bool,
     pub(in crate::app) pet_dex_spotlight: Option<PetDexSpotlight>,
@@ -116,6 +117,7 @@ pub struct CoduxApp {
     pub(in crate::app) ai_session_delete_confirm_id: Option<String>,
     pub(in crate::app) selected_ai_provider_id: Option<String>,
     pub(in crate::app) ai_provider_testing_id: Option<String>,
+    pub(in crate::app) ai_provider_test_result: Option<AIProviderTestResult>,
     pub(in crate::app) selected_memory_entry_id: Option<String>,
     pub(in crate::app) selected_memory_summary_id: Option<String>,
     pub(in crate::app) selected_notification_channel_id: Option<String>,
@@ -132,11 +134,15 @@ pub struct CoduxApp {
     pub(in crate::app) project_task_load_in_flight: HashSet<String>,
     pub(in crate::app) project_task_load_last_started_at: HashMap<String, f64>,
     pub(in crate::app) project_task_load_last_finished_at: HashMap<String, f64>,
+    pub(in crate::app) task_column_refreshing: bool,
     pub(in crate::app) worktree_sidebar_load_in_flight: HashSet<WorktreeViewStoreKey>,
     pub(in crate::app) worktree_sidebar_load_last_started_at: HashMap<WorktreeViewStoreKey, f64>,
     pub(in crate::app) worktree_sidebar_load_last_finished_at: HashMap<WorktreeViewStoreKey, f64>,
     pub(in crate::app) memory_progress_visible_until: f64,
     pub(in crate::app) memory_progress_generation: u64,
+    pub(in crate::app) memory_manager_refreshing: bool,
+    pub(in crate::app) memory_manager_refresh_generation: u64,
+    pub(in crate::app) memory_project_profile_refreshing: bool,
     pub(in crate::app) performance_refresh_in_flight: bool,
     pub(in crate::app) pending_performance_refresh: Option<PerformanceSummary>,
     pub(in crate::app) today_level_day_start: f64,
@@ -145,6 +151,7 @@ pub struct CoduxApp {
     pub(in crate::app) memory_manager_scope: String,
     pub(in crate::app) memory_manager_project_id: Option<String>,
     pub(in crate::app) memory_processing: bool,
+    pub(in crate::app) memory_extraction_status_refreshing: bool,
     pub(in crate::app) selected_runtime_terminal_id: Option<String>,
     pub(in crate::app) selected_ssh_profile_id: Option<String>,
     pub(in crate::app) ssh_draft_open: bool,
@@ -225,6 +232,13 @@ pub(in crate::app) struct RuntimeActivityTickResult {
 pub(in crate::app) struct RuntimeScheduledRefresh {
     pub(in crate::app) runtime_activity: RuntimeActivitySummary,
     pub(in crate::app) remote: RemoteSummary,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::app) struct AIProviderTestResult {
+    pub(in crate::app) provider_id: String,
+    pub(in crate::app) message: String,
+    pub(in crate::app) ok: bool,
 }
 
 pub(in crate::app) struct ProjectSwitchLoad {

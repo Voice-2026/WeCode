@@ -641,7 +641,7 @@ pub(in crate::app) fn pet_sprite_element(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(Icon::new(IconName::Heart).size_6())
+                        .child(Icon::new(HeroIconName::Heart).size_6())
                         .into_any_element()
                 }),
         )

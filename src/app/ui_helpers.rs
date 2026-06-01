@@ -1,4 +1,29 @@
 use super::*;
+use gpui::ElementId;
+
+pub(in crate::app) fn codux_tooltip(
+    text: impl Into<SharedString>,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::AnyView {
+    Tooltip::new(text.into())
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .build(window, cx)
+}
+
+pub(in crate::app) fn with_codux_tooltip(
+    id: impl Into<ElementId>,
+    element: impl IntoElement,
+    text: impl Into<SharedString>,
+) -> impl IntoElement {
+    let text = text.into();
+    div()
+        .id(id)
+        .flex_none()
+        .tooltip(move |window, cx| codux_tooltip(text.clone(), window, cx))
+        .child(element)
+}
 
 pub(in crate::app) fn column_header(
     content: impl IntoElement,
@@ -22,7 +47,7 @@ pub(in crate::app) fn column_header(
 
 pub(in crate::app) fn header_icon_button(
     id: &'static str,
-    icon: IconName,
+    icon: HeroIconName,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
@@ -35,7 +60,7 @@ pub(in crate::app) fn header_icon_button(
 
 pub(in crate::app) fn assistant_header_icon_button(
     id: &'static str,
-    icon: IconName,
+    icon: HeroIconName,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
@@ -49,6 +74,34 @@ pub(in crate::app) fn assistant_header_icon_button(
                 .text_color(cx.theme().secondary_foreground),
         )
         .on_click(cx.listener(on_click))
+}
+
+pub(in crate::app) fn centered_empty_state(
+    icon: HeroIconName,
+    message: impl Into<String>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .size_full()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            Icon::new(icon)
+                .size_5()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .child(
+            div()
+                .text_size(px(14.0))
+                .line_height(px(18.0))
+                .child(message.into()),
+        )
 }
 
 pub(in crate::app) fn section(title: &'static str, rows: Vec<String>) -> impl IntoElement {

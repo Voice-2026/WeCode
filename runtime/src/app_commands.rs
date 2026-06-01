@@ -757,6 +757,12 @@ pub fn memory_extraction_status(
     service.memory_extraction_status()
 }
 
+pub fn memory_extraction_clear_failures(
+    service: &RuntimeService,
+) -> Result<MemoryExtractionStatusSnapshot, String> {
+    service.clear_memory_extraction_failures()
+}
+
 pub fn memory_management_snapshot(
     service: &RuntimeService,
     request: MemoryManagementRequest,

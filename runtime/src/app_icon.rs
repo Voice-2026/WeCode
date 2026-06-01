@@ -94,11 +94,11 @@ fn apply_app_icon_impl(_style: &str) -> Result<(), String> {
 }
 
 fn icon_pixel(x: f32, y: f32, size: f32, palette: IconPalette) -> [f32; 4] {
-    let inset = size * 0.04;
+    let inset = size * 0.07;
     let rect_min = inset;
     let rect_max = size - inset;
     let rect_size = rect_max - rect_min;
-    let radius = size * 0.24;
+    let radius = size * 0.2243;
     let distance = rounded_rect_distance(x, y, rect_min, rect_min, rect_size, rect_size, radius);
     let edge_alpha = smoothstep(1.0, -1.0, distance);
     if edge_alpha <= 0.0 {
@@ -118,14 +118,14 @@ fn icon_pixel(x: f32, y: f32, size: f32, palette: IconPalette) -> [f32; 4] {
 
     let cx = size * 0.5;
     let cy = size * 0.5;
-    let chevron_h = size * 0.30;
-    let chevron_w = size * 0.17;
-    let weight = size * 0.09;
+    let chevron_h = size * 0.2804;
+    let chevron_w = size * 0.1587;
+    let weight = size * 0.0843;
     let back_alpha =
-        chevron_alpha(x, y, cx + size * -0.10, cy, chevron_w, chevron_h, weight) * 0.40;
+        chevron_alpha(x, y, cx + size * -0.0935, cy, chevron_w, chevron_h, weight) * 0.40;
     rgb = mix_rgb(rgb, [1.0, 1.0, 1.0], back_alpha);
 
-    let front_alpha = chevron_alpha(x, y, cx + size * 0.10, cy, chevron_w, chevron_h, weight);
+    let front_alpha = chevron_alpha(x, y, cx + size * 0.0935, cy, chevron_w, chevron_h, weight);
     rgb = mix_rgb(rgb, [1.0, 1.0, 1.0], front_alpha);
 
     let inner_distance = rounded_rect_distance(

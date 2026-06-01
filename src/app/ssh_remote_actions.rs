@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::app_events::current_memory_update_event;
 
 impl CoduxApp {
     pub(super) fn reload_ssh(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -929,32 +930,25 @@ impl CoduxApp {
             .runtime_service
             .drain_ai_runtime_events_and_enqueue_memory();
         self.dispatch_ai_completion_notifications(&drained.events);
-        let mut ai_state_error = None;
         self.ai_runtime_state_save_tick = self.ai_runtime_state_save_tick.wrapping_add(1);
-        let should_save_ai_state = include_scheduled_tick
+        let should_refresh_ai_state = include_scheduled_tick
             || !drained.events.is_empty()
             || self.ai_runtime_state_save_tick % 30 == 0;
-        if should_save_ai_state {
+        if should_refresh_ai_state {
             let live_ai_snapshot = self.runtime_service.ai_runtime_state_snapshot();
-            self.state.ai_runtime_state = match self
+            self.state.ai_runtime_state = self
                 .runtime_service
-                .save_ai_runtime_state_snapshot(&live_ai_snapshot)
-            {
-                Ok(summary) => summary,
-                Err(error) => {
-                    ai_state_error = Some(error.clone());
-                    let mut summary = self
-                        .runtime_service
-                        .reload_ai_runtime_state(&self.state.runtime_events);
-                    summary.error = Some(error);
-                    summary
-                }
-            };
+                .summarize_ai_runtime_state_snapshot(&live_ai_snapshot);
         }
         if include_scheduled_tick {
             self.refresh_global_today_ai_tokens();
         }
-        if !drained.memory.is_empty() {
+        let memory_event = current_memory_update_event();
+        let memory_update_event = memory_event.revision > self.memory_seen_revision;
+        if memory_update_event {
+            self.memory_seen_revision = memory_event.revision;
+        }
+        if !drained.memory.is_empty() || memory_update_event {
             self.state.memory = self.runtime_service.reload_memory(
                 self.state
                     .selected_project
@@ -962,6 +956,12 @@ impl CoduxApp {
                     .map(|project| project.id.as_str()),
             );
             self.reload_memory_manager_snapshot();
+            self.notify_status_bar(cx);
+            if self.state.memory_manager.extraction.queued > 0
+                || self.state.memory_manager.extraction.running > 0
+            {
+                self.start_memory_extraction_status_refresh(cx);
+            }
         }
         let changed = applied_project_events > 0
             || applied_file_events > 0
@@ -972,10 +972,10 @@ impl CoduxApp {
             || !remote_events.is_empty()
             || !drained.events.is_empty()
             || !drained.memory.is_empty()
-            || has_scheduled_refresh
-            || ai_state_error.is_some();
+            || memory_update_event
+            || has_scheduled_refresh;
         if changed {
-            if !drained.events.is_empty() || ai_state_error.is_some() {
+            if !drained.events.is_empty() {
                 self.sync_project_activity_store(cx);
                 self.notify_task_column(cx);
             }
@@ -994,7 +994,7 @@ impl CoduxApp {
                     drained.memory.len(),
                     remote_events.len(),
                     has_scheduled_refresh,
-                    ai_state_error.as_deref().unwrap_or("none")
+                    "none"
                 ),
             );
         }
@@ -1008,7 +1008,7 @@ impl CoduxApp {
             memory_events: drained.memory.len(),
             dock_badge_count,
             changed,
-            ai_state_error,
+            ai_state_error: None,
         }
     }
 
@@ -1019,29 +1019,22 @@ impl CoduxApp {
         let drained = self
             .runtime_service
             .drain_ai_runtime_events_and_enqueue_memory();
-        if drained.events.is_empty() && drained.memory.is_empty() {
+        let memory_event = current_memory_update_event();
+        let memory_update_event = memory_event.revision > self.memory_seen_revision;
+        if memory_update_event {
+            self.memory_seen_revision = memory_event.revision;
+        }
+        if drained.events.is_empty() && drained.memory.is_empty() && !memory_update_event {
             return RuntimeActivityTickResult::default();
         }
 
         self.dispatch_ai_completion_notifications(&drained.events);
-        let mut ai_state_error = None;
         let live_ai_snapshot = self.runtime_service.ai_runtime_state_snapshot();
-        self.state.ai_runtime_state = match self
+        self.state.ai_runtime_state = self
             .runtime_service
-            .save_ai_runtime_state_snapshot(&live_ai_snapshot)
-        {
-            Ok(summary) => summary,
-            Err(error) => {
-                ai_state_error = Some(error.clone());
-                let mut summary = self
-                    .runtime_service
-                    .reload_ai_runtime_state(&self.state.runtime_events);
-                summary.error = Some(error);
-                summary
-            }
-        };
+            .summarize_ai_runtime_state_snapshot(&live_ai_snapshot);
 
-        if !drained.memory.is_empty() {
+        if !drained.memory.is_empty() || memory_update_event {
             self.state.memory = self.runtime_service.reload_memory(
                 self.state
                     .selected_project
@@ -1049,6 +1042,12 @@ impl CoduxApp {
                     .map(|project| project.id.as_str()),
             );
             self.reload_memory_manager_snapshot();
+            self.notify_status_bar(cx);
+            if self.state.memory_manager.extraction.queued > 0
+                || self.state.memory_manager.extraction.running > 0
+            {
+                self.start_memory_extraction_status_refresh(cx);
+            }
         }
 
         self.sync_project_activity_store(cx);
@@ -1058,16 +1057,16 @@ impl CoduxApp {
             &format!(
                 "ai_fast_tick ai_events={} memory={} ai_state_error={}",
                 drained.events.len(),
-                drained.memory.len(),
-                ai_state_error.as_deref().unwrap_or("none")
+                drained.memory.len() + usize::from(memory_update_event),
+                "none"
             ),
         );
 
         RuntimeActivityTickResult {
             ai_events: drained.events.len(),
-            memory_events: drained.memory.len(),
+            memory_events: drained.memory.len() + usize::from(memory_update_event),
             changed: true,
-            ai_state_error,
+            ai_state_error: None,
             ..RuntimeActivityTickResult::default()
         }
     }
@@ -1336,38 +1335,24 @@ impl CoduxApp {
     pub(super) fn poll_ai_runtime_state(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self.runtime_service.poll_ai_runtime_state() {
             Ok(snapshot) => {
-                match self
+                self.state.ai_runtime_state = self
                     .runtime_service
-                    .save_ai_runtime_state_snapshot(&snapshot)
-                {
-                    Ok(summary) => {
-                        self.state.ai_runtime_state = summary;
-                        self.status_message = format!(
-                            "AI runtime polled · running {} · waiting {} · completed {}",
-                            self.state.ai_runtime_state.running_count,
-                            self.state.ai_runtime_state.needs_input_count,
-                            self.state.ai_runtime_state.completed_count
-                        );
-                        self.runtime_trace(
-                            "ai-runtime",
-                            &format!(
-                                "poll ok running={} waiting={} completed={}",
-                                self.state.ai_runtime_state.running_count,
-                                self.state.ai_runtime_state.needs_input_count,
-                                self.state.ai_runtime_state.completed_count
-                            ),
-                        );
-                    }
-                    Err(error) => {
-                        let mut summary = self
-                            .runtime_service
-                            .reload_ai_runtime_state(&self.state.runtime_events);
-                        summary.error = Some(error);
-                        self.state.ai_runtime_state = summary;
-                        self.status_message = "AI runtime polled; state save failed".to_string();
-                        self.runtime_trace("ai-runtime", "poll state_save_failed");
-                    }
-                }
+                    .summarize_ai_runtime_state_snapshot(&snapshot);
+                self.status_message = format!(
+                    "AI runtime polled · running {} · waiting {} · completed {}",
+                    self.state.ai_runtime_state.running_count,
+                    self.state.ai_runtime_state.needs_input_count,
+                    self.state.ai_runtime_state.completed_count
+                );
+                self.runtime_trace(
+                    "ai-runtime",
+                    &format!(
+                        "poll ok running={} waiting={} completed={}",
+                        self.state.ai_runtime_state.running_count,
+                        self.state.ai_runtime_state.needs_input_count,
+                        self.state.ai_runtime_state.completed_count
+                    ),
+                );
             }
             Err(error) => {
                 self.runtime_trace("ai-runtime", &format!("poll failed error={error}"));
@@ -1392,24 +1377,12 @@ impl CoduxApp {
         let snapshot = self
             .runtime_service
             .dismiss_ai_runtime_completion(&project.id);
-        match self
+        self.state.ai_runtime_state = self
             .runtime_service
-            .save_ai_runtime_state_snapshot(&snapshot)
-        {
-            Ok(summary) => {
-                self.state.ai_runtime_state = summary;
-                self.status_message = format!("AI completion dismissed for {}", project.name);
-            }
-            Err(error) => {
-                let mut summary = self
-                    .runtime_service
-                    .reload_ai_runtime_state(&self.state.runtime_events);
-                summary.error = Some(error.clone());
-                self.state.ai_runtime_state = summary;
-                self.status_message =
-                    format!("AI completion dismissed; state save failed: {error}");
-            }
-        }
+            .summarize_ai_runtime_state_snapshot(&snapshot);
+        self.dismissed_worktree_ai_completion_at
+            .insert(project.id.clone(), app_now_seconds());
+        self.status_message = format!("AI completion dismissed for {}", project.name);
         self.sync_project_activity_store(cx);
         self.notify_task_column(cx);
         cx.notify();
@@ -1423,22 +1396,33 @@ impl CoduxApp {
         if worktree_id.trim().is_empty() {
             return;
         }
-        let changed = self
+        let mut changed = self
             .runtime_service
             .ai_runtime_dismiss_completion(worktree_id);
+        if let Some(worktree) = self
+            .state
+            .worktrees
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.id == worktree_id)
+        {
+            changed |= self
+                .runtime_service
+                .ai_runtime_dismiss_completion(&worktree.project_id);
+            self.dismissed_worktree_ai_completion_at
+                .insert(worktree.project_id.clone(), app_now_seconds());
+        }
         if !changed {
             return;
         }
         self.dismissed_worktree_ai_completion_at
             .insert(worktree_id.to_string(), app_now_seconds());
+        let snapshot = self.runtime_service.ai_runtime_state_snapshot();
+        self.state.ai_runtime_state = self
+            .runtime_service
+            .summarize_ai_runtime_state_snapshot(&snapshot);
         self.sync_project_activity_store(cx);
         self.notify_task_column(cx);
         cx.notify();
-
-        let runtime_service = self.runtime_service.clone();
-        let snapshot = self.runtime_service.ai_runtime_state_snapshot();
-        codux_runtime::async_runtime::spawn(async move {
-            let _ = runtime_service.save_ai_runtime_state_snapshot(&snapshot);
-        });
     }
 }

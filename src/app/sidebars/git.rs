@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::ui_helpers::codux_tooltip;
 use gpui::{ClickEvent, ListSizingBehavior, Pixels};
 use gpui_component::input::{Input, InputEvent, InputState};
 use std::ops::Range;
@@ -220,7 +221,7 @@ fn git_panel_header(
                                     .child(branch.to_string()),
                             )
                             .child(
-                                Icon::new(IconName::ChevronDown)
+                                Icon::new(HeroIconName::ChevronDown)
                                     .size_3()
                                     .text_color(color(theme::TEXT_DIM)),
                             ),
@@ -249,7 +250,7 @@ fn git_panel_header(
                 .items_center()
                 .child(assistant_header_icon_button(
                     "git-sidebar-ai",
-                    IconName::Asterisk,
+                    HeroIconName::Sparkles,
                     cx,
                     |app, _event, window, cx| app.generate_git_commit_message_with_ai(window, cx),
                 ))
@@ -257,7 +258,7 @@ fn git_panel_header(
                     if operation.cancellable {
                         this.child(assistant_header_icon_button(
                             "git-sidebar-cancel",
-                            IconName::CircleX,
+                            HeroIconName::XCircle,
                             cx,
                             move |app, _event, window, cx| {
                                 app.cancel_project_git(window, cx);
@@ -270,19 +271,13 @@ fn git_panel_header(
                                 .ghost()
                                 .text_color(cx.theme().secondary_foreground)
                                 .icon(
-                                    Icon::new(IconName::LoaderCircle)
+                                    Icon::new(HeroIconName::ArrowPath)
                                         .size_3p5()
                                         .text_color(cx.theme().secondary_foreground),
                                 ),
                         )
                     }
-                })
-                .child(assistant_header_icon_button(
-                    "git-sidebar-refresh",
-                    IconName::Redo2,
-                    cx,
-                    |app, _event, window, cx| app.reload_project_git(window, cx),
-                )),
+                }),
         )
 }
 
@@ -305,7 +300,7 @@ fn git_branch_dropdown_menu(
     let menu = menu
         .item(
             PopupMenuItem::new(labels.new_branch.clone())
-                .icon(IconName::Plus)
+                .icon(HeroIconName::Plus)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&create_entity, |app, cx| {
                         app.create_git_branch(window, cx);
@@ -318,7 +313,7 @@ fn git_branch_dropdown_menu(
     let local_entity = app_entity.clone();
     let local_labels = labels.clone();
     let menu = menu.submenu_with_icon(
-        Some(Icon::new(IconName::Github)),
+        Some(Icon::new(HeroIconName::ArrowPathRoundedSquare)),
         labels.local_branches.clone(),
         window,
         cx,
@@ -326,7 +321,7 @@ fn git_branch_dropdown_menu(
             if local_branches.is_empty() {
                 return menu.item(
                     PopupMenuItem::new(local_labels.local_empty.clone())
-                        .icon(IconName::Github)
+                        .icon(HeroIconName::ArrowPathRoundedSquare)
                         .disabled(true),
                 );
             }
@@ -338,9 +333,9 @@ fn git_branch_dropdown_menu(
                 let submenu_labels = local_labels.clone();
                 menu.submenu_with_icon(
                     Some(Icon::new(if is_current {
-                        IconName::Check
+                        HeroIconName::Check
                     } else {
-                        IconName::Github
+                        HeroIconName::ArrowPathRoundedSquare
                     })),
                     branch.name.clone(),
                     window,
@@ -357,7 +352,7 @@ fn git_branch_dropdown_menu(
 
                         menu.item(
                             PopupMenuItem::new(submenu_labels.switch_branch.clone())
-                                .icon(IconName::Check)
+                                .icon(HeroIconName::Check)
                                 .disabled(is_current)
                                 .on_click(move |_, window, cx| {
                                     cx.update_entity(&switch_entity, |app, cx| {
@@ -369,7 +364,7 @@ fn git_branch_dropdown_menu(
                         .separator()
                         .item(
                             PopupMenuItem::new(submenu_labels.merge_current.clone())
-                                .icon(IconName::Redo2)
+                                .icon(HeroIconName::ArrowUturnRight)
                                 .disabled(is_current)
                                 .on_click(move |_, window, cx| {
                                     cx.update_entity(&merge_entity, |app, cx| {
@@ -379,7 +374,7 @@ fn git_branch_dropdown_menu(
                         )
                         .item(
                             PopupMenuItem::new(submenu_labels.squash_merge.clone())
-                                .icon(IconName::Redo)
+                                .icon(HeroIconName::ArrowPath)
                                 .disabled(is_current)
                                 .on_click(move |_, window, cx| {
                                     cx.update_entity(&squash_entity, |app, cx| {
@@ -394,7 +389,7 @@ fn git_branch_dropdown_menu(
                         .separator()
                         .item(
                             PopupMenuItem::new(submenu_labels.delete_local.clone())
-                                .icon(IconName::Delete)
+                                .icon(HeroIconName::Trash)
                                 .disabled(is_current)
                                 .on_click(move |_, window, cx| {
                                     cx.update_entity(&delete_entity, |app, cx| {
@@ -425,7 +420,7 @@ fn git_branch_dropdown_menu(
             if candidates.is_empty() {
                 return menu.item(
                     PopupMenuItem::new(merge_labels.merge_empty.clone())
-                        .icon(IconName::Redo2)
+                        .icon(HeroIconName::ArrowUturnRight)
                         .disabled(true),
                 );
             }
@@ -435,7 +430,7 @@ fn git_branch_dropdown_menu(
                 let app_entity = merge_entity.clone();
                 menu.item(
                     PopupMenuItem::new(branch.name.clone())
-                        .icon(IconName::Redo2)
+                        .icon(HeroIconName::ArrowUturnRight)
                         .on_click(move |_, window, cx| {
                             cx.update_entity(&app_entity, |app, cx| {
                                 app.merge_git_branch(branch_name.clone(), window, cx);
@@ -459,7 +454,7 @@ fn git_branch_dropdown_menu(
             let add_entity = remote_entity.clone();
             let menu = menu.item(
                 PopupMenuItem::new(remote_labels.add_remote.clone())
-                    .icon(IconName::Plus)
+                    .icon(HeroIconName::Plus)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&add_entity, |app, cx| {
                             app.open_git_remote_editor(window, cx);
@@ -470,7 +465,7 @@ fn git_branch_dropdown_menu(
             if remote_items.is_empty() {
                 return menu.separator().item(
                     PopupMenuItem::new(remote_labels.no_remotes.clone())
-                        .icon(IconName::Globe)
+                        .icon(HeroIconName::GlobeAlt)
                         .disabled(true),
                 );
             }
@@ -487,9 +482,9 @@ fn git_branch_dropdown_menu(
                 let item_labels = remote_labels.clone();
                 menu.submenu_with_icon(
                     Some(Icon::new(if is_default {
-                        IconName::Check
+                        HeroIconName::Check
                     } else {
-                        IconName::Globe
+                        HeroIconName::GlobeAlt
                     })),
                     remote.name.clone(),
                     window,
@@ -503,7 +498,7 @@ fn git_branch_dropdown_menu(
 
                         menu.item(
                             PopupMenuItem::new(item_labels.set_default.clone())
-                                .icon(IconName::Check)
+                                .icon(HeroIconName::Check)
                                 .checked(is_default)
                                 .on_click(move |_, window, cx| {
                                     let next_remote = if is_default {
@@ -523,7 +518,7 @@ fn git_branch_dropdown_menu(
                         .separator()
                         .item(
                             PopupMenuItem::new(item_labels.copy_url.clone())
-                                .icon(IconName::Copy)
+                                .icon(HeroIconName::DocumentDuplicate)
                                 .on_click(move |_, _window, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(
                                         copy_url.clone(),
@@ -532,7 +527,7 @@ fn git_branch_dropdown_menu(
                         )
                         .item(
                             PopupMenuItem::new(item_labels.remove_remote.clone())
-                                .icon(IconName::Delete)
+                                .icon(HeroIconName::Trash)
                                 .on_click(move |_, window, cx| {
                                     cx.update_entity(&remove_entity, |app, cx| {
                                         app.remove_project_git_remote(
@@ -566,7 +561,7 @@ fn git_branch_dropdown_menu(
             let fetch_entity = remote_branch_entity.clone();
             let menu = menu.item(
                 PopupMenuItem::new(remote_branch_labels.refresh_remote_branches.clone())
-                    .icon(IconName::Redo2)
+                    .icon(HeroIconName::ArrowPath)
                     .disabled(!has_remotes)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&fetch_entity, |app, cx| {
@@ -578,7 +573,7 @@ fn git_branch_dropdown_menu(
             if remote_branch_groups.is_empty() {
                 return menu.separator().item(
                     PopupMenuItem::new(remote_branch_labels.remote_branches_empty.clone())
-                        .icon(IconName::ArrowDown)
+                        .icon(HeroIconName::ArrowDown)
                         .disabled(true),
                 );
             }
@@ -610,7 +605,7 @@ fn git_branch_dropdown_menu(
                                         PopupMenuItem::new(
                                             branch_labels.checkout_remote_branch.clone(),
                                         )
-                                        .icon(IconName::ArrowDown)
+                                        .icon(HeroIconName::ArrowDown)
                                         .on_click(
                                             move |_, window, cx| {
                                                 cx.update_entity(&checkout_entity, |app, cx| {
@@ -625,7 +620,7 @@ fn git_branch_dropdown_menu(
                                     )
                                     .item(
                                         PopupMenuItem::new(branch_labels.push_here.clone())
-                                            .icon(IconName::ArrowUp)
+                                            .icon(HeroIconName::ArrowUp)
                                             .on_click(move |_, window, cx| {
                                                 cx.update_entity(&push_entity, |app, cx| {
                                                     app.push_project_git_remote_branch(
@@ -651,7 +646,7 @@ fn git_branch_dropdown_menu(
         .separator()
         .item(
             PopupMenuItem::new(labels.fetch.clone())
-                .icon(IconName::ArrowDown)
+                .icon(HeroIconName::ArrowDown)
                 .disabled(!has_remotes)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&fetch_entity, |app, cx| {
@@ -661,7 +656,7 @@ fn git_branch_dropdown_menu(
         )
         .item(
             PopupMenuItem::new(labels.pull.clone())
-                .icon(IconName::ArrowDown)
+                .icon(HeroIconName::ArrowDown)
                 .disabled(!can_use_current_branch_remote)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&pull_entity, |app, cx| {
@@ -671,7 +666,7 @@ fn git_branch_dropdown_menu(
         )
         .item(
             PopupMenuItem::new(labels.push.clone())
-                .icon(IconName::ArrowUp)
+                .icon(HeroIconName::ArrowUp)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&push_entity, |app, cx| {
                         app.push_project_git(window, cx);
@@ -691,7 +686,7 @@ fn git_branch_dropdown_menu(
             if push_remotes.is_empty() {
                 return menu.item(
                     PopupMenuItem::new(push_to_labels.no_remotes.clone())
-                        .icon(IconName::Globe)
+                        .icon(HeroIconName::GlobeAlt)
                         .disabled(true),
                 );
             }
@@ -711,9 +706,9 @@ fn git_branch_dropdown_menu(
                 menu.item(
                     PopupMenuItem::new(label)
                         .icon(if is_default {
-                            IconName::Check
+                            HeroIconName::Check
                         } else {
-                            IconName::ArrowUp
+                            HeroIconName::ArrowUp
                         })
                         .on_click(move |_, window, cx| {
                             cx.update_entity(&app_entity, |app, cx| {
@@ -732,7 +727,7 @@ fn git_branch_dropdown_menu(
     menu.separator()
         .item(
             PopupMenuItem::new(labels.force_push.clone())
-                .icon(IconName::TriangleAlert)
+                .icon(HeroIconName::ExclamationTriangle)
                 .disabled(!can_use_current_branch_remote)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&force_push_entity, |app, cx| {
@@ -742,7 +737,7 @@ fn git_branch_dropdown_menu(
         )
         .item(
             PopupMenuItem::new(labels.undo_last_commit.clone())
-                .icon(IconName::Undo2)
+                .icon(HeroIconName::ArrowUturnLeft)
                 .disabled(!has_commits)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&undo_entity, |app, cx| {
@@ -752,7 +747,7 @@ fn git_branch_dropdown_menu(
         )
         .item(
             PopupMenuItem::new(labels.edit_last_commit_message.clone())
-                .icon(IconName::Redo)
+                .icon(HeroIconName::ArrowPath)
                 .disabled(!has_commits)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&edit_entity, |app, cx| {
@@ -762,7 +757,7 @@ fn git_branch_dropdown_menu(
         )
         .item(
             PopupMenuItem::new(labels.show_repository.clone())
-                .icon(IconName::FolderOpen)
+                .icon(HeroIconName::FolderOpen)
                 .on_click(move |_, window, cx| {
                     cx.update_entity(&reveal_entity, |app, cx| {
                         app.reveal_selected_project_in_file_manager(window, cx);
@@ -1047,7 +1042,7 @@ fn git_remote_editor_panel(
                         .compact()
                         .ghost()
                         .text_color(cx.theme().secondary_foreground)
-                        .icon(Icon::new(IconName::Close).size_3p5())
+                        .icon(Icon::new(HeroIconName::XMark).size_3p5())
                         .on_click(cx.listener(|app, _event, window, cx| {
                             app.close_git_remote_editor(window, cx)
                         })),
@@ -1155,7 +1150,7 @@ fn git_commit_panel(
                         .text_color(color(0xFFFFFF))
                         .bg(color(theme::ACCENT).opacity(0.18))
                         .icon(
-                            Icon::new(IconName::ChevronDown)
+                            Icon::new(HeroIconName::ChevronDown)
                                 .size_3()
                                 .text_color(color(0xFFFFFF)),
                         )
@@ -1168,7 +1163,7 @@ fn git_commit_panel(
                             let undo_entity = app_entity.clone();
                             menu.item(
                                 PopupMenuItem::new(labels.commit.clone())
-                                    .icon(IconName::Check)
+                                    .icon(HeroIconName::Check)
                                     .on_click(move |_, window, cx| {
                                         cx.update_entity(&commit_entity, |app, cx| {
                                             app.commit_staged_git(window, cx);
@@ -1177,7 +1172,7 @@ fn git_commit_panel(
                             )
                             .item(
                                 PopupMenuItem::new(labels.commit_push.clone())
-                                    .icon(IconName::ArrowUp)
+                                    .icon(HeroIconName::ArrowUp)
                                     .on_click(move |_, window, cx| {
                                         cx.update_entity(&push_entity, |app, cx| {
                                             app.commit_and_push_git(window, cx);
@@ -1186,7 +1181,7 @@ fn git_commit_panel(
                             )
                             .item(
                                 PopupMenuItem::new(labels.commit_sync.clone())
-                                    .icon(IconName::Redo2)
+                                    .icon(HeroIconName::ArrowPath)
                                     .on_click(move |_, window, cx| {
                                         cx.update_entity(&sync_entity, |app, cx| {
                                             app.commit_and_sync_git(window, cx);
@@ -1196,7 +1191,7 @@ fn git_commit_panel(
                             .separator()
                             .item(
                                 PopupMenuItem::new(labels.load_last_commit_message.clone())
-                                    .icon(IconName::Copy)
+                                    .icon(HeroIconName::DocumentDuplicate)
                                     .on_click(move |_, window, cx| {
                                         cx.update_entity(&load_last_entity, |app, cx| {
                                             app.load_last_git_commit_message(window, cx);
@@ -1205,7 +1200,7 @@ fn git_commit_panel(
                             )
                             .item(
                                 PopupMenuItem::new(labels.amend_last_commit.clone())
-                                    .icon(IconName::Redo2)
+                                    .icon(HeroIconName::ArrowUturnRight)
                                     .on_click(move |_, window, cx| {
                                         cx.update_entity(&amend_entity, |app, cx| {
                                             app.amend_last_git_commit(window, cx);
@@ -1214,7 +1209,7 @@ fn git_commit_panel(
                             )
                             .item(
                                 PopupMenuItem::new(labels.undo_last_commit.clone())
-                                    .icon(IconName::Undo2)
+                                    .icon(HeroIconName::ArrowUturnLeft)
                                     .on_click(move |_, window, cx| {
                                         cx.update_entity(&undo_entity, |app, cx| {
                                             app.undo_last_git_commit(window, cx);
@@ -1329,7 +1324,7 @@ fn git_empty_repository_panel(
                         .justify_center()
                         .bg(color(theme::ORANGE).opacity(0.12))
                         .text_color(color(theme::ORANGE))
-                        .child(Icon::new(IconName::Folder).size_8()),
+                        .child(Icon::new(HeroIconName::Folder).size_8()),
                 )
                 .child(
                     div()
@@ -1714,9 +1709,9 @@ fn git_status_group_header(
                 .gap_2()
                 .child(
                     Icon::new(if expanded {
-                        IconName::ChevronDown
+                        HeroIconName::ChevronDown
                     } else {
-                        IconName::ChevronRight
+                        HeroIconName::ChevronRight
                     })
                     .size_3p5()
                     .text_color(color(theme::TEXT_DIM)),
@@ -1935,14 +1930,14 @@ fn git_status_dir_row(
                 .min_w_0()
                 .child(
                     Icon::new(if expanded {
-                        IconName::ChevronDown
+                        HeroIconName::ChevronDown
                     } else {
-                        IconName::ChevronRight
+                        HeroIconName::ChevronRight
                     })
                     .size_3(),
                 )
                 .child(
-                    Icon::new(IconName::Folder)
+                    Icon::new(HeroIconName::Folder)
                         .size_4()
                         .ml(px(8.0))
                         .text_color(color(theme::ACCENT)),
@@ -2023,9 +2018,9 @@ fn git_status_file_row(
                 .text_color(color(theme::TEXT_MUTED))
                 .child(
                     Icon::new(if is_dir_status {
-                        IconName::Folder
+                        HeroIconName::Folder
                     } else {
-                        IconName::File
+                        HeroIconName::Document
                     })
                     .size_3p5(),
                 )
@@ -2063,7 +2058,7 @@ fn git_status_file_row(
 
             let menu = if can_stage {
                 menu.item(
-                    git_context_menu_item(labels.stage.clone(), IconName::Plus).on_click(
+                    git_context_menu_item(labels.stage.clone(), HeroIconName::Plus).on_click(
                         move |_, window, cx| {
                             cx.update_entity(&stage_entity, |app, cx| {
                                 app.select_git_file(stage_path.clone(), window, cx);
@@ -2081,7 +2076,7 @@ fn git_status_file_row(
             };
             let menu = if can_unstage {
                 menu.item(
-                    git_context_menu_item(labels.unstage.clone(), IconName::Minus).on_click(
+                    git_context_menu_item(labels.unstage.clone(), HeroIconName::Minus).on_click(
                         move |_, window, cx| {
                             cx.update_entity(&unstage_entity, |app, cx| {
                                 app.select_git_file(unstage_path.clone(), window, cx);
@@ -2099,38 +2094,43 @@ fn git_status_file_row(
             };
             let menu = if !is_dir_status {
                 menu.item(
-                    git_context_menu_item(labels.open_diff.clone(), IconName::ExternalLink)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&diff_entity, |app, cx| {
-                                app.open_git_diff_window(diff_path.clone(), window, cx);
-                            });
-                        }),
+                    git_context_menu_item(
+                        labels.open_diff.clone(),
+                        HeroIconName::ArrowTopRightOnSquare,
+                    )
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&diff_entity, |app, cx| {
+                            app.open_git_diff_window(diff_path.clone(), window, cx);
+                        });
+                    }),
                 )
             } else {
                 menu
             };
             let menu = if can_discard {
                 menu.separator().item(
-                    git_context_menu_item(labels.discard_changes.clone(), IconName::Undo).on_click(
-                        move |_, window, cx| {
-                            cx.update_entity(&discard_entity, |app, cx| {
-                                app.select_git_file(discard_path.clone(), window, cx);
-                                app.discard_git_paths(
-                                    app.selected_git_action_paths(&discard_path),
-                                    window,
-                                    cx,
-                                );
-                            });
-                        },
-                    ),
+                    git_context_menu_item(
+                        labels.discard_changes.clone(),
+                        HeroIconName::ArrowUturnLeft,
+                    )
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&discard_entity, |app, cx| {
+                            app.select_git_file(discard_path.clone(), window, cx);
+                            app.discard_git_paths(
+                                app.selected_git_action_paths(&discard_path),
+                                window,
+                                cx,
+                            );
+                        });
+                    }),
                 )
             } else {
                 menu
             };
             if is_git_untracked_file(&file) || is_dir_status {
                 menu.item(
-                    git_context_menu_item(labels.add_gitignore.clone(), IconName::Close).on_click(
-                        move |_, window, cx| {
+                    git_context_menu_item(labels.add_gitignore.clone(), HeroIconName::XMark)
+                        .on_click(move |_, window, cx| {
                             cx.update_entity(&ignore_entity, |app, cx| {
                                 app.append_project_gitignore_paths(
                                     app.selected_git_action_paths(&ignore_path),
@@ -2138,8 +2138,7 @@ fn git_status_file_row(
                                     cx,
                                 );
                             });
-                        },
-                    ),
+                        }),
                 )
             } else {
                 menu
@@ -2168,7 +2167,7 @@ impl From<&GitSidebarLabels> for GitFileMenuLabels {
     }
 }
 
-fn git_context_menu_item(label: String, icon: IconName) -> PopupMenuItem {
+fn git_context_menu_item(label: String, icon: HeroIconName) -> PopupMenuItem {
     PopupMenuItem::element(move |_window, cx| {
         div()
             .flex()
@@ -2252,7 +2251,7 @@ pub(in crate::app) fn git_diff_window_workspace(
                                 .gap(px(6.0))
                                 .text_size(px(12.0))
                                 .line_height(px(16.0))
-                                .child(Icon::new(IconName::ExternalLink).size_3())
+                                .child(Icon::new(HeroIconName::ArrowTopRightOnSquare).size_3())
                                 .child(labels.open_file.clone()),
                         ),
                 ),
@@ -2430,7 +2429,7 @@ fn git_history_timeline_row(
         .py(px(4.0))
         .flex()
         .gap_2()
-        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .tooltip(move |window, cx| codux_tooltip(tooltip.clone(), window, cx))
         .hover(|style| style.bg(cx.theme().list_hover))
         .child(
             div()
@@ -2532,7 +2531,7 @@ fn git_history_timeline_row(
             let restore_entity = context_entity.clone();
             menu.item(
                 PopupMenuItem::new(labels.checkout_commit.clone())
-                    .icon(IconName::Github)
+                    .icon(HeroIconName::ArrowPathRoundedSquare)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&checkout_entity, |app, cx| {
                             app.checkout_git_commit(checkout_hash.clone(), window, cx);
@@ -2541,7 +2540,7 @@ fn git_history_timeline_row(
             )
             .item(
                 PopupMenuItem::new(labels.revert_commit.clone())
-                    .icon(IconName::Undo2)
+                    .icon(HeroIconName::ArrowUturnLeft)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&revert_entity, |app, cx| {
                             app.revert_git_commit(revert_hash.clone(), window, cx);
@@ -2550,7 +2549,7 @@ fn git_history_timeline_row(
             )
             .item(
                 PopupMenuItem::new(labels.restore_commit.clone())
-                    .icon(IconName::Redo2)
+                    .icon(HeroIconName::ArrowUturnRight)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&restore_entity, |app, cx| {
                             app.restore_git_commit(restore_hash.clone(), window, cx);

@@ -55,9 +55,10 @@ impl CoduxApp {
             .map(|project| {
                 (
                     project.id.clone(),
-                    super::ai_runtime_status::ai_activity_for_project_with_worktree_activity(
-                        &self.state,
-                        project,
+                    super::ai_runtime_status::aggregate_project_activity(
+                        self.ai_activity_for_project(project),
+                        &project.id,
+                        &self.state.worktrees.worktrees,
                         &worktree_activity,
                     ),
                 )

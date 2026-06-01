@@ -55,3 +55,19 @@ pub(super) fn count_queue(conn: &Connection, statuses: &[&str]) -> Result<i64, S
         )
         .map_err(|error| error.to_string())
 }
+
+pub(super) fn latest_failed_queue_error(conn: &Connection) -> Result<Option<String>, String> {
+    conn.query_row(
+        r#"
+        SELECT error
+        FROM memory_extraction_queue
+        WHERE status = 'failed' AND error IS NOT NULL AND error != ''
+        ORDER BY enqueued_at DESC
+        LIMIT 1;
+        "#,
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+}

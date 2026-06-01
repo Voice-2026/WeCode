@@ -6,6 +6,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "Erstellt",
+      "memory.decision.merge": "Zusammengeführt",
+      "memory.decision.replace": "Ersetzt",
+      "memory.decision.archive": "Archiviert",
+      "memory.decision.skip": "Übersprungen",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "Projektgedächtnis löschen",
       "memory.manager.delete_project.confirm.message": "Dadurch werden alle Projekterinnerungen und Zusammenfassungen für das ausgewählte Projekt aus der lokalen Speicherdatenbank entfernt.",
@@ -74,7 +79,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "Wartend",
+      "memory.status.short_remembering": "Merken",
+      "memory.status.short_memory": "Speicher",
+      "memory.status.short_failed": "Fehler"
     },
     "en": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -82,6 +91,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "Created",
+      "memory.decision.merge": "Merged",
+      "memory.decision.replace": "Replaced",
+      "memory.decision.archive": "Archived",
+      "memory.decision.skip": "Skipped",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "Delete Project Memory",
       "memory.manager.delete_project.confirm.message": "This removes all project memories and summaries for the selected project from the local memory database.",
@@ -150,7 +164,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "Queued",
+      "memory.status.short_remembering": "Remembering",
+      "memory.status.short_memory": "Memory",
+      "memory.status.short_failed": "Failed"
     },
     "es": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -158,6 +176,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "Creada",
+      "memory.decision.merge": "Fusionada",
+      "memory.decision.replace": "Reemplazada",
+      "memory.decision.archive": "Archivada",
+      "memory.decision.skip": "Omitida",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "Eliminar memoria del proyecto",
       "memory.manager.delete_project.confirm.message": "Esto elimina todas las memorias y resúmenes del proyecto seleccionado de la base de datos de memoria local.",
@@ -226,7 +249,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "En cola",
+      "memory.status.short_remembering": "Recordando",
+      "memory.status.short_memory": "Memoria",
+      "memory.status.short_failed": "Falló"
     },
     "fr": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -234,6 +261,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "Créée",
+      "memory.decision.merge": "Fusionnée",
+      "memory.decision.replace": "Remplacée",
+      "memory.decision.archive": "Archivée",
+      "memory.decision.skip": "Ignorée",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "Supprimer la mémoire du projet",
       "memory.manager.delete_project.confirm.message": "Cela supprime toutes les mémoires et tous les résumés du projet sélectionné dans la base de données locale.",
@@ -302,7 +334,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "En attente",
+      "memory.status.short_remembering": "Mémorisation",
+      "memory.status.short_memory": "Mémoire",
+      "memory.status.short_failed": "Échec"
     },
     "ja": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -310,6 +346,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "作成済み",
+      "memory.decision.merge": "統合済み",
+      "memory.decision.replace": "置換済み",
+      "memory.decision.archive": "アーカイブ済み",
+      "memory.decision.skip": "スキップ済み",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "プロジェクトメモリを削除",
       "memory.manager.delete_project.confirm.message": "選択したプロジェクトのすべてのメモリと要約をローカルメモリデータベースから削除します。",
@@ -378,7 +419,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "待機中",
+      "memory.status.short_remembering": "記憶中",
+      "memory.status.short_memory": "メモリ",
+      "memory.status.short_failed": "失敗"
     },
     "ko": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -386,6 +431,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "생성됨",
+      "memory.decision.merge": "병합됨",
+      "memory.decision.replace": "교체됨",
+      "memory.decision.archive": "보관됨",
+      "memory.decision.skip": "건너뜀",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "프로젝트 메모리 삭제",
       "memory.manager.delete_project.confirm.message": "선택한 프로젝트의 모든 메모리와 요약을 로컬 메모리 데이터베이스에서 삭제합니다.",
@@ -454,7 +504,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "대기",
+      "memory.status.short_remembering": "기억 중",
+      "memory.status.short_memory": "메모리",
+      "memory.status.short_failed": "실패"
     },
     "pt-BR": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -462,6 +516,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "Criada",
+      "memory.decision.merge": "Mesclada",
+      "memory.decision.replace": "Substituída",
+      "memory.decision.archive": "Arquivada",
+      "memory.decision.skip": "Ignorada",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "Excluir memória do projeto",
       "memory.manager.delete_project.confirm.message": "Isso remove todas as memórias e resumos do projeto selecionado do banco de dados local de memória.",
@@ -530,7 +589,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "Na fila",
+      "memory.status.short_remembering": "Memorizando",
+      "memory.status.short_memory": "Memória",
+      "memory.status.short_failed": "Falha"
     },
     "ru": {
       "memory.kind.bug_lesson": "Bug Lesson",
@@ -538,6 +601,11 @@
       "memory.kind.decision": "Decision",
       "memory.kind.fact": "Fact",
       "memory.kind.preference": "Preference",
+      "memory.decision.create": "Создано",
+      "memory.decision.merge": "Объединено",
+      "memory.decision.replace": "Заменено",
+      "memory.decision.archive": "Архивировано",
+      "memory.decision.skip": "Пропущено",
       "memory.manager.archive": "Archive",
       "memory.manager.delete_project": "Удалить память проекта",
       "memory.manager.delete_project.confirm.message": "Это удалит все воспоминания и сводки выбранного проекта из локальной базы памяти.",
@@ -606,7 +674,11 @@
       "memory.status.short_indexing": "Indexing",
       "memory.tier.archive": "Archive",
       "memory.tier.core": "Core",
-      "memory.tier.working": "Working"
+      "memory.tier.working": "Working",
+      "memory.status.short_queued": "В очереди",
+      "memory.status.short_remembering": "Запоминание",
+      "memory.status.short_memory": "Память",
+      "memory.status.short_failed": "Сбой"
     },
     "zh-Hans": {
       "memory.kind.bug_lesson": "问题经验",
@@ -614,6 +686,11 @@
       "memory.kind.decision": "决策",
       "memory.kind.fact": "事实",
       "memory.kind.preference": "偏好",
+      "memory.decision.create": "已创建",
+      "memory.decision.merge": "已合并",
+      "memory.decision.replace": "已替换",
+      "memory.decision.archive": "已归档",
+      "memory.decision.skip": "已跳过",
       "memory.manager.archive": "归档",
       "memory.manager.delete_project": "删除项目记忆",
       "memory.manager.delete_project.confirm.message": "这会从本地记忆库中删除所选项目的全部记忆和摘要。",
@@ -682,7 +759,11 @@
       "memory.status.short_indexing": "索引中",
       "memory.tier.archive": "归档",
       "memory.tier.core": "核心",
-      "memory.tier.working": "工作记忆"
+      "memory.tier.working": "工作记忆",
+      "memory.status.short_queued": "排队",
+      "memory.status.short_remembering": "记忆中",
+      "memory.status.short_memory": "记忆",
+      "memory.status.short_failed": "失败"
     },
     "zh-Hant": {
       "memory.kind.bug_lesson": "問題經驗",
@@ -690,6 +771,11 @@
       "memory.kind.decision": "決策",
       "memory.kind.fact": "事實",
       "memory.kind.preference": "偏好",
+      "memory.decision.create": "已建立",
+      "memory.decision.merge": "已合併",
+      "memory.decision.replace": "已取代",
+      "memory.decision.archive": "已封存",
+      "memory.decision.skip": "已略過",
       "memory.manager.archive": "封存",
       "memory.manager.delete_project": "刪除專案記憶",
       "memory.manager.delete_project.confirm.message": "這會從本機記憶庫中刪除所選專案的全部記憶和摘要。",
@@ -758,7 +844,11 @@
       "memory.status.short_indexing": "索引中",
       "memory.tier.archive": "封存",
       "memory.tier.core": "核心",
-      "memory.tier.working": "工作記憶"
+      "memory.tier.working": "工作記憶",
+      "memory.status.short_queued": "排隊",
+      "memory.status.short_remembering": "記憶中",
+      "memory.status.short_memory": "記憶",
+      "memory.status.short_failed": "失敗"
     }
   }
 }

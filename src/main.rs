@@ -1,5 +1,6 @@
 mod app;
 mod assets;
+mod heroicons;
 mod terminal;
 mod theme;
 

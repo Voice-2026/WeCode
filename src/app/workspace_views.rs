@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::ui_helpers::codux_tooltip;
 
 pub(in crate::app) struct WorkspaceColumnView {
     toolbar_view: gpui::Entity<WorkspaceToolbarView>,
@@ -439,7 +440,7 @@ fn terminal_pane(
                 .child(terminal_pane_control_button(
                     app_entity.clone(),
                     float_id,
-                    IconName::ExternalLink,
+                    HeroIconName::ArrowTopRightOnSquare,
                     "浮窗",
                     pane_count > 1,
                     cx,
@@ -448,7 +449,7 @@ fn terminal_pane(
                 .child(terminal_pane_control_button(
                     app_entity.clone(),
                     add_id,
-                    IconName::Plus,
+                    HeroIconName::Plus,
                     "新建分屏",
                     true,
                     cx,
@@ -457,7 +458,7 @@ fn terminal_pane(
                 .child(terminal_pane_control_button(
                     app_entity,
                     close_id,
-                    IconName::Close,
+                    HeroIconName::XMark,
                     "关闭分屏",
                     pane_count > 1,
                     cx,
@@ -543,7 +544,7 @@ fn terminal_bottom_content(tab: TerminalPaneViewSnapshot) -> AnyElement {
 fn terminal_pane_control_button(
     app_entity: gpui::Entity<CoduxApp>,
     id: SharedString,
-    icon: IconName,
+    icon: HeroIconName,
     tooltip: &'static str,
     enabled: bool,
     cx: &mut Context<TerminalWorkspaceView>,
@@ -563,7 +564,7 @@ fn terminal_pane_control_button(
         .justify_center()
         .rounded_sm()
         .text_color(text_color)
-        .tooltip(move |window, cx| Tooltip::new(tooltip).build(window, cx))
+        .tooltip(move |window, cx| codux_tooltip(tooltip, window, cx))
         .child(Icon::new(icon).size_3p5().text_color(text_color));
 
     if enabled {
@@ -638,7 +639,7 @@ fn terminal_bottom_tab_button(
                         app.close_terminal_tab(terminal_id, window, app_cx)
                     });
                 }))
-                .child(Icon::new(IconName::Close).size_3()),
+                .child(Icon::new(HeroIconName::XMark).size_3()),
         )
 }
 
@@ -660,5 +661,5 @@ fn terminal_bottom_add_button(
         .on_click(cx.listener(move |_view, _event, window, cx| {
             app_entity.update(cx, |app, app_cx| app.add_terminal_tab(window, app_cx));
         }))
-        .child(Icon::new(IconName::Plus).size_3p5())
+        .child(Icon::new(HeroIconName::Plus).size_3p5())
 }

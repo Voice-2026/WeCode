@@ -88,16 +88,22 @@ impl CoduxApp {
                             .truncate()
                             .child(project_name),
                     )
-                    .child(header_icon_button(
-                        "task-refresh",
-                        IconName::Redo2,
-                        cx,
-                        |app, _event, window, cx| {
-                            app.reload_worktrees(window, cx);
-                            app.reload_ai_history(window, cx);
-                            app.reload_project_git(window, cx);
-                        },
-                    )),
+                    .child(
+                        Button::new("task-refresh")
+                            .ghost()
+                            .compact()
+                            .loading(self.task_column_refreshing)
+                            .disabled(self.task_column_refreshing)
+                            .text_color(cx.theme().secondary_foreground)
+                            .icon(
+                                Icon::new(HeroIconName::ArrowPath)
+                                    .size_3p5()
+                                    .text_color(cx.theme().secondary_foreground),
+                            )
+                            .on_click(cx.listener(|app, _event, _window, cx| {
+                                app.refresh_task_column_async(cx);
+                            })),
+                    ),
                 cx,
             ))
             .child(
@@ -510,7 +516,7 @@ fn ai_session_compact_row(
 
             menu.item(
                 PopupMenuItem::new(labels.open.clone())
-                    .icon(IconName::SquareTerminal)
+                    .icon(HeroIconName::CommandLine)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&open_entity, |app, cx| {
                             app.selected_ai_session_id = Some(open_session_id.clone());
@@ -520,7 +526,7 @@ fn ai_session_compact_row(
             )
             .item(
                 PopupMenuItem::new(labels.delete.clone())
-                    .icon(IconName::Delete)
+                    .icon(HeroIconName::Trash)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&remove_entity, |app, cx| {
                             app.request_remove_ai_session(remove_session_id.clone(), window, cx);
@@ -561,7 +567,7 @@ fn ai_session_delete_confirm_overlay(
                         .items_center()
                         .gap_2()
                         .child(
-                            Icon::new(IconName::Delete)
+                            Icon::new(HeroIconName::Trash)
                                 .size_4()
                                 .text_color(color(theme::ORANGE)),
                         )

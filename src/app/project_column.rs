@@ -84,7 +84,7 @@ impl Render for ProjectColumnView {
             .border_color(cx.theme().sidebar_border)
             .child(project_column_header(
                 collapsed,
-                app_entity.clone(),
+                self.app_entity.clone(),
                 window,
                 cx,
             ))
@@ -154,18 +154,13 @@ fn project_column_header(
 ) -> impl IntoElement {
     if collapsed {
         div()
-            .h(px(74.0))
-            .px(px(26.0))
-            .pt(px(30.0))
+            .h(px(48.0))
             .flex()
             .items_center()
             .justify_center()
             .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
                 window.start_window_move();
             })
-            .child(project_column_toggle_button(
-                collapsed, app_entity, window, cx,
-            ))
             .into_any_element()
     } else {
         div()
@@ -206,8 +201,14 @@ fn project_tools_snapshot(
     if collapsed {
         base.flex_col()
             .items_center()
+            .child(project_column_toggle_button(
+                collapsed,
+                app_entity.clone(),
+                window,
+                cx,
+            ))
             .child(project_tool_button(
-                IconName::Plus,
+                HeroIconName::Plus,
                 None,
                 "project-add-footer",
                 app_entity.clone(),
@@ -216,7 +217,7 @@ fn project_tools_snapshot(
                 |app, _event, window, cx| app.open_project_create_window(window, cx),
             ))
             .child(project_tool_button(
-                IconName::Settings,
+                HeroIconName::Cog6Tooth,
                 None,
                 "project-settings-footer",
                 app_entity.clone(),
@@ -238,7 +239,7 @@ fn project_tools_snapshot(
         base.flex_col()
             .items_start()
             .child(project_tool_button(
-                IconName::Plus,
+                HeroIconName::Plus,
                 Some(project_column_text(
                     language,
                     "sidebar.footer.add_project",
@@ -251,7 +252,7 @@ fn project_tools_snapshot(
                 |app, _event, window, cx| app.open_project_create_window(window, cx),
             ))
             .child(project_tool_button(
-                IconName::Settings,
+                HeroIconName::Cog6Tooth,
                 Some(project_column_text(language, "menu.settings", "Settings")),
                 "project-settings-footer",
                 app_entity.clone(),
@@ -273,7 +274,7 @@ fn project_tools_snapshot(
 }
 
 fn project_tool_button(
-    icon: IconName,
+    icon: HeroIconName,
     label: Option<String>,
     id: &'static str,
     app_entity: gpui::Entity<CoduxApp>,
@@ -299,7 +300,7 @@ fn project_tool_button(
 }
 
 fn project_tool_content(
-    icon: IconName,
+    icon: HeroIconName,
     label: Option<String>,
     cx: &mut Context<ProjectColumnView>,
 ) -> AnyElement {
@@ -365,7 +366,11 @@ fn project_more_button(
     };
 
     button
-        .child(project_tool_content(IconName::Ellipsis, label, cx))
+        .child(project_tool_content(
+            HeroIconName::EllipsisHorizontal,
+            label,
+            cx,
+        ))
         .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
             let fallback_entity = app_entity.clone();
             let about_entity = app_entity.clone();
@@ -410,7 +415,7 @@ fn project_more_button(
 enum ProjectHelpMenuEntry {
     Item {
         label: String,
-        icon: IconName,
+        icon: HeroIconName,
         action_id: &'static str,
     },
     Separator,
@@ -422,39 +427,39 @@ fn project_help_menu_entries(language: &str) -> Vec<ProjectHelpMenuEntry> {
     vec![
         Item {
             label: label("menu.app.about_format", "About Codux").replace("%@", "Codux"),
-            icon: IconName::Info,
+            icon: HeroIconName::InformationCircle,
             action_id: "help:about",
         },
         Item {
             label: label("menu.app.check_updates", "Check for Updates..."),
-            icon: IconName::Redo2,
+            icon: HeroIconName::ArrowPath,
             action_id: "help:check-updates",
         },
         Separator,
         Item {
             label: label("menu.help.export_diagnostics", "Export Diagnostics..."),
-            icon: IconName::File,
+            icon: HeroIconName::Document,
             action_id: "help:export-diagnostics",
         },
         Item {
             label: label("menu.help.open_runtime_log", "Open Runtime Log"),
-            icon: IconName::File,
+            icon: HeroIconName::Document,
             action_id: "help:runtime-log",
         },
         Item {
             label: label("menu.help.open_live_log", "Open Live Log"),
-            icon: IconName::File,
+            icon: HeroIconName::Document,
             action_id: "help:live-log",
         },
         Separator,
         Item {
             label: label("menu.help.website", "Official Website"),
-            icon: IconName::ExternalLink,
+            icon: HeroIconName::ArrowTopRightOnSquare,
             action_id: "help:website",
         },
         Item {
             label: label("menu.help.github", "GitHub"),
-            icon: IconName::Github,
+            icon: HeroIconName::ArrowPathRoundedSquare,
             action_id: "help:github",
         },
     ]
@@ -472,13 +477,14 @@ fn project_column_toggle_button(
     cx: &mut Context<ProjectColumnView>,
 ) -> impl IntoElement {
     let icon = if collapsed {
-        IconName::PanelLeftOpen
+        HeroIconName::ChevronDoubleRight
     } else {
-        IconName::PanelLeftClose
+        HeroIconName::ChevronDoubleLeft
     };
     Button::new("project-column-toggle")
         .ghost()
         .text_color(cx.theme().secondary_foreground)
+        .w(px(40.0))
         .icon(Icon::new(icon).text_color(cx.theme().secondary_foreground))
         .on_click(window.listener_for(&app_entity, |app, _event, window, cx| {
             app.toggle_project_column(window, cx)
@@ -738,18 +744,20 @@ fn project_icon_hex_color(value: &str) -> Option<u32> {
     }
 }
 
-fn project_badge_symbol_icon(symbol: &str) -> Option<IconName> {
+fn project_badge_symbol_icon(symbol: &str) -> Option<HeroIconName> {
     match symbol {
-        "terminal" => Some(IconName::SquareTerminal),
-        "folder" => Some(IconName::Folder),
-        "shippingbox" | "shippingbox.fill" | "cube.box" | "laptopcomputer" => Some(IconName::Bot),
-        "hammer" => Some(IconName::Settings2),
-        "server.rack" | "globe" => Some(IconName::Globe),
-        "bolt" | "sparkles" => Some(IconName::Star),
-        "wrench" | "paintpalette" => Some(IconName::Settings),
-        "doc.text" => Some(IconName::File),
-        "book" => Some(IconName::BookOpen),
-        "person.2" => Some(IconName::CircleUser),
+        "terminal" => Some(HeroIconName::CommandLine),
+        "folder" => Some(HeroIconName::Folder),
+        "shippingbox" | "shippingbox.fill" | "cube.box" | "laptopcomputer" => {
+            Some(HeroIconName::Sparkles)
+        }
+        "hammer" => Some(HeroIconName::WrenchScrewdriver),
+        "server.rack" | "globe" => Some(HeroIconName::GlobeAlt),
+        "bolt" | "sparkles" => Some(HeroIconName::Star),
+        "wrench" | "paintpalette" => Some(HeroIconName::Cog6Tooth),
+        "doc.text" => Some(HeroIconName::Document),
+        "book" => Some(HeroIconName::BookOpen),
+        "person.2" => Some(HeroIconName::UserCircle),
         _ => None,
     }
 }

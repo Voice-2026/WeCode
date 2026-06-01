@@ -37,8 +37,11 @@ pub(super) fn load_recent_entries(
         })
         .map_err(|error| error.to_string())?;
 
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+    let mut entries = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    attach_latest_memory_entry_decisions(conn, &mut entries)?;
+    Ok(entries)
 }
 
 pub(super) fn list_entries_for_management(
@@ -91,8 +94,11 @@ pub(super) fn list_entries_for_management(
             memory_entry_summary_from_row(row, false)
         })
         .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+    let mut entries = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    attach_latest_memory_entry_decisions(conn, &mut entries)?;
+    Ok(entries)
 }
 
 fn memory_entry_summary_from_row(
@@ -122,9 +128,72 @@ fn memory_entry_summary_from_row(
         access_count: row.get(14)?,
         created_at: row.get(15)?,
         updated_at: row.get(16)?,
+        last_decision: None,
     })
 }
 
 fn entry_select_columns() -> &'static str {
     "id, scope, project_id, tool_id, tier, kind, COALESCE(module_key, 'general'), status, content, rationale, source_tool, source_session_id, merged_summary_id, archived_at, access_count, created_at, updated_at"
+}
+
+fn attach_latest_memory_entry_decisions(
+    conn: &Connection,
+    entries: &mut [MemoryEntrySummary],
+) -> Result<(), String> {
+    const ENTRY_IDS_PER_QUERY: usize = 300;
+    let entry_indices = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (entry.id.clone(), index))
+        .collect::<HashMap<_, _>>();
+    let entry_ids = entry_indices.keys().cloned().collect::<Vec<_>>();
+
+    for chunk in entry_ids.chunks(ENTRY_IDS_PER_QUERY) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            r#"
+            SELECT decision, entry_id, target_entry_id, reason, created_at
+            FROM memory_decision_logs
+            WHERE entry_id IN ({placeholders}) OR target_entry_id IN ({placeholders})
+            ORDER BY created_at DESC;
+            "#
+        );
+        let values = chunk
+            .iter()
+            .chain(chunk.iter())
+            .map(|id| rusqlite::types::Value::Text(id.clone()))
+            .collect::<Vec<_>>();
+        let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map(rusqlite::params_from_iter(values), |row| {
+                Ok(MemoryEntryDecisionSummary {
+                    kind: row.get(0)?,
+                    entry_id: row.get(1)?,
+                    target_entry_id: row.get(2)?,
+                    reason: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })
+            .map_err(|error| error.to_string())?;
+
+        for decision in rows {
+            let decision = decision.map_err(|error| error.to_string())?;
+            for entry_id in [
+                decision.entry_id.as_deref(),
+                decision.target_entry_id.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if let Some(index) = entry_indices.get(entry_id)
+                    && entries[*index].last_decision.is_none()
+                {
+                    entries[*index].last_decision = Some(decision.clone());
+                }
+            }
+        }
+    }
+    Ok(())
 }

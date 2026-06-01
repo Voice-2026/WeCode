@@ -2,7 +2,7 @@ impl MemoryService {
     pub fn enqueue_completed_session_if_ready(
         &self,
         memory_settings: &AIMemorySettings,
-        projects: &[ProjectInfo],
+        projects: &[ProjectWorkspaceRecord],
         session: &AISessionSnapshot,
     ) -> Result<MemoryEnqueueResult, String> {
         let reason = if !memory_settings.enabled || !memory_settings.automatic_extraction_enabled {
@@ -106,6 +106,17 @@ impl MemoryService {
         let conn = self.open_connection()?;
         conn.execute(
             "UPDATE memory_extraction_queue SET status = 'pending', error = NULL WHERE status = 'running';",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+        self.extraction_status_snapshot()
+    }
+
+    pub fn clear_extraction_failures(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
+        self.ensure_queue_schema()?;
+        let conn = self.open_connection()?;
+        conn.execute(
+            "UPDATE memory_extraction_queue SET status = 'cleared' WHERE status = 'failed';",
             [],
         )
         .map_err(|error| error.to_string())?;

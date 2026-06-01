@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::app_events::PetUpdateEvent;
+use crate::app::ui_helpers::with_codux_tooltip;
 use codux_runtime::pet::{PetCatalog, PetCatalogItem, PetLegacyRecord, PetStats};
 use gpui::{Hsla, ListSizingBehavior};
 use gpui_component::{
@@ -78,6 +79,9 @@ impl CoduxApp {
             return;
         }
 
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
         let bounds = Bounds::centered(None, window_size, cx);
         let result = cx.open_window(
             WindowOptions {
@@ -88,7 +92,12 @@ impl CoduxApp {
                 ..Default::default()
             },
             move |window, cx| {
-                let app = CoduxApp::new_pet_window(mode);
+                let app = CoduxApp::new_pet_window_from_state(
+                    mode,
+                    state.clone(),
+                    runtime.clone(),
+                    runtime_service.clone(),
+                );
                 theme::apply_component_theme(
                     &app.state.settings.theme,
                     &app.state.settings.theme_color,
@@ -332,7 +341,7 @@ impl CoduxApp {
             pet_footer_button(
                 "pet-claim-open-custom-install",
                 pet_catalog_text(&language, "pet.custom.install.action", "Add Custom Pet"),
-                IconName::Plus,
+                HeroIconName::Plus,
                 false,
                 cx,
                 |app, _event, window, cx| app.open_pet_custom_install_window(window, cx),
@@ -342,7 +351,7 @@ impl CoduxApp {
             pet_footer_button(
                 "pet-claim-confirm",
                 pet_catalog_text(&language, "pet.claim.confirm", "Confirm Claim"),
-                IconName::Check,
+                HeroIconName::Check,
                 true,
                 cx,
                 move |app, _event, window, cx| {
@@ -398,7 +407,7 @@ impl CoduxApp {
             pet_footer_button(
                 "pet-custom-install-window",
                 pet_catalog_text(&language, "pet.custom.install.confirm", "Install"),
-                IconName::Plus,
+                HeroIconName::Plus,
                 true,
                 cx,
                 |app, _event, window, cx| app.install_custom_pet(window, cx),
@@ -477,7 +486,7 @@ impl CoduxApp {
             pet_inline_button(
                 "pet-dex-archive",
                 pet_catalog_text(&language, "pet.archive.action", "Archive"),
-                IconName::Delete,
+                HeroIconName::Trash,
                 true,
                 cx,
                 |app, _event, window, cx| app.archive_current_pet(window, cx),
@@ -487,7 +496,7 @@ impl CoduxApp {
             pet_inline_button(
                 "pet-dex-claim",
                 pet_catalog_text(&language, "pet.claim.action", "Claim Pet"),
-                IconName::Heart,
+                HeroIconName::Heart,
                 true,
                 cx,
                 |app, _event, window, cx| app.open_pet_claim_window(window, cx),
@@ -497,7 +506,7 @@ impl CoduxApp {
         let add_custom_action = pet_inline_button(
             "pet-dex-open-custom-install",
             pet_catalog_text(&language, "pet.custom.install.action", "Add Custom Pet"),
-            IconName::Plus,
+            HeroIconName::Plus,
             true,
             cx,
             |app, _event, window, cx| app.open_pet_custom_install_window(window, cx),
@@ -1155,19 +1164,15 @@ fn pet_legacy_row(
                 .text_color(color(theme::TEXT_DIM))
                 .child(pet_date_label(record.retired_at)),
         )
-        .child(
+        .child(with_codux_tooltip(
+            format!("pet-restore-legacy-tooltip-{legacy_id}"),
             Button::new(SharedString::from(format!(
                 "pet-restore-legacy-{legacy_id}"
             )))
             .compact()
             .ghost()
-            .tooltip(pet_catalog_text(
-                &language,
-                "pet.archive.restore.action",
-                "Restore",
-            ))
             .text_color(cx.theme().secondary_foreground)
-            .icon(Icon::new(IconName::Undo2).size_3p5())
+            .icon(Icon::new(HeroIconName::ArrowUturnLeft).size_3p5())
             .on_click(cx.listener(move |app, _event, _window, cx| {
                 match app.runtime_service.restore_archived_pet(PetRestoreRequest {
                     legacy_id: legacy_id.clone(),
@@ -1187,7 +1192,8 @@ fn pet_legacy_row(
                 }
                 cx.notify();
             })),
-        )
+            pet_catalog_text(&language, "pet.archive.restore.action", "Restore"),
+        ))
 }
 
 fn pet_cancel_button(id: &'static str, language: &str, cx: &mut Context<CoduxApp>) -> Button {
@@ -1221,7 +1227,7 @@ fn pet_dialog_footer(children: Vec<AnyElement>) -> impl IntoElement {
 fn pet_footer_button(
     id: &'static str,
     label: String,
-    icon: IconName,
+    icon: HeroIconName,
     primary: bool,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
@@ -1260,7 +1266,7 @@ fn pet_button_label(label: impl Into<SharedString>, text_color: Hsla) -> impl In
 fn pet_inline_button(
     id: &'static str,
     label: String,
-    icon: IconName,
+    icon: HeroIconName,
     enabled: bool,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
@@ -1446,7 +1452,7 @@ fn pet_select_row(
                 .items_center()
                 .justify_center()
                 .child(if selected {
-                    Icon::new(IconName::CircleCheck)
+                    Icon::new(HeroIconName::CheckCircle)
                         .size_3p5()
                         .text_color(color(theme::ACCENT))
                         .into_any_element()
@@ -1483,7 +1489,11 @@ fn pet_claim_random_thumb(cx: &mut Context<CoduxApp>) -> AnyElement {
         .justify_center()
         .bg(accent.opacity(0.12))
         .text_color(accent)
-        .child(Icon::new(IconName::Asterisk).size_5().text_color(accent))
+        .child(
+            Icon::new(HeroIconName::Sparkles)
+                .size_5()
+                .text_color(accent),
+        )
         .into_any_element()
 }
 
@@ -1547,7 +1557,7 @@ fn pet_claim_preview(
                 .overflow_hidden()
                 .bg(color(theme::ACCENT).opacity(0.12))
                 .child(if random {
-                    Icon::new(IconName::Asterisk)
+                    Icon::new(HeroIconName::Sparkles)
                         .size_8()
                         .text_color(cx.theme().primary)
                         .into_any_element()
@@ -1849,7 +1859,7 @@ fn pet_dex_sidebar_overview(
                 .items_center()
                 .gap(px(8.0))
                 .child(
-                    Icon::new(IconName::BookOpen)
+                    Icon::new(HeroIconName::BookOpen)
                         .size_3p5()
                         .text_color(color(theme::TEXT_MUTED)),
                 )
@@ -2165,7 +2175,7 @@ fn pet_dex_archive_confirm_overlay(language: &str, cx: &mut Context<CoduxApp>) -
                         .items_center()
                         .gap_2()
                         .child(
-                            Icon::new(IconName::Delete)
+                            Icon::new(HeroIconName::Trash)
                                 .size_4()
                                 .text_color(color(theme::ORANGE)),
                         )

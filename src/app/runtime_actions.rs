@@ -9,12 +9,27 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             loop {
                 timer.timer(Duration::from_millis(500)).await;
+                let service = match this.update(cx, |app, _cx| {
+                    (app.window_mode == AppWindowMode::Settings)
+                        .then(|| app.runtime_service.clone())
+                }) {
+                    Ok(Some(service)) => service,
+                    Ok(None) => return,
+                    Err(_) => return,
+                };
+                let remote = match codux_runtime::async_runtime::spawn_blocking(move || {
+                    service.reload_remote()
+                })
+                .await
+                {
+                    Ok(remote) => remote,
+                    Err(_) => return,
+                };
                 if this
                     .update(cx, |app, cx| {
                         if app.window_mode != AppWindowMode::Settings {
                             return;
                         }
-                        let remote = app.runtime_service.reload_remote();
                         if app.state.remote.status != remote.status
                             || app.state.remote.message != remote.message
                             || app.state.remote.devices != remote.devices
@@ -117,14 +132,7 @@ impl CoduxApp {
         };
         self.state.ai_runtime_state = self
             .runtime_service
-            .save_ai_runtime_state_snapshot(&ai_snapshot)
-            .unwrap_or_else(|error| {
-                let mut summary = self
-                    .runtime_service
-                    .reload_ai_runtime_state(&self.state.runtime_events);
-                summary.error = Some(error);
-                summary
-            });
+            .summarize_ai_runtime_state_snapshot(&ai_snapshot);
         self.normalize_selected_runtime_session();
     }
 

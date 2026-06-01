@@ -1,5 +1,6 @@
 use super::{CoduxApp, empty_label};
-use crate::app::scroll_compat::ScrollableElement;
+use crate::app::{AIProviderTestResult, scroll_compat::ScrollableElement};
+use crate::heroicons::HeroIconName;
 use crate::theme::{self, color};
 use codux_runtime::{
     i18n::translate,
@@ -11,11 +12,12 @@ use codux_runtime::{
     update::UpdateSummary,
 };
 use gpui::{
-    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, prelude::FluentBuilder as _, px, relative,
+    AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img,
+    prelude::FluentBuilder as _, px, relative,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, IconName, Sizable,
+    ActiveTheme, Disableable, Icon, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectItem, SelectState},
@@ -102,19 +104,19 @@ impl SettingsPane {
         }
     }
 
-    fn icon(self) -> IconName {
+    fn icon(self) -> HeroIconName {
         match self {
-            Self::General => IconName::Settings,
-            Self::Appearance => IconName::Palette,
-            Self::Pet => IconName::Heart,
-            Self::AI => IconName::Bot,
-            Self::Git => IconName::Github,
-            Self::Memory => IconName::BookOpen,
-            Self::Notifications => IconName::Bell,
-            Self::Remote => IconName::Globe,
-            Self::Shortcuts => IconName::ALargeSmall,
-            Self::Experiments => IconName::Inspector,
-            Self::Developer => IconName::Settings2,
+            Self::General => HeroIconName::Cog6Tooth,
+            Self::Appearance => HeroIconName::Swatch,
+            Self::Pet => HeroIconName::Heart,
+            Self::AI => HeroIconName::Sparkles,
+            Self::Git => HeroIconName::ArrowPathRoundedSquare,
+            Self::Memory => HeroIconName::BookOpen,
+            Self::Notifications => HeroIconName::Bell,
+            Self::Remote => HeroIconName::GlobeAlt,
+            Self::Shortcuts => HeroIconName::CommandLine,
+            Self::Experiments => HeroIconName::Beaker,
+            Self::Developer => HeroIconName::WrenchScrewdriver,
         }
     }
 }
@@ -283,6 +285,7 @@ fn settings_pane_body(
             &app.state.tool_permissions,
             app.selected_ai_provider_id.as_deref(),
             app.ai_provider_testing_id.as_deref(),
+            app.ai_provider_test_result.as_ref(),
             window,
             cx,
         ),
@@ -466,22 +469,19 @@ fn settings_small_button_state(
 
 fn settings_icon_button_state(
     id: impl Into<SharedString>,
-    icon: IconName,
+    icon: impl Into<Icon>,
     disabled: bool,
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
+    let icon = icon.into();
     Button::new(id.into())
         .compact()
         .ghost()
         .disabled(disabled)
         .text_color(cx.theme().secondary_foreground)
         .bg(cx.theme().transparent)
-        .icon(
-            Icon::new(icon)
-                .size_3p5()
-                .text_color(cx.theme().secondary_foreground),
-        )
+        .icon(icon.size_3p5().text_color(cx.theme().secondary_foreground))
         .on_click(cx.listener(action))
         .into_any_element()
 }
@@ -597,6 +597,7 @@ fn settings_select_impl(
     let searchable = false;
     let items = settings_select_options(options.clone());
     let selected_index = items.iter().position(|item| item.value == value);
+    let current_value = value.to_string();
     let state_key = format!("settings-select-{id}");
     let state = window.use_keyed_state(SharedString::from(state_key), cx, {
         let items = items.clone();
@@ -621,6 +622,9 @@ fn settings_select_impl(
     cx.subscribe_in(&state, window, move |app, _, event, window, cx| {
         let SelectEvent::Confirm(selected) = event;
         if let Some(value) = selected.clone() {
+            if value == current_value {
+                return;
+            }
             action(app, value, window, cx);
         }
     })
@@ -665,7 +669,7 @@ fn settings_checkmark(selected: bool) -> AnyElement {
         .items_center()
         .justify_center()
         .text_color(color(0xFFFFFF))
-        .child(Icon::new(IconName::Check).size_2())
+        .child(Icon::new(HeroIconName::Check).size_2())
         .into_any_element()
 }
 
@@ -1103,7 +1107,7 @@ fn theme_preview_button(
                             .bg(theme::fixed_color(preview.selection)),
                     ),
             )
-            .child(settings_checkmark(selected))
+            .when(selected, |this| this.child(settings_checkmark(true)))
             .into_any_element(),
         cx,
         move |app, _event, window, cx| app.set_theme(value.to_string(), window, cx),
@@ -1134,17 +1138,6 @@ fn theme_color_grid(selected: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
                     }))
                     .bg(color(item.color))
                     .shadow_sm()
-                    .child(
-                        div()
-                            .when(!selected, |this| this.hidden())
-                            .absolute()
-                            .inset_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_color(color(0xFFFFFF))
-                            .child(Icon::new(IconName::Check).size_2p5()),
-                    )
                     .into_any_element(),
                 cx,
                 move |app, _event, window, cx| app.set_theme_color(value.to_string(), window, cx),
@@ -1175,41 +1168,29 @@ fn app_icon_grid(selected: &str, language: &str, cx: &mut Context<CoduxApp>) -> 
 }
 
 fn app_icon_preview(style: &'static str, selected: bool) -> AnyElement {
-    let palette = app_icon_palette(style);
+    let path = app_icon_asset_path(style);
     div()
         .relative()
-        .size(px(48.0))
-        .rounded(px(11.0))
-        .border_2()
-        .border_color(color(if selected {
-            0xFFFFFF
-        } else {
-            theme::BORDER_SOFT
-        }))
-        .shadow_sm()
-        .bg(color(palette.0))
+        .size(px(52.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(img(path).size(px(48.0)).object_fit(ObjectFit::Contain))
         .child(
             div()
                 .absolute()
-                .inset_0()
+                .left(px(2.0))
+                .top(px(2.0))
+                .size(px(48.0))
                 .rounded(px(12.0))
-                .bg(color(palette.1).opacity(0.38)),
-        )
-        .child(
-            div()
-                .absolute()
-                .left(px(13.0))
-                .top(px(14.0))
-                .text_color(color(0xFFFFFF).opacity(0.4))
-                .child(Icon::new(IconName::ChevronRight).size_5()),
-        )
-        .child(
-            div()
-                .absolute()
-                .left(px(23.0))
-                .top(px(14.0))
-                .text_color(color(0xFFFFFF))
-                .child(Icon::new(IconName::ChevronRight).size_5()),
+                .border_2()
+                .border_color(
+                    color(if selected { 0xFFFFFF } else { 0x000000 }).opacity(if selected {
+                        1.0
+                    } else {
+                        0.0
+                    }),
+                ),
         )
         .into_any_element()
 }
@@ -1814,11 +1795,12 @@ fn settings_ai_pane(
     permissions: &ToolPermissionsSummary,
     selected_provider_id: Option<&str>,
     testing_provider_id: Option<&str>,
+    test_result: Option<&AIProviderTestResult>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
-    let mut provider_rows = if settings.ai_providers.is_empty() {
+    let provider_rows = if settings.ai_providers.is_empty() {
         vec![
             div()
                 .py(px(12.0))
@@ -1842,6 +1824,7 @@ fn settings_ai_pane(
                     provider,
                     selected_provider_id,
                     testing_provider_id,
+                    test_result,
                     language,
                     window,
                     cx,
@@ -1850,33 +1833,6 @@ fn settings_ai_pane(
             })
             .collect::<Vec<_>>()
     };
-    provider_rows.insert(
-        0,
-        div()
-            .py(px(4.0))
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(16.0))
-            .child(
-                div()
-                    .text_size(px(14.0))
-                    .line_height(px(18.0))
-                    .text_color(color(theme::TEXT))
-                    .child(settings_text(
-                        language,
-                        "settings.ai.section.providers",
-                        "AI Providers",
-                    )),
-            )
-            .child(settings_small_button(
-                "settings-add-ai-provider",
-                settings_text(language, "settings.ai.provider.add", "Add API Provider"),
-                cx,
-                |app, _event, window, cx| app.add_ai_provider(window, cx),
-            ))
-            .into_any_element(),
-    );
     let mut runtime_tool_rows = Vec::new();
     runtime_tool_rows.extend(vec![
         settings_runtime_tool_block(
@@ -2014,9 +1970,20 @@ fn settings_ai_pane(
             cx,
         )
         .into_any_element(),
-        settings_card(
+        settings_card_with_actions(
+            Some(settings_text(
+                language,
+                "settings.ai.section.providers",
+                "AI Providers",
+            )),
             None,
-            None,
+            Some(settings_icon_button_state(
+                "settings-add-ai-provider",
+                Icon::new(HeroIconName::Key),
+                false,
+                cx,
+                |app, _event, window, cx| app.add_ai_provider(window, cx),
+            )),
             vec![
                 div()
                     .flex()
@@ -2451,7 +2418,7 @@ fn settings_remote_pane(
                             })
                             .child(settings_icon_button_state(
                                 SharedString::from(format!("settings-remote-remove-{}", device.id)),
-                                IconName::Delete,
+                                HeroIconName::Trash,
                                 false,
                                 cx,
                                 move |app, _event, window, cx| {
@@ -2546,14 +2513,14 @@ fn settings_remote_pane(
                         .gap(px(8.0))
                         .child(settings_icon_button_state(
                             "settings-remote-create-pairing",
-                            IconName::Plus,
+                            HeroIconName::Plus,
                             remote_pairing_creating || !remote.enabled || !configured,
                             cx,
                             |app, _event, window, cx| app.create_remote_pairing(window, cx),
                         ))
                         .child(settings_icon_button_state(
                             "settings-remote-refresh",
-                            IconName::Redo2,
+                            HeroIconName::ArrowPath,
                             !remote.enabled || !configured,
                             cx,
                             |app, _event, window, cx| app.refresh_remote_devices(window, cx),
@@ -3037,6 +3004,7 @@ fn settings_ai_provider_card(
     provider: codux_runtime::settings::AIProviderSummary,
     selected_provider_id: Option<&str>,
     testing_provider_id: Option<&str>,
+    test_result: Option<&AIProviderTestResult>,
     language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -3055,6 +3023,7 @@ fn settings_ai_provider_card(
     let testing = testing_provider_id
         .map(|id| id == provider.id)
         .unwrap_or(false);
+    let result = test_result.filter(|result| result.provider_id == provider.id);
     let test_disabled = testing_provider_id.is_some()
         || (!provider.api_key_configured && !provider_allows_empty_api_key(&provider.kind));
 
@@ -3222,50 +3191,70 @@ fn settings_ai_provider_card(
         .child(
             div()
                 .flex()
-                .justify_end()
+                .items_center()
+                .justify_between()
                 .gap(px(8.0))
+                .child(if let Some(result) = result {
+                    settings_status_tag(
+                        result.message.clone(),
+                        if result.ok {
+                            theme::ACCENT
+                        } else {
+                            theme::ORANGE
+                        },
+                    )
+                } else {
+                    div().hidden().into_any_element()
+                })
                 .child(
-                    Button::new(SharedString::from(format!(
-                        "settings-provider-test-{}",
-                        provider.id
-                    )))
-                    .secondary()
-                    .loading(testing)
-                    .disabled(test_disabled)
-                    .text_color(color(theme::TEXT))
-                    .on_click(cx.listener({
-                        let test_id = provider.id.clone();
-                        move |app, _event, window, cx| {
-                            app.test_ai_provider(test_id.clone(), window, cx)
-                        }
-                    }))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_end()
+                        .gap(px(8.0))
+                        .child(
+                            Button::new(SharedString::from(format!(
+                                "settings-provider-test-{}",
+                                provider.id
+                            )))
+                            .secondary()
+                            .loading(testing)
+                            .disabled(test_disabled)
                             .text_color(color(theme::TEXT))
-                            .child(if testing {
-                                settings_text(
-                                    language,
-                                    "settings.ai.provider.test.running",
-                                    "Testing...",
-                                )
-                            } else {
-                                settings_text(language, "settings.ai.provider.test", "Test")
-                            }),
-                    ),
-                )
-                .child(settings_small_button(
-                    format!("settings-provider-remove-{}", provider.id),
-                    settings_text(language, "settings.ai.provider.remove", "Remove"),
-                    cx,
-                    {
-                        let remove_id = provider.id.clone();
-                        move |app, _event, window, cx| {
-                            app.remove_ai_provider(remove_id.clone(), window, cx)
-                        }
-                    },
-                )),
+                            .on_click(cx.listener({
+                                let test_id = provider.id.clone();
+                                move |app, _event, window, cx| {
+                                    app.test_ai_provider(test_id.clone(), window, cx)
+                                }
+                            }))
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .line_height(px(16.0))
+                                    .text_color(color(theme::TEXT))
+                                    .child(if testing {
+                                        settings_text(
+                                            language,
+                                            "settings.ai.provider.test.running",
+                                            "Testing...",
+                                        )
+                                    } else {
+                                        settings_text(language, "settings.ai.provider.test", "Test")
+                                    }),
+                            ),
+                        )
+                        .child(settings_small_button(
+                            format!("settings-provider-remove-{}", provider.id),
+                            settings_text(language, "settings.ai.provider.remove", "Remove"),
+                            cx,
+                            {
+                                let remove_id = provider.id.clone();
+                                move |app, _event, window, cx| {
+                                    app.remove_ai_provider(remove_id.clone(), window, cx)
+                                }
+                            },
+                        )),
+                ),
         )
         .into_any_element()
 }
@@ -3765,12 +3754,12 @@ fn icon_style_values() -> Vec<IconStyleValue> {
     ]
 }
 
-fn app_icon_palette(style: &str) -> (u32, u32) {
+fn app_icon_asset_path(style: &str) -> &'static str {
     match style {
-        "cobalt" => (0x1F2433, 0x1C202E),
-        "sunset" => (0xF56B52, 0xEE604B),
-        "forest" => (0x2E9E73, 0x29926A),
-        _ => (0x3D80FA, 0x3773EE),
+        "cobalt" => "app-icons/codux-cobalt.svg",
+        "sunset" => "app-icons/codux-sunset.svg",
+        "forest" => "app-icons/codux-forest.svg",
+        _ => "app-icons/codux-default.svg",
     }
 }
 

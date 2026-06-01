@@ -45,9 +45,6 @@ impl RuntimeService {
             AppDiagnosticsSnapshot {
                 settings: read_json_or_default(self.support_dir.join("settings.json")),
                 projects: read_json_or_default(self.support_dir.join("state.json")),
-                ai_runtime: read_json_or_default(
-                    self.support_dir.join("gpui-ai-runtime-state.json"),
-                ),
                 ai_state: serde_json::to_value(
                     self.reload_ai_runtime_state(&self.reload_runtime_events()),
                 )

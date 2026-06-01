@@ -24,7 +24,7 @@ impl SettingsService {
     }
 
     pub fn set_terminal_scrollback_value(&self, lines: &str) -> Result<SettingsSummary, String> {
-        let lines = numeric_string(lines, 500, 200, 10_000).to_string();
+        let lines = numeric_string(lines, 2000, 200, 10_000).to_string();
         self.update_string("terminalScrollbackLines", lines)
     }
 
@@ -45,7 +45,7 @@ impl SettingsService {
     }
 
     pub fn cycle_terminal_scrollback_lines(&self) -> Result<SettingsSummary, String> {
-        let current = numeric_string(&self.summary().terminal_scrollback_lines, 500, 200, 10_000);
+        let current = numeric_string(&self.summary().terminal_scrollback_lines, 2000, 200, 10_000);
         let next = match current {
             500 => 1000,
             1000 => 2000,

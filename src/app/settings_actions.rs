@@ -27,10 +27,12 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.state.settings.terminal_scrollback_lines == lines {
+            return;
+        }
         match self.runtime_service.set_terminal_scrollback_value(&lines) {
             Ok(settings) => {
                 self.apply_settings_summary(settings);
-                self.apply_terminal_text_settings(cx);
                 self.status_message = format!(
                     "terminal scrollback saved: {}",
                     self.state.settings.terminal_scrollback_lines
@@ -954,6 +956,7 @@ impl CoduxApp {
 
         let service = self.runtime_service.clone();
         self.ai_provider_testing_id = Some(provider_id.clone());
+        self.ai_provider_test_result = None;
         self.selected_ai_provider_id = Some(provider_id.clone());
         self.status_message = "AI provider test started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
@@ -984,12 +987,22 @@ impl CoduxApp {
         }
         match result {
             Ok(result) => {
+                self.ai_provider_test_result = Some(AIProviderTestResult {
+                    provider_id,
+                    message: result.text.clone(),
+                    ok: true,
+                });
                 self.status_message = format!(
                     "AI provider test ok: {} · {}",
                     result.provider_name, result.text
                 );
             }
             Err(error) => {
+                self.ai_provider_test_result = Some(AIProviderTestResult {
+                    provider_id,
+                    message: error.clone(),
+                    ok: false,
+                });
                 self.status_message = format!("AI provider test failed: {error}");
             }
         }

@@ -1,4 +1,5 @@
 use super::{formatting::relative_time_label_for_language, *};
+use crate::app::ui_helpers::{centered_empty_state, codux_tooltip, with_codux_tooltip};
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::{
     ai_runtime_state::AIRuntimeStateSummary,
@@ -6,7 +7,9 @@ use codux_runtime::{
     runtime_paths::{LIVE_LOG_FILE_NAME, RUNTIME_LOG_FILE_NAME},
     settings::locale_from_language_setting,
 };
+use gpui::Hsla;
 use gpui_component::input::{Input, InputState};
+use std::collections::BTreeMap;
 
 const AI_RECENT_USAGE_COLUMNS: usize = 20;
 const AI_RECENT_USAGE_CELL_SIZE: f32 = 10.0;
@@ -107,10 +110,10 @@ pub(in crate::app) fn ai_stats_sidebar(
         .flex_col()
         .child(assistant_panel_header(
             title,
-            IconName::Bot,
+            HeroIconName::Sparkles,
             header_icon_button(
                 "ai-stats-refresh",
-                IconName::Redo2,
+                HeroIconName::ArrowPath,
                 cx,
                 |app, _event, _window, cx| app.start_ai_history_refresh(true, cx),
             ),
@@ -614,14 +617,14 @@ fn ai_runtime_sessions_card(
                         )
                         .child(assistant_header_icon_button(
                             "ai-runtime-poll",
-                            IconName::Redo2,
+                            HeroIconName::ArrowPath,
                             cx,
                             |app, _event, window, cx| app.poll_ai_runtime_state(window, cx),
                         ))
                         .child(if ai_runtime_state.completed_count > 0 {
                             assistant_header_icon_button(
                                 "ai-runtime-dismiss-completion",
-                                IconName::Close,
+                                HeroIconName::XMark,
                                 cx,
                                 |app, _event, window, cx| {
                                     app.dismiss_selected_project_ai_completion(window, cx)
@@ -935,6 +938,8 @@ pub(in crate::app) fn memory_manager_window_workspace(
     selected_memory_entry_id: Option<&str>,
     selected_memory_summary_id: Option<&str>,
     memory_processing: bool,
+    memory_refreshing: bool,
+    project_profile_refreshing: bool,
     language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -987,6 +992,7 @@ pub(in crate::app) fn memory_manager_window_workspace(
         selected_scope == "project",
         selected_memory_entry_id,
         selected_memory_summary_id,
+        project_profile_refreshing,
         empty_entries,
         empty_summary,
         language,
@@ -1025,37 +1031,27 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                             div()
                                                 .min_w_0()
                                                 .flex_1()
-                                                .text_size(px(17.0))
+                                                .text_size(px(18.0))
                                                 .line_height(px(22.0))
                                                 .text_color(cx.theme().foreground)
                                                 .child(title),
                                         )
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .items_center()
-                                                .gap_1()
-                                                .child(assistant_header_icon_button(
-                                                    "memory-manager-window-process",
-                                                    IconName::Redo2,
-                                                    cx,
-                                                    |app, _event, window, cx| {
-                                                        app.process_memory_sessions_now(window, cx)
-                                                    },
-                                                ))
-                                                .when(memory_processing, |this| {
-                                                    this.child(assistant_header_icon_button(
-                                                        "memory-manager-window-stop",
-                                                        IconName::Close,
-                                                        cx,
-                                                        |app, _event, window, cx| {
-                                                            app.cancel_memory_extraction_queue(
-                                                                window, cx,
-                                                            )
-                                                        },
-                                                    ))
-                                                }),
-                                        ),
+                                        .child(div().flex().items_center().gap_1().child(
+                                            ai_memory_header_icon_button(
+                                                "memory-manager-window-process",
+                                                HeroIconName::ArrowPath,
+                                                ai_sidebar_text(
+                                                    language,
+                                                    "memory.manager.index_now",
+                                                    "Index Now",
+                                                ),
+                                                memory_processing,
+                                                cx,
+                                                |app, _event, window, cx| {
+                                                    app.process_memory_sessions_now(window, cx)
+                                                },
+                                            ),
+                                        )),
                                 )
                                 .child(
                                     div()
@@ -1136,11 +1132,19 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                 .gap_1()
                                                 .when(selected_scope == "project", |this| {
                                                     this.child(ai_memory_migrate_project_button(
-                                                        manager, language, cx,
+                                                        manager,
+                                                        selected_project_id,
+                                                        language,
+                                                        cx,
                                                     ))
                                                     .child(ai_memory_row_icon_button(
                                                         "memory-manager-window-delete-project",
-                                                        IconName::Delete,
+                                                        HeroIconName::Trash,
+                                                        ai_sidebar_text(
+                                                            language,
+                                                            "memory.manager.delete_project",
+                                                            "Delete Project Memory",
+                                                        ),
                                                         cx,
                                                         |app, _event, window, cx| {
                                                             app.delete_selected_memory_project(
@@ -1149,9 +1153,15 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                         },
                                                     ))
                                                 })
-                                                .child(assistant_header_icon_button(
+                                                .child(ai_memory_header_icon_button(
                                                     "memory-manager-window-refresh",
-                                                    IconName::Redo2,
+                                                    HeroIconName::ArrowPath,
+                                                    ai_sidebar_text(
+                                                        language,
+                                                        "common.refresh",
+                                                        "Refresh",
+                                                    ),
+                                                    memory_refreshing,
                                                     cx,
                                                     |app, _event, window, cx| {
                                                         app.reload_memory(window, cx)
@@ -1194,21 +1204,81 @@ pub(in crate::app) fn memory_manager_window_workspace(
                         ),
                 ),
         )
-        .when(memory_processing, |this| {
+        .child(ai_memory_manager_status_bar(manager, language))
+}
+
+fn ai_memory_manager_status_bar(
+    manager: &MemoryManagerSnapshot,
+    language: &str,
+) -> impl IntoElement {
+    let queued = manager.extraction.queued.max(0);
+    let running = manager.extraction.running.max(0);
+    let failed = manager.extraction.failed.max(0);
+    let error = manager
+        .extraction
+        .last_error
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let active = queued > 0 || running > 0;
+    let status_label = if let Some(error) = error.clone() {
+        error
+    } else if active {
+        ai_sidebar_text(language, "memory.status.processing", "Remembering")
+    } else {
+        ai_sidebar_text(language, "memory.status.idle", "Memory idle")
+    };
+
+    div()
+        .flex_shrink_0()
+        .border_t_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .bg(color(theme::STATUS_BAR))
+        .px_4()
+        .h(px(30.0))
+        .flex()
+        .items_center()
+        .gap_2()
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .text_color(color(theme::TEXT_MUTED))
+        .when(active && error.is_none(), |this| {
+            this.child(Spinner::new().xsmall().color(color(theme::ORANGE)))
+        })
+        .when(!active && error.is_none(), |this| {
+            this.child(
+                div()
+                    .size(px(8.0))
+                    .rounded_full()
+                    .bg(color(theme::TEXT_DIM)),
+            )
+        })
+        .when_some(error.clone(), |this, _| {
+            this.child(div().size(px(8.0)).rounded_full().bg(color(0xF47C7C)))
+        })
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .truncate()
+                .text_color(color(if error.is_some() {
+                    0xF47C7C
+                } else if active {
+                    theme::ORANGE
+                } else {
+                    theme::TEXT_DIM
+                }))
+                .child(status_label),
+        )
+        .when(failed > 0 && error.is_none(), |this| {
             this.child(
                 div()
                     .flex_shrink_0()
-                    .border_t_1()
-                    .border_color(color(theme::BORDER_SOFT))
-                    .px_4()
-                    .py_2()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
-                    .text_color(color(theme::TEXT_MUTED))
-                    .child(ai_sidebar_text(
-                        language,
-                        "memory.status.processing",
-                        "Memory indexing is running",
+                    .text_color(color(0xF47C7C))
+                    .child(format!(
+                        "{failed} {}",
+                        ai_sidebar_text(language, "memory.status.short_failed", "Failed")
                     )),
             )
         })
@@ -1220,27 +1290,42 @@ fn ai_memory_manager_window_content(
     is_project_scope: bool,
     selected_memory_entry_id: Option<&str>,
     selected_memory_summary_id: Option<&str>,
+    project_profile_refreshing: bool,
     empty_entries: String,
     empty_summary: String,
     language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
-    let mut content = div().flex().flex_col();
+    let mut content = div().size_full().flex().flex_col();
     if active_tab == MemoryManagerTab::Summary {
         if is_project_scope {
             if let Some(profile) = manager.project_profile.clone() {
-                content = content.child(ai_memory_project_profile_row(profile, language, cx));
+                content = content.child(ai_memory_project_profile_row(
+                    profile,
+                    project_profile_refreshing,
+                    language,
+                    cx,
+                ));
             } else {
-                content = content.child(ai_memory_project_profile_empty_row(language, cx));
+                content = content.child(ai_memory_project_profile_empty_row(
+                    project_profile_refreshing,
+                    language,
+                    cx,
+                ));
             }
         }
         if manager.summaries.is_empty() {
-            return content
-                .child(ai_memory_manager_empty_row(empty_summary))
-                .into_any_element();
+            if is_project_scope {
+                return content.into_any_element();
+            }
+            return ai_memory_manager_empty_row(empty_summary, cx).into_any_element();
         }
         return content
+            .child(ai_memory_section_label(
+                ai_sidebar_text(language, "memory.manager.tab.summary", "Summary"),
+                cx,
+            ))
             .children(manager.summaries.iter().map(|summary| {
                 ai_memory_manager_summary_row(
                     summary,
@@ -1256,16 +1341,17 @@ fn ai_memory_manager_window_content(
 
     if manager.entries.is_empty() {
         return content
-            .child(ai_memory_manager_empty_row(empty_entries))
+            .child(ai_memory_manager_empty_row(empty_entries, cx))
             .into_any_element();
     }
     content
-        .children(manager.entries.iter().cloned().map(|entry| {
-            let active = selected_memory_entry_id
-                .map(|id| id == entry.id.as_str())
-                .unwrap_or(false);
-            ai_memory_manager_entry_row(entry, active, cx).into_any_element()
-        }))
+        .children(ai_memory_manager_entry_groups(
+            &manager.entries,
+            selected_memory_entry_id,
+            active_tab,
+            language,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -1323,7 +1409,7 @@ fn ai_memory_manager_target_row(
         .on_click(cx.listener(move |app, _event, _window, cx| {
             app.select_memory_manager_target(scope.clone(), project_id.clone(), cx)
         }))
-        .child(Icon::new(IconName::Folder).size_4())
+        .child(Icon::new(HeroIconName::Folder).size_4())
         .child(
             div()
                 .min_w_0()
@@ -1331,15 +1417,15 @@ fn ai_memory_manager_target_row(
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(13.0))
-                        .line_height(px(17.0))
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
                         .child(title),
                 )
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(11.0))
-                        .line_height(px(15.0))
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
                         .text_color(cx.theme().muted_foreground)
                         .child(subtitle),
                 ),
@@ -1350,8 +1436,8 @@ fn ai_memory_manager_target_row(
                 .rounded_full()
                 .px(px(7.0))
                 .py(px(2.0))
-                .text_size(px(11.0))
-                .line_height(px(14.0))
+                .text_size(px(12.0))
+                .line_height(px(16.0))
                 .bg(if active {
                     color(theme::ACCENT).opacity(0.16)
                 } else {
@@ -1375,15 +1461,15 @@ fn ai_memory_manager_tab_button(
             "ai-memory-manager-tab-{}",
             tab.as_str()
         )))
-        .mr(px(6.0))
-        .h(px(24.0))
-        .px(px(8.0))
-        .rounded(px(6.0))
+        .mr(px(8.0))
+        .h(px(32.0))
+        .px(px(14.0))
+        .rounded(px(8.0))
         .flex()
         .items_center()
         .cursor_pointer()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(px(14.0))
+        .line_height(px(18.0))
         .text_color(if active {
             color(theme::TEXT)
         } else {
@@ -1399,8 +1485,44 @@ fn ai_memory_manager_tab_button(
         .child(label)
 }
 
+fn ai_memory_header_icon_button(
+    id: &'static str,
+    icon: HeroIconName,
+    tooltip: impl Into<String>,
+    loading: bool,
+    cx: &mut Context<CoduxApp>,
+    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> impl IntoElement {
+    with_codux_tooltip(
+        format!("ai-memory-header-tooltip-{id}"),
+        Button::new(id)
+            .compact()
+            .ghost()
+            .loading(loading)
+            .text_color(cx.theme().secondary_foreground)
+            .icon(
+                Icon::new(icon)
+                    .size_3p5()
+                    .text_color(cx.theme().secondary_foreground),
+            )
+            .on_click(cx.listener(on_click)),
+        tooltip.into(),
+    )
+}
+
+fn ai_memory_section_label(label: String, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+    div()
+        .mt(px(12.0))
+        .mb(px(6.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .text_color(cx.theme().muted_foreground)
+        .child(label)
+}
+
 fn ai_memory_migrate_project_button(
     manager: &MemoryManagerSnapshot,
+    selected_project_id: Option<&str>,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -1414,61 +1536,67 @@ fn ai_memory_migrate_project_button(
         "memory.manager.migrate_project.no_targets",
         "No migration targets",
     );
-    let target_label = ai_sidebar_text(language, "memory.manager.migrate_project.target", "Target");
     let targets = manager
         .target_rows
         .iter()
         .filter(|target| {
-            target.scope == "project" && target.project_id.is_some() && !target.is_open_project
+            target.scope == "project"
+                && target.is_open_project
+                && target.project_id.is_some()
+                && target.project_id.as_deref() != selected_project_id
         })
         .cloned()
         .collect::<Vec<_>>();
     let app_entity = cx.entity();
 
-    Button::new("ai-memory-migrate-project-memory")
-        .compact()
-        .ghost()
-        .tooltip(tooltip)
-        .text_color(cx.theme().secondary_foreground)
-        .icon(
-            Icon::new(IconName::ArrowUp)
-                .size_3p5()
-                .text_color(cx.theme().secondary_foreground),
-        )
-        .dropdown_menu(move |menu, _window, _cx| {
-            if targets.is_empty() {
-                return menu.item(
-                    PopupMenuItem::new(empty_label.clone())
-                        .icon(IconName::ArrowUp)
-                        .disabled(true),
-                );
-            }
+    with_codux_tooltip(
+        "ai-memory-migrate-project-memory-tooltip",
+        Button::new("ai-memory-migrate-project-memory")
+            .compact()
+            .ghost()
+            .text_color(cx.theme().secondary_foreground)
+            .icon(
+                Icon::new(HeroIconName::ArrowsRightLeft)
+                    .size_3p5()
+                    .text_color(cx.theme().secondary_foreground),
+            )
+            .dropdown_menu_with_anchor(gpui::Anchor::TopRight, move |menu, _window, _cx| {
+                if targets.is_empty() {
+                    return menu.item(
+                        PopupMenuItem::new(empty_label.clone())
+                            .icon(HeroIconName::Folder)
+                            .disabled(true),
+                    );
+                }
 
-            targets.iter().take(12).fold(menu, |menu, target| {
-                let Some(to_project_id) = target.project_id.clone() else {
-                    return menu;
-                };
-                let title = target.title.clone();
-                let entity = app_entity.clone();
-                menu.item(
-                    PopupMenuItem::new(format!("{target_label}: {title}"))
-                        .icon(IconName::ArrowUp)
-                        .on_click(move |_, window, cx| {
-                            cx.update_entity(&entity, |app, cx| {
-                                app.migrate_selected_memory_project_to(
-                                    to_project_id.clone(),
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
-                )
-            })
-        })
+                targets.iter().take(12).fold(menu, |menu, target| {
+                    let Some(to_project_id) = target.project_id.clone() else {
+                        return menu;
+                    };
+                    let title = target.title.clone();
+                    let entity = app_entity.clone();
+                    menu.item(
+                        PopupMenuItem::new(title)
+                            .icon(HeroIconName::Folder)
+                            .on_click(move |_, window, cx| {
+                                cx.update_entity(&entity, |app, cx| {
+                                    app.migrate_selected_memory_project_to(
+                                        to_project_id.clone(),
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            }),
+                    )
+                })
+            }),
+        tooltip,
+    )
 }
 
 fn ai_memory_project_profile_row(
     profile: codux_runtime::memory::MemoryProjectProfileSummary,
+    refreshing: bool,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -1480,11 +1608,9 @@ fn ai_memory_project_profile_row(
     div()
         .mt(px(8.0))
         .rounded(px(8.0))
-        .border_1()
-        .border_color(color(theme::ACCENT).opacity(0.20))
-        .px(px(12.0))
-        .py(px(11.0))
-        .bg(ai_stats_track_surface(cx))
+        .px(px(14.0))
+        .py(px(12.0))
+        .bg(ai_stats_surface(cx))
         .child(
             div()
                 .flex()
@@ -1500,17 +1626,32 @@ fn ai_memory_project_profile_row(
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
-                .child(ai_memory_row_icon_button(
-                    "ai-memory-refresh-project-profile",
-                    IconName::Redo2,
-                    cx,
-                    |app, _event, window, cx| {
-                        app.refresh_selected_memory_project_profile(window, cx)
-                    },
-                ))
+                .child(if refreshing {
+                    ai_memory_refreshing_label(language).into_any_element()
+                } else {
+                    ai_memory_row_icon_button(
+                        "ai-memory-refresh-project-profile",
+                        HeroIconName::ArrowPath,
+                        ai_sidebar_text(
+                            language,
+                            "memory.manager.project_profile.refresh",
+                            "Regenerate Project Profile",
+                        ),
+                        cx,
+                        |app, _event, window, cx| {
+                            app.refresh_selected_memory_project_profile(window, cx)
+                        },
+                    )
+                    .into_any_element()
+                })
                 .child(ai_memory_row_icon_button(
                     "ai-memory-delete-project-profile",
-                    IconName::Delete,
+                    HeroIconName::Trash,
+                    ai_sidebar_text(
+                        language,
+                        "memory.manager.project_profile.delete",
+                        "Delete Project Profile",
+                    ),
                     cx,
                     |app, _event, window, cx| {
                         app.delete_selected_memory_project_profile(window, cx)
@@ -1529,6 +1670,7 @@ fn ai_memory_project_profile_row(
 }
 
 fn ai_memory_project_profile_empty_row(
+    refreshing: bool,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -1545,11 +1687,9 @@ fn ai_memory_project_profile_empty_row(
     div()
         .mt(px(8.0))
         .rounded(px(8.0))
-        .border_1()
-        .border_color(cx.theme().border)
-        .px(px(12.0))
-        .py(px(11.0))
-        .bg(ai_stats_track_surface(cx))
+        .px(px(14.0))
+        .py(px(12.0))
+        .bg(ai_stats_surface(cx))
         .child(
             div()
                 .flex()
@@ -1565,14 +1705,24 @@ fn ai_memory_project_profile_empty_row(
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
-                .child(ai_memory_row_icon_button(
-                    "ai-memory-create-project-profile",
-                    IconName::Redo2,
-                    cx,
-                    |app, _event, window, cx| {
-                        app.refresh_selected_memory_project_profile(window, cx)
-                    },
-                )),
+                .child(if refreshing {
+                    ai_memory_refreshing_label(language).into_any_element()
+                } else {
+                    ai_memory_row_icon_button(
+                        "ai-memory-create-project-profile",
+                        HeroIconName::ArrowPath,
+                        ai_sidebar_text(
+                            language,
+                            "memory.manager.project_profile.refresh",
+                            "Regenerate Project Profile",
+                        ),
+                        cx,
+                        |app, _event, window, cx| {
+                            app.refresh_selected_memory_project_profile(window, cx)
+                        },
+                    )
+                    .into_any_element()
+                }),
         )
         .child(
             div()
@@ -1582,6 +1732,15 @@ fn ai_memory_project_profile_empty_row(
                 .text_color(color(theme::TEXT_MUTED))
                 .child(empty_label),
         )
+}
+
+fn ai_memory_refreshing_label(language: &str) -> impl IntoElement {
+    div()
+        .px(px(7.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .text_color(color(theme::TEXT_DIM))
+        .child(ai_sidebar_text(language, "common.processing", "Processing"))
 }
 
 fn ai_memory_manager_summary_row(
@@ -1635,19 +1794,13 @@ fn ai_memory_manager_summary_row(
         )))
         .mb(px(6.0))
         .rounded(px(8.0))
-        .border_1()
-        .border_color(if active {
-            color(theme::ACCENT).opacity(0.28)
-        } else {
-            cx.theme().border
-        })
         .px(px(12.0))
         .py(px(11.0))
         .cursor_pointer()
         .bg(if active {
             active_bg
         } else {
-            cx.theme().transparent
+            ai_stats_surface(cx)
         })
         .hover(move |style| style.bg(active_bg))
         .on_click(cx.listener(move |app, _event, _window, cx| {
@@ -1684,7 +1837,8 @@ fn ai_memory_manager_summary_row(
                         )
                         .child(ai_memory_row_icon_button(
                             format!("ai-memory-save-summary-{save_id}"),
-                            IconName::Check,
+                            HeroIconName::Check,
+                            ai_sidebar_text(language, "common.save", "Save"),
                             cx,
                             move |app, _event, window, cx| {
                                 let content = save_state.read(cx).value().to_string();
@@ -1698,7 +1852,8 @@ fn ai_memory_manager_summary_row(
                         ))
                         .child(ai_memory_row_icon_button(
                             format!("ai-memory-delete-summary-{delete_id}"),
-                            IconName::Delete,
+                            HeroIconName::Trash,
+                            ai_sidebar_text(language, "common.delete", "Delete"),
                             cx,
                             move |app, _event, window, cx| {
                                 app.selected_memory_summary_id = Some(delete_id.clone());
@@ -1724,37 +1879,96 @@ fn ai_memory_manager_summary_row(
         })
 }
 
+fn ai_memory_manager_entry_groups(
+    entries: &[MemoryEntrySummary],
+    selected_memory_entry_id: Option<&str>,
+    active_tab: MemoryManagerTab,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> Vec<AnyElement> {
+    let mut groups: BTreeMap<String, Vec<MemoryEntrySummary>> = BTreeMap::new();
+    for entry in entries {
+        groups
+            .entry(memory_module_key(entry))
+            .or_default()
+            .push(entry.clone());
+    }
+
+    groups
+        .into_iter()
+        .map(|(module_key, group_entries)| {
+            div()
+                .mb(px(18.0))
+                .child(
+                    div()
+                        .mb(px(8.0))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(div().size(px(8.0)).rounded_full().bg(color(theme::ACCENT)))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .text_color(color(theme::TEXT_MUTED))
+                                .child(memory_module_title(&module_key, language)),
+                        )
+                        .child(
+                            div()
+                                .rounded_full()
+                                .px(px(7.0))
+                                .py(px(1.0))
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .text_color(color(theme::ACCENT))
+                                .bg(color(theme::ACCENT).opacity(0.12))
+                                .child(group_entries.len().to_string()),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .children(group_entries.into_iter().map(|entry| {
+                            let active = selected_memory_entry_id
+                                .map(|id| id == entry.id.as_str())
+                                .unwrap_or(false);
+                            ai_memory_manager_entry_row(entry, active, active_tab, language, cx)
+                                .into_any_element()
+                        })),
+                )
+                .into_any_element()
+        })
+        .collect()
+}
+
 fn ai_memory_manager_entry_row(
     entry: MemoryEntrySummary,
     active: bool,
+    active_tab: MemoryManagerTab,
+    language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let select_id = entry.id.clone();
     let archive_id = entry.id.clone();
-    let restore_id = entry.id.clone();
     let delete_id = entry.id.clone();
     let active_bg = ai_stats_track_surface(cx);
+    let can_archive = active_tab == MemoryManagerTab::Active && entry.status == "active";
 
     div()
         .id(SharedString::from(format!(
             "ai-memory-manager-entry-{}",
             entry.id
         )))
-        .mb(px(6.0))
         .rounded(px(8.0))
-        .border_1()
-        .border_color(if active {
-            color(theme::ACCENT).opacity(0.28)
-        } else {
-            cx.theme().border
-        })
-        .px(px(12.0))
-        .py(px(11.0))
+        .px(px(14.0))
+        .py(px(12.0))
         .cursor_pointer()
         .bg(if active {
             active_bg
         } else {
-            cx.theme().transparent
+            ai_stats_surface(cx)
         })
         .hover(move |style| style.bg(active_bg))
         .on_click(cx.listener(move |app, _event, window, cx| {
@@ -1765,57 +1979,38 @@ fn ai_memory_manager_entry_row(
                 .flex()
                 .items_start()
                 .justify_between()
-                .gap_2()
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .line_height(px(18.0))
-                                .text_color(color(theme::TEXT))
-                                .w_full()
-                                .child(entry.content.clone()),
-                        )
-                        .child(
-                            div()
-                                .mt(px(8.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .child(format!(
-                                    "{} · {} · {} · {}",
-                                    entry.scope, entry.tier, entry.kind, entry.status
-                                )),
-                        ),
-                )
+                .gap_3()
+                .child(ai_memory_entry_badges(&entry, language))
                 .child(
                     div()
                         .flex_shrink_0()
                         .flex()
                         .items_center()
-                        .child(ai_memory_row_icon_button(
-                            format!("ai-memory-manager-archive-{archive_id}"),
-                            IconName::Minus,
-                            cx,
-                            move |app, _event, window, cx| {
-                                app.selected_memory_entry_id = Some(archive_id.clone());
-                                app.archive_selected_memory_entry(window, cx);
-                            },
-                        ))
-                        .child(ai_memory_row_icon_button(
-                            format!("ai-memory-manager-restore-{restore_id}"),
-                            IconName::Undo2,
-                            cx,
-                            move |app, _event, window, cx| {
-                                app.selected_memory_entry_id = Some(restore_id.clone());
-                                app.restore_selected_memory_entry(window, cx);
-                            },
-                        ))
+                        .gap_1()
+                        .child(
+                            div()
+                                .mr(px(4.0))
+                                .text_size(px(12.0))
+                                .line_height(px(16.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(memory_date_label(entry.updated_at)),
+                        )
+                        .when(can_archive, |this| {
+                            this.child(ai_memory_row_icon_button(
+                                format!("ai-memory-manager-archive-{archive_id}"),
+                                HeroIconName::ArchiveBox,
+                                ai_sidebar_text(language, "memory.manager.archive", "Archive"),
+                                cx,
+                                move |app, _event, window, cx| {
+                                    app.selected_memory_entry_id = Some(archive_id.clone());
+                                    app.archive_selected_memory_entry(window, cx);
+                                },
+                            ))
+                        })
                         .child(ai_memory_row_icon_button(
                             format!("ai-memory-manager-delete-{delete_id}"),
-                            IconName::Delete,
+                            HeroIconName::Trash,
+                            ai_sidebar_text(language, "common.delete", "Delete"),
                             cx,
                             move |app, _event, window, cx| {
                                 app.selected_memory_entry_id = Some(delete_id.clone());
@@ -1824,39 +2019,242 @@ fn ai_memory_manager_entry_row(
                         )),
                 ),
         )
+        .child(
+            div()
+                .mt(px(10.0))
+                .w_full()
+                .text_size(px(14.0))
+                .line_height(px(21.0))
+                .text_color(color(theme::TEXT))
+                .child(entry.content.clone()),
+        )
+        .when_some(entry.rationale.clone(), |this, rationale| {
+            this.child(
+                div()
+                    .mt(px(7.0))
+                    .w_full()
+                    .text_size(px(12.0))
+                    .line_height(px(18.0))
+                    .text_color(color(theme::TEXT_MUTED))
+                    .child(rationale),
+            )
+        })
+        .when_some(entry.last_decision.clone(), |this, decision| {
+            this.child(ai_memory_decision_row(decision, language))
+        })
 }
 
-fn ai_memory_manager_empty_row(message: impl Into<String>) -> impl IntoElement {
-    let message = message.into();
+fn ai_memory_decision_row(
+    decision: codux_runtime::memory::MemoryEntryDecisionSummary,
+    language: &str,
+) -> impl IntoElement {
     div()
-        .h(px(42.0))
-        .rounded(px(8.0))
+        .mt(px(10.0))
         .flex()
         .items_center()
-        .justify_center()
+        .gap_2()
+        .rounded(px(8.0))
+        .px(px(10.0))
+        .py(px(8.0))
+        .bg(color(theme::TEXT).opacity(0.045))
+        .child(ai_memory_badge(
+            memory_decision_title(&decision.kind, language),
+            memory_decision_color(&decision.kind),
+        ))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .text_size(px(12.0))
+                .line_height(px(16.0))
+                .text_color(color(theme::TEXT_MUTED))
+                .child(decision.reason),
+        )
+}
+
+fn ai_memory_entry_badges(entry: &MemoryEntrySummary, language: &str) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_2()
+        .child(ai_memory_badge(
+            memory_kind_title(&entry.kind, language),
+            memory_kind_color(&entry.kind),
+        ))
+        .child(ai_memory_badge(
+            memory_module_title(&memory_module_key(entry), language),
+            color(theme::ACCENT),
+        ))
+        .child(ai_memory_badge(
+            memory_tier_title(&entry.tier, language),
+            memory_tier_color(&entry.tier),
+        ))
+        .child(ai_memory_badge(
+            memory_status_title(&entry.status, language),
+            memory_status_color(&entry.status),
+        ))
+        .when_some(entry.source_tool.clone(), |this, source_tool| {
+            this.child(ai_memory_badge(source_tool, color(0x7B8190)))
+        })
+}
+
+fn ai_memory_badge(label: String, badge_color: Hsla) -> impl IntoElement {
+    div()
+        .rounded_full()
+        .px(px(9.0))
+        .py(px(3.0))
         .text_size(px(12.0))
-        .line_height(px(16.0))
-        .text_color(color(theme::TEXT_DIM))
-        .bg(color(theme::BG_PANEL))
-        .child(message)
+        .line_height(px(15.0))
+        .text_color(badge_color)
+        .bg(badge_color.opacity(0.14))
+        .child(label)
+}
+
+fn ai_memory_manager_empty_row(
+    message: impl Into<String>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    centered_empty_state(HeroIconName::Inbox, message, cx)
 }
 
 fn ai_memory_row_icon_button(
     id: impl Into<SharedString>,
-    icon: IconName,
+    icon: HeroIconName,
+    tooltip: impl Into<String>,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
-    Button::new(id.into())
-        .compact()
-        .ghost()
-        .text_color(cx.theme().secondary_foreground)
-        .icon(
-            Icon::new(icon)
-                .size_3p5()
-                .text_color(cx.theme().secondary_foreground),
-        )
-        .on_click(cx.listener(on_click))
+    let tooltip = tooltip.into();
+    let id = id.into();
+    with_codux_tooltip(
+        SharedString::from(format!("ai-memory-row-tooltip-{id}")),
+        Button::new(id)
+            .compact()
+            .ghost()
+            .text_color(cx.theme().secondary_foreground)
+            .icon(
+                Icon::new(icon)
+                    .size_3p5()
+                    .text_color(cx.theme().secondary_foreground),
+            )
+            .on_click(cx.listener(on_click)),
+        tooltip,
+    )
+}
+
+fn memory_module_key(entry: &MemoryEntrySummary) -> String {
+    let module = entry.module_key.trim();
+    if module.is_empty() {
+        "general".to_string()
+    } else {
+        module.to_string()
+    }
+}
+
+fn memory_kind_title(kind: &str, language: &str) -> String {
+    let fallback = match kind {
+        "preference" => "Preference",
+        "convention" => "Convention",
+        "decision" => "Decision",
+        "fact" => "Fact",
+        "bug_lesson" => "Bug Lesson",
+        _ => kind,
+    };
+    ai_sidebar_text(language, &format!("memory.kind.{kind}"), fallback)
+}
+
+fn memory_module_title(module_key: &str, language: &str) -> String {
+    let fallback = match module_key {
+        "general" => "General",
+        "project" => "Project",
+        "terminal" => "Terminal",
+        "git" => "Git",
+        "ui" => "UI",
+        "runtime" => "Runtime",
+        _ => module_key,
+    };
+    ai_sidebar_text(language, &format!("memory.module.{module_key}"), fallback)
+}
+
+fn memory_tier_title(tier: &str, language: &str) -> String {
+    let fallback = match tier {
+        "core" => "Core",
+        "working" => "Working",
+        "archive" => "Archive",
+        _ => tier,
+    };
+    ai_sidebar_text(language, &format!("memory.tier.{tier}"), fallback)
+}
+
+fn memory_status_title(status: &str, language: &str) -> String {
+    let fallback = match status {
+        "active" => "Active",
+        "merged" => "Merged",
+        "archived" => "Archived",
+        _ => status,
+    };
+    ai_sidebar_text(language, &format!("memory.status.{status}"), fallback)
+}
+
+fn memory_decision_title(decision: &str, language: &str) -> String {
+    let fallback = match decision {
+        "create" => "Created",
+        "merge" => "Merged",
+        "replace" => "Replaced",
+        "archive" => "Archived",
+        "skip" => "Skipped",
+        _ => decision,
+    };
+    ai_sidebar_text(language, &format!("memory.decision.{decision}"), fallback)
+}
+
+fn memory_kind_color(kind: &str) -> Hsla {
+    color(match kind {
+        "preference" => 0x8C6FF7,
+        "convention" => 0x2F7FBD,
+        "decision" => 0xB8781D,
+        "fact" => 0x337A6B,
+        "bug_lesson" => 0xC25555,
+        _ => 0x7B8190,
+    })
+}
+
+fn memory_tier_color(tier: &str) -> Hsla {
+    color(match tier {
+        "core" => 0x3D80FA,
+        "working" => 0x2E9B5F,
+        "archive" => 0x7B8190,
+        _ => 0x7B8190,
+    })
+}
+
+fn memory_status_color(status: &str) -> Hsla {
+    color(match status {
+        "active" => 0x2E9B5F,
+        "merged" => 0x6E6E8B,
+        "archived" => 0x7B8190,
+        _ => 0x7B8190,
+    })
+}
+
+fn memory_decision_color(decision: &str) -> Hsla {
+    color(match decision {
+        "create" => 0x2E9B5F,
+        "merge" => 0x3D80FA,
+        "replace" => 0xB8781D,
+        "archive" => 0x7B8190,
+        "skip" => 0xC25555,
+        _ => 0x7B8190,
+    })
+}
+
+fn memory_date_label(seconds: f64) -> String {
+    chrono::Local
+        .timestamp_opt(seconds as i64, 0)
+        .single()
+        .map(|date| date.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default()
 }
 
 fn ai_metric_card(
@@ -1883,7 +2281,7 @@ fn ai_metric_card(
         .child(
             div()
                 .mt(px(10.0))
-                .text_size(px(17.0))
+                .text_size(px(18.0))
                 .line_height(px(22.0))
                 .text_color(color(theme::TEXT))
                 .child(value),
@@ -1937,10 +2335,7 @@ fn ai_today_usage_chart(
                         .bg(color(theme::ACCENT))
                         .opacity(if bucket.value > 0 { 1.0 } else { 0.35 })
                         .tooltip(move |window, cx| {
-                            Tooltip::new(bucket.tooltip.clone())
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
-                                .build(window, cx)
+                            codux_tooltip(bucket.tooltip.clone(), window, cx)
                         })
                         .into_any_element()
                 })),
@@ -2025,10 +2420,7 @@ fn ai_recent_usage_heatmap(
                                 })
                                 .opacity(if cell.is_known { opacity } else { 1.0 })
                                 .tooltip(move |window, cx| {
-                                    Tooltip::new(cell.tooltip.clone())
-                                        .text_size(px(12.0))
-                                        .line_height(px(16.0))
-                                        .build(window, cx)
+                                    codux_tooltip(cell.tooltip.clone(), window, cx)
                                 })
                                 .into_any_element()
                         }))
@@ -2077,12 +2469,7 @@ fn ai_ranking_row(
     div()
         .id(SharedString::from(format!("ai-ranking-row-{label}")))
         .mb(px(10.0))
-        .tooltip(move |window, cx| {
-            Tooltip::new(tooltip.clone())
-                .text_size(px(12.0))
-                .line_height(px(16.0))
-                .build(window, cx)
-        })
+        .tooltip(move |window, cx| codux_tooltip(tooltip.clone(), window, cx))
         .child(
             div()
                 .flex()
@@ -2093,7 +2480,7 @@ fn ai_ranking_row(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_size(px(13.0))
+                        .text_size(px(14.0))
                         .line_height(px(20.0))
                         .text_color(color(theme::TEXT))
                         .truncate()
@@ -2109,7 +2496,7 @@ fn ai_ranking_row(
                             div()
                                 .w(px(78.0))
                                 .text_right()
-                                .text_size(px(13.0))
+                                .text_size(px(14.0))
                                 .line_height(px(20.0))
                                 .text_color(color(theme::TEXT_MUTED))
                                 .child(value_label),
@@ -2118,7 +2505,7 @@ fn ai_ranking_row(
                             div()
                                 .w(px(34.0))
                                 .text_right()
-                                .text_size(px(11.0))
+                                .text_size(px(12.0))
                                 .line_height(px(20.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(format!(
@@ -2875,7 +3262,7 @@ fn ai_session_detail_summary(
                         .items_center()
                         .child(assistant_header_icon_button(
                             "assistant-ai-rename-session",
-                            IconName::Check,
+                            HeroIconName::Check,
                             cx,
                             move |app, _event, window, cx| {
                                 let title = save_state.read(cx).value().to_string();
@@ -2884,7 +3271,7 @@ fn ai_session_detail_summary(
                         ))
                         .child(assistant_header_icon_button(
                             "assistant-ai-restore-session",
-                            IconName::SquareTerminal,
+                            HeroIconName::CommandLine,
                             cx,
                             move |app, _event, window, cx| {
                                 app.selected_ai_session_id = Some(restore_id.clone());
@@ -2893,7 +3280,7 @@ fn ai_session_detail_summary(
                         ))
                         .child(assistant_header_icon_button(
                             "assistant-ai-remove-session",
-                            IconName::Delete,
+                            HeroIconName::Trash,
                             cx,
                             move |app, _event, window, cx| {
                                 app.selected_ai_session_id = Some(remove_id.clone());

@@ -1,6 +1,6 @@
 use super::{
-    MemoryEntrySummary, MemoryManagerTargetRow, MemoryProjectProfileSummary, MemoryScopeOverview,
-    MemorySummaryRow,
+    MemoryEntryDecisionSummary, MemoryEntrySummary, MemoryManagerTargetRow,
+    MemoryProjectProfileSummary, MemoryScopeOverview, MemorySummaryRow,
 };
 use crate::runtime_state::ProjectInfo;
 use rusqlite::{Connection, OptionalExtension, params};

@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::app_events::publish_memory_update;
 
 impl CoduxApp {
     pub(super) fn reload_ai_history(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -79,6 +80,61 @@ impl CoduxApp {
                     cx.notify();
                 }
             });
+        })
+        .detach();
+    }
+
+    pub(super) fn start_memory_extraction_status_refresh(&mut self, cx: &mut Context<Self>) {
+        if self.memory_extraction_status_refreshing {
+            return;
+        }
+        self.memory_extraction_status_refreshing = true;
+        let service = self.runtime_service.clone();
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_millis(300)).await;
+                let result = codux_runtime::async_runtime::spawn_blocking({
+                    let service = service.clone();
+                    move || service.memory_extraction_status()
+                })
+                .await
+                .map_err(|error| error.to_string())
+                .and_then(|result| result);
+
+                let should_continue = match result {
+                    Ok(status) => {
+                        let pending = status.pending_count.max(0);
+                        let running = status.running_count.max(0);
+                        let active = pending > 0 || running > 0;
+                        let _ = this.update(cx, |app, cx| {
+                            app.state.memory_manager.extraction.queued = pending;
+                            app.state.memory_manager.extraction.running = running;
+                            app.state.memory_manager.extraction.last_error =
+                                status.last_error.clone();
+                            app.memory_processing = active;
+                            app.memory_extraction_status_refreshing = active;
+                            app.notify_status_bar(cx);
+                            cx.notify();
+                        });
+                        active
+                    }
+                    Err(error) => {
+                        let _ = this.update(cx, |app, cx| {
+                            app.memory_processing = false;
+                            app.memory_extraction_status_refreshing = false;
+                            app.state.memory_manager.extraction.last_error = Some(error);
+                            app.notify_status_bar(cx);
+                            cx.notify();
+                        });
+                        false
+                    }
+                };
+
+                if !should_continue {
+                    break;
+                }
+            }
         })
         .detach();
     }
@@ -346,17 +402,7 @@ impl CoduxApp {
     }
 
     pub(super) fn reload_memory(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.state.memory = self.runtime_service.reload_memory(
-            self.state
-                .selected_project
-                .as_ref()
-                .map(|project| project.id.as_str()),
-        );
-        self.reload_memory_manager_snapshot();
-        self.normalize_selected_memory_entry();
-        self.normalize_selected_memory_summary();
-        self.status_message = "memory summary reloaded".to_string();
-        cx.notify();
+        self.reload_memory_manager_snapshot_async(cx);
     }
 
     pub(super) fn process_memory_sessions_now(
@@ -370,21 +416,90 @@ impl CoduxApp {
             return;
         }
 
-        let service = self.runtime_service.clone();
+        let _ = self.runtime_service.clear_memory_extraction_failures();
         self.memory_processing = true;
+        self.state.memory_manager.extraction.running =
+            self.state.memory_manager.extraction.running.max(1);
+        self.state.memory_manager.extraction.last_error = None;
+        self.state.memory_manager.extraction.failed = 0;
         self.show_memory_progress_for_at_least(3.0, cx);
         self.status_message = "memory processing started".to_string();
         self.runtime_trace("memory", "manual_process start");
+        publish_memory_update();
+        self.notify_status_bar(cx);
+        let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn(async move {
-                service.process_memory_sessions_now().await
+            let result = codux_runtime::async_runtime::spawn_blocking({
+                let service = service.clone();
+                move || {
+                    let enqueue_result = service.enqueue_memory_extraction_candidates()?;
+                    Ok::<_, String>(enqueue_result)
+                }
             })
             .await
             .map_err(|error| error.to_string())
             .and_then(|result| result);
-            let _ = this.update(cx, |app, cx| {
-                app.apply_memory_processing_result(result, cx);
-            });
+
+            match result {
+                Ok(enqueue_result) => {
+                    let _ = this.update(cx, |app, cx| {
+                        let active = enqueue_result.status.pending_count > 0
+                            || enqueue_result.status.running_count > 0;
+                        app.memory_processing = active;
+                        app.state.memory_manager.extraction.queued =
+                            enqueue_result.status.pending_count.max(0);
+                        app.state.memory_manager.extraction.running =
+                            enqueue_result.status.running_count.max(0);
+                        app.state.memory_manager.extraction.last_error =
+                            enqueue_result.status.last_error.clone();
+                        app.reload_memory_manager_snapshot();
+                        app.status_message = format!(
+                            "memory processing started · checked {} · enqueued {}",
+                            enqueue_result.checked_count, enqueue_result.enqueued_count
+                        );
+                        app.runtime_trace(
+                            "memory",
+                            &format!(
+                                "manual_process enqueued checked={} enqueued={} pending={} running={}",
+                                enqueue_result.checked_count,
+                                enqueue_result.enqueued_count,
+                                enqueue_result.status.pending_count,
+                                enqueue_result.status.running_count
+                            ),
+                        );
+                        publish_memory_update();
+                        if active {
+                            app.start_memory_extraction_status_refresh(cx);
+                        }
+                        app.notify_status_bar(cx);
+                        cx.notify();
+                    });
+                    let process_result = codux_runtime::async_runtime::spawn(async move {
+                        service.process_memory_extraction_queue().await
+                    })
+                    .await
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result);
+                    let _ = this.update(cx, |app, cx| {
+                        app.apply_memory_processing_result(process_result, cx);
+                    });
+                }
+                Err(error) => {
+                    let _ = this.update(cx, |app, cx| {
+                        app.memory_processing = false;
+                        app.state.memory_manager.extraction.running = 0;
+                        app.reload_memory_manager_snapshot();
+                        app.status_message = format!("failed to start memory processing: {error}");
+                        app.runtime_trace(
+                            "memory",
+                            &format!("manual_process enqueue_failed error={error}"),
+                        );
+                        publish_memory_update();
+                        app.notify_status_bar(cx);
+                        cx.notify();
+                    });
+                }
+            }
         })
         .detach();
         cx.notify();
@@ -409,6 +524,8 @@ impl CoduxApp {
                 self.reload_memory_manager_snapshot();
                 self.normalize_selected_memory_entry();
                 self.normalize_selected_memory_summary();
+                publish_memory_update();
+                self.notify_status_bar(cx);
                 self.status_message = format!(
                     "memory indexed · checked {} · enqueued {} · pending {}",
                     status.checked_count, status.enqueued_count, status.pending_count
@@ -427,6 +544,10 @@ impl CoduxApp {
             }
             Err(error) => {
                 self.runtime_trace("memory", &format!("manual_process failed error={error}"));
+                self.state.memory_manager.extraction.running = 0;
+                self.reload_memory_manager_snapshot();
+                publish_memory_update();
+                self.notify_status_bar(cx);
                 self.status_message = format!("failed to process memory: {error}");
             }
         }
@@ -706,7 +827,12 @@ impl CoduxApp {
             return;
         };
         let service = self.runtime_service.clone();
+        self.memory_project_profile_refreshing = true;
         self.status_message = "memory project profile refresh started".to_string();
+        self.runtime_trace(
+            "memory",
+            &format!("project_profile_refresh start project={project_id}"),
+        );
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn(async move {
                 service
@@ -730,6 +856,7 @@ impl CoduxApp {
         result: Result<MemoryProjectProfileRefreshResult, String>,
         cx: &mut Context<Self>,
     ) {
+        self.memory_project_profile_refreshing = false;
         match result {
             Ok(result) => {
                 self.state.memory = self.runtime_service.reload_memory(
@@ -740,11 +867,34 @@ impl CoduxApp {
                 );
                 self.reload_memory_manager_snapshot();
                 self.status_message = if result.used_llm {
+                    self.runtime_trace(
+                        "memory",
+                        &format!(
+                            "project_profile_refresh ok source=llm chars={}",
+                            result.profile.content.chars().count()
+                        ),
+                    );
                     format!(
                         "memory project profile refreshed with LLM · {} chars",
                         result.profile.content.chars().count()
                     )
                 } else {
+                    let fallback_reason = result.fallback_reason.clone().unwrap_or_else(|| {
+                        "Project profile was generated from local repository scan.".to_string()
+                    });
+                    self.runtime_trace(
+                        "memory",
+                        &format!(
+                            "project_profile_refresh local_fallback chars={} reason={fallback_reason}",
+                            result.profile.content.chars().count()
+                        ),
+                    );
+                    self.show_memory_alert(
+                        "memory.manager.project_profile.local_fallback.title",
+                        "Project profile used local scan",
+                        fallback_reason.clone(),
+                        cx,
+                    );
                     format!(
                         "memory project profile refreshed locally · {} chars{}",
                         result.profile.content.chars().count(),
@@ -757,6 +907,16 @@ impl CoduxApp {
                 };
             }
             Err(error) => {
+                self.runtime_trace(
+                    "memory",
+                    &format!("project_profile_refresh failed error={error}"),
+                );
+                self.show_memory_alert(
+                    "memory.manager.project_profile.refresh_failed",
+                    "Project profile refresh failed",
+                    error.clone(),
+                    cx,
+                );
                 self.status_message = format!("failed to refresh project profile: {error}")
             }
         }
@@ -765,11 +925,8 @@ impl CoduxApp {
 
     pub(super) fn set_memory_manager_tab(&mut self, tab: MemoryManagerTab, cx: &mut Context<Self>) {
         self.memory_manager_tab = tab;
-        self.reload_memory_manager_snapshot();
-        self.normalize_selected_memory_entry();
-        self.normalize_selected_memory_summary();
         self.status_message = format!("memory manager tab: {}", tab.as_str());
-        cx.notify();
+        self.reload_memory_manager_snapshot_async(cx);
     }
 
     pub(super) fn select_memory_manager_target(
@@ -790,10 +947,43 @@ impl CoduxApp {
         };
         self.selected_memory_entry_id = None;
         self.selected_memory_summary_id = None;
-        self.reload_memory_manager_snapshot();
-        self.normalize_selected_memory_entry();
-        self.normalize_selected_memory_summary();
-        cx.notify();
+        self.reload_memory_manager_snapshot_async(cx);
+    }
+
+    fn show_memory_alert(
+        &self,
+        title_key: &'static str,
+        title_fallback: &'static str,
+        message: String,
+        cx: &mut Context<Self>,
+    ) {
+        let service = self.runtime_service.clone();
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        let title = translate(&locale, title_key, title_fallback);
+        let button_label = translate(&locale, "common.ok", "OK");
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let dialog_error = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_alert_dialog(LocalizedAlertDialogRequest {
+                    title,
+                    message,
+                    button_label,
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result)
+            .err();
+
+            if let Some(dialog_error) = dialog_error {
+                let _ = this.update(cx, |app, cx| {
+                    app.status_message = format!("failed to show memory alert: {dialog_error}");
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     pub(super) fn update_selected_memory_status(&mut self, status: &str, cx: &mut Context<Self>) {
@@ -880,6 +1070,52 @@ impl CoduxApp {
             self.memory_manager_project_id.as_deref(),
             self.memory_manager_tab.as_str(),
         );
+    }
+
+    pub(super) fn reload_memory_manager_snapshot_async(&mut self, cx: &mut Context<Self>) {
+        self.memory_manager_refresh_generation =
+            self.memory_manager_refresh_generation.wrapping_add(1);
+        let generation = self.memory_manager_refresh_generation;
+        self.memory_manager_refreshing = true;
+        let service = self.runtime_service.clone();
+        let projects = self.state.projects.clone();
+        let scope = self.memory_manager_scope.clone();
+        let project_id = self.memory_manager_project_id.clone();
+        let tab = self.memory_manager_tab.as_str().to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let snapshot = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.reload_memory_manager(&projects, &scope, project_id.as_deref(), &tab)
+            })
+            .await
+            .map_err(|error| error.to_string());
+
+            let _ = this.update(cx, |app, cx| {
+                if app.memory_manager_refresh_generation != generation {
+                    return;
+                }
+                app.memory_manager_refreshing = false;
+                match snapshot {
+                    Ok(snapshot) => {
+                        app.state.memory_manager = snapshot;
+                        app.normalize_selected_memory_entry();
+                        app.normalize_selected_memory_summary();
+                        let active = app.state.memory_manager.extraction.queued > 0
+                            || app.state.memory_manager.extraction.running > 0;
+                        app.memory_processing = active;
+                        if active {
+                            app.start_memory_extraction_status_refresh(cx);
+                        }
+                        app.status_message = "memory summary reloaded".to_string();
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to reload memory manager: {error}");
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
     }
 
     pub(super) fn selected_runtime_session(&self) -> Option<&RuntimeSessionSummary> {

@@ -9,8 +9,8 @@ use crate::{
         snapshot::AISessionSnapshot,
         state::normalized_string,
     },
+    project_store::ProjectWorkspaceRecord,
     runtime_paths::home_dir,
-    runtime_state::ProjectInfo,
 };
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};

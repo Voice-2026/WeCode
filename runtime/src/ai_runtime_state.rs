@@ -1,16 +1,11 @@
 use crate::{
-    ai_runtime::{AIProjectPhase, AIProjectTotals, AIRuntimeStateSnapshot, AISessionSnapshot},
-    runtime_event::{RuntimeEventSummary, RuntimeSessionSummary},
+    ai_runtime::{AIProjectPhase, AIRuntimeStateSnapshot, AISessionSnapshot},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use std::{
-    fs,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
 
-const STATE_FILE_NAME: &str = "gpui-ai-runtime-state.json";
+const STATE_SOURCE: &str = "memory";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,106 +103,24 @@ pub struct AIRuntimeSessionSummary {
     pub source: String,
 }
 
-pub struct AIRuntimeStateService {
-    state_file: PathBuf,
-}
+pub struct AIRuntimeStateService;
 
 impl AIRuntimeStateService {
-    pub fn new(support_dir: PathBuf) -> Self {
-        Self {
-            state_file: support_dir.join(STATE_FILE_NAME),
-        }
+    pub fn new(_support_dir: PathBuf) -> Self {
+        Self
     }
 
     pub fn summary(&self) -> AIRuntimeStateSummary {
-        let raw = self.raw_snapshot();
-        summary_from_raw(self.state_file.display().to_string(), &raw, None)
+        summary_from_raw(STATE_SOURCE.to_string(), &Map::new(), None)
     }
 
-    pub fn save_from_events(
-        &self,
-        events: &RuntimeEventSummary,
-    ) -> Result<AIRuntimeStateSummary, String> {
-        let mut raw = self.raw_snapshot();
-        let now = now_seconds();
-        let mut sessions = events
-            .sessions
-            .iter()
-            .map(session_from_runtime_event)
-            .collect::<Vec<_>>();
-        sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
-
-        raw.insert("schemaVersion".to_string(), json!(1));
-        raw.insert("source".to_string(), json!("gpui"));
-        raw.insert("updatedAt".to_string(), json!(now));
-        raw.insert("runningCount".to_string(), json!(events.running_count));
-        raw.insert(
-            "needsInputCount".to_string(),
-            json!(events.needs_input_count),
-        );
-        raw.insert("completedCount".to_string(), json!(events.completed_count));
-        raw.insert("sessionCount".to_string(), json!(sessions.len()));
-        raw.insert("globalTotals".to_string(), json!(AIProjectTotals::default()));
-        raw.insert("projects".to_string(), json!([]));
-        raw.insert("sessions".to_string(), json!(sessions));
-        self.save_raw_snapshot(&raw)?;
-        Ok(summary_from_raw(
-            self.state_file.display().to_string(),
-            &raw,
-            None,
-        ))
-    }
-
-    pub fn save_from_runtime_snapshot(
+    pub fn summary_from_runtime_snapshot(
         &self,
         snapshot: &AIRuntimeStateSnapshot,
-    ) -> Result<AIRuntimeStateSummary, String> {
-        let mut raw = self.raw_snapshot();
-        let mut sessions = snapshot
-            .sessions
-            .iter()
-            .map(session_from_runtime_snapshot)
-            .collect::<Vec<_>>();
-        sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
-
-        raw.insert("schemaVersion".to_string(), json!(1));
-        raw.insert("source".to_string(), json!("gpui-supervisor"));
-        raw.insert("updatedAt".to_string(), json!(snapshot.updated_at));
-        raw.insert("runningCount".to_string(), json!(snapshot.running_count));
-        raw.insert(
-            "needsInputCount".to_string(),
-            json!(snapshot.needs_input_count),
-        );
-        raw.insert(
-            "completedCount".to_string(),
-            json!(snapshot.completion_count),
-        );
-        raw.insert("sessionCount".to_string(), json!(sessions.len()));
-        raw.insert("globalTotals".to_string(), json!(snapshot.global_totals));
-        raw.insert("projects".to_string(), json!(snapshot.projects));
-        raw.insert("sessions".to_string(), json!(sessions));
-        self.save_raw_snapshot(&raw)?;
-        Ok(summary_from_raw(
-            self.state_file.display().to_string(),
-            &raw,
-            None,
-        ))
-    }
-
-    fn raw_snapshot(&self) -> Map<String, Value> {
-        fs::read_to_string(&self.state_file)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-            .and_then(|value| value.as_object().cloned())
-            .unwrap_or_default()
-    }
-
-    fn save_raw_snapshot(&self, snapshot: &Map<String, Value>) -> Result<(), String> {
-        if let Some(parent) = self.state_file.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let content = serde_json::to_string_pretty(snapshot).map_err(|error| error.to_string())?;
-        fs::write(&self.state_file, format!("{content}\n")).map_err(|error| error.to_string())
+    ) -> AIRuntimeStateSummary {
+        let mut raw = Map::new();
+        fill_raw_from_runtime_snapshot(&mut raw, snapshot);
+        summary_from_raw(STATE_SOURCE.to_string(), &raw, None)
     }
 }
 
@@ -266,6 +179,32 @@ fn summary_from_raw(
         sessions,
         error,
     }
+}
+
+fn fill_raw_from_runtime_snapshot(raw: &mut Map<String, Value>, snapshot: &AIRuntimeStateSnapshot) {
+    let mut sessions = snapshot
+        .sessions
+        .iter()
+        .map(session_from_runtime_snapshot)
+        .collect::<Vec<_>>();
+    sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
+
+    raw.insert("schemaVersion".to_string(), json!(1));
+    raw.insert("source".to_string(), json!("gpui-supervisor"));
+    raw.insert("updatedAt".to_string(), json!(snapshot.updated_at));
+    raw.insert("runningCount".to_string(), json!(snapshot.running_count));
+    raw.insert(
+        "needsInputCount".to_string(),
+        json!(snapshot.needs_input_count),
+    );
+    raw.insert(
+        "completedCount".to_string(),
+        json!(snapshot.completion_count),
+    );
+    raw.insert("sessionCount".to_string(), json!(sessions.len()));
+    raw.insert("globalTotals".to_string(), json!(snapshot.global_totals));
+    raw.insert("projects".to_string(), json!(snapshot.projects));
+    raw.insert("sessions".to_string(), json!(sessions));
 }
 
 fn raw_global_totals(raw: &Map<String, Value>) -> AIRuntimeProjectTotalsSummary {
@@ -424,36 +363,6 @@ fn raw_sessions(raw: &Map<String, Value>) -> Vec<AIRuntimeSessionSummary> {
         .unwrap_or_default()
 }
 
-fn session_from_runtime_event(session: &RuntimeSessionSummary) -> AIRuntimeSessionSummary {
-    AIRuntimeSessionSummary {
-        terminal_id: session.terminal_id.clone(),
-        project_id: String::new(),
-        project_path: None,
-        tool: session.tool.clone(),
-        ai_session_id: None,
-        model: None,
-        state: session.state.clone(),
-        project_name: session.project_name.clone(),
-        session_title: session.session_title.clone(),
-        started_at: None,
-        updated_at: session.updated_at,
-        event_count: session.event_count,
-        has_completed_turn: session.state == "completed",
-        was_interrupted: false,
-        notification_type: None,
-        target_tool_name: None,
-        message: None,
-        latest_assistant_preview: None,
-        total_tokens: 0,
-        cached_input_tokens: 0,
-        raw_total_tokens: 0,
-        raw_cached_input_tokens: 0,
-        baseline_total_tokens: 0,
-        baseline_cached_input_tokens: 0,
-        source: "runtime-events".to_string(),
-    }
-}
-
 fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessionSummary {
     AIRuntimeSessionSummary {
         terminal_id: session.terminal_id.clone(),
@@ -499,88 +408,23 @@ fn runtime_snapshot_session_state(session: &AISessionSnapshot) -> &'static str {
     }
 }
 
-fn now_seconds() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs_f64())
-        .unwrap_or(0.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     #[test]
-    fn save_from_events_persists_sessions_and_preserves_unknown_fields() {
-        let dir = std::env::temp_dir().join(format!("codux-gpui-ai-runtime-{}", Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join(STATE_FILE_NAME),
-            r#"{"schemaVersion":1,"customField":{"keep":true}}"#,
-        )
-        .unwrap();
-        let service = AIRuntimeStateService::new(dir.clone());
-        let events = RuntimeEventSummary {
-            running_count: 1,
-            needs_input_count: 1,
-            completed_count: 0,
-            sessions: vec![
-                RuntimeSessionSummary {
-                    terminal_id: "term-a".to_string(),
-                    tool: "codex".to_string(),
-                    state: "running".to_string(),
-                    project_name: "Codux".to_string(),
-                    session_title: "Build GPUI".to_string(),
-                    updated_at: 10.0,
-                    event_count: 2,
-                },
-                RuntimeSessionSummary {
-                    terminal_id: "term-b".to_string(),
-                    tool: "claude".to_string(),
-                    state: "needs-input".to_string(),
-                    project_name: "Codux".to_string(),
-                    session_title: "Review".to_string(),
-                    updated_at: 20.0,
-                    event_count: 3,
-                },
-            ],
-            ..Default::default()
-        };
-
-        let summary = service.save_from_events(&events).unwrap();
-
-        assert_eq!(summary.session_count, 2);
-        assert_eq!(summary.running_count, 1);
-        assert_eq!(summary.needs_input_count, 1);
-        assert_eq!(summary.sessions[0].terminal_id, "term-b");
-        assert_eq!(summary.sessions[0].source, "runtime-events");
-        let raw = service.raw_snapshot();
-        assert_eq!(
-            raw.get("customField")
-                .and_then(|value| value.get("keep"))
-                .and_then(Value::as_bool),
-            Some(true)
-        );
-
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn summary_returns_default_for_missing_file() {
-        let dir =
-            std::env::temp_dir().join(format!("codux-gpui-ai-runtime-empty-{}", Uuid::new_v4()));
+    fn summary_returns_default_memory_state() {
+        let dir = std::env::temp_dir();
         let summary = AIRuntimeStateService::new(dir.clone()).summary();
 
         assert_eq!(summary.session_count, 0);
         assert_eq!(summary.running_count, 0);
-        assert!(summary.path.ends_with(STATE_FILE_NAME));
+        assert_eq!(summary.path, STATE_SOURCE);
     }
 
     #[test]
-    fn save_from_runtime_snapshot_persists_live_supervisor_state() {
-        let dir =
-            std::env::temp_dir().join(format!("codux-gpui-ai-runtime-live-{}", Uuid::new_v4()));
+    fn summary_from_runtime_snapshot_returns_live_supervisor_state() {
+        let dir = std::env::temp_dir();
         let service = AIRuntimeStateService::new(dir.clone());
         let snapshot = AIRuntimeStateSnapshot {
             running_count: 1,
@@ -677,7 +521,7 @@ mod tests {
             ..Default::default()
         };
 
-        let summary = service.save_from_runtime_snapshot(&snapshot).unwrap();
+        let summary = service.summary_from_runtime_snapshot(&snapshot);
 
         assert_eq!(summary.session_count, 2);
         assert_eq!(summary.running_count, 1);
@@ -713,6 +557,6 @@ mod tests {
         assert_eq!(summary.sessions[1].total_tokens, 100);
         assert_eq!(summary.sessions[1].cached_input_tokens, 15);
 
-        fs::remove_dir_all(dir).unwrap();
+        assert_eq!(summary.path, STATE_SOURCE);
     }
 }

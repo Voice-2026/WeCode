@@ -2007,10 +2007,7 @@ impl TerminalRenderer {
                 continue;
             }
 
-            let fg = readable_terminal_foreground(
-                self.palette.resolve(cell.fg, colors),
-                self.palette.resolve(cell.bg, colors),
-            );
+            let fg = self.palette.resolve(cell.fg, colors);
             let font = self.font(
                 if cell.flags.contains(Flags::BOLD) {
                     FontWeight::SEMIBOLD
@@ -2638,14 +2635,6 @@ fn dim_color(mut color: Hsla) -> Hsla {
 fn brighten_color(mut color: Hsla) -> Hsla {
     color.l = (color.l * 1.2).min(1.0);
     color
-}
-
-fn readable_terminal_foreground(mut foreground: Hsla, background: Hsla) -> Hsla {
-    if (foreground.l - background.l).abs() >= 0.38 {
-        return foreground;
-    }
-    foreground.l = if background.l < 0.45 { 0.92 } else { 0.14 };
-    foreground
 }
 
 #[cfg(test)]

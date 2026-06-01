@@ -4,6 +4,7 @@ use crate::{
     memory::extraction::{
         MemoryExtractionItem, MemoryExtractionResponse, MemoryKind, MemoryScope, MemoryTier,
     },
+    project_store::ProjectWorkspaceRecord,
     settings::{AIMemorySettings, AISettings},
 };
 use std::fs;
@@ -457,14 +458,12 @@ fn enqueue_completed_session_creates_pending_memory_task() {
         extraction_idle_delay_seconds: 0,
         ..Default::default()
     };
-    let project = ProjectInfo {
+    let project = ProjectWorkspaceRecord {
         id: "project-a".to_string(),
-        name: "Project A".to_string(),
-        path: transcript_dir.display().to_string(),
-        exists: true,
-        badge: "PA".to_string(),
-        badge_symbol: None,
-        badge_color_hex: None,
+        root_project_id: "project-a".to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: transcript_dir.display().to_string(),
+        workspace_path: transcript_dir.display().to_string(),
         git_default_push_remote_name: None,
     };
     let session = AISessionSnapshot {
@@ -586,14 +585,12 @@ fn resolves_extraction_task_transcript_from_file() {
     )
     .unwrap();
     let service = MemoryService::new(support_dir.clone());
-    let project = ProjectInfo {
+    let project = ProjectWorkspaceRecord {
         id: "project-a".to_string(),
-        name: "Project A".to_string(),
-        path: transcript_dir.display().to_string(),
-        exists: true,
-        badge: "PA".to_string(),
-        badge_symbol: None,
-        badge_color_hex: None,
+        root_project_id: "project-a".to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: transcript_dir.display().to_string(),
+        workspace_path: transcript_dir.display().to_string(),
         git_default_push_remote_name: None,
     };
     let task = MemoryExtractionTask {

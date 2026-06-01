@@ -52,7 +52,7 @@ impl RuntimeService {
         session: &crate::ai_runtime::AISessionSnapshot,
     ) -> Result<MemoryEnqueueResult, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let projects = self.memory_project_infos();
+        let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone()).enqueue_completed_session_if_ready(
             &settings.memory,
             &projects,
@@ -74,11 +74,17 @@ impl RuntimeService {
         MemoryService::new(self.support_dir.clone()).recover_interrupted_extraction_tasks()
     }
 
+    pub fn clear_memory_extraction_failures(
+        &self,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        MemoryService::new(self.support_dir.clone()).clear_extraction_failures()
+    }
+
     pub fn enqueue_memory_extraction_candidates(
         &self,
     ) -> Result<MemoryManualEnqueueResult, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let projects = self.memory_project_infos();
+        let projects = self.memory_project_workspaces();
         let _ = self.ai_runtime.poll_runtime_state();
         let runtime_state = self.ai_runtime.runtime_state_snapshot();
         let history_sessions = indexed_sessions_since(None).map_err(|error| error.to_string())?;
@@ -94,7 +100,7 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let projects = self.memory_project_infos();
+        let projects = self.memory_project_workspaces();
         let root_projects = ProjectStore::new(self.support_dir.clone())
             .project_summaries()
             .into_iter()
@@ -122,7 +128,7 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let projects = self.memory_project_infos();
+        let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
             .process_next_memory_extraction_task(&settings, &projects)
             .await
@@ -132,7 +138,7 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        let projects = self.memory_project_infos();
+        let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
             .process_memory_extraction_queue(&settings, &projects)
             .await
@@ -153,6 +159,10 @@ impl RuntimeService {
                 git_default_push_remote_name: project.git_default_push_remote_name,
             })
             .collect()
+    }
+
+    fn memory_project_workspaces(&self) -> Vec<crate::project_store::ProjectWorkspaceRecord> {
+        ProjectStore::new(self.support_dir.clone()).project_workspaces_snapshot()
     }
 
     pub fn reload_notifications(&self) -> NotificationSummary {
