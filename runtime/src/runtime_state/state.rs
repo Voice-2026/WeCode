@@ -32,7 +32,7 @@ impl RuntimeState {
         );
         let notifications = load_notifications(&support_dir);
         let ssh = load_ssh(&support_dir, RuntimeInventory::load().root);
-        let worktrees = load_worktrees(
+        let worktrees = load_worktrees_from_state(
             &support_dir,
             selected_project.as_ref().map(|project| project.id.as_str()),
             selected_project
@@ -113,7 +113,8 @@ impl RuntimeState {
             "active",
         );
         self.notifications = load_notifications(&self.support_dir);
-        self.worktrees = load_worktrees(&self.support_dir, Some(&project.id), Some(&project.path));
+        self.worktrees =
+            load_worktrees_from_state(&self.support_dir, Some(&project.id), Some(&project.path));
         let terminal_layout_owner = self
             .worktrees
             .selected_worktree_id

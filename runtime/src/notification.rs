@@ -4,7 +4,7 @@ mod types;
 
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::{fs, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 pub use types::*;
 

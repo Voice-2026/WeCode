@@ -1,6 +1,7 @@
-use crate::{notification::NotificationChannelConfig, runtime_paths::app_support_dir};
+use crate::{
+    config::ConfigStore, notification::NotificationChannelConfig, runtime_paths::app_support_dir,
+};
 use std::{
-    fs,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -18,7 +19,7 @@ impl AppSettingsStore {
     }
 
     pub fn from_support_dir(support_dir: PathBuf) -> Self {
-        Self::from_settings_file(support_dir.join("settings.json"))
+        Self::from_settings_file(crate::config::settings_file_path(support_dir))
     }
 
     pub fn from_settings_file(state_file: PathBuf) -> Self {
@@ -95,25 +96,23 @@ impl AppSettingsStore {
 
     fn save(&self) -> Result<(), String> {
         let settings = self.snapshot();
-        if let Some(parent) = self.state_file.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let data = serde_json::to_vec_pretty(&settings).map_err(|error| error.to_string())?;
-        if fs::read(&self.state_file).ok().as_deref() == Some(data.as_slice()) {
-            return Ok(());
-        }
-        fs::write(&self.state_file, data).map_err(|error| error.to_string())
+        let value = serde_json::to_value(settings).map_err(|error| error.to_string())?;
+        let raw = value
+            .as_object()
+            .cloned()
+            .ok_or_else(|| "App settings must be a JSON object.".to_string())?;
+        ConfigStore::for_file(self.state_file.clone()).save_snapshot(&raw)
     }
 }
 
 fn load_settings(path: &Path) -> Option<AppSettings> {
-    let data = fs::read(path).ok()?;
-    if data.is_empty() {
+    let raw = ConfigStore::for_file(path.to_path_buf()).snapshot();
+    if raw.is_empty() {
         return None;
     }
-    serde_json::from_slice(&data).ok()
+    serde_json::from_value(serde_json::Value::Object(raw)).ok()
 }
 
 fn settings_file_path() -> PathBuf {
-    app_support_dir().join("settings.json")
+    crate::config::settings_file_path(app_support_dir())
 }

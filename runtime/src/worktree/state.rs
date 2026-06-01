@@ -1,11 +1,14 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, path::Path};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::scan::{ScannedWorktree, ScannedWorktreeSnapshot};
+use super::{
+    scan::{ScannedWorktree, ScannedWorktreeSnapshot},
+    types::ProjectWorktreeGitSummary,
+};
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct StateFile {
     #[serde(default)]
@@ -27,6 +30,8 @@ pub(super) struct WorktreeRecord {
     pub status: String,
     #[serde(default)]
     pub is_default: bool,
+    #[serde(default)]
+    pub git_summary: ProjectWorktreeGitSummary,
 }
 
 #[derive(Deserialize)]
@@ -276,17 +281,9 @@ pub(super) fn selected_worktree_id_from_state(
 }
 
 pub(super) fn raw_snapshot(path: &Path) -> Map<String, Value> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default()
+    crate::config::raw_state_snapshot(path)
 }
 
 pub(super) fn save_raw_snapshot(path: &Path, snapshot: &Map<String, Value>) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    let content = serde_json::to_string_pretty(snapshot).map_err(|error| error.to_string())?;
-    fs::write(path, format!("{content}\n")).map_err(|error| error.to_string())
+    crate::config::save_raw_state_snapshot(path, snapshot)
 }

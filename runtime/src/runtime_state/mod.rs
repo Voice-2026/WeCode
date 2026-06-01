@@ -28,6 +28,7 @@ use crate::{
         FileChangeEvent, FileExternalCopyRequest, FileWatchManager, FileWatchRegistration,
         FilesService,
     },
+    file_editor_layout::{FileEditorLayoutService, FileEditorLayoutSummary, FileEditorTabSummary},
     git,
     i18n::{self, I18nBundle},
     llm::{
@@ -88,7 +89,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
-    fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
 };

@@ -86,7 +86,9 @@ pub(in crate::app) fn file_section(
     div()
         .flex()
         .flex_1()
+        .w_full()
         .h_full()
+        .min_w_0()
         .min_h_0()
         .flex_col()
         .track_focus(&focus_handle)
@@ -154,69 +156,80 @@ pub(in crate::app) fn file_section(
         .child(
             div()
                 .flex_1()
+                .w_full()
                 .min_h_0()
                 .p(px(12.0))
                 .flex()
                 .flex_col()
                 .child(
-                    div().flex_1().min_h_0().relative().overflow_hidden().child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .size_full()
-                            .min_h_0()
-                            .when(
-                                draft_kind.is_some_and(|kind| kind != FileNameDraftKind::Rename),
-                                |this| {
-                                    let kind = draft_kind.unwrap_or(FileNameDraftKind::CreateFile);
-                                    this.child(file_name_draft_row(
-                                        app_entity.clone(),
-                                        kind,
-                                        draft_value,
-                                        draft_select_all,
-                                        window,
-                                        cx,
-                                    ))
-                                },
-                            )
-                            .child(if files.is_empty() && !draft_at_top {
-                                file_empty_state(labels.empty.clone()).into_any_element()
-                            } else if row_count == 0 && !draft_at_top {
-                                file_empty_state(labels.empty.clone()).into_any_element()
-                            } else {
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .flex()
-                                    .flex_col()
-                                    .context_menu(move |menu, _window, cx| {
-                                        let (has_selected, multiple, copy_paths) = cx
-                                            .update_entity(&menu_app_entity, |app, _cx| {
-                                                let mut paths =
-                                                    if app.selected_file_entries.is_empty() {
-                                                        app.selected_file_entry
-                                                            .clone()
-                                                            .into_iter()
-                                                            .collect::<Vec<_>>()
-                                                    } else {
-                                                        app.selected_file_entries
-                                                            .iter()
-                                                            .cloned()
-                                                            .collect::<Vec<_>>()
-                                                    };
-                                                paths.sort();
-                                                (!paths.is_empty(), paths.len() > 1, paths)
-                                            });
-                                        let open_entity = menu_app_entity.clone();
-                                        let reveal_entity = menu_app_entity.clone();
-                                        let copy_entity = menu_app_entity.clone();
-                                        let paste_entity = menu_app_entity.clone();
-                                        let rename_entity = menu_app_entity.clone();
-                                        let terminal_entity = menu_app_entity.clone();
-                                        let delete_entity = menu_app_entity.clone();
-                                        let copy_paths_for_click = copy_paths.clone();
+                    div()
+                        .flex_1()
+                        .w_full()
+                        .min_h_0()
+                        .relative()
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .size_full()
+                                .min_h_0()
+                                .when(
+                                    draft_kind
+                                        .is_some_and(|kind| kind != FileNameDraftKind::Rename),
+                                    |this| {
+                                        let kind =
+                                            draft_kind.unwrap_or(FileNameDraftKind::CreateFile);
+                                        this.child(file_name_draft_row(
+                                            app_entity.clone(),
+                                            kind,
+                                            draft_value,
+                                            draft_select_all,
+                                            window,
+                                            cx,
+                                        ))
+                                    },
+                                )
+                                .child(if files.is_empty() && !draft_at_top {
+                                    file_empty_state(labels.empty.clone()).into_any_element()
+                                } else if row_count == 0 && !draft_at_top {
+                                    file_empty_state(labels.empty.clone()).into_any_element()
+                                } else {
+                                    div()
+                                        .flex_1()
+                                        .w_full()
+                                        .min_w_0()
+                                        .min_h_0()
+                                        .flex()
+                                        .flex_col()
+                                        .context_menu(move |menu, _window, cx| {
+                                            let (has_selected, multiple, copy_paths) = cx
+                                                .update_entity(&menu_app_entity, |app, _cx| {
+                                                    let mut paths =
+                                                        if app.selected_file_entries.is_empty() {
+                                                            app.selected_file_entry
+                                                                .clone()
+                                                                .into_iter()
+                                                                .collect::<Vec<_>>()
+                                                        } else {
+                                                            app.selected_file_entries
+                                                                .iter()
+                                                                .cloned()
+                                                                .collect::<Vec<_>>()
+                                                        };
+                                                    paths.sort();
+                                                    (!paths.is_empty(), paths.len() > 1, paths)
+                                                });
+                                            let open_entity = menu_app_entity.clone();
+                                            let reveal_entity = menu_app_entity.clone();
+                                            let copy_entity = menu_app_entity.clone();
+                                            let paste_entity = menu_app_entity.clone();
+                                            let rename_entity = menu_app_entity.clone();
+                                            let terminal_entity = menu_app_entity.clone();
+                                            let delete_entity = menu_app_entity.clone();
+                                            let copy_paths_for_click = copy_paths.clone();
 
-                                        menu.item(
+                                            menu.item(
                                             PopupMenuItem::new(labels.open.clone())
                                                 .icon(HeroIconName::ArrowTopRightOnSquare)
                                                 .disabled(!has_selected || multiple)
@@ -314,32 +327,32 @@ pub(in crate::app) fn file_section(
                                                     });
                                                 }),
                                         )
-                                    })
-                                    .child(codux_uniform_list(
-                                        "file-tree-list",
-                                        rows,
-                                        tree_scroll_handle.clone(),
-                                        None,
-                                        cx,
-                                        move |row, index, window, cx| {
-                                            file_tree_entry_row(
-                                                app_entity.clone(),
-                                                row,
-                                                index,
-                                                labels.items_count_format.clone(),
-                                                window,
-                                                cx,
-                                            )
-                                            .into_any_element()
-                                        },
-                                    ))
-                                    .child(file_tree_blank_scroll_area(
-                                        tree_scroll_handle,
-                                        cx.entity().entity_id(),
-                                    ))
-                                    .into_any_element()
-                            }),
-                    ),
+                                        })
+                                        .child(codux_uniform_list(
+                                            "file-tree-list",
+                                            rows,
+                                            tree_scroll_handle.clone(),
+                                            None,
+                                            cx,
+                                            move |row, index, window, cx| {
+                                                file_tree_entry_row(
+                                                    app_entity.clone(),
+                                                    row,
+                                                    index,
+                                                    labels.items_count_format.clone(),
+                                                    window,
+                                                    cx,
+                                                )
+                                                .into_any_element()
+                                            },
+                                        ))
+                                        .child(file_tree_blank_scroll_area(
+                                            tree_scroll_handle,
+                                            cx.entity().entity_id(),
+                                        ))
+                                        .into_any_element()
+                                }),
+                        ),
                 ),
         )
 }
@@ -370,6 +383,9 @@ fn file_tree_blank_scroll_area(
 fn file_empty_state(label: impl Into<String>) -> impl IntoElement {
     let label = label.into();
     div()
+        .size_full()
+        .flex_1()
+        .min_w_0()
         .w_full()
         .min_h(px(120.0))
         .p(px(10.0))

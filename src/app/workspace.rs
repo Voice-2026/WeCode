@@ -250,25 +250,17 @@ impl CoduxApp {
     }
 
     fn files_workspace_body(
-        &self,
+        &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let snapshot = self.file_editor_workspace_snapshot(window, cx);
+        let app_entity = cx.entity();
         div()
             .flex()
             .flex_1()
             .bg(color(theme::BG_TERMINAL))
-            .child(file_preview_workspace(
-                &self.file_preview,
-                self.file_editable,
-                self.file_dirty,
-                self.file_search_open,
-                &self.file_search_query,
-                self.file_search_match_index,
-                self.file_preview_scroll_handle.clone(),
-                window,
-                cx,
-            ))
+            .child(cx.new(|_| file_editor::FileEditorWorkspaceView::new(app_entity, snapshot)))
     }
 
     fn review_workspace_body(&self, cx: &mut Context<Self>) -> impl IntoElement {

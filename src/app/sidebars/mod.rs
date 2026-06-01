@@ -13,8 +13,7 @@ pub(in crate::app) use git::git_section;
 pub(in crate::app) use ssh::ssh_section;
 
 pub(in crate::app) use files::{
-    current_directory_suffix, file_directory_option, file_preview_workspace,
-    parent_relative_directory,
+    current_directory_suffix, file_directory_option, parent_relative_directory,
 };
 pub(in crate::app) use git::{
     git_diff_window_workspace, git_review_workspace, git_workspace_section,
@@ -87,7 +86,9 @@ impl CoduxApp {
                 AssistantPanel::FileManager => div()
                     .flex()
                     .flex_1()
+                    .w_full()
                     .h_full()
+                    .min_w_0()
                     .min_h_0()
                     .flex_col()
                     .child(

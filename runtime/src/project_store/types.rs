@@ -1,4 +1,5 @@
 use super::terminal_layout::TerminalLayoutRecord;
+use crate::worktree::ProjectWorktreeGitSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -48,6 +49,8 @@ pub struct ProjectWorktreeRecord {
     pub is_default: bool,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub git_summary: ProjectWorktreeGitSummary,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

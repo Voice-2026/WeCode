@@ -123,6 +123,9 @@ impl CoduxApp {
             file_preview: "select a file to preview it".to_string(),
             file_editable: false,
             file_dirty: false,
+            file_editor_tabs: Vec::new(),
+            active_file_editor_tab: None,
+            file_editor_states: HashMap::new(),
             file_search_open: false,
             file_search_query: String::new(),
             file_search_match_index: 0,
@@ -467,18 +470,15 @@ impl CoduxApp {
         let shortcuts = &self.state.settings.shortcuts;
 
         if shortcut_matches(shortcuts, "view.terminal", &actual) {
-            self.workspace_view = WorkspaceView::Terminal;
-            cx.notify();
+            self.set_workspace_view(WorkspaceView::Terminal, window, cx);
             return true;
         }
         if shortcut_matches(shortcuts, "view.files", &actual) {
-            self.workspace_view = WorkspaceView::Files;
-            cx.notify();
+            self.set_workspace_view(WorkspaceView::Files, window, cx);
             return true;
         }
         if shortcut_matches(shortcuts, "view.review", &actual) {
-            self.workspace_view = WorkspaceView::Review;
-            cx.notify();
+            self.set_workspace_view(WorkspaceView::Review, window, cx);
             return true;
         }
         if shortcut_matches(shortcuts, "settings.open", &actual) {
@@ -831,10 +831,15 @@ impl CoduxApp {
     ) {
         self.workspace_view = view;
         match view {
-            WorkspaceView::Files => self.refresh_files_panel_state(),
+            WorkspaceView::Files => {
+                self.assistant_panel = Some(AssistantPanel::FileManager);
+                self.refresh_files_panel_state();
+                self.notify_workspace_chrome(cx);
+            }
             WorkspaceView::Review => self.refresh_git_panel_state(),
             WorkspaceView::Terminal => {}
         }
+        self.notify_workspace_body(cx);
         cx.notify();
     }
 
@@ -866,6 +871,12 @@ impl CoduxApp {
             view.update(cx, |_view, cx| cx.notify());
         }
         if let Some(view) = &self.workspace_assistant_view {
+            view.update(cx, |_view, cx| cx.notify());
+        }
+    }
+
+    pub(super) fn notify_workspace_body(&self, cx: &mut Context<Self>) {
+        if let Some(view) = &self.workspace_body_view {
             view.update(cx, |_view, cx| cx.notify());
         }
     }
@@ -1127,8 +1138,11 @@ impl CoduxApp {
         );
         register!(
             native_menu::EditorSearch,
-            |app: &mut CoduxApp, _window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.open_file_search(cx)
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                if let Some(editor) = app.active_file_editor_state() {
+                    editor.update(cx, |state, cx| state.focus(window, cx));
+                    window.dispatch_action(Box::new(gpui_component::input::Search), cx);
+                }
             }
         );
         register!(native_menu::MinimizeWindow, |_app: &mut CoduxApp,

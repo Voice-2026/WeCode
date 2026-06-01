@@ -3,13 +3,11 @@ use super::{
     ProjectWorkspaceRecord,
 };
 use crate::project_store::helpers::{normalize_path, project_summary, worktree_summary};
-use std::fs;
+use serde_json::Value;
 
 impl ProjectStore {
     pub fn snapshot(&self) -> AppSnapshot {
-        fs::read_to_string(&self.state_file)
-            .ok()
-            .and_then(|content| serde_json::from_str::<AppSnapshot>(&content).ok())
+        serde_json::from_value::<AppSnapshot>(Value::Object(self.raw_snapshot()))
             .unwrap_or_default()
     }
 

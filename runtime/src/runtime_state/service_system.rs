@@ -43,8 +43,12 @@ impl RuntimeService {
             about,
             update,
             AppDiagnosticsSnapshot {
-                settings: read_json_or_default(self.support_dir.join("settings.json")),
-                projects: read_json_or_default(self.support_dir.join("state.json")),
+                settings: read_json_or_default(crate::config::settings_file_path(
+                    self.support_dir.clone(),
+                )),
+                projects: read_json_or_default(crate::config::state_file_path(
+                    self.support_dir.clone(),
+                )),
                 ai_state: serde_json::to_value(
                     self.reload_ai_runtime_state(&self.reload_runtime_events()),
                 )

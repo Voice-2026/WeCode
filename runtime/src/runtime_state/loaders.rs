@@ -1,7 +1,8 @@
 fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) {
-    let state = fs::read_to_string(support_dir.join("state.json"))
-        .ok()
-        .and_then(|content| serde_json::from_str::<StateFile>(&content).ok());
+    let state = serde_json::from_value::<StateFile>(Value::Object(
+        crate::config::ConfigStore::for_support_dir(support_dir).snapshot(),
+    ))
+    .ok();
 
     let Some(state) = state else {
         let projects = fallback_projects();
@@ -138,6 +139,14 @@ fn load_worktrees(
     WorktreeService::new(support_dir.to_path_buf()).summary(project_id, project_path)
 }
 
+fn load_worktrees_from_state(
+    support_dir: &Path,
+    project_id: Option<&str>,
+    project_path: Option<&str>,
+) -> WorktreeSummary {
+    WorktreeService::new(support_dir.to_path_buf()).state_summary(project_id, project_path)
+}
+
 fn load_update(support_dir: &Path, repo_root: PathBuf) -> UpdateSummary {
     UpdateService::new(support_dir.to_path_buf(), repo_root).summary()
 }
@@ -174,10 +183,7 @@ fn load_tool_permissions(support_dir: &Path) -> ToolPermissionsSummary {
 }
 
 fn read_json_or_default(path: PathBuf) -> Value {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-        .unwrap_or_else(|| json!({}))
+    Value::Object(crate::config::ConfigStore::for_file(path).snapshot())
 }
 
 fn app_support_dir() -> PathBuf {

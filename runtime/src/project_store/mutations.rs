@@ -139,6 +139,7 @@ impl ProjectStore {
         raw.insert("worktrees".to_string(), Value::Array(Vec::new()));
         raw.insert("worktreeTasks".to_string(), Value::Array(Vec::new()));
         raw.insert("terminalLayouts".to_string(), Value::Object(Map::new()));
+        raw.insert("fileEditorLayouts".to_string(), Value::Object(Map::new()));
         raw.remove("selectedProjectId");
         raw.insert(
             "selectedWorktreeIdByProject".to_string(),

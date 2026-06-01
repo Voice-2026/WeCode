@@ -88,7 +88,7 @@ impl Render for WorkspaceToolbarView {
 pub(in crate::app) struct WorkspaceBodyView {
     app_entity: gpui::Entity<CoduxApp>,
     terminal_workspace_view: Option<gpui::Entity<TerminalWorkspaceView>>,
-    _observe_app: Option<Subscription>,
+    file_editor_workspace_view: Option<gpui::Entity<file_editor::FileEditorWorkspaceView>>,
 }
 
 impl WorkspaceBodyView {
@@ -96,13 +96,7 @@ impl WorkspaceBodyView {
         Self {
             app_entity,
             terminal_workspace_view: None,
-            _observe_app: None,
-        }
-    }
-
-    pub(in crate::app) fn observe_app(&mut self, cx: &mut Context<Self>) {
-        if self._observe_app.is_none() {
-            self._observe_app = Some(cx.observe(&self.app_entity, |_, _, cx| cx.notify()));
+            file_editor_workspace_view: None,
         }
     }
 }
@@ -123,6 +117,19 @@ impl Render for WorkspaceBodyView {
                     view
                 };
                 gpui::AnyView::from(terminal_view).into_any_element()
+            } else if app.workspace_view == WorkspaceView::Files {
+                let snapshot = app.file_editor_workspace_snapshot(window, app_cx);
+                let file_editor_view = if let Some(view) = &self.file_editor_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_snapshot(snapshot, cx));
+                    view.clone()
+                } else {
+                    let view = app_cx.new(|_| {
+                        file_editor::FileEditorWorkspaceView::new(app_entity.clone(), snapshot)
+                    });
+                    self.file_editor_workspace_view = Some(view.clone());
+                    view
+                };
+                gpui::AnyView::from(file_editor_view).into_any_element()
             } else {
                 app.workspace_body(window, app_cx).into_any_element()
             }
@@ -187,7 +194,6 @@ impl CoduxApp {
         }
         let app_entity = cx.entity();
         let view = cx.new(|_| WorkspaceBodyView::new(app_entity));
-        view.update(cx, |view, cx| view.observe_app(cx));
         self.workspace_body_view = Some(view.clone());
         view
     }

@@ -1,41 +1,10 @@
 use super::http::default_remote_server_url;
 use super::types::{RemoteDeviceSummary, RemoteSettings, RemoteSummary};
 use super::{RemoteService, remote_settings_from_raw};
-use serde_json::Value;
-use std::fs;
 
 impl RemoteService {
     pub fn summary(&self) -> RemoteSummary {
-        let raw = match fs::read_to_string(&self.settings_path) {
-            Ok(content) => content,
-            Err(error) => {
-                return RemoteSummary {
-                    relay: default_remote_server_url(),
-                    status: "stopped".to_string(),
-                    message: "Remote Host stopped.".to_string(),
-                    encryption: "disabled".to_string(),
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-        let value = match serde_json::from_str::<Value>(&raw) {
-            Ok(value) => value,
-            Err(error) => {
-                return RemoteSummary {
-                    relay: default_remote_server_url(),
-                    status: "stopped".to_string(),
-                    message: "Remote Host stopped.".to_string(),
-                    encryption: "disabled".to_string(),
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-        let settings = value
-            .as_object()
-            .map(remote_settings_from_raw)
-            .unwrap_or_default();
+        let settings = remote_settings_from_raw(&self.raw_settings());
         remote_summary_from_settings(settings)
     }
 }

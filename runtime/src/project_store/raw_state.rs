@@ -46,6 +46,7 @@ pub(super) fn prune_project_state(snapshot: &mut Map<String, Value>, project_id:
     let removed_worktree_ids = remove_worktrees(snapshot, project_id);
     remove_worktree_tasks(snapshot, &removed_worktree_ids);
     remove_terminal_layouts(snapshot, project_id, &removed_worktree_ids);
+    remove_file_editor_layouts(snapshot, project_id, &removed_worktree_ids);
     remove_selected_worktree(snapshot, project_id);
 }
 
@@ -103,6 +104,23 @@ fn remove_terminal_layouts(
 ) {
     let Some(layouts) = snapshot
         .get_mut("terminalLayouts")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    layouts.remove(project_id);
+    for worktree_id in removed_worktree_ids {
+        layouts.remove(worktree_id);
+    }
+}
+
+fn remove_file_editor_layouts(
+    snapshot: &mut Map<String, Value>,
+    project_id: &str,
+    removed_worktree_ids: &HashSet<String>,
+) {
+    let Some(layouts) = snapshot
+        .get_mut("fileEditorLayouts")
         .and_then(Value::as_object_mut)
     else {
         return;

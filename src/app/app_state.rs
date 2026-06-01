@@ -54,6 +54,9 @@ pub struct CoduxApp {
     pub(in crate::app) file_preview: String,
     pub(in crate::app) file_editable: bool,
     pub(in crate::app) file_dirty: bool,
+    pub(in crate::app) file_editor_tabs: Vec<FileEditorTab>,
+    pub(in crate::app) active_file_editor_tab: Option<String>,
+    pub(in crate::app) file_editor_states: HashMap<String, gpui::Entity<InputState>>,
     pub(in crate::app) file_search_open: bool,
     pub(in crate::app) file_search_query: String,
     pub(in crate::app) file_search_match_index: usize,
@@ -207,6 +210,15 @@ pub(in crate::app) struct CoduxTooltipState {
     pub(in crate::app) bounds: Bounds<Pixels>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::app) struct FileEditorTab {
+    pub(in crate::app) relative_path: String,
+    pub(in crate::app) label: String,
+    pub(in crate::app) editable: bool,
+    pub(in crate::app) dirty: bool,
+    pub(in crate::app) language: String,
+}
+
 #[derive(Clone, Debug)]
 pub(in crate::app) struct GitOperationCompletion {
     pub(in crate::app) success_message: String,
@@ -275,7 +287,6 @@ pub(in crate::app) struct ProjectSwitchPrimaryLoad {
     pub(in crate::app) project_id: String,
     pub(in crate::app) generation: u64,
     pub(in crate::app) ai_history: AIHistorySummary,
-    pub(in crate::app) ai_session_detail: Option<AISessionDetail>,
 }
 
 pub(in crate::app) struct WorktreeSwitchTerminalLoad {
@@ -290,6 +301,7 @@ pub(in crate::app) struct WorktreeSidebarLoad {
     pub(in crate::app) generation: u64,
     pub(in crate::app) store_key: WorktreeViewStoreKey,
     pub(in crate::app) files: Vec<FileEntry>,
+    pub(in crate::app) file_editor_layout: FileEditorLayoutSummary,
     pub(in crate::app) git: GitSummary,
     pub(in crate::app) git_review: GitReviewSummary,
 }
@@ -298,7 +310,6 @@ pub(in crate::app) struct WorktreeSidebarLoad {
 pub(in crate::app) struct ProjectViewState {
     pub(in crate::app) ai_history: AIHistorySummary,
     pub(in crate::app) ai_global_history: AIGlobalHistorySummary,
-    pub(in crate::app) ai_session_detail: Option<AISessionDetail>,
     pub(in crate::app) memory: MemorySummary,
     pub(in crate::app) memory_manager: MemoryManagerSnapshot,
     pub(in crate::app) worktrees: WorktreeSummary,
@@ -319,6 +330,8 @@ pub(in crate::app) struct FileWorktreeViewState {
     pub(in crate::app) file_selection_anchor: Option<String>,
     pub(in crate::app) file_tree_expanded_dirs: HashSet<String>,
     pub(in crate::app) file_tree_children: HashMap<String, Vec<FileEntry>>,
+    pub(in crate::app) file_editor_tabs: Vec<FileEditorTab>,
+    pub(in crate::app) active_file_editor_tab: Option<String>,
 }
 
 #[derive(Clone)]
@@ -365,7 +378,6 @@ pub(in crate::app) fn initial_project_view_store(
                 ProjectViewState {
                     ai_history: state.ai_history.clone(),
                     ai_global_history: state.ai_global_history.clone(),
-                    ai_session_detail: state.ai_session_detail.clone(),
                     memory: state.memory.clone(),
                     memory_manager: state.memory_manager.clone(),
                     worktrees: state.worktrees.clone(),
@@ -407,6 +419,8 @@ pub(in crate::app) fn initial_worktree_view_store(
                         file_selection_anchor: None,
                         file_tree_expanded_dirs: HashSet::new(),
                         file_tree_children: HashMap::new(),
+                        file_editor_tabs: Vec::new(),
+                        active_file_editor_tab: None,
                     },
                     git: GitWorktreeViewState {
                         git: state.git.clone(),

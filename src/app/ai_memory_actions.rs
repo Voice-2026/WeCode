@@ -36,7 +36,6 @@ impl CoduxApp {
                     self.runtime_service.active_ai_history_index_count();
                 self.refresh_ai_global_history_summary();
                 self.normalize_selected_ai_session();
-                self.reload_selected_ai_session_detail();
                 self.save_current_project_view_state();
                 self.notify_task_column(cx);
             }
@@ -165,16 +164,13 @@ impl CoduxApp {
     }
 
     pub(super) fn selected_ai_session(&self) -> Option<&AISessionSummary> {
-        self.selected_ai_session_id
-            .as_deref()
-            .and_then(|id| {
-                self.state
-                    .ai_history
-                    .sessions
-                    .iter()
-                    .find(|session| session.id == id)
-            })
-            .or_else(|| self.state.ai_history.sessions.first())
+        self.selected_ai_session_id.as_deref().and_then(|id| {
+            self.state
+                .ai_history
+                .sessions
+                .iter()
+                .find(|session| session.id == id)
+        })
     }
 
     pub(super) fn normalize_selected_ai_session(&mut self) {
@@ -190,12 +186,8 @@ impl CoduxApp {
             })
             .unwrap_or(false);
         if !selected_still_exists {
-            self.selected_ai_session_id = self
-                .state
-                .ai_history
-                .sessions
-                .first()
-                .map(|session| session.id.clone());
+            self.selected_ai_session_id = None;
+            self.state.ai_session_detail = None;
         }
         if self
             .ai_session_delete_confirm_id
@@ -212,7 +204,6 @@ impl CoduxApp {
         {
             self.ai_session_delete_confirm_id = None;
         }
-        self.reload_selected_ai_session_detail();
     }
 
     pub(super) fn reload_selected_ai_session_detail(&mut self) {

@@ -27,7 +27,7 @@ pub struct RemoteService {
 impl RemoteService {
     pub fn new(support_dir: PathBuf) -> Self {
         Self {
-            settings_path: support_dir.join("settings.json"),
+            settings_path: crate::config::settings_file_path(support_dir),
         }
     }
 }

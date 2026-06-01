@@ -166,7 +166,7 @@ impl CoduxApp {
         self.set_single_file_selection(entry.relative_path.clone());
         match entry.kind {
             FileKind::Directory => self.toggle_file_tree_directory(entry.relative_path, window, cx),
-            FileKind::File => self.preview_file(entry.relative_path, window, cx),
+            FileKind::File => self.open_file_editor_tab(entry.relative_path, window, cx),
         }
     }
 
@@ -542,6 +542,7 @@ impl CoduxApp {
         } else {
             format!("file search matches: {count}")
         };
+        self.notify_workspace_body(cx);
         cx.notify();
     }
 
@@ -603,6 +604,9 @@ impl CoduxApp {
         event: &KeyDownEvent,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.workspace_view == WorkspaceView::Files && self.active_file_editor_tab.is_some() {
+            return false;
+        }
         if self.workspace_view != WorkspaceView::Files
             || !self.file_editable
             || !self.selected_file_is_text_file()
@@ -984,34 +988,35 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(project) = &self.state.selected_project else {
+        let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = "no selected project for file save".to_string();
             cx.notify();
             return;
         };
-        let Some(entry_path) = self.selected_file_entry.clone() else {
+        let entry_path = self
+            .active_file_editor_tab
+            .clone()
+            .or_else(|| self.selected_file_entry.clone());
+        let Some(entry_path) = entry_path else {
             self.status_message = "no selected file to save".to_string();
             cx.notify();
             return;
         };
-        let Some(entry) = self.selected_file_entry() else {
-            self.status_message = "selected file is no longer available".to_string();
-            self.normalize_selected_file_entry();
-            cx.notify();
-            return;
-        };
-        if !matches!(entry.kind, FileKind::File) {
-            self.status_message = "directories cannot be saved as text files".to_string();
-            cx.notify();
-            return;
-        }
-        let project_path = project.path.clone();
-        if !self.file_editable {
+        let tab_editable = self
+            .file_editor_tabs
+            .iter()
+            .find(|tab| tab.relative_path == entry_path)
+            .map(|tab| tab.editable)
+            .unwrap_or(self.file_editable);
+        if !tab_editable {
             self.status_message = "selected file preview is read-only".to_string();
             cx.notify();
             return;
         }
-        let content = self.file_preview.clone();
+        let content = self
+            .active_file_editor_state()
+            .map(|state| state.read(cx).value().to_string())
+            .unwrap_or_else(|| self.file_preview.clone());
         match self
             .runtime_service
             .write_project_file(&project_path, &entry_path, &content)
@@ -1020,6 +1025,7 @@ impl CoduxApp {
                 self.file_preview = preview;
                 self.file_editable = true;
                 self.file_dirty = false;
+                self.mark_file_editor_dirty(&entry_path, false, cx);
                 self.normalize_file_search_index();
                 self.state.files = self.runtime_service.reload_project_files(
                     &project_path,
@@ -1031,9 +1037,74 @@ impl CoduxApp {
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
                 self.status_message = format!("file saved: {entry_path}");
+                self.save_current_worktree_view_state();
+                self.persist_file_editor_layout_async(cx);
             }
             Err(error) => self.status_message = format!("failed to save file: {error}"),
         }
+        cx.notify();
+    }
+
+    pub(super) fn reload_active_file_editor_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = "no selected project for file reload".to_string();
+            cx.notify();
+            return;
+        };
+        let Some(entry_path) = self.active_file_editor_tab.clone() else {
+            self.status_message = "no active file to reload".to_string();
+            cx.notify();
+            return;
+        };
+
+        match self
+            .runtime_service
+            .read_project_file_edit_buffer(&project_path, &entry_path)
+        {
+            Ok((content, editable)) => {
+                let key = self.file_editor_state_key(&entry_path);
+                let language = self
+                    .file_editor_tabs
+                    .iter()
+                    .find(|tab| tab.relative_path == entry_path)
+                    .map(|tab| tab.language.clone())
+                    .unwrap_or_else(|| "text".to_string());
+                if let Some(editor) = self.file_editor_states.get(&key) {
+                    editor.update(cx, |state, cx| {
+                        state.set_value(content.clone(), window, cx);
+                        state.focus(window, cx);
+                    });
+                } else {
+                    self.ensure_file_editor_state(
+                        key,
+                        entry_path.clone(),
+                        language,
+                        content.clone(),
+                        window,
+                        cx,
+                    );
+                }
+                if let Some(tab) = self
+                    .file_editor_tabs
+                    .iter_mut()
+                    .find(|tab| tab.relative_path == entry_path)
+                {
+                    tab.editable = editable;
+                    tab.dirty = false;
+                }
+                self.file_preview = content;
+                self.file_editable = editable;
+                self.file_dirty = false;
+                self.status_message = format!("file reloaded: {entry_path}");
+                self.save_current_worktree_view_state();
+            }
+            Err(error) => self.status_message = format!("failed to reload file: {error}"),
+        }
+        self.notify_workspace_body(cx);
         cx.notify();
     }
 

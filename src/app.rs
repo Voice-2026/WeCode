@@ -16,6 +16,7 @@ use codux_runtime::{
     dialog::{
         LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest, LocalizedOpenDialogRequest,
     },
+    file_editor_layout::{FileEditorLayoutSummary, FileEditorTabSummary},
     files::FileChangeEvent,
     git::{
         GitBranchSummary, GitCommitSummary, GitFileStatus, GitRemoteSummary,
@@ -91,6 +92,7 @@ mod app_render;
 mod app_state;
 mod desktop_pet;
 mod file_actions;
+mod file_editor;
 mod formatting;
 mod git_actions;
 pub(crate) mod macos_window;
@@ -169,9 +171,8 @@ use self::{
     shortcuts::{shortcut_display_from_keystroke, shortcut_matches},
     sidebars::{
         AssistantPanel, FileSidebarView, clipboard_external_paths, current_directory_suffix,
-        file_directory_option, file_preview_workspace, git_diff_window_workspace,
-        git_review_workspace, git_workspace_section, memory_manager_window_workspace,
-        parent_relative_directory,
+        file_directory_option, git_diff_window_workspace, git_review_workspace,
+        git_workspace_section, memory_manager_window_workspace, parent_relative_directory,
     },
     ssh_profile_editor::ssh_profile_editor_workspace,
     status_bar::StatusBarView,

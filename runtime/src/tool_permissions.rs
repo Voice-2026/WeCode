@@ -1,3 +1,4 @@
+use crate::config::ConfigStore;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fs, path::PathBuf};
@@ -75,7 +76,7 @@ pub struct ToolPermissionsService {
 impl ToolPermissionsService {
     pub fn new(support_dir: PathBuf) -> Self {
         Self {
-            settings_path: support_dir.join("settings.json"),
+            settings_path: crate::config::settings_file_path(support_dir),
             output_path: runtime_temp_dir().join("tool-permissions.json"),
         }
     }
@@ -106,12 +107,8 @@ impl ToolPermissionsService {
     }
 
     fn load_settings(&self) -> Result<AIRuntimeToolSettings, String> {
-        let content = fs::read_to_string(&self.settings_path).map_err(|error| error.to_string())?;
-        let raw = serde_json::from_str::<Value>(&content).map_err(|error| error.to_string())?;
-        let settings = raw
-            .get("ai")
-            .and_then(|ai| ai.get("runtimeTools"))
-            .cloned()
+        let settings = ConfigStore::for_file(self.settings_path.clone())
+            .get_path(&["ai", "runtimeTools"])
             .unwrap_or(Value::Object(Default::default()));
         let settings = serde_json::from_value::<AIRuntimeToolSettings>(settings)
             .map_err(|error| error.to_string())?;

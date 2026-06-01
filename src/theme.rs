@@ -539,6 +539,23 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     theme.caret = accent;
     theme.ring = ring;
     theme.selection = accent.opacity(if is_dark { 0.28 } else { 0.20 });
+    let highlight_style = std::sync::Arc::make_mut(&mut theme.highlight_theme)
+        .style
+        .clone();
+    let mut highlight_style = highlight_style;
+    highlight_style.editor_background = Some(background);
+    highlight_style.editor_active_line = Some(if is_dark {
+        raw_color(0x000000).opacity(0.20)
+    } else {
+        raw_color(0x000000).opacity(0.055)
+    });
+    highlight_style.editor_line_number = Some(if is_dark {
+        raw_color(0xFFFFFF).opacity(0.32)
+    } else {
+        raw_color(0x000000).opacity(0.34)
+    });
+    highlight_style.editor_active_line_number = Some(foreground);
+    std::sync::Arc::make_mut(&mut theme.highlight_theme).style = highlight_style;
     theme.danger = danger;
     theme.danger_hover = danger.mix(theme.transparent, 0.22);
     theme.danger_active = danger.mix(theme.transparent, 0.34);

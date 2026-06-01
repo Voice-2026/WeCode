@@ -5,7 +5,7 @@ pub struct SettingsService {
 impl SettingsService {
     pub fn new(support_dir: PathBuf) -> Self {
         Self {
-            settings_path: support_dir.join("settings.json"),
+            settings_path: crate::config::settings_file_path(support_dir),
         }
     }
 
@@ -67,19 +67,11 @@ impl SettingsService {
     }
 
     fn raw_settings(&self) -> Map<String, Value> {
-        fs::read_to_string(&self.settings_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-            .and_then(|value| value.as_object().cloned())
-            .unwrap_or_default()
+        ConfigStore::for_file(self.settings_path.clone()).snapshot()
     }
 
     fn save_raw_settings(&self, settings: &Map<String, Value>) -> Result<(), String> {
-        if let Some(parent) = self.settings_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let content = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
-        fs::write(&self.settings_path, format!("{content}\n")).map_err(|error| error.to_string())
+        ConfigStore::for_file(self.settings_path.clone()).save_snapshot(settings)
     }
 
     pub fn ai_settings(&self) -> AISettings {

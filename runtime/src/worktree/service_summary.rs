@@ -7,92 +7,26 @@ impl WorktreeService {
             };
         };
 
-        let content = match fs::read_to_string(&self.state_file) {
-            Ok(content) => content,
-            Err(error) => {
-                if let Some(project_path) = project_path {
-                    return fallback_project_worktree_summary(
-                        project_id,
-                        project_path,
-                        true,
-                        Some(error.to_string()),
-                    );
-                }
-                return WorktreeSummary {
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-        let state = match serde_json::from_str::<StateFile>(&content) {
-            Ok(state) => state,
-            Err(error) => {
-                if let Some(project_path) = project_path {
-                    return fallback_project_worktree_summary(
-                        project_id,
-                        project_path,
-                        true,
-                        Some(error.to_string()),
-                    );
-                }
-                return WorktreeSummary {
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
+        let state = load_worktree_state(&self.state_file);
 
-        let mut worktrees = state
-            .worktrees
-            .into_iter()
-            .filter(|worktree| worktree.project_id == project_id)
-            .map(|worktree| WorktreeInfo {
-                exists: Path::new(&worktree.path).exists(),
-                git_summary: project_worktree_git_summary(&worktree.path),
-                id: worktree.id,
-                project_id: worktree.project_id,
-                name: worktree.name,
-                branch: worktree.branch,
-                path: worktree.path,
-                status: worktree.status,
-                is_default: worktree.is_default,
-            })
-            .collect::<Vec<_>>();
+        let mut worktrees = state_worktree_rows(state.worktrees, project_id, true);
+
+        persist_worktree_git_summaries(&self.state_file, &worktrees);
 
         if worktrees.is_empty()
             && let Some(project_path) = project_path
         {
             worktrees.push(default_project_worktree(project_id, project_path, true));
+            persist_worktree_git_summaries(&self.state_file, &worktrees);
         }
 
-        let selected_worktree_id = state
-            .selected_worktree_id_by_project
-            .get(project_id)
-            .cloned()
-            .filter(|id| worktrees.iter().any(|worktree| &worktree.id == id))
-            .or_else(|| {
-                worktrees
-                    .iter()
-                    .find(|worktree| worktree.is_default)
-                    .or_else(|| worktrees.first())
-                    .map(|worktree| worktree.id.clone())
-            });
+        let selected_worktree_id = selected_worktree_id_for_project(
+            &state.selected_worktree_id_by_project,
+            project_id,
+            &worktrees,
+        );
 
-        let tasks = state
-            .worktree_tasks
-            .into_iter()
-            .filter(|task| {
-                worktrees
-                    .iter()
-                    .any(|worktree| worktree.id == task.worktree_id)
-            })
-            .map(|task| WorktreeTaskInfo {
-                worktree_id: task.worktree_id,
-                title: task.title,
-                base_branch: task.base_branch,
-                status: task.status,
-            })
-            .collect::<Vec<_>>();
+        let tasks = task_rows_for_worktrees(state.worktree_tasks, &worktrees);
 
         let active_path = selected_worktree_id
             .as_ref()
@@ -123,57 +57,9 @@ impl WorktreeService {
             };
         };
 
-        let content = match fs::read_to_string(&self.state_file) {
-            Ok(content) => content,
-            Err(error) => {
-                if let Some(project_path) = project_path {
-                    return fallback_project_worktree_summary(
-                        project_id,
-                        project_path,
-                        false,
-                        Some(error.to_string()),
-                    );
-                }
-                return WorktreeSummary {
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
-        let state = match serde_json::from_str::<StateFile>(&content) {
-            Ok(state) => state,
-            Err(error) => {
-                if let Some(project_path) = project_path {
-                    return fallback_project_worktree_summary(
-                        project_id,
-                        project_path,
-                        false,
-                        Some(error.to_string()),
-                    );
-                }
-                return WorktreeSummary {
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                };
-            }
-        };
+        let state = load_worktree_state(&self.state_file);
 
-        let mut worktrees = state
-            .worktrees
-            .into_iter()
-            .filter(|worktree| worktree.project_id == project_id)
-            .map(|worktree| WorktreeInfo {
-                exists: Path::new(&worktree.path).exists(),
-                git_summary: ProjectWorktreeGitSummary::default(),
-                id: worktree.id,
-                project_id: worktree.project_id,
-                name: worktree.name,
-                branch: worktree.branch,
-                path: worktree.path,
-                status: worktree.status,
-                is_default: worktree.is_default,
-            })
-            .collect::<Vec<_>>();
+        let mut worktrees = state_worktree_rows(state.worktrees, project_id, false);
 
         if worktrees.is_empty()
             && let Some(project_path) = project_path
@@ -181,34 +67,13 @@ impl WorktreeService {
             worktrees.push(default_project_worktree(project_id, project_path, false));
         }
 
-        let selected_worktree_id = state
-            .selected_worktree_id_by_project
-            .get(project_id)
-            .cloned()
-            .filter(|id| worktrees.iter().any(|worktree| &worktree.id == id))
-            .or_else(|| {
-                worktrees
-                    .iter()
-                    .find(|worktree| worktree.is_default)
-                    .or_else(|| worktrees.first())
-                    .map(|worktree| worktree.id.clone())
-            });
+        let selected_worktree_id = selected_worktree_id_for_project(
+            &state.selected_worktree_id_by_project,
+            project_id,
+            &worktrees,
+        );
 
-        let tasks = state
-            .worktree_tasks
-            .into_iter()
-            .filter(|task| {
-                worktrees
-                    .iter()
-                    .any(|worktree| worktree.id == task.worktree_id)
-            })
-            .map(|task| WorktreeTaskInfo {
-                worktree_id: task.worktree_id,
-                title: task.title,
-                base_branch: task.base_branch,
-                status: task.status,
-            })
-            .collect::<Vec<_>>();
+        let tasks = task_rows_for_worktrees(state.worktree_tasks, &worktrees);
 
         WorktreeSummary {
             available: true,
@@ -221,28 +86,112 @@ impl WorktreeService {
     }
 }
 
-fn fallback_project_worktree_summary(
+fn state_worktree_rows(
+    records: Vec<WorktreeRecord>,
     project_id: &str,
-    project_path: &str,
-    include_git_stats: bool,
-    error: Option<String>,
-) -> WorktreeSummary {
-    WorktreeSummary {
-        available: true,
-        selected_worktree_id: Some(project_id.to_string()),
-        worktrees: vec![default_project_worktree(
-            project_id,
-            project_path,
-            include_git_stats,
-        )],
-        tasks: Vec::new(),
-        active_git: if include_git_stats {
-            GitService::status(project_path)
-        } else {
-            crate::git::GitSummary::default()
-        },
-        error,
+    refresh_git: bool,
+) -> Vec<WorktreeInfo> {
+    records
+        .into_iter()
+        .filter(|worktree| worktree.project_id == project_id)
+        .map(|worktree| {
+            let git_summary = if refresh_git {
+                project_worktree_git_summary(&worktree.path)
+            } else {
+                worktree.git_summary
+            };
+            WorktreeInfo {
+                exists: Path::new(&worktree.path).exists(),
+                git_summary,
+                id: worktree.id,
+                project_id: worktree.project_id,
+                name: worktree.name,
+                branch: worktree.branch,
+                path: worktree.path,
+                status: worktree.status,
+                is_default: worktree.is_default,
+            }
+        })
+        .collect()
+}
+
+fn selected_worktree_id_for_project(
+    selected_by_project: &std::collections::HashMap<String, String>,
+    project_id: &str,
+    worktrees: &[WorktreeInfo],
+) -> Option<String> {
+    selected_by_project
+        .get(project_id)
+        .cloned()
+        .filter(|id| worktrees.iter().any(|worktree| &worktree.id == id))
+        .or_else(|| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.is_default)
+                .or_else(|| worktrees.first())
+                .map(|worktree| worktree.id.clone())
+        })
+}
+
+fn task_rows_for_worktrees(
+    tasks: Vec<WorktreeTaskRecord>,
+    worktrees: &[WorktreeInfo],
+) -> Vec<WorktreeTaskInfo> {
+    tasks
+        .into_iter()
+        .filter(|task| {
+            worktrees
+                .iter()
+                .any(|worktree| worktree.id == task.worktree_id)
+        })
+        .map(|task| WorktreeTaskInfo {
+            worktree_id: task.worktree_id,
+            title: task.title,
+            base_branch: task.base_branch,
+            status: task.status,
+        })
+        .collect()
+}
+
+fn persist_worktree_git_summaries(state_file: &Path, worktrees: &[WorktreeInfo]) {
+    if worktrees.is_empty() {
+        return;
     }
+    let summaries = worktrees
+        .iter()
+        .map(|worktree| (worktree.id.as_str(), worktree.git_summary.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut raw = raw_snapshot(state_file);
+    let Some(raw_worktrees) = raw.get_mut("worktrees").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let mut changed = false;
+    for value in raw_worktrees {
+        let Some(worktree) = value.as_object_mut() else {
+            continue;
+        };
+        let Some(id) = worktree.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(summary) = summaries.get(id) else {
+            continue;
+        };
+        let Ok(summary_value) = serde_json::to_value(summary) else {
+            continue;
+        };
+        if worktree.get("gitSummary") != Some(&summary_value) {
+            worktree.insert("gitSummary".to_string(), summary_value);
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = save_raw_snapshot(state_file, &raw);
+    }
+}
+
+fn load_worktree_state(state_file: &Path) -> StateFile {
+    serde_json::from_value::<StateFile>(Value::Object(raw_snapshot(state_file)))
+        .unwrap_or_else(|_| StateFile::default())
 }
 
 fn default_project_worktree(

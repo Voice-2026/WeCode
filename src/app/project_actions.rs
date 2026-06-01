@@ -32,9 +32,6 @@ impl CoduxApp {
                     runtime_service.reload_worktrees(Some(&project_id), Some(&project_path));
                 let request = ai_history_worktree_request(&project, worktree.as_ref());
                 let ai_history = runtime_service.reload_project_ai_history(&request.path);
-                let ai_session_detail = ai_history.sessions.first().map(|session| {
-                    runtime_service.reload_project_ai_session_detail(&request.path, &session.id)
-                });
                 (
                     ProjectSwitchTaskLoad {
                         project_id: project_id.clone(),
@@ -45,7 +42,6 @@ impl CoduxApp {
                         project_id: project_id.clone(),
                         generation,
                         ai_history,
-                        ai_session_detail,
                     },
                 )
             })
@@ -163,18 +159,13 @@ impl CoduxApp {
         self.state.files.clear();
         if let Some(view_state) = self.project_view_store.get(project_id).cloned() {
             self.state.ai_history = view_state.ai_history;
-            self.state.ai_session_detail = view_state.ai_session_detail;
+            self.state.ai_session_detail = None;
             self.state.memory = view_state.memory;
             self.state.memory_manager = view_state.memory_manager;
             self.state.worktrees = view_state.worktrees;
             self.apply_saved_worktree_view_state();
             self.apply_saved_terminal_view_state();
-            self.selected_ai_session_id = self
-                .state
-                .ai_history
-                .sessions
-                .first()
-                .map(|session| session.id.clone());
+            self.selected_ai_session_id = None;
             self.runtime_trace(
                 "project-switch",
                 &format!(
@@ -225,7 +216,6 @@ impl CoduxApp {
             ProjectViewState {
                 ai_history: self.state.ai_history.clone(),
                 ai_global_history: self.state.ai_global_history.clone(),
-                ai_session_detail: self.state.ai_session_detail.clone(),
                 memory: self.state.memory.clone(),
                 memory_manager: self.state.memory_manager.clone(),
                 worktrees: self.state.worktrees.clone(),
@@ -244,6 +234,8 @@ impl CoduxApp {
             file_selection_anchor: self.file_selection_anchor.clone(),
             file_tree_expanded_dirs: self.file_tree_expanded_dirs.clone(),
             file_tree_children: self.file_tree_children.clone(),
+            file_editor_tabs: self.file_editor_tabs.clone(),
+            active_file_editor_tab: self.active_file_editor_tab.clone(),
         }
     }
 
@@ -269,6 +261,8 @@ impl CoduxApp {
         self.file_selection_anchor = state.file_selection_anchor;
         self.file_tree_expanded_dirs = state.file_tree_expanded_dirs;
         self.file_tree_children = state.file_tree_children;
+        self.file_editor_tabs = state.file_editor_tabs;
+        self.active_file_editor_tab = state.active_file_editor_tab;
         self.file_name_draft_kind = None;
         self.file_name_draft_target = None;
         self.file_name_draft_value.clear();
@@ -315,6 +309,8 @@ impl CoduxApp {
         self.file_preview = "select a file to preview it".to_string();
         self.file_editable = false;
         self.file_dirty = false;
+        self.file_editor_tabs.clear();
+        self.active_file_editor_tab = None;
         self.clear_file_selection();
         self.state.files.clear();
         self.selected_git_file = None;
@@ -351,8 +347,12 @@ impl CoduxApp {
         if let Some(view_state) = self.worktree_view_store.get(&key).cloned() {
             self.apply_file_worktree_view_state(view_state.files);
             self.apply_git_worktree_view_state(view_state.git);
+            if self.file_editor_tabs.is_empty() {
+                self.load_current_file_editor_layout();
+            }
         } else {
             self.clear_worktree_view_state();
+            self.load_current_file_editor_layout();
         }
     }
 
@@ -379,12 +379,15 @@ impl CoduxApp {
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let load = codux_runtime::async_runtime::run_limited_blocking(move || {
                 let files = runtime_service.reload_project_files(&worktree_path, None);
+                let file_editor_layout =
+                    runtime_service.reload_file_editor_layout(Some(&store_key.worktree_id));
                 let git = runtime_service.reload_project_git(&worktree_path);
                 let git_review = runtime_service.reload_project_git_review(&worktree_path, None);
                 WorktreeSidebarLoad {
                     generation,
                     store_key,
                     files,
+                    file_editor_layout,
                     git,
                     git_review,
                 }
@@ -410,15 +413,55 @@ impl CoduxApp {
         self.worktree_sidebar_load_in_flight.remove(&load.store_key);
         self.worktree_sidebar_load_last_finished_at
             .insert(load.store_key.clone(), app_now_seconds());
-        let file_state = super::app_state::FileWorktreeViewState {
-            files: load.files.clone(),
-            file_directory: String::new(),
-            selected_file_entry: None,
-            selected_file_entries: HashSet::new(),
-            file_selection_anchor: None,
-            file_tree_expanded_dirs: HashSet::new(),
-            file_tree_children: HashMap::new(),
-        };
+        let mut file_state = self
+            .worktree_view_store
+            .get(&load.store_key)
+            .map(|state| state.files.clone())
+            .unwrap_or_else(|| super::app_state::FileWorktreeViewState {
+                files: Vec::new(),
+                file_directory: String::new(),
+                selected_file_entry: None,
+                selected_file_entries: HashSet::new(),
+                file_selection_anchor: None,
+                file_tree_expanded_dirs: HashSet::new(),
+                file_tree_children: HashMap::new(),
+                file_editor_tabs: Vec::new(),
+                active_file_editor_tab: None,
+            });
+        file_state.files = load.files.clone();
+        if file_state.file_editor_tabs.is_empty() {
+            file_state.file_editor_tabs = load
+                .file_editor_layout
+                .tabs
+                .into_iter()
+                .map(|tab| super::app_state::FileEditorTab {
+                    label: tab.label,
+                    relative_path: tab.path,
+                    editable: true,
+                    dirty: false,
+                    language: if tab.language.trim().is_empty() {
+                        "text".to_string()
+                    } else {
+                        tab.language
+                    },
+                })
+                .collect();
+            file_state.active_file_editor_tab = load
+                .file_editor_layout
+                .active_path
+                .filter(|active| {
+                    file_state
+                        .file_editor_tabs
+                        .iter()
+                        .any(|tab| tab.relative_path == *active)
+                })
+                .or_else(|| {
+                    file_state
+                        .file_editor_tabs
+                        .first()
+                        .map(|tab| tab.relative_path.clone())
+                });
+        }
         let git_state = super::app_state::GitWorktreeViewState {
             git: load.git.clone(),
             git_review: load.git_review.clone(),
@@ -685,15 +728,10 @@ impl CoduxApp {
                 let request =
                     ai_history_worktree_request(&primary_project, primary_worktree.as_ref());
                 let ai_history = primary_runtime_service.reload_project_ai_history(&request.path);
-                let ai_session_detail = ai_history.sessions.first().map(|session| {
-                    primary_runtime_service
-                        .reload_project_ai_session_detail(&request.path, &session.id)
-                });
                 ProjectSwitchPrimaryLoad {
                     project_id: primary_project.id,
                     generation,
                     ai_history,
-                    ai_session_detail,
                 }
             })
             .await
@@ -813,10 +851,6 @@ impl CoduxApp {
                     .as_ref()
                     .map(|state| state.ai_global_history.clone())
                     .unwrap_or_else(|| self.state.ai_global_history.clone()),
-                ai_session_detail: existing
-                    .as_ref()
-                    .and_then(|state| state.ai_session_detail.clone())
-                    .or_else(|| self.state.ai_session_detail.clone()),
                 memory: existing
                     .as_ref()
                     .map(|state| state.memory.clone())
@@ -871,7 +905,6 @@ impl CoduxApp {
                     .as_ref()
                     .map(|state| state.ai_global_history.clone())
                     .unwrap_or_else(|| self.state.ai_global_history.clone()),
-                ai_session_detail: load.ai_session_detail.clone(),
                 memory: existing
                     .as_ref()
                     .map(|state| state.memory.clone())
@@ -897,7 +930,8 @@ impl CoduxApp {
             return;
         }
         self.state.ai_history = load.ai_history;
-        self.state.ai_session_detail = load.ai_session_detail;
+        self.selected_ai_session_id = None;
+        self.state.ai_session_detail = None;
         self.runtime_trace(
             "project-switch",
             &format!(
@@ -909,12 +943,6 @@ impl CoduxApp {
                 self.state.ai_history.sessions.len()
             ),
         );
-        self.selected_ai_session_id = self
-            .state
-            .ai_history
-            .sessions
-            .first()
-            .map(|session| session.id.clone());
         self.refresh_ai_history_after_project_switch(cx);
         self.save_current_project_view_state();
         self.notify_task_column(cx);
@@ -932,7 +960,6 @@ impl CoduxApp {
             .or_insert_with(|| ProjectViewState {
                 ai_history: self.state.ai_history.clone(),
                 ai_global_history: self.state.ai_global_history.clone(),
-                ai_session_detail: self.state.ai_session_detail.clone(),
                 memory: self.state.memory.clone(),
                 memory_manager: self.state.memory_manager.clone(),
                 worktrees: self.state.worktrees.clone(),

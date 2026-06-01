@@ -1,13 +1,14 @@
 pub mod app_settings;
 
 use crate::llm::{self, LLMProviderTestResult};
+use crate::config::ConfigStore;
 pub use app_settings::{
     AIRuntimeToolSettings, AppSettings, AppSettingsStore, NotificationChannelSettings,
     RemoteHostDeviceSettings, RemoteSettings, UpdateSettings, sync_process_locale_preference,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 include!("types.rs");
 include!("service.rs");

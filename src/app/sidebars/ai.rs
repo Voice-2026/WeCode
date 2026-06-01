@@ -3015,13 +3015,11 @@ fn ai_rank_rows(rows: impl Iterator<Item = (String, i64)>) -> Vec<(String, i64, 
 fn ai_sessions_panel(
     history: &AIHistorySummary,
     selected_detail: Option<&AISessionDetail>,
-    selected_session_id: Option<&str>,
+    _selected_session_id: Option<&str>,
     language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let selected_id =
-        selected_session_id.or_else(|| history.sessions.first().map(|session| session.id.as_str()));
     let indexed_label = ai_sidebar_text(language, "ai.indexing.status.completed", "Index complete");
     let unindexed_label = ai_sidebar_text(language, "ai.empty.no_stats", "No AI Stats Yet");
     div()
@@ -3091,10 +3089,7 @@ fn ai_sessions_panel(
                         .flex()
                         .flex_col()
                         .children(history.sessions.iter().take(12).cloned().map(|session| {
-                            let active = selected_id
-                                .map(|id| id == session.id.as_str())
-                                .unwrap_or(false);
-                            ai_session_list_row(session, active, language, cx).into_any_element()
+                            ai_session_list_row(session, language, cx).into_any_element()
                         }))
                         .into_any_element()
                 }),
@@ -3140,7 +3135,6 @@ fn ai_empty_sessions(
 
 fn ai_session_list_row(
     session: AISessionSummary,
-    active: bool,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -3157,11 +3151,7 @@ fn ai_session_list_row(
         .px(px(8.0))
         .py(px(7.0))
         .cursor_pointer()
-        .bg(if active {
-            active_bg
-        } else {
-            cx.theme().transparent
-        })
+        .bg(cx.theme().transparent)
         .hover(move |style| style.bg(active_bg))
         .on_click(cx.listener(move |app, _event, window, cx| {
             app.select_ai_session(session_id.clone(), window, cx)

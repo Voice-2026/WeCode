@@ -195,7 +195,6 @@ impl CoduxApp {
             .cloned();
 
         let sessions = Rc::new(self.state.ai_history.sessions.clone());
-        let selected_session_id = self.selected_ai_session_id.clone();
         let scroll_handle = self.session_scroll_handle.clone();
         let row_labels = labels.clone();
         let overlay_labels = labels.clone();
@@ -225,19 +224,10 @@ impl CoduxApp {
                         None,
                         cx,
                         move |session, _index, _window, cx| {
-                            let active = selected_session_id
-                                .as_deref()
-                                .map(|id| id == session.id)
-                                .unwrap_or(false);
                             div()
                                 .w_full()
                                 .pb(px(4.0))
-                                .child(ai_session_compact_row(
-                                    session,
-                                    active,
-                                    row_labels.clone(),
-                                    cx,
-                                ))
+                                .child(ai_session_compact_row(session, row_labels.clone(), cx))
                                 .into_any_element()
                         },
                     )),
@@ -429,13 +419,10 @@ fn worktree_row_title(worktree: &WorktreeInfo) -> String {
 
 fn ai_session_compact_row(
     session: AISessionSummary,
-    active: bool,
     labels: TaskColumnLabels,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let session_id = session.id.clone();
     let restore_session_id = session.id.clone();
-    let right_click_session_id = session.id.clone();
     let menu_session_id = session.id.clone();
     let app_entity = cx.entity();
     let last_seen = relative_time_label_for_language(session.last_seen_at, &labels.language);
@@ -452,18 +439,8 @@ fn ai_session_compact_row(
         .rounded(px(8.0))
         .px_2()
         .py_2()
-        .when(active, |this| this.bg(cx.theme().secondary_hover))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(move |app, _event, window, cx| {
-            app.select_ai_session(session_id.clone(), window, cx)
-        }))
-        .on_mouse_down(
-            MouseButton::Right,
-            cx.listener(move |app, _event, window, cx| {
-                app.select_ai_session(right_click_session_id.clone(), window, cx)
-            }),
-        )
         .on_double_click(cx.listener(move |app, _event, window, cx| {
             app.selected_ai_session_id = Some(restore_session_id.clone());
             app.restore_selected_ai_session(window, cx);

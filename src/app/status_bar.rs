@@ -4,6 +4,15 @@ pub(in crate::app) struct StatusBarView {
     app_entity: gpui::Entity<CoduxApp>,
 }
 
+#[derive(Clone)]
+struct StatusGitSummary {
+    branch: String,
+    incoming: i64,
+    outgoing: i64,
+    additions: i64,
+    deletions: i64,
+}
+
 impl StatusBarView {
     pub(in crate::app) fn new(app_entity: gpui::Entity<CoduxApp>) -> Self {
         Self { app_entity }
@@ -51,9 +60,7 @@ impl CoduxApp {
         let memory_failed = self.state.memory_manager.extraction.failed;
         let memory_error = self.state.memory_manager.extraction.last_error.clone();
         let remote = self.state.remote.clone();
-        let git_branch = self.state.git.branch.clone();
-        let git_ahead = self.state.git.ahead;
-        let git_behind = self.state.git.behind;
+        let git = self.status_git_summary();
 
         div()
             .h(px(28.0))
@@ -110,10 +117,15 @@ impl CoduxApp {
                     .child(status_separator())
                     .child(status_remote_segment(&remote, &language, cx))
                     .child(status_separator())
-                    .child(status_git_segment(&git_branch, git_ahead, git_behind, cx))
+                    .child(status_git_segment(
+                        &git.branch,
+                        git.additions,
+                        git.deletions,
+                        cx,
+                    ))
                     .child(status_sync_action_button(
                         status_text(&language, "git.remote.pull", "Pull"),
-                        git_behind,
+                        git.incoming,
                         0x6AA1FF,
                         "status-pull",
                         cx,
@@ -121,13 +133,55 @@ impl CoduxApp {
                     ))
                     .child(status_sync_action_button(
                         status_text(&language, "git.remote.push", "Push"),
-                        git_ahead,
+                        git.outgoing,
                         theme::GREEN,
                         "status-push",
                         cx,
                         |app, _event, window, cx| app.push_project_git(window, cx),
                     )),
             )
+    }
+
+    fn status_git_summary(&self) -> StatusGitSummary {
+        if let Some(worktree) = super::ai_runtime_status::selected_worktree_info(&self.state) {
+            let git = worktree.git_summary;
+            return StatusGitSummary {
+                branch: non_empty(worktree.branch).unwrap_or_else(|| self.state.git.branch.clone()),
+                incoming: git.incoming,
+                outgoing: git.outgoing,
+                additions: git.additions,
+                deletions: git.deletions,
+            };
+        }
+
+        let additions = self
+            .git_review
+            .files
+            .iter()
+            .map(|file| file.additions)
+            .sum();
+        let deletions = self
+            .git_review
+            .files
+            .iter()
+            .map(|file| file.deletions)
+            .sum();
+
+        StatusGitSummary {
+            branch: self.state.git.branch.clone(),
+            incoming: self.state.git.behind,
+            outgoing: self.state.git.ahead,
+            additions,
+            deletions,
+        }
+    }
+}
+
+fn non_empty(value: String) -> Option<String> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
     }
 }
 
@@ -357,8 +411,8 @@ fn status_text(language: &str, key: &str, fallback: &str) -> String {
 
 fn status_git_segment(
     branch: &str,
-    ahead: i64,
-    behind: i64,
+    additions: i64,
+    deletions: i64,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     div()
@@ -387,13 +441,13 @@ fn status_git_segment(
             div()
                 .mt(px(1.0))
                 .text_color(color(theme::GREEN))
-                .child(format!("+{}", ahead.max(0))),
+                .child(format!("+{}", additions.max(0))),
         )
         .child(
             div()
                 .mt(px(1.0))
                 .text_color(color(0xF47C7C))
-                .child(format!("-{}", behind.max(0))),
+                .child(format!("-{}", deletions.max(0))),
         )
 }
 

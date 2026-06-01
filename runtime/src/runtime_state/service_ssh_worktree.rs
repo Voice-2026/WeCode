@@ -42,6 +42,10 @@ impl RuntimeService {
         load_terminal_runtime(&self.support_dir)
     }
 
+    pub fn reload_file_editor_layout(&self, owner_id: Option<&str>) -> FileEditorLayoutSummary {
+        FileEditorLayoutService::new(self.support_dir.clone()).load(owner_id)
+    }
+
     pub fn reload_worktrees(
         &self,
         project_id: Option<&str>,
@@ -149,5 +153,15 @@ impl RuntimeService {
             top_panes,
             active_slot_id,
         )
+    }
+
+    pub fn save_file_editor_layout(
+        &self,
+        owner_id: &str,
+        tabs: Vec<FileEditorTabSummary>,
+        active_path: Option<String>,
+    ) -> Result<FileEditorLayoutSummary, String> {
+        FileEditorLayoutService::new(self.support_dir.clone())
+            .save_from_gpui(owner_id, tabs, active_path)
     }
 }

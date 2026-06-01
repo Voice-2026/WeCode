@@ -17,8 +17,8 @@ use snapshot::{
     scanned_worktree_to_snapshot,
 };
 use state::{
-    StateFile, enrich_scanned_snapshot_from_state, merge_worktree_snapshot, raw_snapshot,
-    save_raw_snapshot, selected_worktree_id_from_state,
+    StateFile, WorktreeRecord, WorktreeTaskRecord, enrich_scanned_snapshot_from_state,
+    merge_worktree_snapshot, raw_snapshot, save_raw_snapshot, selected_worktree_id_from_state,
 };
 use std::{
     fs,
@@ -34,7 +34,7 @@ pub struct WorktreeService {
 impl WorktreeService {
     pub fn new(support_dir: PathBuf) -> Self {
         Self {
-            state_file: support_dir.join("state.json"),
+            state_file: crate::config::state_file_path(support_dir),
         }
     }
 }

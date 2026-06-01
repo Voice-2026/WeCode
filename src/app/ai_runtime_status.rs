@@ -17,16 +17,12 @@ impl AIActivityState {
 }
 
 pub(in crate::app) fn selected_worktree_info(state: &RuntimeState) -> Option<WorktreeInfo> {
-    let selected_id = state.worktrees.selected_worktree_id.as_deref();
-    selected_id
-        .and_then(|id| {
-            state
-                .worktrees
-                .worktrees
-                .iter()
-                .find(|worktree| worktree.id == id)
-        })
-        .or_else(|| state.worktrees.worktrees.first())
+    let selected_id = state.worktrees.selected_worktree_id.as_deref()?;
+    state
+        .worktrees
+        .worktrees
+        .iter()
+        .find(|worktree| worktree.id == selected_id)
         .cloned()
 }
 

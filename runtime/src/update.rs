@@ -1,4 +1,7 @@
-use crate::settings::{AppSettings, UpdateSettings as AppUpdateSettings};
+use crate::{
+    config::ConfigStore,
+    settings::{AppSettings, UpdateSettings as AppUpdateSettings},
+};
 use semver::Version;
 use serde::Serialize;
 use serde_json::Value;
@@ -24,7 +27,7 @@ pub struct UpdateService {
 impl UpdateService {
     pub fn new(support_dir: PathBuf, repo_root: PathBuf) -> Self {
         Self {
-            settings_path: support_dir.join("settings.json"),
+            settings_path: crate::config::settings_file_path(support_dir),
             repo_root,
         }
     }
@@ -140,11 +143,8 @@ impl UpdateService {
     }
 
     fn settings(&self) -> AppUpdateSettings {
-        fs::read_to_string(&self.settings_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-            .and_then(|value| value.get("update").cloned())
-            .and_then(|value| serde_json::from_value::<AppUpdateSettings>(value).ok())
+        ConfigStore::for_file(self.settings_path.clone())
+            .get_as::<AppUpdateSettings>("update")
             .unwrap_or_default()
     }
 
