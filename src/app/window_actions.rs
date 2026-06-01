@@ -126,6 +126,7 @@ impl CoduxApp {
             file_editor_tabs: Vec::new(),
             active_file_editor_tab: None,
             file_editor_states: HashMap::new(),
+            file_editor_loading_states: HashSet::new(),
             file_search_open: false,
             file_search_query: String::new(),
             file_search_match_index: 0,

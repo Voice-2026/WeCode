@@ -57,6 +57,7 @@ pub struct CoduxApp {
     pub(in crate::app) file_editor_tabs: Vec<FileEditorTab>,
     pub(in crate::app) active_file_editor_tab: Option<String>,
     pub(in crate::app) file_editor_states: HashMap<String, gpui::Entity<InputState>>,
+    pub(in crate::app) file_editor_loading_states: HashSet<String>,
     pub(in crate::app) file_search_open: bool,
     pub(in crate::app) file_search_query: String,
     pub(in crate::app) file_search_match_index: usize,

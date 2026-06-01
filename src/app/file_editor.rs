@@ -13,6 +13,7 @@ pub(in crate::app) struct FileEditorWorkspaceSnapshot {
     active_path: Option<String>,
     active_tab: Option<FileEditorTab>,
     active_editor: Option<gpui::Entity<InputState>>,
+    active_loading: bool,
 }
 
 impl PartialEq for FileEditorWorkspaceSnapshot {
@@ -25,6 +26,7 @@ impl PartialEq for FileEditorWorkspaceSnapshot {
                     .active_editor
                     .as_ref()
                     .map(|editor| editor.entity_id())
+            && self.active_loading == other.active_loading
     }
 }
 
@@ -112,13 +114,14 @@ impl FileEditorWorkspaceView {
     fn content_view(
         &mut self,
         editor: Option<gpui::Entity<InputState>>,
+        loading: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<FileEditorContentView> {
         if let Some(view) = &self.content_view {
-            view.update(cx, |view, cx| view.set_editor(editor, cx));
+            view.update(cx, |view, cx| view.set_editor(editor, loading, cx));
             return view.clone();
         }
-        let view = cx.new(|_| FileEditorContentView::new(editor));
+        let view = cx.new(|_| FileEditorContentView::new(editor, loading));
         self.content_view = Some(view.clone());
         view
     }
@@ -141,7 +144,8 @@ impl Render for FileEditorWorkspaceView {
             cx,
         );
         let chrome_view = self.chrome_view(tab_bar_view, toolbar_view, cx);
-        let content_view = self.content_view(snapshot.active_editor.clone(), cx);
+        let content_view =
+            self.content_view(snapshot.active_editor.clone(), snapshot.active_loading, cx);
         file_editor_workspace(
             self.app_entity.clone(),
             snapshot,
@@ -289,29 +293,40 @@ impl Render for FileEditorToolbarView {
 
 pub(in crate::app) struct FileEditorContentView {
     editor: Option<gpui::Entity<InputState>>,
+    loading: bool,
 }
 
 impl FileEditorContentView {
-    fn new(editor: Option<gpui::Entity<InputState>>) -> Self {
-        Self { editor }
+    fn new(editor: Option<gpui::Entity<InputState>>, loading: bool) -> Self {
+        Self { editor, loading }
     }
 
-    fn set_editor(&mut self, editor: Option<gpui::Entity<InputState>>, cx: &mut Context<Self>) {
+    fn set_editor(
+        &mut self,
+        editor: Option<gpui::Entity<InputState>>,
+        loading: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.editor.as_ref().map(|editor| editor.entity_id())
             == editor.as_ref().map(|editor| editor.entity_id())
+            && self.loading == loading
         {
             return;
         }
         self.editor = editor;
+        self.loading = loading;
         cx.notify();
     }
 }
 
 impl Render for FileEditorContentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div().flex_1().min_w_0().min_h_0().size_full().when_some(
-            self.editor.clone(),
-            |this, editor| {
+        div()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .size_full()
+            .when_some(self.editor.clone(), |this, editor| {
                 this.child(
                     Input::new(&editor)
                         .appearance(false)
@@ -319,8 +334,15 @@ impl Render for FileEditorContentView {
                         .text_size(cx.theme().mono_font_size)
                         .size_full(),
                 )
-            },
-        )
+            })
+            .when(self.editor.is_none() && self.loading, |this| {
+                this.flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(13.0))
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Loading file...")
+            })
     }
 }
 
@@ -331,11 +353,11 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(worktree_path) = self.selected_worktree_path() else {
+        if self.selected_worktree_path().is_none() {
             self.status_message = "no selected project to open file".to_string();
             self.invalidate_status_bar(cx);
             return;
-        };
+        }
         let key = self.file_editor_state_key(&relative_path);
 
         let tab_exists = self
@@ -344,34 +366,14 @@ impl CoduxApp {
             .any(|tab| tab.relative_path == relative_path);
 
         if !tab_exists {
-            match self
-                .runtime_service
-                .read_project_file_edit_buffer(&worktree_path, &relative_path)
-            {
-                Ok((content, editable)) => {
-                    let language = file_language_for_path(&relative_path).to_string();
-                    self.ensure_file_editor_state(
-                        key.clone(),
-                        relative_path.clone(),
-                        language.clone(),
-                        content,
-                        window,
-                        cx,
-                    );
-                    self.file_editor_tabs.push(FileEditorTab {
-                        label: file_editor_label(&relative_path),
-                        relative_path: relative_path.clone(),
-                        editable,
-                        dirty: false,
-                        language,
-                    });
-                }
-                Err(error) => {
-                    self.status_message = format!("failed to open file: {error}");
-                    self.invalidate_status_bar(cx);
-                    return;
-                }
-            }
+            self.file_editor_tabs.push(FileEditorTab {
+                label: file_editor_label(&relative_path),
+                relative_path: relative_path.clone(),
+                editable: true,
+                dirty: false,
+                language: file_language_for_path(&relative_path).to_string(),
+            });
+            self.ensure_file_editor_state_for_path(relative_path.clone(), window, cx);
         } else {
             self.ensure_file_editor_state_for_path(relative_path.clone(), window, cx);
         }
@@ -510,33 +512,20 @@ impl CoduxApp {
     pub(super) fn ensure_file_editor_state_for_path(
         &mut self,
         relative_path: String,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<gpui::Entity<InputState>> {
         let key = self.file_editor_state_key(&relative_path);
         if let Some(state) = self.file_editor_states.get(&key) {
             return Some(state.clone());
         }
-        let worktree_path = self.selected_worktree_path()?;
-        let (content, editable) = self
-            .runtime_service
-            .read_project_file_edit_buffer(&worktree_path, &relative_path)
-            .ok()?;
-        let language = file_language_for_path(&relative_path).to_string();
-        if let Some(tab) = self
-            .file_editor_tabs
-            .iter_mut()
-            .find(|tab| tab.relative_path == relative_path)
-        {
-            tab.editable = editable;
-            tab.language = language.clone();
-        }
-        Some(self.ensure_file_editor_state(key, relative_path, language, content, window, cx))
+        self.spawn_file_editor_state_load(key, relative_path, cx);
+        None
     }
 
     pub(super) fn ensure_visible_file_editor_states(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let tabs = self.file_editor_tabs.clone();
@@ -545,23 +534,106 @@ impl CoduxApp {
             if self.file_editor_states.contains_key(&key) {
                 continue;
             }
-            let content = self
-                .selected_worktree_path()
-                .and_then(|path| {
-                    self.runtime_service
-                        .read_project_file_edit_buffer(&path, &tab.relative_path)
-                        .ok()
-                        .map(|(content, _)| content)
-                })
-                .unwrap_or_default();
-            self.ensure_file_editor_state(
-                key,
-                tab.relative_path.clone(),
-                tab.language,
-                content,
-                window,
-                cx,
-            );
+            self.spawn_file_editor_state_load(key, tab.relative_path.clone(), cx);
+        }
+    }
+
+    fn spawn_file_editor_state_load(
+        &mut self,
+        key: String,
+        relative_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.file_editor_states.contains_key(&key)
+            || !self.file_editor_loading_states.insert(key.clone())
+        {
+            return;
+        }
+        let Some(worktree_path) = self.selected_worktree_path() else {
+            self.file_editor_loading_states.remove(&key);
+            return;
+        };
+        let runtime_service = self.runtime_service.clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND,
+                {
+                    let worktree_path = worktree_path.clone();
+                    let relative_path = relative_path.clone();
+                    move || {
+                        runtime_service
+                            .read_project_file_edit_buffer(&worktree_path, &relative_path)
+                    }
+                },
+            )
+            .await
+            .ok();
+            let _ = this.update_in(cx, |app, window, cx| {
+                app.apply_file_editor_state_load(key, relative_path, result, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn apply_file_editor_state_load(
+        &mut self,
+        key: String,
+        relative_path: String,
+        result: Option<std::result::Result<(String, bool), String>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_editor_loading_states.remove(&key);
+        let is_current_file_context = self.file_editor_state_key(&relative_path) == key;
+        match result {
+            Some(Ok((content, editable))) => {
+                let language = file_language_for_path(&relative_path).to_string();
+                if is_current_file_context {
+                    if let Some(tab) = self
+                        .file_editor_tabs
+                        .iter_mut()
+                        .find(|tab| tab.relative_path == relative_path)
+                    {
+                        tab.editable = editable;
+                        tab.language = language.clone();
+                    }
+                }
+                self.ensure_file_editor_state(
+                    key,
+                    relative_path.clone(),
+                    language,
+                    content,
+                    window,
+                    cx,
+                );
+                if is_current_file_context
+                    && self.active_file_editor_tab.as_deref() == Some(relative_path.as_str())
+                {
+                    if let Some(editor) = self.active_file_editor_state() {
+                        editor.update(cx, |state, cx| state.focus(window, cx));
+                    }
+                }
+            }
+            Some(Err(error)) => {
+                if is_current_file_context {
+                    self.status_message = format!("failed to load file editor: {error}");
+                    self.invalidate_status_bar(cx);
+                }
+            }
+            None => {
+                if is_current_file_context {
+                    self.status_message = "failed to load file editor".to_string();
+                    self.invalidate_status_bar(cx);
+                }
+            }
+        }
+        if is_current_file_context && self.workspace_view == WorkspaceView::Files {
+            if !self.update_file_editor_workspace_view(cx) {
+                self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+            }
+        }
+        if is_current_file_context {
+            self.invalidate_ui_region(cx, UiRegion::FileSidebar);
         }
     }
 
@@ -663,11 +735,20 @@ impl CoduxApp {
             .find(|tab| Some(tab.relative_path.as_str()) == active_path.as_deref())
             .cloned();
         let active_editor = self.active_file_editor_state();
+        let active_loading = active_editor.is_none()
+            && active_path
+                .as_deref()
+                .map(|path| {
+                    self.file_editor_loading_states
+                        .contains(&self.file_editor_state_key(path))
+                })
+                .unwrap_or(false);
         FileEditorWorkspaceSnapshot {
             tabs,
             active_path,
             active_tab,
             active_editor,
+            active_loading,
         }
     }
 }
@@ -685,6 +766,7 @@ pub(in crate::app) fn file_editor_workspace(
         active_path: _,
         active_tab: _,
         active_editor: _,
+        active_loading: _,
     } = snapshot;
 
     div()
