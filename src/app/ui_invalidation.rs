@@ -53,6 +53,12 @@ impl CoduxApp {
             UiRegion::WorkspaceBody => {
                 if self.workspace_view == WorkspaceView::Terminal {
                     self.update_terminal_workspace_view(cx);
+                } else if self.workspace_view == WorkspaceView::Files {
+                    if !self.update_file_editor_workspace_view(cx) {
+                        if let Some(view) = &self.workspace_body_view {
+                            view.update(cx, |_view, cx| cx.notify());
+                        }
+                    }
                 } else if let Some(view) = &self.workspace_body_view {
                     view.update(cx, |_view, cx| cx.notify());
                 }

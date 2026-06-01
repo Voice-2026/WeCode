@@ -412,14 +412,16 @@ impl CoduxApp {
         }
         self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
-        self.update_file_editor_workspace_view(window, cx);
+        if !self.update_file_editor_workspace_view(cx) {
+            self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+        }
         self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
     }
 
     pub(super) fn close_file_editor_tab(
         &mut self,
         relative_path: String,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(index) = self
@@ -446,7 +448,9 @@ impl CoduxApp {
         }
         self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
-        self.update_file_editor_workspace_view(window, cx);
+        if !self.update_file_editor_workspace_view(cx) {
+            self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+        }
         self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
     }
 
@@ -454,21 +458,33 @@ impl CoduxApp {
         &mut self,
         relative_path: &str,
         dirty: bool,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let mut changed = false;
         if let Some(tab) = self
             .file_editor_tabs
             .iter_mut()
             .find(|tab| tab.relative_path == relative_path)
         {
-            tab.dirty = dirty;
+            if tab.dirty != dirty {
+                tab.dirty = dirty;
+                changed = true;
+            }
         }
         if self.active_file_editor_tab.as_deref() == Some(relative_path) {
-            self.file_dirty = dirty;
+            if self.file_dirty != dirty {
+                self.file_dirty = dirty;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
         }
         if self.workspace_view == WorkspaceView::Files {
-            self.update_file_editor_workspace_view(window, cx);
+            if !self.update_file_editor_workspace_view(cx) {
+                self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+            }
         }
     }
 
@@ -565,6 +581,7 @@ impl CoduxApp {
         let state = cx.new(|cx| {
             InputState::new(window, cx)
                 .code_editor(language)
+                .folding(false)
                 .multi_line(true)
                 .tab_size(TabSize {
                     tab_size: 4,
@@ -637,11 +654,7 @@ impl CoduxApp {
         }
     }
 
-    pub(in crate::app) fn file_editor_workspace_snapshot(
-        &self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> FileEditorWorkspaceSnapshot {
+    pub(in crate::app) fn file_editor_workspace_snapshot(&self) -> FileEditorWorkspaceSnapshot {
         let tabs = self.file_editor_tabs.clone();
         let active_path = self.active_file_editor_tab.clone();
         let active_tab = self

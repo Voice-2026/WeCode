@@ -128,7 +128,7 @@ impl Render for WorkspaceBodyView {
                 };
                 gpui::AnyView::from(terminal_view).into_any_element()
             } else if app.workspace_view == WorkspaceView::Files {
-                let snapshot = app.file_editor_workspace_snapshot(window, app_cx);
+                let snapshot = app.file_editor_workspace_snapshot();
                 let file_editor_view = if let Some(view) = &self.file_editor_workspace_view {
                     view.update(app_cx, |view, cx| view.set_snapshot(snapshot, cx));
                     view.clone()
@@ -526,18 +526,18 @@ impl Render for TerminalWorkspaceView {
 impl CoduxApp {
     pub(in crate::app) fn update_file_editor_workspace_view(
         &mut self,
-        window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         let Some(view) = self
             .workspace_body_view
             .as_ref()
             .and_then(|view| view.read(cx).file_editor_workspace_view.clone())
         else {
-            return;
+            return false;
         };
-        let snapshot = self.file_editor_workspace_snapshot(window, cx);
+        let snapshot = self.file_editor_workspace_snapshot();
         view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+        true
     }
 
     pub(in crate::app) fn update_terminal_workspace_view(&mut self, cx: &mut Context<Self>) {

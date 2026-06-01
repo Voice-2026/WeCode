@@ -251,10 +251,10 @@ impl CoduxApp {
 
     fn files_workspace_body(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let snapshot = self.file_editor_workspace_snapshot(window, cx);
+        let snapshot = self.file_editor_workspace_snapshot();
         let app_entity = cx.entity();
         div()
             .flex()
