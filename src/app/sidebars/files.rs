@@ -690,7 +690,6 @@ fn file_tree_entry_row(
         .flex()
         .items_center()
         .when(active, |this| this.bg(hover_surface))
-        .cursor_grab()
         .hover(move |style| style.bg(hover_surface))
         .on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
             if editing {

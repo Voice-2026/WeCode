@@ -30,6 +30,16 @@ pub(super) fn resolve_existing_path(root: &Path, raw_path: &str) -> Result<PathB
     Ok(path)
 }
 
+pub(super) fn resolve_existing_project_entry(root: &Path, raw_path: &str) -> Result<PathBuf, String> {
+    let relative = sanitize_relative_path(raw_path)?;
+    let path = root.join(relative);
+    ensure_within_root(root, &path)?;
+    if !path.exists() {
+        return Err("Path does not exist.".to_string());
+    }
+    Ok(path)
+}
+
 pub(super) fn resolve_new_child_path(
     root_path: &str,
     parent_path: Option<&str>,

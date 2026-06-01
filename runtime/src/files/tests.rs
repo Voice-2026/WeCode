@@ -33,6 +33,20 @@ fn lists_nested_children_and_blocks_root_escape() {
 }
 
 #[test]
+fn reads_project_symlinked_text_file() {
+    let root = temp_dir("files-symlink-read");
+    fs::write(root.join("memory.md"), "managed memory\n").expect("target file");
+    create_symlink(root.join("memory.md"), root.join("AGENTS.md")).expect("symlink");
+
+    let preview = FilesService::read_text(root.to_str().expect("root"), "AGENTS.md")
+        .expect("read project symlink");
+    assert_eq!(preview.relative_path, "AGENTS.md");
+    assert!(preview.content.contains("managed memory"));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn creates_files_and_directories_with_root_guards() {
     let root = temp_dir("files-create");
     fs::create_dir_all(root.join("src")).expect("src dir");
@@ -229,4 +243,20 @@ fn temp_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"));
     fs::create_dir_all(&dir).expect("temp dir");
     dir
+}
+
+#[cfg(unix)]
+fn create_symlink(
+    original: impl AsRef<std::path::Path>,
+    link: impl AsRef<std::path::Path>,
+) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(original, link)
+}
+
+#[cfg(windows)]
+fn create_symlink(
+    original: impl AsRef<std::path::Path>,
+    link: impl AsRef<std::path::Path>,
+) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(original, link)
 }

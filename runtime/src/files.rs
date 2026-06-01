@@ -135,7 +135,7 @@ impl FilesService {
 
     pub fn read_text(root_path: &str, path: &str) -> Result<FileReadResult, String> {
         let root = canonical_root(root_path)?;
-        let target = resolve_existing_path(&root, path)?;
+        let target = resolve_existing_project_entry(&root, path)?;
         if !target.is_file() {
             return Err("Path is not a file.".to_string());
         }
