@@ -197,6 +197,14 @@ pub struct CoduxApp {
     pub(in crate::app) project_editor_path: String,
     pub(in crate::app) project_editor_badge_symbol: Option<String>,
     pub(in crate::app) project_editor_badge_color_hex: String,
+    pub(in crate::app) tooltip_state: CoduxTooltipState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(in crate::app) struct CoduxTooltipState {
+    pub(in crate::app) id: Option<ElementId>,
+    pub(in crate::app) text: SharedString,
+    pub(in crate::app) bounds: Bounds<Pixels>,
 }
 
 #[derive(Clone, Debug)]

@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::ui_helpers::codux_tooltip;
+use crate::app::ui_helpers::codux_tooltip_container;
 
 pub(in crate::app) struct WorkspaceColumnView {
     toolbar_view: gpui::Entity<WorkspaceToolbarView>,
@@ -555,8 +555,7 @@ fn terminal_pane_control_button(
     } else {
         color(theme::TEXT_DIM)
     };
-    let button = div()
-        .id(id)
+    let button = codux_tooltip_container(app_entity.clone(), id, tooltip)
         .size(px(28.0))
         .flex()
         .flex_none()
@@ -564,7 +563,6 @@ fn terminal_pane_control_button(
         .justify_center()
         .rounded_sm()
         .text_color(text_color)
-        .tooltip(move |window, cx| codux_tooltip(tooltip, window, cx))
         .child(Icon::new(icon).size_3p5().text_color(text_color));
 
     if enabled {

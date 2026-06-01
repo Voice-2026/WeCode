@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::app_events::current_memory_update_event;
+use crate::app::app_state::CoduxTooltipState;
 
 impl CoduxApp {
     pub(super) fn new_settings_window_from_state(
@@ -264,6 +265,7 @@ impl CoduxApp {
             project_editor_path: String::new(),
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
+            tooltip_state: CoduxTooltipState::default(),
         }
     }
 

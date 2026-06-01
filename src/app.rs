@@ -53,15 +53,15 @@ use codux_runtime::{
     worktree::{WorktreeInfo, WorktreeSummary},
 };
 use gpui::{
-    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, FocusHandle,
-    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ObjectFit,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
+    AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
+    FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ObjectFit,
+    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
     Subscription, UniformListScrollHandle, Window, WindowBackgroundAppearance, WindowBounds,
     WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
     prelude::FluentBuilder as _, px, size,
 };
 use gpui_component::{
-    ActiveTheme, Disableable, Icon, Root, Sizable, Size, VirtualListScrollHandle,
+    ActiveTheme, Disableable, ElementExt, Icon, Root, Sizable, Size, VirtualListScrollHandle,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::{Input, InputEvent, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
@@ -69,10 +69,10 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectItem, SelectState},
     spinner::Spinner,
     tag::Tag,
-    tooltip::Tooltip,
     v_virtual_list,
 };
 use std::{
+    cell::Cell,
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     rc::Rc,

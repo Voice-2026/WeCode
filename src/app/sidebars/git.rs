@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::ui_helpers::codux_tooltip;
+use crate::app::ui_helpers::codux_tooltip_container;
 use gpui::{ClickEvent, ListSizingBehavior, Pixels};
 use gpui_component::input::{Input, InputEvent, InputState};
 use std::ops::Range;
@@ -2419,144 +2419,146 @@ fn git_history_timeline_row(
         commit.hash, commit.title, commit.author, commit.relative_time
     );
 
-    div()
-        .id(SharedString::from(format!("git-history-{}", commit.hash)))
-        .w_full()
-        .min_w_0()
-        .relative()
-        .h(px(44.0))
-        .px_3()
-        .py(px(4.0))
-        .flex()
-        .gap_2()
-        .tooltip(move |window, cx| codux_tooltip(tooltip.clone(), window, cx))
-        .hover(|style| style.bg(cx.theme().list_hover))
-        .child(
-            div()
-                .w(px(18.0))
-                .h(px(36.0))
-                .relative()
-                .flex_shrink_0()
-                .when(!is_first, |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .left(px(8.5))
-                            .top(px(-4.0))
-                            .h(px(13.0))
-                            .w(px(1.0))
-                            .bg(color(0x7A8599).opacity(0.82)),
-                    )
-                })
-                .when(!is_last, |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .left(px(8.5))
-                            .top(px(21.0))
-                            .bottom(px(-4.0))
-                            .w(px(1.0))
-                            .bg(color(0x7A8599).opacity(0.82)),
-                    )
-                })
-                .child(
+    codux_tooltip_container(
+        app_entity.clone(),
+        SharedString::from(format!("git-history-{}", commit.hash)),
+        tooltip,
+    )
+    .w_full()
+    .min_w_0()
+    .relative()
+    .h(px(44.0))
+    .px_3()
+    .py(px(4.0))
+    .flex()
+    .gap_2()
+    .hover(|style| style.bg(cx.theme().list_hover))
+    .child(
+        div()
+            .w(px(18.0))
+            .h(px(36.0))
+            .relative()
+            .flex_shrink_0()
+            .when(!is_first, |this| {
+                this.child(
                     div()
                         .absolute()
-                        .left(px(2.5))
-                        .top(px(12.0))
-                        .size(px(12.0))
-                        .rounded_full()
-                        .border_1()
-                        .border_color(color(theme::BG_COLUMN))
-                        .bg(color(if active {
-                            theme::ACCENT
-                        } else {
-                            theme::TEXT_DIM
-                        })),
-                ),
-        )
-        .child(
-            div()
-                .min_w_0()
-                .flex_1()
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
-                                .text_color(color(theme::TEXT))
-                                .truncate()
-                                .child(title),
-                        )
-                        .child(if active {
-                            div()
-                                .rounded(px(6.0))
-                                .px_2()
-                                .py(px(2.0))
-                                .bg(color(theme::ACCENT).opacity(0.16))
-                                .text_size(px(12.0))
-                                .line_height(px(14.0))
-                                .text_color(color(theme::ACCENT))
-                                .child("HEAD->main")
-                                .into_any_element()
-                        } else {
-                            div().into_any_element()
-                        }),
+                        .left(px(8.5))
+                        .top(px(-4.0))
+                        .h(px(13.0))
+                        .w(px(1.0))
+                        .bg(color(0x7A8599).opacity(0.82)),
                 )
-                .child(
+            })
+            .when(!is_last, |this| {
+                this.child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(format!("{author} · {relative_time} · {hash}")),
-                ),
+                        .absolute()
+                        .left(px(8.5))
+                        .top(px(21.0))
+                        .bottom(px(-4.0))
+                        .w(px(1.0))
+                        .bg(color(0x7A8599).opacity(0.82)),
+                )
+            })
+            .child(
+                div()
+                    .absolute()
+                    .left(px(2.5))
+                    .top(px(12.0))
+                    .size(px(12.0))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(color(theme::BG_COLUMN))
+                    .bg(color(if active {
+                        theme::ACCENT
+                    } else {
+                        theme::TEXT_DIM
+                    })),
+            ),
+    )
+    .child(
+        div()
+            .min_w_0()
+            .flex_1()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .text_size(px(14.0))
+                            .line_height(px(18.0))
+                            .text_color(color(theme::TEXT))
+                            .truncate()
+                            .child(title),
+                    )
+                    .child(if active {
+                        div()
+                            .rounded(px(6.0))
+                            .px_2()
+                            .py(px(2.0))
+                            .bg(color(theme::ACCENT).opacity(0.16))
+                            .text_size(px(12.0))
+                            .line_height(px(14.0))
+                            .text_color(color(theme::ACCENT))
+                            .child("HEAD->main")
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    }),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .line_height(px(16.0))
+                    .text_color(color(theme::TEXT_DIM))
+                    .truncate()
+                    .child(format!("{author} · {relative_time} · {hash}")),
+            ),
+    )
+    .context_menu(move |menu, _window, _cx| {
+        let checkout_hash = context_hash.clone();
+        let revert_hash = context_hash.clone();
+        let restore_hash = context_hash.clone();
+        let checkout_entity = context_entity.clone();
+        let revert_entity = context_entity.clone();
+        let restore_entity = context_entity.clone();
+        menu.item(
+            PopupMenuItem::new(labels.checkout_commit.clone())
+                .icon(HeroIconName::ArrowPathRoundedSquare)
+                .on_click(move |_, window, cx| {
+                    cx.update_entity(&checkout_entity, |app, cx| {
+                        app.checkout_git_commit(checkout_hash.clone(), window, cx);
+                    });
+                }),
         )
-        .context_menu(move |menu, _window, _cx| {
-            let checkout_hash = context_hash.clone();
-            let revert_hash = context_hash.clone();
-            let restore_hash = context_hash.clone();
-            let checkout_entity = context_entity.clone();
-            let revert_entity = context_entity.clone();
-            let restore_entity = context_entity.clone();
-            menu.item(
-                PopupMenuItem::new(labels.checkout_commit.clone())
-                    .icon(HeroIconName::ArrowPathRoundedSquare)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&checkout_entity, |app, cx| {
-                            app.checkout_git_commit(checkout_hash.clone(), window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(labels.revert_commit.clone())
-                    .icon(HeroIconName::ArrowUturnLeft)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&revert_entity, |app, cx| {
-                            app.revert_git_commit(revert_hash.clone(), window, cx);
-                        });
-                    }),
-            )
-            .item(
-                PopupMenuItem::new(labels.restore_commit.clone())
-                    .icon(HeroIconName::ArrowUturnRight)
-                    .on_click(move |_, window, cx| {
-                        cx.update_entity(&restore_entity, |app, cx| {
-                            app.restore_git_commit(restore_hash.clone(), window, cx);
-                        });
-                    }),
-            )
-        })
+        .item(
+            PopupMenuItem::new(labels.revert_commit.clone())
+                .icon(HeroIconName::ArrowUturnLeft)
+                .on_click(move |_, window, cx| {
+                    cx.update_entity(&revert_entity, |app, cx| {
+                        app.revert_git_commit(revert_hash.clone(), window, cx);
+                    });
+                }),
+        )
+        .item(
+            PopupMenuItem::new(labels.restore_commit.clone())
+                .icon(HeroIconName::ArrowUturnRight)
+                .on_click(move |_, window, cx| {
+                    cx.update_entity(&restore_entity, |app, cx| {
+                        app.restore_git_commit(restore_hash.clone(), window, cx);
+                    });
+                }),
+        )
+    })
 }
 
 #[derive(Clone)]

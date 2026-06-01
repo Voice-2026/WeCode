@@ -196,6 +196,7 @@ fn ssh_profile_row(
                 ),
         )
         .child(with_codux_tooltip(
+            cx.entity(),
             format!("ssh-connect-tooltip-{}", profile.id),
             Button::new(SharedString::from(format!("ssh-connect-{}", profile.id)))
                 .compact()

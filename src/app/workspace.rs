@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::ui_helpers::{codux_tooltip, with_codux_tooltip};
+use crate::app::ui_helpers::{codux_tooltip_container, with_codux_tooltip};
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::{Anchor, relative};
 use gpui_component::{
@@ -458,8 +458,7 @@ fn terminal_pane_control_button(
     } else {
         color(theme::TEXT_DIM)
     };
-    let button = div()
-        .id(id)
+    let button = codux_tooltip_container(cx.entity(), id, tooltip)
         .size(px(28.0))
         .flex()
         .flex_none()
@@ -467,7 +466,6 @@ fn terminal_pane_control_button(
         .justify_center()
         .rounded_sm()
         .text_color(text_color)
-        .tooltip(move |window, cx| codux_tooltip(tooltip, window, cx))
         .child(Icon::new(icon).size_3p5().text_color(text_color));
 
     if enabled {
@@ -764,6 +762,7 @@ fn workspace_assistant_button(
     };
 
     with_codux_tooltip(
+        cx.entity(),
         match panel {
             AssistantPanel::AIStats => "workspace-assistant-ai-tooltip",
             AssistantPanel::SSH => "workspace-assistant-ssh-tooltip",
@@ -804,12 +803,10 @@ fn workspace_pet_dex_button(
     dex_tooltip: SharedString,
     app_entity: gpui::Entity<CoduxApp>,
 ) -> impl IntoElement {
-    div()
-        .id("workspace-pet-dex-tooltip")
+    codux_tooltip_container(app_entity.clone(), "workspace-pet-dex-tooltip", dex_tooltip)
         .absolute()
         .right(px(10.0))
         .top(px(10.0))
-        .tooltip(move |window, cx| codux_tooltip(dex_tooltip.clone(), window, cx))
         .child(
             Button::new("workspace-pet-dex-open")
                 .compact()
@@ -831,6 +828,7 @@ fn workspace_pet_rename_action_button(
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
     with_codux_tooltip(
+        cx.entity(),
         format!("pet-rename-tooltip-{id}"),
         Button::new(id)
             .compact()
@@ -855,6 +853,7 @@ fn workspace_pet_install_action_button(
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
     with_codux_tooltip(
+        cx.entity(),
         format!("pet-install-tooltip-{tooltip}"),
         button
             .text_color(cx.theme().secondary_foreground)
@@ -1261,7 +1260,10 @@ fn workspace_pet_popover_content(
                             sprite_fallback_color,
                         )),
                 )
-                .child(workspace_pet_dex_button(dex_tooltip.into(), app_entity))
+                .child(workspace_pet_dex_button(
+                    dex_tooltip.into(),
+                    app_entity.clone(),
+                ))
                 .child(workspace_pet_name_row(
                     pet.clone(),
                     name,
@@ -1323,6 +1325,7 @@ fn workspace_pet_popover_content(
                         .flex_col()
                         .gap_2()
                         .child(workspace_pet_trait(
+                            app_entity.clone(),
                             "brain",
                             wisdom_label,
                             stats.wisdom,
@@ -1335,6 +1338,7 @@ fn workspace_pet_popover_content(
                             ),
                         ))
                         .child(workspace_pet_trait(
+                            app_entity.clone(),
                             "flame",
                             chaos_label,
                             stats.chaos,
@@ -1347,6 +1351,7 @@ fn workspace_pet_popover_content(
                             ),
                         ))
                         .child(workspace_pet_trait(
+                            app_entity.clone(),
                             "moon",
                             night_label,
                             stats.night,
@@ -1359,6 +1364,7 @@ fn workspace_pet_popover_content(
                             ),
                         ))
                         .child(workspace_pet_trait(
+                            app_entity.clone(),
                             "arm",
                             stamina_label,
                             stats.stamina,
@@ -1371,6 +1377,7 @@ fn workspace_pet_popover_content(
                             ),
                         ))
                         .child(workspace_pet_trait(
+                            app_entity.clone(),
                             "bandage",
                             empathy_label,
                             stats.empathy,
@@ -1465,6 +1472,7 @@ fn workspace_pet_meter(
 }
 
 fn workspace_pet_trait(
+    app_entity: gpui::Entity<CoduxApp>,
     emoji_kind: &'static str,
     label: String,
     value: i64,
@@ -1473,49 +1481,51 @@ fn workspace_pet_trait(
     help: String,
 ) -> impl IntoElement {
     let ratio = (value as f32 / 330.0).clamp(0.0, 1.0);
-    div()
-        .id(SharedString::from(format!("pet-trait-{emoji_kind}")))
-        .tooltip(move |window, cx| codux_tooltip(help.clone(), window, cx))
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
-        .child(pet_trait_emoji(emoji_kind))
-        .child(
-            div()
-                .w(px(label_width))
-                .flex_none()
-                .text_color(color(theme::TEXT_MUTED))
-                .font_weight(FontWeight::MEDIUM)
-                .truncate()
-                .child(label),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.0))
-                .h(px(5.0))
-                .rounded_full()
-                .overflow_hidden()
-                .bg(color(accent).opacity(0.12))
-                .child(
-                    div()
-                        .h_full()
-                        .w(relative(ratio))
-                        .rounded_full()
-                        .bg(color(accent).opacity(0.75)),
-                ),
-        )
-        .child(
-            div()
-                .w(px(34.0))
-                .flex_none()
-                .text_right()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(color(theme::TEXT_DIM))
-                .child(compact_number(value)),
-        )
+    codux_tooltip_container(
+        app_entity,
+        SharedString::from(format!("pet-trait-{emoji_kind}")),
+        help,
+    )
+    .flex()
+    .items_center()
+    .gap(px(8.0))
+    .text_size(px(12.0))
+    .line_height(px(16.0))
+    .child(pet_trait_emoji(emoji_kind))
+    .child(
+        div()
+            .w(px(label_width))
+            .flex_none()
+            .text_color(color(theme::TEXT_MUTED))
+            .font_weight(FontWeight::MEDIUM)
+            .truncate()
+            .child(label),
+    )
+    .child(
+        div()
+            .flex_1()
+            .min_w(px(0.0))
+            .h(px(5.0))
+            .rounded_full()
+            .overflow_hidden()
+            .bg(color(accent).opacity(0.12))
+            .child(
+                div()
+                    .h_full()
+                    .w(relative(ratio))
+                    .rounded_full()
+                    .bg(color(accent).opacity(0.75)),
+            ),
+    )
+    .child(
+        div()
+            .w(px(34.0))
+            .flex_none()
+            .text_right()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(color(theme::TEXT_DIM))
+            .child(compact_number(value)),
+    )
 }
 
 fn pet_trait_label_width<'a>(labels: impl IntoIterator<Item = &'a String>) -> f32 {

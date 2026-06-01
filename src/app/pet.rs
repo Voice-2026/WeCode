@@ -1165,6 +1165,7 @@ fn pet_legacy_row(
                 .child(pet_date_label(record.retired_at)),
         )
         .child(with_codux_tooltip(
+            cx.entity(),
             format!("pet-restore-legacy-tooltip-{legacy_id}"),
             Button::new(SharedString::from(format!(
                 "pet-restore-legacy-{legacy_id}"

@@ -1,5 +1,5 @@
 use super::{formatting::relative_time_label_for_language, *};
-use crate::app::ui_helpers::{centered_empty_state, codux_tooltip, with_codux_tooltip};
+use crate::app::ui_helpers::{centered_empty_state, codux_tooltip_container, with_codux_tooltip};
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::{
     ai_runtime_state::AIRuntimeStateSummary,
@@ -1494,6 +1494,7 @@ fn ai_memory_header_icon_button(
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
     with_codux_tooltip(
+        cx.entity(),
         format!("ai-memory-header-tooltip-{id}"),
         Button::new(id)
             .compact()
@@ -1550,6 +1551,7 @@ fn ai_memory_migrate_project_button(
     let app_entity = cx.entity();
 
     with_codux_tooltip(
+        cx.entity(),
         "ai-memory-migrate-project-memory-tooltip",
         Button::new("ai-memory-migrate-project-memory")
             .compact()
@@ -2128,6 +2130,7 @@ fn ai_memory_row_icon_button(
     let tooltip = tooltip.into();
     let id = id.into();
     with_codux_tooltip(
+        cx.entity(),
         SharedString::from(format!("ai-memory-row-tooltip-{id}")),
         Button::new(id)
             .compact()
@@ -2325,19 +2328,19 @@ fn ai_today_usage_chart(
                 .h(px(62.0))
                 .children(values.into_iter().enumerate().map(|(index, bucket)| {
                     let ratio = bucket.value as f32 / max_value as f32;
-                    div()
-                        .id(SharedString::from(format!("ai-today-usage-{index}")))
-                        .flex_1()
-                        .min_w(px(2.0))
-                        .ml(if index == 0 { px(0.0) } else { px(1.0) })
-                        .h(px(10.0 + ratio * 56.0))
-                        .rounded(px(3.0))
-                        .bg(color(theme::ACCENT))
-                        .opacity(if bucket.value > 0 { 1.0 } else { 0.35 })
-                        .tooltip(move |window, cx| {
-                            codux_tooltip(bucket.tooltip.clone(), window, cx)
-                        })
-                        .into_any_element()
+                    codux_tooltip_container(
+                        cx.entity(),
+                        SharedString::from(format!("ai-today-usage-{index}")),
+                        bucket.tooltip,
+                    )
+                    .flex_1()
+                    .min_w(px(2.0))
+                    .ml(if index == 0 { px(0.0) } else { px(1.0) })
+                    .h(px(10.0 + ratio * 56.0))
+                    .rounded(px(3.0))
+                    .bg(color(theme::ACCENT))
+                    .opacity(if bucket.value > 0 { 1.0 } else { 0.35 })
+                    .into_any_element()
                 })),
         )
         .child(
@@ -2390,6 +2393,7 @@ fn ai_recent_usage_heatmap(
     let grid_height = 7.0 * AI_RECENT_USAGE_CELL_SIZE + 6.0 * AI_RECENT_USAGE_GAP;
     let grid_width = AI_RECENT_USAGE_COLUMNS as f32 * AI_RECENT_USAGE_CELL_SIZE
         + (AI_RECENT_USAGE_COLUMNS - 1) as f32 * AI_RECENT_USAGE_GAP;
+    let app_entity = cx.entity();
 
     ai_stats_card(title, cx).p(px(20.0)).child(
         div().mt(px(14.0)).w_full().flex().justify_center().child(
@@ -2400,6 +2404,7 @@ fn ai_recent_usage_heatmap(
                 .h(px(grid_height))
                 .children(values.chunks(7).enumerate().map(|(column, days)| {
                     let non_zero = non_zero.clone();
+                    let app_entity = app_entity.clone();
                     div()
                         .flex()
                         .w(px(AI_RECENT_USAGE_CELL_SIZE))
@@ -2407,22 +2412,20 @@ fn ai_recent_usage_heatmap(
                         .gap(px(AI_RECENT_USAGE_GAP))
                         .children(days.iter().cloned().enumerate().map(move |(row, cell)| {
                             let opacity = ai_usage_heatmap_opacity(cell.value, &non_zero);
-                            div()
-                                .id(SharedString::from(format!(
-                                    "ai-recent-usage-{column}-{row}"
-                                )))
-                                .size(px(AI_RECENT_USAGE_CELL_SIZE))
-                                .rounded(px(3.0))
-                                .bg(if cell.is_known {
-                                    color(theme::ACCENT)
-                                } else {
-                                    inactive_surface
-                                })
-                                .opacity(if cell.is_known { opacity } else { 1.0 })
-                                .tooltip(move |window, cx| {
-                                    codux_tooltip(cell.tooltip.clone(), window, cx)
-                                })
-                                .into_any_element()
+                            codux_tooltip_container(
+                                app_entity.clone(),
+                                SharedString::from(format!("ai-recent-usage-{column}-{row}")),
+                                cell.tooltip,
+                            )
+                            .size(px(AI_RECENT_USAGE_CELL_SIZE))
+                            .rounded(px(3.0))
+                            .bg(if cell.is_known {
+                                color(theme::ACCENT)
+                            } else {
+                                inactive_surface
+                            })
+                            .opacity(if cell.is_known { opacity } else { 1.0 })
+                            .into_any_element()
                         }))
                         .into_any_element()
                 })),
@@ -2452,13 +2455,14 @@ fn ai_ranking_card(
             .flex()
             .flex_col()
             .children(rows.into_iter().map(|(label, value, percent)| {
-                ai_ranking_row(label, value, percent, track_surface).into_any_element()
+                ai_ranking_row(cx.entity(), label, value, percent, track_surface).into_any_element()
             }))
             .into_any_element()
     })
 }
 
 fn ai_ranking_row(
+    app_entity: gpui::Entity<CoduxApp>,
     label: String,
     value: i64,
     percent: f32,
@@ -2466,71 +2470,73 @@ fn ai_ranking_row(
 ) -> impl IntoElement {
     let value_label = compact_number(value);
     let tooltip = format!("{label} · {value_label} tokens");
-    div()
-        .id(SharedString::from(format!("ai-ranking-row-{label}")))
-        .mb(px(10.0))
-        .tooltip(move |window, cx| codux_tooltip(tooltip.clone(), window, cx))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(12.0))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(14.0))
-                        .line_height(px(20.0))
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(label),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .flex_shrink_0()
-                        .child(
-                            div()
-                                .w(px(78.0))
-                                .text_right()
-                                .text_size(px(14.0))
-                                .line_height(px(20.0))
-                                .text_color(color(theme::TEXT_MUTED))
-                                .child(value_label),
-                        )
-                        .child(
-                            div()
-                                .w(px(34.0))
-                                .text_right()
-                                .text_size(px(12.0))
-                                .line_height(px(20.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .child(format!(
-                                    "{}%",
-                                    (percent.clamp(0.0, 1.0) * 100.0).round() as i64
-                                )),
-                        ),
-                ),
-        )
-        .child(
-            div()
-                .mt(px(6.0))
-                .h(px(4.0))
-                .w_full()
-                .rounded(px(4.0))
-                .bg(track_surface)
-                .child(
-                    div()
-                        .h_full()
-                        .w(gpui::relative(percent.clamp(0.0, 1.0)))
-                        .rounded(px(4.0))
-                        .bg(color(theme::ACCENT))
-                        .opacity(if value > 0 { 1.0 } else { 0.35 }),
-                ),
-        )
+    codux_tooltip_container(
+        app_entity,
+        SharedString::from(format!("ai-ranking-row-{label}")),
+        tooltip,
+    )
+    .mb(px(10.0))
+    .child(
+        div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(12.0))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(14.0))
+                    .line_height(px(20.0))
+                    .text_color(color(theme::TEXT))
+                    .truncate()
+                    .child(label),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .w(px(78.0))
+                            .text_right()
+                            .text_size(px(14.0))
+                            .line_height(px(20.0))
+                            .text_color(color(theme::TEXT_MUTED))
+                            .child(value_label),
+                    )
+                    .child(
+                        div()
+                            .w(px(34.0))
+                            .text_right()
+                            .text_size(px(12.0))
+                            .line_height(px(20.0))
+                            .text_color(color(theme::TEXT_DIM))
+                            .child(format!(
+                                "{}%",
+                                (percent.clamp(0.0, 1.0) * 100.0).round() as i64
+                            )),
+                    ),
+            ),
+    )
+    .child(
+        div()
+            .mt(px(6.0))
+            .h(px(4.0))
+            .w_full()
+            .rounded(px(4.0))
+            .bg(track_surface)
+            .child(
+                div()
+                    .h_full()
+                    .w(gpui::relative(percent.clamp(0.0, 1.0)))
+                    .rounded(px(4.0))
+                    .bg(color(theme::ACCENT))
+                    .opacity(if value > 0 { 1.0 } else { 0.35 }),
+            ),
+    )
 }
 
 fn ai_history_sessions<'a>(

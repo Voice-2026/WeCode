@@ -1,28 +1,246 @@
 use super::*;
-use gpui::ElementId;
-
-pub(in crate::app) fn codux_tooltip(
-    text: impl Into<SharedString>,
-    window: &mut Window,
-    cx: &mut App,
-) -> gpui::AnyView {
-    Tooltip::new(text.into())
-        .text_size(px(12.0))
-        .line_height(px(16.0))
-        .build(window, cx)
-}
+use crate::app::app_state::CoduxTooltipState;
+use gpui::{
+    AnyElement, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Position,
+    Stateful, Style, deferred,
+};
 
 pub(in crate::app) fn with_codux_tooltip(
+    app_entity: gpui::Entity<CoduxApp>,
     id: impl Into<ElementId>,
     element: impl IntoElement,
     text: impl Into<SharedString>,
 ) -> impl IntoElement {
+    codux_tooltip_container(app_entity, id, text).child(element)
+}
+
+pub(in crate::app) fn codux_tooltip_container(
+    app_entity: gpui::Entity<CoduxApp>,
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+) -> Stateful<gpui::Div> {
     let text = text.into();
+    let id = id.into();
+    let tooltip_id = id.clone();
+    let bounds = Rc::new(Cell::new(Bounds::default()));
+    let bounds_writer = bounds.clone();
     div()
         .id(id)
         .flex_none()
-        .tooltip(move |window, cx| codux_tooltip(text.clone(), window, cx))
-        .child(element)
+        .on_prepaint(move |element_bounds, _, _| bounds_writer.set(element_bounds))
+        .on_hover(move |hovered, _window, cx| {
+            app_entity.update(cx, |app, cx| {
+                app.set_codux_tooltip(*hovered, tooltip_id.clone(), text.clone(), bounds.get(), cx);
+            });
+        })
+}
+
+impl CoduxApp {
+    pub(in crate::app) fn set_codux_tooltip(
+        &mut self,
+        hovered: bool,
+        id: ElementId,
+        text: SharedString,
+        bounds: Bounds<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if !hovered {
+            self.hide_codux_tooltip(&id, cx);
+            return;
+        }
+        if self.tooltip_state.id.as_ref() == Some(&id)
+            && self.tooltip_state.text == text
+            && self.tooltip_state.bounds == bounds
+        {
+            return;
+        }
+        self.tooltip_state = CoduxTooltipState {
+            id: Some(id),
+            text,
+            bounds,
+        };
+        cx.notify();
+    }
+
+    pub(in crate::app) fn hide_codux_tooltip(&mut self, id: &ElementId, cx: &mut Context<Self>) {
+        if self.tooltip_state.id.as_ref() != Some(id) {
+            return;
+        }
+        self.tooltip_state = CoduxTooltipState::default();
+        cx.notify();
+    }
+
+    pub(in crate::app) fn codux_tooltip_layer(&self, _window: &mut Window) -> impl IntoElement {
+        let Some(_) = self.tooltip_state.id.as_ref() else {
+            return div().hidden().into_any_element();
+        };
+
+        deferred(
+            codux_tooltip_positioner(self.tooltip_state.bounds).child(
+                div()
+                    .max_w(px(260.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(color(0xFFFFFF).opacity(0.22))
+                    .bg(color(0x000000))
+                    .px_2()
+                    .py_1()
+                    .text_size(px(12.0))
+                    .line_height(px(16.0))
+                    .text_color(color(0xF4F6FA))
+                    .whitespace_normal()
+                    .child(self.tooltip_state.text.clone()),
+            ),
+        )
+        .with_priority(2)
+        .into_any_element()
+    }
+}
+
+struct CoduxTooltipPositioner {
+    trigger_bounds: Bounds<Pixels>,
+    children: Vec<AnyElement>,
+}
+
+struct CoduxTooltipPositionerState {
+    child_layout_ids: Vec<LayoutId>,
+}
+
+fn codux_tooltip_positioner(trigger_bounds: Bounds<Pixels>) -> CoduxTooltipPositioner {
+    CoduxTooltipPositioner {
+        trigger_bounds,
+        children: Vec::new(),
+    }
+}
+
+impl ParentElement for CoduxTooltipPositioner {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.children.extend(elements);
+    }
+}
+
+impl Element for CoduxTooltipPositioner {
+    type RequestLayoutState = CoduxTooltipPositionerState;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        let child_layout_ids = self
+            .children
+            .iter_mut()
+            .map(|child| child.request_layout(window, cx))
+            .collect::<Vec<_>>();
+
+        let layout_id = window.request_layout(
+            Style {
+                position: Position::Absolute,
+                display: Display::Flex,
+                ..Style::default()
+            },
+            child_layout_ids.iter().copied(),
+            cx,
+        );
+
+        (layout_id, CoduxTooltipPositionerState { child_layout_ids })
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        request_layout: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if request_layout.child_layout_ids.is_empty() {
+            return;
+        }
+
+        let mut child_min = point(Pixels::MAX, Pixels::MAX);
+        let mut child_max = point(px(0.0), px(0.0));
+        for child_layout_id in &request_layout.child_layout_ids {
+            let child_bounds = window.layout_bounds(*child_layout_id);
+            child_min = child_min.min(&child_bounds.origin);
+            child_max = child_max.max(&child_bounds.bottom_right());
+        }
+
+        let tooltip_size: gpui::Size<Pixels> = (child_max - child_min).into();
+        let offset = codux_tooltip_position(
+            self.trigger_bounds,
+            tooltip_size,
+            window.viewport_size(),
+            window.client_inset().unwrap_or(px(0.0)) + px(8.0),
+        ) - bounds.origin;
+        let offset = point(offset.x.round(), offset.y.round());
+
+        window.with_element_offset(offset, |window| {
+            for child in &mut self.children {
+                child.prepaint(window, cx);
+            }
+        });
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut Self::RequestLayoutState,
+        _prepaint: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        for child in &mut self.children {
+            child.paint(window, cx);
+        }
+    }
+}
+
+impl IntoElement for CoduxTooltipPositioner {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+fn codux_tooltip_position(
+    trigger_bounds: Bounds<Pixels>,
+    tooltip_size: gpui::Size<Pixels>,
+    viewport_size: gpui::Size<Pixels>,
+    margin: Pixels,
+) -> gpui::Point<Pixels> {
+    let gap = px(8.0);
+    let centered_x = trigger_bounds.center().x - tooltip_size.width / 2.0;
+    let below_y = trigger_bounds.bottom() + gap;
+    let above_y = trigger_bounds.top() - tooltip_size.height - gap;
+    let bottom_limit = (viewport_size.height - margin).max(margin);
+
+    let y = if below_y + tooltip_size.height <= bottom_limit {
+        below_y
+    } else if above_y >= margin {
+        above_y
+    } else {
+        (viewport_size.height - tooltip_size.height - margin).max(margin)
+    };
+
+    let right_limit = (viewport_size.width - tooltip_size.width - margin).max(margin);
+    let x = centered_x.max(margin).min(right_limit);
+    point(x, y)
 }
 
 pub(in crate::app) fn column_header(
