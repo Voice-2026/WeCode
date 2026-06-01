@@ -6,7 +6,7 @@ impl CoduxApp {
         self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
         self.normalize_selected_ssh_profile();
         self.status_message = "SSH profiles reloaded".to_string();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn selected_ssh_profile(&self) -> Option<&SSHProfileSummary> {
@@ -54,12 +54,12 @@ impl CoduxApp {
         else {
             self.status_message = "SSH profile is no longer available".to_string();
             self.normalize_selected_ssh_profile();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         self.selected_ssh_profile_id = Some(profile.id.clone());
         self.status_message = format!("selected SSH profile: {}", profile.name);
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn connect_selected_ssh_profile(
@@ -69,12 +69,12 @@ impl CoduxApp {
     ) {
         if !self.state.ssh.wrapper_available {
             self.status_message = "codux-ssh wrapper is not available".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         }
         let Some(profile) = self.selected_ssh_profile().cloned() else {
             self.status_message = "no SSH profile selected".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         match self.runtime_service.ssh_launch_command(profile.id.clone()) {
@@ -90,8 +90,8 @@ impl CoduxApp {
             }
         }
         self.sync_project_activity_store(cx);
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_task_column(cx);
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn new_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -106,7 +106,7 @@ impl CoduxApp {
         self.ssh_draft_password.clear();
         self.ssh_draft_key_passphrase.clear();
         self.status_message = "new SSH profile draft".to_string();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn load_selected_ssh_profile_draft(
@@ -123,7 +123,7 @@ impl CoduxApp {
         });
         let Some(profile_id) = selected_id else {
             self.status_message = "no SSH profile selected".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         let snapshot = self.runtime_service.ssh_profiles();
@@ -134,13 +134,13 @@ impl CoduxApp {
         else {
             self.status_message = "SSH profile is no longer available".to_string();
             self.normalize_selected_ssh_profile();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         self.apply_ssh_draft(profile);
         self.ssh_draft_open = true;
         self.status_message = "SSH profile loaded into editor".to_string();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn apply_ssh_draft(&mut self, profile: SSHConnectionProfile) {
@@ -162,7 +162,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_name = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_host(
@@ -172,7 +172,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_host = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_port(
@@ -182,7 +182,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_port = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_username(
@@ -192,7 +192,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_username = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_credential_kind(
@@ -202,7 +202,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_credential_kind = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_private_key_path(
@@ -212,7 +212,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_private_key_path = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn choose_ssh_private_key_path(
@@ -259,8 +259,8 @@ impl CoduxApp {
             }
         }
         self.sync_project_activity_store(cx);
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_task_column(cx);
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_password(
@@ -270,7 +270,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_password = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_ssh_draft_key_passphrase(
@@ -280,7 +280,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_key_passphrase = value;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn ssh_draft_request(&self) -> Result<SSHProfileUpsertRequest, String> {
@@ -307,7 +307,7 @@ impl CoduxApp {
             Ok(request) => request,
             Err(error) => {
                 self.status_message = format!("failed to save SSH profile: {error}");
-                cx.notify();
+                self.invalidate_remote_panel(cx);
                 return;
             }
         };
@@ -332,7 +332,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save SSH profile: {error}"),
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn delete_selected_ssh_profile(
@@ -346,7 +346,7 @@ impl CoduxApp {
             .or_else(|| self.selected_ssh_profile_id.clone())
         else {
             self.status_message = "no SSH profile selected".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         match self.runtime_service.delete_ssh_profile(profile_id) {
@@ -358,20 +358,20 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to delete SSH profile: {error}"),
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn test_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.ssh_testing {
             self.status_message = "SSH test is already running".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         }
         let request = match self.ssh_draft_request() {
             Ok(request) => request,
             Err(error) => {
                 self.status_message = format!("SSH test failed: {error}");
-                cx.notify();
+                self.invalidate_remote_panel(cx);
                 return;
             }
         };
@@ -392,7 +392,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn apply_ssh_test_result(
@@ -405,7 +405,7 @@ impl CoduxApp {
             Ok(result) => self.status_message = result.message,
             Err(error) => self.status_message = format!("SSH test failed: {error}"),
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn toggle_remote_host(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -427,7 +427,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save remote setting: {error}"),
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn set_remote_server_url(
@@ -448,7 +448,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save remote server: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn reconnect_remote(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -471,7 +471,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     fn apply_remote_reconnect_result(
@@ -493,7 +493,7 @@ impl CoduxApp {
                 self.runtime_trace("remote", &format!("reconnect failed error={error}"));
             }
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn refresh_remote_devices(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -507,7 +507,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to refresh remote devices: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn create_remote_pairing(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -532,7 +532,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     fn apply_remote_pairing_create_result(
@@ -568,7 +568,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to create remote pairing: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn start_remote_pairing_poll(
@@ -626,7 +626,7 @@ impl CoduxApp {
     pub(super) fn close_remote_pairing_sheet(&mut self, cx: &mut Context<Self>) {
         self.remote_pairing_sheet_open = false;
         self.remote_pairing_creating = false;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn apply_remote_pairing_poll_result(
@@ -655,14 +655,14 @@ impl CoduxApp {
                 self.remote_pairing_sheet_open = self.state.remote.pairing.is_some();
                 self.normalize_selected_remote_device();
                 self.status_message = self.state.remote.message.clone();
-                cx.notify();
+                self.invalidate_remote_panel(cx);
                 finished
             }
             Err(error) => {
                 self.state.remote.pairing = None;
                 self.remote_pairing_sheet_open = false;
                 self.status_message = format!("remote pairing poll failed: {error}");
-                cx.notify();
+                self.invalidate_remote_panel(cx);
                 true
             }
         }
@@ -693,7 +693,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     fn apply_remote_pairing_cancel_result(
@@ -713,7 +713,7 @@ impl CoduxApp {
                 self.runtime_trace("remote", &format!("pairing_cancel failed error={error}"));
             }
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn confirm_remote_pairing(
@@ -733,7 +733,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to confirm remote pairing: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn reject_remote_pairing(
@@ -751,7 +751,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to reject remote pairing: {error}"),
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn selected_remote_device(&self) -> Option<&RemoteDeviceSummary> {
@@ -804,12 +804,12 @@ impl CoduxApp {
         else {
             self.status_message = "remote device is no longer available".to_string();
             self.normalize_selected_remote_device();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         self.selected_remote_device_id = Some(device.id.clone());
         self.status_message = format!("selected remote device: {}", empty_label(&device.name));
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn revoke_selected_remote_device(
@@ -819,7 +819,7 @@ impl CoduxApp {
     ) {
         let Some(device) = self.selected_remote_device().cloned() else {
             self.status_message = "no remote device selected".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         match self.runtime_service.revoke_remote_device(&device.id) {
@@ -833,7 +833,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to revoke remote device: {error}"),
         }
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn reload_runtime_activity(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -876,7 +876,7 @@ impl CoduxApp {
                     .unwrap_or_else(|| "off".to_string())
             ),
         );
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn apply_runtime_activity_tick(
@@ -956,7 +956,7 @@ impl CoduxApp {
                     .map(|project| project.id.as_str()),
             );
             self.reload_memory_manager_snapshot();
-            self.notify_status_bar(cx);
+            self.invalidate_status_bar(cx);
             if self.state.memory_manager.extraction.queued > 0
                 || self.state.memory_manager.extraction.running > 0
             {
@@ -977,7 +977,7 @@ impl CoduxApp {
         if changed {
             if !drained.events.is_empty() {
                 self.sync_project_activity_store(cx);
-                self.notify_task_column(cx);
+                self.invalidate_task_column(cx);
             }
             self.runtime_trace(
                 "runtime-activity",
@@ -1042,7 +1042,7 @@ impl CoduxApp {
                     .map(|project| project.id.as_str()),
             );
             self.reload_memory_manager_snapshot();
-            self.notify_status_bar(cx);
+            self.invalidate_status_bar(cx);
             if self.state.memory_manager.extraction.queued > 0
                 || self.state.memory_manager.extraction.running > 0
             {
@@ -1051,7 +1051,7 @@ impl CoduxApp {
         }
 
         self.sync_project_activity_store(cx);
-        self.notify_task_column(cx);
+        self.invalidate_task_column(cx);
         self.runtime_trace(
             "runtime-activity",
             &format!(
@@ -1227,7 +1227,7 @@ impl CoduxApp {
 
         if applied > 0 {
             self.save_current_project_view_state();
-            self.notify_task_column(cx);
+            self.invalidate_task_column(cx);
         }
 
         if global_changed {
@@ -1307,7 +1307,7 @@ impl CoduxApp {
         }
 
         if applied > 0 {
-            self.notify_task_column(cx);
+            self.invalidate_task_column(cx);
         }
 
         applied
@@ -1360,8 +1360,8 @@ impl CoduxApp {
             }
         }
         self.sync_project_activity_store(cx);
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_task_column(cx);
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn dismiss_selected_project_ai_completion(
@@ -1371,7 +1371,7 @@ impl CoduxApp {
     ) {
         let Some(project) = self.state.selected_project.as_ref() else {
             self.status_message = "no selected project for AI completion dismiss".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         };
         let snapshot = self
@@ -1384,8 +1384,8 @@ impl CoduxApp {
             .insert(project.id.clone(), app_now_seconds());
         self.status_message = format!("AI completion dismissed for {}", project.name);
         self.sync_project_activity_store(cx);
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_task_column(cx);
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn dismiss_worktree_ai_completion(
@@ -1422,7 +1422,7 @@ impl CoduxApp {
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&snapshot);
         self.sync_project_activity_store(cx);
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_task_column(cx);
+        self.invalidate_remote_panel(cx);
     }
 }

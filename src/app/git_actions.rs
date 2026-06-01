@@ -4,7 +4,7 @@ impl CoduxApp {
     pub(super) fn reload_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to refresh".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_name = project.name.clone();
@@ -13,6 +13,7 @@ impl CoduxApp {
         self.refresh_git_review_for_project(&project_path);
         self.git_expanded_dirs.clear();
         self.git_tree_children.clear();
+        self.record_ui_cache_clear("git_tree");
         self.normalize_selected_git_file();
         self.normalize_selected_git_branch();
         self.status_message = format!("git status reloaded for {project_name}");
@@ -27,18 +28,18 @@ impl CoduxApp {
                 self.state.git.untracked
             ),
         );
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn init_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git init".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if self.git_running_operation.is_some() {
             self.status_message = "Git operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         let project_id = project.id.clone();
@@ -72,7 +73,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn set_git_clone_remote_url(
@@ -82,7 +83,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.git_clone_remote_url = value;
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn open_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -91,13 +92,13 @@ impl CoduxApp {
             self.git_remote_name = "origin".to_string();
         }
         self.status_message = "Git remote editor opened".to_string();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn close_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.git_remote_editor_open = false;
         self.status_message = "Git remote editor closed".to_string();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn set_git_remote_name(
@@ -107,7 +108,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.git_remote_name = value;
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn set_git_remote_url(
@@ -117,7 +118,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.git_remote_url = value;
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn set_git_commit_message(
@@ -140,12 +141,12 @@ impl CoduxApp {
         let Some(project) = &self.state.selected_project else {
             self.status_message =
                 "no selected project for Git commit message generation".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if self.git_running_operation.is_some() {
             self.status_message = "Git operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         let project_id = project.id.clone();
@@ -174,7 +175,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn apply_generated_git_commit_message(
@@ -221,7 +222,7 @@ impl CoduxApp {
                 self.show_git_commit_message_generation_error(error, cx);
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn show_git_commit_message_generation_error(
@@ -256,7 +257,7 @@ impl CoduxApp {
                 let _ = this.update(cx, |app, cx| {
                     app.status_message =
                         format!("failed to show commit message alert: {dialog_error}");
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 });
             }
         })
@@ -266,18 +267,18 @@ impl CoduxApp {
     pub(super) fn clone_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git clone".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let remote_url = self.git_clone_remote_url.trim().to_string();
         if remote_url.is_empty() {
             self.status_message = "Git clone failed: remote URL is empty".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         if self.git_running_operation.is_some() {
             self.status_message = "Git operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -313,7 +314,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn apply_project_git_repository_result(
@@ -347,6 +348,7 @@ impl CoduxApp {
                     self.git_expanded_sections.insert("untracked".to_string());
                     self.git_expanded_dirs.clear();
                     self.git_tree_children.clear();
+                    self.record_ui_cache_clear("git_tree");
                     self.normalize_selected_git_file();
                     self.normalize_selected_git_branch();
                     if refresh_files {
@@ -362,7 +364,7 @@ impl CoduxApp {
                         .runtime_service
                         .reload_worktrees(Some(&project_id), Some(&project_path));
                     self.save_current_worktree_view_state();
-                    self.notify_task_column(cx);
+                    self.invalidate_task_column(cx);
                 }
                 self.status_message = success_message;
             }
@@ -370,7 +372,7 @@ impl CoduxApp {
                 self.status_message = format!("Git {action} failed: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn toggle_git_status_section(
@@ -383,7 +385,7 @@ impl CoduxApp {
         } else {
             self.git_expanded_sections.insert(section.to_string());
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn toggle_git_status_dir(
@@ -395,13 +397,13 @@ impl CoduxApp {
         let tree_key = git_status_tree_key(&section_id, &directory_path);
         if self.git_expanded_dirs.contains(&tree_key) {
             self.git_expanded_dirs.remove(&tree_key);
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git tree".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
 
@@ -415,7 +417,7 @@ impl CoduxApp {
                 }
                 Err(error) => {
                     self.status_message = format!("failed to load Git tree: {error}");
-                    cx.notify();
+                    self.invalidate_git_panel(cx);
                     return;
                 }
             }
@@ -423,7 +425,7 @@ impl CoduxApp {
 
         self.git_expanded_dirs.insert(tree_key);
         self.status_message = format!("git tree expanded: {directory_path}");
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn select_git_file(
@@ -451,7 +453,7 @@ impl CoduxApp {
                 .any(|file| file.path == file_path)
         {
             self.status_message = "Git file is no longer available".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         if !self.selected_git_files.insert(file_path.clone()) {
@@ -464,7 +466,7 @@ impl CoduxApp {
         } else {
             self.load_git_file_diff(file_path, cx);
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn selected_git_action_paths(&self, fallback: &str) -> Vec<String> {
@@ -478,7 +480,7 @@ impl CoduxApp {
     pub(super) fn load_git_file_diff(&mut self, file_path: String, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git diff".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         match self.runtime_service.read_project_git_review_diff(
@@ -499,7 +501,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to load diff: {error}"),
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn open_git_diff_window(
@@ -510,12 +512,12 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git diff".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if file_path.trim().is_empty() || file_path.ends_with('/') {
             self.status_message = "no Git file selected for diff window".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -585,11 +587,11 @@ impl CoduxApp {
                                     app.git_diff_window_error = Some(error);
                                 }
                             }
-                            cx.notify();
+                            app.invalidate_git_panel(cx);
                         });
                     })
                     .detach();
-                    cx.notify();
+                    _app.invalidate_git_panel(cx);
                 });
                 cx.new(|cx| Root::new(view, window, cx))
             },
@@ -599,13 +601,13 @@ impl CoduxApp {
             Ok(_) => format!("Git diff window opened: {file_path}"),
             Err(error) => format!("failed to open Git diff window: {error}"),
         };
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn open_git_diff_window_file(&mut self, file_path: String, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for opening diff file".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         match self
@@ -615,7 +617,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = format!("file open requested: {file_path}"),
             Err(error) => self.status_message = format!("failed to open diff file: {error}"),
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn normalize_selected_git_file(&mut self) {
@@ -690,7 +692,7 @@ impl CoduxApp {
             self.normalize_selected_git_branch();
             self.status_message = "Git branch is no longer available".to_string();
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn stage_selected_git_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -730,14 +732,14 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git discard".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
         let project_path = project.path.clone();
         let Some(file_path) = self.selected_git_file.clone() else {
             self.status_message = "no selected Git file to discard".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let worker_file = file_path.clone();
@@ -768,13 +770,13 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git discard".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let paths = normalized_git_action_paths(paths);
         if paths.is_empty() {
             self.status_message = "no Git files to discard".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let count = paths.len();
@@ -808,13 +810,13 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for .gitignore".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let normalized_path = file_path.trim().to_string();
         if normalized_path.is_empty() {
             self.status_message = "no Git path to ignore".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -849,13 +851,13 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for .gitignore".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let paths = normalized_git_action_paths(paths);
         if paths.is_empty() {
             self.status_message = "no Git paths to ignore".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -885,13 +887,13 @@ impl CoduxApp {
     pub(super) fn update_selected_git_file_stage(&mut self, stage: bool, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git file operation".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_path = project.path.clone();
         let Some(file_path) = self.selected_git_file.clone() else {
             self.status_message = "no selected Git file".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
 
@@ -934,13 +936,13 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git file operation".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let paths = normalized_git_action_paths(paths);
         if paths.is_empty() {
             self.status_message = "no Git files selected".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -994,7 +996,7 @@ impl CoduxApp {
     pub(super) fn commit_git_with_action(&mut self, action: &str, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git commit".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1053,7 +1055,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git commit message".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         match self
@@ -1073,13 +1075,13 @@ impl CoduxApp {
                 self.status_message = format!("failed to load last Git commit message: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn amend_last_git_commit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git amend".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1099,13 +1101,13 @@ impl CoduxApp {
                 Ok(message) if !message.trim().is_empty() => message,
                 Ok(_) => {
                     self.status_message = "last Git commit has no summary".to_string();
-                    cx.notify();
+                    self.invalidate_git_panel(cx);
                     return;
                 }
                 Err(error) => {
                     self.status_message =
                         format!("failed to load last Git commit message: {error}");
-                    cx.notify();
+                    self.invalidate_git_panel(cx);
                     return;
                 }
             }
@@ -1138,7 +1140,7 @@ impl CoduxApp {
     pub(super) fn undo_last_git_commit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git undo".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1192,12 +1194,12 @@ impl CoduxApp {
     pub(super) fn force_push_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.state.selected_project.is_none() {
             self.status_message = "no selected project for Git force-push".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         if self.git_running_operation.is_some() {
             self.status_message = "Git remote operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -1229,27 +1231,27 @@ impl CoduxApp {
                 Ok(true) => app.run_project_git_remote_action("force-push", cx),
                 Ok(false) => {
                     app.status_message = "Git force-push canceled".to_string();
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 }
                 Err(error) => {
                     app.status_message = format!("failed to show force-push confirmation: {error}");
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 }
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn run_project_git_remote_action(&mut self, action: &str, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = format!("no selected project for Git {action}");
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if self.git_running_operation.is_some() {
             self.status_message = "Git remote operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         let project_id = project.id.clone();
@@ -1287,7 +1289,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn push_project_git_remote(
@@ -1306,12 +1308,12 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git push".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if self.git_running_operation.is_some() {
             self.status_message = "Git remote operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         let project_id = project.id.clone();
@@ -1346,13 +1348,13 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn cancel_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git cancel".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         match self.runtime_service.cancel_project_git(&project.path) {
@@ -1363,7 +1365,7 @@ impl CoduxApp {
                 self.status_message = format!("Git cancel failed: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn apply_project_git_remote_result(
@@ -1396,7 +1398,7 @@ impl CoduxApp {
                         .runtime_service
                         .reload_worktrees(Some(&project_id), Some(&project_path));
                     self.save_current_worktree_view_state();
-                    self.notify_task_column(cx);
+                    self.invalidate_task_column(cx);
                 }
                 self.status_message = format!("Git {} completed", git_remote_action_label(&action));
                 self.runtime_trace(
@@ -1415,7 +1417,7 @@ impl CoduxApp {
                     format!("Git {} failed: {error}", git_remote_action_label(&action));
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn start_project_git_operation(
@@ -1429,7 +1431,7 @@ impl CoduxApp {
     ) {
         if self.git_running_operation.is_some() {
             self.status_message = "Git operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -1462,7 +1464,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn apply_project_git_operation_result(
@@ -1516,6 +1518,7 @@ impl CoduxApp {
                     if completion.clear_git_tree_cache {
                         self.git_expanded_dirs.clear();
                         self.git_tree_children.clear();
+                        self.record_ui_cache_clear("git_tree");
                     }
                     self.normalize_selected_git_file();
                     self.normalize_selected_git_branch();
@@ -1545,7 +1548,7 @@ impl CoduxApp {
                         .runtime_service
                         .reload_worktrees(Some(&project_id), Some(&project_path));
                     self.save_current_worktree_view_state();
-                    self.notify_task_column(cx);
+                    self.invalidate_task_column(cx);
                 }
                 self.status_message = completion.success_message;
                 self.runtime_trace(
@@ -1563,7 +1566,7 @@ impl CoduxApp {
                 self.status_message = format!("{}: {error}", completion.failure_prefix);
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn set_project_default_push_remote(
@@ -1574,7 +1577,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for default Git remote".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1601,13 +1604,13 @@ impl CoduxApp {
                 self.status_message = format!("failed to save default Git push remote: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn add_project_git_remote(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git remote".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1644,12 +1647,12 @@ impl CoduxApp {
     ) {
         if remote_name.trim().is_empty() {
             self.status_message = "no Git remote selected to remove".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         if self.git_running_operation.is_some() {
             self.status_message = "Git operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
         let title = self.text("git.remote.remove", "Remove Remote");
@@ -1679,17 +1682,17 @@ impl CoduxApp {
                 Ok(true) => app.remove_project_git_remote_confirmed(remote_name, cx),
                 Ok(false) => {
                     app.status_message = "Git remote removal canceled".to_string();
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 }
                 Err(error) => {
                     app.status_message =
                         format!("failed to show remote removal confirmation: {error}");
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 }
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn remove_project_git_remote_confirmed(
@@ -1699,7 +1702,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git remote".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1743,12 +1746,12 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git checkout".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let Some(branch_name) = self.selected_git_branch.clone() else {
             self.status_message = "no selected Git branch".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1783,7 +1786,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git remote checkout".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1818,12 +1821,12 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git remote branch push".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if self.git_running_operation.is_some() {
             self.status_message = "Git remote operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -1862,7 +1865,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn checkout_git_commit(
@@ -1900,7 +1903,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = format!("no selected project for Git {action}");
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1944,7 +1947,7 @@ impl CoduxApp {
     pub(super) fn create_git_branch(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git branch creation".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -1980,7 +1983,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git branch creation".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -2024,7 +2027,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git merge".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -2059,7 +2062,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git squash merge".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();
@@ -2093,17 +2096,17 @@ impl CoduxApp {
     ) {
         if self.state.selected_project.is_none() {
             self.status_message = "no selected project for Git branch deletion".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let Some(branch_name) = self.selected_git_branch.clone() else {
             self.status_message = "no selected Git branch to delete".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         if self.git_running_operation.is_some() {
             self.status_message = "Git operation is already running".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         }
 
@@ -2137,17 +2140,17 @@ impl CoduxApp {
                 Ok(true) => app.delete_selected_git_branch_confirmed(branch_name, cx),
                 Ok(false) => {
                     app.status_message = "Git branch deletion canceled".to_string();
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 }
                 Err(error) => {
                     app.status_message =
                         format!("failed to show branch deletion confirmation: {error}");
-                    cx.notify();
+                    app.invalidate_git_panel(cx);
                 }
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn delete_selected_git_branch_confirmed(
@@ -2157,7 +2160,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git branch deletion".to_string();
-            cx.notify();
+            self.invalidate_git_panel(cx);
             return;
         };
         let project_id = project.id.clone();

@@ -156,7 +156,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = "terminal layout saved to state.json".to_string(),
             Err(error) => self.status_message = error,
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(super) fn persist_terminal_layout(&mut self) -> Result<(), String> {
@@ -399,7 +399,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to rebuild terminal layout: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(super) fn reload_worktrees(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -415,14 +415,13 @@ impl CoduxApp {
         );
         self.status_message = "worktrees reloaded".to_string();
         self.save_current_project_view_state();
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn sync_worktrees_from_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to sync worktrees".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         match self
@@ -433,17 +432,16 @@ impl CoduxApp {
                 self.state.worktrees = summary;
                 self.status_message = "worktrees synced from Git".to_string();
                 self.save_current_project_view_state();
-                self.notify_task_column(cx);
             }
             Err(error) => self.status_message = format!("failed to sync worktrees: {error}"),
         }
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn create_worktree(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to create worktree".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         match self
@@ -454,11 +452,10 @@ impl CoduxApp {
                 self.state.worktrees = summary;
                 self.status_message = "worktree created".to_string();
                 self.save_current_project_view_state();
-                self.notify_task_column(cx);
             }
             Err(error) => self.status_message = format!("failed to create worktree: {error}"),
         }
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn remove_selected_worktree(
@@ -484,12 +481,12 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to remove worktree".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         let Some(worktree_id) = self.state.worktrees.selected_worktree_id.clone() else {
             self.status_message = "no selected worktree to remove".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         match self.runtime_service.remove_worktree(
@@ -506,22 +503,21 @@ impl CoduxApp {
                     format!("worktree removed: {worktree_id}")
                 };
                 self.save_current_project_view_state();
-                self.notify_task_column(cx);
             }
             Err(error) => self.status_message = format!("failed to remove worktree: {error}"),
         }
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn merge_selected_worktree(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to merge worktree".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         let Some(worktree_id) = self.state.worktrees.selected_worktree_id.clone() else {
             self.status_message = "no selected worktree to merge".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         match self
@@ -532,22 +528,21 @@ impl CoduxApp {
                 self.state.worktrees = summary;
                 self.status_message = format!("worktree merged: {worktree_id}");
                 self.save_current_project_view_state();
-                self.notify_task_column(cx);
             }
             Err(error) => self.status_message = format!("failed to merge worktree: {error}"),
         }
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn select_worktree(
         &mut self,
         worktree_id: String,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project for worktree selection".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
         if self.state.worktrees.selected_worktree_id.as_deref() == Some(worktree_id.as_str()) {
@@ -575,6 +570,7 @@ impl CoduxApp {
                     .runtime_service
                     .reload_worktrees(Some(&project.id), Some(&project.path));
                 self.apply_saved_worktree_view_state();
+                self.ensure_active_file_editor_state(window, cx);
                 self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
                 let generation = self.project_switch_generation;
                 self.state.ai_history = AIHistorySummary {
@@ -604,11 +600,10 @@ impl CoduxApp {
                 }
                 self.status_message = format!("selected worktree: {worktree_id}");
                 self.save_current_project_view_state();
-                self.notify_task_column(cx);
             }
             Err(error) => self.status_message = format!("failed to select worktree: {error}"),
         }
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn spawn_worktree_terminal_load(
@@ -660,7 +655,7 @@ impl CoduxApp {
         }
         self.apply_terminal_layout_from_summary(load.terminal_layout, load.terminal_runtime, cx);
         self.save_current_terminal_view_state();
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(super) fn preview_file(
@@ -671,7 +666,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to preview".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         };
 
@@ -695,7 +690,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to preview file: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn current_terminal_launch_context(&self) -> Option<TerminalLaunchContext> {

@@ -84,7 +84,7 @@ impl CoduxApp {
                     let changed = app.sync_pet_custom_install_event_for_activity_tick()
                         || app.sync_pet_update_event_for_activity_tick();
                     if changed {
-                        cx.notify();
+                        app.invalidate_ui_region(cx, UiRegion::Root);
                     }
                     true
                 }) {
@@ -141,7 +141,7 @@ impl CoduxApp {
                         desktop_cycle_frame =
                             desktop_cycle_frame.wrapping_add(1) % app.desktop_pet_frame_count();
                     }
-                    cx.notify();
+                    app.invalidate_ui_region(cx, UiRegion::Root);
                     true
                 }) {
                     Ok(true) => {}
@@ -165,7 +165,7 @@ impl CoduxApp {
         if let Some(handle) = self.desktop_pet_window {
             if handle.update(cx, |_view, _window, _cx| {}).is_ok() {
                 self.status_message = "desktop pet window already opened".to_string();
-                cx.notify();
+                self.invalidate_ui_region(cx, UiRegion::Root);
                 return;
             }
             self.desktop_pet_window = None;
@@ -177,12 +177,12 @@ impl CoduxApp {
                 self.status_message =
                     "desktop pet needs pet enabled, desktop widget enabled, and a claimed pet"
                         .to_string();
-                cx.notify();
+                self.invalidate_ui_region(cx, UiRegion::Root);
                 return;
             }
             Err(error) => {
                 self.status_message = format!("failed to check desktop pet: {error}");
-                cx.notify();
+                self.invalidate_ui_region(cx, UiRegion::Root);
                 return;
             }
         }
@@ -254,7 +254,7 @@ impl CoduxApp {
             }
             Err(error) => format!("failed to open desktop pet window: {error}"),
         };
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn close_desktop_pet_window(&mut self, cx: &mut Context<Self>) {
@@ -277,14 +277,14 @@ impl CoduxApp {
                     self.status_message =
                         "desktop pet needs pet enabled, desktop widget enabled, and a claimed pet"
                             .to_string();
-                    cx.notify();
+                    self.invalidate_ui_region(cx, UiRegion::Root);
                 }
             }
             Err(error) => {
                 self.close_desktop_pet_window(cx);
                 if report_unavailable {
                     self.status_message = format!("failed to check desktop pet: {error}");
-                    cx.notify();
+                    self.invalidate_ui_region(cx, UiRegion::Root);
                 }
             }
         }
@@ -310,7 +310,7 @@ impl CoduxApp {
             self.desktop_pet_tone = tone;
             self.runtime_service
                 .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
         }
     }
 
@@ -401,7 +401,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to refresh pet: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn save_desktop_pet_window_origin(
@@ -416,7 +416,7 @@ impl CoduxApp {
         };
         if let Err(error) = self.runtime_service.save_desktop_pet_origin(origin) {
             self.status_message = format!("failed to save desktop pet position: {error}");
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
         }
     }
 
@@ -459,7 +459,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to apply desktop pet action: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(in crate::app) fn apply_project_help_action(
@@ -491,7 +491,7 @@ impl CoduxApp {
         self.pet_install_preview = None;
         self.pet_install_error = None;
         resize_pet_custom_install_window(window, PET_CUSTOM_INSTALL_INPUT_HEIGHT);
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_pet_install_display_name(
@@ -502,7 +502,7 @@ impl CoduxApp {
     ) {
         self.pet_install_display_name = value;
         self.pet_install_error = None;
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn preview_custom_pet_install(
@@ -513,14 +513,14 @@ impl CoduxApp {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
             self.pet_install_error = Some("custom pet install task is already running".to_string());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         let page_url = self.pet_install_url.trim().to_string();
         if page_url.is_empty() {
             self.status_message = "enter a Petdex URL first".to_string();
             self.pet_install_error = Some("enter a Petdex URL first".to_string());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         let display_name = self.pet_install_display_name.trim().to_string();
@@ -557,7 +557,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn apply_custom_pet_preview_result(
@@ -571,7 +571,7 @@ impl CoduxApp {
         self.pet_install_previewing = false;
         if !self.pet_install_input_matches(&page_url, &display_name) {
             self.status_message = "stale custom pet preview ignored".to_string();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         match result {
@@ -599,7 +599,7 @@ impl CoduxApp {
                 );
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn open_pet_market(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -607,7 +607,7 @@ impl CoduxApp {
             Ok(_) => self.status_message = "Petdex opened".to_string(),
             Err(error) => self.status_message = format!("failed to open Petdex: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn open_pet_source_url(
@@ -620,34 +620,34 @@ impl CoduxApp {
             Ok(_) => self.status_message = "pet source opened".to_string(),
             Err(error) => self.status_message = format!("failed to open pet source: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn install_custom_pet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pet_install_previewing || self.pet_installing {
             self.status_message = "custom pet install task is already running".to_string();
             self.pet_install_error = Some("custom pet install task is already running".to_string());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         if self.pet_install_preview.is_none() {
             self.status_message = "parse the Petdex page before installing".to_string();
             self.pet_install_error = Some("parse the Petdex page before installing".to_string());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         let page_url = self.pet_install_url.trim().to_string();
         if page_url.is_empty() {
             self.status_message = "enter a Petdex URL first".to_string();
             self.pet_install_error = Some("enter a Petdex URL first".to_string());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         let display_name = self.pet_install_display_name.trim().to_string();
         if display_name.is_empty() {
             self.status_message = "enter a pet name before installing".to_string();
             self.pet_install_error = Some("enter a pet name before installing".to_string());
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         let request = PetCustomPetInstallRequest {
@@ -682,7 +682,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn apply_custom_pet_install_result(
@@ -715,7 +715,7 @@ impl CoduxApp {
                 self.pet_install_error = Some(message);
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn pet_install_input_matches(&self, page_url: &str, display_name: &str) -> bool {
@@ -763,7 +763,7 @@ impl CoduxApp {
                         self.status_message = format!("failed to claim custom pet: {error}");
                     }
                 }
-                cx.notify();
+                self.invalidate_ui_region(cx, UiRegion::Root);
                 return;
             }
         }
@@ -800,7 +800,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to claim pet: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn rename_current_pet_to(
@@ -811,7 +811,7 @@ impl CoduxApp {
     ) {
         if !self.state.pet.claimed {
             self.status_message = "no pet to rename".to_string();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
 
@@ -832,7 +832,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to rename pet: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn start_current_pet_rename(
@@ -844,7 +844,7 @@ impl CoduxApp {
             self.pet_name_editing = true;
             self.status_message = "pet rename editor opened".to_string();
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn cancel_current_pet_rename(
@@ -854,7 +854,7 @@ impl CoduxApp {
     ) {
         self.pet_name_editing = false;
         self.status_message = "pet rename cancelled".to_string();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn show_pet_dex_spotlight(
@@ -865,19 +865,19 @@ impl CoduxApp {
         self.pet_dex_spotlight = Some(spotlight);
         self.start_pet_sprite_animation_loop(cx);
         self.status_message = "pet dex detail opened".to_string();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn close_pet_dex_spotlight(&mut self, cx: &mut Context<Self>) {
         self.pet_dex_spotlight = None;
         self.status_message = "pet dex detail closed".to_string();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn archive_current_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.pet_dex_spotlight = Some(PetDexSpotlight::ArchiveConfirm);
         self.status_message = "confirm pet archive".to_string();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn archive_current_pet_confirmed(
@@ -900,7 +900,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to archive pet: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn sync_tool_permissions(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -910,7 +910,7 @@ impl CoduxApp {
         } else {
             "tool permissions synced for runtime wrappers".to_string()
         };
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn desktop_pet_side(

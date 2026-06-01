@@ -85,7 +85,7 @@ impl CoduxApp {
         let pet_sprite_paths =
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
         let project_view_store = initial_project_view_store(&state);
-        let worktree_view_store = initial_worktree_view_store(&state);
+        let worktree_view_store = initial_worktree_view_store(&state, &project_view_store);
         let terminal_view_store = initial_terminal_view_store(&state);
 
         Self {
@@ -203,13 +203,10 @@ impl CoduxApp {
             ai_history_active_index_count: 0,
             ai_history_refresh_project_ids: HashSet::new(),
             project_switch_generation: 0,
-            project_task_load_in_flight: HashSet::new(),
-            project_task_load_last_started_at: HashMap::new(),
-            project_task_load_last_finished_at: HashMap::new(),
+            scheduled_work_in_flight: HashSet::new(),
+            scheduled_work_last_started_at: HashMap::new(),
+            scheduled_work_last_finished_at: HashMap::new(),
             task_column_refreshing: false,
-            worktree_sidebar_load_in_flight: HashSet::new(),
-            worktree_sidebar_load_last_started_at: HashMap::new(),
-            worktree_sidebar_load_last_finished_at: HashMap::new(),
             memory_progress_visible_until: 0.0,
             memory_progress_generation: 0,
             memory_manager_refreshing: false,
@@ -253,10 +250,18 @@ impl CoduxApp {
             project_list_store: None,
             project_column_view: None,
             task_column_view: None,
+            task_column_header_view: None,
+            task_worktree_list_view: None,
+            task_session_list_view: None,
             workspace_column_view: None,
             workspace_toolbar_view: None,
             workspace_body_view: None,
             workspace_assistant_view: None,
+            ai_stats_sidebar_view: None,
+            ssh_sidebar_view: None,
+            git_sidebar_view: None,
+            git_files_panel_view: None,
+            git_history_panel_view: None,
             status_bar_view: None,
             file_sidebar_view: None,
             project_view_store,
@@ -269,8 +274,8 @@ impl CoduxApp {
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
             tooltip_state: CoduxTooltipState::default(),
-            ui_invalidation_counts: HashMap::new(),
-            ui_invalidation_last_report_at: 0.0,
+            ui_performance_counts: HashMap::new(),
+            ui_performance_last_report_at: 0.0,
         }
     }
 
@@ -372,7 +377,7 @@ impl CoduxApp {
                 self.recording_shortcut_id = None;
                 self.status_message = "shortcut recording cancelled".to_string();
                 cx.stop_propagation();
-                cx.notify();
+                self.invalidate_ui_region(cx, UiRegion::Root);
                 return;
             }
             if matches!(
@@ -395,7 +400,7 @@ impl CoduxApp {
                 }
             }
             cx.stop_propagation();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
 
@@ -628,7 +633,7 @@ impl CoduxApp {
         let pane_label = pane.label(&self.state.settings.language);
         if Self::activate_child_window(&mut self.settings_window, cx) {
             self.status_message = format!("settings window already opened: {pane_label}");
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         }
 
@@ -668,7 +673,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to open settings window: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(super) fn open_remote_settings_window(
@@ -700,7 +705,7 @@ impl CoduxApp {
         self.normalize_selected_ssh_profile();
         if Self::activate_child_window(&mut self.ssh_profile_editor_window, cx) {
             self.status_message = "SSH profile editor already opened".to_string();
-            cx.notify();
+            self.invalidate_remote_panel(cx);
             return;
         }
 
@@ -712,7 +717,7 @@ impl CoduxApp {
                 .find(|profile| profile.id == profile_id)
             else {
                 self.status_message = "SSH profile is no longer available".to_string();
-                cx.notify();
+                self.invalidate_remote_panel(cx);
                 return;
             };
             Some(profile)
@@ -760,7 +765,7 @@ impl CoduxApp {
             }
             Err(error) => format!("failed to open SSH profile editor: {error}"),
         };
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn close_ssh_profile_dialog(
@@ -770,17 +775,17 @@ impl CoduxApp {
     ) {
         self.ssh_draft_open = false;
         self.ssh_testing = false;
-        cx.notify();
+        self.invalidate_remote_panel(cx);
     }
 
     pub(super) fn toggle_project_column(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.project_column_collapsed = !self.project_column_collapsed;
-        cx.notify();
+        self.invalidate_project_shell(cx);
     }
 
     pub(super) fn toggle_task_column(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.task_column_collapsed = !self.task_column_collapsed;
-        cx.notify();
+        self.invalidate_project_shell(cx);
     }
 
     pub(super) fn close_active_workspace_item(
@@ -796,7 +801,7 @@ impl CoduxApp {
                     .position(|tab| tab.id == self.active_terminal_id)
                 else {
                     self.status_message = "no active terminal".to_string();
-                    cx.notify();
+                    self.invalidate_terminal_workspace(cx);
                     return;
                 };
                 let pane_count = self.terminals[tab_index].panes.len();
@@ -804,7 +809,7 @@ impl CoduxApp {
                     self.close_terminal_pane(pane_count - 1, window, cx);
                 } else {
                     self.status_message = "keep at least one terminal split".to_string();
-                    cx.notify();
+                    self.invalidate_terminal_workspace(cx);
                 }
             }
             WorkspaceView::Files => {
@@ -816,11 +821,11 @@ impl CoduxApp {
                 } else {
                     self.status_message = "no active file preview".to_string();
                 }
-                cx.notify();
+                self.invalidate_file_panel(cx);
             }
             WorkspaceView::Review => {
                 self.status_message = "no active review item to close".to_string();
-                cx.notify();
+                self.invalidate_git_panel(cx);
             }
         }
     }
@@ -846,7 +851,7 @@ impl CoduxApp {
 
     pub(super) fn set_settings_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
         self.active_settings_pane = pane;
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_assistant_panel(
@@ -863,16 +868,18 @@ impl CoduxApp {
         if self.assistant_panel == Some(panel) {
             self.refresh_assistant_panel_state(panel);
         }
-        self.invalidate_workspace_chrome(cx);
-        self.invalidate_status_bar(cx);
-    }
-
-    pub(super) fn notify_workspace_chrome(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_workspace_chrome(cx);
-    }
-
-    pub(super) fn notify_workspace_body(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_workspace_body(cx);
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::SshSidebar,
+                UiRegion::FileSidebar,
+                UiRegion::GitSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
     }
 
     pub(super) fn refresh_assistant_panel_state(&mut self, panel: AssistantPanel) {
@@ -912,7 +919,7 @@ impl CoduxApp {
         } else {
             "update checked: no latest version in manifest".to_string()
         };
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn install_update(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -928,7 +935,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to install update: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn register_native_menu_actions(

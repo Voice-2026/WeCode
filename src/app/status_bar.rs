@@ -2,9 +2,10 @@ use super::*;
 
 pub(in crate::app) struct StatusBarView {
     app_entity: gpui::Entity<CoduxApp>,
+    snapshot: StatusBarSnapshot,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct StatusGitSummary {
     branch: String,
     incoming: i64,
@@ -13,16 +14,41 @@ struct StatusGitSummary {
     deletions: i64,
 }
 
+#[derive(Clone, PartialEq)]
+pub(in crate::app) struct StatusBarSnapshot {
+    language: String,
+    developer_hud: bool,
+    cpu_label: String,
+    memory_label: String,
+    ai_index_count: usize,
+    ai_error: Option<String>,
+    memory_queued: i64,
+    memory_running: i64,
+    memory_failed: i64,
+    memory_error: Option<String>,
+    remote_status: String,
+    remote_devices: usize,
+    remote_online_devices: usize,
+    git: StatusGitSummary,
+}
+
 impl StatusBarView {
-    pub(in crate::app) fn new(app_entity: gpui::Entity<CoduxApp>) -> Self {
-        Self { app_entity }
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: StatusBarSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
     }
 }
 
 impl Render for StatusBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.app_entity
-            .update(cx, |app, cx| app.status_bar(cx).into_any_element())
+        status_bar_content(self.app_entity.clone(), self.snapshot.clone(), cx).into_any_element()
     }
 }
 
@@ -31,113 +57,39 @@ impl CoduxApp {
         &mut self,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<StatusBarView> {
+        let snapshot = self.status_bar_snapshot();
         if let Some(view) = &self.status_bar_view {
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
             return view.clone();
         }
         let app_entity = cx.entity();
-        let view = cx.new(|_| StatusBarView::new(app_entity));
+        let view = cx.new(|_| StatusBarView {
+            app_entity,
+            snapshot,
+        });
         self.status_bar_view = Some(view.clone());
         view
-    }
-
-    pub(in crate::app) fn notify_status_bar(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_status_bar(cx);
     }
 }
 
 impl CoduxApp {
-    pub(super) fn status_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let language = self.state.settings.language.clone();
-        let developer_hud = self.state.settings.developer_hud;
-        let cpu_label = self.state.performance.cpu_label.clone();
-        let memory_label = self.state.performance.memory_label.clone();
-        let ai_index_count = self.ai_history_active_index_count;
-        let ai_error = self.state.ai_global_history.error.clone();
-        let memory_queued = self.state.memory_manager.extraction.queued;
-        let memory_running = self.state.memory_manager.extraction.running;
-        let memory_failed = self.state.memory_manager.extraction.failed;
-        let memory_error = self.state.memory_manager.extraction.last_error.clone();
-        let remote = self.state.remote.clone();
-        let git = self.status_git_summary();
-
-        div()
-            .h(px(28.0))
-            .w_full()
-            .min_w_0()
-            .px_2()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_between()
-            .border_t_1()
-            .border_color(color(theme::BORDER_SOFT))
-            .bg(color(theme::STATUS_BAR))
-            .text_color(color(theme::TEXT_MUTED))
-            .text_xs()
-            .child(
-                div()
-                    .flex()
-                    .min_w_0()
-                    .items_center()
-                    .gap_1()
-                    .when(developer_hud, |this| {
-                        this.child(status_metric("status-performance-cpu", "CPU", cpu_label))
-                            .child(status_separator())
-                            .child(status_metric(
-                                "status-performance-memory",
-                                "MEM",
-                                memory_label,
-                            ))
-                            .child(status_separator())
-                    }),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1()
-                    .child(status_ai_segment(
-                        ai_index_count,
-                        ai_error.as_deref(),
-                        &language,
-                        cx,
-                    ))
-                    .child(status_separator())
-                    .child(status_memory_segment(
-                        memory_queued,
-                        memory_running,
-                        memory_failed,
-                        memory_error.as_deref(),
-                        &language,
-                        cx,
-                    ))
-                    .child(status_separator())
-                    .child(status_remote_segment(&remote, &language, cx))
-                    .child(status_separator())
-                    .child(status_git_segment(
-                        &git.branch,
-                        git.additions,
-                        git.deletions,
-                        cx,
-                    ))
-                    .child(status_sync_action_button(
-                        status_text(&language, "git.remote.pull", "Pull"),
-                        git.incoming,
-                        0x6AA1FF,
-                        "status-pull",
-                        cx,
-                        |app, _event, window, cx| app.pull_project_git(window, cx),
-                    ))
-                    .child(status_sync_action_button(
-                        status_text(&language, "git.remote.push", "Push"),
-                        git.outgoing,
-                        theme::GREEN,
-                        "status-push",
-                        cx,
-                        |app, _event, window, cx| app.push_project_git(window, cx),
-                    )),
-            )
+    pub(in crate::app) fn status_bar_snapshot(&self) -> StatusBarSnapshot {
+        StatusBarSnapshot {
+            language: self.state.settings.language.clone(),
+            developer_hud: self.state.settings.developer_hud,
+            cpu_label: self.state.performance.cpu_label.clone(),
+            memory_label: self.state.performance.memory_label.clone(),
+            ai_index_count: self.ai_history_active_index_count,
+            ai_error: self.state.ai_global_history.error.clone(),
+            memory_queued: self.state.memory_manager.extraction.queued,
+            memory_running: self.state.memory_manager.extraction.running,
+            memory_failed: self.state.memory_manager.extraction.failed,
+            memory_error: self.state.memory_manager.extraction.last_error.clone(),
+            remote_status: self.state.remote.status.clone(),
+            remote_devices: self.state.remote.devices,
+            remote_online_devices: self.state.remote.online_devices,
+            git: self.status_git_summary(),
+        }
     }
 
     fn status_git_summary(&self) -> StatusGitSummary {
@@ -183,12 +135,114 @@ fn non_empty(value: String) -> Option<String> {
     }
 }
 
+fn status_bar_content(
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: StatusBarSnapshot,
+    cx: &mut Context<StatusBarView>,
+) -> impl IntoElement {
+    div()
+        .h(px(28.0))
+        .w_full()
+        .min_w_0()
+        .px_2()
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_between()
+        .border_t_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .bg(color(theme::STATUS_BAR))
+        .text_color(color(theme::TEXT_MUTED))
+        .text_xs()
+        .child(
+            div()
+                .flex()
+                .min_w_0()
+                .items_center()
+                .gap_1()
+                .when(snapshot.developer_hud, |this| {
+                    this.child(status_metric(
+                        "status-performance-cpu",
+                        "CPU",
+                        snapshot.cpu_label.clone(),
+                    ))
+                    .child(status_separator())
+                    .child(status_metric(
+                        "status-performance-memory",
+                        "MEM",
+                        snapshot.memory_label.clone(),
+                    ))
+                    .child(status_separator())
+                }),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                .child(status_ai_segment(
+                    app_entity.clone(),
+                    snapshot.ai_index_count,
+                    snapshot.ai_error.as_deref(),
+                    &snapshot.language,
+                    cx,
+                ))
+                .child(status_separator())
+                .child(status_memory_segment(
+                    app_entity.clone(),
+                    snapshot.memory_queued,
+                    snapshot.memory_running,
+                    snapshot.memory_failed,
+                    snapshot.memory_error.as_deref(),
+                    &snapshot.language,
+                    cx,
+                ))
+                .child(status_separator())
+                .child(status_remote_segment(
+                    app_entity.clone(),
+                    &snapshot.remote_status,
+                    snapshot.remote_devices,
+                    snapshot.remote_online_devices,
+                    &snapshot.language,
+                    cx,
+                ))
+                .child(status_separator())
+                .child(status_git_segment(
+                    app_entity.clone(),
+                    &snapshot.git.branch,
+                    snapshot.git.additions,
+                    snapshot.git.deletions,
+                    cx,
+                ))
+                .child(status_sync_action_button(
+                    app_entity.clone(),
+                    status_text(&snapshot.language, "git.remote.pull", "Pull"),
+                    snapshot.git.incoming,
+                    0x6AA1FF,
+                    "status-pull",
+                    cx,
+                    |app, _event, window, cx| app.pull_project_git(window, cx),
+                ))
+                .child(status_sync_action_button(
+                    app_entity,
+                    status_text(&snapshot.language, "git.remote.push", "Push"),
+                    snapshot.git.outgoing,
+                    theme::GREEN,
+                    "status-push",
+                    cx,
+                    |app, _event, window, cx| app.push_project_git(window, cx),
+                )),
+        )
+}
+
 fn status_sync_action_button(
+    app_entity: gpui::Entity<CoduxApp>,
     label: String,
     count: i64,
     accent: u32,
     id: &'static str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<StatusBarView>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
     let count = count.max(0);
@@ -206,7 +260,9 @@ fn status_sync_action_button(
         .text_color(color(theme::TEXT_MUTED))
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(cx.listener(on_click))
+        .on_click(move |event, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| on_click(app, event, window, cx));
+        })
         .child(
             div()
                 .mt(px(1.0))
@@ -240,10 +296,11 @@ fn status_metric(id: &'static str, label: &'static str, value: String) -> impl I
 }
 
 fn status_ai_segment(
+    app_entity: gpui::Entity<CoduxApp>,
     index_count: usize,
     error: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<StatusBarView>,
 ) -> impl IntoElement {
     let index_count_label = status_text(language, "ai.status.index_count", "Index");
     let index_color = if error.is_some() {
@@ -266,9 +323,11 @@ fn status_ai_segment(
         .rounded_sm()
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(cx.listener(|app, _event, window, cx| {
-            app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx)
-        }))
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.toggle_assistant_panel(AssistantPanel::AIStats, window, cx);
+            });
+        })
         .child(div().mt(px(1.0)).text_color(color(theme::TEXT)).child("AI"))
         .child(
             div()
@@ -279,12 +338,13 @@ fn status_ai_segment(
 }
 
 fn status_memory_segment(
+    app_entity: gpui::Entity<CoduxApp>,
     queued: i64,
     running: i64,
     failed: i64,
     _error: Option<&str>,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<StatusBarView>,
 ) -> impl IntoElement {
     let queued_label = status_text(language, "memory.status.short_queued", "Queued");
     let memory_label = status_text(language, "memory.status.short_memory", "Memory");
@@ -314,7 +374,11 @@ fn status_memory_segment(
         .rounded_sm()
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(cx.listener(|app, _event, window, cx| app.open_memory_manager_window(window, cx)))
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.open_memory_manager_window(window, cx);
+            });
+        })
         .child(
             div()
                 .mt(px(1.0))
@@ -348,21 +412,24 @@ fn status_memory_segment(
 }
 
 fn status_remote_segment(
-    remote: &RemoteSummary,
+    app_entity: gpui::Entity<CoduxApp>,
+    status: &str,
+    devices: usize,
+    online_devices: usize,
     language: &str,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<StatusBarView>,
 ) -> impl IntoElement {
     let remote_label = status_text(language, "settings.tab.remote", "Remote");
     let connected_label = status_text(language, "remote.status.connected_label", "Connected");
     let connecting_label = status_text(language, "remote.status.connecting_label", "Connecting");
     let disconnected_label =
         status_text(language, "remote.status.disconnected_label", "Disconnected");
-    let state_label = match remote.status.as_str() {
+    let state_label = match status {
         "connected" => connected_label,
         "connecting" => connecting_label,
         _ => disconnected_label,
     };
-    let state_color = match remote.status.as_str() {
+    let state_color = match status {
         "connected" => theme::GREEN,
         "connecting" => theme::ORANGE,
         _ => theme::TEXT_DIM,
@@ -380,9 +447,11 @@ fn status_remote_segment(
         .rounded_sm()
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(
-            cx.listener(|app, _event, window, cx| app.open_remote_settings_window(window, cx)),
-        )
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.open_remote_settings_window(window, cx);
+            });
+        })
         .child(
             div()
                 .mt(px(1.0))
@@ -399,7 +468,7 @@ fn status_remote_segment(
             div()
                 .mt(px(1.0))
                 .text_color(color(theme::TEXT_DIM))
-                .child(format!("{}/{}", remote.online_devices, remote.devices)),
+                .child(format!("{online_devices}/{devices}")),
         )
 }
 
@@ -408,10 +477,11 @@ fn status_text(language: &str, key: &str, fallback: &str) -> String {
 }
 
 fn status_git_segment(
+    app_entity: gpui::Entity<CoduxApp>,
     branch: &str,
     additions: i64,
     deletions: i64,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<StatusBarView>,
 ) -> impl IntoElement {
     div()
         .id("status-git-panel")
@@ -424,9 +494,11 @@ fn status_git_segment(
         .rounded_sm()
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(cx.listener(|app, _event, window, cx| {
-            app.toggle_assistant_panel(AssistantPanel::Git, window, cx)
-        }))
+        .on_click(move |_, window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.toggle_assistant_panel(AssistantPanel::Git, window, cx);
+            });
+        })
         .child(
             div()
                 .mt(px(1.0))

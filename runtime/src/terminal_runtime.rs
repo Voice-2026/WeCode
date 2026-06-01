@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -208,19 +207,11 @@ impl TerminalRuntimeService {
     }
 
     fn raw_snapshot(&self) -> Map<String, Value> {
-        fs::read_to_string(&self.runtime_file)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
-            .and_then(|value| value.as_object().cloned())
-            .unwrap_or_default()
+        crate::config::ConfigStore::for_file(self.runtime_file.clone()).snapshot()
     }
 
     fn save_raw_snapshot(&self, snapshot: &Map<String, Value>) -> Result<(), String> {
-        if let Some(parent) = self.runtime_file.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let content = serde_json::to_string_pretty(snapshot).map_err(|error| error.to_string())?;
-        fs::write(&self.runtime_file, format!("{content}\n")).map_err(|error| error.to_string())
+        crate::config::ConfigStore::for_file(self.runtime_file.clone()).save_snapshot(snapshot)
     }
 }
 
@@ -378,6 +369,7 @@ fn now_seconds() -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use uuid::Uuid;
 
     #[test]
@@ -471,8 +463,11 @@ mod tests {
         assert_eq!(open.input_history[0].text, "codex");
         assert_eq!(open.output_bytes, 12);
         assert_eq!(open.output_tail, "ok\n");
-        let raw = fs::read_to_string(&runtime_file).unwrap();
-        assert!(raw.contains(r#""customField": "keep""#));
+        let raw = crate::config::ConfigStore::for_file(runtime_file).snapshot();
+        assert_eq!(
+            raw.get("customField").and_then(Value::as_str),
+            Some("keep")
+        );
         fs::remove_dir_all(support_dir).unwrap();
     }
 
@@ -507,7 +502,10 @@ mod tests {
             )
             .unwrap();
 
-        let raw = fs::read_to_string(support_dir.join(RUNTIME_FILE_NAME)).unwrap();
+        let raw = serde_json::to_string(
+            &crate::config::ConfigStore::for_file(support_dir.join(RUNTIME_FILE_NAME)).snapshot(),
+        )
+        .unwrap();
         assert!(!raw.contains("env"));
         assert!(!raw.contains("secret"));
         assert!(raw.contains("OPENAI_API_KEY=<redacted>"));

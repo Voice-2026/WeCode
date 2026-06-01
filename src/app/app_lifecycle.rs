@@ -142,7 +142,7 @@ impl CoduxApp {
             .unwrap_or_default();
         let ai_history_active_index_count = runtime_service.active_ai_history_index_count();
         let project_view_store = initial_project_view_store(&state);
-        let worktree_view_store = initial_worktree_view_store(&state);
+        let worktree_view_store = initial_worktree_view_store(&state, &project_view_store);
         let terminal_view_store = initial_terminal_view_store(&state);
 
         let mut app = Self {
@@ -273,13 +273,10 @@ impl CoduxApp {
             ai_history_active_index_count,
             ai_history_refresh_project_ids,
             project_switch_generation: 0,
-            project_task_load_in_flight: HashSet::new(),
-            project_task_load_last_started_at: HashMap::new(),
-            project_task_load_last_finished_at: HashMap::new(),
+            scheduled_work_in_flight: HashSet::new(),
+            scheduled_work_last_started_at: HashMap::new(),
+            scheduled_work_last_finished_at: HashMap::new(),
             task_column_refreshing: false,
-            worktree_sidebar_load_in_flight: HashSet::new(),
-            worktree_sidebar_load_last_started_at: HashMap::new(),
-            worktree_sidebar_load_last_finished_at: HashMap::new(),
             memory_progress_visible_until: 0.0,
             memory_progress_generation: 0,
             memory_manager_refreshing: false,
@@ -323,10 +320,18 @@ impl CoduxApp {
             project_list_store: None,
             project_column_view: None,
             task_column_view: None,
+            task_column_header_view: None,
+            task_worktree_list_view: None,
+            task_session_list_view: None,
             workspace_column_view: None,
             workspace_toolbar_view: None,
             workspace_body_view: None,
             workspace_assistant_view: None,
+            ai_stats_sidebar_view: None,
+            ssh_sidebar_view: None,
+            git_sidebar_view: None,
+            git_files_panel_view: None,
+            git_history_panel_view: None,
             status_bar_view: None,
             file_sidebar_view: None,
             project_view_store,
@@ -339,15 +344,21 @@ impl CoduxApp {
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
             tooltip_state: CoduxTooltipState::default(),
-            ui_invalidation_counts: HashMap::new(),
-            ui_invalidation_last_report_at: 0.0,
+            ui_performance_counts: HashMap::new(),
+            ui_performance_last_report_at: 0.0,
         };
         let _ = app.persist_terminal_runtime();
         Ok(app)
     }
 
     pub(super) fn spawn_runtime_scheduled_refresh(&mut self, cx: &mut Context<Self>) {
+        let scheduler_key = "runtime_refresh";
+        let policy = ScheduledWorkPolicy::new(1.0, 1.0);
         if self.runtime_refresh_in_flight {
+            self.record_ui_scheduler_event("skip_busy", scheduler_key);
+            return;
+        }
+        if !self.begin_scheduled_work(scheduler_key, policy) {
             return;
         }
         self.runtime_refresh_in_flight = true;
@@ -367,6 +378,7 @@ impl CoduxApp {
 
             let _ = this.update(cx, |app, _cx| {
                 app.runtime_refresh_in_flight = false;
+                app.finish_scheduled_work(scheduler_key);
                 if let Some(refresh) = refresh {
                     app.pending_runtime_refresh = Some(refresh);
                 }
@@ -388,7 +400,16 @@ impl CoduxApp {
     }
 
     pub(super) fn spawn_performance_refresh(&mut self, cx: &mut Context<Self>) {
-        if !self.state.settings.developer_hud || self.performance_refresh_in_flight {
+        if !self.state.settings.developer_hud {
+            return;
+        }
+        let scheduler_key = "performance_refresh";
+        let policy = ScheduledWorkPolicy::new(0.5, 0.5);
+        if self.performance_refresh_in_flight {
+            self.record_ui_scheduler_event("skip_busy", scheduler_key);
+            return;
+        }
+        if !self.begin_scheduled_work(scheduler_key, policy) {
             return;
         }
         self.performance_refresh_in_flight = true;
@@ -401,6 +422,7 @@ impl CoduxApp {
 
             let _ = this.update(cx, |app, _cx| {
                 app.performance_refresh_in_flight = false;
+                app.finish_scheduled_work(scheduler_key);
                 if let Some(performance) = performance {
                     app.pending_performance_refresh = Some(performance);
                 }

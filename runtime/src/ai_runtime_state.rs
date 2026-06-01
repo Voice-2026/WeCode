@@ -411,6 +411,7 @@ fn runtime_snapshot_session_state(session: &AISessionSnapshot) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_runtime::AIProjectTotals;
 
     #[test]
     fn summary_returns_default_memory_state() {

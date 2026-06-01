@@ -9,7 +9,8 @@ impl CoduxApp {
     pub(super) fn refresh_task_column_async(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to refresh".to_string();
-            cx.notify();
+            self.invalidate_task_column(cx);
+            self.invalidate_status_bar(cx);
             return;
         };
         if self.task_column_refreshing {
@@ -18,8 +19,8 @@ impl CoduxApp {
 
         self.task_column_refreshing = true;
         self.status_message = format!("refreshing tasks for {}", project.name);
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_task_column(cx);
+        self.invalidate_status_bar(cx);
 
         let runtime_service = self.runtime_service.clone();
         let project_id = project.id.clone();
@@ -57,8 +58,8 @@ impl CoduxApp {
                 } else {
                     app.status_message = "failed to refresh task list".to_string();
                 }
-                app.notify_task_column(cx);
-                cx.notify();
+                app.invalidate_task_column(cx);
+                app.invalidate_status_bar(cx);
             });
         })
         .detach();
@@ -90,7 +91,7 @@ impl CoduxApp {
     pub(super) fn select_project(
         &mut self,
         project_id: String,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let previous_project_id = self
@@ -119,7 +120,7 @@ impl CoduxApp {
         }
         self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
         let switch_generation = self.project_switch_generation;
-        self.apply_selected_project_shell(&project_id);
+        self.apply_selected_project_shell(&project_id, window, cx);
         let terminal_view_state = terminal_view_store_key(&self.state)
             .and_then(|key| self.terminal_view_store.get(&key).cloned());
         self.memory_manager_scope = "project".to_string();
@@ -136,13 +137,17 @@ impl CoduxApp {
             self.active_terminal_id = 1;
             self.next_terminal_index = 1;
         }
-        self.notify_task_column(cx);
         self.spawn_project_switch_load(project_id, switch_generation, cx);
         self.sync_project_list_store(cx);
-        cx.notify();
+        self.invalidate_project_context(cx);
     }
 
-    pub(super) fn apply_selected_project_shell(&mut self, project_id: &str) {
+    pub(super) fn apply_selected_project_shell(
+        &mut self,
+        project_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(project) = self
             .state
             .projects
@@ -164,6 +169,7 @@ impl CoduxApp {
             self.state.memory_manager = view_state.memory_manager;
             self.state.worktrees = view_state.worktrees;
             self.apply_saved_worktree_view_state();
+            self.ensure_active_file_editor_state(window, cx);
             self.apply_saved_terminal_view_state();
             self.selected_ai_session_id = None;
             self.runtime_trace(
@@ -192,6 +198,8 @@ impl CoduxApp {
             self.state.git = GitSummary::default();
             self.git_review = GitReviewSummary::default();
             self.state.files.clear();
+            self.file_editor_tabs.clear();
+            self.active_file_editor_tab = None;
             self.runtime_trace(
                 "project-switch",
                 &format!(
@@ -268,6 +276,15 @@ impl CoduxApp {
         self.file_name_draft_value.clear();
         self.file_name_draft_select_all = false;
         self.normalize_selected_file_entry();
+        self.file_dirty = self
+            .active_file_editor_tab
+            .as_deref()
+            .and_then(|active| {
+                self.file_editor_tabs
+                    .iter()
+                    .find(|tab| tab.relative_path == active)
+            })
+            .is_some_and(|tab| tab.dirty);
     }
 
     pub(super) fn git_worktree_view_state(&self) -> super::app_state::GitWorktreeViewState {
@@ -319,6 +336,7 @@ impl CoduxApp {
             HashSet::from(["changed".to_string(), "untracked".to_string()]);
         self.git_expanded_dirs.clear();
         self.git_tree_children.clear();
+        self.record_ui_cache_clear("git_tree");
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
         self.git_review_content = None;
         self.state.git = GitSummary::default();
@@ -363,40 +381,52 @@ impl CoduxApp {
         if self.worktree_view_store.contains_key(&store_key) {
             return;
         }
-        let now = app_now_seconds();
-        if self.worktree_sidebar_load_busy_or_recent(&store_key, now) {
-            return;
-        }
         let Some(worktree_path) = self.selected_worktree_path() else {
             return;
         };
-        self.worktree_sidebar_load_in_flight
-            .insert(store_key.clone());
-        self.worktree_sidebar_load_last_started_at
-            .insert(store_key.clone(), now);
+        if self.worktree_sidebar_load_busy_or_recent(&store_key) {
+            self.record_ui_scheduler_event(
+                "skip_busy",
+                &worktree_sidebar_load_scheduler_key(&store_key),
+            );
+            return;
+        }
+        if !self.begin_scheduled_work(
+            worktree_sidebar_load_scheduler_key(&store_key),
+            ScheduledWorkPolicy::new(
+                WORKTREE_SIDEBAR_LOAD_RECENT_SECONDS,
+                WORKTREE_SIDEBAR_LOAD_START_DEBOUNCE_SECONDS,
+            ),
+        ) {
+            return;
+        }
         let runtime_service = self.runtime_service.clone();
         let cleanup_store_key = store_key.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let load = codux_runtime::async_runtime::run_limited_blocking(move || {
-                let files = runtime_service.reload_project_files(&worktree_path, None);
-                let file_editor_layout =
-                    runtime_service.reload_file_editor_layout(Some(&store_key.worktree_id));
-                let git = runtime_service.reload_project_git(&worktree_path);
-                let git_review = runtime_service.reload_project_git_review(&worktree_path, None);
-                WorktreeSidebarLoad {
-                    generation,
-                    store_key,
-                    files,
-                    file_editor_layout,
-                    git,
-                    git_review,
-                }
-            })
+            let load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let files = runtime_service.reload_project_files(&worktree_path, None);
+                    let file_editor_layout =
+                        runtime_service.reload_file_editor_layout(Some(&store_key.worktree_id));
+                    let git = runtime_service.reload_project_git(&worktree_path);
+                    let git_review =
+                        runtime_service.reload_project_git_review(&worktree_path, None);
+                    WorktreeSidebarLoad {
+                        generation,
+                        store_key,
+                        files,
+                        file_editor_layout,
+                        git,
+                        git_review,
+                    }
+                },
+            )
             .await
             .ok();
-            let _ = this.update(cx, |app, cx| {
+            let _ = this.update_in(cx, |app, window, cx| {
                 if let Some(load) = load {
-                    app.apply_worktree_sidebar_load(load, cx);
+                    app.apply_worktree_sidebar_load(load, window, cx);
                 } else {
                     app.finish_worktree_sidebar_load(&cleanup_store_key);
                 }
@@ -408,11 +438,10 @@ impl CoduxApp {
     pub(super) fn apply_worktree_sidebar_load(
         &mut self,
         load: WorktreeSidebarLoad,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.worktree_sidebar_load_in_flight.remove(&load.store_key);
-        self.worktree_sidebar_load_last_finished_at
-            .insert(load.store_key.clone(), app_now_seconds());
+        self.finish_worktree_sidebar_load(&load.store_key);
         let mut file_state = self
             .worktree_view_store
             .get(&load.store_key)
@@ -430,37 +459,10 @@ impl CoduxApp {
             });
         file_state.files = load.files.clone();
         if file_state.file_editor_tabs.is_empty() {
-            file_state.file_editor_tabs = load
-                .file_editor_layout
-                .tabs
-                .into_iter()
-                .map(|tab| super::app_state::FileEditorTab {
-                    label: tab.label,
-                    relative_path: tab.path,
-                    editable: true,
-                    dirty: false,
-                    language: if tab.language.trim().is_empty() {
-                        "text".to_string()
-                    } else {
-                        tab.language
-                    },
-                })
-                .collect();
-            file_state.active_file_editor_tab = load
-                .file_editor_layout
-                .active_path
-                .filter(|active| {
-                    file_state
-                        .file_editor_tabs
-                        .iter()
-                        .any(|tab| tab.relative_path == *active)
-                })
-                .or_else(|| {
-                    file_state
-                        .file_editor_tabs
-                        .first()
-                        .map(|tab| tab.relative_path.clone())
-                });
+            let (tabs, active_path) =
+                super::app_state::file_editor_tabs_from_layout(load.file_editor_layout);
+            file_state.file_editor_tabs = tabs;
+            file_state.active_file_editor_tab = active_path;
         }
         let git_state = super::app_state::GitWorktreeViewState {
             git: load.git.clone(),
@@ -494,8 +496,10 @@ impl CoduxApp {
             return;
         }
         self.apply_file_worktree_view_state(file_state);
+        self.ensure_active_file_editor_state(window, cx);
         self.apply_git_worktree_view_state(git_state);
-        cx.notify();
+        self.invalidate_file_panel(cx);
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn apply_saved_terminal_view_state(&mut self) {
@@ -526,73 +530,69 @@ impl CoduxApp {
         );
     }
 
-    pub(super) fn notify_task_column(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_task_column(cx);
-    }
-
     pub(super) fn should_skip_scheduled_project_activity_tick(&self) -> bool {
-        let now = app_now_seconds();
         let project_busy = self
             .state
             .selected_project
             .as_ref()
-            .is_some_and(|project| self.project_task_load_busy_or_recent(&project.id, now));
+            .is_some_and(|project| self.project_task_load_busy_or_recent(&project.id));
         let worktree_busy = worktree_view_store_key(&self.state)
             .as_ref()
-            .is_some_and(|key| self.worktree_sidebar_load_busy_or_recent(key, now));
+            .is_some_and(|key| self.worktree_sidebar_load_busy_or_recent(key));
         project_busy || worktree_busy
     }
 
-    fn project_task_load_busy_or_recent(&self, project_id: &str, now: f64) -> bool {
-        self.project_task_load_in_flight.contains(project_id)
-            || self
-                .project_task_load_last_finished_at
-                .get(project_id)
-                .is_some_and(|finished| now - finished < PROJECT_TASK_LOAD_RECENT_SECONDS)
-            || self
-                .project_task_load_last_started_at
-                .get(project_id)
-                .is_some_and(|started| now - started < PROJECT_TASK_LOAD_START_DEBOUNCE_SECONDS)
+    fn project_task_load_busy_or_recent(&self, project_id: &str) -> bool {
+        let scheduler_key = project_task_load_scheduler_key(project_id);
+        self.scheduled_work_busy_or_recent(
+            &scheduler_key,
+            ScheduledWorkPolicy::new(
+                PROJECT_TASK_LOAD_RECENT_SECONDS,
+                PROJECT_TASK_LOAD_START_DEBOUNCE_SECONDS,
+            ),
+        )
     }
 
     fn begin_project_task_load(&mut self, project_id: &str) -> bool {
-        let now = app_now_seconds();
-        if self.project_task_load_busy_or_recent(project_id, now) {
+        if self.project_task_load_busy_or_recent(project_id) {
+            self.record_ui_scheduler_event(
+                "skip_busy",
+                &project_task_load_scheduler_key(project_id),
+            );
             return false;
         }
-        self.project_task_load_in_flight
-            .insert(project_id.to_string());
-        self.project_task_load_last_started_at
-            .insert(project_id.to_string(), now);
+        if !self.begin_scheduled_work(
+            project_task_load_scheduler_key(project_id),
+            ScheduledWorkPolicy::new(
+                PROJECT_TASK_LOAD_RECENT_SECONDS,
+                PROJECT_TASK_LOAD_START_DEBOUNCE_SECONDS,
+            ),
+        ) {
+            return false;
+        }
         true
     }
 
     fn finish_project_task_load(&mut self, project_id: &str) {
-        self.project_task_load_in_flight.remove(project_id);
-        self.project_task_load_last_finished_at
-            .insert(project_id.to_string(), app_now_seconds());
+        self.finish_scheduled_work(&project_task_load_scheduler_key(project_id));
     }
 
     fn worktree_sidebar_load_busy_or_recent(
         &self,
         key: &super::app_state::WorktreeViewStoreKey,
-        now: f64,
     ) -> bool {
-        self.worktree_sidebar_load_in_flight.contains(key)
-            || self
-                .worktree_sidebar_load_last_finished_at
-                .get(key)
-                .is_some_and(|finished| now - finished < WORKTREE_SIDEBAR_LOAD_RECENT_SECONDS)
-            || self
-                .worktree_sidebar_load_last_started_at
-                .get(key)
-                .is_some_and(|started| now - started < WORKTREE_SIDEBAR_LOAD_START_DEBOUNCE_SECONDS)
+        let scheduler_key = worktree_sidebar_load_scheduler_key(key);
+        self.scheduled_work_busy_or_recent(
+            &scheduler_key,
+            ScheduledWorkPolicy::new(
+                WORKTREE_SIDEBAR_LOAD_RECENT_SECONDS,
+                WORKTREE_SIDEBAR_LOAD_START_DEBOUNCE_SECONDS,
+            ),
+        )
     }
 
     fn finish_worktree_sidebar_load(&mut self, key: &super::app_state::WorktreeViewStoreKey) {
-        self.worktree_sidebar_load_in_flight.remove(key);
-        self.worktree_sidebar_load_last_finished_at
-            .insert(key.clone(), app_now_seconds());
+        self.finish_scheduled_work(&worktree_sidebar_load_scheduler_key(key));
     }
 
     pub(super) fn spawn_persist_terminal_state(&mut self, _cx: &mut Context<Self>) {
@@ -653,37 +653,40 @@ impl CoduxApp {
         let should_load_tasks = self.begin_project_task_load(&project_id);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let terminal = codux_runtime::async_runtime::run_limited_blocking(move || {
-                let worktrees = terminal_runtime_service.reload_worktrees_from_state(
-                    Some(&terminal_project.id),
-                    Some(&terminal_project.path),
-                );
-                let terminal_owner_id = worktrees
-                    .selected_worktree_id
-                    .as_deref()
-                    .unwrap_or(terminal_project.id.as_str())
-                    .to_string();
-                let store_key = TerminalViewStoreKey {
-                    project_id: terminal_project.id.clone(),
-                    task_id: terminal_owner_id.clone(),
-                };
-                let terminal_layout =
-                    terminal_runtime_service.reload_terminal_layout(Some(&terminal_owner_id));
-                let terminal_runtime = terminal_runtime_service.reload_terminal_runtime();
-                let mut terminal_state = terminal_state;
-                terminal_state.selected_project = Some(terminal_project.clone());
-                terminal_state.worktrees = worktrees.clone();
-                terminal_state.terminal_layout = terminal_layout.clone();
-                terminal_state.terminal_runtime = terminal_runtime.clone();
-                prewarm_terminal_restore(&terminal_state, &terminal_runtime_inventory);
-                ProjectSwitchTerminalLoad {
-                    project_id: terminal_project.id,
-                    generation,
-                    store_key,
-                    terminal_layout,
-                    terminal_runtime,
-                }
-            })
+            let terminal = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let worktrees = terminal_runtime_service.reload_worktrees_from_state(
+                        Some(&terminal_project.id),
+                        Some(&terminal_project.path),
+                    );
+                    let terminal_owner_id = worktrees
+                        .selected_worktree_id
+                        .as_deref()
+                        .unwrap_or(terminal_project.id.as_str())
+                        .to_string();
+                    let store_key = TerminalViewStoreKey {
+                        project_id: terminal_project.id.clone(),
+                        task_id: terminal_owner_id.clone(),
+                    };
+                    let terminal_layout =
+                        terminal_runtime_service.reload_terminal_layout(Some(&terminal_owner_id));
+                    let terminal_runtime = terminal_runtime_service.reload_terminal_runtime();
+                    let mut terminal_state = terminal_state;
+                    terminal_state.selected_project = Some(terminal_project.clone());
+                    terminal_state.worktrees = worktrees.clone();
+                    terminal_state.terminal_layout = terminal_layout.clone();
+                    terminal_state.terminal_runtime = terminal_runtime.clone();
+                    prewarm_terminal_restore(&terminal_state, &terminal_runtime_inventory);
+                    ProjectSwitchTerminalLoad {
+                        project_id: terminal_project.id,
+                        generation,
+                        store_key,
+                        terminal_layout,
+                        terminal_runtime,
+                    }
+                },
+            )
             .await
             .ok();
             let _ = this.update(cx, |app, cx| {
@@ -699,15 +702,18 @@ impl CoduxApp {
             let task_project_path = task_project.path.clone();
             let cleanup_project_id = task_project_id.clone();
             cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-                let task_load = codux_runtime::async_runtime::run_limited_blocking(move || {
-                    let worktrees = task_runtime_service
-                        .reload_worktrees(Some(&task_project_id), Some(&task_project_path));
-                    ProjectSwitchTaskLoad {
-                        project_id: task_project_id,
-                        generation,
-                        worktrees,
-                    }
-                })
+                let task_load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                    codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                    move || {
+                        let worktrees = task_runtime_service
+                            .reload_worktrees(Some(&task_project_id), Some(&task_project_path));
+                        ProjectSwitchTaskLoad {
+                            project_id: task_project_id,
+                            generation,
+                            worktrees,
+                        }
+                    },
+                )
                 .await
                 .ok();
                 let _ = this.update(cx, |app, cx| {
@@ -722,16 +728,20 @@ impl CoduxApp {
         }
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let primary = codux_runtime::async_runtime::run_limited_blocking(move || {
-                let request =
-                    ai_history_worktree_request(&primary_project, primary_worktree.as_ref());
-                let ai_history = primary_runtime_service.reload_project_ai_history(&request.path);
-                ProjectSwitchPrimaryLoad {
-                    project_id: primary_project.id,
-                    generation,
-                    ai_history,
-                }
-            })
+            let primary = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let request =
+                        ai_history_worktree_request(&primary_project, primary_worktree.as_ref());
+                    let ai_history =
+                        primary_runtime_service.reload_project_ai_history(&request.path);
+                    ProjectSwitchPrimaryLoad {
+                        project_id: primary_project.id,
+                        generation,
+                        ai_history,
+                    }
+                },
+            )
             .await
             .ok();
             let _ = this.update(cx, |app, cx| {
@@ -743,23 +753,26 @@ impl CoduxApp {
         .detach();
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let load = codux_runtime::async_runtime::run_limited_blocking(move || {
-                let ai_global_history = stats_runtime_service.reload_global_ai_history();
-                let memory = stats_runtime_service.reload_memory(Some(&stats_project.id));
-                let memory_manager = stats_runtime_service.reload_memory_manager(
-                    &projects,
-                    "project",
-                    Some(&stats_project.id),
-                    "active",
-                );
-                ProjectSwitchLoad {
-                    project_id: stats_project.id,
-                    generation,
-                    ai_global_history,
-                    memory,
-                    memory_manager,
-                }
-            })
+            let load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let ai_global_history = stats_runtime_service.reload_global_ai_history();
+                    let memory = stats_runtime_service.reload_memory(Some(&stats_project.id));
+                    let memory_manager = stats_runtime_service.reload_memory_manager(
+                        &projects,
+                        "project",
+                        Some(&stats_project.id),
+                        "active",
+                    );
+                    ProjectSwitchLoad {
+                        project_id: stats_project.id,
+                        generation,
+                        ai_global_history,
+                        memory,
+                        memory_manager,
+                    }
+                },
+            )
             .await
             .ok();
             let _ = this.update(cx, |app, cx| {
@@ -828,7 +841,7 @@ impl CoduxApp {
             );
         }
         self.save_current_project_view_state();
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(super) fn apply_project_switch_task_load(
@@ -885,8 +898,7 @@ impl CoduxApp {
             ),
         );
         self.save_current_project_view_state();
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_worktree_context(cx);
     }
 
     pub(super) fn apply_project_switch_primary_load(
@@ -943,8 +955,16 @@ impl CoduxApp {
         );
         self.refresh_ai_history_after_project_switch(cx);
         self.save_current_project_view_state();
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::TaskColumn,
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
     }
 
     pub(super) fn apply_project_switch_load(
@@ -989,8 +1009,15 @@ impl CoduxApp {
             ),
         );
         self.save_current_project_view_state();
-        self.notify_task_column(cx);
-        cx.notify();
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
     }
 
     pub(super) fn merge_selected_project_worktrees(&mut self, worktrees: WorktreeSummary) {
@@ -1044,7 +1071,7 @@ impl CoduxApp {
         self.normalize_selected_ssh_profile();
         self.status_message = "state reloaded from Codux support files".to_string();
         self.sync_project_list_store(cx);
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn reload_project_open_applications(
@@ -1054,7 +1081,7 @@ impl CoduxApp {
     ) {
         self.project_open_applications = self.runtime_service.project_open_applications();
         self.status_message = "project application list refreshed".to_string();
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn reveal_selected_project_in_file_manager(
@@ -1064,7 +1091,7 @@ impl CoduxApp {
     ) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to reveal".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         };
 
@@ -1077,7 +1104,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to reveal project: {error}"),
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn open_selected_project_in_application(
@@ -1088,7 +1115,7 @@ impl CoduxApp {
     ) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to open".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         };
 
@@ -1114,7 +1141,7 @@ impl CoduxApp {
                 self.project_open_applications = self.runtime_service.project_open_applications();
             }
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn open_project_folder_from_dialog(
@@ -1142,7 +1169,7 @@ impl CoduxApp {
             Ok(Some(paths)) => {
                 let Some(path) = paths.first().cloned() else {
                     self.status_message = "project import canceled".to_string();
-                    cx.notify();
+                    self.invalidate_project_management(cx);
                     return;
                 };
                 let name = std::path::Path::new(&path)
@@ -1170,13 +1197,13 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to choose project folder: {error}"),
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn close_selected_project(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to close".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         };
         match self.runtime_service.close_project(&project.id) {
@@ -1200,13 +1227,13 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to close project: {error}"),
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn close_all_projects(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.state.projects.is_empty() {
             self.status_message = "no projects to close".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         }
         let closed = self.state.projects.len();
@@ -1219,12 +1246,14 @@ impl CoduxApp {
                 self.clear_file_selection();
                 self.file_tree_expanded_dirs.clear();
                 self.file_tree_children.clear();
+                self.record_ui_cache_clear("file_tree");
                 self.file_preview = "select a file to preview it".to_string();
                 self.file_editable = false;
                 self.file_dirty = false;
                 self.selected_git_file = None;
                 self.git_tree_children.clear();
                 self.git_expanded_dirs.clear();
+                self.record_ui_cache_clear("git_tree");
                 self.git_diff_preview = "select a changed file to preview its diff".to_string();
                 self.git_review_content = None;
                 self.normalize_selected_ai_session();
@@ -1238,7 +1267,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to close projects: {error}"),
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn rename_selected_project(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1253,7 +1282,7 @@ impl CoduxApp {
         let locale = locale_from_language_setting(&self.state.settings.language);
         if Self::activate_child_window(&mut self.project_editor_window, cx) {
             self.status_message = "project creator already opened".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         }
 
@@ -1296,7 +1325,7 @@ impl CoduxApp {
             }
             Err(error) => format!("failed to open project creator: {error}"),
         };
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn open_selected_project_editor_window(
@@ -1306,14 +1335,14 @@ impl CoduxApp {
     ) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to edit".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         };
         let locale = locale_from_language_setting(&self.state.settings.language);
 
         if Self::activate_child_window(&mut self.project_editor_window, cx) {
             self.status_message = "project editor already opened".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         }
 
@@ -1357,7 +1386,7 @@ impl CoduxApp {
             }
             Err(error) => format!("failed to open project editor: {error}"),
         };
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn set_project_editor_name(
@@ -1367,7 +1396,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.project_editor_name = value;
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn set_project_editor_path(
@@ -1377,7 +1406,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.project_editor_path = value;
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn set_project_editor_badge_symbol(
@@ -1387,7 +1416,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.project_editor_badge_symbol = value;
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn set_project_editor_badge_color(
@@ -1397,7 +1426,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.project_editor_badge_color_hex = value;
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn choose_project_editor_directory(
@@ -1439,7 +1468,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to choose project directory: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn save_project_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1447,7 +1476,7 @@ impl CoduxApp {
         let path = self.project_editor_path.trim().to_string();
         if name.is_empty() || path.is_empty() {
             self.status_message = "project name and path are required".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         }
 
@@ -1485,7 +1514,7 @@ impl CoduxApp {
                 Err(error) => self.status_message = format!("failed to create project: {error}"),
             }
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn move_selected_project_up(
@@ -1495,7 +1524,7 @@ impl CoduxApp {
     ) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to move".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         };
         match self.runtime_service.move_project_up(&project.id) {
@@ -1509,7 +1538,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to move project: {error}"),
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
 
     pub(super) fn move_selected_project_down(
@@ -1519,7 +1548,7 @@ impl CoduxApp {
     ) {
         let Some(project) = self.state.selected_project.clone() else {
             self.status_message = "no selected project to move".to_string();
-            cx.notify();
+            self.invalidate_project_management(cx);
             return;
         };
         match self.runtime_service.move_project_down(&project.id) {
@@ -1533,6 +1562,14 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to move project: {error}"),
         }
-        cx.notify();
+        self.invalidate_project_management(cx);
     }
+}
+
+fn project_task_load_scheduler_key(project_id: &str) -> String {
+    format!("project_task:{project_id}")
+}
+
+fn worktree_sidebar_load_scheduler_key(key: &super::app_state::WorktreeViewStoreKey) -> String {
+    format!("worktree_sidebar:{}:{}", key.project_id, key.worktree_id)
 }

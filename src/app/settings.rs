@@ -302,7 +302,7 @@ fn settings_pane_body(
             cx,
         ),
         SettingsPane::Remote => settings_remote_pane(
-            &app.runtime_service.reload_remote(),
+            &app.state.remote,
             app.selected_remote_device_id.as_deref(),
             app.state.settings.language.as_str(),
             app.remote_reconnecting,

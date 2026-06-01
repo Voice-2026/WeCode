@@ -63,12 +63,7 @@ pub(in crate::app) fn file_section(
     app_entity: gpui::Entity<CoduxApp>,
     focus_handle: FocusHandle,
     _project_name: &str,
-    files: &[FileEntry],
-    _tree_children: &HashMap<String, Vec<FileEntry>>,
-    _expanded_dirs: &HashSet<String>,
-    _directory_path: &str,
-    _selected_entry: Option<&str>,
-    _selected_entries: &HashSet<String>,
+    files_empty: bool,
     draft_kind: Option<FileNameDraftKind>,
     draft_value: &str,
     draft_select_all: bool,
@@ -190,7 +185,7 @@ pub(in crate::app) fn file_section(
                                         ))
                                     },
                                 )
-                                .child(if files.is_empty() && !draft_at_top {
+                                .child(if files_empty && !draft_at_top {
                                     file_empty_state(labels.empty.clone()).into_any_element()
                                 } else if row_count == 0 && !draft_at_top {
                                     file_empty_state(labels.empty.clone()).into_any_element()
@@ -702,16 +697,12 @@ fn file_tree_entry_row(
                 return;
             }
             view.focus_handle.focus(window, cx);
-            let app_entity = view.app_entity.clone();
-            cx.update_entity(&app_entity, |app, cx| {
-                app.select_file_entry_from_click(
-                    entry.clone(),
-                    event.modifiers().shift,
-                    event.modifiers().control || event.modifiers().platform,
-                    !is_dir && event.click_count() >= 2,
-                    window,
-                    cx,
-                );
+            let entry = entry.clone();
+            let extend = event.modifiers().shift;
+            let toggle = event.modifiers().control || event.modifiers().platform;
+            let open = !is_dir && event.click_count() >= 2;
+            view.defer_app_update(window, cx, move |app, window, cx| {
+                app.select_file_entry_from_click(entry, extend, toggle, open, window, cx);
             });
         }))
         .when(FILE_TREE_DRAG_AND_DROP, |this| {
@@ -737,27 +728,20 @@ fn file_tree_entry_row(
                     .border_color(color(theme::ACCENT).opacity(0.45))
             })
             .on_drop(cx.listener(move |view, drag: &FileTreeDrag, window, cx| {
-                let app_entity = view.app_entity.clone();
-                cx.update_entity(&app_entity, |app, cx| {
-                    app.move_file_entries_to_directory(
-                        drag.paths.clone(),
-                        drop_entry.relative_path.clone(),
-                        window,
-                        cx,
-                    );
+                let paths = drag.paths.clone();
+                let target = drop_entry.relative_path.clone();
+                view.defer_app_update(window, cx, move |app, window, cx| {
+                    app.move_file_entries_to_directory(paths, target, window, cx);
                 });
                 cx.stop_propagation();
             }))
         })
         .on_mouse_down(
             MouseButton::Right,
-            cx.listener(move |view, _event, _window, cx| {
-                let app_entity = view.app_entity.clone();
-                cx.update_entity(&app_entity, |app, cx| {
-                    app.prepare_file_context_menu_selection(
-                        right_click_entry.relative_path.clone(),
-                        cx,
-                    );
+            cx.listener(move |view, _event, window, cx| {
+                let relative_path = right_click_entry.relative_path.clone();
+                view.defer_app_update(window, cx, move |app, _window, cx| {
+                    app.prepare_file_context_menu_selection(relative_path, cx);
                 });
             }),
         )

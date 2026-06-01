@@ -123,11 +123,8 @@ impl SSHStore {
             .lock()
             .map_err(|_| "SSH profile store lock poisoned.".to_string())?
             .clone();
-        if let Some(parent) = self.state_file.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let data = serde_json::to_vec_pretty(&profiles).map_err(|error| error.to_string())?;
-        fs::write(&self.state_file, data).map_err(|error| error.to_string())
+        crate::config::ConfigDocumentStore::for_file(self.state_file.clone())
+            .save_snapshot(&profiles)
     }
 }
 
@@ -146,25 +143,14 @@ impl SSHService {
 
     pub fn summary(&self) -> SSHSummary {
         let wrapper_available = self.wrapper_path.is_file();
-        if !self.profiles_path.is_file() {
+        let Some(profiles): Option<Vec<SSHConnectionProfile>> =
+            crate::config::ConfigDocumentStore::for_file(self.profiles_path.clone()).snapshot_as()
+        else {
             return SSHSummary {
                 wrapper_available,
-                error: Some("ssh_profiles.json not found".to_string()),
+                error: Some("Unable to load ssh_profiles.json".to_string()),
                 ..Default::default()
             };
-        }
-        let profiles = match fs::read_to_string(&self.profiles_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<Vec<SSHConnectionProfile>>(&content).ok())
-        {
-            Some(profiles) => profiles,
-            None => {
-                return SSHSummary {
-                    wrapper_available,
-                    error: Some("Unable to parse ssh_profiles.json".to_string()),
-                    ..Default::default()
-                };
-            }
         };
         let mut profiles = profiles
             .into_iter()

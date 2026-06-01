@@ -52,6 +52,28 @@ impl FileEditorLayoutService {
         })
     }
 
+    pub fn load_many<'a, I>(
+        &self,
+        owner_ids: I,
+    ) -> std::collections::HashMap<String, FileEditorLayoutSummary>
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let store = crate::config::ConfigStore::for_file(self.state_file.clone());
+        owner_ids
+            .into_iter()
+            .map(|owner_id| {
+                let layout = store
+                    .get_path(&["fileEditorLayouts", owner_id])
+                    .and_then(|value| {
+                        serde_json::from_value::<FileEditorLayoutSummary>(value).ok()
+                    })
+                    .unwrap_or_default();
+                (owner_id.to_string(), layout)
+            })
+            .collect()
+    }
+
     pub fn save_from_gpui(
         &self,
         owner_id: &str,

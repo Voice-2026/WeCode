@@ -621,7 +621,7 @@ fn workspace_level_button(
         })
 }
 
-fn workspace_today_level_tokens(state: &RuntimeState) -> i64 {
+pub(in crate::app) fn workspace_today_level_tokens(state: &RuntimeState) -> i64 {
     let history_tokens = state.ai_global_history.today_total_tokens.max(0);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -638,7 +638,7 @@ fn workspace_today_level_tokens(state: &RuntimeState) -> i64 {
     history_tokens + live_tokens
 }
 
-fn workspace_live_session_tokens_for_day(
+pub(in crate::app) fn workspace_live_session_tokens_for_day(
     session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
     day_start: f64,
 ) -> i64 {

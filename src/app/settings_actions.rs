@@ -18,7 +18,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save font size: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_terminal_scrollback_lines(
@@ -40,7 +40,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save scrollback: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn terminal_config_from_settings(&self) -> TerminalConfig {
@@ -119,7 +119,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save theme: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_theme_color(
@@ -143,7 +143,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save theme color: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_icon_style(
@@ -161,7 +161,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save icon style: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_dock_badge(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -179,7 +179,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save dock badge: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_language(
@@ -195,7 +195,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save language: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_shell(
@@ -211,7 +211,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save shell: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_developer_hud(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -226,7 +226,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save developer HUD: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_developer_refresh(
@@ -247,7 +247,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save developer refresh: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_update_enabled(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -268,7 +268,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save update setting: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_statistics_mode(
@@ -289,7 +289,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save AI statistics mode: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_git_refresh(
@@ -306,7 +306,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save Git refresh: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_refresh(
@@ -323,7 +323,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save AI refresh: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_background_refresh(
@@ -344,7 +344,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save AI background refresh: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_enabled(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -363,7 +363,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save pet setting: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_desktop_widget(
@@ -390,7 +390,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save desktop pet setting: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_static_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -408,7 +408,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save pet static mode: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_reminders(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -426,7 +426,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save pet reminders: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_pet_speech_mode(
@@ -445,7 +445,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save pet speech mode: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_pet_speech_frequency(
@@ -466,7 +466,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save pet speech frequency: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_speech_llm_enabled(
@@ -488,7 +488,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save pet speech LLM: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_speech_quiet_during_work(
@@ -506,7 +506,7 @@ impl CoduxApp {
                     format!("failed to save pet speech work-hours setting: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_speech_louder_at_night(
@@ -523,7 +523,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save pet speech night setting: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_speech_mute_on_fullscreen(
@@ -541,7 +541,7 @@ impl CoduxApp {
                     format!("failed to save pet speech fullscreen setting: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_speech_quiet_hours(
@@ -559,7 +559,7 @@ impl CoduxApp {
                     format!("failed to save pet speech quiet-hours setting: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_pet_speech_temporary_mute(&mut self, muted: bool, cx: &mut Context<Self>) {
@@ -573,7 +573,7 @@ impl CoduxApp {
                     format!("failed to save pet speech temporary mute setting: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn normalize_selected_notification_channel(&mut self) {
@@ -619,7 +619,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save notification channel: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn update_notification_channel_string(
@@ -644,7 +644,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save notification channel: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn test_notification_channel(
@@ -655,7 +655,7 @@ impl CoduxApp {
     ) {
         if self.notification_testing_channel_id.is_some() {
             self.status_message = "notification test is already running".to_string();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         let service = self.runtime_service.clone();
@@ -676,7 +676,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn apply_notification_test_result(
@@ -707,7 +707,7 @@ impl CoduxApp {
                 self.status_message = format!("notification test failed: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_update_channel(
@@ -729,7 +729,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save update channel: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_sleep_mode(
@@ -749,7 +749,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save sleep mode: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn select_ai_provider(
@@ -767,12 +767,12 @@ impl CoduxApp {
         else {
             self.status_message = "AI provider is no longer available".to_string();
             self.normalize_selected_ai_provider();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         };
         self.selected_ai_provider_id = Some(provider.id.clone());
         self.status_message = format!("selected AI provider: {}", provider.display_name);
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_git_commit_provider(
@@ -794,7 +794,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to set Git commit provider: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_pet_speech_provider(
@@ -810,7 +810,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save pet LLM provider: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_global_prompt(
@@ -826,7 +826,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save AI global prompt: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_git_commit_style_rules(
@@ -844,7 +844,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save Git commit style rules: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn add_ai_provider(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -862,7 +862,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to add AI provider: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn remove_ai_provider(
@@ -882,7 +882,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to remove AI provider: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn update_ai_provider_string(
@@ -905,7 +905,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save AI provider: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_provider_bool(
@@ -928,7 +928,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save AI provider: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn test_ai_provider(
@@ -939,7 +939,7 @@ impl CoduxApp {
     ) {
         if self.ai_provider_testing_id.is_some() {
             self.status_message = "AI provider test is already running".to_string();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
         if !self
@@ -950,7 +950,7 @@ impl CoduxApp {
             .any(|provider| provider.id == provider_id)
         {
             self.status_message = "AI provider not found".to_string();
-            cx.notify();
+            self.invalidate_ui_region(cx, UiRegion::Root);
             return;
         }
 
@@ -973,7 +973,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn apply_ai_provider_test_result(
@@ -1006,7 +1006,7 @@ impl CoduxApp {
                 self.status_message = format!("AI provider test failed: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_memory_bool(
@@ -1024,7 +1024,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save memory setting: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_memory_number(
@@ -1041,7 +1041,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save memory setting: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_ai_memory_provider(
@@ -1057,7 +1057,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save memory provider: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_agent_split_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -1066,7 +1066,7 @@ impl CoduxApp {
             "agent split setting saved: {}",
             if enabled { "on" } else { "off" }
         );
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn record_shortcut(
@@ -1077,7 +1077,7 @@ impl CoduxApp {
     ) {
         self.recording_shortcut_id = Some(shortcut_id.to_string());
         self.status_message = "record shortcut, press Esc to cancel".to_string();
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn reset_shortcut(
@@ -1096,7 +1096,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to reset shortcut: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_git_commit_tone(
@@ -1115,7 +1115,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save Git commit style: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_git_commit_language(
@@ -1136,7 +1136,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save Git commit language: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_runtime_tool_permission(
@@ -1159,7 +1159,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to save {tool_key} permission: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_runtime_tool_model(
@@ -1180,7 +1180,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save {model_key}: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_codex_effort(
@@ -1200,7 +1200,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save Codex effort: {error}"),
         }
-        cx.notify();
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn normalize_selected_ai_provider(&mut self) {

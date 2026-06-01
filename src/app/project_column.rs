@@ -40,6 +40,23 @@ impl ProjectListStore {
         selected_project_id: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        let same_projects = self.projects.len() == projects.len()
+            && self
+                .projects
+                .iter()
+                .zip(projects.iter())
+                .all(|(left, right)| {
+                    left.id == right.id
+                        && left.name == right.name
+                        && left.path == right.path
+                        && left.exists == right.exists
+                        && left.badge == right.badge
+                        && left.badge_symbol == right.badge_symbol
+                        && left.badge_color_hex == right.badge_color_hex
+                });
+        if same_projects && self.selected_project_id == selected_project_id {
+            return;
+        }
         self.projects = Rc::new(projects);
         self.selected_project_id = selected_project_id;
         self.revision = self.revision.wrapping_add(1);

@@ -1981,7 +1981,6 @@ mod tests {
                     }
                 }),
                 projects: json!([]),
-                ai_runtime: json!({}),
                 ai_state: json!({}),
                 performance: json!({}),
                 ssh: json!({

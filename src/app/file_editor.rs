@@ -32,6 +32,8 @@ pub(in crate::app) struct FileEditorWorkspaceView {
     app_entity: gpui::Entity<CoduxApp>,
     snapshot: FileEditorWorkspaceSnapshot,
     chrome_view: Option<gpui::Entity<FileEditorChromeView>>,
+    tab_bar_view: Option<gpui::Entity<FileEditorTabBarView>>,
+    toolbar_view: Option<gpui::Entity<FileEditorToolbarView>>,
     content_view: Option<gpui::Entity<FileEditorContentView>>,
 }
 
@@ -44,6 +46,8 @@ impl FileEditorWorkspaceView {
             app_entity,
             snapshot,
             chrome_view: None,
+            tab_bar_view: None,
+            toolbar_view: None,
             content_view: None,
         }
     }
@@ -62,15 +66,46 @@ impl FileEditorWorkspaceView {
 
     fn chrome_view(
         &mut self,
-        snapshot: FileEditorWorkspaceSnapshot,
+        tab_bar_view: gpui::Entity<FileEditorTabBarView>,
+        toolbar_view: gpui::Entity<FileEditorToolbarView>,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<FileEditorChromeView> {
         if let Some(view) = &self.chrome_view {
+            view.update(cx, |view, cx| {
+                view.set_children(tab_bar_view, toolbar_view, cx)
+            });
+            return view.clone();
+        }
+        let view = cx.new(|_| FileEditorChromeView::new(tab_bar_view, toolbar_view));
+        self.chrome_view = Some(view.clone());
+        view
+    }
+
+    fn tab_bar_view(
+        &mut self,
+        snapshot: FileEditorTabBarSnapshot,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<FileEditorTabBarView> {
+        if let Some(view) = &self.tab_bar_view {
             view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
             return view.clone();
         }
-        let view = cx.new(|_| FileEditorChromeView::new(self.app_entity.clone(), snapshot));
-        self.chrome_view = Some(view.clone());
+        let view = cx.new(|_| FileEditorTabBarView::new(self.app_entity.clone(), snapshot));
+        self.tab_bar_view = Some(view.clone());
+        view
+    }
+
+    fn toolbar_view(
+        &mut self,
+        snapshot: FileEditorToolbarSnapshot,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<FileEditorToolbarView> {
+        if let Some(view) = &self.toolbar_view {
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+            return view.clone();
+        }
+        let view = cx.new(|_| FileEditorToolbarView::new(self.app_entity.clone(), snapshot));
+        self.toolbar_view = Some(view.clone());
         view
     }
 
@@ -87,13 +122,25 @@ impl FileEditorWorkspaceView {
         self.content_view = Some(view.clone());
         view
     }
-
 }
 
 impl Render for FileEditorWorkspaceView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let snapshot = self.snapshot.clone();
-        let chrome_view = self.chrome_view(snapshot.clone(), cx);
+        let tab_bar_view = self.tab_bar_view(
+            FileEditorTabBarSnapshot {
+                tabs: snapshot.tabs.clone(),
+                active_path: snapshot.active_path.clone(),
+            },
+            cx,
+        );
+        let toolbar_view = self.toolbar_view(
+            FileEditorToolbarSnapshot {
+                active_tab: snapshot.active_tab.clone(),
+            },
+            cx,
+        );
+        let chrome_view = self.chrome_view(tab_bar_view, toolbar_view, cx);
         let content_view = self.content_view(snapshot.active_editor.clone(), cx);
         file_editor_workspace(
             self.app_entity.clone(),
@@ -107,23 +154,106 @@ impl Render for FileEditorWorkspaceView {
 }
 
 pub(in crate::app) struct FileEditorChromeView {
-    app_entity: gpui::Entity<CoduxApp>,
-    snapshot: FileEditorWorkspaceSnapshot,
+    tab_bar_view: gpui::Entity<FileEditorTabBarView>,
+    toolbar_view: gpui::Entity<FileEditorToolbarView>,
 }
 
 impl FileEditorChromeView {
-    fn new(app_entity: gpui::Entity<CoduxApp>, snapshot: FileEditorWorkspaceSnapshot) -> Self {
+    fn new(
+        tab_bar_view: gpui::Entity<FileEditorTabBarView>,
+        toolbar_view: gpui::Entity<FileEditorToolbarView>,
+    ) -> Self {
+        Self {
+            tab_bar_view,
+            toolbar_view,
+        }
+    }
+
+    fn set_children(
+        &mut self,
+        tab_bar_view: gpui::Entity<FileEditorTabBarView>,
+        toolbar_view: gpui::Entity<FileEditorToolbarView>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.tab_bar_view.entity_id() == tab_bar_view.entity_id()
+            && self.toolbar_view.entity_id() == toolbar_view.entity_id()
+        {
+            return;
+        }
+        self.tab_bar_view = tab_bar_view;
+        self.toolbar_view = toolbar_view;
+        cx.notify();
+    }
+}
+
+impl Render for FileEditorChromeView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex_none()
+            .w_full()
+            .child(gpui::AnyView::from(self.tab_bar_view.clone()))
+            .child(gpui::AnyView::from(self.toolbar_view.clone()))
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct FileEditorTabBarSnapshot {
+    tabs: Vec<FileEditorTab>,
+    active_path: Option<String>,
+}
+
+pub(in crate::app) struct FileEditorTabBarView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: FileEditorTabBarSnapshot,
+}
+
+impl FileEditorTabBarView {
+    fn new(app_entity: gpui::Entity<CoduxApp>, snapshot: FileEditorTabBarSnapshot) -> Self {
         Self {
             app_entity,
             snapshot,
         }
     }
 
-    fn set_snapshot(
-        &mut self,
-        snapshot: FileEditorWorkspaceSnapshot,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_snapshot(&mut self, snapshot: FileEditorTabBarSnapshot, cx: &mut Context<Self>) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for FileEditorTabBarView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        file_editor_tab_bar(
+            self.app_entity.clone(),
+            self.snapshot.tabs.clone(),
+            self.snapshot.active_path.clone(),
+            cx,
+        )
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct FileEditorToolbarSnapshot {
+    active_tab: Option<FileEditorTab>,
+}
+
+pub(in crate::app) struct FileEditorToolbarView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: FileEditorToolbarSnapshot,
+}
+
+impl FileEditorToolbarView {
+    fn new(app_entity: gpui::Entity<CoduxApp>, snapshot: FileEditorToolbarSnapshot) -> Self {
+        Self {
+            app_entity,
+            snapshot,
+        }
+    }
+
+    fn set_snapshot(&mut self, snapshot: FileEditorToolbarSnapshot, cx: &mut Context<Self>) {
         if self.snapshot == snapshot {
             return;
         }
@@ -147,29 +277,13 @@ impl FileEditorChromeView {
     }
 }
 
-impl Render for FileEditorChromeView {
+impl Render for FileEditorToolbarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let FileEditorWorkspaceSnapshot {
-            tabs,
-            active_path,
-            active_tab,
-            active_editor: _,
-        } = self.snapshot.clone();
-
-        div()
-            .flex_none()
-            .w_full()
-            .child(file_editor_tab_bar(
-                self.app_entity.clone(),
-                tabs,
-                active_path,
-                cx,
-            ))
-            .child(file_editor_toolbar(
-                self.app_entity.clone(),
-                active_tab,
-                cx,
-            ))
+        file_editor_toolbar(
+            self.app_entity.clone(),
+            self.snapshot.active_tab.clone(),
+            cx,
+        )
     }
 }
 
@@ -182,11 +296,7 @@ impl FileEditorContentView {
         Self { editor }
     }
 
-    fn set_editor(
-        &mut self,
-        editor: Option<gpui::Entity<InputState>>,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_editor(&mut self, editor: Option<gpui::Entity<InputState>>, cx: &mut Context<Self>) {
         if self.editor.as_ref().map(|editor| editor.entity_id())
             == editor.as_ref().map(|editor| editor.entity_id())
         {
@@ -199,12 +309,9 @@ impl FileEditorContentView {
 
 impl Render for FileEditorContentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .size_full()
-            .when_some(self.editor.clone(), |this, editor| {
+        div().flex_1().min_w_0().min_h_0().size_full().when_some(
+            self.editor.clone(),
+            |this, editor| {
                 this.child(
                     Input::new(&editor)
                         .appearance(false)
@@ -212,7 +319,8 @@ impl Render for FileEditorContentView {
                         .text_size(cx.theme().mono_font_size)
                         .size_full(),
                 )
-            })
+            },
+        )
     }
 }
 
@@ -230,11 +338,12 @@ impl CoduxApp {
         };
         let key = self.file_editor_state_key(&relative_path);
 
-        if !self
+        let tab_exists = self
             .file_editor_tabs
             .iter()
-            .any(|tab| tab.relative_path == relative_path)
-        {
+            .any(|tab| tab.relative_path == relative_path);
+
+        if !tab_exists {
             match self
                 .runtime_service
                 .read_project_file_edit_buffer(&worktree_path, &relative_path)
@@ -263,6 +372,8 @@ impl CoduxApp {
                     return;
                 }
             }
+        } else {
+            self.ensure_file_editor_state_for_path(relative_path.clone(), window, cx);
         }
 
         self.workspace_view = WorkspaceView::Files;
@@ -295,21 +406,20 @@ impl CoduxApp {
     ) {
         self.active_file_editor_tab = Some(relative_path.clone());
         self.set_single_file_selection(relative_path.clone());
+        self.ensure_file_editor_state_for_path(relative_path, window, cx);
         if let Some(editor) = self.active_file_editor_state() {
             editor.update(cx, |state, cx| state.focus(window, cx));
         }
         self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
-        self.invalidate_ui(
-            cx,
-            [UiRegion::WorkspaceBody, UiRegion::FileSidebar, UiRegion::StatusBar],
-        );
+        self.update_file_editor_workspace_view(window, cx);
+        self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
     }
 
     pub(super) fn close_file_editor_tab(
         &mut self,
         relative_path: String,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(index) = self
@@ -336,16 +446,15 @@ impl CoduxApp {
         }
         self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
-        self.invalidate_ui(
-            cx,
-            [UiRegion::WorkspaceBody, UiRegion::FileSidebar, UiRegion::StatusBar],
-        );
+        self.update_file_editor_workspace_view(window, cx);
+        self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
     }
 
     pub(super) fn mark_file_editor_dirty(
         &mut self,
         relative_path: &str,
         dirty: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(tab) = self
@@ -359,7 +468,7 @@ impl CoduxApp {
             self.file_dirty = dirty;
         }
         if self.workspace_view == WorkspaceView::Files {
-            self.invalidate_workspace_body(cx);
+            self.update_file_editor_workspace_view(window, cx);
         }
     }
 
@@ -368,6 +477,45 @@ impl CoduxApp {
         self.file_editor_states
             .get(&self.file_editor_state_key(relative_path))
             .cloned()
+    }
+
+    pub(super) fn ensure_active_file_editor_state(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(relative_path) = self.active_file_editor_tab.clone() else {
+            self.file_dirty = false;
+            return;
+        };
+        self.ensure_file_editor_state_for_path(relative_path, window, cx);
+    }
+
+    pub(super) fn ensure_file_editor_state_for_path(
+        &mut self,
+        relative_path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Entity<InputState>> {
+        let key = self.file_editor_state_key(&relative_path);
+        if let Some(state) = self.file_editor_states.get(&key) {
+            return Some(state.clone());
+        }
+        let worktree_path = self.selected_worktree_path()?;
+        let (content, editable) = self
+            .runtime_service
+            .read_project_file_edit_buffer(&worktree_path, &relative_path)
+            .ok()?;
+        let language = file_language_for_path(&relative_path).to_string();
+        if let Some(tab) = self
+            .file_editor_tabs
+            .iter_mut()
+            .find(|tab| tab.relative_path == relative_path)
+        {
+            tab.editable = editable;
+            tab.language = language.clone();
+        }
+        Some(self.ensure_file_editor_state(key, relative_path, language, content, window, cx))
     }
 
     pub(super) fn ensure_visible_file_editor_states(
@@ -424,9 +572,9 @@ impl CoduxApp {
                 })
                 .default_value(content)
         });
-        cx.subscribe_in(&state, window, move |app, _state, event, _window, cx| {
+        cx.subscribe_in(&state, window, move |app, _state, event, window, cx| {
             if matches!(event, InputEvent::Change) {
-                app.mark_file_editor_dirty(&relative_path, true, cx);
+                app.mark_file_editor_dirty(&relative_path, true, window, cx);
             }
         })
         .detach();
@@ -438,33 +586,9 @@ impl CoduxApp {
         if layout.tabs.is_empty() {
             return;
         }
-        self.file_editor_tabs = layout
-            .tabs
-            .into_iter()
-            .map(|tab| FileEditorTab {
-                label: tab.label,
-                relative_path: tab.path,
-                editable: true,
-                dirty: false,
-                language: if tab.language.trim().is_empty() {
-                    "text".to_string()
-                } else {
-                    tab.language
-                },
-            })
-            .collect();
-        self.active_file_editor_tab = layout
-            .active_path
-            .filter(|active| {
-                self.file_editor_tabs
-                    .iter()
-                    .any(|tab| tab.relative_path == *active)
-            })
-            .or_else(|| {
-                self.file_editor_tabs
-                    .first()
-                    .map(|tab| tab.relative_path.clone())
-            });
+        let (tabs, active_path) = super::app_state::file_editor_tabs_from_layout(layout);
+        self.file_editor_tabs = tabs;
+        self.active_file_editor_tab = active_path;
         if let Some(active) = self.active_file_editor_tab.clone() {
             self.set_single_file_selection(active);
         }
@@ -514,11 +638,10 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn file_editor_workspace_snapshot(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
     ) -> FileEditorWorkspaceSnapshot {
-        self.ensure_visible_file_editor_states(window, cx);
         let tabs = self.file_editor_tabs.clone();
         let active_path = self.active_file_editor_tab.clone();
         let active_tab = self
@@ -610,7 +733,7 @@ fn file_editor_tab_bar(
     app_entity: gpui::Entity<CoduxApp>,
     tabs: Vec<FileEditorTab>,
     active_path: Option<String>,
-    cx: &mut Context<FileEditorChromeView>,
+    cx: &mut Context<FileEditorTabBarView>,
 ) -> impl IntoElement {
     div()
         .h(px(FILE_EDITOR_TAB_BAR_HEIGHT))
@@ -643,7 +766,7 @@ fn file_editor_tab_button(
     app_entity: gpui::Entity<CoduxApp>,
     tab: FileEditorTab,
     active: bool,
-    cx: &mut Context<FileEditorChromeView>,
+    cx: &mut Context<FileEditorTabBarView>,
 ) -> AnyElement {
     let select_path = tab.relative_path.clone();
     let close_path = tab.relative_path.clone();
@@ -740,7 +863,7 @@ fn file_editor_tab_button(
 fn file_editor_toolbar(
     app_entity: gpui::Entity<CoduxApp>,
     active_tab: Option<FileEditorTab>,
-    cx: &mut Context<FileEditorChromeView>,
+    cx: &mut Context<FileEditorToolbarView>,
 ) -> impl IntoElement {
     let active_dirty = active_tab.as_ref().is_some_and(|tab| tab.dirty);
     let read_only = active_tab.as_ref().is_none_or(|tab| !tab.editable);
@@ -837,7 +960,12 @@ fn file_editor_toolbar(
                     app_entity.clone(),
                     "file-editor-search",
                     HeroIconName::MagnifyingGlass,
-                    file_editor_i18n(app_entity.clone(), cx, "shortcut.editor.search", "Search File"),
+                    file_editor_i18n(
+                        app_entity.clone(),
+                        cx,
+                        "shortcut.editor.search",
+                        "Search File",
+                    ),
                     cx.theme().secondary_foreground,
                     false,
                     cx,
@@ -905,12 +1033,12 @@ fn file_editor_toolbar_button(
     tooltip: String,
     icon_color: gpui::Hsla,
     disabled: bool,
-    cx: &mut Context<FileEditorChromeView>,
+    cx: &mut Context<FileEditorToolbarView>,
     on_click: impl Fn(
-        &mut FileEditorChromeView,
+        &mut FileEditorToolbarView,
         &gpui::ClickEvent,
         &mut Window,
-        &mut Context<FileEditorChromeView>,
+        &mut Context<FileEditorToolbarView>,
     ) + 'static,
 ) -> impl IntoElement {
     codux_tooltip_container(app_entity, id, tooltip).child(
@@ -941,7 +1069,7 @@ fn file_editor_parent_label(relative_path: &str, label: &str) -> String {
 
 fn file_editor_i18n(
     app_entity: gpui::Entity<CoduxApp>,
-    cx: &mut Context<FileEditorChromeView>,
+    cx: &mut Context<FileEditorToolbarView>,
     key: &str,
     fallback: &str,
 ) -> String {

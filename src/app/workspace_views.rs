@@ -55,21 +55,30 @@ impl Render for WorkspaceColumnView {
 
 pub(in crate::app) struct WorkspaceToolbarView {
     app_entity: gpui::Entity<CoduxApp>,
-    _observe_app: Option<Subscription>,
+    snapshot: WorkspaceToolbarSnapshot,
 }
 
 impl WorkspaceToolbarView {
-    pub(in crate::app) fn new(app_entity: gpui::Entity<CoduxApp>) -> Self {
+    pub(in crate::app) fn new(
+        app_entity: gpui::Entity<CoduxApp>,
+        snapshot: WorkspaceToolbarSnapshot,
+    ) -> Self {
         Self {
             app_entity,
-            _observe_app: None,
+            snapshot,
         }
     }
 
-    pub(in crate::app) fn observe_app(&mut self, cx: &mut Context<Self>) {
-        if self._observe_app.is_none() {
-            self._observe_app = Some(cx.observe(&self.app_entity, |_, _, cx| cx.notify()));
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: WorkspaceToolbarSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
         }
+        self.snapshot = snapshot;
+        cx.notify();
     }
 }
 
@@ -87,8 +96,9 @@ impl Render for WorkspaceToolbarView {
 
 pub(in crate::app) struct WorkspaceBodyView {
     app_entity: gpui::Entity<CoduxApp>,
-    terminal_workspace_view: Option<gpui::Entity<TerminalWorkspaceView>>,
-    file_editor_workspace_view: Option<gpui::Entity<file_editor::FileEditorWorkspaceView>>,
+    pub(in crate::app) terminal_workspace_view: Option<gpui::Entity<TerminalWorkspaceView>>,
+    pub(in crate::app) file_editor_workspace_view:
+        Option<gpui::Entity<file_editor::FileEditorWorkspaceView>>,
 }
 
 impl WorkspaceBodyView {
@@ -139,23 +149,92 @@ impl Render for WorkspaceBodyView {
 
 pub(in crate::app) struct WorkspaceAssistantView {
     app_entity: gpui::Entity<CoduxApp>,
+    snapshot: WorkspaceAssistantSnapshot,
 }
 
 impl WorkspaceAssistantView {
-    pub(in crate::app) fn new(app_entity: gpui::Entity<CoduxApp>) -> Self {
-        Self { app_entity }
+    pub(in crate::app) fn new(
+        app_entity: gpui::Entity<CoduxApp>,
+        snapshot: WorkspaceAssistantSnapshot,
+    ) -> Self {
+        Self {
+            app_entity,
+            snapshot,
+        }
+    }
+
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: WorkspaceAssistantSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
     }
 }
 
 impl Render for WorkspaceAssistantView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.app_entity.update(cx, |app, cx| {
-            app.assistant_column(window, cx).into_any_element()
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.clone();
+        let app_entity = self.app_entity.clone();
+        div().when_some(snapshot.panel, |this, panel| {
+            this.when(
+                snapshot.has_project || panel == AssistantPanel::SSH,
+                |this| {
+                    this.flex()
+                        .flex_col()
+                        .w(px(318.0))
+                        .h_full()
+                        .bg(color(theme::BG_COLUMN))
+                        .border_l_1()
+                        .border_color(cx.theme().sidebar_border)
+                        .child(match panel {
+                            AssistantPanel::AIStats => self.app_entity.update(cx, |app, cx| {
+                                gpui::AnyView::from(app.ai_stats_sidebar_view(cx))
+                                    .into_any_element()
+                            }),
+                            AssistantPanel::SSH => self.app_entity.update(cx, |app, cx| {
+                                gpui::AnyView::from(app.ssh_sidebar_view(cx)).into_any_element()
+                            }),
+                            AssistantPanel::FileManager => self.app_entity.update(cx, |app, cx| {
+                                gpui::AnyView::from(app.file_sidebar_view(cx))
+                                    .cached(
+                                        gpui::StyleRefinement::default()
+                                            .flex()
+                                            .flex_col()
+                                            .w_full()
+                                            .h_full()
+                                            .min_h_0(),
+                                    )
+                                    .into_any_element()
+                            }),
+                            AssistantPanel::Git => app_entity.update(cx, |app, cx| {
+                                gpui::AnyView::from(app.git_sidebar_view(cx)).into_any_element()
+                            }),
+                        })
+                },
+            )
         })
     }
 }
 
 impl CoduxApp {
+    pub(in crate::app) fn workspace_toolbar_snapshot(&self) -> WorkspaceToolbarSnapshot {
+        WorkspaceToolbarSnapshot {
+            fingerprint: workspace_toolbar_fingerprint(self),
+        }
+    }
+
+    pub(in crate::app) fn workspace_assistant_snapshot(&self) -> WorkspaceAssistantSnapshot {
+        WorkspaceAssistantSnapshot {
+            panel: self.assistant_panel,
+            has_project: self.state.selected_project.is_some(),
+        }
+    }
+
     pub(in crate::app) fn workspace_column_view(
         &mut self,
         cx: &mut Context<Self>,
@@ -176,11 +255,13 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) -> gpui::Entity<WorkspaceToolbarView> {
         if let Some(view) = &self.workspace_toolbar_view {
+            let snapshot = self.workspace_toolbar_snapshot();
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
             return view.clone();
         }
         let app_entity = cx.entity();
-        let view = cx.new(|_| WorkspaceToolbarView::new(app_entity));
-        view.update(cx, |view, cx| view.observe_app(cx));
+        let snapshot = self.workspace_toolbar_snapshot();
+        let view = cx.new(|_| WorkspaceToolbarView::new(app_entity, snapshot));
         self.workspace_toolbar_view = Some(view.clone());
         view
     }
@@ -203,13 +284,129 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) -> gpui::Entity<WorkspaceAssistantView> {
         if let Some(view) = &self.workspace_assistant_view {
+            let snapshot = self.workspace_assistant_snapshot();
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
             return view.clone();
         }
         let app_entity = cx.entity();
-        let view = cx.new(|_| WorkspaceAssistantView::new(app_entity));
+        let snapshot = self.workspace_assistant_snapshot();
+        let view = cx.new(|_| WorkspaceAssistantView::new(app_entity, snapshot));
         self.workspace_assistant_view = Some(view.clone());
         view
     }
+}
+
+#[derive(Clone, PartialEq)]
+pub(in crate::app) struct WorkspaceToolbarSnapshot {
+    fingerprint: u64,
+}
+
+#[derive(Clone, PartialEq)]
+pub(in crate::app) struct WorkspaceAssistantSnapshot {
+    panel: Option<AssistantPanel>,
+    has_project: bool,
+}
+
+fn workspace_toolbar_fingerprint(app: &CoduxApp) -> u64 {
+    workspace_view_hash(&(
+        workspace_view_key(app.workspace_view),
+        assistant_panel_key(app.assistant_panel),
+        app.state.selected_project.as_ref().map(|project| {
+            (
+                project.id.clone(),
+                project.name.clone(),
+                project.path.clone(),
+            )
+        }),
+        app.state.settings.language.clone(),
+        app.state.settings.pet_enabled,
+        !app.state.projects.is_empty(),
+        app.project_open_applications
+            .iter()
+            .filter(|application| application.installed)
+            .map(|application| {
+                (
+                    application.id.clone(),
+                    application.label.clone(),
+                    application.category.clone(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        workspace_pet_fingerprint(app),
+        super::workspace::workspace_today_level_tokens(&app.state),
+    ))
+}
+
+fn workspace_view_hash<T: std::hash::Hash + ?Sized>(value: &T) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hash::hash(value, &mut hasher);
+    std::hash::Hasher::finish(&hasher)
+}
+
+fn workspace_view_key(view: WorkspaceView) -> &'static str {
+    match view {
+        WorkspaceView::Terminal => "terminal",
+        WorkspaceView::Files => "files",
+        WorkspaceView::Review => "review",
+    }
+}
+
+fn assistant_panel_key(panel: Option<AssistantPanel>) -> &'static str {
+    match panel {
+        Some(AssistantPanel::AIStats) => "ai_stats",
+        Some(AssistantPanel::SSH) => "ssh",
+        Some(AssistantPanel::FileManager) => "file_manager",
+        Some(AssistantPanel::Git) => "git",
+        None => "none",
+    }
+}
+
+fn workspace_pet_fingerprint(app: &CoduxApp) -> u64 {
+    workspace_view_hash(&[
+        workspace_view_hash(&(
+            app.state.pet.available,
+            app.state.pet.claimed,
+            app.state.pet.species.clone(),
+            app.state.pet.display_name.clone(),
+            app.state.pet.custom_name.clone(),
+        )),
+        workspace_view_hash(&(
+            app.state.pet.level,
+            app.state.pet.total_xp,
+            app.state.pet.daily_xp,
+            app.state.pet.archived_count,
+            app.state.pet.custom_pet_count,
+            app.state.pet.updated_at,
+        )),
+        workspace_view_hash(&(app.pet_snapshot.updated_at, app.pet_snapshot.progress.level)),
+        workspace_view_hash(
+            &app.pet_custom_pets
+                .iter()
+                .map(|pet| (pet.id.clone(), pet.display_name.clone(), pet.installed_at))
+                .collect::<Vec<_>>(),
+        ),
+        workspace_view_hash(&(
+            app.pet_install_url.clone(),
+            app.pet_install_display_name.clone(),
+            app.pet_install_error.clone(),
+            app.pet_install_previewing,
+            app.pet_installing,
+        )),
+        workspace_view_hash(&app.pet_install_preview.as_ref().map(|preview| {
+            (
+                preview.page_url.clone(),
+                preview.zip_url.clone(),
+                preview.slug.clone(),
+                preview.display_name.clone(),
+                preview.image_url.clone(),
+                preview.local_image_path.clone(),
+            )
+        })),
+        workspace_view_hash(&(
+            app.pet_name_editing,
+            app.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT),
+        )),
+    ])
 }
 
 #[derive(Clone, PartialEq)]
@@ -255,7 +452,11 @@ impl TerminalWorkspaceView {
         }
     }
 
-    fn set_snapshot(&mut self, snapshot: TerminalWorkspaceSnapshot, cx: &mut Context<Self>) {
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: TerminalWorkspaceSnapshot,
+        cx: &mut Context<Self>,
+    ) {
         if self.snapshot == snapshot {
             return;
         }
@@ -323,6 +524,34 @@ impl Render for TerminalWorkspaceView {
 }
 
 impl CoduxApp {
+    pub(in crate::app) fn update_file_editor_workspace_view(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(view) = self
+            .workspace_body_view
+            .as_ref()
+            .and_then(|view| view.read(cx).file_editor_workspace_view.clone())
+        else {
+            return;
+        };
+        let snapshot = self.file_editor_workspace_snapshot(window, cx);
+        view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+    }
+
+    pub(in crate::app) fn update_terminal_workspace_view(&mut self, cx: &mut Context<Self>) {
+        let Some(view) = self
+            .workspace_body_view
+            .as_ref()
+            .and_then(|view| view.read(cx).terminal_workspace_view.clone())
+        else {
+            return;
+        };
+        let snapshot = self.terminal_workspace_snapshot();
+        view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+    }
+
     pub(in crate::app) fn terminal_workspace_snapshot(&self) -> TerminalWorkspaceSnapshot {
         let main_panes = self
             .main_terminal()

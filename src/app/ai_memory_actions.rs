@@ -4,7 +4,7 @@ use crate::app::app_events::publish_memory_update;
 impl CoduxApp {
     pub(super) fn reload_ai_history(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.start_ai_history_refresh(true, cx);
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn refresh_ai_history_after_project_switch(&mut self, cx: &mut Context<Self>) {
@@ -37,7 +37,7 @@ impl CoduxApp {
                 self.refresh_ai_global_history_summary();
                 self.normalize_selected_ai_session();
                 self.save_current_project_view_state();
-                self.notify_task_column(cx);
+                self.invalidate_task_column(cx);
             }
             Err(error) => {
                 self.state.ai_history.error = Some(error.clone());
@@ -56,7 +56,7 @@ impl CoduxApp {
             timer.timer(Duration::from_secs(3)).await;
             let _ = this.update(cx, |app, cx| {
                 if app.ai_index_progress_generation == generation {
-                    cx.notify();
+                    app.invalidate_memory_panel(cx);
                 }
             });
         })
@@ -76,7 +76,7 @@ impl CoduxApp {
             timer.timer(Duration::from_secs_f64(seconds)).await;
             let _ = this.update(cx, |app, cx| {
                 if app.memory_progress_generation == generation {
-                    cx.notify();
+                    app.invalidate_memory_panel(cx);
                 }
             });
         })
@@ -113,8 +113,8 @@ impl CoduxApp {
                                 status.last_error.clone();
                             app.memory_processing = active;
                             app.memory_extraction_status_refreshing = active;
-                            app.notify_status_bar(cx);
-                            cx.notify();
+                            app.invalidate_status_bar(cx);
+                            app.invalidate_memory_panel(cx);
                         });
                         active
                     }
@@ -123,8 +123,8 @@ impl CoduxApp {
                             app.memory_processing = false;
                             app.memory_extraction_status_refreshing = false;
                             app.state.memory_manager.extraction.last_error = Some(error);
-                            app.notify_status_bar(cx);
-                            cx.notify();
+                            app.invalidate_status_bar(cx);
+                            app.invalidate_memory_panel(cx);
                         });
                         false
                     }
@@ -154,13 +154,13 @@ impl CoduxApp {
         else {
             self.status_message = "AI session is no longer available".to_string();
             self.normalize_selected_ai_session();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         self.selected_ai_session_id = Some(session_id);
         self.reload_selected_ai_session_detail();
         self.status_message = format!("selected AI session: {session_title}");
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn selected_ai_session(&self) -> Option<&AISessionSummary> {
@@ -232,14 +232,14 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for AI session removal".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
         let project_request = ai_history_worktree_request(project, worktree.as_ref());
         let Some(session) = self.selected_ai_session().cloned() else {
             self.status_message = "no AI session to remove".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         match self
@@ -262,7 +262,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to remove AI session: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn request_remove_ai_session(
@@ -281,20 +281,20 @@ impl CoduxApp {
         else {
             self.status_message = "AI session is no longer available".to_string();
             self.normalize_selected_ai_session();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         self.selected_ai_session_id = Some(session_id.clone());
         self.ai_session_delete_confirm_id = Some(session_id);
         self.reload_selected_ai_session_detail();
         self.status_message = format!("confirm AI session removal: {session_title}");
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn cancel_remove_ai_session(&mut self, cx: &mut Context<Self>) {
         self.ai_session_delete_confirm_id = None;
         self.status_message = "AI session removal cancelled".to_string();
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn confirm_remove_ai_session(
@@ -304,7 +304,7 @@ impl CoduxApp {
     ) {
         let Some(session_id) = self.ai_session_delete_confirm_id.clone() else {
             self.status_message = "no AI session removal to confirm".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         self.selected_ai_session_id = Some(session_id);
@@ -320,19 +320,19 @@ impl CoduxApp {
         let title = title.trim().to_string();
         if title.is_empty() {
             self.status_message = "AI session title cannot be empty".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         }
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for AI session rename".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
         let project_request = ai_history_worktree_request(project, worktree.as_ref());
         let Some(session) = self.selected_ai_session().cloned() else {
             self.status_message = "no AI session to rename".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         match self.runtime_service.rename_indexed_ai_session(
@@ -351,7 +351,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to rename AI session: {error}"),
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn refresh_ai_global_history_summary(&mut self) {
@@ -378,12 +378,12 @@ impl CoduxApp {
     ) {
         if self.state.selected_project.is_none() {
             self.status_message = "no selected project for AI session restore".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         }
         let Some(session) = self.selected_ai_session().cloned() else {
             self.status_message = "no AI session to restore".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         prepare_memory_launch_artifacts(&self.state);
@@ -403,7 +403,7 @@ impl CoduxApp {
     ) {
         if self.memory_processing {
             self.status_message = "memory processing is already running".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         }
 
@@ -417,7 +417,7 @@ impl CoduxApp {
         self.status_message = "memory processing started".to_string();
         self.runtime_trace("memory", "manual_process start");
         publish_memory_update();
-        self.notify_status_bar(cx);
+        self.invalidate_status_bar(cx);
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn_blocking({
@@ -462,8 +462,8 @@ impl CoduxApp {
                         if active {
                             app.start_memory_extraction_status_refresh(cx);
                         }
-                        app.notify_status_bar(cx);
-                        cx.notify();
+                        app.invalidate_status_bar(cx);
+                        app.invalidate_memory_panel(cx);
                     });
                     let process_result = codux_runtime::async_runtime::spawn(async move {
                         service.process_memory_extraction_queue().await
@@ -486,14 +486,14 @@ impl CoduxApp {
                             &format!("manual_process enqueue_failed error={error}"),
                         );
                         publish_memory_update();
-                        app.notify_status_bar(cx);
-                        cx.notify();
+                        app.invalidate_status_bar(cx);
+                        app.invalidate_memory_panel(cx);
                     });
                 }
             }
         })
         .detach();
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn apply_memory_processing_result(
@@ -516,7 +516,7 @@ impl CoduxApp {
                 self.normalize_selected_memory_entry();
                 self.normalize_selected_memory_summary();
                 publish_memory_update();
-                self.notify_status_bar(cx);
+                self.invalidate_status_bar(cx);
                 self.status_message = format!(
                     "memory indexed · checked {} · enqueued {} · pending {}",
                     status.checked_count, status.enqueued_count, status.pending_count
@@ -538,11 +538,11 @@ impl CoduxApp {
                 self.state.memory_manager.extraction.running = 0;
                 self.reload_memory_manager_snapshot();
                 publish_memory_update();
-                self.notify_status_bar(cx);
+                self.invalidate_status_bar(cx);
                 self.status_message = format!("failed to process memory: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn cancel_memory_extraction_queue(
@@ -580,7 +580,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to cancel memory queue: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn select_memory_entry(
@@ -599,12 +599,12 @@ impl CoduxApp {
         else {
             self.status_message = "memory entry is no longer available".to_string();
             self.normalize_selected_memory_entry();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         self.selected_memory_entry_id = Some(entry.id.clone());
         self.status_message = format!("selected memory: {}", entry.content);
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn archive_selected_memory_entry(
@@ -636,7 +636,7 @@ impl CoduxApp {
                 .map(|entry| entry.id.clone())
         }) else {
             self.status_message = "no memory entry selected".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let project_id = self.memory_manager_project_id.as_deref();
@@ -652,7 +652,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to delete memory: {error}"),
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn delete_selected_memory_summary(
@@ -668,7 +668,7 @@ impl CoduxApp {
                 .map(|summary| summary.id.clone())
         }) else {
             self.status_message = "no memory summary selected".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let project_id = self.memory_manager_project_id.as_deref();
@@ -684,7 +684,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to delete memory summary: {error}"),
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn update_memory_summary_content(
@@ -697,7 +697,7 @@ impl CoduxApp {
         let content = content.trim().to_string();
         if content.is_empty() {
             self.status_message = "memory summary content cannot be empty".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         }
         match self
@@ -720,7 +720,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to update memory summary: {error}"),
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn delete_selected_memory_project_profile(
@@ -730,7 +730,7 @@ impl CoduxApp {
     ) {
         let Some(project_id) = self.memory_manager_project_id.clone() else {
             self.status_message = "no selected project profile".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         match self
@@ -746,7 +746,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to delete project profile: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn delete_selected_memory_project(
@@ -756,7 +756,7 @@ impl CoduxApp {
     ) {
         let Some(project_id) = self.memory_manager_project_id.clone() else {
             self.status_message = "no selected project memory".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         match self.runtime_service.delete_memory_project(&project_id) {
@@ -769,7 +769,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to delete project memory: {error}"),
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn migrate_selected_memory_project_to(
@@ -780,7 +780,7 @@ impl CoduxApp {
     ) {
         let Some(from_project_id) = self.memory_manager_project_id.clone() else {
             self.status_message = "no selected project memory to migrate".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         match self
@@ -804,7 +804,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to migrate project memory: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn refresh_selected_memory_project_profile(
@@ -814,7 +814,7 @@ impl CoduxApp {
     ) {
         let Some(project_id) = self.memory_manager_project_id.clone() else {
             self.status_message = "no selected project profile".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let service = self.runtime_service.clone();
@@ -839,7 +839,7 @@ impl CoduxApp {
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn apply_memory_project_profile_refresh_result(
@@ -911,7 +911,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to refresh project profile: {error}")
             }
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn set_memory_manager_tab(&mut self, tab: MemoryManagerTab, cx: &mut Context<Self>) {
@@ -970,7 +970,7 @@ impl CoduxApp {
             if let Some(dialog_error) = dialog_error {
                 let _ = this.update(cx, |app, cx| {
                     app.status_message = format!("failed to show memory alert: {dialog_error}");
-                    cx.notify();
+                    app.invalidate_memory_panel(cx);
                 });
             }
         })
@@ -986,7 +986,7 @@ impl CoduxApp {
                 .map(|entry| entry.id.clone())
         }) else {
             self.status_message = "no memory entry selected".to_string();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let project_id = self.memory_manager_project_id.as_deref();
@@ -1007,7 +1007,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to update memory: {error}"),
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn normalize_selected_memory_entry(&mut self) {
@@ -1102,11 +1102,11 @@ impl CoduxApp {
                         app.status_message = format!("failed to reload memory manager: {error}");
                     }
                 }
-                cx.notify();
+                app.invalidate_memory_panel(cx);
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 
     pub(super) fn selected_runtime_session(&self) -> Option<&RuntimeSessionSummary> {
@@ -1159,7 +1159,7 @@ impl CoduxApp {
         else {
             self.status_message = "runtime session is no longer available".to_string();
             self.normalize_selected_runtime_session();
-            cx.notify();
+            self.invalidate_memory_panel(cx);
             return;
         };
         let session_title = session.session_title.clone();
@@ -1189,7 +1189,7 @@ impl CoduxApp {
             self.active_terminal_id = tab_id;
             if let Err(error) = self.ensure_active_terminal_mounted(cx) {
                 self.status_message = format!("failed to focus terminal session: {error}");
-                cx.notify();
+                self.invalidate_memory_panel(cx);
                 return;
             }
             if let Some(view) = self.active_terminal_view() {
@@ -1206,6 +1206,6 @@ impl CoduxApp {
                 session_title, session_terminal_id
             );
         }
-        cx.notify();
+        self.invalidate_memory_panel(cx);
     }
 }

@@ -4,13 +4,13 @@ impl CoduxApp {
     pub(super) fn reload_project_files(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to refresh".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let project_name = project.name.clone();
         let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = "no selected worktree to refresh".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         self.state.files = self
@@ -33,12 +33,13 @@ impl CoduxApp {
                 self.state.files.len()
             ),
         );
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn reset_file_tree_cache(&mut self) {
         self.file_tree_expanded_dirs.clear();
         self.file_tree_children.clear();
+        self.record_ui_cache_clear("file_tree");
     }
 
     pub(super) fn file_tree_entry(&self, path: &str) -> Option<FileEntry> {
@@ -82,7 +83,7 @@ impl CoduxApp {
         } else {
             self.set_single_file_selection(relative_path);
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn reload_file_tree_directory(&mut self, directory_path: &str) {
@@ -110,6 +111,7 @@ impl CoduxApp {
             .cloned()
             .collect::<Vec<_>>();
         self.file_tree_children.clear();
+        self.record_ui_cache_clear("file_tree_children");
         for directory_path in expanded {
             let children = self
                 .runtime_service
@@ -154,7 +156,7 @@ impl CoduxApp {
             self.status_message = format!("directory expanded: {relative_path}");
         }
         self.save_current_worktree_view_state();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn open_file_entry(
@@ -174,7 +176,7 @@ impl CoduxApp {
         self.set_single_file_selection(relative_path.clone());
         self.status_message = format!("selected file item: {relative_path}");
         self.save_current_worktree_view_state();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn toggle_file_entry_selection(
@@ -197,7 +199,7 @@ impl CoduxApp {
             plural(self.selected_file_entries.len())
         );
         self.save_current_worktree_view_state();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn select_file_entry_from_click(
@@ -253,7 +255,7 @@ impl CoduxApp {
             plural(self.selected_file_entries.len())
         );
         self.save_current_worktree_view_state();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn visible_file_tree_paths(&self) -> Vec<String> {
@@ -307,13 +309,13 @@ impl CoduxApp {
             } else {
                 "file item is already in that directory".to_string()
             };
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
 
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file move".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         self.status_message = format!(
@@ -380,16 +382,16 @@ impl CoduxApp {
                 ),
                 Ok(false) => {
                     app.status_message = "file move canceled".to_string();
-                    cx.notify();
+                    app.invalidate_file_panel(cx);
                 }
                 Err(error) => {
                     app.status_message = format!("failed to show move confirmation: {error}");
-                    cx.notify();
+                    app.invalidate_file_panel(cx);
                 }
             });
         })
         .detach();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn move_file_entries_to_directory_confirmed(
@@ -401,7 +403,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file move".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let project_path = project.path.clone();
@@ -433,7 +435,7 @@ impl CoduxApp {
                 }
                 Err(error) => {
                     self.status_message = format!("failed to move {path}: {error}");
-                    cx.notify();
+                    self.invalidate_file_panel(cx);
                     return;
                 }
             }
@@ -454,7 +456,7 @@ impl CoduxApp {
         self.normalize_selected_git_file();
         self.normalize_selected_git_branch();
         self.status_message = format!("moved {} file item{}", moved.len(), plural(moved.len()));
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn open_parent_file_directory(
@@ -464,12 +466,12 @@ impl CoduxApp {
     ) {
         if self.file_directory.trim().is_empty() {
             self.status_message = "already at project root".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to open parent directory".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let parent = parent_relative_directory(&self.file_directory);
@@ -485,7 +487,7 @@ impl CoduxApp {
             "directory opened{}",
             current_directory_suffix(&self.file_directory)
         );
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn normalize_selected_file_entry(&mut self) {
@@ -542,14 +544,13 @@ impl CoduxApp {
         } else {
             format!("file search matches: {count}")
         };
-        self.notify_workspace_body(cx);
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn close_file_search(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.file_search_open = false;
         self.status_message = "file search closed".to_string();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn set_file_search_query(
@@ -566,7 +567,7 @@ impl CoduxApp {
         } else {
             format!("file search matches: {count}")
         };
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn select_next_file_search_match(
@@ -579,7 +580,7 @@ impl CoduxApp {
             self.file_search_match_index = (self.file_search_match_index + 1) % count;
         }
         self.status_message = file_search_status_message(self.file_search_match_index, count);
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn select_previous_file_search_match(
@@ -596,7 +597,7 @@ impl CoduxApp {
             };
         }
         self.status_message = file_search_status_message(self.file_search_match_index, count);
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn handle_file_editor_key(
@@ -646,7 +647,7 @@ impl CoduxApp {
         if changed {
             self.file_dirty = true;
             self.status_message = "file edit buffer changed".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
         }
         changed
     }
@@ -704,7 +705,7 @@ impl CoduxApp {
             FileNameDraftKind::CreateDirectory => "enter folder name".to_string(),
             FileNameDraftKind::Rename => "enter new file name".to_string(),
         };
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn set_file_name_draft_value(
@@ -714,7 +715,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.file_name_draft_value = value;
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn handle_file_name_draft_key(
@@ -769,7 +770,7 @@ impl CoduxApp {
             self.file_name_draft_value.clear();
             self.file_name_draft_select_all = false;
             self.status_message = "file name edit canceled".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
         } else {
             self.confirm_file_name_draft(window, cx);
         }
@@ -781,13 +782,13 @@ impl CoduxApp {
         self.file_name_draft_value.clear();
         self.file_name_draft_select_all = false;
         self.status_message = "file name edit canceled".to_string();
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn confirm_file_name_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(kind) = self.file_name_draft_kind else {
             self.status_message = "no file name edit in progress".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let name = self.file_name_draft_value.trim().to_string();
@@ -799,7 +800,7 @@ impl CoduxApp {
             self.status_message =
                 "file name is required and cannot be undefined or contain path separators"
                     .to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
 
@@ -818,7 +819,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file creation".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let project_path = project.path.clone();
@@ -861,7 +862,7 @@ impl CoduxApp {
                 );
             }
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn request_delete_selected_file_entries(
@@ -919,30 +920,30 @@ impl CoduxApp {
                     Ok(true) => app.delete_file_entries(paths, cx),
                     Ok(false) => {
                         app.status_message = "file deletion canceled".to_string();
-                        cx.notify();
+                        app.invalidate_file_panel(cx);
                     }
                     Err(error) => {
                         app.status_message = format!("failed to show delete confirmation: {error}");
-                        cx.notify();
+                        app.invalidate_file_panel(cx);
                     }
                 });
             })
             .detach();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn delete_file_entries(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file deletion".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         if paths.is_empty() {
             self.status_message = "no selected file entry to delete".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
         let project_path = project.path.clone();
@@ -963,7 +964,7 @@ impl CoduxApp {
                 }
                 Err(error) => {
                     self.status_message = format!("failed to delete file entry: {error}");
-                    cx.notify();
+                    self.invalidate_file_panel(cx);
                     return;
                 }
             }
@@ -980,17 +981,17 @@ impl CoduxApp {
         self.normalize_selected_git_file();
         self.normalize_selected_git_branch();
         self.status_message = format!("moved {count} file item{} to trash", plural(count));
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn save_selected_file_preview(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = "no selected project for file save".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let entry_path = self
@@ -999,7 +1000,7 @@ impl CoduxApp {
             .or_else(|| self.selected_file_entry.clone());
         let Some(entry_path) = entry_path else {
             self.status_message = "no selected file to save".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let tab_editable = self
@@ -1010,7 +1011,7 @@ impl CoduxApp {
             .unwrap_or(self.file_editable);
         if !tab_editable {
             self.status_message = "selected file preview is read-only".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
         let content = self
@@ -1025,7 +1026,7 @@ impl CoduxApp {
                 self.file_preview = preview;
                 self.file_editable = true;
                 self.file_dirty = false;
-                self.mark_file_editor_dirty(&entry_path, false, cx);
+                self.mark_file_editor_dirty(&entry_path, false, window, cx);
                 self.normalize_file_search_index();
                 self.state.files = self.runtime_service.reload_project_files(
                     &project_path,
@@ -1042,7 +1043,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to save file: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn reload_active_file_editor_tab(
@@ -1052,12 +1053,12 @@ impl CoduxApp {
     ) {
         let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = "no selected project for file reload".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let Some(entry_path) = self.active_file_editor_tab.clone() else {
             self.status_message = "no active file to reload".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
 
@@ -1104,8 +1105,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to reload file: {error}"),
         }
-        self.notify_workspace_body(cx);
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn rename_selected_file_entry(
@@ -1115,7 +1115,7 @@ impl CoduxApp {
     ) {
         if self.selected_file_entry().is_none() {
             self.status_message = "no selected file entry to rename".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
         self.start_file_name_draft(FileNameDraftKind::Rename, None, cx);
@@ -1128,18 +1128,18 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file rename".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let Some(entry_path) = self.selected_file_entry.clone() else {
             self.status_message = "no selected file entry to rename".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let Some(entry) = self.selected_file_entry() else {
             self.status_message = "selected file entry is no longer available".to_string();
             self.normalize_selected_file_entry();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let project_path = project.path.clone();
@@ -1190,7 +1190,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to rename file entry: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn selected_file_entry_paths(&self) -> Vec<String> {
@@ -1213,13 +1213,13 @@ impl CoduxApp {
     pub(super) fn copy_selected_file_paths_to_clipboard(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file copy".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return true;
         };
         let paths = self.selected_file_entry_paths();
         if paths.is_empty() {
             self.status_message = "no selected file entry to copy".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return true;
         }
         let full_paths = paths
@@ -1239,7 +1239,7 @@ impl CoduxApp {
             ],
         });
         self.status_message = format!("copied {} file path{}", paths.len(), plural(paths.len()));
-        cx.notify();
+        self.invalidate_file_panel(cx);
         true
     }
 
@@ -1251,7 +1251,7 @@ impl CoduxApp {
     ) -> bool {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file paste".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return true;
         };
         let paths = paths
@@ -1260,7 +1260,7 @@ impl CoduxApp {
             .collect::<Vec<_>>();
         if paths.is_empty() {
             self.status_message = "clipboard has no file paths to paste".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return true;
         }
         let target_directory = self
@@ -1307,7 +1307,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to paste clipboard file: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
         true
     }
 
@@ -1318,18 +1318,18 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file copy".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let Some(entry_path) = self.selected_file_entry.clone() else {
             self.status_message = "no selected file entry to copy".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let Some(entry) = self.selected_file_entry() else {
             self.status_message = "selected file entry is no longer available".to_string();
             self.normalize_selected_file_entry();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let project_path = project.path.clone();
@@ -1370,7 +1370,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to copy file entry: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn import_external_file_entries(
@@ -1380,7 +1380,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file import".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let locale = locale_from_language_setting(&self.state.settings.language);
@@ -1410,12 +1410,12 @@ impl CoduxApp {
                 Ok(Some(paths)) if !paths.is_empty() => paths,
                 Ok(_) => {
                     self.status_message = "file import canceled".to_string();
-                    cx.notify();
+                    self.invalidate_file_panel(cx);
                     return;
                 }
                 Err(error) => {
                     self.status_message = format!("failed to choose files: {error}");
-                    cx.notify();
+                    self.invalidate_file_panel(cx);
                     return;
                 }
             };
@@ -1452,7 +1452,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to import external file: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn paste_external_file_entries(
@@ -1464,7 +1464,7 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for file paste".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let paths = paths
@@ -1473,7 +1473,7 @@ impl CoduxApp {
             .collect::<Vec<_>>();
         if paths.is_empty() {
             self.status_message = "clipboard has no file paths to paste".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         }
         let target_directory = if matches!(target_entry.kind, FileKind::Directory) {
@@ -1515,7 +1515,7 @@ impl CoduxApp {
             }
             Err(error) => self.status_message = format!("failed to paste clipboard file: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn reveal_selected_file_entry(
@@ -1541,24 +1541,24 @@ impl CoduxApp {
     ) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for terminal path".to_string();
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let full_path = Path::new(&project.path).join(&relative_path);
         self.send_to_active_terminal(&shell_quote(&full_path.to_string_lossy()), cx);
         self.status_message = format!("file path sent to terminal: {relative_path}");
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 
     pub(super) fn run_selected_file_system_action(&mut self, action: &str, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = format!("no selected project for file {action}");
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let Some(entry_path) = self.selected_file_entry.clone() else {
             self.status_message = format!("no selected file entry to {action}");
-            cx.notify();
+            self.invalidate_file_panel(cx);
             return;
         };
         let result = match action {
@@ -1574,6 +1574,6 @@ impl CoduxApp {
             Ok(()) => self.status_message = format!("file {action} requested: {entry_path}"),
             Err(error) => self.status_message = format!("failed to {action} file entry: {error}"),
         }
-        cx.notify();
+        self.invalidate_file_panel(cx);
     }
 }

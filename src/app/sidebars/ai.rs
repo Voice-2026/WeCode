@@ -1808,7 +1808,7 @@ fn ai_memory_manager_summary_row(
         .on_click(cx.listener(move |app, _event, _window, cx| {
             app.selected_memory_summary_id = Some(summary_id.clone());
             app.status_message = format!("selected memory summary: {summary_id}");
-            cx.notify();
+            app.invalidate_memory_panel(cx);
         }))
         .child(
             div()

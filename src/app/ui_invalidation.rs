@@ -5,11 +5,13 @@ pub(in crate::app) enum UiRegion {
     Root,
     ProjectColumn,
     TaskColumn,
-    WorkspaceColumn,
     WorkspaceChrome,
     WorkspaceBody,
     WorkspaceAssistant,
+    AIStatsSidebar,
+    SshSidebar,
     FileSidebar,
+    GitSidebar,
     StatusBar,
 }
 
@@ -29,47 +31,68 @@ impl CoduxApp {
         cx: &mut Context<Self>,
         region: UiRegion,
     ) {
-        self.record_ui_invalidation(region);
+        self.record_ui_performance_event("invalidate", region.label());
         match region {
             UiRegion::Root => cx.notify(),
             UiRegion::ProjectColumn => {
-                if let Some(view) = &self.project_column_view {
-                    view.update(cx, |_view, cx| cx.notify());
+                if self.project_column_view.is_some() {
+                    let _ = self.project_column_view(cx);
                 }
             }
             UiRegion::TaskColumn => {
-                if let Some(view) = &self.task_column_view {
-                    view.update(cx, |_view, cx| cx.notify());
-                }
-            }
-            UiRegion::WorkspaceColumn => {
-                if let Some(view) = &self.workspace_column_view {
-                    view.update(cx, |_view, cx| cx.notify());
+                if self.task_column_view.is_some() {
+                    self.update_task_column_child_views(cx);
                 }
             }
             UiRegion::WorkspaceChrome => {
                 if let Some(view) = &self.workspace_toolbar_view {
-                    view.update(cx, |_view, cx| cx.notify());
+                    let snapshot = self.workspace_toolbar_snapshot();
+                    view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
                 }
             }
             UiRegion::WorkspaceBody => {
-                if let Some(view) = &self.workspace_body_view {
+                if self.workspace_view == WorkspaceView::Terminal {
+                    self.update_terminal_workspace_view(cx);
+                } else if let Some(view) = &self.workspace_body_view {
                     view.update(cx, |_view, cx| cx.notify());
                 }
             }
             UiRegion::WorkspaceAssistant => {
                 if let Some(view) = &self.workspace_assistant_view {
-                    view.update(cx, |_view, cx| cx.notify());
+                    let snapshot = self.workspace_assistant_snapshot();
+                    view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+                }
+            }
+            UiRegion::AIStatsSidebar => {
+                if self.ai_stats_sidebar_view.is_some() {
+                    let _ = self.ai_stats_sidebar_view(cx);
+                }
+            }
+            UiRegion::SshSidebar => {
+                if self.ssh_sidebar_view.is_some() {
+                    let _ = self.ssh_sidebar_view(cx);
                 }
             }
             UiRegion::FileSidebar => {
-                if let Some(view) = &self.file_sidebar_view {
-                    view.update(cx, |_view, cx| cx.notify());
+                if self.file_sidebar_view.is_some() {
+                    let _ = self.file_sidebar_view(cx);
+                }
+            }
+            UiRegion::GitSidebar => {
+                if self.git_sidebar_view.is_some() {
+                    let _ = self.git_sidebar_view(cx);
+                }
+                if self.git_files_panel_view.is_some() {
+                    let _ = self.git_files_panel_view(cx);
+                }
+                if self.git_history_panel_view.is_some() {
+                    let _ = self.git_history_panel_view(cx);
                 }
             }
             UiRegion::StatusBar => {
                 if let Some(view) = &self.status_bar_view {
-                    view.update(cx, |_view, cx| cx.notify());
+                    let snapshot = self.status_bar_snapshot();
+                    view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
                 }
             }
         }
@@ -80,24 +103,48 @@ impl CoduxApp {
             cx,
             [
                 UiRegion::WorkspaceChrome,
-                UiRegion::WorkspaceColumn,
                 UiRegion::WorkspaceBody,
                 UiRegion::WorkspaceAssistant,
             ],
         );
     }
 
-    pub(in crate::app) fn invalidate_workspace_body(&mut self, cx: &mut Context<Self>) {
-        self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
-    }
-
-    pub(in crate::app) fn invalidate_workspace_chrome(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::app) fn invalidate_project_context(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
         self.invalidate_ui(
             cx,
             [
-                UiRegion::WorkspaceColumn,
+                UiRegion::ProjectColumn,
+                UiRegion::TaskColumn,
                 UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceBody,
                 UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::FileSidebar,
+                UiRegion::GitSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn invalidate_worktree_context(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::TaskColumn,
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceBody,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::FileSidebar,
+                UiRegion::GitSidebar,
+                UiRegion::StatusBar,
             ],
         );
     }
@@ -110,25 +157,154 @@ impl CoduxApp {
         self.invalidate_ui_region(cx, UiRegion::TaskColumn);
     }
 
-    fn record_ui_invalidation(&mut self, region: UiRegion) {
+    pub(in crate::app) fn invalidate_project_shell(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::ProjectColumn,
+                UiRegion::TaskColumn,
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceBody,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::SshSidebar,
+                UiRegion::FileSidebar,
+                UiRegion::GitSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn invalidate_terminal_workspace(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(cx, [UiRegion::WorkspaceBody, UiRegion::StatusBar]);
+    }
+
+    pub(in crate::app) fn invalidate_file_panel(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::FileSidebar,
+                UiRegion::WorkspaceBody,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn invalidate_git_panel(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceAssistant,
+                UiRegion::GitSidebar,
+                UiRegion::WorkspaceBody,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn invalidate_memory_panel(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::WorkspaceChrome,
+                UiRegion::TaskColumn,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn invalidate_remote_panel(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceAssistant,
+                UiRegion::SshSidebar,
+                UiRegion::TaskColumn,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn invalidate_project_management(&mut self, cx: &mut Context<Self>) {
+        if self.window_mode != AppWindowMode::Main {
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        }
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::ProjectColumn,
+                UiRegion::TaskColumn,
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceAssistant,
+                UiRegion::AIStatsSidebar,
+                UiRegion::SshSidebar,
+                UiRegion::GitSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    pub(in crate::app) fn record_ui_cache_clear(&mut self, cache: &'static str) {
+        self.record_ui_performance_event("cache_clear", cache);
+    }
+
+    pub(in crate::app) fn record_ui_performance_dynamic_event(&mut self, kind: &str, name: &str) {
         if !self.state.settings.developer_hud {
             return;
         }
-        let label = region.label();
-        *self.ui_invalidation_counts.entry(label).or_insert(0) += 1;
-        let now = app_now_seconds();
-        if now - self.ui_invalidation_last_report_at < 5.0 {
+        self.record_ui_performance_label(format!("{kind}.{name}"));
+    }
+
+    fn record_ui_performance_event(&mut self, kind: &'static str, name: &'static str) {
+        if !self.state.settings.developer_hud {
             return;
         }
-        self.ui_invalidation_last_report_at = now;
+        self.record_ui_performance_label(format!("{kind}.{name}"));
+    }
+
+    fn record_ui_performance_label(&mut self, label: String) {
+        let now = app_now_seconds();
+        *self.ui_performance_counts.entry(label).or_insert(0) += 1;
+        if now - self.ui_performance_last_report_at < 5.0 {
+            return;
+        }
+        self.ui_performance_last_report_at = now;
         let mut counts = self
-            .ui_invalidation_counts
+            .ui_performance_counts
             .iter()
             .map(|(region, count)| format!("{region}={count}"))
             .collect::<Vec<_>>();
         counts.sort();
-        self.runtime_trace("performance-ui", &format!("invalidations {}", counts.join(" ")));
-        self.ui_invalidation_counts.clear();
+        self.runtime_trace("performance-ui", &format!("events {}", counts.join(" ")));
+        self.ui_performance_counts.clear();
     }
 }
 
@@ -138,11 +314,13 @@ impl UiRegion {
             UiRegion::Root => "root",
             UiRegion::ProjectColumn => "project_column",
             UiRegion::TaskColumn => "task_column",
-            UiRegion::WorkspaceColumn => "workspace_column",
             UiRegion::WorkspaceChrome => "workspace_chrome",
             UiRegion::WorkspaceBody => "workspace_body",
             UiRegion::WorkspaceAssistant => "workspace_assistant",
+            UiRegion::AIStatsSidebar => "ai_stats_sidebar",
+            UiRegion::SshSidebar => "ssh_sidebar",
             UiRegion::FileSidebar => "file_sidebar",
+            UiRegion::GitSidebar => "git_sidebar",
             UiRegion::StatusBar => "status_bar",
         }
     }

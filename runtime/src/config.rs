@@ -12,6 +12,8 @@ use std::{
 };
 
 static CONFIG_STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<ConfigStore>>>> = OnceLock::new();
+static CONFIG_DOCUMENT_STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<ConfigDocumentStore>>>> =
+    OnceLock::new();
 
 pub struct ConfigStore {
     path: PathBuf,
@@ -157,6 +159,92 @@ impl ConfigStore {
     }
 }
 
+pub struct ConfigDocumentStore {
+    path: PathBuf,
+    snapshot: Arc<RwLock<Value>>,
+    write_tx: flume::Sender<()>,
+}
+
+impl ConfigDocumentStore {
+    pub fn for_file(path: impl Into<PathBuf>) -> Arc<Self> {
+        let path = path.into();
+        let stores = CONFIG_DOCUMENT_STORES.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut stores = stores.lock();
+        if let Some(store) = stores.get(&path) {
+            return store.clone();
+        }
+
+        let store = Self::load(path.clone());
+        stores.insert(path, store.clone());
+        store
+    }
+
+    pub fn snapshot(&self) -> Value {
+        self.snapshot.read().clone()
+    }
+
+    pub fn snapshot_as<T: DeserializeOwned>(&self) -> Option<T> {
+        serde_json::from_value::<T>(self.snapshot()).ok()
+    }
+
+    pub fn save_snapshot<T: Serialize>(&self, snapshot: &T) -> Result<(), String> {
+        let value = serde_json::to_value(snapshot).map_err(|error| error.to_string())?;
+        *self.snapshot.write() = value;
+        self.schedule_write()
+    }
+
+    pub fn update<R>(
+        &self,
+        update: impl FnOnce(&mut Value) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let result = {
+            let mut snapshot = self.snapshot.write();
+            update(&mut snapshot)?
+        };
+        self.schedule_write()?;
+        Ok(result)
+    }
+
+    fn load(path: PathBuf) -> Arc<Self> {
+        let initial = read_value_snapshot(&path).unwrap_or(Value::Null);
+        let snapshot = Arc::new(RwLock::new(initial));
+        let (write_tx, write_rx) = flume::bounded::<()>(1);
+        let writer_snapshot = snapshot.clone();
+        let writer_path = path.clone();
+        thread::Builder::new()
+            .name("codux-config-json-writer".to_string())
+            .spawn(move || {
+                while write_rx.recv().is_ok() {
+                    while write_rx.recv_timeout(Duration::from_millis(80)).is_ok() {}
+                    let snapshot = writer_snapshot.read().clone();
+                    if let Err(error) = write_value_snapshot(&writer_path, &snapshot) {
+                        crate::runtime_trace::runtime_trace(
+                            "config",
+                            &format!("failed to write {}: {error}", writer_path.display()),
+                        );
+                    }
+                }
+            })
+            .expect("spawn config json writer");
+
+        Arc::new(Self {
+            path,
+            snapshot,
+            write_tx,
+        })
+    }
+
+    fn schedule_write(&self) -> Result<(), String> {
+        match self.write_tx.try_send(()) {
+            Ok(()) | Err(flume::TrySendError::Full(_)) => Ok(()),
+            Err(flume::TrySendError::Disconnected(_)) => {
+                let snapshot = self.snapshot.read().clone();
+                write_value_snapshot(&self.path, &snapshot)
+            }
+        }
+    }
+}
+
 pub fn state_file_path(support_dir: impl Into<PathBuf>) -> PathBuf {
     support_dir.into().join("state.json")
 }
@@ -217,9 +305,8 @@ fn remove_path_value(snapshot: &mut Map<String, Value>, path: &[&str]) -> Option
 }
 
 fn read_snapshot(path: &Path) -> Map<String, Value> {
-    fs::read_to_string(path)
+    read_value_snapshot(path)
         .ok()
-        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default()
 }
@@ -230,4 +317,51 @@ fn write_snapshot(path: &Path, snapshot: &Map<String, Value>) -> Result<(), Stri
     }
     let content = serde_json::to_string_pretty(snapshot).map_err(|error| error.to_string())?;
     fs::write(path, format!("{content}\n")).map_err(|error| error.to_string())
+}
+
+fn read_value_snapshot(path: &Path) -> Result<Value, String> {
+    fs::read_to_string(path).map_err(|error| error.to_string()).and_then(|content| {
+        serde_json::from_str::<Value>(&content).map_err(|error| error.to_string())
+    })
+}
+
+fn write_value_snapshot(path: &Path, snapshot: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let content = serde_json::to_string_pretty(snapshot).map_err(|error| error.to_string())?;
+    fs::write(path, format!("{content}\n")).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn document_store_keeps_root_arrays_in_memory_snapshot() {
+        let path = temp_config_path("document-array");
+        let store = ConfigDocumentStore::for_file(path.clone());
+
+        store
+            .save_snapshot(&vec![json!({"id": "one"}), json!({"id": "two"})])
+            .expect("save document");
+
+        let values = store.snapshot_as::<Vec<Value>>().expect("array snapshot");
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0].get("id").and_then(Value::as_str), Some("one"));
+
+        let same_store = ConfigDocumentStore::for_file(path.clone());
+        assert_eq!(same_store.snapshot_as::<Vec<Value>>().unwrap().len(), 2);
+        fs::remove_file(path).ok();
+    }
+
+    fn temp_config_path(label: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("codux-{label}-{stamp}.json"))
+    }
 }

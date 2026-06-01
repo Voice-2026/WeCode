@@ -56,7 +56,7 @@ impl CoduxApp {
                 } else {
                     self.status_message = format!("terminal tab added: {title}");
                 }
-                cx.notify();
+                self.invalidate_terminal_workspace(cx);
             }
             Err(error) => eprintln!("failed to create terminal tab: {error}"),
         }
@@ -70,7 +70,7 @@ impl CoduxApp {
         };
         if active_tab.panes.len() >= 6 {
             self.status_message = "main split limit reached: 6 panes".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
         let tab_id = active_tab.id;
@@ -117,7 +117,7 @@ impl CoduxApp {
                 } else {
                     self.status_message = "terminal split added and layout saved".to_string();
                 }
-                cx.notify();
+                self.invalidate_terminal_workspace(cx);
             }
             Err(error) => eprintln!("failed to split terminal: {error}"),
         }
@@ -143,7 +143,7 @@ impl CoduxApp {
         };
         if self.terminals[tab_index].panes.len() <= 1 {
             self.status_message = "keep at least one main split pane".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
         if pane_index >= self.terminals[tab_index].panes.len() {
@@ -159,7 +159,7 @@ impl CoduxApp {
                 self.terminals[tab_index].panes.insert(pane_index, slot);
                 self.status_message =
                     "terminal pane cannot be floated without a stable session".to_string();
-                cx.notify();
+                self.invalidate_terminal_workspace(cx);
                 return;
             };
             match TerminalPane::spawn_with_context_and_config(
@@ -173,7 +173,7 @@ impl CoduxApp {
                     self.terminals[tab_index].panes.insert(pane_index, slot);
                     self.status_message =
                         format!("failed to attach floating terminal pane: {error}");
-                    cx.notify();
+                    self.invalidate_terminal_workspace(cx);
                     return;
                 }
             }
@@ -230,10 +230,10 @@ impl CoduxApp {
         if let Err(error) = result {
             restore_view.update(cx, |view, cx| view.restore_to_parent(cx));
             self.status_message = format!("failed to float terminal pane: {error}");
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn restore_floated_terminal_slot(
@@ -253,7 +253,7 @@ impl CoduxApp {
         if project_id != current_project_id {
             self.status_message =
                 format!("terminal pane not restored because project changed: {title}");
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
         let Some(tab_index) = self
@@ -277,7 +277,7 @@ impl CoduxApp {
         } else {
             self.status_message = format!("terminal pane restored: {title}");
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn close_terminal_pane(
@@ -300,7 +300,7 @@ impl CoduxApp {
         };
         if self.terminals[tab_index].panes.len() <= 1 {
             self.status_message = "keep at least one main split pane".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
         if pane_index >= self.terminals[tab_index].panes.len() {
@@ -338,13 +338,13 @@ impl CoduxApp {
         } else {
             self.status_message = "terminal split closed".to_string();
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn send_to_active_terminal(&mut self, text: &str, cx: &mut Context<Self>) {
         if let Err(error) = self.ensure_active_terminal_mounted(cx) {
             self.status_message = format!("failed to mount active terminal: {error}");
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
         let Some(tab_index) = self
@@ -353,12 +353,12 @@ impl CoduxApp {
             .position(|tab| tab.id == self.active_terminal_id)
         else {
             self.status_message = "no active terminal".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         };
         let Some(slot_index) = self.terminals[tab_index].panes.len().checked_sub(1) else {
             self.status_message = "active terminal has no pane".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         };
         let result = self.terminals[tab_index].panes[slot_index]
@@ -380,7 +380,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to send terminal command: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn restore_ai_session_in_main_split(
@@ -394,12 +394,12 @@ impl CoduxApp {
         let launch_context = self.current_terminal_launch_context();
         let Some(active_tab) = self.main_terminal() else {
             self.status_message = "no main terminal to restore session".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         };
         if active_tab.panes.len() >= 6 {
             self.status_message = "main split limit reached: 6 panes".to_string();
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
 
@@ -450,11 +450,11 @@ impl CoduxApp {
                 } else {
                     self.status_message = "AI session restored in main split".to_string();
                 }
-                cx.notify();
+                self.invalidate_terminal_workspace(cx);
             }
             Err(error) => {
                 self.status_message = format!("failed to create AI session split: {error}");
-                cx.notify();
+                self.invalidate_terminal_workspace(cx);
             }
         }
     }
@@ -502,7 +502,7 @@ impl CoduxApp {
         } else {
             self.status_message = "terminal tab closed".to_string();
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn select_terminal_tab(
@@ -515,7 +515,7 @@ impl CoduxApp {
         self.active_terminal_id = terminal_id;
         if let Err(error) = self.ensure_active_terminal_mounted(cx) {
             self.status_message = format!("failed to select terminal: {error}");
-            cx.notify();
+            self.invalidate_terminal_workspace(cx);
             return;
         }
         if let Some(view) = self.active_bottom_terminal_view() {
@@ -527,6 +527,6 @@ impl CoduxApp {
         } else if let Err(error) = self.persist_terminal_runtime() {
             self.status_message = format!("terminal selected; runtime save failed: {error}");
         }
-        cx.notify();
+        self.invalidate_terminal_workspace(cx);
     }
 }

@@ -1,10 +1,7 @@
 use super::types::{SSHConnectionProfile, SSHProfileUpsertRequest};
-use crate::runtime_paths::app_support_dir;
+use crate::{config::ConfigDocumentStore, runtime_paths::app_support_dir};
 use chrono::Utc;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 pub fn ssh_profiles_file_path() -> PathBuf {
@@ -75,11 +72,7 @@ pub(super) fn render_ssh_launch_context_for_profiles(
 }
 
 pub(super) fn load_profiles(path: &Path) -> Option<Vec<SSHConnectionProfile>> {
-    let data = fs::read(path).ok()?;
-    if data.is_empty() {
-        return None;
-    }
-    serde_json::from_slice(&data).ok()
+    ConfigDocumentStore::for_file(path.to_path_buf()).snapshot_as()
 }
 
 pub(super) fn sanitize_profiles(profiles: Vec<SSHConnectionProfile>) -> Vec<SSHConnectionProfile> {

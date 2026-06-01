@@ -3,9 +3,9 @@ use crate::{
     settings::{AppSettings, AppSettingsStore},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
     collections::HashMap,
-    fs,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
@@ -119,19 +119,22 @@ impl DesktopPetService {
     }
 
     pub fn saved_origin(&self) -> Option<DesktopPetSavedOrigin> {
-        let data = fs::read(self.placement_file_path()).ok()?;
-        valid_saved_origin(serde_json::from_slice(&data).ok()?)
+        let value = crate::config::ConfigStore::for_file(self.placement_file_path()).snapshot();
+        let origin = DesktopPetSavedOrigin {
+            x: value.get("x").and_then(|value| value.as_f64())?,
+            y: value.get("y").and_then(|value| value.as_f64())?,
+        };
+        valid_saved_origin(origin)
     }
 
     pub fn save_origin(&self, origin: DesktopPetSavedOrigin) -> Result<(), String> {
         let origin = valid_saved_origin(origin)
             .ok_or_else(|| "Desktop pet origin must contain finite coordinates.".to_string())?;
-        let path = self.placement_file_path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let data = serde_json::to_vec_pretty(&origin).map_err(|error| error.to_string())?;
-        fs::write(path, data).map_err(|error| error.to_string())
+        crate::config::ConfigStore::for_file(self.placement_file_path()).update(|snapshot| {
+            snapshot.insert("x".to_string(), json!(origin.x));
+            snapshot.insert("y".to_string(), json!(origin.y));
+            Ok(())
+        })
     }
 
     pub fn initial_position(&self, work_area: DesktopPetWorkArea) -> DesktopPetSavedOrigin {
@@ -365,6 +368,7 @@ fn normalized_scale_factor(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]

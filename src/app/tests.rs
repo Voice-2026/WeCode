@@ -1,14 +1,79 @@
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::app::terminal_state::terminal_restore_plan;
-    use crate::app::{
-        app_helpers::ssh_connect_command, shortcuts::normalized_shortcut_text,
-        ui_helpers::restored_terminal_preview_lines,
+    use crate::{
+        app::{
+            ai_history_mapping::ai_session_restore_command,
+            app_helpers::{
+                file_search_status_message, generated_git_commit_message, git_remote_action_label,
+                project_badge_text_from_name, ssh_connect_command,
+            },
+            app_state::initial_project_view_store,
+            shortcuts::{normalized_shortcut_text, shortcut_matches},
+            terminal_state::{terminal_pane_launch_context, terminal_restore_plan},
+            types::{TerminalPanePlan, TerminalTabPlan},
+            ui_helpers::restored_terminal_preview_lines,
+        },
+        terminal::TerminalLaunchContext,
     };
-    use codux_runtime::terminal_layout::TerminalLayoutSummary;
     use codux_runtime::terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary};
-    use std::path::PathBuf;
+    use codux_runtime::{
+        ai_history::AISessionSummary,
+        git::GitSummary,
+        runtime_state::RuntimeState,
+        ssh::SSHProfileSummary,
+        terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
+    };
+    use std::{
+        collections::HashMap,
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn initial_project_view_store_preloads_all_project_worktrees_from_state_json() {
+        let support_dir = temp_support_dir("project-view-store");
+        fs::create_dir_all(&support_dir).unwrap();
+        fs::write(
+            support_dir.join("state.json"),
+            r#"{
+                "projects": [
+                    {"id": "project-a", "name": "A", "path": "/tmp/a"},
+                    {"id": "project-b", "name": "B", "path": "/tmp/b"}
+                ],
+                "selectedProjectId": "project-a",
+                "worktrees": [
+                    {"id": "project-a", "projectId": "project-a", "name": "main", "branch": "main", "path": "/tmp/a", "status": "todo", "isDefault": true},
+                    {"id": "task-b", "projectId": "project-b", "name": "Task B", "branch": "feature/b", "path": "/tmp/b-task", "status": "todo", "isDefault": false}
+                ],
+                "worktreeTasks": [
+                    {"worktreeId": "task-b", "title": "Persisted task B", "baseBranch": "main", "baseCommit": null, "status": "todo", "createdAt": 1, "updatedAt": 2, "startedAt": null, "completedAt": null}
+                ],
+                "selectedWorktreeIdByProject": {
+                    "project-a": "project-a",
+                    "project-b": "task-b"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let state = RuntimeState::load_from_support_dir(support_dir.clone());
+        let store = initial_project_view_store(&state);
+        let project_b = store
+            .get("project-b")
+            .expect("project b should be preloaded from state.json");
+
+        assert_eq!(
+            project_b.worktrees.selected_worktree_id.as_deref(),
+            Some("task-b")
+        );
+        assert_eq!(project_b.worktrees.worktrees.len(), 1);
+        assert_eq!(project_b.worktrees.worktrees[0].name, "Task B");
+        assert_eq!(project_b.worktrees.tasks.len(), 1);
+        assert_eq!(project_b.worktrees.tasks[0].title, "Persisted task B");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
 
     #[test]
     fn terminal_restore_plan_uses_top_panes_and_bottom_tabs() {
@@ -324,13 +389,22 @@ mod tests {
             "view.terminal",
             project_switch
         ));
-        let default_task = if cfg!(target_os = "macos") {
+        let default_project = if cfg!(target_os = "macos") {
             "⌘N"
         } else {
             "Ctrl+N"
         };
+        let default_task = if cfg!(target_os = "macos") {
+            "⌘⇧N"
+        } else {
+            "Ctrl+Shift+N"
+        };
         assert!(shortcut_matches(&shortcuts, "task.create", default_task));
-        assert!(shortcut_matches(&shortcuts, "project.create", default_task));
+        assert!(shortcut_matches(
+            &shortcuts,
+            "project.create",
+            default_project
+        ));
 
         let default_git_panel = if cfg!(target_os = "macos") {
             "⌘⇧G"
@@ -372,5 +446,13 @@ mod tests {
             "file search has no matches"
         );
         assert_eq!(file_search_status_message(1, 3), "file search match 2 of 3");
+    }
+
+    fn temp_support_dir(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"))
     }
 }

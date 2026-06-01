@@ -102,7 +102,7 @@ impl CoduxApp {
     ) {
         if Self::activate_child_window(&mut self.about_window, cx) {
             self.status_message = "about window already opened".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         }
 
@@ -139,7 +139,7 @@ impl CoduxApp {
             }
             Err(error) => format!("failed to open about window: {error}"),
         };
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn open_memory_manager_window(
@@ -149,7 +149,7 @@ impl CoduxApp {
     ) {
         if Self::activate_child_window(&mut self.memory_manager_window, cx) {
             self.status_message = "memory manager window already opened".to_string();
-            cx.notify();
+            self.invalidate_status_bar(cx);
             return;
         }
 
@@ -185,7 +185,7 @@ impl CoduxApp {
             }
             Err(error) => format!("failed to open memory manager window: {error}"),
         };
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn open_codux_website(&mut self, cx: &mut Context<Self>) {
@@ -193,7 +193,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = "Codux website opened".to_string(),
             Err(error) => self.status_message = format!("failed to open Codux website: {error}"),
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn open_codux_github(&mut self, cx: &mut Context<Self>) {
@@ -201,7 +201,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = "Codux GitHub opened".to_string(),
             Err(error) => self.status_message = format!("failed to open Codux GitHub: {error}"),
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn open_runtime_log(&mut self, cx: &mut Context<Self>) {
@@ -210,7 +210,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = "runtime log opened".to_string(),
             Err(error) => self.status_message = format!("failed to open runtime log: {error}"),
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn open_live_log(&mut self, cx: &mut Context<Self>) {
@@ -219,7 +219,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = "live log opened".to_string(),
             Err(error) => self.status_message = format!("failed to open live log: {error}"),
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn request_restart(&mut self, cx: &mut Context<Self>) {
@@ -227,7 +227,7 @@ impl CoduxApp {
             Ok(()) => self.status_message = "restart requested".to_string(),
             Err(error) => self.status_message = format!("failed to request restart: {error}"),
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 
     pub(in crate::app) fn export_diagnostics(&mut self, cx: &mut Context<Self>) {
@@ -252,12 +252,12 @@ impl CoduxApp {
                 Ok(Some(path)) => path,
                 Ok(None) => {
                     self.status_message = "diagnostics export canceled".to_string();
-                    cx.notify();
+                    self.invalidate_status_bar(cx);
                     return;
                 }
                 Err(error) => {
                     self.status_message = format!("failed to choose diagnostics path: {error}");
-                    cx.notify();
+                    self.invalidate_status_bar(cx);
                     return;
                 }
             };
@@ -294,7 +294,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to export diagnostics: {error}");
             }
         }
-        cx.notify();
+        self.invalidate_status_bar(cx);
     }
 }
 

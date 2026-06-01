@@ -9,7 +9,7 @@ impl WorktreeService {
 
         let state = load_worktree_state(&self.state_file);
 
-        let mut worktrees = state_worktree_rows(state.worktrees, project_id, true);
+        let mut worktrees = state_worktree_rows(&state.worktrees, project_id, true);
 
         persist_worktree_git_summaries(&self.state_file, &worktrees);
 
@@ -26,7 +26,7 @@ impl WorktreeService {
             &worktrees,
         );
 
-        let tasks = task_rows_for_worktrees(state.worktree_tasks, &worktrees);
+        let tasks = task_rows_for_worktrees(&state.worktree_tasks, &worktrees);
 
         let active_path = selected_worktree_id
             .as_ref()
@@ -58,8 +58,42 @@ impl WorktreeService {
         };
 
         let state = load_worktree_state(&self.state_file);
+        self.state_summary_from_state(&state, Some(project_id), project_path)
+    }
 
-        let mut worktrees = state_worktree_rows(state.worktrees, project_id, false);
+    pub fn state_summaries<'a, I>(
+        &self,
+        projects: I,
+    ) -> std::collections::HashMap<String, WorktreeSummary>
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        let state = load_worktree_state(&self.state_file);
+        projects
+            .into_iter()
+            .map(|(project_id, project_path)| {
+                (
+                    project_id.to_string(),
+                    self.state_summary_from_state(&state, Some(project_id), Some(project_path)),
+                )
+            })
+            .collect()
+    }
+
+    fn state_summary_from_state(
+        &self,
+        state: &StateFile,
+        project_id: Option<&str>,
+        project_path: Option<&str>,
+    ) -> WorktreeSummary {
+        let Some(project_id) = project_id else {
+            return WorktreeSummary {
+                error: Some("no selected project".to_string()),
+                ..Default::default()
+            };
+        };
+
+        let mut worktrees = state_worktree_rows(&state.worktrees, project_id, false);
 
         if worktrees.is_empty()
             && let Some(project_path) = project_path
@@ -73,7 +107,7 @@ impl WorktreeService {
             &worktrees,
         );
 
-        let tasks = task_rows_for_worktrees(state.worktree_tasks, &worktrees);
+        let tasks = task_rows_for_worktrees(&state.worktree_tasks, &worktrees);
 
         WorktreeSummary {
             available: true,
@@ -87,28 +121,28 @@ impl WorktreeService {
 }
 
 fn state_worktree_rows(
-    records: Vec<WorktreeRecord>,
+    records: &[WorktreeRecord],
     project_id: &str,
     refresh_git: bool,
 ) -> Vec<WorktreeInfo> {
     records
-        .into_iter()
+        .iter()
         .filter(|worktree| worktree.project_id == project_id)
         .map(|worktree| {
             let git_summary = if refresh_git {
                 project_worktree_git_summary(&worktree.path)
             } else {
-                worktree.git_summary
+                worktree.git_summary.clone()
             };
             WorktreeInfo {
                 exists: Path::new(&worktree.path).exists(),
                 git_summary,
-                id: worktree.id,
-                project_id: worktree.project_id,
-                name: worktree.name,
-                branch: worktree.branch,
-                path: worktree.path,
-                status: worktree.status,
+                id: worktree.id.clone(),
+                project_id: worktree.project_id.clone(),
+                name: worktree.name.clone(),
+                branch: worktree.branch.clone(),
+                path: worktree.path.clone(),
+                status: worktree.status.clone(),
                 is_default: worktree.is_default,
             }
         })
@@ -134,21 +168,21 @@ fn selected_worktree_id_for_project(
 }
 
 fn task_rows_for_worktrees(
-    tasks: Vec<WorktreeTaskRecord>,
+    tasks: &[WorktreeTaskRecord],
     worktrees: &[WorktreeInfo],
 ) -> Vec<WorktreeTaskInfo> {
     tasks
-        .into_iter()
+        .iter()
         .filter(|task| {
             worktrees
                 .iter()
                 .any(|worktree| worktree.id == task.worktree_id)
         })
         .map(|task| WorktreeTaskInfo {
-            worktree_id: task.worktree_id,
-            title: task.title,
-            base_branch: task.base_branch,
-            status: task.status,
+            worktree_id: task.worktree_id.clone(),
+            title: task.title.clone(),
+            base_branch: task.base_branch.clone(),
+            status: task.status.clone(),
         })
         .collect()
 }

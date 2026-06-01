@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 #[test]
 fn summary_redacts_tokens_and_reports_known_channels() {

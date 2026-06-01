@@ -51,7 +51,7 @@ use codux_runtime::{
         TerminalInputSummary, TerminalRuntimeService, TerminalRuntimeSessionInput,
         TerminalRuntimeSummary,
     },
-    worktree::{WorktreeInfo, WorktreeSummary},
+    worktree::{WorktreeInfo, WorktreeService, WorktreeSummary},
 };
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
@@ -125,6 +125,7 @@ mod ui_helpers;
 mod ui_invalidation;
 mod window_actions;
 mod window_shell;
+mod work_scheduler;
 mod workspace;
 mod workspace_views;
 
@@ -177,7 +178,9 @@ use self::{
     },
     ssh_profile_editor::ssh_profile_editor_workspace,
     status_bar::StatusBarView,
-    task_column::TaskColumnView,
+    task_column::{
+        TaskColumnHeaderView, TaskColumnView, TaskSessionListView, TaskWorktreeListView,
+    },
     terminal_float::terminal_float_window,
     terminal_state::{
         bottom_slot_id, bottom_terminal_id, normalize_terminal_restore_state,
@@ -191,5 +194,6 @@ use self::{
     },
     ui_invalidation::UiRegion,
     window_shell::child_window_shell,
+    work_scheduler::ScheduledWorkPolicy,
     workspace_views::WorkspaceColumnView,
 };

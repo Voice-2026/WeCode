@@ -2911,7 +2911,7 @@ mod tests {
         assert_eq!(
             state.selected_text(SelectionRange {
                 start: TerminalSelectionPoint { line: 0, col: 0 },
-                end: TerminalSelectionPoint { line: 1, col: 4 },
+                end: TerminalSelectionPoint { line: 1, col: 5 },
             }),
             "hello\nworld"
         );

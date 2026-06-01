@@ -42,7 +42,7 @@ impl CoduxApp {
                             if app.remote_reconnecting && app.state.remote.status != "connecting" {
                                 app.remote_reconnecting = false;
                             }
-                            cx.notify();
+                            app.invalidate_remote_panel(cx);
                         }
                     })
                     .is_err()
@@ -164,7 +164,7 @@ impl CoduxApp {
             self.state.ai_history.progress = Some(0.0);
             self.state.ai_history.detail = "queued".to_string();
             self.save_current_project_view_state();
-            self.notify_task_column(cx);
+            self.invalidate_task_column(cx);
             self.schedule_ai_index_progress_expiry(self.ai_index_progress_generation, cx);
         }
 
@@ -208,29 +208,24 @@ impl CoduxApp {
             );
         }
         if result.file_events > 0 {
-            self.invalidate_ui(
-                cx,
-                [UiRegion::FileSidebar, UiRegion::WorkspaceBody],
-            );
+            self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::WorkspaceBody]);
         }
         if result.ai_history_events > 0 {
             self.invalidate_ui(
                 cx,
                 [
                     UiRegion::TaskColumn,
+                    UiRegion::WorkspaceChrome,
                     UiRegion::WorkspaceAssistant,
                     UiRegion::StatusBar,
                 ],
             );
         }
         if result.memory_events > 0 {
-            self.invalidate_ui(
-                cx,
-                [UiRegion::WorkspaceAssistant, UiRegion::StatusBar],
-            );
+            self.invalidate_ui(cx, [UiRegion::WorkspaceAssistant, UiRegion::StatusBar]);
         }
         if result.pet_events > 0 || result.pet_update_events > 0 {
-            self.invalidate_ui_region(cx, UiRegion::Root);
+            self.invalidate_ui(cx, [UiRegion::WorkspaceChrome, UiRegion::StatusBar]);
         }
         if result.dock_badge_count.is_some() {
             self.invalidate_status_bar(cx);
