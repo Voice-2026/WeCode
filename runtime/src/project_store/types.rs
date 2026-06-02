@@ -1,5 +1,3 @@
-use super::terminal_layout::TerminalLayoutRecord;
-use crate::worktree::ProjectWorktreeGitSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -12,8 +10,6 @@ pub struct AppSnapshot {
     pub worktrees: Vec<ProjectWorktreeRecord>,
     #[serde(default)]
     pub worktree_tasks: Vec<WorktreeTaskRecord>,
-    #[serde(default)]
-    pub terminal_layouts: HashMap<String, TerminalLayoutRecord>,
     pub selected_project_id: Option<String>,
     #[serde(default)]
     pub selected_worktree_id_by_project: HashMap<String, String>,
@@ -49,8 +45,6 @@ pub struct ProjectWorktreeRecord {
     pub is_default: bool,
     pub created_at: i64,
     pub updated_at: i64,
-    #[serde(default)]
-    pub git_summary: ProjectWorktreeGitSummary,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

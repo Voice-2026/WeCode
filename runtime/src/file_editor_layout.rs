@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::path::PathBuf;
+
+const FILE_EDITOR_LAYOUT_NAMESPACE: &str = "file-editor-layout";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -23,14 +24,12 @@ pub struct FileEditorTabSummary {
 }
 
 pub struct FileEditorLayoutService {
-    state_file: PathBuf,
+    support_dir: PathBuf,
 }
 
 impl FileEditorLayoutService {
     pub fn new(support_dir: PathBuf) -> Self {
-        Self {
-            state_file: crate::config::state_file_path(support_dir),
-        }
+        Self { support_dir }
     }
 
     pub fn load(&self, owner_id: Option<&str>) -> FileEditorLayoutSummary {
@@ -40,16 +39,18 @@ impl FileEditorLayoutService {
                 ..Default::default()
             };
         };
-        let store = crate::config::ConfigStore::for_file(self.state_file.clone());
-        let Some(layout) = store.get_path(&["fileEditorLayouts", owner_id]) else {
-            return FileEditorLayoutSummary::default();
-        };
-        serde_json::from_value::<FileEditorLayoutSummary>(layout.clone()).unwrap_or_else(|error| {
-            FileEditorLayoutSummary {
-                error: Some(error.to_string()),
-                ..Default::default()
-            }
-        })
+        if let Some(layout) = self.cache_layout(owner_id) {
+            return layout;
+        }
+        FileEditorLayoutSummary::default()
+    }
+
+    fn cache_layout(&self, owner_id: &str) -> Option<FileEditorLayoutSummary> {
+        crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
+            .ok()?
+            .get_json::<FileEditorLayoutSummary>(FILE_EDITOR_LAYOUT_NAMESPACE, owner_id)
+            .ok()
+            .flatten()
     }
 
     pub fn load_many<'a, I>(
@@ -59,14 +60,22 @@ impl FileEditorLayoutService {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        let store = crate::config::ConfigStore::for_file(self.state_file.clone());
+        let cache =
+            crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
+                .ok();
         owner_ids
             .into_iter()
             .map(|owner_id| {
-                let layout = store
-                    .get_path(&["fileEditorLayouts", owner_id])
-                    .and_then(|value| {
-                        serde_json::from_value::<FileEditorLayoutSummary>(value).ok()
+                let layout = cache
+                    .as_ref()
+                    .and_then(|cache| {
+                        cache
+                            .get_json::<FileEditorLayoutSummary>(
+                                FILE_EDITOR_LAYOUT_NAMESPACE,
+                                owner_id,
+                            )
+                            .ok()
+                            .flatten()
                     })
                     .unwrap_or_default();
                 (owner_id.to_string(), layout)
@@ -80,17 +89,21 @@ impl FileEditorLayoutService {
         tabs: Vec<FileEditorTabSummary>,
         active_path: Option<String>,
     ) -> Result<FileEditorLayoutSummary, String> {
-        let store = crate::config::ConfigStore::for_file(self.state_file.clone());
+        let cache =
+            crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())?;
         if tabs.is_empty() {
-            store.del_path(&["fileEditorLayouts", owner_id])?;
+            cache.delete_json(FILE_EDITOR_LAYOUT_NAMESPACE, owner_id)?;
         } else {
             let active_path = active_path
                 .filter(|active| tabs.iter().any(|tab| tab.path == *active))
                 .or_else(|| tabs.first().map(|tab| tab.path.clone()));
-            store.set_path(&["fileEditorLayouts", owner_id], json!({
-                "tabs": tabs,
-                "activePath": active_path,
-            }))?;
+            let layout = FileEditorLayoutSummary {
+                tabs,
+                active_path,
+                error: None,
+            };
+            cache.put_json_debounced(FILE_EDITOR_LAYOUT_NAMESPACE, owner_id, &layout)?;
+            return Ok(layout);
         }
         Ok(self.load(Some(owner_id)))
     }

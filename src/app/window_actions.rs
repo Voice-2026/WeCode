@@ -149,13 +149,16 @@ impl CoduxApp {
             git_expanded_dirs: HashSet::new(),
             git_tree_children: HashMap::new(),
             git_files_scroll_handle: VirtualListScrollHandle::new(),
+            git_review_code_scroll_handle: ScrollHandle::new(),
             selected_git_files: HashSet::new(),
             git_diff_preview: "select a changed file to preview its diff".to_string(),
             git_diff_window_path: None,
             git_diff_window_content: String::new(),
             git_diff_window_error: None,
             git_review_content: None,
+            git_review_aligned_rows: None,
             git_clone_remote_url: String::new(),
+            git_clone_dialog_open: false,
             git_remote_editor_open: false,
             git_remote_name: "origin".to_string(),
             git_remote_url: String::new(),
@@ -843,7 +846,11 @@ impl CoduxApp {
                 self.assistant_panel = Some(AssistantPanel::FileManager);
                 self.refresh_files_panel_state();
             }
-            WorkspaceView::Review => self.refresh_git_panel_state(),
+            WorkspaceView::Review => {
+                self.assistant_panel = Some(AssistantPanel::Git);
+                self.refresh_git_panel_state_async(cx);
+                self.ensure_selected_git_review_file_loaded_async(cx);
+            }
             WorkspaceView::Terminal => {}
         }
         self.invalidate_workspace(cx);

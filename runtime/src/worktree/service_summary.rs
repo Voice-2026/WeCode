@@ -9,16 +9,15 @@ impl WorktreeService {
 
         let state = load_worktree_state(&self.state_file);
 
-        let mut worktrees = state_worktree_rows(&state.worktrees, project_id, true);
-
-        persist_worktree_git_summaries(&self.state_file, &worktrees);
+        let mut worktrees =
+            state_worktree_rows(&state.worktrees, project_id, true, &self.support_dir);
 
         if worktrees.is_empty()
             && let Some(project_path) = project_path
         {
             worktrees.push(default_project_worktree(project_id, project_path, true));
-            persist_worktree_git_summaries(&self.state_file, &worktrees);
         }
+        persist_worktree_git_summaries(&self.support_dir, &worktrees);
 
         let selected_worktree_id = selected_worktree_id_for_project(
             &state.selected_worktree_id_by_project,
@@ -93,7 +92,8 @@ impl WorktreeService {
             };
         };
 
-        let mut worktrees = state_worktree_rows(&state.worktrees, project_id, false);
+        let mut worktrees =
+            state_worktree_rows(&state.worktrees, project_id, false, &self.support_dir);
 
         if worktrees.is_empty()
             && let Some(project_path) = project_path
@@ -124,6 +124,7 @@ fn state_worktree_rows(
     records: &[WorktreeRecord],
     project_id: &str,
     refresh_git: bool,
+    support_dir: &Path,
 ) -> Vec<WorktreeInfo> {
     records
         .iter()
@@ -132,7 +133,7 @@ fn state_worktree_rows(
             let git_summary = if refresh_git {
                 project_worktree_git_summary(&worktree.path)
             } else {
-                worktree.git_summary.clone()
+                worktree_git_summary_from_cache(support_dir, &worktree.id).unwrap_or_default()
             };
             WorktreeInfo {
                 exists: Path::new(&worktree.path).exists(),
@@ -187,40 +188,33 @@ fn task_rows_for_worktrees(
         .collect()
 }
 
-fn persist_worktree_git_summaries(state_file: &Path, worktrees: &[WorktreeInfo]) {
+fn persist_worktree_git_summaries(support_dir: &Path, worktrees: &[WorktreeInfo]) {
     if worktrees.is_empty() {
         return;
     }
-    let summaries = worktrees
-        .iter()
-        .map(|worktree| (worktree.id.as_str(), worktree.git_summary.clone()))
-        .collect::<std::collections::HashMap<_, _>>();
-    let mut raw = raw_snapshot(state_file);
-    let Some(raw_worktrees) = raw.get_mut("worktrees").and_then(Value::as_array_mut) else {
+    let Ok(cache) =
+        crate::persistent_cache::PersistentCacheStore::for_support_dir(support_dir.to_path_buf())
+    else {
         return;
     };
-    let mut changed = false;
-    for value in raw_worktrees {
-        let Some(worktree) = value.as_object_mut() else {
-            continue;
-        };
-        let Some(id) = worktree.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(summary) = summaries.get(id) else {
-            continue;
-        };
-        let Ok(summary_value) = serde_json::to_value(summary) else {
-            continue;
-        };
-        if worktree.get("gitSummary") != Some(&summary_value) {
-            worktree.insert("gitSummary".to_string(), summary_value);
-            changed = true;
-        }
+    for worktree in worktrees {
+        let _ = cache.put_json_debounced(
+            WORKTREE_GIT_SUMMARY_NAMESPACE,
+            &worktree.id,
+            &worktree.git_summary,
+        );
     }
-    if changed {
-        let _ = save_raw_snapshot(state_file, &raw);
-    }
+}
+
+fn worktree_git_summary_from_cache(
+    support_dir: &Path,
+    worktree_id: &str,
+) -> Option<ProjectWorktreeGitSummary> {
+    crate::persistent_cache::PersistentCacheStore::for_support_dir(support_dir.to_path_buf())
+        .ok()?
+        .get_json::<ProjectWorktreeGitSummary>(WORKTREE_GIT_SUMMARY_NAMESPACE, worktree_id)
+        .ok()
+        .flatten()
 }
 
 fn load_worktree_state(state_file: &Path) -> StateFile {

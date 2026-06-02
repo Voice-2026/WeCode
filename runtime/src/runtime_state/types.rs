@@ -85,7 +85,8 @@ pub struct AIRuntimeDrainResult {
     pub memory: Vec<MemoryEnqueueResult>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub name: String,
     pub relative_path: String,
@@ -93,7 +94,8 @@ pub struct FileEntry {
     pub size: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum FileKind {
     Directory,
     File,

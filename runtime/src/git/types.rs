@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitSummary {
     pub branch: String,
@@ -18,7 +18,7 @@ pub struct GitSummary {
     pub commits: Vec<GitCommitSummary>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFileStatus {
     pub path: String,
@@ -26,21 +26,21 @@ pub struct GitFileStatus {
     pub worktree_status: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranchSummary {
     pub name: String,
     pub is_current: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitRemoteSummary {
     pub name: String,
     pub url: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitSummary {
     pub hash: String,
@@ -51,7 +51,7 @@ pub struct GitCommitSummary {
     pub author: String,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitReviewSummary {
     pub mode: String,
@@ -63,7 +63,7 @@ pub struct GitReviewSummary {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitReviewFile {
     pub path: String,
@@ -72,7 +72,7 @@ pub struct GitReviewFile {
     pub deletions: i64,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitMessageContextSummary {
     pub diff: String,
@@ -81,7 +81,7 @@ pub struct GitCommitMessageContextSummary {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitReviewContentSummary {
     pub path: String,

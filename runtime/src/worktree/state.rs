@@ -3,10 +3,7 @@ use std::{collections::HashMap, path::Path};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::{
-    scan::{ScannedWorktree, ScannedWorktreeSnapshot},
-    types::ProjectWorktreeGitSummary,
-};
+use super::scan::{ScannedWorktree, ScannedWorktreeSnapshot};
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,8 +27,6 @@ pub(super) struct WorktreeRecord {
     pub status: String,
     #[serde(default)]
     pub is_default: bool,
-    #[serde(default)]
-    pub git_summary: ProjectWorktreeGitSummary,
 }
 
 #[derive(Deserialize)]
@@ -168,7 +163,7 @@ pub(super) fn merge_worktree_snapshot(
         })
         .collect::<Vec<_>>();
     for worktree in snapshot.worktrees {
-        merged_worktrees.push(serde_json::to_value(worktree).map_err(|error| error.to_string())?);
+        merged_worktrees.push(worktree_state_value(worktree)?);
     }
     raw.insert("worktrees".to_string(), Value::Array(merged_worktrees));
 
@@ -264,6 +259,14 @@ pub(super) fn merge_worktree_snapshot(
     }
 
     Ok(())
+}
+
+fn worktree_state_value(worktree: impl serde::Serialize) -> Result<Value, String> {
+    let mut value = serde_json::to_value(worktree).map_err(|error| error.to_string())?;
+    if let Some(worktree) = value.as_object_mut() {
+        worktree.remove("gitSummary");
+    }
+    Ok(value)
 }
 
 pub(super) fn selected_worktree_id_from_state(

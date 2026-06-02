@@ -9,7 +9,7 @@ use gpui_component::{
 };
 use std::{ops::Range, rc::Rc};
 
-use crate::app::workspace::workspace_pet_install_form;
+use crate::app::workspace_pet_widgets::workspace_pet_install_form;
 
 impl CoduxApp {
     pub(in crate::app) fn open_pet_claim_window(

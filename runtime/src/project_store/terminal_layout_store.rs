@@ -2,16 +2,21 @@ use super::{
     ProjectStore, TerminalLayoutRecord, TerminalLayoutsSnapshot, helpers::is_known_workspace_id,
     terminal_layout::sanitize_terminal_layout,
 };
-use serde_json::Value;
+use crate::terminal_layout::terminal_layout_cache_namespace;
 
 impl ProjectStore {
     pub fn terminal_layout(&self, project_id: &str) -> Option<TerminalLayoutRecord> {
-        self.snapshot().terminal_layouts.get(project_id).cloned()
+        self.terminal_layouts_snapshot().layouts.get(project_id).cloned()
     }
 
     pub fn terminal_layouts_snapshot(&self) -> TerminalLayoutsSnapshot {
+        let layouts = crate::persistent_cache::PersistentCacheStore::for_file(self.state_cache_file())
+            .and_then(|cache| {
+                cache.scan_json::<TerminalLayoutRecord>(terminal_layout_cache_namespace())
+            })
+            .unwrap_or_default();
         TerminalLayoutsSnapshot {
-            layouts: self.snapshot().terminal_layouts,
+            layouts,
         }
     }
 
@@ -26,21 +31,8 @@ impl ProjectStore {
         }
         let layout = sanitize_terminal_layout(layout)
             .ok_or_else(|| "Terminal layout is empty.".to_string())?;
-        let mut raw = self.raw_snapshot();
-        if !matches!(raw.get("terminalLayouts"), Some(Value::Object(_))) {
-            raw.insert(
-                "terminalLayouts".to_string(),
-                Value::Object(Default::default()),
-            );
-        }
-        raw.get_mut("terminalLayouts")
-            .and_then(Value::as_object_mut)
-            .ok_or_else(|| "terminalLayouts is not an object.".to_string())?
-            .insert(
-                project_id,
-                serde_json::to_value(&layout).map_err(|error| error.to_string())?,
-            );
-        self.save_raw_snapshot(&raw)?;
+        crate::persistent_cache::PersistentCacheStore::for_file(self.state_cache_file())?
+            .put_json_debounced(terminal_layout_cache_namespace(), &project_id, &layout)?;
         Ok(layout)
     }
 }

@@ -10,8 +10,8 @@ impl RuntimeState {
             .as_ref()
             .map(|project| project.path.as_str())
             .unwrap_or("/Volumes/Web/codux-tauri");
-        let git = load_git_summary(selected_path);
-        let git_review = load_git_review(selected_path, None);
+        let git = load_git_summary(&support_dir, selected_path);
+        let git_review = load_git_review(&support_dir, selected_path, None);
         let files = load_file_entries(selected_path, None);
         let ai_global_history = load_global_ai_history(&support_dir);
         let ai_history = load_ai_history(&support_dir, selected_path);
@@ -95,8 +95,8 @@ impl RuntimeState {
             return;
         };
 
-        self.git = load_git_summary(&project.path);
-        self.git_review = load_git_review(&project.path, None);
+        self.git = load_git_summary(&self.support_dir, &project.path);
+        self.git_review = load_git_review(&self.support_dir, &project.path, None);
         self.files = load_file_entries(&project.path, None);
         self.ai_global_history = load_global_ai_history(&self.support_dir);
         self.ai_history = load_ai_history(&self.support_dir, &project.path);

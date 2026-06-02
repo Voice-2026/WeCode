@@ -132,6 +132,30 @@ impl RuntimeService {
         load_file_entries(project_path, directory_path)
     }
 
+    pub fn reload_file_tree_state(&self, owner_id: Option<&str>) -> FileTreeStateSummary {
+        FileTreeStateService::new(self.support_dir.clone()).load(owner_id)
+    }
+
+    pub fn save_file_tree_state(
+        &self,
+        owner_id: &str,
+        state: FileTreeStateSummary,
+    ) -> Result<(), String> {
+        FileTreeStateService::new(self.support_dir.clone()).save(owner_id, &state)
+    }
+
+    pub fn reload_git_ui_state(&self, owner_id: Option<&str>) -> GitUiStateSummary {
+        GitUiStateService::new(self.support_dir.clone()).load(owner_id)
+    }
+
+    pub fn save_git_ui_state(
+        &self,
+        owner_id: &str,
+        state: GitUiStateSummary,
+    ) -> Result<(), String> {
+        GitUiStateService::new(self.support_dir.clone()).save(owner_id, &state)
+    }
+
     pub fn watch_project_files(
         &self,
         project_path: String,
@@ -235,7 +259,7 @@ impl RuntimeService {
     }
 
     pub fn reload_project_git(&self, project_path: &str) -> git::GitSummary {
-        load_git_summary(project_path)
+        refresh_git_summary(&self.support_dir, project_path)
     }
 
     pub fn reload_project_git_review(
@@ -243,7 +267,7 @@ impl RuntimeService {
         project_path: &str,
         base_branch: Option<&str>,
     ) -> git::GitReviewSummary {
-        git::GitService::review(project_path, base_branch)
+        refresh_git_review(&self.support_dir, project_path, base_branch)
     }
 
     pub fn project_activity_snapshot(&self) -> ProjectActivitySnapshot {

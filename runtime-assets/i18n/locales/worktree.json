@@ -134,7 +134,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ Dateien",
+      "worktree.review.tree_limit_format": "Zeige die ersten %@ Zeilen von %@ geänderten Dateien"
     },
     "en": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -270,7 +272,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ files",
+      "worktree.review.tree_limit_format": "Showing first %@ rows of %@ changed files"
     },
     "es": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -406,7 +410,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ archivos",
+      "worktree.review.tree_limit_format": "Mostrando las primeras %@ filas de %@ archivos cambiados"
     },
     "fr": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -542,7 +548,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ fichiers",
+      "worktree.review.tree_limit_format": "Affichage des %@ premières lignes sur %@ fichiers modifiés"
     },
     "ja": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -678,7 +686,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ ファイル",
+      "worktree.review.tree_limit_format": "%@ 件中、変更ファイル %@ 行を先頭から表示しています"
     },
     "ko": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -814,7 +824,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@개 파일",
+      "worktree.review.tree_limit_format": "변경된 파일 %@개 중 처음 %@개 행 표시"
     },
     "pt-BR": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -950,7 +962,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ arquivos",
+      "worktree.review.tree_limit_format": "Mostrando as primeiras %@ linhas de %@ arquivos alterados"
     },
     "ru": {
       "worktree.action.open_terminal": "Open Terminal",
@@ -1086,7 +1100,9 @@
       "worktree.task.branch": "Worktree Branch",
       "worktree.task.create.message_format": "Create a worktree for %@.",
       "worktree.task.default_title": "New Worktree",
-      "worktree.task.title": "Worktree Name"
+      "worktree.task.title": "Worktree Name",
+      "worktree.review.changed_files_count_format": "%@ файлов",
+      "worktree.review.tree_limit_format": "Показаны первые %@ строк из %@ измененных файлов"
     },
     "zh-Hans": {
       "worktree.action.open_terminal": "打开终端",
@@ -1222,7 +1238,9 @@
       "worktree.task.branch": "Worktree 分支",
       "worktree.task.create.message_format": "为 %@ 创建 Worktree。",
       "worktree.task.default_title": "新建 Worktree",
-      "worktree.task.title": "Worktree 名称"
+      "worktree.task.title": "Worktree 名称",
+      "worktree.review.changed_files_count_format": "%@ 个文件",
+      "worktree.review.tree_limit_format": "显示前 %@ 行，共 %@ 个变更文件"
     },
     "zh-Hant": {
       "worktree.action.open_terminal": "開啟終端機",
@@ -1358,7 +1376,9 @@
       "worktree.task.branch": "Worktree 分支",
       "worktree.task.create.message_format": "為 %@ 建立 Worktree。",
       "worktree.task.default_title": "新增 Worktree",
-      "worktree.task.title": "Worktree 名稱"
+      "worktree.task.title": "Worktree 名稱",
+      "worktree.review.changed_files_count_format": "%@ 個檔案",
+      "worktree.review.tree_limit_format": "顯示前 %@ 行，共 %@ 個變更檔案"
     }
   }
 }

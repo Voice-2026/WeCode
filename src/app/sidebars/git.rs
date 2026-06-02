@@ -1,15 +1,17 @@
 use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
-use gpui::{ClickEvent, ListSizingBehavior, Pixels};
+use codux_runtime::git::GitReviewFile;
+use gpui::{ClickEvent, Div, ListSizingBehavior, Pixels, Stateful};
 use gpui_component::input::{Input, InputEvent, InputState};
 use std::ops::Range;
 
 #[derive(Clone)]
-struct GitSidebarLabels {
+pub(in crate::app) struct GitSidebarLabels {
     remote_name: String,
     remote_url: String,
     add_remote: String,
     add: String,
+    cancel: String,
     commit_message: String,
     commit: String,
     commit_push: String,
@@ -41,6 +43,14 @@ struct GitSidebarLabels {
     checkout_commit: String,
     revert_commit: String,
     restore_commit: String,
+    review_changed_files: String,
+    review_original: String,
+    review_new_file: String,
+    review_final_file: String,
+    review_branch: String,
+    review_select_file: String,
+    review_empty: String,
+    review_tree_limit: String,
 }
 
 #[derive(Clone, PartialEq)]
@@ -269,7 +279,7 @@ fn git_file_status_tuple(file: &GitFileStatus) -> (String, String, String) {
 }
 
 impl GitSidebarLabels {
-    fn load(language: &str) -> Self {
+    pub(in crate::app) fn load(language: &str) -> Self {
         let locale = locale_from_language_setting(language);
         let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
         Self {
@@ -277,6 +287,7 @@ impl GitSidebarLabels {
             remote_url: tr("git.remote.add.url_message", "Remote Repository URL"),
             add_remote: tr("git.remote.add", "Add Remote"),
             add: tr("common.add", "Add"),
+            cancel: tr("common.cancel", "Cancel"),
             commit_message: tr("git.commit.message.placeholder", "Enter Commit Message"),
             commit: tr("git.commit.action", "Commit"),
             commit_push: tr("git.commit.action_push", "Commit and Push"),
@@ -293,7 +304,7 @@ impl GitSidebarLabels {
             no_repository: tr("git.empty.no_repository", "No Repository"),
             no_repository_description: tr(
                 "git.empty.description",
-                "Initialize a repository or clone a remote repository to view commits, diffs, and branches.",
+                "Initialize Git or clone from a remote URL.",
             ),
             init_repository: tr("git.empty.initialize_repository", "Initialize Repository"),
             clone_repository: tr(
@@ -323,6 +334,23 @@ impl GitSidebarLabels {
             checkout_commit: tr("git.history.checkout_commit", "Checkout This Commit"),
             revert_commit: tr("git.history.revert_commit", "Revert This Commit"),
             restore_commit: tr("git.history.restore_local", "Restore to This Commit"),
+            review_changed_files: tr("worktree.review.changed_files", "Changed Files"),
+            review_original: tr("worktree.review.column.original", "Original"),
+            review_new_file: tr("worktree.review.column.new", "New File"),
+            review_final_file: tr("worktree.review.column.final", "Final File"),
+            review_branch: tr("worktree.review.column.branch", "Branch"),
+            review_select_file: tr(
+                "worktree.review.select_file",
+                "Select a changed file to compare.",
+            ),
+            review_empty: tr(
+                "worktree.review.no_changes",
+                "No changes relative to the base branch.",
+            ),
+            review_tree_limit: tr(
+                "worktree.review.tree_limit_format",
+                "Showing first %@ rows of %@ changed files",
+            ),
         }
     }
 }
@@ -332,6 +360,7 @@ pub(in crate::app) fn git_section(
     selected_branch: Option<&str>,
     default_push_remote: Option<&str>,
     clone_remote_url: &str,
+    clone_dialog_open: bool,
     language: &str,
     remote_editor_open: bool,
     remote_name: &str,
@@ -382,8 +411,10 @@ pub(in crate::app) fn git_section(
             )
             .into_any_element()
         } else {
-            git_empty_repository_panel(clone_remote_url, labels, window, cx).into_any_element()
+            git_empty_repository_panel(clone_remote_url, clone_dialog_open, labels, window, cx)
+                .into_any_element()
         })
+        .into_any_element()
 }
 
 fn git_panel_header(
@@ -1459,6 +1490,109 @@ fn git_files_panel(
 
 fn git_empty_repository_panel(
     clone_remote_url: &str,
+    clone_dialog_open: bool,
+    labels: Rc<GitSidebarLabels>,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .relative()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(18.0))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .text_center()
+                .child(
+                    div()
+                        .size(px(42.0))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(color(theme::ORANGE).opacity(0.12))
+                        .text_color(color(theme::ORANGE))
+                        .child(Icon::new(HeroIconName::Folder).size_5()),
+                )
+                .child(
+                    div()
+                        .mt(px(12.0))
+                        .text_size(px(14.0))
+                        .line_height(px(18.0))
+                        .text_color(color(theme::TEXT))
+                        .child(labels.no_repository.clone()),
+                )
+                .child(
+                    div()
+                        .mt(px(6.0))
+                        .max_w(px(220.0))
+                        .text_size(px(12.0))
+                        .line_height(px(17.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(labels.no_repository_description.clone()),
+                )
+                .child(
+                    div()
+                        .mt(px(14.0))
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(
+                            git_empty_action_button(labels.init_repository.clone(), true).on_click(
+                                cx.listener(|app, _event, window, cx| {
+                                    app.init_project_git(window, cx)
+                                }),
+                            ),
+                        )
+                        .child(
+                            git_empty_action_button(labels.clone_repository.clone(), false)
+                                .on_click(cx.listener(|app, _event, window, cx| {
+                                    app.open_git_clone_dialog(window, cx)
+                                })),
+                        ),
+                ),
+        )
+        .when(clone_dialog_open, |this| {
+            this.child(git_clone_dialog(clone_remote_url, labels, window, cx))
+        })
+}
+
+fn git_empty_action_button(label: String, primary: bool) -> Stateful<Div> {
+    div()
+        .id(ElementId::Name(SharedString::from(format!(
+            "git-empty-action-{label}"
+        ))))
+        .h(px(24.0))
+        .px(px(10.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(5.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .font_weight(FontWeight::MEDIUM)
+        .cursor_pointer()
+        .when(primary, |this| {
+            this.bg(color(theme::ACCENT))
+                .text_color(color(0xFFFFFF))
+                .hover(|style| style.bg(color(theme::ACCENT).opacity(0.88)))
+        })
+        .when(!primary, |this| {
+            this.bg(color(theme::BG_PANEL))
+                .text_color(color(theme::TEXT))
+                .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+        })
+        .child(label)
+}
+
+fn git_clone_dialog(
+    clone_remote_url: &str,
     labels: Rc<GitSidebarLabels>,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
@@ -1474,84 +1608,91 @@ fn git_empty_repository_panel(
             state.set_value(clone_remote_url.to_string(), window, cx);
         }
     });
-    cx.subscribe_in(&input_state, window, |app, state, event, window, cx| {
-        if matches!(event, InputEvent::Change) {
-            app.set_git_clone_remote_url(state.read(cx).value().to_string(), window, cx);
-        }
-    })
+    cx.subscribe_in(
+        &input_state,
+        window,
+        |app, state, event, window, cx| match event {
+            InputEvent::Change => {
+                app.set_git_clone_remote_url(state.read(cx).value().to_string(), window, cx);
+            }
+            InputEvent::PressEnter { .. } => app.clone_project_git(window, cx),
+            _ => {}
+        },
+    )
     .detach();
 
     div()
-        .flex_1()
-        .min_h_0()
+        .absolute()
+        .inset_0()
         .flex()
         .items_center()
         .justify_center()
-        .p(px(28.0))
+        .bg(color(theme::BG).opacity(0.62))
+        .p(px(16.0))
         .child(
             div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .text_center()
+                .w_full()
+                .max_w(px(320.0))
+                .rounded(px(8.0))
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().popover)
+                .shadow_lg()
+                .p(px(14.0))
                 .child(
                     div()
-                        .size(px(84.0))
-                        .rounded_full()
                         .flex()
                         .items_center()
-                        .justify_center()
-                        .bg(color(theme::ORANGE).opacity(0.12))
-                        .text_color(color(theme::ORANGE))
-                        .child(Icon::new(HeroIconName::Folder).size_8()),
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_size(px(14.0))
+                                .line_height(px(18.0))
+                                .text_color(color(theme::TEXT))
+                                .child(labels.clone_repository.clone()),
+                        )
+                        .child(
+                            Button::new("git-clone-dialog-close")
+                                .compact()
+                                .ghost()
+                                .icon(Icon::new(HeroIconName::XMark).size_3p5())
+                                .on_click(cx.listener(|app, _event, window, cx| {
+                                    app.close_git_clone_dialog(window, cx)
+                                })),
+                        ),
                 )
                 .child(
                     div()
-                        .mt(px(18.0))
-                        .text_size(px(18.0))
-                        .line_height(px(24.0))
-                        .text_color(color(theme::TEXT))
-                        .child(labels.no_repository.clone()),
-                )
-                .child(
-                    div()
-                        .mt(px(10.0))
-                        .max_w(px(280.0))
-                        .text_size(px(14.0))
-                        .line_height(px(22.0))
-                        .text_color(color(theme::TEXT_MUTED))
-                        .child(labels.no_repository_description.clone()),
-                )
-                .child(
-                    div()
-                        .mt(px(22.0))
-                        .w_full()
-                        .max_w(px(300.0))
+                        .mt(px(12.0))
                         .child(Input::new(&input_state).with_size(gpui_component::Size::Medium)),
                 )
                 .child(
                     div()
                         .mt(px(12.0))
                         .flex()
-                        .items_center()
+                        .justify_end()
                         .gap_2()
                         .child(
-                            Button::new("git-init-repo")
-                                .primary()
-                                .text_color(color(0xFFFFFF))
+                            Button::new("git-clone-cancel")
+                                .compact()
+                                .ghost()
+                                .text_color(cx.theme().secondary_foreground)
+                                .label(labels.cancel.clone())
                                 .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.init_project_git(window, cx)
-                                }))
-                                .child(labels.init_repository.clone()),
+                                    app.close_git_clone_dialog(window, cx)
+                                })),
                         )
                         .child(
-                            Button::new("git-clone-repo")
-                                .secondary()
-                                .text_color(cx.theme().secondary_foreground)
+                            Button::new("git-clone-confirm")
+                                .compact()
+                                .primary()
+                                .disabled(clone_remote_url.trim().is_empty())
+                                .text_color(color(0xFFFFFF))
+                                .label(labels.clone_repository.clone())
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.clone_project_git(window, cx)
-                                }))
-                                .child(labels.clone_repository.clone()),
+                                })),
                         ),
                 ),
         )
@@ -2181,11 +2322,13 @@ fn git_status_file_row(
         })
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(cx.listener(move |app, event: &ClickEvent, window, cx| {
-            if event.modifiers().shift {
+        .on_click(cx.listener(move |app, event: &ClickEvent, _window, cx| {
+            if event.click_count() >= 2 && !is_dir_status {
+                app.load_git_file_diff_async(file_path.clone(), cx);
+            } else if event.modifiers().shift {
                 app.toggle_git_file_selection(file_path.clone(), cx);
             } else {
-                app.select_git_file(file_path.clone(), window, cx)
+                app.select_git_file_only(file_path.clone(), cx);
             }
         }))
         .child(
@@ -2240,7 +2383,7 @@ fn git_status_file_row(
                     git_context_menu_item(labels.stage.clone(), HeroIconName::Plus).on_click(
                         move |_, window, cx| {
                             cx.update_entity(&stage_entity, |app, cx| {
-                                app.select_git_file(stage_path.clone(), window, cx);
+                                app.select_git_file_only(stage_path.clone(), cx);
                                 app.stage_git_paths(
                                     app.selected_git_action_paths(&stage_path),
                                     window,
@@ -2258,7 +2401,7 @@ fn git_status_file_row(
                     git_context_menu_item(labels.unstage.clone(), HeroIconName::Minus).on_click(
                         move |_, window, cx| {
                             cx.update_entity(&unstage_entity, |app, cx| {
-                                app.select_git_file(unstage_path.clone(), window, cx);
+                                app.select_git_file_only(unstage_path.clone(), cx);
                                 app.unstage_git_paths(
                                     app.selected_git_action_paths(&unstage_path),
                                     window,
@@ -2294,7 +2437,7 @@ fn git_status_file_row(
                     )
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&discard_entity, |app, cx| {
-                            app.select_git_file(discard_path.clone(), window, cx);
+                            app.select_git_file_only(discard_path.clone(), cx);
                             app.discard_git_paths(
                                 app.selected_git_action_paths(&discard_path),
                                 window,
@@ -2323,6 +2466,7 @@ fn git_status_file_row(
                 menu
             }
         })
+        .into_any_element()
 }
 
 #[derive(Clone)]
@@ -3077,11 +3221,25 @@ pub(in crate::app) fn git_diff_workspace(diff: &str) -> impl IntoElement {
 
 pub(in crate::app) fn git_review_workspace(
     selected_path: Option<&str>,
-    diff: &str,
+    review: &GitReviewSummary,
     content: Option<&GitReviewContentSummary>,
+    aligned_rows: Option<&GitReviewAlignedRows>,
+    labels: Rc<GitSidebarLabels>,
+    code_scroll_handle: ScrollHandle,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let selected_path = selected_path.unwrap_or("No file selected");
-    div()
+    let Some(selected_path) = selected_path else {
+        return git_review_empty_workspace(labels.review_select_file.clone()).into_any_element();
+    };
+    let Some(content) = content else {
+        return git_review_empty_workspace(labels.review_select_file.clone()).into_any_element();
+    };
+    if let Some(error) = content.error.clone() {
+        return git_review_empty_workspace(error).into_any_element();
+    }
+    let task_branch_mode = review.mode == "taskBranch";
+    let original_title = labels.review_original.clone();
+    let body = div()
         .flex()
         .flex_col()
         .size_full()
@@ -3104,51 +3262,124 @@ pub(in crate::app) fn git_review_workspace(
                         .truncate()
                         .child(selected_path.to_string()),
                 )
-                .when_some(content, |this, content| {
-                    this.child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .text_color(color(theme::TEXT_DIM))
-                            .child(format!("+{}", content.added_lines.len()))
-                            .child(format!("-{}", content.deleted_lines.len())),
-                    )
-                }),
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .text_size(px(12.0))
+                        .line_height(px(16.0))
+                        .text_color(color(theme::TEXT_DIM))
+                        .child(format!("+{}", content.added_lines.len()))
+                        .child(format!("-{}", content.deleted_lines.len())),
+                ),
         )
-        .child(
+        .child({
+            let aligned_rows = aligned_rows.cloned().unwrap_or_default();
             div()
                 .flex()
                 .flex_1()
+                .flex_basis(px(0.0))
                 .min_h_0()
+                .min_w_0()
+                .overflow_hidden()
                 .child(git_review_content_panel(
-                    "Base",
-                    content.and_then(|item| item.base_content.as_deref()),
+                    "git-review-original-code",
+                    original_title.as_str(),
+                    aligned_rows.original.clone(),
+                    VirtualListScrollHandle::from(code_scroll_handle.clone()),
+                    cx,
                 ))
                 .child(git_review_content_panel(
-                    "Worktree",
-                    content.map(|item| item.worktree_content.as_str()),
-                )),
-        )
+                    "git-review-new-code",
+                    labels.review_new_file.as_str(),
+                    aligned_rows.new_file.clone(),
+                    VirtualListScrollHandle::from(code_scroll_handle.clone()),
+                    cx,
+                ))
+                .child(git_review_content_panel(
+                    "git-review-final-code",
+                    labels.review_final_file.as_str(),
+                    aligned_rows.final_file.clone(),
+                    VirtualListScrollHandle::from(code_scroll_handle.clone()),
+                    cx,
+                ))
+                .when(task_branch_mode, |this| {
+                    this.child(git_review_content_panel(
+                        "git-review-branch-code",
+                        labels.review_branch.as_str(),
+                        aligned_rows.branch.clone().unwrap_or_default(),
+                        VirtualListScrollHandle::from(code_scroll_handle.clone()),
+                        cx,
+                    ))
+                })
+        });
+    body.into_any_element()
+}
+
+fn git_review_empty_workspace(message: String) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_1()
+        .size_full()
+        .min_h_0()
+        .items_center()
+        .justify_center()
+        .text_color(color(theme::TEXT_DIM))
         .child(
             div()
-                .h(px(190.0))
-                .flex_shrink_0()
-                .border_t_1()
-                .border_color(color(theme::BORDER_SOFT))
-                .overflow_y_scrollbar()
-                .child(git_diff_workspace(diff)),
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .child(Icon::new(HeroIconName::DocumentText).size_6())
+                .child(
+                    div()
+                        .text_size(px(13.0))
+                        .line_height(px(18.0))
+                        .child(message),
+                ),
         )
 }
 
-fn git_review_content_panel(title: &'static str, content: Option<&str>) -> impl IntoElement {
+#[derive(Clone, Copy)]
+enum GitReviewLineTone {
+    Addition,
+    Deletion,
+}
+
+#[derive(Clone, Default)]
+pub(in crate::app) struct GitReviewAlignedRows {
+    original: Rc<Vec<GitReviewAlignedCell>>,
+    new_file: Rc<Vec<GitReviewAlignedCell>>,
+    final_file: Rc<Vec<GitReviewAlignedCell>>,
+    branch: Option<Rc<Vec<GitReviewAlignedCell>>>,
+}
+
+#[derive(Clone, Default)]
+struct GitReviewAlignedCell {
+    line_number: Option<usize>,
+    text: String,
+    tone: Option<GitReviewLineTone>,
+}
+
+fn git_review_content_panel(
+    list_id: &'static str,
+    title: &str,
+    cells: Rc<Vec<GitReviewAlignedCell>>,
+    scroll_handle: VirtualListScrollHandle,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let item_sizes = Rc::new(vec![size(px(1.0), px(18.0)); cells.len()]);
+    let list_cells = cells.clone();
     div()
         .flex()
         .flex_col()
         .flex_1()
+        .flex_basis(px(0.0))
         .min_w_0()
+        .overflow_hidden()
         .border_r_1()
         .border_color(color(theme::BORDER_SOFT))
         .child(
@@ -3157,27 +3388,589 @@ fn git_review_content_panel(title: &'static str, content: Option<&str>) -> impl 
                 .px_2()
                 .flex()
                 .items_center()
+                .justify_between()
+                .gap_2()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
                 .text_size(px(12.0))
                 .line_height(px(16.0))
                 .text_color(color(theme::TEXT_MUTED))
-                .child(title),
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title.to_string()),
+                ),
         )
         .child(
             div()
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scrollbar()
+                .relative()
+                .overflow_hidden()
                 .bg(color(theme::BG_TERMINAL))
                 .p_2()
                 .text_size(px(12.0))
                 .line_height(px(18.0))
                 .text_color(color(theme::TEXT))
-                .children(content.unwrap_or("").lines().take(160).map(|line| {
-                    div()
-                        .child(line.chars().take(130).collect::<String>())
-                        .into_any_element()
-                })),
+                .font_family("SF Mono")
+                .child(
+                    v_virtual_list(
+                        cx.entity().clone(),
+                        list_id,
+                        item_sizes,
+                        move |_app, visible_range: Range<usize>, _window, _cx| {
+                            visible_range
+                                .filter_map(|index| {
+                                    let cell = list_cells.get(index)?;
+                                    Some(git_review_code_line(cell.clone()))
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                    )
+                    .track_scroll(&scroll_handle)
+                    .with_sizing_behavior(ListSizingBehavior::Auto),
+                )
+                .vertical_scrollbar(&scroll_handle),
         )
+}
+
+fn git_review_code_line(cell: GitReviewAlignedCell) -> AnyElement {
+    let line_bg = match cell.tone {
+        Some(GitReviewLineTone::Addition) => Some(color(theme::GREEN).opacity(0.13)),
+        Some(GitReviewLineTone::Deletion) => Some(color(0xF87171).opacity(0.14)),
+        None => None,
+    };
+    div()
+        .h(px(18.0))
+        .flex()
+        .w_full()
+        .min_w_0()
+        .when_some(line_bg, |this, bg| this.bg(bg))
+        .child(
+            div()
+                .w(px(44.0))
+                .flex_none()
+                .pr_2()
+                .text_align(gpui::TextAlign::Right)
+                .text_color(color(theme::TEXT_DIM))
+                .child(
+                    cell.line_number
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_x_hidden()
+                .child(cell.text),
+        )
+        .into_any_element()
+}
+
+pub(in crate::app) fn build_git_review_aligned_rows(
+    original_content: &str,
+    new_content: &str,
+    final_content: &str,
+    branch_content: Option<&str>,
+    deleted_lines: &[usize],
+    added_lines: &[usize],
+) -> GitReviewAlignedRows {
+    let original_lines = split_review_lines(original_content);
+    let new_lines = split_review_lines(new_content);
+    let final_lines = split_review_lines(final_content);
+    let branch_lines = branch_content.map(split_review_lines);
+    let deleted = deleted_lines.iter().copied().collect::<HashSet<_>>();
+    let added = added_lines.iter().copied().collect::<HashSet<_>>();
+
+    let mut original_cells = Vec::new();
+    let mut new_cells = Vec::new();
+    let mut final_cells = Vec::new();
+    let mut branch_cells = branch_lines.as_ref().map(|_| Vec::new());
+    let mut old_line = 1usize;
+    let mut new_line = 1usize;
+
+    while original_cells.len() < 600
+        && (old_line <= original_lines.len() || new_line <= final_lines.len())
+    {
+        if deleted.contains(&old_line) || added.contains(&new_line) {
+            let mut deleted_block = Vec::new();
+            while old_line <= original_lines.len() && deleted.contains(&old_line) {
+                deleted_block.push(old_line);
+                old_line += 1;
+            }
+
+            let mut added_block = Vec::new();
+            while new_line <= final_lines.len() && added.contains(&new_line) {
+                added_block.push(new_line);
+                new_line += 1;
+            }
+
+            let block_len = deleted_block.len().max(added_block.len()).max(1);
+            for offset in 0..block_len {
+                let old_number = deleted_block.get(offset).copied();
+                let new_number = added_block.get(offset).copied();
+                original_cells.push(review_cell(
+                    &original_lines,
+                    old_number,
+                    Some(GitReviewLineTone::Deletion),
+                ));
+                new_cells.push(review_cell(
+                    &new_lines,
+                    new_number,
+                    Some(GitReviewLineTone::Addition),
+                ));
+                final_cells.push(review_cell(
+                    &final_lines,
+                    new_number,
+                    Some(GitReviewLineTone::Addition),
+                ));
+                if let (Some(lines), Some(cells)) = (&branch_lines, &mut branch_cells) {
+                    cells.push(review_cell(
+                        lines,
+                        new_number,
+                        Some(GitReviewLineTone::Addition),
+                    ));
+                }
+            }
+        } else {
+            original_cells.push(review_cell(&original_lines, Some(old_line), None));
+            new_cells.push(review_cell(&new_lines, Some(new_line), None));
+            final_cells.push(review_cell(&final_lines, Some(new_line), None));
+            if let (Some(lines), Some(cells)) = (&branch_lines, &mut branch_cells) {
+                cells.push(review_cell(lines, Some(new_line), None));
+            }
+            old_line += 1;
+            new_line += 1;
+        }
+    }
+
+    GitReviewAlignedRows {
+        original: Rc::new(original_cells),
+        new_file: Rc::new(new_cells),
+        final_file: Rc::new(final_cells),
+        branch: branch_cells.map(Rc::new),
+    }
+}
+
+fn split_review_lines(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .map(|line| line.chars().take(160).collect::<String>())
+        .collect()
+}
+
+fn review_cell(
+    lines: &[String],
+    line_number: Option<usize>,
+    tone: Option<GitReviewLineTone>,
+) -> GitReviewAlignedCell {
+    let text = line_number.and_then(|number| lines.get(number.saturating_sub(1)).cloned());
+    GitReviewAlignedCell {
+        line_number: if text.is_some() { line_number } else { None },
+        text: text.unwrap_or_default(),
+        tone,
+    }
+}
+
+pub(in crate::app) fn git_review_file_list(
+    review: &GitReviewSummary,
+    selected_path: Option<&str>,
+    expanded_dirs: &HashSet<String>,
+    labels: Rc<GitSidebarLabels>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let expanded_dirs = expanded_dirs.clone();
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .min_h_0()
+        .bg(color(theme::BG_PANEL).opacity(0.35))
+        .child(
+            div()
+                .h(px(38.0))
+                .px_3()
+                .flex()
+                .items_center()
+                .justify_between()
+                .border_b_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .text_size(px(12.0))
+                .text_color(color(theme::TEXT_DIM))
+                .child(labels.review_changed_files.clone())
+                .child(
+                    div()
+                        .id("git-review-refresh")
+                        .size(px(24.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(5.0))
+                        .text_color(color(theme::TEXT_DIM))
+                        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
+                        .cursor_pointer()
+                        .child(Icon::new(HeroIconName::ArrowPath).size_4())
+                        .on_click(cx.listener(|app, _event, _window, cx| {
+                            app.refresh_git_panel_state_async(cx);
+                        })),
+                ),
+        )
+        .child(if review.files.is_empty() {
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .p_4()
+                .text_size(px(13.0))
+                .line_height(px(18.0))
+                .text_color(color(theme::TEXT_DIM))
+                .child(
+                    review
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| labels.review_empty.clone()),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .py_2()
+                .children(git_review_directory_rows(
+                    &review.files,
+                    "",
+                    0,
+                    selected_path,
+                    &expanded_dirs,
+                    labels.clone(),
+                    cx,
+                ))
+                .into_any_element()
+        })
+}
+
+fn git_review_directory_rows(
+    files: &[GitReviewFile],
+    base_path: &str,
+    depth: usize,
+    selected_path: Option<&str>,
+    expanded_dirs: &HashSet<String>,
+    labels: Rc<GitSidebarLabels>,
+    cx: &mut Context<CoduxApp>,
+) -> Vec<AnyElement> {
+    let (dirs, direct_files) = collect_immediate_git_review_entries(base_path, files);
+    let mut rows = Vec::new();
+    for (name, dir) in dirs {
+        if rows.len() >= MAX_GIT_REVIEW_TREE_ROWS {
+            rows.push(git_review_tree_limit_row(files.len(), &labels).into_any_element());
+            return rows;
+        }
+        let expanded = expanded_dirs.contains(&git_status_tree_key("review", &dir.path));
+        rows.push(git_review_dir_row(&name, &dir, expanded, depth, cx).into_any_element());
+        if expanded {
+            rows.extend(git_review_directory_rows(
+                files,
+                &dir.path,
+                depth + 1,
+                selected_path,
+                expanded_dirs,
+                labels.clone(),
+                cx,
+            ));
+        }
+    }
+    for file in direct_files {
+        if rows.len() >= MAX_GIT_REVIEW_TREE_ROWS {
+            rows.push(git_review_tree_limit_row(files.len(), &labels).into_any_element());
+            return rows;
+        }
+        let selected = selected_path == Some(file.path.as_str());
+        rows.push(git_review_file_row(file, selected, depth, cx).into_any_element());
+    }
+    rows
+}
+
+const MAX_GIT_REVIEW_TREE_ROWS: usize = 600;
+
+fn git_review_tree_limit_row(total: usize, labels: &GitSidebarLabels) -> impl IntoElement {
+    let message = labels
+        .review_tree_limit
+        .replacen("%@", &MAX_GIT_REVIEW_TREE_ROWS.to_string(), 1)
+        .replacen("%@", &total.to_string(), 1);
+    div()
+        .h(px(30.0))
+        .px_3()
+        .flex()
+        .items_center()
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .text_color(color(theme::TEXT_DIM))
+        .child(message)
+}
+
+fn git_review_file_row(
+    file: GitReviewFile,
+    selected: bool,
+    depth: usize,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let path = file.path.clone();
+    let badge = git_review_status_badge(&file.status);
+    let file_name = file
+        .path
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(file.path.as_str())
+        .to_string();
+    Button::new(format!("review-file-{path}"))
+        .ghost()
+        .w_full()
+        .h(px(24.0))
+        .px_2()
+        .rounded_sm()
+        .text_color(if selected {
+            color(theme::TEXT)
+        } else {
+            color(theme::TEXT_MUTED)
+        })
+        .when(selected, |this| this.bg(color(theme::ACCENT).opacity(0.13)))
+        .on_click(cx.listener(move |app, event: &ClickEvent, _window, cx| {
+            if event.click_count() >= 2 {
+                app.load_git_file_diff_async(path.clone(), cx);
+            } else {
+                app.select_git_file_only(path.clone(), cx);
+            }
+        }))
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .items_center()
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(div().flex_none().w(px(28.0 + depth as f32 * 18.0)))
+                        .child(
+                            Icon::new(review_file_icon(&file.status))
+                                .size_3p5()
+                                .flex_none(),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .ml(px(8.0))
+                                .min_w_0()
+                                .max_w_full()
+                                .truncate()
+                                .text_size(px(14.0))
+                                .line_height(px(18.0))
+                                .child(file_name),
+                        ),
+                )
+                .child(git_review_stats_cells(
+                    Some((
+                        format!("+{}", file.additions.max(0)),
+                        color(theme::GREEN),
+                        true,
+                    )),
+                    Some((format!("-{}", file.deletions.max(0)), color(0xF47C7C), true)),
+                    Some((badge.0.to_string(), badge.1, true)),
+                )),
+        )
+}
+
+fn git_review_dir_row(
+    name: &str,
+    dir: &GitReviewDirSummary,
+    expanded: bool,
+    depth: usize,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let path = dir.path.clone();
+    Button::new(format!("review-dir-{path}"))
+        .ghost()
+        .w_full()
+        .h(px(24.0))
+        .px_2()
+        .rounded_sm()
+        .text_color(color(theme::TEXT_MUTED))
+        .on_click(cx.listener(move |app, _event, _window, cx| {
+            app.toggle_git_review_dir(path.clone(), cx);
+        }))
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .items_center()
+                        .child(div().flex_none().w(px(depth as f32 * 18.0)))
+                        .child(
+                            Icon::new(if expanded {
+                                HeroIconName::ChevronDown
+                            } else {
+                                HeroIconName::ChevronRight
+                            })
+                            .size_3()
+                            .flex_none()
+                            .text_color(color(theme::TEXT_DIM)),
+                        )
+                        .child(
+                            Icon::new(if expanded {
+                                HeroIconName::FolderOpen
+                            } else {
+                                HeroIconName::Folder
+                            })
+                            .size_4()
+                            .ml(px(8.0))
+                            .flex_none()
+                            .text_color(color(theme::ACCENT)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .ml(px(8.0))
+                                .min_w_0()
+                                .max_w_full()
+                                .truncate()
+                                .text_size(px(14.0))
+                                .line_height(px(18.0))
+                                .child(name.to_string()),
+                        ),
+                )
+                .child(git_review_stats_cells(
+                    None,
+                    None,
+                    Some((dir.count.to_string(), color(theme::TEXT_DIM), false)),
+                )),
+        )
+}
+
+fn git_review_stats_cells(
+    additions: Option<(String, gpui::Hsla, bool)>,
+    deletions: Option<(String, gpui::Hsla, bool)>,
+    trailing: Option<(String, gpui::Hsla, bool)>,
+) -> impl IntoElement {
+    div()
+        .flex_none()
+        .w(if additions.is_some() || deletions.is_some() {
+            px(78.0)
+        } else {
+            px(24.0)
+        })
+        .flex()
+        .items_center()
+        .justify_end()
+        .gap(px(8.0))
+        .text_size(px(12.0))
+        .line_height(px(16.0))
+        .when_some(additions, |this, cell| {
+            this.child(git_review_stat_cell(cell, px(28.0)))
+        })
+        .when_some(deletions, |this, cell| {
+            this.child(git_review_stat_cell(cell, px(28.0)))
+        })
+        .when_some(trailing, |this, cell| {
+            this.child(git_review_stat_cell(cell, px(18.0)))
+        })
+}
+
+fn git_review_stat_cell(
+    (label, label_color, strong): (String, gpui::Hsla, bool),
+    width: Pixels,
+) -> impl IntoElement {
+    div()
+        .w(width)
+        .h(px(16.0))
+        .overflow_hidden()
+        .truncate()
+        .text_align(gpui::TextAlign::Right)
+        .text_color(label_color)
+        .when(strong, |this| this.font_weight(FontWeight::BOLD))
+        .child(label)
+}
+
+fn git_review_status_badge(status: &str) -> (&'static str, gpui::Hsla) {
+    match status {
+        "added" => ("A", color(theme::GREEN)),
+        "deleted" => ("D", color(theme::ACCENT)),
+        "renamed" => ("R", color(theme::ORANGE)),
+        "copied" => ("C", color(theme::ACCENT)),
+        "typeChanged" => ("T", color(theme::ORANGE)),
+        "modified" => ("M", color(theme::ORANGE)),
+        _ => ("?", color(theme::TEXT_DIM)),
+    }
+}
+
+fn review_file_icon(status: &str) -> HeroIconName {
+    match status {
+        "added" => HeroIconName::DocumentPlus,
+        "deleted" => HeroIconName::DocumentMinus,
+        "renamed" => HeroIconName::ArrowPath,
+        _ => HeroIconName::Document,
+    }
+}
+
+#[derive(Clone)]
+struct GitReviewDirSummary {
+    path: String,
+    count: usize,
+    additions: i64,
+    deletions: i64,
+}
+
+fn collect_immediate_git_review_entries(
+    base_path: &str,
+    files: &[GitReviewFile],
+) -> (BTreeMap<String, GitReviewDirSummary>, Vec<GitReviewFile>) {
+    let mut dirs = BTreeMap::<String, GitReviewDirSummary>::new();
+    let mut direct_files = Vec::<GitReviewFile>::new();
+    for file in files {
+        let Some(relative_path) = relative_git_status_path(base_path, &file.path) else {
+            continue;
+        };
+        let relative_path = relative_path.trim_end_matches('/');
+        if relative_path.is_empty() {
+            continue;
+        }
+        if let Some((dir_name, _rest)) = relative_path.split_once('/') {
+            let dir_path = join_git_path(base_path, dir_name);
+            dirs.entry(dir_name.to_string())
+                .and_modify(|dir| {
+                    dir.count += 1;
+                    dir.additions += file.additions.max(0);
+                    dir.deletions += file.deletions.max(0);
+                })
+                .or_insert(GitReviewDirSummary {
+                    path: dir_path,
+                    count: 1,
+                    additions: file.additions.max(0),
+                    deletions: file.deletions.max(0),
+                });
+        } else {
+            direct_files.push(file.clone());
+        }
+    }
+    (dirs, direct_files)
 }

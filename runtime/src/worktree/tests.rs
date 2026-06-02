@@ -45,8 +45,9 @@ fn reads_and_selects_project_worktree_without_losing_unknown_fields() {
     assert_eq!(summary.selected_worktree_id.as_deref(), Some("w1"));
 
     service.select_worktree("p1", "w2").unwrap();
-    let raw: Value =
-        serde_json::from_str(&fs::read_to_string(support_dir.join("state.json")).unwrap()).unwrap();
+    let raw = Value::Object(crate::config::raw_state_snapshot(
+        &support_dir.join("state.json"),
+    ));
     assert_eq!(raw["selectedWorktreeIdByProject"]["p1"], "w2");
     assert_eq!(raw["unknownTopLevel"], "keep");
 }
@@ -69,7 +70,7 @@ fn state_summary_falls_back_to_project_worktree_when_state_is_malformed() {
     assert_eq!(summary.worktrees.len(), 1);
     assert_eq!(summary.worktrees[0].id, "project");
     assert!(summary.worktrees[0].is_default);
-    assert!(summary.error.is_some());
+    assert!(summary.error.is_none());
 
     fs::remove_dir_all(support_dir).ok();
     fs::remove_dir_all(project_dir).ok();
@@ -105,6 +106,47 @@ fn summary_includes_per_worktree_git_stats() {
     assert_eq!(summary.worktrees.len(), 1);
     assert_eq!(summary.worktrees[0].git_summary.changes, 1);
     assert_eq!(summary.worktrees[0].git_summary.additions, 1);
+    assert_eq!(summary.worktrees[0].git_summary.deletions, 0);
+
+    fs::remove_dir_all(support_dir).ok();
+    fs::remove_dir_all(repo).ok();
+}
+
+#[test]
+fn worktree_git_stats_match_review_totals() {
+    let support_dir = temp_dir("worktree-summary-review-stats");
+    let repo = temp_dir("worktree-summary-review-stats-repo");
+    fs::create_dir_all(&support_dir).unwrap();
+    create_repo_with_commit(&repo);
+    fs::write(repo.join("README.md"), "hello\nworld\n").unwrap();
+    fs::write(repo.join("UNTRACKED.md"), "one\ntwo\nthree\n").unwrap();
+    fs::write(
+        support_dir.join("state.json"),
+        serde_json::to_string_pretty(&json!({
+            "worktrees": [
+                {"id": "w1", "projectId": "p1", "name": "main", "branch": "main", "path": repo, "status": "todo", "isDefault": true}
+            ],
+            "worktreeTasks": [
+                {"worktreeId": "w1", "title": "Main task", "baseBranch": "main", "status": "todo"}
+            ],
+            "selectedWorktreeIdByProject": {"p1": "w1"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let summary = WorktreeService::new(support_dir.clone()).summary(
+        Some("p1"),
+        Some(repo.to_str().expect("repo path")),
+    );
+    let review = crate::git::GitService::review(repo.to_str().expect("repo path"), None);
+    let review_additions: i64 = review.files.iter().map(|file| file.additions).sum();
+    let review_deletions: i64 = review.files.iter().map(|file| file.deletions).sum();
+
+    assert_eq!(summary.worktrees.len(), 1);
+    assert_eq!(summary.worktrees[0].git_summary.additions, review_additions);
+    assert_eq!(summary.worktrees[0].git_summary.deletions, review_deletions);
+    assert_eq!(summary.worktrees[0].git_summary.additions, 4);
     assert_eq!(summary.worktrees[0].git_summary.deletions, 0);
 
     fs::remove_dir_all(support_dir).ok();

@@ -54,8 +54,7 @@ fn create_move_and_close_preserve_unknown_fields_and_prune_related_state() {
         .unwrap();
     store.close_project("p1").unwrap();
 
-    let state: Value =
-        serde_json::from_str(&fs::read_to_string(support_dir.join("state.json")).unwrap()).unwrap();
+    let state = state_value(&support_dir);
     assert_eq!(state["unknownTopLevel"], true);
     assert_eq!(state["projects"][0]["id"], added_id);
     assert_eq!(state["projects"][0]["name"], "Added");
@@ -64,8 +63,7 @@ fn create_move_and_close_preserve_unknown_fields_and_prune_related_state() {
     assert_eq!(state["worktrees"].as_array().unwrap().len(), 1);
     assert_eq!(state["worktrees"][0]["id"], "w2");
     assert_eq!(state["worktreeTasks"].as_array().unwrap().len(), 1);
-    assert!(state["terminalLayouts"].get("p1").is_none());
-    assert!(state["terminalLayouts"].get("w1").is_none());
+    assert!(state.get("terminalLayouts").is_none());
     assert_eq!(state["selectedWorktreeIdByProject"]["p2"], "w2");
     assert!(state["selectedWorktreeIdByProject"].get("p1").is_none());
 }
@@ -118,8 +116,7 @@ fn update_project_preserves_unknown_fields_and_updates_default_worktree() {
         .update_project("p1", "Renamed", project_dir.to_str().unwrap())
         .unwrap();
 
-    let state: Value =
-        serde_json::from_str(&fs::read_to_string(support_dir.join("state.json")).unwrap()).unwrap();
+    let state = state_value(&support_dir);
     let normalized_path = project_dir
         .canonicalize()
         .unwrap()
@@ -145,4 +142,10 @@ fn temp_dir(label: &str) -> PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"))
+}
+
+fn state_value(support_dir: &PathBuf) -> Value {
+    Value::Object(crate::config::raw_state_snapshot(
+        &support_dir.join("state.json"),
+    ))
 }

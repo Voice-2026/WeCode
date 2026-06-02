@@ -56,9 +56,9 @@ use codux_runtime::{
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
     FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ObjectFit,
-    ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-    Subscription, UniformListScrollHandle, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
+    ParentElement, Pixels, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
+    StyledImage, Subscription, UniformListScrollHandle, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
     prelude::FluentBuilder as _, px, size,
 };
 use gpui_component::{
@@ -127,6 +127,13 @@ mod window_actions;
 mod window_shell;
 mod work_scheduler;
 mod workspace;
+mod workspace_daily_level;
+mod workspace_files;
+mod workspace_pet_widgets;
+mod workspace_review;
+mod workspace_shared;
+mod workspace_terminal;
+mod workspace_toolbar;
 mod workspace_views;
 
 pub use self::app_state::CoduxApp;
@@ -173,8 +180,8 @@ use self::{
     shortcuts::{shortcut_display_from_keystroke, shortcut_matches},
     sidebars::{
         AssistantPanel, FileSidebarView, clipboard_external_paths, current_directory_suffix,
-        file_directory_option, git_diff_window_workspace, git_review_workspace,
-        git_workspace_section, memory_manager_window_workspace, parent_relative_directory,
+        file_directory_option, git_diff_window_workspace, git_review_file_list,
+        git_review_workspace, memory_manager_window_workspace, parent_relative_directory,
     },
     ssh_profile_editor::ssh_profile_editor_workspace,
     status_bar::StatusBarView,

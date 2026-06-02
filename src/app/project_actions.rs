@@ -88,6 +88,54 @@ impl CoduxApp {
         self.save_current_worktree_view_state();
     }
 
+    pub(super) fn refresh_git_panel_state_async(&mut self, cx: &mut Context<Self>) {
+        let Some(project_path) = self.selected_worktree_path() else {
+            return;
+        };
+        let Some(store_key) = worktree_view_store_key(&self.state) else {
+            return;
+        };
+        let base_branch = self.git_review.base_branch.clone();
+        let runtime_service = self.runtime_service.clone();
+        let generation = self.project_switch_generation;
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let git = runtime_service.reload_project_git(&project_path);
+                    let mut git_review = runtime_service
+                        .reload_project_git_review(&project_path, base_branch.as_deref());
+                    super::git_actions::merge_git_review_status_files(&mut git_review, &git);
+                    (store_key, generation, git, git_review)
+                },
+            )
+            .await
+            .ok();
+            let _ = this.update(cx, |app, cx| {
+                let Some((store_key, generation, git, git_review)) = result else {
+                    return;
+                };
+                if app.project_switch_generation != generation
+                    || worktree_view_store_key(&app.state).as_ref() != Some(&store_key)
+                {
+                    if let Some(view_state) = app.worktree_view_store.get_mut(&store_key) {
+                        view_state.git.git = git;
+                        view_state.git.git_review = git_review;
+                    }
+                    return;
+                }
+                app.state.git = git;
+                app.git_review = git_review;
+                app.normalize_selected_git_file();
+                app.normalize_selected_git_branch();
+                app.ensure_selected_git_review_file_loaded_async(cx);
+                app.save_current_worktree_view_state();
+                app.invalidate_git_panel(cx);
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn select_project(
         &mut self,
         project_id: String,
@@ -308,6 +356,7 @@ impl CoduxApp {
     ) {
         self.state.git = state.git;
         self.git_review = state.git_review;
+        super::git_actions::merge_git_review_status_files(&mut self.git_review, &self.state.git);
         self.selected_git_file = state.selected_git_file;
         self.selected_git_files = state.selected_git_files;
         self.selected_git_branch = state.selected_git_branch;
@@ -315,7 +364,11 @@ impl CoduxApp {
         self.git_expanded_dirs = state.git_expanded_dirs;
         self.git_tree_children = state.git_tree_children;
         self.git_diff_preview = state.git_diff_preview;
-        self.git_review_content = state.git_review_content;
+        if let Some(content) = state.git_review_content {
+            self.set_git_review_content_cache(content);
+        } else {
+            self.clear_git_review_content_cache();
+        }
         self.normalize_selected_git_file();
         self.normalize_selected_git_branch();
     }
@@ -338,7 +391,7 @@ impl CoduxApp {
         self.git_tree_children.clear();
         self.record_ui_cache_clear("git_tree");
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
-        self.git_review_content = None;
+        self.clear_git_review_content_cache();
         self.state.git = GitSummary::default();
         self.git_review = GitReviewSummary::default();
         self.normalize_selected_git_branch();
@@ -355,6 +408,38 @@ impl CoduxApp {
                 git: self.git_worktree_view_state(),
             },
         );
+        self.persist_current_file_tree_state();
+        self.persist_current_git_ui_state();
+    }
+
+    pub(super) fn persist_current_file_tree_state(&self) {
+        let Some(key) = worktree_view_store_key(&self.state) else {
+            return;
+        };
+        let summary = codux_runtime::file_tree_state::FileTreeStateSummary {
+            files: self.state.files.clone(),
+            file_directory: self.file_directory.clone(),
+            selected_file_entry: self.selected_file_entry.clone(),
+            selected_file_entries: self.selected_file_entries.iter().cloned().collect(),
+            file_selection_anchor: self.file_selection_anchor.clone(),
+            file_tree_expanded_dirs: self.file_tree_expanded_dirs.iter().cloned().collect(),
+            file_tree_children: self.file_tree_children.clone(),
+            error: None,
+        };
+        let _ = self
+            .runtime_service
+            .save_file_tree_state(&key.worktree_id, summary);
+    }
+
+    pub(super) fn persist_current_git_ui_state(&self) {
+        let Some(key) = worktree_view_store_key(&self.state) else {
+            return;
+        };
+        let summary =
+            super::app_state::git_ui_state_summary_from_worktree(&self.git_worktree_view_state());
+        let _ = self
+            .runtime_service
+            .save_git_ui_state(&key.worktree_id, summary);
     }
 
     pub(super) fn apply_saved_worktree_view_state(&mut self) {
@@ -410,8 +495,9 @@ impl CoduxApp {
                     let file_editor_layout =
                         runtime_service.reload_file_editor_layout(Some(&store_key.worktree_id));
                     let git = runtime_service.reload_project_git(&worktree_path);
-                    let git_review =
+                    let mut git_review =
                         runtime_service.reload_project_git_review(&worktree_path, None);
+                    super::git_actions::merge_git_review_status_files(&mut git_review, &git);
                     WorktreeSidebarLoad {
                         generation,
                         store_key,
@@ -458,6 +544,9 @@ impl CoduxApp {
                 active_file_editor_tab: None,
             });
         file_state.files = load.files.clone();
+        if file_state.file_directory.trim().is_empty() {
+            file_state.file_directory.clear();
+        }
         if file_state.file_editor_tabs.is_empty() {
             let (tabs, active_path) =
                 super::app_state::file_editor_tabs_from_layout(load.file_editor_layout);
@@ -498,6 +587,9 @@ impl CoduxApp {
         self.apply_file_worktree_view_state(file_state);
         self.ensure_active_file_editor_state(window, cx);
         self.apply_git_worktree_view_state(git_state);
+        if self.workspace_view == WorkspaceView::Review {
+            self.ensure_selected_git_review_file_loaded_async(cx);
+        }
         self.invalidate_file_panel(cx);
         self.invalidate_git_panel(cx);
     }
@@ -1065,7 +1157,7 @@ impl CoduxApp {
         self.selected_git_file = None;
         self.normalize_selected_git_branch();
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
-        self.git_review_content = None;
+        self.clear_git_review_content_cache();
         self.normalize_selected_ai_session();
         self.normalize_selected_runtime_session();
         self.normalize_selected_ssh_profile();
@@ -1255,7 +1347,7 @@ impl CoduxApp {
                 self.git_expanded_dirs.clear();
                 self.record_ui_cache_clear("git_tree");
                 self.git_diff_preview = "select a changed file to preview its diff".to_string();
-                self.git_review_content = None;
+                self.clear_git_review_content_cache();
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();

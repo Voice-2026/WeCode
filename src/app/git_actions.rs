@@ -1,6 +1,36 @@
 use super::*;
+use codux_runtime::git::GitReviewFile;
 
 impl CoduxApp {
+    pub(super) fn clear_git_review_content_cache(&mut self) {
+        self.git_review_content = None;
+        self.git_review_aligned_rows = None;
+    }
+
+    pub(super) fn set_git_review_content_cache(&mut self, content: GitReviewContentSummary) {
+        let original_content = if self.git_review.mode == "taskBranch" {
+            content.base_content.as_deref().unwrap_or("")
+        } else {
+            content.head_content.as_str()
+        };
+        let new_content = content
+            .index_content
+            .as_deref()
+            .unwrap_or(content.worktree_content.as_str());
+        let final_content = content.worktree_content.as_str();
+        let branch_content =
+            (self.git_review.mode == "taskBranch").then_some(content.head_content.as_str());
+        self.git_review_aligned_rows = Some(super::sidebars::build_git_review_aligned_rows(
+            original_content,
+            new_content,
+            final_content,
+            branch_content,
+            &content.deleted_lines,
+            &content.added_lines,
+        ));
+        self.git_review_content = Some(content);
+    }
+
     pub(super) fn reload_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to refresh".to_string();
@@ -83,6 +113,18 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.git_clone_remote_url = value;
+        self.invalidate_git_panel(cx);
+    }
+
+    pub(super) fn open_git_clone_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.git_clone_dialog_open = true;
+        self.status_message = "Git clone dialog opened".to_string();
+        self.invalidate_git_panel(cx);
+    }
+
+    pub(super) fn close_git_clone_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.git_clone_dialog_open = false;
+        self.status_message = "Git clone dialog closed".to_string();
         self.invalidate_git_panel(cx);
     }
 
@@ -302,6 +344,7 @@ impl CoduxApp {
             .and_then(|result| result);
 
             let _ = this.update(cx, |app, cx| {
+                app.git_clone_dialog_open = false;
                 app.apply_project_git_repository_result(
                     project_id,
                     project_path,
@@ -428,15 +471,47 @@ impl CoduxApp {
         self.invalidate_git_panel(cx);
     }
 
+    pub(super) fn toggle_git_review_dir(&mut self, directory_path: String, cx: &mut Context<Self>) {
+        let tree_key = git_status_tree_key("review", &directory_path);
+        if self.git_expanded_dirs.contains(&tree_key) {
+            self.git_expanded_dirs.remove(&tree_key);
+        } else {
+            self.git_expanded_dirs.insert(tree_key);
+        }
+        self.invalidate_git_panel(cx);
+    }
+
     pub(super) fn select_git_file(
         &mut self,
         file_path: String,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.select_git_file_only(file_path.clone(), cx);
+        self.load_git_file_diff(file_path, cx);
+    }
+
+    pub(super) fn select_git_file_only(&mut self, file_path: String, cx: &mut Context<Self>) {
+        if !self
+            .git_review
+            .files
+            .iter()
+            .any(|file| file.path == file_path)
+            && !self
+                .state
+                .git
+                .changed_files
+                .iter()
+                .any(|file| file.path == file_path)
+        {
+            self.status_message = "Git file is no longer available".to_string();
+            self.invalidate_git_panel(cx);
+            return;
+        }
         self.selected_git_files.clear();
         self.selected_git_files.insert(file_path.clone());
-        self.load_git_file_diff(file_path, cx);
+        self.selected_git_file = Some(file_path);
+        self.invalidate_git_panel(cx);
     }
 
     pub(super) fn toggle_git_file_selection(&mut self, file_path: String, cx: &mut Context<Self>) {
@@ -462,9 +537,9 @@ impl CoduxApp {
         if self.selected_git_files.is_empty() {
             self.selected_git_file = None;
             self.git_diff_preview = "select a changed file to preview its diff".to_string();
-            self.git_review_content = None;
+            self.clear_git_review_content_cache();
         } else {
-            self.load_git_file_diff(file_path, cx);
+            self.selected_git_file = Some(file_path);
         }
         self.invalidate_git_panel(cx);
     }
@@ -478,30 +553,138 @@ impl CoduxApp {
     }
 
     pub(super) fn load_git_file_diff(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let Some(project) = &self.state.selected_project else {
+        let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = "no selected project for Git diff".to_string();
             self.invalidate_git_panel(cx);
             return;
         };
         match self.runtime_service.read_project_git_review_diff(
-            &project.path,
+            &project_path,
             &file_path,
             self.git_review.base_branch.as_deref(),
         ) {
             Ok(diff) => {
                 let content = self.runtime_service.read_project_git_review_file_content(
-                    &project.path,
+                    &project_path,
                     &file_path,
                     self.git_review.base_branch.as_deref(),
                 );
                 self.selected_git_file = Some(file_path.clone());
                 self.git_diff_preview = diff;
-                self.git_review_content = Some(content);
+                self.set_git_review_content_cache(content);
                 self.status_message = format!("diff loaded: {file_path}");
             }
             Err(error) => self.status_message = format!("failed to load diff: {error}"),
         }
         self.invalidate_git_panel(cx);
+    }
+
+    pub(super) fn load_git_file_diff_async(&mut self, file_path: String, cx: &mut Context<Self>) {
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = "no selected project for Git diff".to_string();
+            self.invalidate_git_panel(cx);
+            return;
+        };
+        let Some(store_key) = super::app_state::worktree_view_store_key(&self.state) else {
+            return;
+        };
+        let base_branch = self.git_review.base_branch.clone();
+        let runtime_service = self.runtime_service.clone();
+        let generation = self.project_switch_generation;
+        self.selected_git_file = Some(file_path.clone());
+        self.selected_git_files.clear();
+        self.selected_git_files.insert(file_path.clone());
+        self.clear_git_review_content_cache();
+        self.git_diff_preview = "loading diff...".to_string();
+        self.invalidate_git_panel(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let diff = runtime_service.read_project_git_review_diff(
+                        &project_path,
+                        &file_path,
+                        base_branch.as_deref(),
+                    );
+                    let content = runtime_service.read_project_git_review_file_content(
+                        &project_path,
+                        &file_path,
+                        base_branch.as_deref(),
+                    );
+                    (store_key, generation, file_path, diff, content)
+                },
+            )
+            .await
+            .ok();
+            let _ = this.update(cx, |app, cx| {
+                let Some((store_key, generation, file_path, diff, content)) = result else {
+                    return;
+                };
+                if app.project_switch_generation != generation
+                    || super::app_state::worktree_view_store_key(&app.state).as_ref()
+                        != Some(&store_key)
+                    || app.selected_git_file.as_deref() != Some(file_path.as_str())
+                {
+                    return;
+                }
+                match diff {
+                    Ok(diff) => {
+                        app.git_diff_preview = diff;
+                        app.set_git_review_content_cache(content);
+                        app.status_message = format!("diff loaded: {file_path}");
+                    }
+                    Err(error) => {
+                        app.git_diff_preview = format!("failed to load diff: {error}");
+                        app.clear_git_review_content_cache();
+                        app.status_message = format!("failed to load diff: {error}");
+                    }
+                }
+                app.save_current_worktree_view_state();
+                app.invalidate_git_panel(cx);
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn ensure_selected_git_review_file_loaded(&mut self, cx: &mut Context<Self>) {
+        if self
+            .selected_git_file
+            .as_deref()
+            .is_some_and(|path| self.git_review.files.iter().any(|file| file.path == path))
+            && self.git_review_content.is_some()
+        {
+            return;
+        }
+        let Some(path) = self.git_review.files.first().map(|file| file.path.clone()) else {
+            self.selected_git_file = None;
+            self.selected_git_files.clear();
+            self.clear_git_review_content_cache();
+            return;
+        };
+        self.selected_git_files.clear();
+        self.selected_git_files.insert(path.clone());
+        self.load_git_file_diff(path, cx);
+    }
+
+    pub(super) fn ensure_selected_git_review_file_loaded_async(&mut self, _cx: &mut Context<Self>) {
+        if self
+            .selected_git_file
+            .as_deref()
+            .is_some_and(|path| self.git_review.files.iter().any(|file| file.path == path))
+            && self.git_review_content.is_some()
+        {
+            return;
+        }
+        if self
+            .selected_git_file
+            .as_deref()
+            .is_some_and(|path| !self.git_review.files.iter().any(|file| file.path == path))
+        {
+            self.selected_git_file = None;
+            self.selected_git_files.clear();
+            self.clear_git_review_content_cache();
+            return;
+        }
     }
 
     pub(super) fn open_git_diff_window(
@@ -638,7 +821,7 @@ impl CoduxApp {
             self.selected_git_file = None;
             self.selected_git_files.clear();
             self.git_diff_preview = "select a changed file to preview its diff".to_string();
-            self.git_review_content = None;
+            self.clear_git_review_content_cache();
         }
     }
 
@@ -646,6 +829,7 @@ impl CoduxApp {
         self.git_review = self
             .runtime_service
             .reload_project_git_review(project_path, self.git_review.base_branch.as_deref());
+        merge_git_review_status_files(&mut self.git_review, &self.state.git);
     }
 
     pub(super) fn normalize_selected_git_branch(&mut self) {
@@ -1525,7 +1709,7 @@ impl CoduxApp {
                     if completion.clear_git_diff_preview {
                         self.git_diff_preview =
                             "select a changed file to preview its diff".to_string();
-                        self.git_review_content = None;
+                        self.clear_git_review_content_cache();
                     } else if let Some(file_path) = completion.diff_file_to_reload.as_deref()
                         && self.selected_git_file.is_some()
                     {
@@ -1537,12 +1721,12 @@ impl CoduxApp {
                                 self.git_review.base_branch.as_deref(),
                             )
                             .unwrap_or_else(|error| format!("failed to reload diff: {error}"));
-                        self.git_review_content =
-                            Some(self.runtime_service.read_project_git_review_file_content(
-                                &project_path,
-                                file_path,
-                                self.git_review.base_branch.as_deref(),
-                            ));
+                        let content = self.runtime_service.read_project_git_review_file_content(
+                            &project_path,
+                            file_path,
+                            self.git_review.base_branch.as_deref(),
+                        );
+                        self.set_git_review_content_cache(content);
                     }
                     self.state.worktrees = self
                         .runtime_service
@@ -2185,5 +2369,38 @@ impl CoduxApp {
             },
             cx,
         );
+    }
+}
+
+pub(in crate::app) fn merge_git_review_status_files(
+    review: &mut GitReviewSummary,
+    git: &GitSummary,
+) {
+    let mut seen = review
+        .files
+        .iter()
+        .map(|file| file.path.clone())
+        .collect::<HashSet<_>>();
+
+    for file in &git.changed_files {
+        if file.path.trim().is_empty() || file.path.ends_with('/') || seen.contains(&file.path) {
+            continue;
+        }
+        let status = if file.index_status.trim() == "?" {
+            "added"
+        } else if !file.index_status.trim().is_empty() && file.index_status.trim() != "?" {
+            "staged"
+        } else if !file.worktree_status.trim().is_empty() {
+            "modified"
+        } else {
+            continue;
+        };
+        seen.insert(file.path.clone());
+        review.files.push(GitReviewFile {
+            path: file.path.clone(),
+            status: status.to_string(),
+            additions: 0,
+            deletions: 0,
+        });
     }
 }

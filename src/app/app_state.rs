@@ -80,13 +80,16 @@ pub struct CoduxApp {
     pub(in crate::app) git_expanded_dirs: HashSet<String>,
     pub(in crate::app) git_tree_children: HashMap<String, Vec<GitFileStatus>>,
     pub(in crate::app) git_files_scroll_handle: VirtualListScrollHandle,
+    pub(in crate::app) git_review_code_scroll_handle: ScrollHandle,
     pub(in crate::app) selected_git_files: HashSet<String>,
     pub(in crate::app) git_diff_preview: String,
     pub(in crate::app) git_diff_window_path: Option<String>,
     pub(in crate::app) git_diff_window_content: String,
     pub(in crate::app) git_diff_window_error: Option<String>,
     pub(in crate::app) git_review_content: Option<GitReviewContentSummary>,
+    pub(in crate::app) git_review_aligned_rows: Option<super::sidebars::GitReviewAlignedRows>,
     pub(in crate::app) git_clone_remote_url: String,
+    pub(in crate::app) git_clone_dialog_open: bool,
     pub(in crate::app) git_remote_editor_open: bool,
     pub(in crate::app) git_remote_name: String,
     pub(in crate::app) git_remote_url: String,
@@ -448,6 +451,10 @@ pub(in crate::app) fn initial_worktree_view_store(
 ) -> HashMap<WorktreeViewStoreKey, WorktreeViewState> {
     let file_editor_layout_service =
         codux_runtime::file_editor_layout::FileEditorLayoutService::new(state.support_dir.clone());
+    let file_tree_state_service =
+        codux_runtime::file_tree_state::FileTreeStateService::new(state.support_dir.clone());
+    let git_ui_state_service =
+        codux_runtime::git_ui_state::GitUiStateService::new(state.support_dir.clone());
     let worktree_keys = project_view_store
         .iter()
         .flat_map(|(project_id, project_state)| {
@@ -463,6 +470,10 @@ pub(in crate::app) fn initial_worktree_view_store(
         .collect::<Vec<_>>();
     let file_editor_layouts = file_editor_layout_service
         .load_many(worktree_keys.iter().map(|key| key.worktree_id.as_str()));
+    let file_tree_states =
+        file_tree_state_service.load_many(worktree_keys.iter().map(|key| key.worktree_id.as_str()));
+    let git_ui_states =
+        git_ui_state_service.load_many(worktree_keys.iter().map(|key| key.worktree_id.as_str()));
     let current_key = worktree_view_store_key(state);
 
     worktree_keys
@@ -475,6 +486,14 @@ pub(in crate::app) fn initial_worktree_view_store(
                 .unwrap_or_default();
             let (file_editor_tabs, active_file_editor_tab) =
                 file_editor_tabs_from_layout(file_editor_layout);
+            let file_tree_state = file_tree_states
+                .get(&key.worktree_id)
+                .cloned()
+                .unwrap_or_default();
+            let git_ui_state = git_ui_states
+                .get(&key.worktree_id)
+                .cloned()
+                .unwrap_or_default();
             (
                 key,
                 WorktreeViewState {
@@ -482,54 +501,96 @@ pub(in crate::app) fn initial_worktree_view_store(
                         files: if is_current {
                             state.files.clone()
                         } else {
-                            Vec::new()
+                            file_tree_state.files
                         },
-                        file_directory: String::new(),
-                        selected_file_entry: None,
-                        selected_file_entries: HashSet::new(),
-                        file_selection_anchor: None,
-                        file_tree_expanded_dirs: HashSet::new(),
-                        file_tree_children: HashMap::new(),
+                        file_directory: file_tree_state.file_directory,
+                        selected_file_entry: file_tree_state.selected_file_entry,
+                        selected_file_entries: file_tree_state
+                            .selected_file_entries
+                            .into_iter()
+                            .collect(),
+                        file_selection_anchor: file_tree_state.file_selection_anchor,
+                        file_tree_expanded_dirs: file_tree_state
+                            .file_tree_expanded_dirs
+                            .into_iter()
+                            .collect(),
+                        file_tree_children: file_tree_state.file_tree_children,
                         file_editor_tabs,
                         active_file_editor_tab,
                     },
-                    git: GitWorktreeViewState {
-                        git: if is_current {
-                            state.git.clone()
-                        } else {
-                            GitSummary::default()
-                        },
-                        git_review: if is_current {
-                            state.git_review.clone()
-                        } else {
-                            GitReviewSummary::default()
-                        },
-                        selected_git_file: None,
-                        selected_git_files: HashSet::new(),
-                        selected_git_branch: if is_current {
-                            state
-                                .git
-                                .branches
-                                .iter()
-                                .find(|branch| branch.is_current)
-                                .or_else(|| state.git.branches.first())
-                                .map(|branch| branch.name.clone())
-                        } else {
-                            None
-                        },
-                        git_expanded_sections: HashSet::from([
-                            "changed".to_string(),
-                            "untracked".to_string(),
-                        ]),
-                        git_expanded_dirs: HashSet::new(),
-                        git_tree_children: HashMap::new(),
-                        git_diff_preview: "select a changed file to preview its diff".to_string(),
-                        git_review_content: None,
-                    },
+                    git: git_worktree_view_state_from_summary(git_ui_state, state, is_current),
                 },
             )
         })
         .collect()
+}
+
+pub(in crate::app) fn git_ui_state_summary_from_worktree(
+    state: &GitWorktreeViewState,
+) -> codux_runtime::git_ui_state::GitUiStateSummary {
+    codux_runtime::git_ui_state::GitUiStateSummary {
+        git: state.git.clone(),
+        git_review: state.git_review.clone(),
+        selected_git_file: state.selected_git_file.clone(),
+        selected_git_files: state.selected_git_files.iter().cloned().collect(),
+        selected_git_branch: state.selected_git_branch.clone(),
+        git_expanded_sections: state.git_expanded_sections.iter().cloned().collect(),
+        git_expanded_dirs: state.git_expanded_dirs.iter().cloned().collect(),
+        git_tree_children: state.git_tree_children.clone(),
+        git_diff_preview: state.git_diff_preview.clone(),
+        git_review_content: state.git_review_content.clone(),
+        error: None,
+    }
+}
+
+fn git_worktree_view_state_from_summary(
+    summary: codux_runtime::git_ui_state::GitUiStateSummary,
+    state: &RuntimeState,
+    is_current: bool,
+) -> GitWorktreeViewState {
+    let git = if is_current {
+        state.git.clone()
+    } else {
+        summary.git
+    };
+    let git_review = if is_current {
+        state.git_review.clone()
+    } else {
+        summary.git_review
+    };
+    let selected_git_branch = summary.selected_git_branch.or_else(|| {
+        is_current.then(|| {
+            git.branches
+                .iter()
+                .find(|branch| branch.is_current)
+                .or_else(|| git.branches.first())
+                .map(|branch| branch.name.clone())
+        })?
+    });
+    let mut git_expanded_sections = summary
+        .git_expanded_sections
+        .into_iter()
+        .collect::<HashSet<_>>();
+    if git_expanded_sections.is_empty() {
+        git_expanded_sections = HashSet::from(["changed".to_string(), "untracked".to_string()]);
+    }
+    let git_diff_preview = if summary.git_diff_preview.trim().is_empty() {
+        "select a changed file to preview its diff".to_string()
+    } else {
+        summary.git_diff_preview
+    };
+    GitWorktreeViewState {
+        git,
+        git_review,
+        selected_git_file: summary.selected_git_file,
+        selected_git_files: summary.selected_git_files.into_iter().collect(),
+        selected_git_branch,
+        git_expanded_sections,
+        git_expanded_dirs: summary.git_expanded_dirs.into_iter().collect(),
+        git_tree_children: summary.git_tree_children,
+        git_diff_preview,
+        git_review_content: summary.git_review_content,
+    }
 }
 
 pub(in crate::app) fn file_editor_tabs_from_layout(
@@ -674,7 +735,9 @@ pub(in crate::app) fn app_now_seconds() -> f64 {
 }
 
 pub(in crate::app) fn app_git_review(state: &RuntimeState) -> GitReviewSummary {
-    state.git_review.clone()
+    let mut review = state.git_review.clone();
+    super::git_actions::merge_git_review_status_files(&mut review, &state.git);
+    review
 }
 
 pub(in crate::app) fn git_status_tree_key(section_id: &str, path: &str) -> String {

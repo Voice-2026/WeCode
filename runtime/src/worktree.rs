@@ -26,17 +26,21 @@ use std::{
 };
 
 type GitRepository = git2::Repository;
+const WORKTREE_GIT_SUMMARY_NAMESPACE: &str = "worktree-git-summary";
 
 pub struct WorktreeService {
+    support_dir: PathBuf,
     state_file: PathBuf,
 }
 
 impl WorktreeService {
     pub fn new(support_dir: PathBuf) -> Self {
         Self {
-            state_file: crate::config::state_file_path(support_dir),
+            state_file: crate::config::state_file_path(&support_dir),
+            support_dir,
         }
     }
+
 }
 
 include!("worktree/service_summary.rs");

@@ -20,5 +20,4 @@ pub(super) struct GitWorktreeEntry {
 include!("git_ops/discovery.rs");
 include!("git_ops/worktrees.rs");
 include!("git_ops/branches.rs");
-include!("git_ops/stats.rs");
 include!("git_ops/helpers.rs");

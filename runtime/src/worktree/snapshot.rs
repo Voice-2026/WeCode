@@ -1,7 +1,6 @@
 use crate::git::GitService;
 
 use super::{
-    git_ops::worktree_line_stats,
     scan::{ScannedTask, ScannedWorktree},
     types::{ProjectWorktreeGitSummary, ProjectWorktreeSnapshot, WorktreeTaskSnapshot},
 };
@@ -60,7 +59,17 @@ pub(super) fn project_worktree_snapshot(
 
 pub(super) fn project_worktree_git_summary(path: &str) -> ProjectWorktreeGitSummary {
     let status_snapshot = GitService::status(path);
-    let (additions, deletions) = worktree_line_stats(path);
+    let review_snapshot = GitService::review(path, None);
+    let additions = review_snapshot
+        .files
+        .iter()
+        .map(|file| file.additions)
+        .sum();
+    let deletions = review_snapshot
+        .files
+        .iter()
+        .map(|file| file.deletions)
+        .sum();
     ProjectWorktreeGitSummary {
         changes: status_snapshot.staged + status_snapshot.unstaged + status_snapshot.untracked,
         incoming: status_snapshot.behind,

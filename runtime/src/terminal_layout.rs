@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::path::PathBuf;
+
+const TERMINAL_LAYOUT_NAMESPACE: &str = "terminal-layout";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,14 +32,12 @@ pub struct TerminalTabSummary {
 }
 
 pub struct TerminalLayoutService {
-    state_file: PathBuf,
+    support_dir: PathBuf,
 }
 
 impl TerminalLayoutService {
     pub fn new(support_dir: PathBuf) -> Self {
-        Self {
-            state_file: crate::config::state_file_path(support_dir),
-        }
+        Self { support_dir }
     }
 
     pub fn load(&self, project_id: Option<&str>) -> TerminalLayoutSummary {
@@ -48,21 +47,22 @@ impl TerminalLayoutService {
                 ..Default::default()
             };
         };
-        let store = crate::config::ConfigStore::for_file(self.state_file.clone());
-        let Some(layout) = store.get_path(&["terminalLayouts", project_id]) else {
-            return TerminalLayoutSummary {
-                bottom_ratio: 0.32,
-                error: Some("No terminal layout saved for selected project.".to_string()),
-                ..Default::default()
-            };
-        };
-        serde_json::from_value::<TerminalLayoutSummary>(layout.clone()).unwrap_or_else(|error| {
-            TerminalLayoutSummary {
-                bottom_ratio: 0.32,
-                error: Some(error.to_string()),
-                ..Default::default()
-            }
-        })
+        if let Some(layout) = self.cache_layout(project_id) {
+            return layout;
+        }
+        TerminalLayoutSummary {
+            bottom_ratio: 0.32,
+            error: Some("No terminal layout saved for selected project.".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn cache_layout(&self, project_id: &str) -> Option<TerminalLayoutSummary> {
+        crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
+            .ok()?
+            .get_json::<TerminalLayoutSummary>(TERMINAL_LAYOUT_NAMESPACE, project_id)
+            .ok()
+            .flatten()
     }
 
     pub fn save_from_gpui(
@@ -78,17 +78,21 @@ impl TerminalLayoutService {
         } else {
             vec![1.0 / top_panes.len() as f64; top_panes.len()]
         };
-        crate::config::ConfigStore::for_file(self.state_file.clone()).set_path(&[
-            "terminalLayouts",
-            project_id,
-        ], json!({
-            "tabs": tabs,
-            "activeTabId": active_tab_id,
-            "topPanes": top_panes,
-            "topRatios": top_ratios,
-            "bottomRatio": 0.32,
-            "activeSlotId": active_slot_id,
-        }))?;
-        Ok(self.load(Some(project_id)))
+        let layout = TerminalLayoutSummary {
+            tabs,
+            active_tab_id,
+            top_panes,
+            top_ratios,
+            bottom_ratio: 0.32,
+            active_slot_id,
+            error: None,
+        };
+        crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())?
+            .put_json_debounced(TERMINAL_LAYOUT_NAMESPACE, project_id, &layout)?;
+        Ok(layout)
     }
+}
+
+pub(crate) fn terminal_layout_cache_namespace() -> &'static str {
+    TERMINAL_LAYOUT_NAMESPACE
 }

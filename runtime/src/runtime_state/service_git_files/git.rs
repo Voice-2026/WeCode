@@ -1,7 +1,7 @@
 impl RuntimeService {
     pub fn init_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
         git::GitService::init(project_path)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn clone_project_git(
@@ -10,7 +10,7 @@ impl RuntimeService {
         remote_url: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::clone_repository(project_path, remote_url)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn read_project_git_diff(
@@ -60,7 +60,7 @@ impl RuntimeService {
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::stage_file(project_path, file_path)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn stage_project_git_paths(
@@ -69,7 +69,7 @@ impl RuntimeService {
         file_paths: &[String],
     ) -> Result<git::GitSummary, String> {
         git::GitService::stage_paths(project_path, file_paths)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn unstage_project_git_file(
@@ -78,7 +78,7 @@ impl RuntimeService {
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::unstage_file(project_path, file_path)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn unstage_project_git_paths(
@@ -87,7 +87,7 @@ impl RuntimeService {
         file_paths: &[String],
     ) -> Result<git::GitSummary, String> {
         git::GitService::unstage_paths(project_path, file_paths)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn commit_project_git(
@@ -96,7 +96,7 @@ impl RuntimeService {
         message: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::commit_staged(project_path, message)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn commit_project_git_action(
@@ -106,7 +106,7 @@ impl RuntimeService {
         action: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::commit_action(project_path, message, action)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn amend_project_git_last_commit(
@@ -115,7 +115,7 @@ impl RuntimeService {
         message: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::amend_last_commit_message(project_path, message)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn read_project_git_last_commit_message(
@@ -130,7 +130,7 @@ impl RuntimeService {
         project_path: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::undo_last_commit(project_path)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn project_git_head_commit_pushed(&self, project_path: &str) -> Result<bool, String> {
@@ -227,7 +227,7 @@ impl RuntimeService {
         branch: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::checkout_branch(project_path, branch)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn checkout_project_git_remote_branch(
@@ -236,7 +236,7 @@ impl RuntimeService {
         remote_branch: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::checkout_remote_branch(project_path, remote_branch)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn create_project_git_branch(
@@ -246,7 +246,7 @@ impl RuntimeService {
         checkout: bool,
     ) -> Result<git::GitSummary, String> {
         git::GitService::create_branch(project_path, branch, None, checkout)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn create_project_git_branch_from(
@@ -257,7 +257,7 @@ impl RuntimeService {
         checkout: bool,
     ) -> Result<git::GitSummary, String> {
         git::GitService::create_branch(project_path, branch, from, checkout)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn merge_project_git_branch(
@@ -267,7 +267,7 @@ impl RuntimeService {
         squash: bool,
     ) -> Result<git::GitSummary, String> {
         git::GitService::merge_branch(project_path, branch, squash)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn delete_project_git_branch(
@@ -277,7 +277,7 @@ impl RuntimeService {
         force: bool,
     ) -> Result<git::GitSummary, String> {
         git::GitService::delete_branch(project_path, branch, force)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn discard_project_git_file(
@@ -286,7 +286,7 @@ impl RuntimeService {
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::discard_file(project_path, file_path)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn discard_project_git_paths(
@@ -295,7 +295,7 @@ impl RuntimeService {
         file_paths: &[String],
     ) -> Result<git::GitSummary, String> {
         git::GitService::discard_paths(project_path, file_paths)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn checkout_project_git_commit(
@@ -304,7 +304,7 @@ impl RuntimeService {
         commit: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::checkout_commit(project_path, commit)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn revert_project_git_commit(
@@ -313,7 +313,7 @@ impl RuntimeService {
         commit: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::revert_commit(project_path, commit)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn restore_project_git_commit(
@@ -323,7 +323,7 @@ impl RuntimeService {
         force_remote: bool,
     ) -> Result<git::GitSummary, String> {
         git::GitService::restore_commit(project_path, commit, force_remote)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn add_project_git_remote(
@@ -333,7 +333,7 @@ impl RuntimeService {
         url: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::add_remote(project_path, name, url)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn remove_project_git_remote(
@@ -342,7 +342,7 @@ impl RuntimeService {
         name: &str,
     ) -> Result<git::GitSummary, String> {
         git::GitService::remove_remote(project_path, name)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn append_project_gitignore(
@@ -351,7 +351,7 @@ impl RuntimeService {
         paths: &[String],
     ) -> Result<git::GitSummary, String> {
         git::GitService::append_gitignore(project_path, paths)?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     fn run_cancellable_project_git(
@@ -363,7 +363,7 @@ impl RuntimeService {
         let result = action(project_path.to_string(), Arc::clone(&token));
         self.clear_git_cancel_token(project_path, &token);
         result?;
-        Ok(load_git_summary(project_path))
+        Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     fn create_git_cancel_token(&self, project_path: &str) -> git::GitCancelToken {

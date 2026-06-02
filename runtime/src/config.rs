@@ -261,7 +261,22 @@ pub fn save_raw_state_snapshot(
     path: &Path,
     snapshot: &Map<String, Value>,
 ) -> Result<(), String> {
-    ConfigStore::for_file(path.to_path_buf()).save_snapshot(snapshot)
+    let mut snapshot = snapshot.clone();
+    sanitize_state_snapshot(&mut snapshot);
+    ConfigStore::for_file(path.to_path_buf()).save_snapshot(&snapshot)
+}
+
+fn sanitize_state_snapshot(snapshot: &mut Map<String, Value>) {
+    snapshot.remove("terminalLayouts");
+    snapshot.remove("fileEditorLayouts");
+    if let Some(worktrees) = snapshot.get_mut("worktrees").and_then(Value::as_array_mut) {
+        for worktree in worktrees {
+            if let Some(worktree) = worktree.as_object_mut() {
+                worktree.remove("gitSummary");
+                worktree.remove("git_summary");
+            }
+        }
+    }
 }
 
 fn get_path_value<'a>(snapshot: &'a Map<String, Value>, path: &[&str]) -> Option<&'a Value> {
@@ -337,7 +352,7 @@ fn write_value_snapshot(path: &Path, snapshot: &Value) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[test]
     fn document_store_keeps_root_arrays_in_memory_snapshot() {
@@ -354,6 +369,32 @@ mod tests {
 
         let same_store = ConfigDocumentStore::for_file(path.clone());
         assert_eq!(same_store.snapshot_as::<Vec<Value>>().unwrap().len(), 2);
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn raw_state_save_strips_redb_owned_fields() {
+        let path = temp_config_path("state-sanitize");
+        let mut snapshot = Map::new();
+        snapshot.insert("terminalLayouts".to_string(), json!({"p1": {}}));
+        snapshot.insert("fileEditorLayouts".to_string(), json!({"w1": {}}));
+        snapshot.insert(
+            "worktrees".to_string(),
+            json!([
+                {"id": "w1", "gitSummary": {"changes": 9}, "git_summary": {"changes": 8}}
+            ]),
+        );
+
+        save_raw_state_snapshot(&path, &snapshot).expect("save state");
+        std::thread::sleep(Duration::from_millis(140));
+        let saved = raw_state_snapshot(&path);
+
+        assert!(saved.get("terminalLayouts").is_none());
+        assert!(saved.get("fileEditorLayouts").is_none());
+        let worktree = saved["worktrees"].as_array().unwrap()[0].as_object().unwrap();
+        assert!(worktree.get("gitSummary").is_none());
+        assert!(worktree.get("git_summary").is_none());
+
         fs::remove_file(path).ok();
     }
 

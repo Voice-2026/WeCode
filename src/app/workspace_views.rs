@@ -331,7 +331,7 @@ fn workspace_toolbar_fingerprint(app: &CoduxApp) -> u64 {
             })
             .collect::<Vec<_>>(),
         workspace_pet_fingerprint(app),
-        super::workspace::workspace_today_level_tokens(&app.state),
+        super::workspace_daily_level::workspace_today_level_tokens(&app.state),
     ))
 }
 

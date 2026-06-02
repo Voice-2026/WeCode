@@ -18,7 +18,8 @@ use serde_json::{Map, Value};
 use std::path::PathBuf;
 
 pub struct ProjectStore {
-    state_file: PathBuf,
+    pub(super) support_dir: PathBuf,
+    pub(super) state_file: PathBuf,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -30,7 +31,8 @@ pub enum ProjectMoveDirection {
 impl ProjectStore {
     pub fn new(support_dir: PathBuf) -> Self {
         Self {
-            state_file: crate::config::state_file_path(support_dir),
+            state_file: crate::config::state_file_path(&support_dir),
+            support_dir,
         }
     }
 
@@ -40,5 +42,9 @@ impl ProjectStore {
 
     pub(super) fn save_raw_snapshot(&self, snapshot: &Map<String, Value>) -> Result<(), String> {
         crate::config::save_raw_state_snapshot(&self.state_file, snapshot)
+    }
+
+    pub(super) fn state_cache_file(&self) -> PathBuf {
+        self.support_dir.join("state-cache.redb")
     }
 }

@@ -29,7 +29,9 @@ use crate::{
         FilesService,
     },
     file_editor_layout::{FileEditorLayoutService, FileEditorLayoutSummary, FileEditorTabSummary},
+    file_tree_state::{FileTreeStateService, FileTreeStateSummary},
     git,
+    git_ui_state::{GitUiStateService, GitUiStateSummary},
     i18n::{self, I18nBundle},
     llm::{
         self, LLMCompletionRequest, LLMCompletionResponse, LLMProviderTestResult,
