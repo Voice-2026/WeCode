@@ -251,6 +251,8 @@ pub struct TerminalView {
     pending_scroll_pixels: f32,
     scroll_frame_pending: bool,
     output_notify_pending: bool,
+    output_cursor_suppressed: bool,
+    cursor_restore_pending: bool,
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
@@ -294,6 +296,9 @@ impl TerminalView {
                 if this
                     .update(cx, |view, cx| {
                         view.cursor_visible = true;
+                        if cfg!(target_os = "windows") {
+                            view.output_cursor_suppressed = true;
+                        }
                         let sync_notify = view.update_synchronized_output_state(&bytes);
                         view.state.process_bytes(&bytes);
                         if view.sync_output_depth > 0 {
@@ -356,6 +361,8 @@ impl TerminalView {
             pending_scroll_pixels: 0.0,
             scroll_frame_pending: false,
             output_notify_pending: false,
+            output_cursor_suppressed: false,
+            cursor_restore_pending: false,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
@@ -607,7 +614,34 @@ impl TerminalView {
             timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
             let _ = terminal.update(cx, |terminal, cx| {
                 terminal.output_notify_pending = false;
+                if terminal.output_cursor_suppressed {
+                    terminal.schedule_cursor_restore(cx);
+                }
                 cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn schedule_cursor_restore(&mut self, cx: &mut Context<Self>) {
+        if self.cursor_restore_pending {
+            return;
+        }
+
+        self.cursor_restore_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
+            let _ = terminal.update(cx, |terminal, cx| {
+                terminal.cursor_restore_pending = false;
+                if terminal.output_notify_pending {
+                    terminal.schedule_cursor_restore(cx);
+                    return;
+                }
+                if terminal.output_cursor_suppressed {
+                    terminal.output_cursor_suppressed = false;
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -840,9 +874,10 @@ impl Render for TerminalView {
         self.ensure_focus_report_subscriptions(window, cx);
         let has_marked_text = self.marked_text.is_some();
         let cursor_visible = if self.state.mode().contains(TermMode::ALT_SCREEN) {
-            !has_marked_text
+            !has_marked_text && !self.output_cursor_suppressed
         } else {
             !has_marked_text
+                && !self.output_cursor_suppressed
                 && (!self.focus_handle.contains_focused(window, cx) || self.cursor_visible)
         };
         let element = TerminalElement {
@@ -2362,7 +2397,7 @@ impl TerminalRenderer {
         for col in 0..=columns {
             let bg = if col < columns {
                 cells[col]
-                    .map(|cell| self.palette.resolve(cell.bg, colors))
+                    .map(|cell| self.cell_render_colors(cell, colors).1)
                     .unwrap_or(default_bg)
             } else {
                 Hsla::default()
@@ -2422,7 +2457,7 @@ impl TerminalRenderer {
                 continue;
             }
 
-            let fg = self.palette.resolve(cell.fg, colors);
+            let (fg, _) = self.cell_render_colors(cell, colors);
             let font = self.font(
                 if cell.flags.contains(Flags::BOLD) {
                     FontWeight::SEMIBOLD
@@ -2475,6 +2510,15 @@ impl TerminalRenderer {
         if let Some(current) = current_run {
             text_runs.push(current);
         }
+    }
+
+    fn cell_render_colors(&self, cell: &Cell, colors: &Colors) -> (Hsla, Hsla) {
+        let mut fg = cell.fg;
+        let mut bg = cell.bg;
+        if cell.flags.contains(Flags::INVERSE) {
+            std::mem::swap(&mut fg, &mut bg);
+        }
+        (self.palette.resolve(fg, colors), self.palette.resolve(bg, colors))
     }
 
     fn prepare_selection(
@@ -3355,5 +3399,26 @@ mod tests {
         assert_eq!(snapshot.columns, 20);
         assert_eq!(snapshot.screen_lines, 8);
         assert!(!handle.resize(20, 8));
+    }
+
+    #[test]
+    fn inverse_cells_swap_foreground_and_background_colors() {
+        let renderer = TerminalRenderer::new(
+            default_terminal_font_family().to_string(),
+            px(14.0),
+            1.22,
+            ColorPalette::default(),
+        );
+        let colors = Colors::default();
+        let mut cell = Cell::default();
+        cell.fg = Color::Named(NamedColor::Foreground);
+        cell.bg = Color::Named(NamedColor::Background);
+
+        let normal = renderer.cell_render_colors(&cell, &colors);
+        cell.flags.insert(Flags::INVERSE);
+        let inverse = renderer.cell_render_colors(&cell, &colors);
+
+        assert_eq!(inverse.0, normal.1);
+        assert_eq!(inverse.1, normal.0);
     }
 }
