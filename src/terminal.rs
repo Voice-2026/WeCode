@@ -232,6 +232,7 @@ fn default_terminal_font_family() -> &'static str {
 
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const TERMINAL_CURSOR_SETTLE_INTERVAL: Duration = Duration::from_millis(48);
 static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub struct TerminalView {
@@ -256,7 +257,8 @@ pub struct TerminalView {
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
-    sync_output_frozen_snapshot: Option<Arc<TerminalContent>>,
+    cursor_suppressed_until: Option<Instant>,
+    cursor_restore_pending: bool,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     selection_autoscroll: Option<SelectionAutoScroll>,
@@ -296,10 +298,11 @@ impl TerminalView {
                 if this
                     .update(cx, |view, cx| {
                         let sync_update = view.update_synchronized_output_state(&bytes);
+                        let protocol_flags = terminal_protocol_flags(&bytes);
                         view.state.process_bytes(&bytes);
-                        if sync_update.exited_to_idle {
-                            view.sync_output_frozen_snapshot = None;
-                            terminal_trace("sync_output render_snapshot=live");
+                        view.trace_terminal_state_after_output(bytes.len());
+                        if view.should_suppress_cursor_for_output(sync_update, protocol_flags) {
+                            view.suppress_cursor_until_settled(cx);
                         }
                         let mut event_should_notify = false;
                         view.process_pending_events(cx, &mut event_should_notify);
@@ -344,7 +347,8 @@ impl TerminalView {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
-            sync_output_frozen_snapshot: None,
+            cursor_suppressed_until: None,
+            cursor_restore_pending: false,
             focus_in_subscription: None,
             focus_out_subscription: None,
             selection_autoscroll: None,
@@ -358,12 +362,68 @@ impl TerminalView {
             &mut self.sync_output_depth,
             &mut self.sync_output_scan_tail,
         );
-        if update.entered_from_idle && self.sync_output_frozen_snapshot.is_none() {
-            self.sync_output_frozen_snapshot = Some(Arc::new(self.state.handle().snapshot()));
-            terminal_trace("sync_output render_snapshot=frozen");
-        }
         trace_terminal_protocol_bytes(bytes, update, self.sync_output_depth);
         update
+    }
+
+    fn should_suppress_cursor_for_output(
+        &self,
+        sync_update: SyncOutputUpdate,
+        protocol_flags: TerminalProtocolFlags,
+    ) -> bool {
+        self.sync_output_depth > 0
+            || sync_update.entered_from_idle
+            || sync_update.exited_to_idle
+            || (protocol_flags.show_cursor && protocol_flags.hide_cursor)
+    }
+
+    fn suppress_cursor_until_settled(&mut self, cx: &mut Context<Self>) {
+        self.cursor_suppressed_until = Some(Instant::now() + TERMINAL_CURSOR_SETTLE_INTERVAL);
+        self.schedule_cursor_restore(cx);
+    }
+
+    fn schedule_cursor_restore(&mut self, cx: &mut Context<Self>) {
+        if self.cursor_restore_pending {
+            return;
+        }
+        self.cursor_restore_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_CURSOR_SETTLE_INTERVAL).await;
+            let _ = terminal.update(cx, |terminal, cx| {
+                terminal.cursor_restore_pending = false;
+                if terminal.is_terminal_cursor_suppressed() {
+                    terminal.schedule_cursor_restore(cx);
+                    return;
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn is_terminal_cursor_suppressed(&self) -> bool {
+        self.cursor_suppressed_until
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    fn trace_terminal_state_after_output(&self, bytes_len: usize) {
+        if !terminal_trace_enabled() {
+            return;
+        }
+        let content = self.state.handle().snapshot();
+        terminal_trace(&format!(
+            "state bytes={} sync_depth={} cursor_suppressed={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={}",
+            bytes_len,
+            self.sync_output_depth,
+            self.is_terminal_cursor_suppressed(),
+            content.mode.contains(TermMode::SHOW_CURSOR),
+            content.cursor.shape == CursorShape::Hidden,
+            content.cursor.point.line.0,
+            content.cursor.point.column.0,
+            content.cursor.shape,
+            content.display_offset,
+        ));
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -867,24 +927,13 @@ fn trace_terminal_protocol_bytes(bytes: &[u8], sync_update: SyncOutputUpdate, sy
     if !terminal_trace_enabled() {
         return;
     }
-    let show_cursor = bytes
-        .windows(b"\x1b[?25h".len())
-        .any(|part| part == b"\x1b[?25h");
-    let hide_cursor = bytes
-        .windows(b"\x1b[?25l".len())
-        .any(|part| part == b"\x1b[?25l");
-    let osc_10_request = bytes
-        .windows(b"\x1b]10;?".len())
-        .any(|part| part == b"\x1b]10;?");
-    let osc_11_request = bytes
-        .windows(b"\x1b]11;?".len())
-        .any(|part| part == b"\x1b]11;?");
+    let flags = terminal_protocol_flags(bytes);
 
     if sync_update != SyncOutputUpdate::default()
-        || show_cursor
-        || hide_cursor
-        || osc_10_request
-        || osc_11_request
+        || flags.show_cursor
+        || flags.hide_cursor
+        || flags.osc_10_request
+        || flags.osc_11_request
     {
         terminal_trace(&format!(
             "protocol bytes={} sync_depth={} sync_enter={} sync_exit={} notify={} show_cursor={} hide_cursor={} osc10_request={} osc11_request={}",
@@ -893,21 +942,45 @@ fn trace_terminal_protocol_bytes(bytes: &[u8], sync_update: SyncOutputUpdate, sy
             sync_update.entered_from_idle,
             sync_update.exited_to_idle,
             sync_update.should_notify,
-            show_cursor,
-            hide_cursor,
-            osc_10_request,
-            osc_11_request,
+            flags.show_cursor,
+            flags.hide_cursor,
+            flags.osc_10_request,
+            flags.osc_11_request,
         ));
     }
 }
 
-fn trace_terminal_paint_snapshot(content: &TerminalContent, frozen: bool, cursor_visible: bool) {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct TerminalProtocolFlags {
+    show_cursor: bool,
+    hide_cursor: bool,
+    osc_10_request: bool,
+    osc_11_request: bool,
+}
+
+fn terminal_protocol_flags(bytes: &[u8]) -> TerminalProtocolFlags {
+    TerminalProtocolFlags {
+        show_cursor: bytes
+            .windows(b"\x1b[?25h".len())
+            .any(|part| part == b"\x1b[?25h"),
+        hide_cursor: bytes
+            .windows(b"\x1b[?25l".len())
+            .any(|part| part == b"\x1b[?25l"),
+        osc_10_request: bytes
+            .windows(b"\x1b]10;?".len())
+            .any(|part| part == b"\x1b]10;?"),
+        osc_11_request: bytes
+            .windows(b"\x1b]11;?".len())
+            .any(|part| part == b"\x1b]11;?"),
+    }
+}
+
+fn trace_terminal_paint_snapshot(content: &TerminalContent, cursor_visible: bool) {
     if !terminal_trace_enabled() {
         return;
     }
     terminal_trace(&format!(
-        "paint snapshot={} cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={}",
-        if frozen { "frozen" } else { "live" },
+        "paint cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={}",
         cursor_visible,
         content.mode.contains(TermMode::SHOW_CURSOR),
         content.cursor.shape == CursorShape::Hidden,
@@ -921,35 +994,6 @@ fn trace_terminal_paint_snapshot(content: &TerminalContent, frozen: bool, cursor
     ));
 }
 
-enum TerminalRenderSnapshot<'a> {
-    Frozen(&'a TerminalContent),
-    Live(TerminalContent),
-}
-
-impl TerminalRenderSnapshot<'_> {
-    fn content(&self) -> &TerminalContent {
-        match self {
-            Self::Frozen(content) => content,
-            Self::Live(content) => content,
-        }
-    }
-
-    fn is_frozen(&self) -> bool {
-        matches!(self, Self::Frozen(_))
-    }
-}
-
-fn terminal_render_snapshot<'a>(
-    state: &TerminalStateHandle,
-    frozen_snapshot: &'a Option<Arc<TerminalContent>>,
-) -> TerminalRenderSnapshot<'a> {
-    if let Some(frozen_snapshot) = frozen_snapshot {
-        TerminalRenderSnapshot::Frozen(frozen_snapshot)
-    } else {
-        TerminalRenderSnapshot::Live(state.snapshot())
-    }
-}
-
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.process_events(window, cx);
@@ -957,7 +1001,7 @@ impl Render for TerminalView {
         self.renderer.measure_cell(window);
         self.ensure_focus_report_subscriptions(window, cx);
         let has_marked_text = self.marked_text.is_some();
-        let cursor_visible = !has_marked_text;
+        let cursor_visible = !has_marked_text && !self.is_terminal_cursor_suppressed();
         let element = TerminalElement {
             state: self.state.handle(),
             renderer: self.renderer.clone(),
@@ -970,7 +1014,6 @@ impl Render for TerminalView {
             padding: self.config.padding,
             marked_text: self.marked_text.clone(),
             cursor_visible,
-            frozen_snapshot: self.sync_output_frozen_snapshot.clone(),
         };
 
         div()
@@ -1193,7 +1236,6 @@ struct TerminalElement {
     padding: Edges<Pixels>,
     marked_text: Option<String>,
     cursor_visible: bool,
-    frozen_snapshot: Option<Arc<TerminalContent>>,
 }
 
 impl IntoElement for TerminalElement {
@@ -1262,17 +1304,13 @@ impl Element for TerminalElement {
             eprintln!("failed to resize terminal pty: {error}");
         }
 
-        let snapshot = terminal_render_snapshot(&self.state, &self.frozen_snapshot);
-        trace_terminal_paint_snapshot(
-            snapshot.content(),
-            snapshot.is_frozen(),
-            self.cursor_visible,
-        );
+        let snapshot = self.state.snapshot();
+        trace_terminal_paint_snapshot(&snapshot, self.cursor_visible);
         let selection = self.selection.lock().range();
         self.renderer.prepare_paint(
             bounds,
             self.padding,
-            snapshot.content(),
+            &snapshot,
             selection,
             self.cursor_visible,
         )
@@ -2573,7 +2611,10 @@ impl TerminalRenderer {
                 fg = Color::Named(ansi_named_color(index + 8));
             }
         }
-        (self.palette.resolve(fg, colors), self.palette.resolve(bg, colors))
+        (
+            self.palette.resolve(fg, colors),
+            self.palette.resolve(bg, colors),
+        )
     }
 
     fn prepare_selection(
@@ -3285,20 +3326,13 @@ mod tests {
     }
 
     #[test]
-    fn synchronized_output_keeps_frozen_snapshot_until_exit() {
+    fn synchronized_output_keeps_live_content_updates() {
         let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
         state.process_bytes(b"before");
-        let frozen = state.handle().snapshot();
 
         state.process_bytes(b"\r\x1b[2Kduring");
         let live = state.handle().snapshot();
 
-        let frozen_text: String = frozen
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
         let live_text: String = live
             .cells
             .iter()
@@ -3306,50 +3340,20 @@ mod tests {
             .map(|cell| cell.c)
             .collect();
 
-        assert!(frozen_text.contains("before"));
-        assert!(!frozen_text.contains("during"));
         assert!(live_text.contains("during"));
     }
 
     #[test]
-    fn render_snapshot_uses_frozen_content_during_synchronized_output() {
-        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
-        state.process_bytes(b"before");
-        let frozen = state.handle().snapshot();
-
-        state.process_bytes(b"\r\x1b[2Kafter");
-
-        let frozen_snapshot = Some(Arc::new(frozen));
-        let snapshot = terminal_render_snapshot(&state.handle(), &frozen_snapshot);
-        let text: String = snapshot
-            .content()
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
-
-        assert!(snapshot.is_frozen());
-        assert!(text.contains("before"));
-        assert!(!text.contains("after"));
-    }
-
-    #[test]
-    fn render_snapshot_uses_live_content_after_synchronized_output() {
-        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
-        state.process_bytes(b"after");
-
-        let snapshot = terminal_render_snapshot(&state.handle(), &None);
-        let text: String = snapshot
-            .content()
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
-
-        assert!(!snapshot.is_frozen());
-        assert!(text.contains("after"));
+    fn protocol_flags_detect_cursor_and_color_requests() {
+        assert_eq!(
+            terminal_protocol_flags(b"\x1b[?25lhello\x1b[?25h\x1b]10;?\x07\x1b]11;?\x07"),
+            TerminalProtocolFlags {
+                show_cursor: true,
+                hide_cursor: true,
+                osc_10_request: true,
+                osc_11_request: true,
+            }
+        );
     }
 
     #[test]
