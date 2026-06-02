@@ -60,8 +60,8 @@ use gpui::{
     FocusHandle, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ObjectFit,
     ParentElement, Pixels, Render, ScrollHandle, SharedString, StatefulInteractiveElement, Styled,
     StyledImage, Subscription, UniformListScrollHandle, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowKind, WindowOptions, div, img, linear_color_stop, linear_gradient, point,
-    prelude::FluentBuilder as _, px, relative, size,
+    WindowBounds, WindowControlArea, WindowKind, WindowOptions, div, img, linear_color_stop,
+    linear_gradient, point, prelude::FluentBuilder as _, px, relative, rems, size,
 };
 use gpui_component::{
     ActiveTheme, Disableable, ElementExt, Icon, Root, Sizable, Size, VirtualListScrollHandle,

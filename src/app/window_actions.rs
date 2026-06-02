@@ -126,6 +126,7 @@ impl CoduxApp {
             state,
             runtime_service,
             is_exiting: false,
+            main_window_close_handler_registered: false,
             status_message: "settings window ready".to_string(),
             desktop_pet_window: None,
             settings_window: None,
@@ -505,6 +506,29 @@ impl CoduxApp {
         }
         *handle = None;
         false
+    }
+
+    pub(super) fn close_auxiliary_windows(&mut self, cx: &mut Context<Self>) {
+        let handles = [
+            &mut self.settings_window,
+            &mut self.about_window,
+            &mut self.update_dialog_window,
+            &mut self.git_clone_window,
+            &mut self.git_credentials_window,
+            &mut self.memory_manager_window,
+            &mut self.pet_claim_window,
+            &mut self.pet_custom_install_window,
+            &mut self.pet_dex_window,
+            &mut self.ssh_profile_editor_window,
+            &mut self.project_editor_window,
+            &mut self.worktree_creator_window,
+        ];
+
+        for handle in handles {
+            if let Some(window_handle) = handle.take() {
+                let _ = window_handle.update(cx, |_view, window, _cx| window.remove_window());
+            }
+        }
     }
 
     pub(super) fn on_key_down(

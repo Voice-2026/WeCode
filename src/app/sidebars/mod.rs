@@ -775,8 +775,8 @@ fn assistant_panel_header(
                 .child(
                     div()
                         .ml(px(8.0))
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(title),
                 ),

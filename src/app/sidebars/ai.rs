@@ -394,8 +394,8 @@ fn ai_stats_card(title: impl Into<String>, cx: &mut Context<CoduxApp>) -> gpui::
         .p(px(12.0))
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .child(title),
         )
@@ -419,8 +419,8 @@ fn ai_current_session_card(
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(12.0))
-            .line_height(px(16.0))
+            .text_size(rems(0.75))
+            .line_height(rems(1.0))
             .text_color(color(theme::TEXT_DIM))
             .child(empty_label)
             .into_any_element()
@@ -460,8 +460,8 @@ fn ai_live_session_row(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(if session.tool.trim().is_empty() {
@@ -473,8 +473,8 @@ fn ai_live_session_row(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .truncate()
                         .child(session.model.clone().unwrap_or_else(|| "-".to_string())),
@@ -486,8 +486,8 @@ fn ai_live_session_row(
                 .text_right()
                 .child(
                     div()
-                        .text_size(px(16.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(1.0))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(compact_number(ai_display_tokens(
                             if session.raw_total_tokens > 0 {
@@ -506,8 +506,8 @@ fn ai_live_session_row(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(session_total_label),
                 ),
@@ -535,8 +535,8 @@ fn ai_runtime_sessions_card(
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(12.0))
-            .line_height(px(16.0))
+            .text_size(rems(0.75))
+            .line_height(rems(1.0))
             .text_color(color(theme::TEXT_DIM))
             .bg(ai_stats_track_surface(cx))
             .child(
@@ -609,8 +609,8 @@ fn ai_runtime_sessions_card(
                             div()
                                 .min_w_0()
                                 .flex_1()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT))
                                 .truncate()
                                 .child("Supervisor"),
@@ -638,8 +638,8 @@ fn ai_runtime_sessions_card(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .truncate()
                         .child(format!(
@@ -667,8 +667,8 @@ fn ai_runtime_sessions_card(
                 .py(px(7.0))
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.session_title),
@@ -676,8 +676,8 @@ fn ai_runtime_sessions_card(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .truncate()
                         .child(format!(
@@ -766,8 +766,8 @@ fn ai_runtime_infrastructure_card(
                 .py(px(7.0))
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(runtime_ingress.message.clone()),
@@ -775,8 +775,8 @@ fn ai_runtime_infrastructure_card(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .truncate()
                         .child(runtime_ingress.socket_path.display().to_string()),
@@ -788,8 +788,8 @@ fn ai_runtime_infrastructure_card(
                 .flex()
                 .items_center()
                 .gap_2()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(div().min_w_0().flex_1().truncate().child(runtime_log_label))
                 .child(div().min_w_0().flex_1().truncate().child(live_log_label)),
@@ -802,8 +802,8 @@ fn ai_runtime_infrastructure_card(
                 .rounded(px(7.0))
                 .px(px(8.0))
                 .py(px(6.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::ORANGE))
                 .bg(color(theme::ORANGE).opacity(0.12))
                 .child(error),
@@ -827,16 +827,16 @@ fn ai_runtime_metric(
         .py(px(6.0))
         .child(
             div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_DIM))
                 .child(label),
         )
         .child(
             div()
                 .mt(px(1.0))
-                .text_size(px(16.0))
-                .line_height(px(20.0))
+                .text_size(rems(1.0))
+                .line_height(rems(1.25))
                 .font_weight(FontWeight::BOLD)
                 .text_color(color(accent))
                 .child(value),
@@ -887,8 +887,8 @@ fn ai_runtime_session_row(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.session_title),
@@ -896,8 +896,8 @@ fn ai_runtime_session_row(
                 .child(
                     div()
                         .flex_shrink_0()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(state_color))
                         .child(session.state),
                 ),
@@ -907,8 +907,8 @@ fn ai_runtime_session_row(
                 .mt(px(2.0))
                 .flex()
                 .items_center()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(
                     div()
@@ -1031,8 +1031,8 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                             div()
                                                 .min_w_0()
                                                 .flex_1()
-                                                .text_size(px(18.0))
-                                                .line_height(px(22.0))
+                                                .text_size(rems(1.125))
+                                                .line_height(rems(1.375))
                                                 .text_color(cx.theme().foreground)
                                                 .child(title),
                                         )
@@ -1056,8 +1056,8 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                 .child(
                                     div()
                                         .mt(px(4.0))
-                                        .text_size(px(12.0))
-                                        .line_height(px(17.0))
+                                        .text_size(rems(0.75))
+                                        .line_height(rems(1.0625))
                                         .text_color(cx.theme().muted_foreground)
                                         .child(subtitle),
                                 ),
@@ -1110,8 +1110,8 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                 .child(
                                                     div()
                                                         .truncate()
-                                                        .text_size(px(14.0))
-                                                        .line_height(px(18.0))
+                                                        .text_size(rems(0.875))
+                                                        .line_height(rems(1.125))
                                                         .text_color(cx.theme().foreground)
                                                         .child(selected_target_title),
                                                 )
@@ -1119,8 +1119,8 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                     div()
                                                         .mt(px(4.0))
                                                         .truncate()
-                                                        .text_size(px(12.0))
-                                                        .line_height(px(16.0))
+                                                        .text_size(rems(0.75))
+                                                        .line_height(rems(1.0))
                                                         .text_color(cx.theme().muted_foreground)
                                                         .child(overview_label),
                                                 ),
@@ -1240,8 +1240,8 @@ fn ai_memory_manager_status_bar(
         .flex()
         .items_center()
         .gap_2()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::TEXT_MUTED))
         .when(active && error.is_none(), |this| {
             this.child(Spinner::new().xsmall().color(color(theme::ORANGE)))
@@ -1417,15 +1417,15 @@ fn ai_memory_manager_target_row(
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .child(title),
                 )
                 .child(
                     div()
                         .truncate()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(cx.theme().muted_foreground)
                         .child(subtitle),
                 ),
@@ -1436,8 +1436,8 @@ fn ai_memory_manager_target_row(
                 .rounded_full()
                 .px(px(7.0))
                 .py(px(2.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .bg(if active {
                     color(theme::ACCENT).opacity(0.16)
                 } else {
@@ -1468,8 +1468,8 @@ fn ai_memory_manager_tab_button(
         .flex()
         .items_center()
         .cursor_pointer()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .text_color(if active {
             color(theme::TEXT)
         } else {
@@ -1515,8 +1515,8 @@ fn ai_memory_section_label(label: String, cx: &mut Context<CoduxApp>) -> impl In
     div()
         .mt(px(12.0))
         .mb(px(6.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(cx.theme().muted_foreground)
         .child(label)
 }
@@ -1623,8 +1623,8 @@ fn ai_memory_project_profile_row(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
@@ -1663,8 +1663,8 @@ fn ai_memory_project_profile_row(
         .child(
             div()
                 .mt(px(10.0))
-                .text_size(px(12.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .w_full()
                 .child(profile.content),
@@ -1702,8 +1702,8 @@ fn ai_memory_project_profile_empty_row(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
@@ -1729,8 +1729,8 @@ fn ai_memory_project_profile_empty_row(
         .child(
             div()
                 .mt(px(8.0))
-                .text_size(px(12.0))
-                .line_height(px(17.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0625))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(empty_label),
         )
@@ -1739,8 +1739,8 @@ fn ai_memory_project_profile_empty_row(
 fn ai_memory_refreshing_label(language: &str) -> impl IntoElement {
     div()
         .px(px(7.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::TEXT_DIM))
         .child(ai_sidebar_text(language, "common.processing", "Processing"))
 }
@@ -1820,8 +1820,8 @@ fn ai_memory_manager_summary_row(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(format!("{} {}", summary.scope, version_label)),
                 )
@@ -1832,8 +1832,8 @@ fn ai_memory_manager_summary_row(
                         .child(
                             div()
                                 .mr(px(4.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(tokens_label),
                         )
@@ -1872,8 +1872,8 @@ fn ai_memory_manager_summary_row(
         } else {
             div()
                 .mt(px(10.0))
-                .text_size(px(12.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .w_full()
                 .child(summary.content.clone())
@@ -1910,8 +1910,8 @@ fn ai_memory_manager_entry_groups(
                         .child(div().size(px(8.0)).rounded_full().bg(color(theme::ACCENT)))
                         .child(
                             div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_MUTED))
                                 .child(memory_module_title(&module_key, language)),
                         )
@@ -1920,8 +1920,8 @@ fn ai_memory_manager_entry_groups(
                                 .rounded_full()
                                 .px(px(7.0))
                                 .py(px(1.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::ACCENT))
                                 .bg(color(theme::ACCENT).opacity(0.12))
                                 .child(group_entries.len().to_string()),
@@ -1992,8 +1992,8 @@ fn ai_memory_manager_entry_row(
                         .child(
                             div()
                                 .mr(px(4.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(memory_date_label(entry.updated_at)),
                         )
@@ -2025,8 +2025,8 @@ fn ai_memory_manager_entry_row(
             div()
                 .mt(px(10.0))
                 .w_full()
-                .text_size(px(14.0))
-                .line_height(px(21.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.3125))
                 .text_color(color(theme::TEXT))
                 .child(entry.content.clone()),
         )
@@ -2035,8 +2035,8 @@ fn ai_memory_manager_entry_row(
                 div()
                     .mt(px(7.0))
                     .w_full()
-                    .text_size(px(12.0))
-                    .line_height(px(18.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.125))
                     .text_color(color(theme::TEXT_MUTED))
                     .child(rationale),
             )
@@ -2067,8 +2067,8 @@ fn ai_memory_decision_row(
             div()
                 .min_w_0()
                 .flex_1()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(decision.reason),
         )
@@ -2106,8 +2106,8 @@ fn ai_memory_badge(label: String, badge_color: Hsla) -> impl IntoElement {
         .rounded_full()
         .px(px(9.0))
         .py(px(3.0))
-        .text_size(px(12.0))
-        .line_height(px(15.0))
+        .text_size(rems(0.75))
+        .line_height(rems(0.9375))
         .text_color(badge_color)
         .bg(badge_color.opacity(0.14))
         .child(label)
@@ -2276,16 +2276,16 @@ fn ai_metric_card(
         .flex_col()
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(label),
         )
         .child(
             div()
                 .mt(px(10.0))
-                .text_size(px(18.0))
-                .line_height(px(22.0))
+                .text_size(rems(1.125))
+                .line_height(rems(1.375))
                 .text_color(color(theme::TEXT))
                 .child(value),
         )
@@ -2354,8 +2354,8 @@ fn ai_today_usage_chart(
                 .mt(px(10.0))
                 .flex()
                 .justify_between()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child("00:00")
                 .child("06:00")
@@ -2444,8 +2444,8 @@ fn ai_ranking_card(
     ai_stats_card(title, cx).child(if rows.is_empty() {
         div()
             .mt(px(12.0))
-            .text_size(px(12.0))
-            .line_height(px(16.0))
+            .text_size(rems(0.75))
+            .line_height(rems(1.0))
             .text_color(color(theme::TEXT_DIM))
             .child(empty_label)
             .into_any_element()
@@ -2486,8 +2486,8 @@ fn ai_ranking_row(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(14.0))
-                    .line_height(px(20.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.25))
                     .text_color(color(theme::TEXT))
                     .truncate()
                     .child(label),
@@ -2502,8 +2502,8 @@ fn ai_ranking_row(
                         div()
                             .w(px(78.0))
                             .text_right()
-                            .text_size(px(14.0))
-                            .line_height(px(20.0))
+                            .text_size(rems(0.875))
+                            .line_height(rems(1.25))
                             .text_color(color(theme::TEXT_MUTED))
                             .child(value_label),
                     )
@@ -2511,8 +2511,8 @@ fn ai_ranking_row(
                         div()
                             .w(px(34.0))
                             .text_right()
-                            .text_size(px(12.0))
-                            .line_height(px(20.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(1.25))
                             .text_color(color(theme::TEXT_DIM))
                             .child(format!(
                                 "{}%",
@@ -3040,8 +3040,8 @@ fn ai_sessions_panel(
                         .items_center()
                         .child(
                             div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .text_color(color(theme::TEXT))
                                 .child(ai_sidebar_text(
                                     language,
@@ -3057,8 +3057,8 @@ fn ai_sessions_panel(
                                 .rounded(px(10.0))
                                 .flex()
                                 .items_center()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_MUTED))
                                 .bg(ai_stats_track_surface(cx))
                                 .child(history.session_count.to_string()),
@@ -3066,8 +3066,8 @@ fn ai_sessions_panel(
                 )
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .child(if history.indexed {
                             indexed_label
@@ -3126,8 +3126,8 @@ fn ai_empty_sessions(
         .items_center()
         .justify_center()
         .px(px(12.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::TEXT_DIM))
         .bg(cx.theme().group_box)
         .child(message)
@@ -3165,8 +3165,8 @@ fn ai_session_list_row(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(session.title),
@@ -3175,8 +3175,8 @@ fn ai_session_list_row(
                     div()
                         .ml(px(10.0))
                         .flex_shrink_0()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .child(relative_time_label_for_language(
                             session.last_seen_at,
@@ -3189,8 +3189,8 @@ fn ai_session_list_row(
                 .mt(px(2.0))
                 .flex()
                 .items_center()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(div().min_w_0().flex_1().truncate().child(format!(
                     "{} · {} · {}",
@@ -3288,8 +3288,8 @@ fn ai_session_detail_summary(
         .child(
             div()
                 .mt(px(5.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .truncate()
                 .child(format!(
@@ -3316,8 +3316,8 @@ fn ai_session_detail_summary(
                         .rounded(px(6.0))
                         .flex()
                         .items_center()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .bg(ai_stats_track_surface(cx))
                         .child(file.file_path.clone())

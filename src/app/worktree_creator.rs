@@ -55,8 +55,8 @@ impl CoduxApp {
                     .gap(px(14.0))
                     .child(
                         div()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(1.0))
                             .text_color(color(theme::TEXT_DIM))
                             .truncate()
                             .child(project_name),
@@ -88,8 +88,8 @@ impl CoduxApp {
                                 .bg(color(0xFF5C68).opacity(0.12))
                                 .px(px(10.0))
                                 .py(px(8.0))
-                                .text_size(px(12.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.125))
                                 .text_color(color(0xFF5C68))
                                 .child(error),
                         )
@@ -243,15 +243,15 @@ fn worktree_creator_input(
 
 fn worktree_creator_label(label: String) -> impl IntoElement {
     div()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .text_color(color(theme::TEXT))
         .child(label)
 }
 
 fn worktree_creator_button_label(label: impl Into<String>) -> impl IntoElement {
     div()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .child(label.into())
 }

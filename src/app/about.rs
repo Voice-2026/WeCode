@@ -26,62 +26,69 @@ impl CoduxApp {
         let about = self
             .runtime_service
             .about_metadata(env!("CARGO_PKG_VERSION"), CODUX_IDENTIFIER);
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .bg(color(theme::BG))
-            .text_color(color(theme::TEXT))
-            .child(div().h(px(18.0)).flex_shrink_0())
-            .child(about_icon_mark())
-            .child(
-                div()
-                    .mt(px(14.0))
-                    .text_size(px(20.0))
-                    .line_height(px(24.0))
-                    .font_weight(FontWeight::BOLD)
-                    .child(about.name.clone()),
-            )
-            .child(
-                div()
-                    .mt(px(6.0))
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
-                    .text_color(color(theme::TEXT_MUTED))
-                    .child(about.version.clone()),
-            )
-            .child(
-                div()
-                    .mt(px(22.0))
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap(px(4.0))
-                    .child(
-                        div()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
-                            .text_color(color(theme::TEXT_MUTED))
-                            .child(translate(
-                                &locale,
-                                "about.tagline",
-                                "AI-Powered Terminal Workspace",
-                            )),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .line_height(px(15.0))
-                            .text_color(color(theme::TEXT_DIM))
-                            .child(translate(
-                                &locale,
-                                "about.copyright",
-                                "Copyright (c) 2025 Codux contributors",
-                            )),
-                    ),
-            )
-            .child(about_action_row(&locale, cx))
+        child_window_shell(
+            translate(&locale, "menu.app.about_format", "About Codux").replace("%@", "Codux"),
+            cx,
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .items_center()
+                .bg(color(theme::BG))
+                .text_color(color(theme::TEXT))
+                .child(div().h(px(18.0)).flex_shrink_0())
+                .child(about_icon_mark())
+                .child(
+                    div()
+                        .mt(px(14.0))
+                        .text_size(rems(1.25))
+                        .line_height(rems(1.5))
+                        .font_weight(FontWeight::BOLD)
+                        .child(about.name.clone()),
+                )
+                .child(
+                    div()
+                        .mt(px(6.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(about.version.clone()),
+                )
+                .child(
+                    div()
+                        .mt(px(22.0))
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(px(4.0))
+                        .child(
+                            div()
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(color(theme::TEXT_MUTED))
+                                .child(translate(
+                                    &locale,
+                                    "about.tagline",
+                                    "AI-Powered Terminal Workspace",
+                                )),
+                        )
+                        .child(
+                            div()
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(translate(
+                                    &locale,
+                                    "about.copyright",
+                                    "Copyright (c) 2025 Codux contributors",
+                                )),
+                        ),
+                )
+                .child(about_action_row(&locale, cx)),
+        )
     }
 
     pub(in crate::app) fn open_about_window(
@@ -643,8 +650,8 @@ fn about_button(
                 .flex()
                 .items_center()
                 .gap(px(6.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(cx.theme().secondary_foreground)
                 .child(Icon::new(icon).size_3())
                 .child(label),
@@ -691,16 +698,16 @@ fn update_dialog_content(app: &CoduxApp, language: &str, cx: &mut Context<CoduxA
                         .gap(px(3.0))
                         .child(
                             div()
-                                .text_size(px(14.0))
-                                .line_height(px(20.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.25))
                                 .text_color(color(theme::TEXT))
                                 .child(title),
                         )
                         .when(!subtitle.is_empty(), |this| {
                             this.child(
                                 div()
-                                    .text_size(px(12.0))
-                                    .line_height(px(16.0))
+                                    .text_size(rems(0.75))
+                                    .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT_MUTED))
                                     .child(subtitle),
                             )
@@ -769,8 +776,8 @@ fn update_dialog_body(app: &CoduxApp, language: &str, _cx: &mut Context<CoduxApp
             .child(
                 div()
                     .mt(px(2.0))
-                    .text_size(px(14.0))
-                    .line_height(px(20.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.25))
                     .text_color(color(theme::TEXT))
                     .child(update_dialog_available_title(app, language)),
             )
@@ -784,8 +791,8 @@ fn update_dialog_body(app: &CoduxApp, language: &str, _cx: &mut Context<CoduxApp
                     .border_color(color(theme::BORDER_SOFT))
                     .bg(color(theme::BG_PANEL))
                     .p(px(12.0))
-                    .text_size(px(14.0))
-                    .line_height(px(22.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.375))
                     .text_color(color(theme::TEXT_MUTED))
                     .child(
                         app.update_dialog_status
@@ -808,8 +815,8 @@ fn update_dialog_body(app: &CoduxApp, language: &str, _cx: &mut Context<CoduxApp
         UpdateDialogPhase::Finished => body
             .child(
                 div()
-                    .text_size(px(14.0))
-                    .line_height(px(22.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.375))
                     .text_color(color(theme::TEXT_MUTED))
                     .child(
                         app.update_dialog_result
@@ -831,8 +838,8 @@ fn update_dialog_body(app: &CoduxApp, language: &str, _cx: &mut Context<CoduxApp
             .child(
                 div()
                     .w_full()
-                    .text_size(px(14.0))
-                    .line_height(px(22.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.375))
                     .text_color(color(0xF87171))
                     .child(app.update_dialog_error.clone().unwrap_or_else(|| {
                         translate(
@@ -849,8 +856,8 @@ fn update_dialog_body(app: &CoduxApp, language: &str, _cx: &mut Context<CoduxApp
             .child(
                 div()
                     .w_full()
-                    .text_size(px(14.0))
-                    .line_height(px(22.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.375))
                     .text_color(color(theme::TEXT_MUTED))
                     .child(
                         app.update_dialog_status
@@ -871,8 +878,8 @@ fn update_dialog_body(app: &CoduxApp, language: &str, _cx: &mut Context<CoduxApp
             .child(
                 div()
                     .w_full()
-                    .text_size(px(14.0))
-                    .line_height(px(22.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.375))
                     .text_color(color(theme::TEXT_MUTED))
                     .child(translate(
                         language,
@@ -1015,8 +1022,8 @@ fn update_dialog_button_label(
     text_color: gpui::Hsla,
 ) -> impl IntoElement {
     div()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(text_color)
         .child(label.into())
 }
@@ -1078,8 +1085,8 @@ fn update_progress_view(
         .child(
             div()
                 .w_full()
-                .text_size(px(14.0))
-                .line_height(px(22.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.375))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(translate(
                     language,
@@ -1105,8 +1112,8 @@ fn update_progress_view(
         .child(
             div()
                 .w_full()
-                .text_size(px(14.0))
-                .line_height(px(22.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.375))
                 .text_color(color(theme::TEXT_DIM))
                 .child(match total {
                     Some(total) => {

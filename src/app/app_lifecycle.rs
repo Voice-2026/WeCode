@@ -158,6 +158,7 @@ impl CoduxApp {
             state,
             runtime_service,
             is_exiting: false,
+            main_window_close_handler_registered: false,
             status_message: format!(
                 "runtime ready · {} project{} · restored {} terminal tab{} · {}",
                 ready_snapshot.projects.projects.len(),

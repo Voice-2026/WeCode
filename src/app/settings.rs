@@ -13,8 +13,8 @@ use codux_runtime::{
 };
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, div, img,
-    prelude::FluentBuilder as _, px, relative,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea, div,
+    img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
@@ -165,7 +165,9 @@ impl CoduxApp {
                     .border_r_1()
                     .border_color(cx.theme().sidebar_border)
                     .bg(cx.theme().sidebar)
-                    .child(div().h(px(48.0)).flex_shrink_0())
+                    .when(cfg!(target_os = "macos"), |this| {
+                        this.child(div().h(px(48.0)).flex_shrink_0())
+                    })
                     .child(
                         div()
                             .flex()
@@ -197,15 +199,34 @@ impl CoduxApp {
                             .px(px(28.0))
                             .pb(px(14.0))
                             .flex()
-                            .flex_col()
-                            .justify_end()
+                            .items_end()
+                            .justify_between()
                             .child(
                                 div()
-                                    .text_size(px(20.0))
-                                    .line_height(px(26.0))
+                                    .min_w_0()
+                                    .flex_1()
+                                    .h_full()
+                                    .flex()
+                                    .items_end()
+                                    .window_control_area(WindowControlArea::Drag)
+                                    .text_size(rems(1.25))
+                                    .line_height(rems(1.625))
                                     .text_color(cx.theme().foreground)
                                     .child(pane.label(language)),
-                            ),
+                            )
+                            .when(!cfg!(target_os = "macos"), |this| {
+                                this.child(
+                                    Button::new("settings-window-close")
+                                        .compact()
+                                        .ghost()
+                                        .h(px(28.0))
+                                        .w(px(28.0))
+                                        .mb(px(-2.0))
+                                        .text_color(cx.theme().muted_foreground)
+                                        .window_control_area(WindowControlArea::Close)
+                                        .child(Icon::new(HeroIconName::XMark).size_3()),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -265,7 +286,12 @@ fn settings_nav_row(
         .hover(|style| style.bg(cx.theme().list_hover))
         .on_click(cx.listener(move |app, _event, _window, cx| app.set_settings_pane(pane, cx)))
         .child(Icon::new(pane.icon()).size_3p5())
-        .child(div().text_size(px(14.0)).line_height(px(18.0)).child(label))
+        .child(
+            div()
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
+                .child(label),
+        )
 }
 
 fn settings_pane_body(
@@ -365,8 +391,8 @@ fn settings_card_with_actions(
                 .gap(px(12.0))
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(title.clone().unwrap_or_default()),
                 )
@@ -415,8 +441,8 @@ fn settings_row(
                 .flex_col()
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
@@ -425,8 +451,8 @@ fn settings_row(
                         .when(description.is_none(), |this| this.hidden())
                         .mt(px(3.0))
                         .max_w(px(420.0))
-                        .text_size(px(12.0))
-                        .line_height(px(17.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0625))
                         .text_color(color(theme::TEXT_DIM))
                         .child(description.unwrap_or_default()),
                 ),
@@ -459,8 +485,8 @@ fn settings_small_button_state(
         .on_click(cx.listener(action))
         .child(
             div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT))
                 .child(value.into()),
         )
@@ -675,8 +701,8 @@ fn settings_status_tag(value: impl Into<String>, accent: u32) -> AnyElement {
         .text_color(color(accent))
         .flex()
         .items_center()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .child(value.into())
         .into_any_element()
 }
@@ -725,8 +751,8 @@ fn settings_selectable_tile(
             div()
                 .w_full()
                 .text_align(gpui::TextAlign::Center)
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .truncate()
                 .child(label.into()),
         )
@@ -763,8 +789,8 @@ fn remote_pairing_overlay(
                 .p(px(20.0))
                 .child(
                     div()
-                        .text_size(px(18.0))
-                        .line_height(px(24.0))
+                        .text_size(rems(1.125))
+                        .line_height(rems(1.5))
                         .text_color(cx.theme().foreground)
                         .child(title),
                 )
@@ -807,8 +833,8 @@ fn remote_pairing_placeholder(language: &str, cx: &mut Context<CoduxApp>) -> Any
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(cx.theme().muted_foreground)
         .child(settings_text(
             language,
@@ -830,8 +856,8 @@ fn remote_pairing_detail(
             .text_align(gpui::TextAlign::Center)
             .child(
                 div()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(cx.theme().muted_foreground)
                     .child(settings_text(
                         language,
@@ -842,8 +868,8 @@ fn remote_pairing_detail(
             .child(
                 div()
                     .mt(px(4.0))
-                    .text_size(px(11.0))
-                    .line_height(px(14.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(cx.theme().muted_foreground)
                     .child(settings_text(
                         language,
@@ -854,8 +880,8 @@ fn remote_pairing_detail(
             .child(
                 div()
                     .mt(px(6.0))
-                    .text_size(px(20.0))
-                    .line_height(px(26.0))
+                    .text_size(rems(1.25))
+                    .line_height(rems(1.625))
                     .text_color(cx.theme().foreground)
                     .child(pairing.code.clone()),
             )
@@ -867,8 +893,8 @@ fn remote_pairing_detail(
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(14.0))
-        .line_height(px(20.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.25))
         .text_color(cx.theme().muted_foreground)
         .child(if loading {
             settings_text(
@@ -940,8 +966,8 @@ fn remote_pending_pairing_overlay(
                 .p(px(18.0))
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(cx.theme().foreground)
                         .child(settings_text(
                             language,
@@ -952,8 +978,8 @@ fn remote_pending_pairing_overlay(
                 .child(
                     div()
                         .mt(px(8.0))
-                        .text_size(px(12.0))
-                        .line_height(px(17.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0625))
                         .text_color(cx.theme().muted_foreground)
                         .child(empty_label(&pairing.device_name)),
                 )
@@ -966,8 +992,8 @@ fn remote_pending_pairing_overlay(
                         .child(settings_status_tag(pairing.code.clone(), theme::ACCENT))
                         .child(
                             div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(cx.theme().muted_foreground)
                                 .child(settings_text(language, "settings.remote.code", "Code")),
                         ),
@@ -1059,8 +1085,8 @@ fn theme_preview_grid(
             this.child(
                 div()
                     .px(px(2.0))
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(color(theme::TEXT_DIM))
                     .child(title.clone().unwrap_or_default()),
             )
@@ -1856,8 +1882,8 @@ fn settings_ai_pane(
         vec![
             div()
                 .py(px(12.0))
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_DIM))
                 .child(settings_text(
                     language,
@@ -2385,8 +2411,8 @@ fn settings_remote_pane(
         vec![
             div()
                 .py(px(12.0))
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_DIM))
                 .child(if remote.enabled {
                     settings_text(language, "settings.remote.no_devices", "No paired devices.")
@@ -2429,16 +2455,16 @@ fn settings_remote_pane(
                             .flex_col()
                             .child(
                                 div()
-                                    .text_size(px(15.0))
-                                    .line_height(px(20.0))
+                                    .text_size(rems(0.9375))
+                                    .line_height(rems(1.25))
                                     .text_color(color(theme::TEXT))
                                     .child(empty_label(&device.name)),
                             )
                             .child(
                                 div()
                                     .mt(px(3.0))
-                                    .text_size(px(12.0))
-                                    .line_height(px(16.0))
+                                    .text_size(rems(0.75))
+                                    .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT_DIM))
                                     .truncate()
                                     .child(empty_label(&device.id)),
@@ -2532,8 +2558,8 @@ fn settings_remote_pane(
                             div()
                                 .min_w_0()
                                 .flex_1()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
                                 .child(remote_status_label(remote, language)),
@@ -2618,8 +2644,8 @@ fn settings_shortcuts_pane(
             vec![
                 div()
                     .py(px(8.0))
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(color(theme::TEXT_DIM))
                     .child(settings_text(
                         language,
@@ -2852,8 +2878,8 @@ fn shortcut_row(
                     }))
                     .child(
                         div()
-                            .text_size(px(14.0))
-                            .line_height(px(18.0))
+                            .text_size(rems(0.875))
+                            .line_height(rems(1.125))
                             .truncate()
                             .child(value),
                     ),
@@ -2978,8 +3004,8 @@ fn settings_runtime_tool_block(
 ) -> AnyElement {
     let mut children = vec![
         div()
-            .text_size(px(14.0))
-            .line_height(px(18.0))
+            .text_size(rems(0.875))
+            .line_height(rems(1.125))
             .text_color(color(theme::TEXT))
             .child(label)
             .into_any_element(),
@@ -3100,8 +3126,8 @@ fn settings_ai_provider_card(
                 .child(
                     div()
                         .min_w_0()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(provider.display_name.clone()),
@@ -3281,8 +3307,8 @@ fn settings_ai_provider_card(
                             }))
                             .child(
                                 div()
-                                    .text_size(px(12.0))
-                                    .line_height(px(16.0))
+                                    .text_size(rems(0.75))
+                                    .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT))
                                     .child(if testing {
                                         settings_text(
@@ -3342,16 +3368,16 @@ fn settings_notification_card(
                             .flex_col()
                             .child(
                                 div()
-                                    .text_size(px(14.0))
-                                    .line_height(px(18.0))
+                                    .text_size(rems(0.875))
+                                    .line_height(rems(1.125))
                                     .text_color(color(theme::TEXT))
                                     .child(channel.label.clone()),
                             )
                             .child(
                                 div()
                                     .mt(px(4.0))
-                                    .text_size(px(12.0))
-                                    .line_height(px(16.0))
+                                    .text_size(rems(0.75))
+                                    .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT_DIM))
                                     .child(notification_channel_description(&channel.id, language)),
                             ),

@@ -42,6 +42,12 @@ impl CoduxApp {
                 )
                 .child(
                     div()
+                        .flex_1()
+                        .h_full()
+                        .window_control_area(WindowControlArea::Drag),
+                )
+                .child(
+                    div()
                         .flex()
                         .items_center()
                         .gap_2()
@@ -218,19 +224,19 @@ fn workspace_window_controls(cx: &mut Context<CoduxApp>) -> impl IntoElement {
         .child(workspace_window_control_button(
             "workspace-window-minimize",
             HeroIconName::Minus,
-            |window| window.minimize_window(),
+            WindowControlArea::Min,
             cx,
         ))
         .child(workspace_window_control_button(
             "workspace-window-zoom",
             HeroIconName::Window,
-            |window| window.zoom_window(),
+            WindowControlArea::Max,
             cx,
         ))
         .child(workspace_window_control_button(
             "workspace-window-close",
             HeroIconName::XMark,
-            |window| window.remove_window(),
+            WindowControlArea::Close,
             cx,
         ))
 }
@@ -238,17 +244,17 @@ fn workspace_window_controls(cx: &mut Context<CoduxApp>) -> impl IntoElement {
 fn workspace_window_control_button(
     id: &'static str,
     icon: HeroIconName,
-    action: fn(&mut Window),
+    area: WindowControlArea,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     Button::new(id)
         .compact()
+        .ghost()
         .h(px(28.0))
         .w(px(30.0))
         .text_color(cx.theme().muted_foreground)
-        .hover(|style| style.bg(cx.theme().secondary_hover))
+        .window_control_area(area)
         .child(Icon::new(icon).size_3())
-        .on_click(move |_, window, _| action(window))
 }
 
 fn workspace_assistant_button(
@@ -409,6 +415,12 @@ fn workspace_segmented_tab(
                         .justify_center()
                         .child(Icon::new(icon).size_3()),
                 )
-                .child(div().flex_none().mt(px(1.0)).text_xs().child(label)),
+                .child(
+                    div()
+                        .flex_none()
+                        .mt(px(1.0))
+                        .text_size(rems(0.75))
+                        .child(label),
+                ),
         )
 }

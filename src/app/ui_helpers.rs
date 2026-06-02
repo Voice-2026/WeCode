@@ -85,8 +85,8 @@ impl CoduxApp {
                     .bg(color(0x000000))
                     .px_2()
                     .py_1()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(color(0xF4F6FA))
                     .whitespace_normal()
                     .child(self.tooltip_state.text.clone()),
@@ -257,9 +257,6 @@ pub(in crate::app) fn column_header(
         .border_b_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().title_bar)
-        .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
-            window.start_window_move();
-        })
         .child(content)
 }
 
@@ -316,8 +313,8 @@ pub(in crate::app) fn centered_empty_state(
         )
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .child(message.into()),
         )
 }
@@ -340,7 +337,7 @@ pub(in crate::app) fn section(title: &'static str, rows: Vec<String>) -> impl In
                 .items_center()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
-                .text_xs()
+                .text_size(rems(0.75))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT_MUTED))
                 .child(title),
@@ -349,7 +346,7 @@ pub(in crate::app) fn section(title: &'static str, rows: Vec<String>) -> impl In
             div()
                 .px_2()
                 .py_1()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
                 .child(row)
                 .into_any_element()

@@ -295,8 +295,8 @@ impl CoduxApp {
                                         div()
                                             .pt(px(6.0))
                                             .px_1()
-                                            .text_size(px(12.0))
-                                            .line_height(px(16.0))
+                                            .text_size(rems(0.75))
+                                            .line_height(rems(1.0))
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .text_color(color(theme::TEXT_DIM))
                                             .child(pet_catalog_text(
@@ -961,8 +961,8 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
                             )
                         } else {
                             div()
-                                .text_size(px(28.0))
-                                .line_height(px(32.0))
+                                .text_size(rems(1.75))
+                                .line_height(rems(2.0))
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(color(theme::TEXT_DIM))
                                 .child("?")
@@ -974,16 +974,16 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
                         .mt(px(10.0))
                         .w_full()
                         .truncate()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
                 )
                 .child(
                     div()
                         .mt(px(4.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .truncate()
                         .text_color(if unlocked {
                             color(theme::TEXT_MUTED)
@@ -1029,8 +1029,8 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
                         .mt(px(10.0))
                         .w_full()
                         .truncate()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(pet.display_name),
                 )
@@ -1039,8 +1039,8 @@ fn pet_dex_virtual_card(card: PetDexCard, cx: &mut Context<CoduxApp>) -> AnyElem
                         .mt(px(4.0))
                         .w_full()
                         .truncate()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::ACCENT))
                         .child(subtitle),
                 )
@@ -1058,8 +1058,8 @@ fn pet_dex_empty_state(message: String, cx: &mut Context<CoduxApp>) -> impl Into
         .px(px(14.0))
         .py(px(24.0))
         .text_center()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::TEXT_DIM))
         .child(message)
 }
@@ -1121,8 +1121,8 @@ fn pet_legacy_row(
                             div()
                                 .min_w_0()
                                 .truncate()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child(pet_name),
                         )
@@ -1132,8 +1132,8 @@ fn pet_legacy_row(
                                 .bg(color(theme::ACCENT).opacity(0.12))
                                 .px(px(8.0))
                                 .py(px(2.0))
-                                .text_size(px(12.0))
-                                .line_height(px(14.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(0.875))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(theme::ACCENT))
                                 .child(pet_catalog_text(
@@ -1146,8 +1146,8 @@ fn pet_legacy_row(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .child(format!(
                             "{} XP · Lv.{}",
@@ -1161,8 +1161,8 @@ fn pet_legacy_row(
                 .w(px(100.0))
                 .flex_none()
                 .text_right()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_DIM))
                 .child(pet_date_label(record.retired_at)),
         )
@@ -1260,8 +1260,8 @@ fn pet_footer_button(
 
 fn pet_button_label(label: impl Into<SharedString>, text_color: Hsla) -> impl IntoElement {
     div()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .text_color(text_color)
         .child(label.into())
 }
@@ -1284,8 +1284,8 @@ fn pet_inline_button(
         .child(
             div()
                 .flex_none()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .child(SharedString::from(label)),
         )
         .on_click(cx.listener(on_click))
@@ -1431,8 +1431,8 @@ fn pet_select_row(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(13.0))
-                        .line_height(px(17.0))
+                        .text_size(rems(0.8125))
+                        .line_height(rems(1.0625))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT))
                         .truncate()
@@ -1441,8 +1441,8 @@ fn pet_select_row(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(12.0))
-                        .line_height(px(15.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(0.9375))
                         .text_color(color(theme::TEXT_MUTED))
                         .truncate()
                         .child(subtitle),
@@ -1579,8 +1579,8 @@ fn pet_claim_preview(
         .child(
             div()
                 .mt(px(14.0))
-                .text_size(px(16.0))
-                .line_height(px(20.0))
+                .text_size(rems(1.0))
+                .line_height(rems(1.25))
                 .font_weight(FontWeight::BOLD)
                 .child(title),
         )
@@ -1588,8 +1588,8 @@ fn pet_claim_preview(
             div()
                 .mt(px(6.0))
                 .max_w(px(340.0))
-                .text_size(px(12.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(description),
         )
@@ -1653,8 +1653,8 @@ fn pet_dex_current_card(
         .child(
             div()
                 .mb(px(8.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(color(theme::TEXT_MUTED))
                 .child(pet_catalog_text(
@@ -1689,8 +1689,8 @@ fn pet_dex_current_card(
                         .max_w(px(210.0))
                         .truncate()
                         .text_center()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .font_weight(FontWeight::BOLD)
                         .child(name),
                 )
@@ -1699,8 +1699,8 @@ fn pet_dex_current_card(
                         .max_w(px(210.0))
                         .truncate()
                         .text_center()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(format!("{description} · {level}")),
                 ),
@@ -1755,8 +1755,8 @@ fn pet_dex_current_card(
                         .bg(color(theme::ACCENT).opacity(0.12))
                         .px(px(10.0))
                         .py(px(5.0))
-                        .text_size(px(12.0))
-                        .line_height(px(14.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(0.875))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::ACCENT))
                         .child(pet_catalog_text(
@@ -1768,8 +1768,8 @@ fn pet_dex_current_card(
                 .when_some(claimed_at, |this, timestamp| {
                     this.child(
                         div()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(1.0))
                             .text_color(color(theme::TEXT_DIM))
                             .child(pet_date_label(timestamp)),
                     )
@@ -1786,8 +1786,8 @@ fn pet_dex_current_card(
                 .items_center()
                 .justify_between()
                 .gap(px(8.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .child(
                     div()
                         .text_color(color(theme::TEXT_MUTED))
@@ -1808,8 +1808,8 @@ fn pet_trait_bar(emoji: &'static str, label: String, value: i64, accent: u32) ->
         .flex()
         .items_center()
         .gap(px(6.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .child(div().w(px(18.0)).child(emoji))
         .child(
             div()
@@ -1868,8 +1868,8 @@ fn pet_dex_sidebar_overview(
                 )
                 .child(
                     div()
-                        .text_size(px(17.0))
-                        .line_height(px(22.0))
+                        .text_size(rems(1.0625))
+                        .line_height(rems(1.375))
                         .font_weight(FontWeight::BOLD)
                         .child(pet_catalog_text(language, "pet.dex.title", "Pet Dex")),
                 ),
@@ -1877,8 +1877,8 @@ fn pet_dex_sidebar_overview(
         .child(
             div()
                 .mt(px(4.0))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(pet_catalog_text(
                     language,
@@ -1942,8 +1942,8 @@ fn pet_dex_summary_row(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(color(theme::TEXT_MUTED))
                         .child(label),
@@ -1952,8 +1952,8 @@ fn pet_dex_summary_row(
                     div()
                         .mt(px(2.0))
                         .truncate()
-                        .text_size(px(12.0))
-                        .line_height(px(15.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(0.9375))
                         .text_color(color(theme::TEXT_DIM))
                         .child(subtitle),
                 ),
@@ -1963,8 +1963,8 @@ fn pet_dex_summary_row(
                 .max_w(px(96.0))
                 .truncate()
                 .text_right()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .font_weight(FontWeight::BOLD)
                 .child(value),
         )
@@ -2115,8 +2115,8 @@ fn pet_dex_spotlight_overlay(
                 .child(
                     div()
                         .mt(px(20.0))
-                        .text_size(px(24.0))
-                        .line_height(px(30.0))
+                        .text_size(rems(1.5))
+                        .line_height(rems(1.875))
                         .font_weight(FontWeight::BOLD)
                         .text_color(color(theme::TEXT))
                         .child(title),
@@ -2124,8 +2124,8 @@ fn pet_dex_spotlight_overlay(
                 .child(
                     div()
                         .mt(px(8.0))
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(accent))
                         .child(subtitle),
@@ -2135,8 +2135,8 @@ fn pet_dex_spotlight_overlay(
                         div()
                             .mt(px(18.0))
                             .max_w(px(420.0))
-                            .text_size(px(14.0))
-                            .line_height(px(22.0))
+                            .text_size(rems(0.875))
+                            .line_height(rems(1.375))
                             .text_color(color(theme::TEXT_MUTED))
                             .child(description),
                     )
@@ -2184,8 +2184,8 @@ fn pet_dex_archive_confirm_overlay(language: &str, cx: &mut Context<CoduxApp>) -
                         )
                         .child(
                             div()
-                                .text_size(px(16.0))
-                                .line_height(px(22.0))
+                                .text_size(rems(1.0))
+                                .line_height(rems(1.375))
                                 .font_weight(FontWeight::BOLD)
                                 .child(pet_catalog_text(
                                     &language,
@@ -2197,8 +2197,8 @@ fn pet_dex_archive_confirm_overlay(language: &str, cx: &mut Context<CoduxApp>) -
                 .child(
                     div()
                         .mt(px(12.0))
-                        .text_size(px(12.0))
-                        .line_height(px(20.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.25))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(pet_catalog_text(
                             &language,
@@ -2251,8 +2251,8 @@ fn pet_section_header(label: String, trailing: Option<String>) -> impl IntoEleme
             div()
                 .min_w_0()
                 .truncate()
-                .text_size(px(16.0))
-                .line_height(px(20.0))
+                .text_size(rems(1.0))
+                .line_height(rems(1.25))
                 .font_weight(FontWeight::BOLD)
                 .child(label),
         )
@@ -2260,8 +2260,8 @@ fn pet_section_header(label: String, trailing: Option<String>) -> impl IntoEleme
             this.child(
                 div()
                     .flex_none()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(color(theme::TEXT_MUTED))
                     .child(trailing),

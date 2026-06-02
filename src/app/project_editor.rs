@@ -76,8 +76,8 @@ impl CoduxApp {
                         div()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(1.0))
                             .text_color(color(theme::TEXT_DIM))
                             .child(self.status_message.clone()),
                     )
@@ -180,8 +180,8 @@ fn project_editor_field(
         .gap_2()
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .child(label),
         )
@@ -210,8 +210,8 @@ fn project_editor_symbol_field(
         .gap_2()
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .child(label),
         )
@@ -257,8 +257,8 @@ fn project_editor_symbol_field(
                                 .text_color(color(accent))
                                 .into_any_element(),
                             None => div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_MUTED))
                                 .child(none_label.clone())
                                 .into_any_element(),
@@ -280,8 +280,8 @@ fn project_editor_color_field(
         .gap_2()
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .child(label),
         )
@@ -373,8 +373,8 @@ fn project_editor_path_field(
         .gap_2()
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .child(label),
         )

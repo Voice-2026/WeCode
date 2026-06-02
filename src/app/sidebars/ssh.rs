@@ -25,8 +25,8 @@ pub(in crate::app) fn ssh_section(
             .p(px(12.0))
             .rounded(px(8.0))
             .bg(ai_stats_surface(cx))
-            .text_size(px(12.0))
-            .line_height(px(16.0))
+            .text_size(rems(0.75))
+            .line_height(rems(1.0))
             .text_color(color(theme::ACCENT))
             .child(format!("error: {error}"))
             .into_any_element()
@@ -106,8 +106,8 @@ fn ssh_empty_state(label: String, cx: &mut Context<CoduxApp>) -> impl IntoElemen
         )
         .child(
             div()
-                .text_size(px(13.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.8125))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(label),
         )
@@ -179,8 +179,8 @@ fn ssh_profile_row(
                 .flex_col()
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(profile.name),
@@ -188,8 +188,8 @@ fn ssh_profile_row(
                 .child(
                     div()
                         .mt(px(4.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .truncate()
                         .child(profile.endpoint),

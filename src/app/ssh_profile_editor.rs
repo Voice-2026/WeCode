@@ -293,8 +293,8 @@ fn ssh_dialog_input(
         .gap(px(5.0))
         .child(
             div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(label),
         )
@@ -335,8 +335,8 @@ fn ssh_private_key_path_input(
         .gap(px(5.0))
         .child(
             div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(labels.private_key.clone()),
         )
@@ -406,8 +406,8 @@ fn ssh_dialog_select(
         .gap(px(5.0))
         .child(
             div()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(labels.credential.clone()),
         )
@@ -421,7 +421,7 @@ fn ssh_dialog_select(
 
 fn ssh_button_label(label: impl Into<String>) -> impl IntoElement {
     div()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .child(label.into())
 }

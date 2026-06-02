@@ -179,8 +179,18 @@ fn project_column_header(
             .flex()
             .items_center()
             .justify_center()
-            .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
-                window.start_window_move();
+            .window_control_area(WindowControlArea::Drag)
+            .when(!cfg!(target_os = "macos"), |this| {
+                this.child(
+                    div()
+                        .max_w(px(PROJECT_COLUMN_COLLAPSED_WIDTH - 12.0))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .text_size(rems(1.0))
+                        .line_height(rems(1.25))
+                        .text_color(color(theme::TEXT))
+                        .child("Codux"),
+                )
             })
             .into_any_element()
     } else {
@@ -190,16 +200,18 @@ fn project_column_header(
             .flex()
             .items_center()
             .justify_between()
-            .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
-                window.start_window_move();
-            })
             .border_b_1()
             .border_color(color(theme::BORDER_SOFT))
             .child(
                 div()
                     .min_w_0()
-                    .text_size(px(18.0))
-                    .line_height(px(22.0))
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .window_control_area(WindowControlArea::Drag)
+                    .text_size(rems(1.0))
+                    .line_height(rems(1.25))
                     .text_color(color(theme::TEXT))
                     .when(cfg!(target_os = "macos"), |this| this.invisible())
                     .child("Codux"),
@@ -351,7 +363,7 @@ fn project_tool_content(
             )
             .child(
                 div()
-                    .text_xs()
+                    .text_size(rems(0.75))
                     .text_color(cx.theme().secondary_foreground)
                     .child(label),
             )
@@ -626,7 +638,7 @@ fn project_row(
                         )
                         .child(
                             div()
-                                .text_xs()
+                                .text_size(rems(0.75))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
                                 .child(project.path.clone()),
@@ -702,8 +714,8 @@ fn project_icon(project: &ProjectInfo, active: bool) -> impl IntoElement {
         .justify_center()
         .flex_shrink_0()
         .bg(color(background))
-        .text_size(px(14.0))
-        .line_height(px(14.0))
+        .text_size(rems(0.875))
+        .line_height(rems(0.875))
         .text_color(color(text))
         .font_weight(FontWeight::BOLD)
         .child(match symbol_icon {

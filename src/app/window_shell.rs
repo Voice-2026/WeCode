@@ -20,21 +20,25 @@ pub(in crate::app) fn child_window_shell<T>(
             div()
                 .min_w_0()
                 .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .window_control_area(WindowControlArea::Drag)
                 .truncate()
-                .text_size(px(14.0))
-                .line_height(px(14.0))
+                .text_size(rems(0.875))
+                .line_height(rems(0.875))
                 .child(title),
         )
         .when(!cfg!(target_os = "macos"), |this| {
             this.child(
                 Button::new("child-window-close")
                     .compact()
+                    .ghost()
                     .h(px(28.0))
                     .w(px(28.0))
                     .text_color(cx.theme().muted_foreground)
-                    .hover(|style| style.bg(cx.theme().secondary_hover))
-                    .child(Icon::new(HeroIconName::XMark).size_3())
-                    .on_click(|_, window, _| window.remove_window()),
+                    .window_control_area(WindowControlArea::Close)
+                    .child(Icon::new(HeroIconName::XMark).size_3()),
             )
         });
 

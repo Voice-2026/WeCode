@@ -913,8 +913,8 @@ fn terminal_bottom_tabs_area(
                             this.child(
                                 div()
                                     .px_2()
-                                    .text_xs()
-                                    .line_height(px(16.0))
+                                    .text_size(rems(0.75))
+                                    .line_height(rems(1.0))
                                     .text_color(cx.theme().secondary_foreground)
                                     .child("终端"),
                             )
@@ -1026,7 +1026,12 @@ fn terminal_bottom_tab_button(
                 });
             }
         }))
-        .child(div().text_xs().line_height(px(14.0)).child(tab.label))
+        .child(
+            div()
+                .text_size(rems(0.75))
+                .line_height(rems(0.875))
+                .child(tab.label),
+        )
         .child(
             div()
                 .id(SharedString::from(format!(

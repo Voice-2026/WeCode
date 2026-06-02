@@ -41,7 +41,7 @@ pub(in crate::app) fn workspace_header_badge_button_content(
         )
         .child(
             div()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(cx.theme().foreground)
                 .child(label.into()),
         )

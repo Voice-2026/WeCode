@@ -302,8 +302,8 @@ fn review_workspace_header(
                         .min_w_0()
                         .child(
                             div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color(theme::TEXT))
                                 .child(snapshot.review_title.clone()),
@@ -311,8 +311,8 @@ fn review_workspace_header(
                         .child(
                             div()
                                 .mt(px(2.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
                                 .child(snapshot.review_subtitle.clone()),
@@ -324,8 +324,8 @@ fn review_workspace_header(
                 .flex()
                 .items_center()
                 .gap_2()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .child(snapshot.changed_files_count.clone()),
         )
 }

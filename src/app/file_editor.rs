@@ -339,7 +339,7 @@ impl Render for FileEditorContentView {
                 this.flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(13.0))
+                    .text_size(rems(0.8125))
                     .text_color(cx.theme().muted_foreground)
                     .child("Loading file...")
             })
@@ -843,8 +843,8 @@ pub(in crate::app) fn file_editor_workspace(
                     )
                     .child(
                         div()
-                            .text_size(px(13.0))
-                            .line_height(px(18.0))
+                            .text_size(rems(0.8125))
+                            .line_height(rems(1.125))
                             .child(empty_text),
                     ),
             )
@@ -926,8 +926,8 @@ fn file_editor_tab_button(
         .flex()
         .items_center()
         .rounded(px(6.0))
-        .text_size(px(12.5))
-        .line_height(px(16.0))
+        .text_size(rems(0.78125))
+        .line_height(rems(1.0))
         .text_color(if tab.dirty {
             color(theme::TEXT)
         } else {
@@ -1034,16 +1034,16 @@ fn file_editor_toolbar(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(active_label),
                 )
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_DIM))
                         .truncate()
                         .child(active_parent),

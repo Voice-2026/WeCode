@@ -226,6 +226,17 @@ impl Render for CoduxApp {
         let task_column_width = TASK_COLUMN_FIXED_WIDTH;
 
         let focus_handle = self.root_focus_handle(cx);
+        if !self.main_window_close_handler_registered {
+            self.main_window_close_handler_registered = true;
+            let app_entity = cx.entity();
+            window.on_window_should_close(cx, move |_window, cx| {
+                let _ = app_entity.update(cx, |app, cx| {
+                    app.close_auxiliary_windows(cx);
+                    app.is_exiting = true;
+                });
+                true
+            });
+        }
         let root = div()
             .size_full()
             .flex()

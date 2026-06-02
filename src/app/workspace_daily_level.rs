@@ -177,7 +177,12 @@ fn workspace_daily_level_button_content(
         .gap_1()
         .text_color(cx.theme().foreground)
         .child(daily_level_badge(&tier, 18.0, 8.0))
-        .child(div().text_size(px(12.0)).line_height(px(12.0)).child(label))
+        .child(
+            div()
+                .text_size(rems(0.75))
+                .line_height(rems(0.75))
+                .child(label),
+        )
 }
 
 fn workspace_level_popover_content(
@@ -210,8 +215,8 @@ fn workspace_level_popover_content(
                         .flex_1()
                         .child(
                             div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(theme::TEXT_MUTED))
                                 .child(today_level_label),
@@ -219,8 +224,8 @@ fn workspace_level_popover_content(
                         .child(
                             div()
                                 .mt(px(2.0))
-                                .text_size(px(15.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.9375))
+                                .line_height(rems(1.125))
                                 .font_weight(FontWeight::BOLD)
                                 .child(current_title),
                         ),
@@ -230,8 +235,8 @@ fn workspace_level_popover_content(
                         .text_right()
                         .child(
                             div()
-                                .text_size(px(11.0))
-                                .line_height(px(14.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(theme::TEXT_MUTED))
                                 .child(today_tokens_label),
@@ -239,8 +244,8 @@ fn workspace_level_popover_content(
                         .child(
                             div()
                                 .mt(px(2.0))
-                                .text_size(px(15.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.9375))
+                                .line_height(rems(1.125))
                                 .font_weight(FontWeight::BOLD)
                                 .child(compact_number(tokens)),
                         ),
@@ -272,16 +277,16 @@ fn workspace_level_popover_content(
                             .flex_1()
                             .child(
                                 div()
-                                    .text_size(px(13.0))
-                                    .line_height(px(16.0))
+                                    .text_size(rems(0.8125))
+                                    .line_height(rems(1.0))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(title),
                             )
                             .child(
                                 div()
                                     .mt(px(2.0))
-                                    .text_size(px(11.0))
-                                    .line_height(px(14.0))
+                                    .text_size(rems(0.75))
+                                    .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT_MUTED))
                                     .child(need),
                             ),
@@ -292,8 +297,8 @@ fn workspace_level_popover_content(
                                 .rounded_full()
                                 .px(px(8.0))
                                 .py(px(4.0))
-                                .text_size(px(11.0))
-                                .line_height(px(12.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(0.875))
                                 .font_weight(FontWeight::BOLD)
                                 .bg(color(tier.color).opacity(0.14))
                                 .text_color(color(tier.color))

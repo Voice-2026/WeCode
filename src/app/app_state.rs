@@ -34,6 +34,7 @@ pub struct CoduxApp {
     pub(in crate::app) state: RuntimeState,
     pub(in crate::app) runtime_service: RuntimeService,
     pub(in crate::app) is_exiting: bool,
+    pub(in crate::app) main_window_close_handler_registered: bool,
     pub(in crate::app) status_message: String,
     pub(in crate::app) desktop_pet_window: Option<AnyWindowHandle>,
     pub(in crate::app) settings_window: Option<AnyWindowHandle>,

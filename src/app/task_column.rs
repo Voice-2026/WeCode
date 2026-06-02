@@ -408,9 +408,6 @@ fn task_column_header(
         .border_b_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().title_bar)
-        .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
-            window.start_window_move();
-        })
         .child(
             div()
                 .flex()
@@ -419,6 +416,11 @@ fn task_column_header(
                 .w_full()
                 .child(
                     div()
+                        .flex_1()
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .window_control_area(WindowControlArea::Drag)
                         .text_sm()
                         .text_color(color(theme::TEXT))
                         .truncate()
@@ -586,8 +588,8 @@ fn session_section_heading(
         .bg(cx.theme().list_head)
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(cx.theme().foreground)
                 .child(title),
         )
@@ -646,8 +648,8 @@ fn worktree_compact_row(
                 .gap(px(6.0))
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(worktree.title),
@@ -660,8 +662,8 @@ fn worktree_compact_row(
                         .gap_2()
                         .child(
                             div()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
                                 .child(
@@ -675,8 +677,8 @@ fn worktree_compact_row(
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .child(
                                     div()
                                         .text_color(color(0x3EE66B))
@@ -851,7 +853,7 @@ fn ai_session_compact_row(
                 .child(
                     div()
                         .flex_shrink_0()
-                        .text_xs()
+                        .text_size(rems(0.75))
                         .text_color(color(theme::TEXT_DIM))
                         .child(last_seen),
                 ),
@@ -863,7 +865,7 @@ fn ai_session_compact_row(
                 .justify_between()
                 .gap_3()
                 .min_w_0()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
                 .child(div().min_w_0().flex_1().truncate().child(session.source))
                 .child(
@@ -942,8 +944,8 @@ fn ai_session_delete_confirm_overlay(
                             div()
                                 .min_w_0()
                                 .flex_1()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .truncate()
                                 .child(labels.delete.clone()),
                         ),
@@ -951,8 +953,8 @@ fn ai_session_delete_confirm_overlay(
                 .child(
                     div()
                         .mt(px(10.0))
-                        .text_size(px(12.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(labels.delete_confirm_format.replace("%@", &session.title)),
                 )

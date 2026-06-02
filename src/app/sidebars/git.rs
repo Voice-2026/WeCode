@@ -494,8 +494,8 @@ fn git_panel_header(
                                     .child(
                                         div()
                                             .max_w(px(132.0))
-                                            .text_size(px(14.0))
-                                            .line_height(px(18.0))
+                                            .text_size(rems(0.875))
+                                            .line_height(rems(1.125))
                                             .truncate()
                                             .child(branch.to_string()),
                                     )
@@ -1280,8 +1280,8 @@ fn git_remote_editor_panel(
                 .gap_2()
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(labels.add_remote.clone()),
                 )
@@ -1385,8 +1385,8 @@ fn git_commit_panel(
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .child(labels.commit.clone()),
                 )
                 .child(
@@ -1560,8 +1560,8 @@ fn git_empty_repository_panel(
                 .child(
                     div()
                         .mt(px(12.0))
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .child(labels.no_repository.clone()),
                 )
@@ -1569,8 +1569,8 @@ fn git_empty_repository_panel(
                     div()
                         .mt(px(6.0))
                         .max_w(px(220.0))
-                        .text_size(px(12.0))
-                        .line_height(px(17.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0625))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(if cloning {
                             labels.clone_preparing.clone()
@@ -1629,8 +1629,8 @@ fn git_empty_action_button(label: String, primary: bool) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(5.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .when(primary, |this| {
@@ -1704,8 +1704,8 @@ pub(in crate::app) fn git_clone_window_workspace(
                         .gap_2()
                         .child(
                             div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .text_color(color(theme::TEXT))
                                 .child(labels.clone_repository.clone()),
                         )
@@ -1731,8 +1731,8 @@ pub(in crate::app) fn git_clone_window_workspace(
                     this.child(
                         div()
                             .mt(px(10.0))
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(1.0))
                             .text_color(color(theme::TEXT_MUTED))
                             .child(labels.clone_preparing.clone()),
                     )
@@ -1796,8 +1796,8 @@ pub(in crate::app) fn git_credentials_window_workspace(
                 .child(
                     div()
                         .mb(px(14.0))
-                        .text_size(px(14.0))
-                        .line_height(px(20.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.25))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(labels.credentials_message.clone()),
                 )
@@ -1827,8 +1827,8 @@ pub(in crate::app) fn git_credentials_window_workspace(
                     this.child(
                         div()
                             .mt(px(8.0))
-                            .text_size(px(12.0))
-                            .line_height(px(16.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(1.0))
                             .text_color(color(0xF47C7C))
                             .child(error),
                     )
@@ -1871,8 +1871,8 @@ pub(in crate::app) fn git_credentials_window_workspace(
 
 fn git_credentials_button_label(label: impl Into<String>) -> impl IntoElement {
     div()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .child(label.into())
 }
 
@@ -1914,8 +1914,8 @@ fn git_credentials_input(
         .gap(px(6.0))
         .child(
             div()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .child(label),
         )
@@ -1991,8 +1991,8 @@ impl GitStatusVirtualRow {
             Self::Empty { text } => div()
                 .px_3()
                 .py_3()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_DIM))
                 .child(text)
                 .into_any_element(),
@@ -2026,8 +2026,8 @@ impl GitStatusVirtualRow {
             Self::Limit { count, text } => div()
                 .px_3()
                 .py_2()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_DIM))
                 .child(text.replace("%@", &count.to_string()))
                 .into_any_element(),
@@ -2266,8 +2266,8 @@ fn git_status_group_header(
                 )
                 .child(
                     div()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(cx.theme().muted_foreground)
                         .child(title),
                 )
@@ -2281,8 +2281,8 @@ fn git_status_group_header(
                         .justify_center()
                         .rounded(px(5.0))
                         .bg(cx.theme().secondary)
-                        .text_size(px(12.0))
-                        .line_height(px(14.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(0.875))
                         .text_color(cx.theme().muted_foreground)
                         .child(count.to_string()),
                 ),
@@ -2494,8 +2494,8 @@ fn git_status_dir_row(
                     div()
                         .ml(px(8.0))
                         .min_w_0()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .truncate()
                         .child(name.to_string()),
                 ),
@@ -2578,8 +2578,8 @@ fn git_status_file_row(
                     div()
                         .ml(px(8.0))
                         .min_w_0()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .truncate()
                         .child(file_name),
                 ),
@@ -2588,8 +2588,8 @@ fn git_status_file_row(
             div().ml_2().flex().items_center().gap_1().child(
                 div()
                     .min_w(px(18.0))
-                    .text_size(px(14.0))
-                    .line_height(px(18.0))
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.125))
                     .text_color(color(status_color))
                     .child(status),
             ),
@@ -2724,8 +2724,8 @@ fn git_context_menu_item(label: String, icon: HeroIconName) -> PopupMenuItem {
             .flex()
             .items_center()
             .min_w(px(132.0))
-            .text_size(px(14.0))
-            .line_height(px(18.0))
+            .text_size(rems(0.875))
+            .line_height(rems(1.125))
             .text_color(cx.theme().foreground)
             .child(
                 Icon::new(icon.clone())
@@ -2769,8 +2769,8 @@ pub(in crate::app) fn git_diff_window_workspace(
                         .flex_1()
                         .child(
                             div()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .truncate()
                                 .text_color(color(theme::TEXT))
                                 .child("Diff"),
@@ -2778,8 +2778,8 @@ pub(in crate::app) fn git_diff_window_workspace(
                         .child(
                             div()
                                 .mt(px(2.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .truncate()
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(file_path),
@@ -2800,8 +2800,8 @@ pub(in crate::app) fn git_diff_window_workspace(
                                 .flex()
                                 .items_center()
                                 .gap(px(6.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .child(Icon::new(HeroIconName::ArrowTopRightOnSquare).size_3())
                                 .child(labels.open_file.clone()),
                         ),
@@ -2818,8 +2818,8 @@ pub(in crate::app) fn git_diff_window_workspace(
                     .bg(color(theme::ORANGE).opacity(0.12))
                     .px_3()
                     .py_2()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(color(theme::ORANGE))
                     .child(error),
             )
@@ -2839,8 +2839,8 @@ pub(in crate::app) fn git_diff_window_workspace(
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(px(14.0))
-                            .line_height(px(18.0))
+                            .text_size(rems(0.875))
+                            .line_height(rems(1.125))
                             .text_color(color(theme::TEXT_DIM))
                             .child(labels.empty_diff.clone())
                             .into_any_element(),
@@ -2866,8 +2866,8 @@ fn git_diff_line_row(line: &str) -> impl IntoElement {
 
     div()
         .min_h(px(18.0))
-        .text_size(px(12.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.125))
         .font_family("SF Mono")
         .text_color(color(line_color))
         .child(line.to_string())
@@ -2896,8 +2896,8 @@ fn git_history_panel(
                 .flex()
                 .items_center()
                 .bg(cx.theme().list_head)
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(cx.theme().muted_foreground)
                 .child(labels.history.clone()),
         )
@@ -2906,8 +2906,8 @@ fn git_history_panel(
                 .flex_1()
                 .px_3()
                 .py_4()
-                .text_size(px(14.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_DIM))
                 .child(labels.history_empty.clone())
                 .into_any_element()
@@ -3045,8 +3045,8 @@ fn git_history_timeline_row(
                         div()
                             .min_w_0()
                             .flex_1()
-                            .text_size(px(14.0))
-                            .line_height(px(18.0))
+                            .text_size(rems(0.875))
+                            .line_height(rems(1.125))
                             .text_color(color(theme::TEXT))
                             .truncate()
                             .child(title),
@@ -3057,8 +3057,8 @@ fn git_history_timeline_row(
                             .px_2()
                             .py(px(2.0))
                             .bg(color(theme::ACCENT).opacity(0.16))
-                            .text_size(px(12.0))
-                            .line_height(px(14.0))
+                            .text_size(rems(0.75))
+                            .line_height(rems(0.875))
                             .text_color(color(theme::ACCENT))
                             .child("HEAD->main")
                             .into_any_element()
@@ -3068,8 +3068,8 @@ fn git_history_timeline_row(
             )
             .child(
                 div()
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .text_color(color(theme::TEXT_DIM))
                     .truncate()
                     .child(format!("{author} · {relative_time} · {hash}")),
@@ -3234,7 +3234,7 @@ fn git_branches_section(
             div()
                 .px_2()
                 .py_1()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
                 .child("no local branches")
                 .into_any_element(),
@@ -3264,7 +3264,7 @@ fn git_branches_section(
                 .items_center()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_MUTED))
                 .child("Branches"),
         )
@@ -3302,14 +3302,14 @@ fn git_branch_row(
         }))
         .child(
             div()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT))
                 .truncate()
                 .child(branch.name),
         )
         .child(
             div()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(if branch.is_current {
                     theme::ACCENT
                 } else {
@@ -3329,7 +3329,7 @@ fn git_changed_files_section(
             div()
                 .px_2()
                 .py_1()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
                 .child("no changed files")
                 .into_any_element(),
@@ -3359,7 +3359,7 @@ fn git_changed_files_section(
                 .items_center()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_MUTED))
                 .child("Changed Files"),
         )
@@ -3395,14 +3395,14 @@ fn git_changed_file_row(
         }))
         .child(
             div()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT))
                 .truncate()
                 .child(file.path),
         )
         .child(
             div()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(if active {
                     theme::ACCENT
                 } else {
@@ -3430,14 +3430,14 @@ pub(in crate::app) fn git_diff_workspace(diff: &str) -> impl IntoElement {
                 .items_center()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_MUTED))
                 .child("Diff Preview"),
         )
         .child(
             div()
                 .p_2()
-                .text_xs()
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT))
                 .children(diff.lines().take(40).map(|line| {
                     div()
@@ -3488,8 +3488,8 @@ pub(in crate::app) fn git_review_workspace(
                 .child(
                     div()
                         .min_w_0()
-                        .text_size(px(14.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
                         .truncate()
                         .child(selected_path.to_string()),
@@ -3499,8 +3499,8 @@ pub(in crate::app) fn git_review_workspace(
                         .flex()
                         .items_center()
                         .gap_2()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .child(
                             div()
                                 .text_color(color(theme::GREEN))
@@ -3575,8 +3575,8 @@ fn git_review_empty_workspace(message: String) -> impl IntoElement {
                 .child(Icon::new(HeroIconName::DocumentText).size_6())
                 .child(
                     div()
-                        .text_size(px(13.0))
-                        .line_height(px(18.0))
+                        .text_size(rems(0.8125))
+                        .line_height(rems(1.125))
                         .child(message),
                 ),
         )
@@ -3643,8 +3643,8 @@ fn git_review_content_panel(
                 .gap_2()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .child(
                     div()
@@ -3660,8 +3660,8 @@ fn git_review_content_panel(
                 .overflow_hidden()
                 .bg(color(theme::BG_TERMINAL))
                 .p_2()
-                .text_size(px(12.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT))
                 .font_family("SF Mono")
                 .child(
@@ -3850,7 +3850,7 @@ pub(in crate::app) fn git_review_file_list(
                 .justify_between()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
-                .text_size(px(12.0))
+                .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
                 .child(labels.review_changed_files.clone())
                 .child(
@@ -3877,8 +3877,8 @@ pub(in crate::app) fn git_review_file_list(
                 .items_center()
                 .justify_center()
                 .p_4()
-                .text_size(px(13.0))
-                .line_height(px(18.0))
+                .text_size(rems(0.8125))
+                .line_height(rems(1.125))
                 .text_color(color(theme::TEXT_DIM))
                 .child(if review.is_repository {
                     labels.review_empty.clone()
@@ -3966,8 +3966,8 @@ fn git_review_tree_limit_row(total: usize, labels: &GitSidebarLabels) -> impl In
         .px_3()
         .flex()
         .items_center()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::TEXT_DIM))
         .child(message)
 }
@@ -4040,8 +4040,8 @@ fn git_review_file_row(
                                 .min_w_0()
                                 .max_w_full()
                                 .truncate()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .child(file_name),
                         ),
                 )
@@ -4117,8 +4117,8 @@ fn git_review_dir_row(
                                 .min_w_0()
                                 .max_w_full()
                                 .truncate()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .child(name.to_string()),
                         ),
                 )
@@ -4146,8 +4146,8 @@ fn git_review_stats_cells(
         .items_center()
         .justify_end()
         .gap(px(8.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .when_some(additions, |this, cell| {
             this.child(git_review_stat_cell(cell, px(28.0)))
         })

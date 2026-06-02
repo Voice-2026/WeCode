@@ -265,8 +265,8 @@ fn workspace_pet_popover_content(
                         .bg(color(theme::ACCENT).opacity(0.14))
                         .px(px(10.0))
                         .py(px(4.0))
-                        .text_size(px(12.0))
-                        .line_height(px(12.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(0.75))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::ACCENT))
                         .child(persona_label),
@@ -274,8 +274,8 @@ fn workspace_pet_popover_content(
                 .child(
                     div()
                         .mt(px(10.0))
-                        .text_size(px(26.0))
-                        .line_height(px(32.0))
+                        .text_size(rems(1.625))
+                        .line_height(rems(2.0))
                         .font_weight(FontWeight::BLACK)
                         .child(format!("Lv.{}", progress.level.max(1))),
                 ),
@@ -298,8 +298,8 @@ fn workspace_pet_popover_content(
                 .child(
                     div()
                         .mb(px(6.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::TEXT_MUTED))
                         .child(stats_title),
@@ -383,8 +383,8 @@ fn workspace_pet_popover_content(
                 .text_center()
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::TEXT_MUTED))
                         .child(total_xp_label),
@@ -392,8 +392,8 @@ fn workspace_pet_popover_content(
                 .child(
                     div()
                         .mt(px(2.0))
-                        .text_size(px(13.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.8125))
+                        .line_height(rems(1.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(compact_number(progress.total_xp)),
                 ),
@@ -424,8 +424,8 @@ fn workspace_pet_meter(
                 .items_center()
                 .justify_between()
                 .gap_2()
-                .text_size(px(12.0))
-                .line_height(px(16.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
                 .child(
                     div()
                         .font_weight(FontWeight::MEDIUM)
@@ -474,8 +474,8 @@ fn workspace_pet_trait(
     .flex()
     .items_center()
     .gap(px(8.0))
-    .text_size(px(12.0))
-    .line_height(px(16.0))
+    .text_size(rems(0.75))
+    .line_height(rems(1.0))
     .child(pet_trait_emoji(emoji_kind))
     .child(
         div()
@@ -538,8 +538,8 @@ fn pet_trait_emoji(kind: &'static str) -> impl IntoElement {
     div()
         .w(px(16.0))
         .text_center()
-        .text_size(px(12.0))
-        .line_height(px(12.0))
+        .text_size(rems(0.75))
+        .line_height(rems(0.75))
         .child(emoji)
 }
 
@@ -595,8 +595,8 @@ fn workspace_pet_name_row(
                 div()
                     .id("pet-name-edit-trigger")
                     .cursor_pointer()
-                    .text_size(px(17.0))
-                    .line_height(px(22.0))
+                    .text_size(rems(1.0625))
+                    .line_height(rems(1.375))
                     .font_weight(FontWeight::BOLD)
                     .truncate()
                     .on_click(cx.listener(|app, _event, window, cx| {
@@ -609,8 +609,8 @@ fn workspace_pet_name_row(
                     div()
                         .max_w(px(92.0))
                         .truncate()
-                        .text_size(px(14.0))
-                        .line_height(px(20.0))
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.25))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(theme::TEXT_MUTED))
                         .child(subtitle),
@@ -727,8 +727,8 @@ pub(in crate::app) fn workspace_pet_install_form(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .child(
             div()
                 .rounded(px(8.0))
@@ -737,8 +737,8 @@ pub(in crate::app) fn workspace_pet_install_form(
                 .child(
                     div()
                         .mb(px(8.0))
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(workspace_i18n(
                             &language,
@@ -825,8 +825,8 @@ pub(in crate::app) fn workspace_pet_install_form(
                     .bg(color(theme::ACCENT).opacity(0.1))
                     .px(px(12.0))
                     .py(px(8.0))
-                    .text_size(px(12.0))
-                    .line_height(px(16.0))
+                    .text_size(rems(0.75))
+                    .line_height(rems(1.0))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(color(theme::ACCENT))
                     .child(workspace_i18n(
@@ -904,15 +904,15 @@ fn workspace_pet_install_preview(
                         .child(
                             div()
                                 .truncate()
-                                .text_size(px(14.0))
-                                .line_height(px(18.0))
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
                                 .child(preview.display_name.clone()),
                         )
                         .child(
                             div()
                                 .mt(px(4.0))
-                                .text_size(px(12.0))
-                                .line_height(px(20.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.25))
                                 .text_color(color(theme::TEXT_MUTED))
                                 .child(empty_label(&preview.description)),
                         )
@@ -922,8 +922,8 @@ fn workspace_pet_install_preview(
                                 .flex()
                                 .items_center()
                                 .gap(px(6.0))
-                                .text_size(px(12.0))
-                                .line_height(px(16.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(Icon::new(HeroIconName::ArrowTopRightOnSquare).size_3())
@@ -943,8 +943,8 @@ fn workspace_pet_install_preview(
                 .gap(px(8.0))
                 .child(
                     div()
-                        .text_size(px(12.0))
-                        .line_height(px(16.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(workspace_i18n(
                             language,
@@ -983,8 +983,8 @@ fn workspace_pet_install_preview(
 
 fn workspace_pet_install_button_label(label: impl Into<SharedString>) -> impl IntoElement {
     div()
-        .text_size(px(14.0))
-        .line_height(px(18.0))
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
         .child(label.into())
 }
 
@@ -1007,8 +1007,8 @@ fn workspace_pet_install_check(text: String) -> impl IntoElement {
         .flex()
         .items_center()
         .gap(px(8.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::TEXT_MUTED))
         .child(
             Icon::new(HeroIconName::CheckCircle)
@@ -1024,8 +1024,8 @@ fn workspace_pet_install_error(error: String) -> impl IntoElement {
         .bg(color(theme::ORANGE).opacity(0.12))
         .px(px(12.0))
         .py(px(8.0))
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .font_weight(FontWeight::MEDIUM)
         .text_color(color(theme::ORANGE))
         .child(error)
@@ -1050,8 +1050,8 @@ fn workspace_popover_notice(message: String) -> impl IntoElement {
         .bg(color(theme::ORANGE).opacity(0.12))
         .px_2()
         .py_1()
-        .text_size(px(12.0))
-        .line_height(px(16.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
         .text_color(color(theme::ORANGE))
         .child(message)
 }
