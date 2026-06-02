@@ -232,7 +232,6 @@ fn default_terminal_font_family() -> &'static str {
 
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
-const TERMINAL_CURSOR_SETTLE_INTERVAL: Duration = TERMINAL_SCROLL_FRAME_INTERVAL;
 static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub struct TerminalView {
@@ -257,9 +256,6 @@ pub struct TerminalView {
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
-    cursor_suppressed_until: Option<Instant>,
-    cursor_restore_pending: bool,
-    stable_cursor_point: Option<TerminalPoint>,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     selection_autoscroll: Option<SelectionAutoScroll>,
@@ -299,14 +295,8 @@ impl TerminalView {
                 if this
                     .update(cx, |view, cx| {
                         let sync_update = view.update_synchronized_output_state(&bytes);
-                        let cursor_state = view.state.process_bytes(&bytes);
-                        view.trace_terminal_state_after_output(bytes.len(), cursor_state);
-                        if view.should_suppress_cursor_for_output(sync_update, cursor_state.point) {
-                            view.suppress_cursor_until_settled(cx);
-                        } else {
-                            view.clear_cursor_suppression();
-                        }
-                        view.update_stable_cursor_point(cursor_state);
+                        view.state.process_bytes(&bytes);
+                        view.trace_terminal_state_after_output(bytes.len());
                         let mut event_should_notify = false;
                         view.process_pending_events(cx, &mut event_should_notify);
                         if view.sync_output_depth > 0 {
@@ -350,9 +340,6 @@ impl TerminalView {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
-            cursor_suppressed_until: None,
-            cursor_restore_pending: false,
-            stable_cursor_point: None,
             focus_in_subscription: None,
             focus_out_subscription: None,
             selection_autoscroll: None,
@@ -370,94 +357,21 @@ impl TerminalView {
         update
     }
 
-    fn should_suppress_cursor_for_output(
-        &self,
-        sync_update: SyncOutputUpdate,
-        cursor_point: TerminalPoint,
-    ) -> bool {
-        if !self.should_consider_cursor_transient(sync_update) {
-            return false;
-        }
-        should_suppress_transient_cursor(self.stable_cursor_point, cursor_point, true)
-    }
-
-    fn suppress_cursor_until_settled(&mut self, cx: &mut Context<Self>) {
-        self.cursor_suppressed_until = Some(Instant::now() + TERMINAL_CURSOR_SETTLE_INTERVAL);
-        self.schedule_cursor_restore(cx);
-    }
-
-    fn clear_cursor_suppression(&mut self) {
-        self.cursor_suppressed_until = None;
-    }
-
-    fn should_consider_cursor_transient(&self, sync_update: SyncOutputUpdate) -> bool {
-        self.stable_cursor_point.is_some()
-            && (self.sync_output_depth > 0
-                || sync_update.entered_from_idle
-                || sync_update.exited_to_idle)
-    }
-
-    fn update_stable_cursor_point(&mut self, cursor_state: TerminalCursorState) {
-        if self.sync_output_depth == 0
-            && cursor_state.mode.contains(TermMode::SHOW_CURSOR)
-            && cursor_state.shape != CursorShape::Hidden
-            && cursor_state.display_offset == 0
-            && !self.is_terminal_cursor_suppressed()
-        {
-            self.stable_cursor_point = Some(cursor_state.point);
-        }
-    }
-
-    fn schedule_cursor_restore(&mut self, cx: &mut Context<Self>) {
-        if self.cursor_restore_pending {
-            return;
-        }
-        self.cursor_restore_pending = true;
-        let timer = cx.background_executor().clone();
-        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
-            timer.timer(TERMINAL_CURSOR_SETTLE_INTERVAL).await;
-            let _ = terminal.update(cx, |terminal, cx| {
-                terminal.cursor_restore_pending = false;
-                if terminal.is_terminal_cursor_suppressed() {
-                    terminal.schedule_cursor_restore(cx);
-                    return;
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn is_terminal_cursor_suppressed(&self) -> bool {
-        self.cursor_suppressed_until
-            .is_some_and(|until| Instant::now() < until)
-    }
-
-    fn trace_terminal_state_after_output(
-        &self,
-        bytes_len: usize,
-        cursor_state: TerminalCursorState,
-    ) {
+    fn trace_terminal_state_after_output(&self, bytes_len: usize) {
         if !terminal_trace_enabled() {
             return;
         }
+        let content = self.state.handle().snapshot();
         terminal_trace(&format!(
-            "state bytes={} sync_depth={} cursor_suppressed={} stable_cursor_row={} stable_cursor_col={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={}",
+            "state bytes={} sync_depth={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={}",
             bytes_len,
             self.sync_output_depth,
-            self.is_terminal_cursor_suppressed(),
-            self.stable_cursor_point
-                .map(|point| point.line.0.to_string())
-                .unwrap_or_else(|| "-".to_string()),
-            self.stable_cursor_point
-                .map(|point| point.column.0.to_string())
-                .unwrap_or_else(|| "-".to_string()),
-            cursor_state.mode.contains(TermMode::SHOW_CURSOR),
-            cursor_state.shape == CursorShape::Hidden,
-            cursor_state.point.line.0,
-            cursor_state.point.column.0,
-            cursor_state.shape,
-            cursor_state.display_offset,
+            content.mode.contains(TermMode::SHOW_CURSOR),
+            content.cursor.shape == CursorShape::Hidden,
+            content.cursor.point.line.0,
+            content.cursor.point.column.0,
+            content.cursor.shape,
+            content.display_offset,
         ));
     }
 
@@ -1013,22 +927,13 @@ fn terminal_protocol_flags(bytes: &[u8]) -> TerminalProtocolFlags {
 fn trace_terminal_paint_snapshot(
     content: &TerminalContent,
     cursor_visible: bool,
-    fallback_cursor_point: Option<TerminalPoint>,
 ) {
     if !terminal_trace_enabled() {
         return;
     }
-    let cursor_drawn = cursor_visible || fallback_cursor_point.is_some();
     terminal_trace(&format!(
-        "paint cursor_visible={} cursor_drawn={} fallback_cursor_row={} fallback_cursor_col={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={}",
+        "paint cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={}",
         cursor_visible,
-        cursor_drawn,
-        fallback_cursor_point
-            .map(|point| point.line.0.to_string())
-            .unwrap_or_else(|| "-".to_string()),
-        fallback_cursor_point
-            .map(|point| point.column.0.to_string())
-            .unwrap_or_else(|| "-".to_string()),
         content.mode.contains(TermMode::SHOW_CURSOR),
         content.cursor.shape == CursorShape::Hidden,
         content.cursor.point.line.0,
@@ -1047,11 +952,7 @@ impl Render for TerminalView {
 
         self.renderer.measure_cell(window);
         self.ensure_focus_report_subscriptions(window, cx);
-        let has_marked_text = self.marked_text.is_some();
-        let cursor_visible = !has_marked_text && !self.is_terminal_cursor_suppressed();
-        let fallback_cursor_point = (!has_marked_text && self.is_terminal_cursor_suppressed())
-            .then_some(self.stable_cursor_point)
-            .flatten();
+        let cursor_visible = self.marked_text.is_none();
         let element = TerminalElement {
             state: self.state.handle(),
             renderer: self.renderer.clone(),
@@ -1064,7 +965,6 @@ impl Render for TerminalView {
             padding: self.config.padding,
             marked_text: self.marked_text.clone(),
             cursor_visible,
-            fallback_cursor_point,
         };
 
         div()
@@ -1116,13 +1016,11 @@ impl TerminalState {
         }
     }
 
-    fn process_bytes(&mut self, bytes: &[u8]) -> TerminalCursorState {
+    fn process_bytes(&mut self, bytes: &[u8]) {
         let mut term = self.handle.term.lock();
         self.parser.advance(&mut *term, bytes);
         let content = TerminalContent::from_term(&term);
-        let cursor_state = content.cursor_state();
         *self.handle.snapshot.lock() = content;
-        cursor_state
     }
 
     fn handle(&self) -> TerminalStateHandle {
@@ -1263,40 +1161,6 @@ impl TerminalContent {
         }
     }
 
-    fn cursor_state(&self) -> TerminalCursorState {
-        TerminalCursorState {
-            point: self.cursor.point,
-            shape: self.cursor.shape,
-            mode: self.mode,
-            display_offset: self.display_offset,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct TerminalCursorState {
-    point: TerminalPoint,
-    shape: CursorShape,
-    mode: TermMode,
-    display_offset: usize,
-}
-
-fn should_suppress_transient_cursor(
-    stable_cursor_point: Option<TerminalPoint>,
-    cursor_point: TerminalPoint,
-    transient_context: bool,
-) -> bool {
-    transient_context
-        && stable_cursor_point.is_some_and(|stable| {
-            stable != cursor_point
-                && !(stable.column == cursor_point.column
-                    && (stable.line.0 - cursor_point.line.0).abs() <= 1)
-        })
-}
-
-fn is_same_cursor_context(stable: TerminalPoint, current: TerminalPoint) -> bool {
-    let line_delta = (stable.line.0 - current.line.0).abs();
-    line_delta <= 2
 }
 
 #[derive(Clone)]
@@ -1325,7 +1189,6 @@ struct TerminalElement {
     padding: Edges<Pixels>,
     marked_text: Option<String>,
     cursor_visible: bool,
-    fallback_cursor_point: Option<TerminalPoint>,
 }
 
 impl IntoElement for TerminalElement {
@@ -1395,7 +1258,7 @@ impl Element for TerminalElement {
         }
 
         let snapshot = self.state.snapshot();
-        trace_terminal_paint_snapshot(&snapshot, self.cursor_visible, self.fallback_cursor_point);
+        trace_terminal_paint_snapshot(&snapshot, self.cursor_visible);
         let selection = self.selection.lock().range();
         self.renderer.prepare_paint(
             bounds,
@@ -1403,7 +1266,6 @@ impl Element for TerminalElement {
             &snapshot,
             selection,
             self.cursor_visible,
-            self.fallback_cursor_point,
         )
     }
 
@@ -2479,7 +2341,6 @@ impl TerminalRenderer {
         content: &TerminalContent,
         selection: Option<SelectionRange>,
         cursor_visible: bool,
-        fallback_cursor_point: Option<TerminalPoint>,
     ) -> TerminalPaintState {
         let colors = &content.colors;
         let default_bg = self
@@ -2518,19 +2379,12 @@ impl TerminalRenderer {
             self.prepare_row_text(row, cells, colors, &mut text_runs);
         }
 
-        let cursor_point = if cursor_visible {
-            Some(content.cursor.point)
-        } else {
-            fallback_cursor_point
-                .filter(|point| is_same_cursor_context(*point, content.cursor.point))
-        };
         let cursor = (content.display_offset == 0
+            && cursor_visible
             && content.mode.contains(TermMode::SHOW_CURSOR)
             && content.cursor.shape != CursorShape::Hidden)
-            .then_some(cursor_point)
-            .flatten()
-            .map(|point| TerminalCursorPaint {
-                point,
+            .then_some(TerminalCursorPaint {
+                point: content.cursor.point,
                 shape: content.cursor.shape,
                 color: self
                     .palette
@@ -3453,46 +3307,6 @@ mod tests {
                 osc_11_request: true,
             }
         );
-    }
-
-    #[test]
-    fn transient_cursor_filter_keeps_stable_input_cursor_visible() {
-        let stable = TerminalPoint::new(Line(18), Column(2));
-
-        assert!(!should_suppress_transient_cursor(
-            Some(stable),
-            stable,
-            true
-        ));
-        assert!(should_suppress_transient_cursor(
-            Some(stable),
-            TerminalPoint::new(Line(21), Column(33)),
-            true
-        ));
-        assert!(!should_suppress_transient_cursor(
-            Some(stable),
-            TerminalPoint::new(Line(17), Column(2)),
-            true
-        ));
-        assert!(!should_suppress_transient_cursor(
-            Some(stable),
-            TerminalPoint::new(Line(21), Column(33)),
-            false
-        ));
-        assert!(!should_suppress_transient_cursor(
-            None,
-            TerminalPoint::new(Line(21), Column(33)),
-            true
-        ));
-
-        assert!(is_same_cursor_context(
-            stable,
-            TerminalPoint::new(Line(20), Column(3))
-        ));
-        assert!(!is_same_cursor_context(
-            TerminalPoint::new(Line(24), Column(0)),
-            TerminalPoint::new(Line(30), Column(2))
-        ));
     }
 
     #[test]
