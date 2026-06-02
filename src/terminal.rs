@@ -252,6 +252,8 @@ pub struct TerminalView {
     pending_scroll_pixels: f32,
     scroll_frame_pending: bool,
     output_notify_pending: bool,
+    output_cursor_suppressed: bool,
+    cursor_restore_pending: bool,
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
@@ -295,6 +297,7 @@ impl TerminalView {
                 if this
                     .update(cx, |view, cx| {
                         view.cursor_visible = true;
+                        view.output_cursor_suppressed = true;
                         let sync_notify = view.update_synchronized_output_state(&bytes);
                         view.state.process_bytes(&bytes);
                         let mut event_should_notify = false;
@@ -362,6 +365,8 @@ impl TerminalView {
             pending_scroll_pixels: 0.0,
             scroll_frame_pending: false,
             output_notify_pending: false,
+            output_cursor_suppressed: false,
+            cursor_restore_pending: false,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
@@ -613,7 +618,34 @@ impl TerminalView {
             timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
             let _ = terminal.update(cx, |terminal, cx| {
                 terminal.output_notify_pending = false;
+                if terminal.output_cursor_suppressed {
+                    terminal.schedule_cursor_restore(cx);
+                }
                 cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn schedule_cursor_restore(&mut self, cx: &mut Context<Self>) {
+        if self.cursor_restore_pending {
+            return;
+        }
+
+        self.cursor_restore_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
+            let _ = terminal.update(cx, |terminal, cx| {
+                terminal.cursor_restore_pending = false;
+                if terminal.output_notify_pending {
+                    terminal.schedule_cursor_restore(cx);
+                    return;
+                }
+                if terminal.output_cursor_suppressed {
+                    terminal.output_cursor_suppressed = false;
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -850,9 +882,10 @@ impl Render for TerminalView {
         self.ensure_focus_report_subscriptions(window, cx);
         let has_marked_text = self.marked_text.is_some();
         let cursor_visible = if self.state.mode().contains(TermMode::ALT_SCREEN) {
-            !has_marked_text
+            !has_marked_text && !self.output_cursor_suppressed
         } else {
             !has_marked_text
+                && !self.output_cursor_suppressed
                 && (!self.focus_handle.contains_focused(window, cx) || self.cursor_visible)
         };
         let element = TerminalElement {

@@ -1128,11 +1128,6 @@ pub fn terminal_environment(
     values.insert("PATH".to_string(), path.clone());
     values.insert("DMUX_ORIGINAL_PATH".to_string(), path);
     values.insert("TERM".to_string(), "xterm-256color".to_string());
-    values.insert("TERM_PROGRAM".to_string(), app_display_name().to_string());
-    values.insert(
-        "TERM_PROGRAM_VERSION".to_string(),
-        env!("CARGO_PKG_VERSION").to_string(),
-    );
     values.insert("COLORTERM".to_string(), "truecolor".to_string());
     values.insert("CODEX_COLOR".to_string(), "1".to_string());
     values.insert("CODUX_GPUI".to_string(), "1".to_string());
@@ -1876,10 +1871,6 @@ fn default_user() -> String {
         .unwrap_or_else(|| "codux".to_string())
 }
 
-fn app_display_name() -> &'static str {
-    crate::runtime_paths::app_display_name()
-}
-
 fn default_lang() -> String {
     "en_US.UTF-8".to_string()
 }
@@ -1973,6 +1964,33 @@ mod tests {
         assert_eq!(env.get("LANG").map(String::as_str), Some("en_US.UTF-8"));
         assert_eq!(env.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
         assert_eq!(env.get("LC_CTYPE").map(String::as_str), Some("en_US.UTF-8"));
+    }
+
+    #[test]
+    fn terminal_environment_does_not_set_term_program() {
+        let config = TerminalPtyConfig::default();
+
+        let env = terminal_environment("/bin/zsh", None, "term-1", &config, None);
+
+        assert!(!env.contains_key("TERM_PROGRAM"));
+        assert!(!env.contains_key("TERM_PROGRAM_VERSION"));
+    }
+
+    #[test]
+    fn terminal_environment_preserves_real_term_program() {
+        let mut config = TerminalPtyConfig::default();
+        config.env = Some(HashMap::from([
+            ("TERM_PROGRAM".to_string(), "Ghostty".to_string()),
+            ("TERM_PROGRAM_VERSION".to_string(), "1.2.3".to_string()),
+        ]));
+
+        let env = terminal_environment("/bin/zsh", None, "term-1", &config, None);
+
+        assert_eq!(env.get("TERM_PROGRAM").map(String::as_str), Some("Ghostty"));
+        assert_eq!(
+            env.get("TERM_PROGRAM_VERSION").map(String::as_str),
+            Some("1.2.3")
+        );
     }
 
     #[test]
