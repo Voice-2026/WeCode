@@ -26,10 +26,11 @@ use gpui::{
 use parking_lot::Mutex;
 use std::{
     collections::hash_map::DefaultHasher,
+    env,
     hash::{Hash, Hasher},
     io::Write,
     ops::Range,
-    sync::{Arc, mpsc},
+    sync::{Arc, OnceLock, mpsc},
     time::{Duration, Instant},
 };
 
@@ -231,6 +232,7 @@ fn default_terminal_font_family() -> &'static str {
 
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub struct TerminalView {
     state: TerminalState,
@@ -254,6 +256,7 @@ pub struct TerminalView {
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
+    sync_output_frozen_snapshot: Option<Arc<TerminalContent>>,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     selection_autoscroll: Option<SelectionAutoScroll>,
@@ -292,13 +295,17 @@ impl TerminalView {
             while let Ok(bytes) = bytes_rx.recv_async().await {
                 if this
                     .update(cx, |view, cx| {
-                        let sync_notify = view.update_synchronized_output_state(&bytes);
+                        let sync_update = view.update_synchronized_output_state(&bytes);
                         view.state.process_bytes(&bytes);
+                        if sync_update.exited_to_idle {
+                            view.sync_output_frozen_snapshot = None;
+                            terminal_trace("sync_output render_snapshot=live");
+                        }
                         let mut event_should_notify = false;
                         view.process_pending_events(cx, &mut event_should_notify);
                         if view.sync_output_depth > 0 {
                             view.sync_output_pending_notify = true;
-                        } else if sync_notify
+                        } else if sync_update.should_notify
                             || event_should_notify
                             || view.sync_output_pending_notify
                         {
@@ -337,6 +344,7 @@ impl TerminalView {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            sync_output_frozen_snapshot: None,
             focus_in_subscription: None,
             focus_out_subscription: None,
             selection_autoscroll: None,
@@ -344,12 +352,18 @@ impl TerminalView {
         }
     }
 
-    fn update_synchronized_output_state(&mut self, bytes: &[u8]) -> bool {
-        update_synchronized_output_state(
+    fn update_synchronized_output_state(&mut self, bytes: &[u8]) -> SyncOutputUpdate {
+        let update = update_synchronized_output_state(
             bytes,
             &mut self.sync_output_depth,
             &mut self.sync_output_scan_tail,
-        )
+        );
+        if update.entered_from_idle && self.sync_output_frozen_snapshot.is_none() {
+            self.sync_output_frozen_snapshot = Some(Arc::new(self.state.handle().snapshot()));
+            terminal_trace("sync_output render_snapshot=frozen");
+        }
+        trace_terminal_protocol_bytes(bytes, update, self.sync_output_depth);
+        update
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -662,6 +676,10 @@ impl TerminalView {
                     .state
                     .color(index)
                     .unwrap_or_else(|| self.config.colors.color_request(index));
+                terminal_trace(&format!(
+                    "color_response index={} rgb=#{:02x}{:02x}{:02x}",
+                    index, color.r, color.g, color.b
+                ));
                 self.write_bytes(format(color).as_bytes());
             }
             TerminalUiEvent::TextAreaSizeRequest(format) => {
@@ -775,16 +793,23 @@ fn should_send_alternate_scroll(mode: TermMode, shift_pressed: bool) -> bool {
     !shift_pressed && mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SyncOutputUpdate {
+    entered_from_idle: bool,
+    exited_to_idle: bool,
+    should_notify: bool,
+}
+
 fn update_synchronized_output_state(
     bytes: &[u8],
     depth: &mut usize,
     scan_tail: &mut Vec<u8>,
-) -> bool {
+) -> SyncOutputUpdate {
     const START: &[u8] = b"\x1b[?2026h";
     const END: &[u8] = b"\x1b[?2026l";
     const MAX_PATTERN_LEN: usize = START.len();
 
-    let mut should_notify = false;
+    let mut update = SyncOutputUpdate::default();
     let mut scan = Vec::with_capacity(scan_tail.len() + bytes.len());
     scan.extend_from_slice(scan_tail);
     scan.extend_from_slice(bytes);
@@ -792,13 +817,22 @@ fn update_synchronized_output_state(
     let mut index = 0;
     while index < scan.len() {
         if scan[index..].starts_with(START) {
+            if *depth == 0 {
+                update.entered_from_idle = true;
+            }
             *depth = depth.saturating_add(1);
             index += START.len();
             continue;
         }
         if scan[index..].starts_with(END) {
+            let was_syncing = *depth > 0;
             *depth = depth.saturating_sub(1);
-            should_notify = true;
+            if was_syncing {
+                update.should_notify = true;
+                if *depth == 0 {
+                    update.exited_to_idle = true;
+                }
+            }
             index += END.len();
             continue;
         }
@@ -809,7 +843,111 @@ fn update_synchronized_output_state(
     scan_tail.clear();
     scan_tail.extend_from_slice(&scan[scan.len().saturating_sub(tail_len)..]);
 
-    should_notify
+    update
+}
+
+fn terminal_trace_enabled() -> bool {
+    *TERMINAL_TRACE_ENABLED.get_or_init(|| {
+        env::var("CODUX_TERMINAL_TRACE")
+            .map(|value| {
+                let value = value.trim();
+                !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+            })
+            .unwrap_or(false)
+    })
+}
+
+fn terminal_trace(message: &str) {
+    if terminal_trace_enabled() {
+        codux_runtime::runtime_trace::runtime_trace("terminal-pty", message);
+    }
+}
+
+fn trace_terminal_protocol_bytes(bytes: &[u8], sync_update: SyncOutputUpdate, sync_depth: usize) {
+    if !terminal_trace_enabled() {
+        return;
+    }
+    let show_cursor = bytes
+        .windows(b"\x1b[?25h".len())
+        .any(|part| part == b"\x1b[?25h");
+    let hide_cursor = bytes
+        .windows(b"\x1b[?25l".len())
+        .any(|part| part == b"\x1b[?25l");
+    let osc_10_request = bytes
+        .windows(b"\x1b]10;?".len())
+        .any(|part| part == b"\x1b]10;?");
+    let osc_11_request = bytes
+        .windows(b"\x1b]11;?".len())
+        .any(|part| part == b"\x1b]11;?");
+
+    if sync_update != SyncOutputUpdate::default()
+        || show_cursor
+        || hide_cursor
+        || osc_10_request
+        || osc_11_request
+    {
+        terminal_trace(&format!(
+            "protocol bytes={} sync_depth={} sync_enter={} sync_exit={} notify={} show_cursor={} hide_cursor={} osc10_request={} osc11_request={}",
+            bytes.len(),
+            sync_depth,
+            sync_update.entered_from_idle,
+            sync_update.exited_to_idle,
+            sync_update.should_notify,
+            show_cursor,
+            hide_cursor,
+            osc_10_request,
+            osc_11_request,
+        ));
+    }
+}
+
+fn trace_terminal_paint_snapshot(content: &TerminalContent, frozen: bool, cursor_visible: bool) {
+    if !terminal_trace_enabled() {
+        return;
+    }
+    terminal_trace(&format!(
+        "paint snapshot={} cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={}",
+        if frozen { "frozen" } else { "live" },
+        cursor_visible,
+        content.mode.contains(TermMode::SHOW_CURSOR),
+        content.cursor.shape == CursorShape::Hidden,
+        content.cursor.point.line.0,
+        content.cursor.point.column.0,
+        content.cursor.shape,
+        content.display_offset,
+        content.cells.len(),
+        content.columns,
+        content.screen_lines,
+    ));
+}
+
+enum TerminalRenderSnapshot<'a> {
+    Frozen(&'a TerminalContent),
+    Live(TerminalContent),
+}
+
+impl TerminalRenderSnapshot<'_> {
+    fn content(&self) -> &TerminalContent {
+        match self {
+            Self::Frozen(content) => content,
+            Self::Live(content) => content,
+        }
+    }
+
+    fn is_frozen(&self) -> bool {
+        matches!(self, Self::Frozen(_))
+    }
+}
+
+fn terminal_render_snapshot<'a>(
+    state: &TerminalStateHandle,
+    frozen_snapshot: &'a Option<Arc<TerminalContent>>,
+) -> TerminalRenderSnapshot<'a> {
+    if let Some(frozen_snapshot) = frozen_snapshot {
+        TerminalRenderSnapshot::Frozen(frozen_snapshot)
+    } else {
+        TerminalRenderSnapshot::Live(state.snapshot())
+    }
 }
 
 impl Render for TerminalView {
@@ -832,6 +970,7 @@ impl Render for TerminalView {
             padding: self.config.padding,
             marked_text: self.marked_text.clone(),
             cursor_visible,
+            frozen_snapshot: self.sync_output_frozen_snapshot.clone(),
         };
 
         div()
@@ -1054,6 +1193,7 @@ struct TerminalElement {
     padding: Edges<Pixels>,
     marked_text: Option<String>,
     cursor_visible: bool,
+    frozen_snapshot: Option<Arc<TerminalContent>>,
 }
 
 impl IntoElement for TerminalElement {
@@ -1122,12 +1262,17 @@ impl Element for TerminalElement {
             eprintln!("failed to resize terminal pty: {error}");
         }
 
-        let snapshot = self.state.snapshot();
+        let snapshot = terminal_render_snapshot(&self.state, &self.frozen_snapshot);
+        trace_terminal_paint_snapshot(
+            snapshot.content(),
+            snapshot.is_frozen(),
+            self.cursor_visible,
+        );
         let selection = self.selection.lock().range();
         self.renderer.prepare_paint(
             bounds,
             self.padding,
-            &snapshot,
+            snapshot.content(),
             selection,
             self.cursor_visible,
         )
@@ -3056,25 +3201,30 @@ mod tests {
         let mut depth = 0;
         let mut tail = Vec::new();
 
-        assert!(!update_synchronized_output_state(
-            b"\x1b[?202",
-            &mut depth,
-            &mut tail
-        ));
+        assert_eq!(
+            update_synchronized_output_state(b"\x1b[?202", &mut depth, &mut tail),
+            SyncOutputUpdate::default()
+        );
         assert_eq!(depth, 0);
 
-        assert!(!update_synchronized_output_state(
-            b"6hpartial frame",
-            &mut depth,
-            &mut tail
-        ));
+        assert_eq!(
+            update_synchronized_output_state(b"6hpartial frame", &mut depth, &mut tail),
+            SyncOutputUpdate {
+                entered_from_idle: true,
+                exited_to_idle: false,
+                should_notify: false,
+            }
+        );
         assert_eq!(depth, 1);
 
-        assert!(update_synchronized_output_state(
-            b"done\x1b[?2026l",
-            &mut depth,
-            &mut tail
-        ));
+        assert_eq!(
+            update_synchronized_output_state(b"done\x1b[?2026l", &mut depth, &mut tail),
+            SyncOutputUpdate {
+                entered_from_idle: false,
+                exited_to_idle: true,
+                should_notify: true,
+            }
+        );
         assert_eq!(depth, 0);
     }
 
@@ -3083,12 +3233,123 @@ mod tests {
         let mut depth = 0;
         let mut tail = Vec::new();
 
-        assert!(update_synchronized_output_state(
-            b"\x1b[?2026hframe\x1b[?2026l",
-            &mut depth,
-            &mut tail
-        ));
+        assert_eq!(
+            update_synchronized_output_state(b"\x1b[?2026hframe\x1b[?2026l", &mut depth, &mut tail),
+            SyncOutputUpdate {
+                entered_from_idle: true,
+                exited_to_idle: true,
+                should_notify: true,
+            }
+        );
         assert_eq!(depth, 0);
+    }
+
+    #[test]
+    fn tracks_nested_synchronized_output() {
+        let mut depth = 0;
+        let mut tail = Vec::new();
+
+        assert_eq!(
+            update_synchronized_output_state(
+                b"\x1b[?2026houter\x1b[?2026hinner",
+                &mut depth,
+                &mut tail,
+            ),
+            SyncOutputUpdate {
+                entered_from_idle: true,
+                exited_to_idle: false,
+                should_notify: false,
+            }
+        );
+        assert_eq!(depth, 2);
+
+        assert_eq!(
+            update_synchronized_output_state(b"\x1b[?2026l", &mut depth, &mut tail),
+            SyncOutputUpdate {
+                entered_from_idle: false,
+                exited_to_idle: false,
+                should_notify: true,
+            }
+        );
+        assert_eq!(depth, 1);
+
+        assert_eq!(
+            update_synchronized_output_state(b"\x1b[?2026l", &mut depth, &mut tail),
+            SyncOutputUpdate {
+                entered_from_idle: false,
+                exited_to_idle: true,
+                should_notify: true,
+            }
+        );
+        assert_eq!(depth, 0);
+    }
+
+    #[test]
+    fn synchronized_output_keeps_frozen_snapshot_until_exit() {
+        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        state.process_bytes(b"before");
+        let frozen = state.handle().snapshot();
+
+        state.process_bytes(b"\r\x1b[2Kduring");
+        let live = state.handle().snapshot();
+
+        let frozen_text: String = frozen
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+        let live_text: String = live
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+
+        assert!(frozen_text.contains("before"));
+        assert!(!frozen_text.contains("during"));
+        assert!(live_text.contains("during"));
+    }
+
+    #[test]
+    fn render_snapshot_uses_frozen_content_during_synchronized_output() {
+        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        state.process_bytes(b"before");
+        let frozen = state.handle().snapshot();
+
+        state.process_bytes(b"\r\x1b[2Kafter");
+
+        let frozen_snapshot = Some(Arc::new(frozen));
+        let snapshot = terminal_render_snapshot(&state.handle(), &frozen_snapshot);
+        let text: String = snapshot
+            .content()
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+
+        assert!(snapshot.is_frozen());
+        assert!(text.contains("before"));
+        assert!(!text.contains("after"));
+    }
+
+    #[test]
+    fn render_snapshot_uses_live_content_after_synchronized_output() {
+        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        state.process_bytes(b"after");
+
+        let snapshot = terminal_render_snapshot(&state.handle(), &None);
+        let text: String = snapshot
+            .content()
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+
+        assert!(!snapshot.is_frozen());
+        assert!(text.contains("after"));
     }
 
     #[test]
