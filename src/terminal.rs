@@ -25,7 +25,7 @@ use gpui::{
 };
 use parking_lot::Mutex;
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{VecDeque, hash_map::DefaultHasher},
     env,
     hash::{Hash, Hasher},
     io::Write,
@@ -236,31 +236,21 @@ const TERMINAL_OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(4);
 static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub struct TerminalView {
-    state: TerminalState,
+    model: Entity<TerminalModel>,
     renderer: TerminalRenderer,
+    blink_manager: Entity<TerminalBlinkManager>,
     focus_handle: FocusHandle,
-    stdin_writer: Arc<Mutex<Box<dyn Write + Send>>>,
     resize_handle: TerminalPtySessionHandle,
-    event_rx: mpsc::Receiver<TerminalUiEvent>,
-    session_event_rx: mpsc::Receiver<TerminalUiEvent>,
     config: TerminalConfig,
     layout: Arc<Mutex<TerminalLayoutMetrics>>,
     selection: Arc<Mutex<SelectionState>>,
     marked_text: Option<String>,
-    title: Option<String>,
-    bell_count: usize,
-    exited: bool,
     pending_scroll_lines: i32,
     pending_scroll_pixels: f32,
     scroll_frame_pending: bool,
-    output_notify_pending: bool,
-    sync_output_depth: usize,
-    sync_output_pending_notify: bool,
-    sync_output_scan_tail: Vec<u8>,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     selection_autoscroll: Option<SelectionAutoScroll>,
-    _reader_task: Task<()>,
 }
 
 impl TerminalView {
@@ -275,13 +265,9 @@ impl TerminalView {
     where
         W: Write + Send + 'static,
     {
-        let (event_tx, event_rx) = mpsc::channel();
-        let state = TerminalState::new(
-            config.cols,
-            config.rows,
-            config.scrollback,
-            GpuiEventProxy::new(event_tx.clone()),
-        );
+        let model =
+            cx.new(|cx| TerminalModel::new(stdin_writer, bytes_rx, session_event_rx, &config, cx));
+        let blink_manager = cx.new(TerminalBlinkManager::new);
         let renderer = TerminalRenderer::new(
             config.font_family.clone(),
             config.font_size,
@@ -289,91 +275,24 @@ impl TerminalView {
             config.colors.clone(),
         );
         let focus_handle = cx.focus_handle();
-        let stdin_writer = Arc::new(Mutex::new(Box::new(stdin_writer) as Box<dyn Write + Send>));
-
-        let reader_task = cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            while let Ok(bytes) = bytes_rx.recv_async().await {
-                if this
-                    .update(cx, |view, cx| {
-                        let sync_update = view.update_synchronized_output_state(&bytes);
-                        view.state.process_bytes(&bytes);
-                        view.trace_terminal_state_after_output(bytes.len());
-                        let mut event_should_notify = false;
-                        view.process_pending_events(cx, &mut event_should_notify);
-                        if view.sync_output_depth > 0 {
-                            view.sync_output_pending_notify = true;
-                        } else if sync_update.should_notify
-                            || event_should_notify
-                            || view.sync_output_pending_notify
-                        {
-                            view.sync_output_pending_notify = false;
-                            view.schedule_output_notify(cx);
-                        } else {
-                            view.schedule_output_notify(cx);
-                        }
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
 
         Self {
-            state,
+            model,
             renderer,
+            blink_manager,
             focus_handle,
-            stdin_writer,
             resize_handle,
-            event_rx,
-            session_event_rx,
             config,
             layout: Arc::new(Mutex::new(TerminalLayoutMetrics::default())),
             selection: Arc::new(Mutex::new(SelectionState::default())),
             marked_text: None,
-            title: None,
-            bell_count: 0,
-            exited: false,
             pending_scroll_lines: 0,
             pending_scroll_pixels: 0.0,
             scroll_frame_pending: false,
-            output_notify_pending: false,
-            sync_output_depth: 0,
-            sync_output_pending_notify: false,
-            sync_output_scan_tail: Vec::new(),
             focus_in_subscription: None,
             focus_out_subscription: None,
             selection_autoscroll: None,
-            _reader_task: reader_task,
         }
-    }
-
-    fn update_synchronized_output_state(&mut self, bytes: &[u8]) -> SyncOutputUpdate {
-        let update = update_synchronized_output_state(
-            bytes,
-            &mut self.sync_output_depth,
-            &mut self.sync_output_scan_tail,
-        );
-        trace_terminal_protocol_bytes(bytes, update, self.sync_output_depth);
-        update
-    }
-
-    fn trace_terminal_state_after_output(&self, bytes_len: usize) {
-        if !terminal_trace_enabled() {
-            return;
-        }
-        let content = self.state.live_snapshot();
-        terminal_trace(&format!(
-            "state bytes={} sync_depth={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={}",
-            bytes_len,
-            self.sync_output_depth,
-            content.mode.contains(TermMode::SHOW_CURSOR),
-            content.cursor.shape == CursorShape::Hidden,
-            content.cursor.point.line.0,
-            content.cursor.point.column.0,
-            content.cursor.shape,
-            content.display_offset,
-        ));
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -395,7 +314,7 @@ impl TerminalView {
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         if is_copy_keystroke(&event.keystroke) {
-            if let Some(text) = self.selected_text() {
+            if let Some(text) = self.selected_text(cx) {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
                 cx.stop_propagation();
                 cx.notify();
@@ -405,14 +324,17 @@ impl TerminalView {
 
         if is_paste_keystroke(&event.keystroke) {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                self.paste_text(&text);
+                self.paste_text(&text, cx);
                 cx.stop_propagation();
                 return;
             }
         }
 
-        if let Some(bytes) = keystroke_to_bytes(&event.keystroke, self.state.mode()) {
-            self.write_bytes(&bytes);
+        let mode = self.model.read(cx).mode();
+        if let Some(bytes) = keystroke_to_bytes(&event.keystroke, mode) {
+            self.blink_manager
+                .update(cx, TerminalBlinkManager::pause_blinking);
+            self.write_bytes(&bytes, cx);
             cx.stop_propagation();
         }
     }
@@ -425,13 +347,14 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle, cx);
         let point = self.layout.lock().cell_at(event.position);
-        if self.should_report_mouse(event.modifiers.shift) {
+        if self.should_report_mouse(event.modifiers.shift, cx) {
             if let Some(point) = point {
                 self.send_mouse_report(
                     Some(event.button),
                     point,
                     MouseReportKind::Press,
                     event.modifiers,
+                    cx,
                 );
             }
             cx.stop_propagation();
@@ -444,7 +367,7 @@ impl TerminalView {
                 if let Some(point) = point {
                     self.selection
                         .lock()
-                        .start(self.selection_point_from_cell(point));
+                        .start(self.selection_point_from_cell(point, cx));
                 } else {
                     self.selection.lock().clear();
                 }
@@ -452,7 +375,7 @@ impl TerminalView {
             }
             MouseButton::Middle => {
                 if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                    self.paste_text(&text);
+                    self.paste_text(&text, cx);
                 }
             }
             MouseButton::Right | MouseButton::Navigate(_) => {}
@@ -464,12 +387,13 @@ impl TerminalView {
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let selection_dragging = self.selection.lock().dragging;
         if let Some((point, _)) = self.layout.lock().drag_cell_at(event.position) {
-            if self.should_report_mouse(event.modifiers.shift) {
+            if self.should_report_mouse(event.modifiers.shift, cx) {
                 self.send_mouse_report(
                     Some(event.button),
                     point,
                     MouseReportKind::Release,
                     event.modifiers,
+                    cx,
                 );
                 cx.stop_propagation();
                 cx.notify();
@@ -478,7 +402,7 @@ impl TerminalView {
             if selection_dragging {
                 self.selection
                     .lock()
-                    .finish(self.selection_point_from_cell(point));
+                    .finish(self.selection_point_from_cell(point, cx));
             }
         } else {
             self.selection.lock().dragging = false;
@@ -494,7 +418,7 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.should_report_mouse(event.modifiers.shift) {
+        if self.should_report_mouse(event.modifiers.shift, cx) {
             let Some(point) = self.layout.lock().cell_at(event.position) else {
                 return;
             };
@@ -503,6 +427,7 @@ impl TerminalView {
                 point,
                 MouseReportKind::Move,
                 event.modifiers,
+                cx,
             );
             cx.stop_propagation();
             return;
@@ -514,7 +439,7 @@ impl TerminalView {
             };
             self.selection
                 .lock()
-                .update(self.selection_point_from_cell(point));
+                .update(self.selection_point_from_cell(point, cx));
             self.selection_autoscroll = (scroll_lines != 0).then_some(SelectionAutoScroll {
                 edge_cell: point,
                 lines: scroll_lines,
@@ -539,7 +464,7 @@ impl TerminalView {
         if lines != 0 {
             self.pending_scroll_pixels -= lines as f32 * 20.0;
             if let Some(point) = self.layout.lock().cell_at(event.position)
-                && self.should_report_mouse(event.modifiers.shift)
+                && self.should_report_mouse(event.modifiers.shift, cx)
             {
                 let button = if lines > 0 {
                     MouseButton::Navigate(NavigationDirection::Back)
@@ -552,12 +477,16 @@ impl TerminalView {
                         point,
                         MouseReportKind::Wheel,
                         event.modifiers,
+                        cx,
                     );
                 }
-            } else if should_send_alternate_scroll(self.state.mode(), event.modifiers.shift) {
+            } else if should_send_alternate_scroll(
+                self.model.read(cx).mode(),
+                event.modifiers.shift,
+            ) {
                 let sequence = if lines > 0 { b"\x1bOA" } else { b"\x1bOB" };
                 for _ in 0..lines.unsigned_abs().min(80) {
-                    self.write_bytes(sequence);
+                    self.write_bytes(sequence, cx);
                 }
             } else {
                 self.queue_display_scroll(lines, cx);
@@ -581,7 +510,7 @@ impl TerminalView {
         cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
             timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
             let _ = terminal.update(cx, |terminal, cx| {
-                if let Some(flush) = terminal.flush_pending_scroll() {
+                if let Some(flush) = terminal.flush_pending_scroll(cx) {
                     if let Some(lines) = flush.next_lines {
                         terminal.pending_scroll_lines =
                             terminal.pending_scroll_lines.saturating_add(lines);
@@ -596,37 +525,21 @@ impl TerminalView {
         .detach();
     }
 
-    fn schedule_output_notify(&mut self, cx: &mut Context<Self>) {
-        if self.output_notify_pending {
-            return;
-        }
-
-        self.output_notify_pending = true;
-        let timer = cx.background_executor().clone();
-        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
-            timer.timer(TERMINAL_OUTPUT_FRAME_INTERVAL).await;
-            let _ = terminal.update(cx, |terminal, cx| {
-                terminal.output_notify_pending = false;
-                terminal.state.publish_snapshot();
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn flush_pending_scroll(&mut self) -> Option<ScrollFlushResult> {
+    fn flush_pending_scroll(&mut self, cx: &mut Context<Self>) -> Option<ScrollFlushResult> {
         self.scroll_frame_pending = false;
         let lines = std::mem::take(&mut self.pending_scroll_lines);
         if lines == 0 {
             return None;
         }
 
-        let did_scroll = self.state.scroll_display(lines);
+        let did_scroll = self
+            .model
+            .update(cx, |model, _| model.scroll_display(lines));
         if did_scroll
             && let Some(autoscroll) = self.selection_autoscroll
             && self.selection.lock().dragging
         {
-            let point = self.selection_point_from_cell(autoscroll.edge_cell);
+            let point = self.selection_point_from_cell(autoscroll.edge_cell, cx);
             self.selection.lock().update(point);
             return Some(ScrollFlushResult {
                 did_scroll,
@@ -641,114 +554,49 @@ impl TerminalView {
     }
 
     fn process_events(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let mut should_notify = false;
-        self.process_pending_events(cx, &mut should_notify);
-        if should_notify {
-            cx.notify();
-        }
+        self.model
+            .update(cx, |model, cx| model.process_pending_events(cx));
     }
 
-    fn process_pending_events(&mut self, cx: &mut Context<Self>, should_notify: &mut bool) {
-        while let Ok(event) = self.event_rx.try_recv() {
-            self.handle_ui_event(event, cx, should_notify);
-        }
-        while let Ok(event) = self.session_event_rx.try_recv() {
-            self.handle_ui_event(event, cx, should_notify);
-        }
+    fn write_bytes(&self, bytes: &[u8], cx: &mut Context<Self>) {
+        self.model.update(cx, |model, _| model.write_bytes(bytes));
     }
 
-    fn handle_ui_event(
-        &mut self,
-        event: TerminalUiEvent,
-        cx: &mut Context<Self>,
-        should_notify: &mut bool,
-    ) {
-        match event {
-            TerminalUiEvent::Wakeup => self.schedule_output_notify(cx),
-            TerminalUiEvent::PtyWrite(bytes) => self.write_bytes(&bytes),
-            TerminalUiEvent::Bell => {
-                self.bell_count = self.bell_count.saturating_add(1);
-                *should_notify = true;
-            }
-            TerminalUiEvent::Title(title) => {
-                self.title = Some(title);
-                *should_notify = true;
-            }
-            TerminalUiEvent::ClipboardStore(text) => {
-                cx.write_to_clipboard(ClipboardItem::new_string(text));
-            }
-            TerminalUiEvent::ClipboardLoad => {
-                if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                    self.write_bytes(text.as_bytes());
-                }
-            }
-            TerminalUiEvent::ColorRequest(index, format) => {
-                let color = self
-                    .state
-                    .color(index)
-                    .unwrap_or_else(|| self.config.colors.color_request(index));
-                terminal_trace(&format!(
-                    "color_response index={} rgb=#{:02x}{:02x}{:02x}",
-                    index, color.r, color.g, color.b
-                ));
-                self.write_bytes(format(color).as_bytes());
-            }
-            TerminalUiEvent::TextAreaSizeRequest(format) => {
-                let layout = self.layout.lock().clone();
-                self.write_bytes(format(layout.window_size()).as_bytes());
-            }
-            TerminalUiEvent::Exit => {
-                self.exited = true;
-                *should_notify = true;
-            }
-            TerminalUiEvent::Error(message) => {
-                self.title = Some(format!("Terminal error: {message}"));
-                *should_notify = true;
-            }
-        }
-    }
-
-    fn write_bytes(&self, bytes: &[u8]) {
-        let mut writer = self.stdin_writer.lock();
-        let _ = writer.write_all(bytes);
-        let _ = writer.flush();
-    }
-
-    fn report_focus_change(&self, focused: bool) {
-        if !self.state.mode().contains(TermMode::FOCUS_IN_OUT) {
-            return;
-        }
-        self.write_bytes(if focused { b"\x1b[I" } else { b"\x1b[O" });
+    fn report_focus_change(&self, focused: bool, cx: &mut Context<Self>) {
+        self.model
+            .update(cx, |model, _| model.report_focus_change(focused));
     }
 
     fn ensure_focus_report_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.focus_in_subscription.is_none() {
             let focus_handle = self.focus_handle.clone();
-            self.focus_in_subscription = Some(cx.on_focus(&focus_handle, window, |view, _, _| {
-                view.report_focus_change(true);
+            self.focus_in_subscription = Some(cx.on_focus(&focus_handle, window, |view, _, cx| {
+                view.model.update(cx, |model, _| model.set_focused(true));
+                view.blink_manager.update(cx, TerminalBlinkManager::enable);
+                view.report_focus_change(true, cx);
+                cx.notify();
             }));
         }
         if self.focus_out_subscription.is_none() {
             let focus_handle = self.focus_handle.clone();
             self.focus_out_subscription =
-                Some(cx.on_focus_out(&focus_handle, window, |view, _, _, _| {
-                    view.report_focus_change(false);
+                Some(cx.on_focus_out(&focus_handle, window, |view, _, _, cx| {
+                    view.model.update(cx, |model, _| model.set_focused(false));
+                    view.blink_manager.update(cx, TerminalBlinkManager::disable);
+                    view.report_focus_change(false, cx);
+                    cx.notify();
                 }));
         }
     }
 
-    fn paste_text(&self, text: &str) {
-        if self.state.mode().contains(TermMode::BRACKETED_PASTE) {
-            self.write_bytes(b"\x1b[200~");
-            self.write_bytes(text.replace("\r\n", "\n").replace('\r', "\n").as_bytes());
-            self.write_bytes(b"\x1b[201~");
-        } else {
-            self.write_bytes(text.as_bytes());
-        }
+    fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.blink_manager
+            .update(cx, TerminalBlinkManager::pause_blinking);
+        self.model.update(cx, |model, _| model.paste_text(text));
     }
 
-    fn should_report_mouse(&self, shift_pressed: bool) -> bool {
-        !shift_pressed && self.state.mode().intersects(TermMode::MOUSE_MODE)
+    fn should_report_mouse(&self, shift_pressed: bool, cx: &App) -> bool {
+        !shift_pressed && self.model.read(cx).mode().intersects(TermMode::MOUSE_MODE)
     }
 
     fn send_mouse_report(
@@ -757,23 +605,28 @@ impl TerminalView {
         point: TerminalCellPoint,
         kind: MouseReportKind,
         modifiers: Modifiers,
+        cx: &mut Context<Self>,
     ) {
-        let mode = self.state.mode();
+        let mode = self.model.read(cx).mode();
         let Some(sequence) = mouse_report_sequence(button, point, kind, modifiers, mode) else {
             return;
         };
-        self.write_bytes(&sequence);
+        self.write_bytes(&sequence, cx);
     }
 
-    fn selected_text(&self) -> Option<String> {
+    fn selected_text(&self, cx: &App) -> Option<String> {
         let selection = self.selection.lock().range()?;
-        let text = self.state.selected_text(selection);
+        let text = self.model.read(cx).selected_text(selection);
         (!text.is_empty()).then_some(text)
     }
 
-    fn selection_point_from_cell(&self, point: TerminalCellPoint) -> TerminalSelectionPoint {
+    fn selection_point_from_cell(
+        &self,
+        point: TerminalCellPoint,
+        cx: &App,
+    ) -> TerminalSelectionPoint {
         TerminalSelectionPoint {
-            line: point.row as i32 - self.state.display_offset() as i32,
+            line: point.row as i32 - self.model.read(cx).display_offset() as i32,
             col: point.col,
         }
     }
@@ -802,6 +655,92 @@ impl TerminalView {
 
 fn should_send_alternate_scroll(mode: TermMode, shift_pressed: bool) -> bool {
     !shift_pressed && mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
+}
+
+struct TerminalBlinkManager {
+    blink_interval: Duration,
+    blink_epoch: usize,
+    blinking_paused: bool,
+    visible: bool,
+    enabled: bool,
+}
+
+impl TerminalBlinkManager {
+    fn new(_cx: &mut Context<Self>) -> Self {
+        Self {
+            blink_interval: Duration::from_millis(500),
+            blink_epoch: 0,
+            blinking_paused: false,
+            visible: true,
+            enabled: false,
+        }
+    }
+
+    fn next_blink_epoch(&mut self) -> usize {
+        self.blink_epoch += 1;
+        self.blink_epoch
+    }
+
+    fn pause_blinking(&mut self, cx: &mut Context<Self>) {
+        self.show_cursor(cx);
+        self.blinking_paused = true;
+        let epoch = self.next_blink_epoch();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
+            let _ = this.update(cx, |this, cx| this.resume_blinking(epoch, cx));
+        })
+        .detach();
+    }
+
+    fn resume_blinking(&mut self, epoch: usize, cx: &mut Context<Self>) {
+        if epoch == self.blink_epoch {
+            self.blinking_paused = false;
+            self.blink_cursors(epoch, cx);
+        }
+    }
+
+    fn blink_cursors(&mut self, epoch: usize, cx: &mut Context<Self>) {
+        if epoch != self.blink_epoch || !self.enabled || self.blinking_paused {
+            return;
+        }
+        self.visible = !self.visible;
+        cx.notify();
+
+        let epoch = self.next_blink_epoch();
+        let interval = self.blink_interval;
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            cx.background_executor().timer(interval).await;
+            let _ = this.update(cx, |this, cx| this.blink_cursors(epoch, cx));
+        })
+        .detach();
+    }
+
+    fn show_cursor(&mut self, cx: &mut Context<Self>) {
+        if !self.visible {
+            self.visible = true;
+            cx.notify();
+        }
+    }
+
+    fn enable(&mut self, cx: &mut Context<Self>) {
+        if self.enabled {
+            return;
+        }
+        self.enabled = true;
+        self.visible = false;
+        self.blink_cursors(self.blink_epoch, cx);
+    }
+
+    fn disable(&mut self, cx: &mut Context<Self>) {
+        self.enabled = false;
+        self.show_cursor(cx);
+    }
+
+    fn visible(&self) -> bool {
+        self.visible
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -926,10 +865,7 @@ fn terminal_protocol_flags(bytes: &[u8]) -> TerminalProtocolFlags {
     }
 }
 
-fn trace_terminal_paint_snapshot(
-    content: &TerminalContent,
-    cursor_visible: bool,
-) {
+fn trace_terminal_paint_snapshot(content: &TerminalContent, cursor_visible: bool) {
     if !terminal_trace_enabled() {
         return;
     }
@@ -954,15 +890,16 @@ impl Render for TerminalView {
 
         self.renderer.measure_cell(window);
         self.ensure_focus_report_subscriptions(window, cx);
-        let cursor_visible = self.marked_text.is_none();
+        let cursor_visible = self.marked_text.is_none()
+            && self.blink_manager.read(cx).visible()
+            && self.focus_handle.is_focused(window);
         let element = TerminalElement {
-            state: self.state.handle(),
+            model: self.model.clone(),
             renderer: self.renderer.clone(),
             layout: self.layout.clone(),
             selection: self.selection.clone(),
             resize_handle: self.resize_handle.clone(),
             focus_handle: self.focus_handle.clone(),
-            stdin_writer: self.stdin_writer.clone(),
             terminal_view: cx.weak_entity(),
             padding: self.config.padding,
             marked_text: self.marked_text.clone(),
@@ -986,9 +923,25 @@ impl Render for TerminalView {
     }
 }
 
-struct TerminalState {
+struct TerminalModel {
     handle: TerminalStateHandle,
     parser: Processor,
+    stdin_writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    event_rx: mpsc::Receiver<TerminalUiEvent>,
+    session_event_rx: mpsc::Receiver<TerminalUiEvent>,
+    events: VecDeque<TerminalInternalEvent>,
+    pending_output_bytes: Vec<u8>,
+    output_flush_pending: bool,
+    sync_output_depth: usize,
+    sync_output_pending_notify: bool,
+    sync_output_scan_tail: Vec<u8>,
+    title: Option<String>,
+    bell_count: usize,
+    exited: bool,
+    focused: bool,
+    colors: ColorPalette,
+    window_size: WindowSize,
+    _reader_task: Task<()>,
 }
 
 #[derive(Clone)]
@@ -997,24 +950,217 @@ struct TerminalStateHandle {
     snapshot: Arc<Mutex<TerminalContent>>,
 }
 
-impl TerminalState {
-    fn new(cols: usize, rows: usize, scrollback: usize, event_proxy: GpuiEventProxy) -> Self {
-        let config = AlacrittyConfig {
-            scrolling_history: scrollback,
+#[derive(Clone, Copy, Debug)]
+enum TerminalInternalEvent {
+    Resize { cols: usize, rows: usize },
+    Scroll { lines: i32 },
+}
+
+impl TerminalModel {
+    fn new<W>(
+        stdin_writer: W,
+        bytes_rx: flume::Receiver<Vec<u8>>,
+        session_event_rx: mpsc::Receiver<TerminalUiEvent>,
+        config: &TerminalConfig,
+        cx: &mut Context<Self>,
+    ) -> Self
+    where
+        W: Write + Send + 'static,
+    {
+        let (event_tx, event_rx) = mpsc::channel();
+        let alacritty_config = AlacrittyConfig {
+            scrolling_history: config.scrollback,
             ..Default::default()
         };
         let term = Arc::new(Mutex::new(Term::new(
-            config,
-            &TermSize::new(cols, rows),
-            event_proxy,
+            alacritty_config,
+            &TermSize::new(config.cols, config.rows),
+            GpuiEventProxy::new(event_tx),
         )));
         let snapshot = TerminalContent::from_term(&term.lock());
+        let reader_task = cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            while let Ok(bytes) = bytes_rx.recv_async().await {
+                if this
+                    .update(cx, |model, cx| model.receive_output(bytes, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
         Self {
             handle: TerminalStateHandle {
                 term,
                 snapshot: Arc::new(Mutex::new(snapshot)),
             },
             parser: Processor::new(),
+            stdin_writer: Arc::new(Mutex::new(Box::new(stdin_writer) as Box<dyn Write + Send>)),
+            event_rx,
+            session_event_rx,
+            events: VecDeque::new(),
+            pending_output_bytes: Vec::new(),
+            output_flush_pending: false,
+            sync_output_depth: 0,
+            sync_output_pending_notify: false,
+            sync_output_scan_tail: Vec::new(),
+            title: None,
+            bell_count: 0,
+            exited: false,
+            focused: false,
+            colors: config.colors.clone(),
+            window_size: WindowSize {
+                num_lines: config.rows as u16,
+                num_cols: config.cols as u16,
+                cell_width: 1,
+                cell_height: 1,
+            },
+            _reader_task: reader_task,
+        }
+    }
+
+    fn receive_output(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
+        if self.output_flush_pending {
+            self.pending_output_bytes.extend(bytes);
+            return;
+        }
+
+        self.output_flush_pending = true;
+        self.process_output_bytes(&bytes, cx);
+        self.schedule_pending_output_flush(cx);
+    }
+
+    fn schedule_pending_output_flush(&mut self, cx: &mut Context<Self>) {
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |model: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_OUTPUT_FRAME_INTERVAL).await;
+            let _ = model.update(cx, |model, cx| {
+                model.output_flush_pending = false;
+                model.flush_output(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn flush_output(&mut self, cx: &mut Context<Self>) {
+        let bytes = std::mem::take(&mut self.pending_output_bytes);
+        if bytes.is_empty() {
+            if self.process_pending_events(cx) {
+                cx.notify();
+            }
+            return;
+        }
+
+        self.process_output_bytes(&bytes, cx);
+    }
+
+    fn process_output_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        let sync_update = self.update_synchronized_output_state(&bytes);
+        self.process_bytes(&bytes);
+        self.trace_terminal_state_after_output(bytes.len());
+        let event_should_notify = self.process_pending_events(cx);
+
+        if self.sync_output_depth > 0 {
+            self.sync_output_pending_notify = true;
+            return;
+        }
+
+        if sync_update.should_notify || event_should_notify || self.sync_output_pending_notify {
+            self.sync_output_pending_notify = false;
+        }
+        cx.notify();
+    }
+
+    fn update_synchronized_output_state(&mut self, bytes: &[u8]) -> SyncOutputUpdate {
+        let update = update_synchronized_output_state(
+            bytes,
+            &mut self.sync_output_depth,
+            &mut self.sync_output_scan_tail,
+        );
+        trace_terminal_protocol_bytes(bytes, update, self.sync_output_depth);
+        update
+    }
+
+    fn trace_terminal_state_after_output(&self, bytes_len: usize) {
+        if !terminal_trace_enabled() {
+            return;
+        }
+        let content = self.live_snapshot();
+        terminal_trace(&format!(
+            "state bytes={} sync_depth={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={}",
+            bytes_len,
+            self.sync_output_depth,
+            content.mode.contains(TermMode::SHOW_CURSOR),
+            content.cursor.shape == CursorShape::Hidden,
+            content.cursor.point.line.0,
+            content.cursor.point.column.0,
+            content.cursor.shape,
+            content.display_offset,
+        ));
+    }
+
+    fn process_pending_events(&mut self, cx: &mut Context<Self>) -> bool {
+        let mut should_notify = false;
+        while let Ok(event) = self.event_rx.try_recv() {
+            self.handle_ui_event(event, cx, &mut should_notify);
+        }
+        while let Ok(event) = self.session_event_rx.try_recv() {
+            self.handle_ui_event(event, cx, &mut should_notify);
+        }
+        should_notify
+    }
+
+    fn handle_ui_event(
+        &mut self,
+        event: TerminalUiEvent,
+        cx: &mut Context<Self>,
+        should_notify: &mut bool,
+    ) {
+        match event {
+            TerminalUiEvent::Wakeup => {
+                if !self.output_flush_pending {
+                    self.output_flush_pending = true;
+                    self.schedule_pending_output_flush(cx);
+                }
+            }
+            TerminalUiEvent::PtyWrite(bytes) => self.write_bytes(&bytes),
+            TerminalUiEvent::Bell => {
+                self.bell_count = self.bell_count.saturating_add(1);
+                *should_notify = true;
+            }
+            TerminalUiEvent::Title(title) => {
+                self.title = Some(title);
+                *should_notify = true;
+            }
+            TerminalUiEvent::ClipboardStore(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            TerminalUiEvent::ClipboardLoad => {
+                if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                    self.write_bytes(text.as_bytes());
+                }
+            }
+            TerminalUiEvent::ColorRequest(index, format) => {
+                let color = self
+                    .color(index)
+                    .unwrap_or_else(|| self.colors.color_request(index));
+                terminal_trace(&format!(
+                    "color_response index={} rgb=#{:02x}{:02x}{:02x}",
+                    index, color.r, color.g, color.b
+                ));
+                self.write_bytes(format(color).as_bytes());
+            }
+            TerminalUiEvent::TextAreaSizeRequest(format) => {
+                self.write_bytes(format(self.window_size).as_bytes());
+            }
+            TerminalUiEvent::Exit => {
+                self.exited = true;
+                *should_notify = true;
+            }
+            TerminalUiEvent::Error(message) => {
+                self.title = Some(format!("Terminal error: {message}"));
+                *should_notify = true;
+            }
         }
     }
 
@@ -1023,18 +1169,26 @@ impl TerminalState {
         self.parser.advance(&mut *term, bytes);
     }
 
-    fn publish_snapshot(&self) {
+    fn sync(&mut self, cx: &mut Context<Self>) -> TerminalContent {
+        self.process_pending_events(cx);
+        while let Some(event) = self.events.pop_front() {
+            match event {
+                TerminalInternalEvent::Resize { cols, rows } => {
+                    self.handle.resize(cols, rows);
+                }
+                TerminalInternalEvent::Scroll { lines } => {
+                    self.handle.scroll_display(lines);
+                }
+            }
+        }
         self.handle.publish_snapshot();
+        self.handle.snapshot()
     }
 
     fn live_snapshot(&self) -> TerminalContent {
         let term = self.handle.term.lock();
         let content = TerminalContent::from_term(&term);
         content
-    }
-
-    fn handle(&self) -> TerminalStateHandle {
-        self.handle.clone()
     }
 
     fn mode(&self) -> TermMode {
@@ -1045,16 +1199,111 @@ impl TerminalState {
         self.handle.display_offset()
     }
 
+    fn dimensions(&self) -> (usize, usize) {
+        self.handle.dimensions()
+    }
+
     fn color(&self, index: usize) -> Option<Rgb> {
         self.handle.term.lock().colors()[index]
     }
 
-    fn scroll_display(&self, lines: i32) -> bool {
-        self.handle.scroll_display(lines)
+    fn scroll_display(&mut self, lines: i32) -> bool {
+        self.events
+            .push_back(TerminalInternalEvent::Scroll { lines });
+        true
     }
 
     fn selected_text(&self, selection: SelectionRange) -> String {
         self.handle.selected_text(selection)
+    }
+
+    fn resize(&mut self, cols: usize, rows: usize, window_size: WindowSize) {
+        self.window_size = window_size;
+        if self.dimensions() == (cols, rows) {
+            return;
+        }
+        match self.events.back_mut() {
+            Some(TerminalInternalEvent::Resize { cols: c, rows: r }) => {
+                *c = cols;
+                *r = rows;
+            }
+            _ => self
+                .events
+                .push_back(TerminalInternalEvent::Resize { cols, rows }),
+        }
+    }
+
+    fn write_bytes(&self, bytes: &[u8]) {
+        let mut writer = self.stdin_writer.lock();
+        let _ = writer.write_all(bytes);
+        let _ = writer.flush();
+    }
+
+    fn paste_text(&self, text: &str) {
+        if self.mode().contains(TermMode::BRACKETED_PASTE) {
+            self.write_bytes(b"\x1b[200~");
+            self.write_bytes(text.replace("\r\n", "\n").replace('\r', "\n").as_bytes());
+            self.write_bytes(b"\x1b[201~");
+        } else {
+            self.write_bytes(text.as_bytes());
+        }
+    }
+
+    fn report_focus_change(&self, focused: bool) {
+        if !self.mode().contains(TermMode::FOCUS_IN_OUT) {
+            return;
+        }
+        self.write_bytes(if focused { b"\x1b[I" } else { b"\x1b[O" });
+    }
+
+    fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    #[cfg(test)]
+    fn new_for_test(cols: usize, rows: usize, scrollback: usize) -> Self {
+        let (event_tx, event_rx) = mpsc::channel();
+        let (_session_event_tx, session_event_rx) = mpsc::channel();
+        let config = AlacrittyConfig {
+            scrolling_history: scrollback,
+            ..Default::default()
+        };
+        let term = Arc::new(Mutex::new(Term::new(
+            config,
+            &TermSize::new(cols, rows),
+            GpuiEventProxy::new(event_tx),
+        )));
+        let snapshot = TerminalContent::from_term(&term.lock());
+        Self {
+            handle: TerminalStateHandle {
+                term,
+                snapshot: Arc::new(Mutex::new(snapshot)),
+            },
+            parser: Processor::new(),
+            stdin_writer: Arc::new(Mutex::new(
+                Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>
+            )),
+            event_rx,
+            session_event_rx,
+            events: VecDeque::new(),
+            pending_output_bytes: Vec::new(),
+            output_flush_pending: false,
+            sync_output_depth: 0,
+            sync_output_pending_notify: false,
+            sync_output_scan_tail: Vec::new(),
+            title: None,
+            bell_count: 0,
+            exited: false,
+            focused: false,
+            colors: ColorPalette::default(),
+            window_size: WindowSize {
+                num_lines: rows as u16,
+                num_cols: cols as u16,
+                cell_width: 1,
+                cell_height: 1,
+            },
+            _reader_task: Task::ready(()),
+        }
     }
 }
 
@@ -1065,6 +1314,11 @@ impl TerminalStateHandle {
 
     fn display_offset(&self) -> usize {
         self.term.lock().grid().display_offset()
+    }
+
+    fn dimensions(&self) -> (usize, usize) {
+        let term = self.term.lock();
+        (term.columns(), term.screen_lines())
     }
 
     fn snapshot(&self) -> TerminalContent {
@@ -1082,7 +1336,6 @@ impl TerminalStateHandle {
             return false;
         }
         term.resize(TermSize::new(cols, rows));
-        *self.snapshot.lock() = TerminalContent::from_term(&term);
         true
     }
 
@@ -1094,9 +1347,6 @@ impl TerminalStateHandle {
         let scroll = Scroll::Delta(lines);
         term.scroll_display(scroll);
         let did_scroll = term.grid().display_offset() != before;
-        if did_scroll {
-            *self.snapshot.lock() = TerminalContent::from_term(&term);
-        }
         did_scroll
     }
 
@@ -1175,7 +1425,6 @@ impl TerminalContent {
             screen_lines: term.screen_lines(),
         }
     }
-
 }
 
 #[derive(Clone)]
@@ -1193,13 +1442,12 @@ impl std::ops::Deref for TerminalIndexedCell {
 }
 
 struct TerminalElement {
-    state: TerminalStateHandle,
+    model: Entity<TerminalModel>,
     renderer: TerminalRenderer,
     layout: Arc<Mutex<TerminalLayoutMetrics>>,
     selection: Arc<Mutex<SelectionState>>,
     resize_handle: TerminalPtySessionHandle,
     focus_handle: FocusHandle,
-    stdin_writer: Arc<Mutex<Box<dyn Write + Send>>>,
     terminal_view: WeakEntity<TerminalView>,
     padding: Edges<Pixels>,
     marked_text: Option<String>,
@@ -1245,7 +1493,7 @@ impl Element for TerminalElement {
         bounds: Bounds<Pixels>,
         _request_layout: &mut Self::RequestLayoutState,
         _window: &mut Window,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> Self::PrepaintState {
         let available_width =
             (bounds.size.width - self.padding.left - self.padding.right).max(px(1.0));
@@ -1266,13 +1514,15 @@ impl Element for TerminalElement {
             rows,
         );
 
-        if self.state.resize(cols, rows)
-            && let Err(error) = self.resize_handle.resize(cols as u16, rows as u16)
-        {
+        let resized = self.model.read(cx).dimensions() != (cols, rows);
+        let window_size = self.layout.lock().window_size();
+        self.model
+            .update(cx, |model, _| model.resize(cols, rows, window_size));
+        if resized && let Err(error) = self.resize_handle.resize(cols as u16, rows as u16) {
             eprintln!("failed to resize terminal pty: {error}");
         }
 
-        let snapshot = self.state.snapshot();
+        let snapshot = self.model.update(cx, |model, cx| model.sync(cx));
         trace_terminal_paint_snapshot(&snapshot, self.cursor_visible);
         let selection = self.selection.lock().range();
         self.renderer.prepare_paint(
@@ -1302,7 +1552,7 @@ impl Element for TerminalElement {
         window.handle_input(
             &self.focus_handle,
             TerminalInputHandler {
-                stdin_writer: self.stdin_writer.clone(),
+                model: self.model.clone(),
                 layout: self.layout.clone(),
                 terminal_view: self.terminal_view.clone(),
                 cursor_bounds: paint_state.ime_cursor_bounds,
@@ -1334,6 +1584,7 @@ struct TerminalCursorPaint {
     point: TerminalPoint,
     shape: CursorShape,
     color: Hsla,
+    text_run: Option<TerminalTextRun>,
 }
 
 impl TerminalBackgroundRect {
@@ -1362,7 +1613,13 @@ impl TerminalBackgroundRect {
 }
 
 impl TerminalCursorPaint {
-    fn paint(&self, renderer: &TerminalRenderer, origin: Point<Pixels>, window: &mut Window) {
+    fn paint(
+        &self,
+        renderer: &TerminalRenderer,
+        origin: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
         let x = origin.x + renderer.cell_width * self.point.column.0 as f32;
         let y = origin.y + renderer.cell_height * self.point.line.0 as f32;
         let bounds = Bounds {
@@ -1416,7 +1673,12 @@ impl TerminalCursorPaint {
                     window,
                 );
             }
-            CursorShape::Block => self.paint_filled(bounds, window),
+            CursorShape::Block => {
+                self.paint_filled(bounds, window);
+                if let Some(text_run) = &self.text_run {
+                    text_run.paint(renderer, origin, window, cx);
+                }
+            }
         }
     }
 
@@ -1654,37 +1916,37 @@ impl TerminalLayoutMetrics {
 
 #[derive(Clone)]
 struct TerminalInputHandler {
-    stdin_writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    model: Entity<TerminalModel>,
     layout: Arc<Mutex<TerminalLayoutMetrics>>,
     terminal_view: WeakEntity<TerminalView>,
     cursor_bounds: Option<Bounds<Pixels>>,
 }
 
 impl TerminalInputHandler {
-    fn send_filtered_input(&self, text: &str) {
+    fn send_filtered_input(&self, text: &str, cx: &mut App) {
         if text.is_empty() {
             return;
         }
 
-        let mut writer = self.stdin_writer.lock();
+        let mut bytes = Vec::new();
         for c in text
             .chars()
             .filter(|c| !('\u{F700}'..='\u{F8FF}').contains(c))
         {
             match c {
                 '\u{8}' => {
-                    let _ = writer.write_all(&[0x7f]);
+                    bytes.push(0x7f);
                 }
                 '\n' | '\r' => {
-                    let _ = writer.write_all(b"\r");
+                    bytes.push(b'\r');
                 }
                 _ => {
                     let mut buffer = [0; 4];
-                    let _ = writer.write_all(c.encode_utf8(&mut buffer).as_bytes());
+                    bytes.extend_from_slice(c.encode_utf8(&mut buffer).as_bytes());
                 }
             }
         }
-        let _ = writer.flush();
+        self.model.update(cx, |model, _| model.write_bytes(&bytes));
     }
 }
 
@@ -1725,10 +1987,12 @@ impl InputHandler for TerminalInputHandler {
         _window: &mut Window,
         cx: &mut App,
     ) {
-        let _ = self
-            .terminal_view
-            .update(cx, |view, cx| view.clear_marked_text(cx));
-        self.send_filtered_input(text);
+        let _ = self.terminal_view.update(cx, |view, cx| {
+            view.blink_manager
+                .update(cx, TerminalBlinkManager::pause_blinking);
+            view.clear_marked_text(cx);
+        });
+        self.send_filtered_input(text, cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -2398,12 +2662,68 @@ impl TerminalRenderer {
             && cursor_visible
             && content.mode.contains(TermMode::SHOW_CURSOR)
             && content.cursor.shape != CursorShape::Hidden)
-            .then_some(TerminalCursorPaint {
-                point: content.cursor.point,
-                shape: content.cursor.shape,
-                color: self
-                    .palette
-                    .resolve(Color::Named(NamedColor::Cursor), colors),
+            .then(|| {
+                let row = content.cursor.point.line.0;
+                let col = content.cursor.point.column.0;
+                if row >= 0 && (row as usize) < content.screen_lines && col < content.columns {
+                    let cursor_cell = rows[row as usize][col];
+                    let text_run = cursor_cell
+                        .filter(|cell| {
+                            content.cursor.shape == CursorShape::Block
+                                && cell.c != '\0'
+                                && !cell.flags.contains(Flags::WIDE_CHAR_SPACER)
+                        })
+                        .map(|cell| {
+                            let font = self.font(
+                                if cell.flags.contains(Flags::BOLD) {
+                                    FontWeight::SEMIBOLD
+                                } else {
+                                    FontWeight::NORMAL
+                                },
+                                if cell.flags.contains(Flags::ITALIC) {
+                                    FontStyle::Italic
+                                } else {
+                                    FontStyle::Normal
+                                },
+                            );
+                            TerminalTextRun::new(
+                                row as usize,
+                                col,
+                                cell.c,
+                                if cell.flags.contains(Flags::WIDE_CHAR) {
+                                    2
+                                } else {
+                                    1
+                                },
+                                TextRun {
+                                    len: cell.c.len_utf8(),
+                                    font,
+                                    color: default_bg,
+                                    background_color: None,
+                                    underline: None,
+                                    strikethrough: None,
+                                },
+                            )
+                        });
+
+                    TerminalCursorPaint {
+                        point: content.cursor.point,
+                        shape: content.cursor.shape,
+                        color: self
+                            .palette
+                            .resolve(Color::Named(NamedColor::Cursor), colors),
+                        text_run,
+                    }
+                } else {
+                    TerminalCursorPaint {
+                        point: content.cursor.point,
+                        shape: content.cursor.shape,
+                        color: self
+                            .palette
+                            .resolve(Color::Named(NamedColor::Cursor), colors),
+                        text_run: None,
+                    }
+                }
             });
         let ime_cursor_bounds = (content.display_offset == 0).then(|| {
             let x = origin.x + self.cell_width * content.cursor.point.column.0 as f32;
@@ -2647,7 +2967,7 @@ impl TerminalRenderer {
             text_run.paint(self, state.origin, window, cx);
         }
         if let Some(cursor) = &state.cursor {
-            cursor.paint(self, state.origin, window);
+            cursor.paint(self, state.origin, window, cx);
         }
     }
 
@@ -3295,11 +3615,11 @@ mod tests {
 
     #[test]
     fn processed_output_updates_live_terminal_before_paint_snapshot() {
-        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"before");
 
         state.process_bytes(b"\r\x1b[2Kduring");
-        let paint_snapshot = state.handle().snapshot();
+        let paint_snapshot = state.handle.snapshot();
         let paint_text: String = paint_snapshot
             .cells
             .iter()
@@ -3319,8 +3639,8 @@ mod tests {
 
         assert!(live_text.contains("during"));
 
-        state.publish_snapshot();
-        let published = state.handle().snapshot();
+        state.handle.publish_snapshot();
+        let published = state.handle.snapshot();
         let published_text: String = published
             .cells
             .iter()
@@ -3537,7 +3857,7 @@ mod tests {
 
     #[test]
     fn selects_text_from_terminal_grid() {
-        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"hello\r\nworld");
 
         assert_eq!(
@@ -3551,7 +3871,7 @@ mod tests {
 
     #[test]
     fn keeps_utf8_cjk_output_in_terminal_grid() {
-        let mut state = TerminalState::new(20, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
         state.process_bytes("中文恢复记录".as_bytes());
 
         assert_eq!(
@@ -3565,10 +3885,10 @@ mod tests {
 
     #[test]
     fn updates_render_snapshot_after_output() {
-        let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"hello");
 
-        let pending_snapshot = state.handle().snapshot();
+        let pending_snapshot = state.handle.snapshot();
         let pending_text: String = pending_snapshot
             .cells
             .iter()
@@ -3577,9 +3897,9 @@ mod tests {
             .collect();
         assert!(!pending_text.contains("hello"));
 
-        state.publish_snapshot();
+        state.handle.publish_snapshot();
 
-        let snapshot = state.handle().snapshot();
+        let snapshot = state.handle.snapshot();
         let text: String = snapshot
             .cells
             .iter()
@@ -3594,10 +3914,10 @@ mod tests {
 
     #[test]
     fn updates_render_snapshot_after_resize() {
-        let state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
-
-        let handle = state.handle();
+        let state = TerminalModel::new_for_test(10, 4, 100);
+        let handle = state.handle.clone();
         assert!(handle.resize(20, 8));
+        handle.publish_snapshot();
 
         let snapshot = handle.snapshot();
         assert_eq!(snapshot.columns, 20);
