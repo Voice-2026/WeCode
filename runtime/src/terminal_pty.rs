@@ -1604,12 +1604,7 @@ fn flush_utf8_decoder(pending: &mut Vec<u8>) -> String {
 }
 
 fn clear_terminal_environment(command: &mut CommandBuilder) {
-    #[cfg(not(windows))]
     command.env_clear();
-    #[cfg(windows)]
-    {
-        let _ = command;
-    }
 }
 
 fn normalize_terminal_cwd(cwd: Option<String>) -> Option<String> {
@@ -2034,6 +2029,45 @@ mod tests {
             env.get("ZDOTDIR").map(String::as_str),
             Some("/runtime-assets/scripts/shell-hooks/zsh")
         );
+    }
+
+    #[test]
+    fn terminal_environment_keeps_runtime_context_compact() {
+        let context = TerminalLaunchContext {
+            project_id: "project-1".to_string(),
+            project_name: "Codux".to_string(),
+            project_path: PathBuf::from("/workspace/codux"),
+            support_dir: PathBuf::from("/support/Codux"),
+            runtime_root: PathBuf::from("/runtime-assets"),
+            terminal_id: Some("gpui-term-1".to_string()),
+            slot_id: Some("gpui-pane-1-1".to_string()),
+            session_key: Some("gpui:project-1:gpui-term-1:gpui-pane-1-1".to_string()),
+            session_title: Some("Terminal 1".to_string()),
+            session_cwd: Some(PathBuf::from("/workspace/codux")),
+            session_instance_id: Some("session-instance-1".to_string()),
+            tool_permissions_file: Some(PathBuf::from("/tmp/codux/tool-permissions.json")),
+            memory_workspace_root: Some(PathBuf::from("/tmp/codux/memory-workspaces/project-1")),
+            memory_prompt_file: Some(PathBuf::from(
+                "/tmp/codux/memory-workspaces/project-1/memory-prompt.txt",
+            )),
+            memory_index_file: Some(PathBuf::from(
+                "/tmp/codux/memory-workspaces/project-1/MEMORY.md",
+            )),
+        };
+
+        let env = terminal_environment(
+            "/bin/zsh",
+            Some("/workspace/codux"),
+            "gpui-term-1",
+            &context.to_config(),
+            Some(&context),
+        );
+        let total_bytes = env
+            .iter()
+            .map(|(key, value)| key.len() + value.len() + 2)
+            .sum::<usize>();
+
+        assert!(total_bytes < 16 * 1024);
     }
 
     #[cfg(not(windows))]
