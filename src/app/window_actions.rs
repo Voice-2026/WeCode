@@ -373,6 +373,7 @@ impl CoduxApp {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(spec.min_size),
                 is_minimizable: false,
+                is_resizable: false,
                 ..Default::default()
             },
             move |window, cx| {

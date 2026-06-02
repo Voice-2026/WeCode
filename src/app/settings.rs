@@ -233,6 +233,7 @@ impl CoduxApp {
                                 .w(px(28.0))
                                 .text_color(cx.theme().muted_foreground)
                                 .window_control_area(WindowControlArea::Close)
+                                .on_click(|_, window, _| window.remove_window())
                                 .child(Icon::new(HeroIconName::XMark).size_3()),
                         )
                     })
