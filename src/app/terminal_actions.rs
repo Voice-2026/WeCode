@@ -191,12 +191,14 @@ impl CoduxApp {
         let window_title = format!("Terminal - {title}");
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_titlebar(window_title.clone())),
+                titlebar: Some(theme::codux_child_titlebar(window_title.clone())),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(640.0), px(360.0))),
+                is_minimizable: false,
                 ..Default::default()
             },
             move |window, cx| {
+                macos_window::configure_child_window_controls(window);
                 let close_view = close_view.clone();
                 window.on_window_should_close(cx, move |_window, cx| {
                     close_view.update(cx, |view, cx| view.restore_to_parent(cx));

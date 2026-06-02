@@ -1409,7 +1409,7 @@ fn settings_general_pane(
                             false,
                             !settings.update_enabled,
                             cx,
-                            |app, _event, window, cx| app.reload_update(window, cx),
+                            |app, _event, window, cx| app.open_update_dialog_window(window, cx),
                         ))
                         .into_any_element(),
                 )

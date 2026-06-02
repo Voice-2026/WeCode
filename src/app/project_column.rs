@@ -94,7 +94,11 @@ impl Render for ProjectColumnView {
         div()
             .flex()
             .flex_col()
-            .w(px(if collapsed { 80.0 } else { 232.0 }))
+            .w(px(if collapsed {
+                PROJECT_COLUMN_COLLAPSED_WIDTH
+            } else {
+                PROJECT_COLUMN_EXPANDED_WIDTH
+            }))
             .h_full()
             .bg(cx.theme().sidebar)
             .border_r_1()
@@ -185,12 +189,21 @@ fn project_column_header(
             .px(px(10.0))
             .flex()
             .items_center()
-            .justify_end()
+            .justify_between()
             .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
                 window.start_window_move();
             })
             .border_b_1()
             .border_color(color(theme::BORDER_SOFT))
+            .child(
+                div()
+                    .min_w_0()
+                    .text_size(px(18.0))
+                    .line_height(px(22.0))
+                    .text_color(color(theme::TEXT))
+                    .when(cfg!(target_os = "macos"), |this| this.invisible())
+                    .child("Codux"),
+            )
             .child(project_column_toggle_button(
                 collapsed, app_entity, window, cx,
             ))

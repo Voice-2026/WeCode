@@ -15,10 +15,10 @@ const repo = process.env.GITHUB_REPOSITORY || "duxweb/codux";
 const notesPath = process.env.RELEASE_NOTES_PATH || path.join(root, "dist", `release-notes-${version}.md`);
 const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
 const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, "utf8") : `Codux ${version}`;
-const manifestPath = path.join(root, "updates", channel, "latest.json");
+const legacyTauriManifestPath = path.join(root, "updates", channel, "latest.json");
 const requireExistingRelease = process.env.RELEASE_REQUIRE_EXISTING === "true";
 const uploadLatest = process.env.RELEASE_UPLOAD_LATEST !== "false";
-const publishManifest = process.env.RELEASE_PUBLISH_MANIFEST !== "false";
+const publishLegacyTauriManifest = process.env.RELEASE_PUBLISH_LEGACY_TAURI_MANIFEST === "true";
 const mergeExistingLatest = process.env.RELEASE_MERGE_EXISTING_LATEST === "true";
 
 const assets = collectAssets(artifactsDir);
@@ -37,9 +37,10 @@ if (!dryRun) {
   }
   if (uploadLatest) {
     run("gh", ["release", "upload", tagName, "--repo", repo, "--clobber", `${latestPath}#latest.json`]);
+    uploadChannelLatest(latestPath);
   }
-  if (publishManifest) {
-    publishChannelManifest(latestPath);
+  if (publishLegacyTauriManifest) {
+    publishLegacyTauriChannelManifest(latestPath);
   }
 }
 
@@ -266,17 +267,55 @@ function upsertRelease() {
   ]);
 }
 
-function publishChannelManifest(sourcePath) {
+function uploadChannelLatest(latestPath) {
+  if (channel !== "beta") return;
+  const channelTag = "beta";
+  const releaseExists =
+    spawnSync("gh", ["release", "view", channelTag, "--repo", repo], {
+      stdio: "ignore",
+      env: process.env,
+    }).status === 0;
+  if (releaseExists) {
+    run("gh", [
+      "release",
+      "edit",
+      channelTag,
+      "--repo",
+      repo,
+      "--title",
+      "Codux Beta",
+      "--notes",
+      `Latest beta update metadata for Codux ${version}.`,
+      "--prerelease",
+    ]);
+  } else {
+    run("gh", [
+      "release",
+      "create",
+      channelTag,
+      "--repo",
+      repo,
+      "--title",
+      "Codux Beta",
+      "--notes",
+      `Latest beta update metadata for Codux ${version}.`,
+      "--prerelease",
+    ]);
+  }
+  run("gh", ["release", "upload", channelTag, "--repo", repo, "--clobber", `${latestPath}#latest.json`]);
+}
+
+function publishLegacyTauriChannelManifest(sourcePath) {
   const latestContent = fs.readFileSync(sourcePath, "utf8");
   run("git", ["fetch", "origin", "main"]);
   run("git", ["checkout", "-B", "main", "origin/main"]);
-  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  fs.writeFileSync(manifestPath, latestContent, "utf8");
+  fs.mkdirSync(path.dirname(legacyTauriManifestPath), { recursive: true });
+  fs.writeFileSync(legacyTauriManifestPath, latestContent, "utf8");
   run("git", ["config", "user.name", "github-actions[bot]"]);
   run("git", ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
-  run("git", ["add", manifestPath]);
+  run("git", ["add", legacyTauriManifestPath]);
   const diff = spawnSync("git", ["diff", "--cached", "--quiet"], { stdio: "inherit", env: process.env });
   if (diff.status === 0) return;
-  run("git", ["commit", "-m", `chore: update ${channel} updater manifest for ${version}`]);
+  run("git", ["commit", "-m", `chore: update legacy Tauri ${channel} updater manifest for ${version}`]);
   run("git", ["push", "origin", "HEAD:main"]);
 }

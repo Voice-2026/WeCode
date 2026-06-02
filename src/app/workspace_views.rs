@@ -343,7 +343,11 @@ impl Render for WorkspaceAssistantView {
                 |this| {
                     this.flex()
                         .flex_col()
-                        .w(px(318.0))
+                        .flex_none()
+                        .flex_shrink_0()
+                        .w(px(ASSISTANT_PANEL_WIDTH))
+                        .min_w(px(ASSISTANT_PANEL_WIDTH))
+                        .max_w(px(ASSISTANT_PANEL_WIDTH))
                         .h_full()
                         .bg(color(theme::BG_COLUMN))
                         .border_l_1()

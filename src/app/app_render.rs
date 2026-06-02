@@ -219,9 +219,9 @@ impl Render for CoduxApp {
         let workspace_column_view = self.workspace_column_view(cx);
         let status_bar_view = self.status_bar_view(cx);
         let project_column_width = px(if self.project_column_collapsed {
-            80.0
+            PROJECT_COLUMN_COLLAPSED_WIDTH
         } else {
-            232.0
+            PROJECT_COLUMN_EXPANDED_WIDTH
         });
         let task_column_width = TASK_COLUMN_FIXED_WIDTH;
 

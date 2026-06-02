@@ -73,8 +73,7 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     };
     settings.update.endpoint = settings.update.endpoint.trim().to_string();
     if settings.update.enabled
-        && (settings.update.endpoint.is_empty()
-            || is_legacy_update_endpoint(&settings.update.endpoint))
+        && settings.update.endpoint.is_empty()
     {
         settings.update.endpoint = update_endpoint_for_channel(&settings.update.channel);
     } else if settings.update.enabled && is_managed_update_endpoint(&settings.update.endpoint) {

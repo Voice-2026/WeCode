@@ -22,14 +22,12 @@ pub struct UpdateSummary {
 
 pub struct UpdateService {
     settings_path: PathBuf,
-    repo_root: PathBuf,
 }
 
 impl UpdateService {
-    pub fn new(support_dir: PathBuf, repo_root: PathBuf) -> Self {
+    pub fn new(support_dir: PathBuf, _repo_root: PathBuf) -> Self {
         Self {
             settings_path: crate::config::settings_file_path(support_dir),
-            repo_root,
         }
     }
 
@@ -156,17 +154,6 @@ impl UpdateService {
     }
 
     fn load_latest_manifest(&self, settings: &UpdateSummary) -> Result<Value, String> {
-        if settings
-            .endpoint
-            .contains("raw.githubusercontent.com/duxweb/codux/main/updates/")
-        {
-            let local = self
-                .repo_root
-                .join("updates")
-                .join(&settings.channel)
-                .join("latest.json");
-            return read_json_file(local);
-        }
         if let Some(path) = settings.endpoint.strip_prefix("file://") {
             return read_json_file(PathBuf::from(path));
         }

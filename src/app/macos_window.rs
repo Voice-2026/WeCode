@@ -2,9 +2,11 @@
 
 #[cfg(target_os = "macos")]
 use cocoa::{
-    appkit::{NSApp, NSColor, NSMenu, NSMenuItem, NSView, NSWindow, NSWindowStyleMask},
+    appkit::{
+        NSApp, NSColor, NSMenu, NSMenuItem, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+    },
     base::{NO, YES, id, nil},
-    foundation::{NSAutoreleasePool, NSPoint, NSString},
+    foundation::{NSAutoreleasePool, NSPoint, NSRect, NSSize, NSString},
 };
 use gpui::Window;
 #[cfg(target_os = "macos")]
@@ -85,6 +87,73 @@ pub(crate) fn install_dock_reopen_handler() {
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn install_dock_reopen_handler() {}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(crate) fn configure_main_window_controls(window: &mut Window) {
+    configure_native_window_buttons(window, false);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn configure_main_window_controls(_window: &mut Window) {}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(in crate::app) fn configure_child_window_controls(window: &mut Window) {
+    configure_native_window_buttons(window, true);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(in crate::app) fn configure_child_window_controls(_window: &mut Window) {}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn configure_native_window_buttons(window: &mut Window, close_only: bool) {
+    let Some(ns_window) = appkit_window(window) else {
+        return;
+    };
+
+    unsafe {
+        let close_button = ns_window.standardWindowButton_(NSWindowButton::NSWindowCloseButton);
+        let min_button = ns_window.standardWindowButton_(NSWindowButton::NSWindowMiniaturizeButton);
+        let zoom_button = ns_window.standardWindowButton_(NSWindowButton::NSWindowZoomButton);
+
+        set_button_hidden(min_button, close_only);
+        set_button_hidden(zoom_button, close_only);
+        compact_window_button(close_button);
+        if !close_only {
+            compact_window_button(min_button);
+            compact_window_button(zoom_button);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+unsafe fn set_button_hidden(button: id, hidden: bool) {
+    if button.is_null() {
+        return;
+    }
+    unsafe {
+        let _: () = msg_send![button, setHidden: if hidden { YES } else { NO }];
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+unsafe fn compact_window_button(button: id) {
+    if button.is_null() {
+        return;
+    }
+    unsafe {
+        let mut frame: NSRect = msg_send![button, frame];
+        let target_size = 10.0;
+        frame.origin.x += (frame.size.width - target_size) / 2.0;
+        frame.origin.y += (frame.size.height - target_size) / 2.0;
+        frame.size = NSSize::new(target_size, target_size);
+        let _: () = msg_send![button, setFrame: frame];
+    }
+}
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" fn dock_should_handle_reopen(
@@ -465,6 +534,15 @@ fn appkit_view(window: &mut Window) -> Option<id> {
     };
     let ns_view = handle.ns_view.as_ptr() as id;
     (!ns_view.is_null()).then_some(ns_view)
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_window(window: &mut Window) -> Option<id> {
+    let ns_view = appkit_view(window)?;
+    unsafe {
+        let ns_window: id = msg_send![ns_view, window];
+        (!ns_window.is_null()).then_some(ns_window)
+    }
 }
 
 #[cfg(target_os = "windows")]

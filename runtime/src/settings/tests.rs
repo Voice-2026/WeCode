@@ -401,6 +401,78 @@ mod tests {
         fs::remove_dir_all(support_dir).ok();
     }
 
+    #[test]
+    fn update_channel_keeps_managed_endpoint_in_sync() {
+        let support_dir = temp_dir("settings-update-channel");
+        fs::write(
+            support_dir.join("settings.json"),
+            r#"
+            {
+              "update": {
+                "enabled": true,
+                "channel": "stable",
+                "endpoint": "https://github.com/duxweb/codux/releases/latest/download/latest.json"
+              }
+            }
+            "#,
+        )
+        .expect("settings");
+
+        let service = SettingsService::new(support_dir.clone());
+        let summary = service
+            .set_update_channel("beta")
+            .expect("set beta channel");
+        assert_eq!(summary.update_channel, "beta");
+        crate::config::flush_all_config_writes();
+        let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
+        assert!(updated.contains(
+            "\"endpoint\": \"https://github.com/duxweb/codux/releases/download/beta/latest.json\""
+        ));
+
+        let summary = service
+            .set_update_channel("stable")
+            .expect("set stable channel");
+        assert_eq!(summary.update_channel, "stable");
+        crate::config::flush_all_config_writes();
+        let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
+        assert!(updated.contains(
+            "\"endpoint\": \"https://github.com/duxweb/codux/releases/latest/download/latest.json\""
+        ));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn update_channel_does_not_manage_raw_legacy_endpoint() {
+        let support_dir = temp_dir("settings-update-channel-raw");
+        fs::write(
+            support_dir.join("settings.json"),
+            r#"
+            {
+              "update": {
+                "enabled": true,
+                "channel": "stable",
+                "endpoint": "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json"
+              }
+            }
+            "#,
+        )
+        .expect("settings");
+
+        let service = SettingsService::new(support_dir.clone());
+        let summary = service
+            .set_update_channel("beta")
+            .expect("set beta channel");
+        assert_eq!(summary.update_channel, "beta");
+        crate::config::flush_all_config_writes();
+        let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
+        assert!(updated.contains(
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json\""
+        ));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
     fn temp_dir(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)

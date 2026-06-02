@@ -894,12 +894,16 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, size(px(920.0), px(680.0)), cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_titlebar(format!("Diff - {selected_file}"))),
+                titlebar: Some(theme::codux_child_titlebar(format!(
+                    "Diff - {selected_file}"
+                ))),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(720.0), px(520.0))),
+                is_minimizable: false,
                 ..Default::default()
             },
             move |window, cx| {
+                macos_window::configure_child_window_controls(window);
                 let mut app =
                     CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::GitDiff;

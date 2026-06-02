@@ -38,6 +38,7 @@ pub struct CoduxApp {
     pub(in crate::app) desktop_pet_window: Option<AnyWindowHandle>,
     pub(in crate::app) settings_window: Option<AnyWindowHandle>,
     pub(in crate::app) about_window: Option<AnyWindowHandle>,
+    pub(in crate::app) update_dialog_window: Option<AnyWindowHandle>,
     pub(in crate::app) git_clone_window: Option<AnyWindowHandle>,
     pub(in crate::app) git_credentials_window: Option<AnyWindowHandle>,
     pub(in crate::app) memory_manager_window: Option<AnyWindowHandle>,
@@ -889,7 +890,6 @@ pub(in crate::app) const PET_CUSTOM_INSTALL_ERROR_HEIGHT: f32 = 280.0;
 pub(in crate::app) const GIT_CREDENTIALS_WINDOW_WIDTH: f32 = 440.0;
 pub(in crate::app) const GIT_CREDENTIALS_COMPACT_HEIGHT: f32 = 310.0;
 pub(in crate::app) const GIT_CREDENTIALS_EXPANDED_HEIGHT: f32 = 350.0;
-pub(in crate::app) const TASK_COLUMN_FIXED_WIDTH: f32 = 240.0;
 
 pub(in crate::app) fn resize_pet_custom_install_window(window: &mut Window, height: f32) {
     window.resize(size(

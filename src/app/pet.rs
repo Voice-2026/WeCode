@@ -85,13 +85,15 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, window_size, cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_titlebar(title)),
+                titlebar: Some(theme::codux_child_titlebar(title)),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(min_size),
                 is_resizable: mode == AppWindowMode::PetDex,
+                is_minimizable: false,
                 ..Default::default()
             },
             move |window, cx| {
+                macos_window::configure_child_window_controls(window);
                 let app = CoduxApp::new_pet_window_from_state(
                     mode,
                     state.clone(),

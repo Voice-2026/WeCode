@@ -471,7 +471,7 @@ impl CoduxApp {
         self.runtime_trace("help", &format!("action {action_id}"));
         match action_id {
             "help:about" => self.open_about_window(window, cx),
-            "help:check-updates" => self.reload_update(window, cx),
+            "help:check-updates" => self.open_update_dialog_window(window, cx),
             "help:export-diagnostics" => self.export_diagnostics(cx),
             "help:runtime-log" => self.open_runtime_log(cx),
             "help:live-log" => self.open_live_log(cx),

@@ -24,6 +24,7 @@ impl SettingsService {
             _ => "stable",
         };
         update.insert("channel".to_string(), Value::String(next.to_string()));
+        sync_update_endpoint_for_channel(update, next);
         self.save_raw_settings(&raw)?;
         Ok(summary_from_raw(&raw))
     }
@@ -37,6 +38,7 @@ impl SettingsService {
         let mut raw = self.raw_settings();
         let update = update_mut(&mut raw)?;
         update.insert("channel".to_string(), Value::String(channel.to_string()));
+        sync_update_endpoint_for_channel(update, channel);
         self.save_raw_settings(&raw)?;
         Ok(summary_from_raw(&raw))
     }
@@ -84,4 +86,33 @@ impl SettingsService {
         let seconds = numeric_string(seconds, 3, 1, 86_400).to_string();
         self.update_string("developerRefresh", seconds)
     }
+}
+
+fn sync_update_endpoint_for_channel(update: &mut serde_json::Map<String, Value>, channel: &str) {
+    let endpoint = update
+        .get("endpoint")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if endpoint.is_empty() || is_managed_update_endpoint(endpoint) {
+        update.insert(
+            "endpoint".to_string(),
+            Value::String(update_endpoint_for_channel(channel).to_string()),
+        );
+    }
+}
+
+fn update_endpoint_for_channel(channel: &str) -> &'static str {
+    match channel {
+        "beta" => "https://github.com/duxweb/codux/releases/download/beta/latest.json",
+        _ => "https://github.com/duxweb/codux/releases/latest/download/latest.json",
+    }
+}
+
+fn is_managed_update_endpoint(endpoint: &str) -> bool {
+    matches!(
+        endpoint,
+        "https://github.com/duxweb/codux/releases/latest/download/latest.json"
+            | "https://github.com/duxweb/codux/releases/download/beta/latest.json"
+    )
 }

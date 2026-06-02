@@ -96,21 +96,46 @@ fn mix_towards(color: Hsla, target: Hsla, amount: f32) -> Hsla {
     raw_color(mix_hex(rgba_to_u32(color), rgba_to_u32(target), amount))
 }
 
-pub fn codux_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
+pub fn codux_main_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
+    codux_titlebar(title, CoduxTitlebarKind::Main)
+}
+
+pub fn codux_child_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
+    codux_titlebar(title, CoduxTitlebarKind::Child)
+}
+
+fn codux_titlebar(title: impl Into<SharedString>, kind: CoduxTitlebarKind) -> TitlebarOptions {
     TitlebarOptions {
         title: Some(title.into()),
         appears_transparent: true,
-        traffic_light_position: codux_traffic_light_position(),
+        traffic_light_position: codux_traffic_light_position(kind),
     }
 }
 
 #[cfg(target_os = "macos")]
-fn codux_traffic_light_position() -> Option<gpui::Point<gpui::Pixels>> {
-    Some(point(px(14.0), px(16.0)))
+#[derive(Clone, Copy)]
+enum CoduxTitlebarKind {
+    Main,
+    Child,
 }
 
 #[cfg(not(target_os = "macos"))]
-fn codux_traffic_light_position() -> Option<gpui::Point<gpui::Pixels>> {
+#[derive(Clone, Copy)]
+enum CoduxTitlebarKind {
+    Main,
+    Child,
+}
+
+#[cfg(target_os = "macos")]
+fn codux_traffic_light_position(kind: CoduxTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
+    match kind {
+        CoduxTitlebarKind::Main => Some(point(px(12.0), px(15.0))),
+        CoduxTitlebarKind::Child => Some(point(px(14.0), px(15.0))),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn codux_traffic_light_position(_kind: CoduxTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
     None
 }
 

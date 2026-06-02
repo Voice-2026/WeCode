@@ -103,6 +103,9 @@ impl CoduxApp {
                                 self.assistant_panel,
                                 cx,
                             ))
+                        })
+                        .when(!cfg!(target_os = "macos"), |this| {
+                            this.child(workspace_window_controls(cx))
                         }),
                 ),
             cx,
@@ -205,6 +208,49 @@ fn workspace_open_button(
                 }),
         )
 }
+
+fn workspace_window_controls(cx: &mut Context<CoduxApp>) -> impl IntoElement {
+    div()
+        .ml(px(4.0))
+        .flex()
+        .items_center()
+        .gap(px(2.0))
+        .child(workspace_window_control_button(
+            "workspace-window-minimize",
+            HeroIconName::Minus,
+            |window| window.minimize_window(),
+            cx,
+        ))
+        .child(workspace_window_control_button(
+            "workspace-window-zoom",
+            HeroIconName::Window,
+            |window| window.zoom_window(),
+            cx,
+        ))
+        .child(workspace_window_control_button(
+            "workspace-window-close",
+            HeroIconName::XMark,
+            |window| window.remove_window(),
+            cx,
+        ))
+}
+
+fn workspace_window_control_button(
+    id: &'static str,
+    icon: HeroIconName,
+    action: fn(&mut Window),
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    Button::new(id)
+        .compact()
+        .h(px(28.0))
+        .w(px(30.0))
+        .text_color(cx.theme().muted_foreground)
+        .hover(|style| style.bg(cx.theme().secondary_hover))
+        .child(Icon::new(icon).size_3())
+        .on_click(move |_, window, _| action(window))
+}
+
 fn workspace_assistant_button(
     label: &'static str,
     panel: AssistantPanel,

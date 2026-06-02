@@ -177,6 +177,7 @@ impl CoduxApp {
             desktop_pet_window: None,
             settings_window: None,
             about_window: None,
+            update_dialog_window: None,
             git_clone_window: None,
             git_credentials_window: None,
             memory_manager_window: None,

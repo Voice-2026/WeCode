@@ -26,7 +26,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "Neue Version v%@: "
     },
     "en": {
       "update.available.install": "Install",
@@ -54,7 +55,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "New version v%@: "
     },
     "es": {
       "update.available.install": "Instalar",
@@ -82,7 +84,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "Nueva versión v%@: "
     },
     "fr": {
       "update.available.install": "Installer",
@@ -110,7 +113,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "Nouvelle version v%@: "
     },
     "ja": {
       "update.available.install": "インストール",
@@ -138,7 +142,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "新しいバージョン v%@: "
     },
     "ko": {
       "update.available.install": "설치",
@@ -166,7 +171,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "새 버전 v%@: "
     },
     "pt-BR": {
       "update.available.install": "Instalar",
@@ -194,7 +200,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "Nova versão v%@: "
     },
     "ru": {
       "update.available.install": "Установить",
@@ -222,7 +229,8 @@
       "update.progress.title": "Installing Update",
       "update.progress.version_format": "Version v%@",
       "update.release_notes.empty": "No release notes were provided for this update.",
-      "update.version.summary_format": "Current v%@ · Latest v%@"
+      "update.version.summary_format": "Current v%@ · Latest v%@",
+      "update.available.version_title_format": "Новая версия v%@: "
     },
     "zh-Hans": {
       "update.available.install": "立即更新",
@@ -250,7 +258,8 @@
       "update.progress.title": "正在安装更新",
       "update.progress.version_format": "版本 v%@",
       "update.release_notes.empty": "此版本没有提供更新日志。",
-      "update.version.summary_format": "当前 v%@ · 最新 v%@"
+      "update.version.summary_format": "当前 v%@ · 最新 v%@",
+      "update.available.version_title_format": "发现新版本 v%@: "
     },
     "zh-Hant": {
       "update.available.install": "立即更新",
@@ -278,7 +287,8 @@
       "update.progress.title": "正在安裝更新",
       "update.progress.version_format": "版本 v%@",
       "update.release_notes.empty": "此版本沒有提供更新紀錄。",
-      "update.version.summary_format": "目前 v%@ · 最新 v%@"
+      "update.version.summary_format": "目前 v%@ · 最新 v%@",
+      "update.available.version_title_format": "發現新版本 v%@: "
     }
   }
 }

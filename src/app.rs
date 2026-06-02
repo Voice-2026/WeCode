@@ -142,6 +142,15 @@ mod worktree_creator;
 pub use self::app_state::CoduxApp;
 pub(crate) use self::app_state::{active_settings_snapshot, set_active_settings_snapshot};
 
+pub(crate) const MAIN_WINDOW_DEFAULT_WIDTH: f32 = 1280.0;
+pub(crate) const MAIN_WINDOW_DEFAULT_HEIGHT: f32 = 820.0;
+pub(crate) const MAIN_WINDOW_MIN_WIDTH: f32 = 1240.0;
+pub(crate) const MAIN_WINDOW_MIN_HEIGHT: f32 = 640.0;
+pub(crate) const PROJECT_COLUMN_COLLAPSED_WIDTH: f32 = 80.0;
+pub(crate) const PROJECT_COLUMN_EXPANDED_WIDTH: f32 = 232.0;
+pub(crate) const TASK_COLUMN_FIXED_WIDTH: f32 = 240.0;
+pub(crate) const ASSISTANT_PANEL_WIDTH: f32 = 320.0;
+
 use self::{
     ai_history_mapping::{
         ai_history_project_requests, ai_history_should_replace,
@@ -168,14 +177,13 @@ use self::{
         PET_CUSTOM_INSTALL_READY_HEIGHT, PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL,
         ProjectSwitchLoad, ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad,
         ProjectSwitchTerminalLoad, ProjectViewState, RuntimeActivityTickResult,
-        RuntimeScheduledRefresh, TASK_COLUMN_FIXED_WIDTH, TerminalViewState, TerminalViewStoreKey,
-        UpdateDialogPhase, WorktreeSidebarLoad, WorktreeSwitchTerminalLoad, app_git_review,
-        app_now_seconds, git_status_tree_key, initial_project_view_store,
-        initial_terminal_view_store, initial_worktree_view_store, prewarm_terminal_restore,
-        resize_git_credentials_window, resize_pet_custom_install_window,
-        resize_pet_custom_install_window_handle, settings_with_active_restart_locked_values,
-        terminal_view_store_key, worktree_summary_has_git_counts, worktree_summary_has_rows,
-        worktree_view_store_key,
+        RuntimeScheduledRefresh, TerminalViewState, TerminalViewStoreKey, UpdateDialogPhase,
+        WorktreeSidebarLoad, WorktreeSwitchTerminalLoad, app_git_review, app_now_seconds,
+        git_status_tree_key, initial_project_view_store, initial_terminal_view_store,
+        initial_worktree_view_store, prewarm_terminal_restore, resize_git_credentials_window,
+        resize_pet_custom_install_window, resize_pet_custom_install_window_handle,
+        settings_with_active_restart_locked_values, terminal_view_store_key,
+        worktree_summary_has_git_counts, worktree_summary_has_rows, worktree_view_store_key,
     },
     desktop_pet::*,
     formatting::compact_number,

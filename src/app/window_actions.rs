@@ -130,6 +130,7 @@ impl CoduxApp {
             desktop_pet_window: None,
             settings_window: None,
             about_window: None,
+            update_dialog_window: None,
             git_clone_window: None,
             git_credentials_window: None,
             memory_manager_window: None,
@@ -367,12 +368,14 @@ impl CoduxApp {
         let bounds = Bounds::centered(None, spec.size, cx);
         let result = cx.open_window(
             WindowOptions {
-                titlebar: Some(theme::codux_titlebar(spec.title)),
+                titlebar: Some(theme::codux_child_titlebar(spec.title)),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(spec.min_size),
+                is_minimizable: false,
                 ..Default::default()
             },
             move |window, cx| {
+                macos_window::configure_child_window_controls(window);
                 let app = build(state, runtime, runtime_service, window, cx);
                 theme::apply_component_theme(
                     &app.state.settings.theme,
@@ -414,9 +417,8 @@ impl CoduxApp {
     ) -> &mut Option<AnyWindowHandle> {
         match slot {
             AuxiliaryWindowSlot::Settings => &mut self.settings_window,
-            AuxiliaryWindowSlot::About | AuxiliaryWindowSlot::UpdateDialog => {
-                &mut self.about_window
-            }
+            AuxiliaryWindowSlot::About => &mut self.about_window,
+            AuxiliaryWindowSlot::UpdateDialog => &mut self.update_dialog_window,
             AuxiliaryWindowSlot::GitClone => &mut self.git_clone_window,
             AuxiliaryWindowSlot::GitCredentials => &mut self.git_credentials_window,
             AuxiliaryWindowSlot::MemoryManager => &mut self.memory_manager_window,
