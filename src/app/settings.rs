@@ -165,9 +165,15 @@ impl CoduxApp {
                     .border_r_1()
                     .border_color(cx.theme().sidebar_border)
                     .bg(cx.theme().sidebar)
-                    .when(cfg!(target_os = "macos"), |this| {
-                        this.child(div().h(px(48.0)).flex_shrink_0())
-                    })
+                    .child(
+                        div()
+                            .h(if cfg!(target_os = "macos") {
+                                px(48.0)
+                            } else {
+                                px(16.0)
+                            })
+                            .flex_shrink_0(),
+                    )
                     .child(
                         div()
                             .flex()
@@ -213,21 +219,23 @@ impl CoduxApp {
                                     .line_height(rems(1.625))
                                     .text_color(cx.theme().foreground)
                                     .child(pane.label(language)),
-                            )
-                            .when(!cfg!(target_os = "macos"), |this| {
-                                this.child(
-                                    Button::new("settings-window-close")
-                                        .compact()
-                                        .ghost()
-                                        .h(px(28.0))
-                                        .w(px(28.0))
-                                        .mb(px(-2.0))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .window_control_area(WindowControlArea::Close)
-                                        .child(Icon::new(HeroIconName::XMark).size_3()),
-                                )
-                            }),
+                            ),
                     )
+                    .when(!cfg!(target_os = "macos"), |this| {
+                        this.child(
+                            Button::new("settings-window-close")
+                                .absolute()
+                                .top(px(16.0))
+                                .right(px(16.0))
+                                .compact()
+                                .ghost()
+                                .h(px(28.0))
+                                .w(px(28.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .window_control_area(WindowControlArea::Close)
+                                .child(Icon::new(HeroIconName::XMark).size_3()),
+                        )
+                    })
                     .child(
                         div()
                             .flex_1()
