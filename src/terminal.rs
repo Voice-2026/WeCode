@@ -853,7 +853,7 @@ fn terminal_trace_enabled() -> bool {
                 let value = value.trim();
                 !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
             })
-            .unwrap_or(false)
+            .unwrap_or(cfg!(debug_assertions))
     })
 }
 
