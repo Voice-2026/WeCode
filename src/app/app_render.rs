@@ -231,8 +231,7 @@ impl Render for CoduxApp {
             let app_entity = cx.entity();
             window.on_window_should_close(cx, move |_window, cx| {
                 let _ = app_entity.update(cx, |app, cx| {
-                    app.close_auxiliary_windows(cx);
-                    app.is_exiting = true;
+                    app.shutdown_main_window(cx);
                 });
                 true
             });

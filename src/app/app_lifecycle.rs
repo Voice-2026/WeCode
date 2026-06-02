@@ -501,6 +501,21 @@ impl CoduxApp {
             return;
         }
         self.is_exiting = true;
+        self.close_auxiliary_windows_for_shutdown();
+        self.shutdown_runtime_state();
+    }
+
+    pub(super) fn shutdown_main_window(&mut self, cx: &mut Context<Self>) {
+        if self.is_exiting {
+            return;
+        }
+        self.is_exiting = true;
+        self.close_desktop_pet_window(cx);
+        self.close_auxiliary_windows(cx);
+        self.shutdown_runtime_state();
+    }
+
+    fn shutdown_runtime_state(&mut self) {
 
         codux_runtime::config::flush_all_config_writes();
 
@@ -522,5 +537,27 @@ impl CoduxApp {
                 }
                 runtime_service.shutdown_runtime_state();
             });
+    }
+
+    fn close_auxiliary_windows_for_shutdown(&mut self) {
+        let handles = [
+            &mut self.settings_window,
+            &mut self.about_window,
+            &mut self.update_dialog_window,
+            &mut self.git_clone_window,
+            &mut self.git_credentials_window,
+            &mut self.memory_manager_window,
+            &mut self.pet_claim_window,
+            &mut self.pet_custom_install_window,
+            &mut self.pet_dex_window,
+            &mut self.ssh_profile_editor_window,
+            &mut self.project_editor_window,
+            &mut self.worktree_creator_window,
+            &mut self.desktop_pet_window,
+        ];
+
+        for handle in handles {
+            let _ = handle.take();
+        }
     }
 }

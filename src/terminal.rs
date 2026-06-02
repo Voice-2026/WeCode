@@ -1959,6 +1959,7 @@ impl TerminalRenderer {
             && cursor_visible
             && term.mode().contains(TermMode::SHOW_CURSOR)
             && term.cursor_style().shape != CursorShape::Hidden
+            && !(cfg!(target_os = "windows") && term.mode().contains(TermMode::ALT_SCREEN))
         {
             self.paint_cursor(grid.cursor.point, colors, origin, window);
         }
