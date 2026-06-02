@@ -182,7 +182,7 @@ pub fn terminal_config() -> TerminalConfig {
         cols: 100,
         rows: 32,
         scrollback: 10_000,
-        line_height_multiplier: 1.22,
+        line_height_multiplier: DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
         padding: Edges::all(px(10.0)),
         colors,
     }
@@ -229,6 +229,7 @@ fn default_terminal_font_family() -> &'static str {
     }
 }
 
+const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 pub struct TerminalView {
@@ -251,8 +252,6 @@ pub struct TerminalView {
     pending_scroll_pixels: f32,
     scroll_frame_pending: bool,
     output_notify_pending: bool,
-    output_cursor_suppressed: bool,
-    cursor_restore_pending: bool,
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
@@ -296,9 +295,6 @@ impl TerminalView {
                 if this
                     .update(cx, |view, cx| {
                         view.cursor_visible = true;
-                        if cfg!(target_os = "windows") {
-                            view.output_cursor_suppressed = true;
-                        }
                         let sync_notify = view.update_synchronized_output_state(&bytes);
                         view.state.process_bytes(&bytes);
                         if view.sync_output_depth > 0 {
@@ -361,8 +357,6 @@ impl TerminalView {
             pending_scroll_pixels: 0.0,
             scroll_frame_pending: false,
             output_notify_pending: false,
-            output_cursor_suppressed: false,
-            cursor_restore_pending: false,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
@@ -614,34 +608,7 @@ impl TerminalView {
             timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
             let _ = terminal.update(cx, |terminal, cx| {
                 terminal.output_notify_pending = false;
-                if terminal.output_cursor_suppressed {
-                    terminal.schedule_cursor_restore(cx);
-                }
                 cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn schedule_cursor_restore(&mut self, cx: &mut Context<Self>) {
-        if self.cursor_restore_pending {
-            return;
-        }
-
-        self.cursor_restore_pending = true;
-        let timer = cx.background_executor().clone();
-        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
-            timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
-            let _ = terminal.update(cx, |terminal, cx| {
-                terminal.cursor_restore_pending = false;
-                if terminal.output_notify_pending {
-                    terminal.schedule_cursor_restore(cx);
-                    return;
-                }
-                if terminal.output_cursor_suppressed {
-                    terminal.output_cursor_suppressed = false;
-                    cx.notify();
-                }
             });
         })
         .detach();
@@ -715,7 +682,7 @@ impl TerminalView {
                 let color = self
                     .state
                     .color(index)
-                    .unwrap_or_else(|| terminal_color_request_default(index));
+                    .unwrap_or_else(|| self.config.colors.color_request(index));
                 self.write_bytes(format(color).as_bytes());
             }
             TerminalUiEvent::TextAreaSizeRequest(format) => {
@@ -874,10 +841,9 @@ impl Render for TerminalView {
         self.ensure_focus_report_subscriptions(window, cx);
         let has_marked_text = self.marked_text.is_some();
         let cursor_visible = if self.state.mode().contains(TermMode::ALT_SCREEN) {
-            !has_marked_text && !self.output_cursor_suppressed
+            !has_marked_text
         } else {
             !has_marked_text
-                && !self.output_cursor_suppressed
                 && (!self.focus_handle.contains_focused(window, cx) || self.cursor_visible)
         };
         let element = TerminalElement {
@@ -1241,6 +1207,7 @@ struct TerminalBackgroundRect {
 
 struct TerminalCursorPaint {
     point: TerminalPoint,
+    shape: CursorShape,
     color: Hsla,
 }
 
@@ -1273,17 +1240,64 @@ impl TerminalCursorPaint {
     fn paint(&self, renderer: &TerminalRenderer, origin: Point<Pixels>, window: &mut Window) {
         let x = origin.x + renderer.cell_width * self.point.column.0 as f32;
         let y = origin.y + renderer.cell_height * self.point.line.0 as f32;
-        window.paint_quad(quad(
-            Bounds {
-                origin: Point {
-                    x: px(f32::from(x).floor()),
-                    y: px(f32::from(y).floor()),
-                },
-                size: Size {
-                    width: px(f32::from(renderer.cell_width).round().max(1.0)),
-                    height: px(f32::from(renderer.cell_height).round().max(1.0)),
-                },
+        let bounds = Bounds {
+            origin: Point {
+                x: px(f32::from(x).floor()),
+                y: px(f32::from(y).floor()),
             },
+            size: Size {
+                width: px(f32::from(renderer.cell_width).round().max(1.0)),
+                height: px(f32::from(renderer.cell_height).round().max(1.0)),
+            },
+        };
+
+        match self.shape {
+            CursorShape::Hidden => {}
+            CursorShape::HollowBlock => {
+                let border_width = px(1.0);
+                window.paint_quad(quad(
+                    bounds,
+                    px(0.0),
+                    transparent_black(),
+                    Edges::all(border_width),
+                    self.color,
+                    Default::default(),
+                ));
+            }
+            CursorShape::Beam => {
+                self.paint_filled(
+                    Bounds {
+                        origin: bounds.origin,
+                        size: Size {
+                            width: px(2.0),
+                            height: bounds.size.height,
+                        },
+                    },
+                    window,
+                );
+            }
+            CursorShape::Underline => {
+                self.paint_filled(
+                    Bounds {
+                        origin: Point {
+                            x: bounds.origin.x,
+                            y: bounds.origin.y + bounds.size.height - px(2.0),
+                        },
+                        size: Size {
+                            width: bounds.size.width,
+                            height: px(2.0),
+                        },
+                    },
+                    window,
+                );
+            }
+            CursorShape::Block => self.paint_filled(bounds, window),
+        }
+    }
+
+    fn paint_filled(&self, bounds: Bounds<Pixels>, window: &mut Window) {
+        window.paint_quad(quad(
+            bounds,
             px(0.0),
             self.color,
             Edges::<Pixels>::default(),
@@ -1678,115 +1692,6 @@ enum TerminalUiEvent {
     ColorRequest(usize, Arc<dyn Fn(Rgb) -> String + Sync + Send + 'static>),
     TextAreaSizeRequest(Arc<dyn Fn(WindowSize) -> String + Sync + Send + 'static>),
     Exit,
-}
-
-fn terminal_color_request_default(index: usize) -> Rgb {
-    const ANSI: [Rgb; 16] = [
-        Rgb {
-            r: 0x1A,
-            g: 0x1D,
-            b: 0x24,
-        },
-        Rgb {
-            r: 0xF2,
-            g: 0x72,
-            b: 0x72,
-        },
-        Rgb {
-            r: 0x7D,
-            g: 0xD8,
-            b: 0x92,
-        },
-        Rgb {
-            r: 0xE8,
-            g: 0xC6,
-            b: 0x6A,
-        },
-        Rgb {
-            r: 0x7A,
-            g: 0xB8,
-            b: 0xFF,
-        },
-        Rgb {
-            r: 0xD6,
-            g: 0x8A,
-            b: 0xFF,
-        },
-        Rgb {
-            r: 0x66,
-            g: 0xD9,
-            b: 0xE8,
-        },
-        Rgb {
-            r: 0xD6,
-            g: 0xDA,
-            b: 0xE2,
-        },
-        Rgb {
-            r: 0x5C,
-            g: 0x65,
-            b: 0x73,
-        },
-        Rgb {
-            r: 0xFF,
-            g: 0x9B,
-            b: 0x9B,
-        },
-        Rgb {
-            r: 0xA8,
-            g: 0xEE,
-            b: 0xB7,
-        },
-        Rgb {
-            r: 0xF4,
-            g: 0xD9,
-            b: 0x86,
-        },
-        Rgb {
-            r: 0xA6,
-            g: 0xD0,
-            b: 0xFF,
-        },
-        Rgb {
-            r: 0xE6,
-            g: 0xB3,
-            b: 0xFF,
-        },
-        Rgb {
-            r: 0x9E,
-            g: 0xF0,
-            b: 0xF5,
-        },
-        Rgb {
-            r: 0xFF,
-            g: 0xFF,
-            b: 0xFF,
-        },
-    ];
-
-    match index {
-        0..=15 => ANSI[index],
-        256 | 267 => Rgb {
-            r: 0xD6,
-            g: 0xDA,
-            b: 0xE2,
-        },
-        257 | 268 => Rgb {
-            r: 0x11,
-            g: 0x14,
-            b: 0x1A,
-        },
-        258 => Rgb {
-            r: 0xF3,
-            g: 0xC9,
-            b: 0x6B,
-        },
-        _ => Rgb {
-            r: 0xD6,
-            g: 0xDA,
-            b: 0xE2,
-        },
-    }
 }
 
 #[derive(Clone)]
@@ -2194,6 +2099,28 @@ fn mouse_wheel_button(button: MouseButton) -> Option<TerminalMouseButton> {
     }
 }
 
+fn ansi_named_color(index: usize) -> NamedColor {
+    match index {
+        0 => NamedColor::Black,
+        1 => NamedColor::Red,
+        2 => NamedColor::Green,
+        3 => NamedColor::Yellow,
+        4 => NamedColor::Blue,
+        5 => NamedColor::Magenta,
+        6 => NamedColor::Cyan,
+        7 => NamedColor::White,
+        8 => NamedColor::BrightBlack,
+        9 => NamedColor::BrightRed,
+        10 => NamedColor::BrightGreen,
+        11 => NamedColor::BrightYellow,
+        12 => NamedColor::BrightBlue,
+        13 => NamedColor::BrightMagenta,
+        14 => NamedColor::BrightCyan,
+        15 => NamedColor::BrightWhite,
+        _ => NamedColor::White,
+    }
+}
+
 fn normal_mouse_report(
     point: TerminalCellPoint,
     button_code: u8,
@@ -2261,7 +2188,7 @@ impl TerminalRenderer {
             font_size,
             line_height_multiplier,
             cell_width: font_size * 0.6,
-            cell_height: font_size * 1.4,
+            cell_height: font_size * line_height_multiplier,
             palette,
             measured_key: None,
         }
@@ -2348,6 +2275,7 @@ impl TerminalRenderer {
             && content.cursor.shape != CursorShape::Hidden)
             .then(|| TerminalCursorPaint {
                 point: content.cursor.point,
+                shape: content.cursor.shape,
                 color: self
                     .palette
                     .resolve(Color::Named(NamedColor::Cursor), colors),
@@ -2517,6 +2445,14 @@ impl TerminalRenderer {
         let mut bg = cell.bg;
         if cell.flags.contains(Flags::INVERSE) {
             std::mem::swap(&mut fg, &mut bg);
+        }
+        if cell.flags.contains(Flags::BOLD)
+            && let Color::Named(named) = fg
+        {
+            let index = named as usize;
+            if index < 8 {
+                fg = Color::Named(ansi_named_color(index + 8));
+            }
         }
         (self.palette.resolve(fg, colors), self.palette.resolve(bg, colors))
     }
@@ -2891,6 +2827,26 @@ impl ColorPalette {
         self.background
     }
 
+    fn color_request(&self, index: usize) -> Rgb {
+        match index {
+            0..=255 => hsla_to_rgb(self.extended_colors[index]),
+            256 => hsla_to_rgb(self.foreground),
+            257 => hsla_to_rgb(self.background),
+            258 => hsla_to_rgb(self.cursor),
+            259 => hsla_to_rgb(dim_color(self.ansi_colors[0])),
+            260 => hsla_to_rgb(dim_color(self.ansi_colors[1])),
+            261 => hsla_to_rgb(dim_color(self.ansi_colors[2])),
+            262 => hsla_to_rgb(dim_color(self.ansi_colors[3])),
+            263 => hsla_to_rgb(dim_color(self.ansi_colors[4])),
+            264 => hsla_to_rgb(dim_color(self.ansi_colors[5])),
+            265 => hsla_to_rgb(dim_color(self.ansi_colors[6])),
+            266 => hsla_to_rgb(dim_color(self.ansi_colors[7])),
+            267 => hsla_to_rgb(brighten_color(self.foreground)),
+            268 => hsla_to_rgb(dim_color(self.foreground)),
+            _ => hsla_to_rgb(self.foreground),
+        }
+    }
+
     fn resolve(&self, color: Color, colors: &Colors) -> Hsla {
         match color {
             Color::Named(named) => {
@@ -3020,6 +2976,16 @@ impl ColorPaletteBuilder {
 
 fn rgb_to_hsla(rgb: Rgb) -> Hsla {
     gpui_rgb(rgb.r, rgb.g, rgb.b)
+}
+
+fn hsla_to_rgb(color: Hsla) -> Rgb {
+    let rgba = color.to_rgb();
+    let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Rgb {
+        r: channel(rgba.r),
+        g: channel(rgba.g),
+        b: channel(rgba.b),
+    }
 }
 
 fn gpui_rgb(r: u8, g: u8, b: u8) -> Hsla {
@@ -3406,7 +3372,7 @@ mod tests {
         let renderer = TerminalRenderer::new(
             default_terminal_font_family().to_string(),
             px(14.0),
-            1.22,
+            DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
             ColorPalette::default(),
         );
         let colors = Colors::default();
@@ -3420,5 +3386,146 @@ mod tests {
 
         assert_eq!(inverse.0, normal.1);
         assert_eq!(inverse.1, normal.0);
+    }
+
+    #[test]
+    fn default_terminal_line_height_matches_renderer_cell_height() {
+        let config = terminal_config();
+        assert_eq!(
+            config.line_height_multiplier,
+            DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER
+        );
+
+        let renderer = TerminalRenderer::new(
+            config.font_family,
+            config.font_size,
+            config.line_height_multiplier,
+            config.colors,
+        );
+        assert_eq!(
+            renderer.cell_height,
+            config.font_size * DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER
+        );
+    }
+
+    #[test]
+    fn bold_ansi_foreground_uses_bright_color() {
+        let renderer = TerminalRenderer::new(
+            default_terminal_font_family().to_string(),
+            px(14.0),
+            DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
+            ColorPalette::default(),
+        );
+        let colors = Colors::default();
+        let mut cell = Cell::default();
+        cell.fg = Color::Named(NamedColor::Blue);
+        cell.bg = Color::Named(NamedColor::Background);
+        cell.flags.insert(Flags::BOLD);
+
+        let (fg, _) = renderer.cell_render_colors(&cell, &colors);
+        assert_eq!(
+            fg,
+            renderer
+                .palette
+                .resolve(Color::Named(NamedColor::BrightBlue), &colors)
+        );
+    }
+
+    #[test]
+    fn inverse_bold_only_brightens_final_foreground() {
+        let renderer = TerminalRenderer::new(
+            default_terminal_font_family().to_string(),
+            px(14.0),
+            DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
+            ColorPalette::default(),
+        );
+        let colors = Colors::default();
+        let mut cell = Cell::default();
+        cell.fg = Color::Named(NamedColor::Blue);
+        cell.bg = Color::Named(NamedColor::Red);
+        cell.flags.insert(Flags::BOLD | Flags::INVERSE);
+
+        let (fg, bg) = renderer.cell_render_colors(&cell, &colors);
+        assert_eq!(
+            fg,
+            renderer
+                .palette
+                .resolve(Color::Named(NamedColor::BrightRed), &colors)
+        );
+        assert_eq!(
+            bg,
+            renderer
+                .palette
+                .resolve(Color::Named(NamedColor::Blue), &colors)
+        );
+    }
+
+    #[test]
+    fn color_requests_use_configured_palette() {
+        let palette = ColorPalette::builder()
+            .background(0x28, 0x2A, 0x36)
+            .foreground(0xF8, 0xF8, 0xF2)
+            .cursor(0xF8, 0xF8, 0xF2)
+            .selection(0x44, 0x47, 0x5A)
+            .black(0x21, 0x22, 0x2C)
+            .bright_black(0x62, 0x72, 0xA4)
+            .build();
+
+        assert_eq!(
+            palette.color_request(NamedColor::Background as usize),
+            Rgb {
+                r: 0x28,
+                g: 0x2A,
+                b: 0x36
+            }
+        );
+        assert_eq!(
+            palette.color_request(NamedColor::Foreground as usize),
+            Rgb {
+                r: 0xF8,
+                g: 0xF8,
+                b: 0xF2
+            }
+        );
+        assert_eq!(
+            palette.color_request(NamedColor::Black as usize),
+            Rgb {
+                r: 0x21,
+                g: 0x22,
+                b: 0x2C
+            }
+        );
+        assert_eq!(
+            palette.color_request(NamedColor::BrightBlack as usize),
+            Rgb {
+                r: 0x62,
+                g: 0x72,
+                b: 0xA4
+            }
+        );
+        assert_eq!(
+            palette.color_request(NamedColor::BrightForeground as usize),
+            hsla_to_rgb(brighten_color(rgb_to_hsla(Rgb {
+                r: 0xF8,
+                g: 0xF8,
+                b: 0xF2
+            })))
+        );
+        assert_eq!(
+            palette.color_request(NamedColor::DimForeground as usize),
+            hsla_to_rgb(dim_color(rgb_to_hsla(Rgb {
+                r: 0xF8,
+                g: 0xF8,
+                b: 0xF2
+            })))
+        );
+        assert_eq!(
+            palette.color_request(999),
+            Rgb {
+                r: 0xF8,
+                g: 0xF8,
+                b: 0xF2
+            }
+        );
     }
 }
