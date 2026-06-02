@@ -232,6 +232,7 @@ fn default_terminal_font_family() -> &'static str {
 
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const TERMINAL_OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(4);
 static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub struct TerminalView {
@@ -361,7 +362,7 @@ impl TerminalView {
         if !terminal_trace_enabled() {
             return;
         }
-        let content = self.state.handle().snapshot();
+        let content = self.state.live_snapshot();
         terminal_trace(&format!(
             "state bytes={} sync_depth={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={}",
             bytes_len,
@@ -603,9 +604,10 @@ impl TerminalView {
         self.output_notify_pending = true;
         let timer = cx.background_executor().clone();
         cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
-            timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
+            timer.timer(TERMINAL_OUTPUT_FRAME_INTERVAL).await;
             let _ = terminal.update(cx, |terminal, cx| {
                 terminal.output_notify_pending = false;
+                terminal.state.publish_snapshot();
                 cx.notify();
             });
         })
@@ -662,7 +664,7 @@ impl TerminalView {
         should_notify: &mut bool,
     ) {
         match event {
-            TerminalUiEvent::Wakeup => *should_notify = true,
+            TerminalUiEvent::Wakeup => self.schedule_output_notify(cx),
             TerminalUiEvent::PtyWrite(bytes) => self.write_bytes(&bytes),
             TerminalUiEvent::Bell => {
                 self.bell_count = self.bell_count.saturating_add(1);
@@ -1019,8 +1021,16 @@ impl TerminalState {
     fn process_bytes(&mut self, bytes: &[u8]) {
         let mut term = self.handle.term.lock();
         self.parser.advance(&mut *term, bytes);
+    }
+
+    fn publish_snapshot(&self) {
+        self.handle.publish_snapshot();
+    }
+
+    fn live_snapshot(&self) -> TerminalContent {
+        let term = self.handle.term.lock();
         let content = TerminalContent::from_term(&term);
-        *self.handle.snapshot.lock() = content;
+        content
     }
 
     fn handle(&self) -> TerminalStateHandle {
@@ -1050,15 +1060,20 @@ impl TerminalState {
 
 impl TerminalStateHandle {
     fn mode(&self) -> TermMode {
-        self.snapshot.lock().mode
+        *self.term.lock().mode()
     }
 
     fn display_offset(&self) -> usize {
-        self.snapshot.lock().display_offset
+        self.term.lock().grid().display_offset()
     }
 
     fn snapshot(&self) -> TerminalContent {
         self.snapshot.lock().clone()
+    }
+
+    fn publish_snapshot(&self) {
+        let term = self.term.lock();
+        *self.snapshot.lock() = TerminalContent::from_term(&term);
     }
 
     fn resize(&self, cols: usize, rows: usize) -> bool {
@@ -3279,12 +3294,21 @@ mod tests {
     }
 
     #[test]
-    fn synchronized_output_keeps_live_content_updates() {
+    fn processed_output_updates_live_terminal_before_paint_snapshot() {
         let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
         state.process_bytes(b"before");
 
         state.process_bytes(b"\r\x1b[2Kduring");
-        let live = state.handle().snapshot();
+        let paint_snapshot = state.handle().snapshot();
+        let paint_text: String = paint_snapshot
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+        assert!(!paint_text.contains("during"));
+
+        let live = state.live_snapshot();
 
         let live_text: String = live
             .cells
@@ -3294,6 +3318,17 @@ mod tests {
             .collect();
 
         assert!(live_text.contains("during"));
+
+        state.publish_snapshot();
+        let published = state.handle().snapshot();
+        let published_text: String = published
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+
+        assert!(published_text.contains("during"));
     }
 
     #[test]
@@ -3532,6 +3567,17 @@ mod tests {
     fn updates_render_snapshot_after_output() {
         let mut state = TerminalState::new(10, 4, 100, GpuiEventProxy::new(mpsc::channel().0));
         state.process_bytes(b"hello");
+
+        let pending_snapshot = state.handle().snapshot();
+        let pending_text: String = pending_snapshot
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line.0 == 0)
+            .map(|cell| cell.c)
+            .collect();
+        assert!(!pending_text.contains("hello"));
+
+        state.publish_snapshot();
 
         let snapshot = state.handle().snapshot();
         let text: String = snapshot
