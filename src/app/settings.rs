@@ -202,11 +202,17 @@ impl CoduxApp {
                         div()
                             .h(px(68.0))
                             .flex_shrink_0()
-                            .px(px(28.0))
+                            .pl(px(28.0))
+                            .pr(if cfg!(target_os = "macos") {
+                                px(28.0)
+                            } else {
+                                px(16.0)
+                            })
                             .pb(px(14.0))
                             .flex()
                             .items_end()
                             .justify_between()
+                            .gap_3()
                             .child(
                                 div()
                                     .min_w_0()
@@ -219,24 +225,22 @@ impl CoduxApp {
                                     .line_height(rems(1.625))
                                     .text_color(cx.theme().foreground)
                                     .child(pane.label(language)),
-                            ),
+                            )
+                            .when(!cfg!(target_os = "macos"), |this| {
+                                this.child(
+                                    Button::new("settings-window-close")
+                                        .flex_none()
+                                        .compact()
+                                        .ghost()
+                                        .h(px(28.0))
+                                        .w(px(28.0))
+                                        .text_color(cx.theme().muted_foreground)
+                                        .window_control_area(WindowControlArea::Close)
+                                        .on_click(|_, window, _| window.remove_window())
+                                        .child(Icon::new(HeroIconName::XMark).size_3()),
+                                )
+                            }),
                     )
-                    .when(!cfg!(target_os = "macos"), |this| {
-                        this.child(
-                            Button::new("settings-window-close")
-                                .absolute()
-                                .top(px(16.0))
-                                .right(px(16.0))
-                                .compact()
-                                .ghost()
-                                .h(px(28.0))
-                                .w(px(28.0))
-                                .text_color(cx.theme().muted_foreground)
-                                .window_control_area(WindowControlArea::Close)
-                                .on_click(|_, window, _| window.remove_window())
-                                .child(Icon::new(HeroIconName::XMark).size_3()),
-                        )
-                    })
                     .child(
                         div()
                             .flex_1()
