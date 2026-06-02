@@ -232,7 +232,7 @@ fn default_terminal_font_family() -> &'static str {
 
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
-const TERMINAL_CURSOR_SETTLE_INTERVAL: Duration = Duration::from_millis(48);
+const TERMINAL_CURSOR_SETTLE_INTERVAL: Duration = TERMINAL_SCROLL_FRAME_INTERVAL;
 static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();
 
 pub struct TerminalView {
@@ -299,19 +299,14 @@ impl TerminalView {
                 if this
                     .update(cx, |view, cx| {
                         let sync_update = view.update_synchronized_output_state(&bytes);
-                        let protocol_flags = terminal_protocol_flags(&bytes);
                         let cursor_state = view.state.process_bytes(&bytes);
                         view.trace_terminal_state_after_output(bytes.len(), cursor_state);
-                        if view.should_suppress_cursor_for_output(
-                            sync_update,
-                            protocol_flags,
-                            cursor_state.point,
-                        ) {
+                        if view.should_suppress_cursor_for_output(sync_update, cursor_state.point) {
                             view.suppress_cursor_until_settled(cx);
                         } else {
                             view.clear_cursor_suppression();
                         }
-                        view.update_stable_cursor_point(cursor_state, protocol_flags);
+                        view.update_stable_cursor_point(cursor_state);
                         let mut event_should_notify = false;
                         view.process_pending_events(cx, &mut event_should_notify);
                         if view.sync_output_depth > 0 {
@@ -378,10 +373,9 @@ impl TerminalView {
     fn should_suppress_cursor_for_output(
         &self,
         sync_update: SyncOutputUpdate,
-        protocol_flags: TerminalProtocolFlags,
         cursor_point: TerminalPoint,
     ) -> bool {
-        if !self.should_consider_cursor_transient(sync_update, protocol_flags) {
+        if !self.should_consider_cursor_transient(sync_update) {
             return false;
         }
         should_suppress_transient_cursor(self.stable_cursor_point, cursor_point, true)
@@ -396,25 +390,15 @@ impl TerminalView {
         self.cursor_suppressed_until = None;
     }
 
-    fn should_consider_cursor_transient(
-        &self,
-        sync_update: SyncOutputUpdate,
-        protocol_flags: TerminalProtocolFlags,
-    ) -> bool {
+    fn should_consider_cursor_transient(&self, sync_update: SyncOutputUpdate) -> bool {
         self.stable_cursor_point.is_some()
             && (self.sync_output_depth > 0
                 || sync_update.entered_from_idle
-                || sync_update.exited_to_idle
-                || (protocol_flags.show_cursor && protocol_flags.hide_cursor))
+                || sync_update.exited_to_idle)
     }
 
-    fn update_stable_cursor_point(
-        &mut self,
-        cursor_state: TerminalCursorState,
-        protocol_flags: TerminalProtocolFlags,
-    ) {
+    fn update_stable_cursor_point(&mut self, cursor_state: TerminalCursorState) {
         if self.sync_output_depth == 0
-            && !protocol_flags.hide_cursor
             && cursor_state.mode.contains(TermMode::SHOW_CURSOR)
             && cursor_state.shape != CursorShape::Hidden
             && cursor_state.display_offset == 0
@@ -1308,6 +1292,11 @@ fn should_suppress_transient_cursor(
                 && !(stable.column == cursor_point.column
                     && (stable.line.0 - cursor_point.line.0).abs() <= 1)
         })
+}
+
+fn is_same_cursor_context(stable: TerminalPoint, current: TerminalPoint) -> bool {
+    let line_delta = (stable.line.0 - current.line.0).abs();
+    line_delta <= 2
 }
 
 #[derive(Clone)]
@@ -2533,6 +2522,7 @@ impl TerminalRenderer {
             Some(content.cursor.point)
         } else {
             fallback_cursor_point
+                .filter(|point| is_same_cursor_context(*point, content.cursor.point))
         };
         let cursor = (content.display_offset == 0
             && content.mode.contains(TermMode::SHOW_CURSOR)
@@ -3493,6 +3483,15 @@ mod tests {
             None,
             TerminalPoint::new(Line(21), Column(33)),
             true
+        ));
+
+        assert!(is_same_cursor_context(
+            stable,
+            TerminalPoint::new(Line(20), Column(3))
+        ));
+        assert!(!is_same_cursor_context(
+            TerminalPoint::new(Line(24), Column(0)),
+            TerminalPoint::new(Line(30), Column(2))
         ));
     }
 
