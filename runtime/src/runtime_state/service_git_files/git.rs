@@ -13,6 +13,16 @@ impl RuntimeService {
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
+    pub fn clone_project_git_with_credentials(
+        &self,
+        project_path: &str,
+        remote_url: &str,
+        credentials: git::GitCredentials,
+    ) -> Result<git::GitSummary, String> {
+        git::GitService::clone_repository_with_credentials(project_path, remote_url, credentials)?;
+        Ok(refresh_git_summary(&self.support_dir, project_path))
+    }
+
     pub fn read_project_git_diff(
         &self,
         project_path: &str,

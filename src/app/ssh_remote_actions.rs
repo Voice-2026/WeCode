@@ -1,7 +1,78 @@
 use super::*;
-use crate::app::app_events::current_memory_update_event;
+use crate::app::app_events::{ChildWindowUpdateEvent, current_memory_update_event};
 
 impl CoduxApp {
+    pub(super) fn apply_child_window_update_event(
+        &mut self,
+        event: ChildWindowUpdateEvent,
+        cx: &mut Context<Self>,
+    ) -> usize {
+        if event.revision <= self.child_window_update_seen_revision {
+            return 0;
+        }
+        self.child_window_update_seen_revision = event.revision;
+
+        let mut applied = 0;
+        if event.settings_revision > self.child_window_settings_seen_revision {
+            self.child_window_settings_seen_revision = event.settings_revision;
+            if self.apply_settings_update_event(cx) {
+                applied += 1;
+            }
+        }
+        if event.ssh_revision > self.child_window_ssh_seen_revision {
+            self.child_window_ssh_seen_revision = event.ssh_revision;
+            self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
+            self.normalize_selected_ssh_profile();
+            self.invalidate_remote_panel(cx);
+            applied += 1;
+        }
+        if event.memory_revision > self.child_window_memory_seen_revision {
+            self.child_window_memory_seen_revision = event.memory_revision;
+            self.state.memory = self.runtime_service.reload_memory(
+                self.state
+                    .selected_project
+                    .as_ref()
+                    .map(|project| project.id.as_str()),
+            );
+            self.reload_memory_manager_snapshot();
+            self.invalidate_status_bar(cx);
+            applied += 1;
+        }
+        if event.project_revision > self.child_window_project_seen_revision {
+            self.child_window_project_seen_revision = event.project_revision;
+            self.state = self.runtime_service.reload_state();
+            if let Some(project) = self.state.selected_project.as_ref() {
+                self.state.worktrees = self
+                    .runtime_service
+                    .reload_worktrees(Some(&project.id), Some(&project.path));
+            }
+            self.project_open_applications = self.runtime_service.project_open_applications();
+            self.normalize_selected_git_branch();
+            self.normalize_selected_ai_session();
+            self.normalize_selected_runtime_session();
+            self.normalize_selected_ssh_profile();
+            self.sync_project_list_store(cx);
+            self.invalidate_project_management(cx);
+            self.invalidate_task_column(cx);
+            applied += 1;
+        }
+        if event.git_revision > self.child_window_git_seen_revision {
+            self.child_window_git_seen_revision = event.git_revision;
+            self.git_running_operation =
+                event
+                    .git_running_label
+                    .clone()
+                    .map(|label| GitRunningOperation {
+                        label,
+                        cancellable: false,
+                    });
+            self.refresh_git_panel_state_async(cx);
+            self.invalidate_git_panel(cx);
+            applied += 1;
+        }
+        applied
+    }
+
     pub(super) fn reload_ssh(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
         self.normalize_selected_ssh_profile();
@@ -326,6 +397,7 @@ impl CoduxApp {
                 self.ssh_draft_open = false;
                 self.status_message = "SSH profile saved".to_string();
                 publish_ssh_update();
+                publish_child_window_update(ChildWindowUpdateKind::Ssh);
                 if self.window_mode == AppWindowMode::SshProfileEditor {
                     window.remove_window();
                 }
@@ -902,6 +974,8 @@ impl CoduxApp {
             self.runtime_service.tick_project_activity();
         }
         let applied_settings_events = usize::from(self.apply_settings_update_event(cx));
+        let child_window_events =
+            self.apply_child_window_update_event(current_child_window_update_event(), cx);
         let project_events = self.runtime_service.drain_project_activity_events();
         let applied_project_events = self.apply_project_activity_events(project_events, cx);
         let applied_pet_events =
@@ -969,6 +1043,7 @@ impl CoduxApp {
             || applied_pet_events > 0
             || applied_pet_update_events > 0
             || applied_settings_events > 0
+            || child_window_events > 0
             || !remote_events.is_empty()
             || !drained.events.is_empty()
             || !drained.memory.is_empty()
@@ -982,9 +1057,10 @@ impl CoduxApp {
             self.runtime_trace(
                 "runtime-activity",
                 &format!(
-                    "tick scheduled={} settings={} project={} files={} pet_catalog={} pet_updates={} ai_history={} ai_events={} memory={} remote={} scheduled_refresh={} ai_state_error={}",
+                    "tick scheduled={} settings={} child_windows={} project={} files={} pet_catalog={} pet_updates={} ai_history={} ai_events={} memory={} remote={} scheduled_refresh={} ai_state_error={}",
                     include_scheduled_tick,
                     applied_settings_events,
+                    child_window_events,
                     applied_project_events,
                     applied_file_events,
                     applied_pet_events,

@@ -17,8 +17,8 @@ pub(in crate::app) use files::{
 };
 pub(in crate::app) use git::{
     GitFilesPanelView, GitHistoryPanelView, GitReviewAlignedRows, GitSidebarLabels,
-    build_git_review_aligned_rows, git_diff_window_workspace, git_review_file_list,
-    git_review_workspace,
+    build_git_review_aligned_rows, git_clone_window_workspace, git_credentials_window_workspace,
+    git_diff_window_workspace, git_review_file_list, git_review_workspace,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -212,7 +212,6 @@ impl Render for GitSidebarView {
                     .as_ref()
                     .and_then(|project| project.git_default_push_remote_name.as_deref()),
                 &app.git_clone_remote_url,
-                app.git_clone_dialog_open,
                 &app.state.settings.language,
                 app.git_remote_editor_open,
                 &app.git_remote_name,
@@ -549,7 +548,6 @@ fn git_interaction_fingerprint(app: &CoduxApp) -> u64 {
                 .as_ref()
                 .and_then(|project| project.git_default_push_remote_name.clone()),
             app.git_clone_remote_url.clone(),
-            app.git_clone_dialog_open,
             app.state.settings.language.clone(),
             app.git_remote_editor_open,
         )),

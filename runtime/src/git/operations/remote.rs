@@ -9,6 +9,21 @@ fn clone_repository_git2(remote_url: &str, project_path: &Path) -> Result<(), St
         .map_err(|error| error.message().to_string())
 }
 
+fn clone_repository_git2_with_credentials(
+    remote_url: &str,
+    project_path: &Path,
+    credentials: GitCredentials,
+) -> Result<(), String> {
+    let mut fetch_options = git2::FetchOptions::new();
+    fetch_options.remote_callbacks(git_remote_callbacks_with_credentials(None, Some(credentials)));
+    let mut builder = git2::build::RepoBuilder::new();
+    builder.fetch_options(fetch_options);
+    builder
+        .clone(remote_url, project_path)
+        .map(|_| ())
+        .map_err(|error| error.message().to_string())
+}
+
 fn fetch_all_remotes_git2(
     repo: &GitRepository,
     cancel: Option<&GitCancelToken>,
@@ -204,6 +219,13 @@ fn first_remote_name(repo: &GitRepository) -> Option<String> {
 }
 
 fn git_remote_callbacks<'a>(cancel: Option<GitCancelToken>) -> git2::RemoteCallbacks<'a> {
+    git_remote_callbacks_with_credentials(cancel, None)
+}
+
+fn git_remote_callbacks_with_credentials<'a>(
+    cancel: Option<GitCancelToken>,
+    credentials: Option<GitCredentials>,
+) -> git2::RemoteCallbacks<'a> {
     let mut callbacks = git2::RemoteCallbacks::new();
     let transfer_cancel = cancel.clone();
     callbacks.transfer_progress(move |_| !is_git_cancelled(transfer_cancel.as_ref()));
@@ -214,7 +236,18 @@ fn git_remote_callbacks<'a>(cancel: Option<GitCancelToken>) -> git2::RemoteCallb
         check_git_cancelled(push_negotiation_cancel.as_ref())
             .map_err(|error| git2::Error::from_str(&error))
     });
-    callbacks.credentials(|url, username_from_url, allowed| {
+    callbacks.credentials(move |url, username_from_url, allowed| {
+        if let Some(credentials) = credentials.as_ref() {
+            if allowed.is_user_pass_plaintext() {
+                return git2::Cred::userpass_plaintext(
+                    credentials.username.trim(),
+                    credentials.password_or_token.trim(),
+                );
+            }
+            if allowed.is_username() {
+                return git2::Cred::username(credentials.username.trim());
+            }
+        }
         if allowed.is_ssh_key() || allowed.is_ssh_memory() {
             let username = username_from_url.unwrap_or("git");
             if let Ok(cred) = git2::Cred::ssh_key_from_agent(username) {

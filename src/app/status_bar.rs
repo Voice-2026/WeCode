@@ -8,6 +8,7 @@ pub(in crate::app) struct StatusBarView {
 #[derive(Clone, PartialEq)]
 struct StatusGitSummary {
     branch: String,
+    is_repository: bool,
     incoming: i64,
     outgoing: i64,
     additions: i64,
@@ -96,7 +97,12 @@ impl CoduxApp {
         if let Some(worktree) = super::ai_runtime_status::selected_worktree_info(&self.state) {
             let git = worktree.git_summary;
             return StatusGitSummary {
-                branch: non_empty(worktree.branch).unwrap_or_else(|| self.state.git.branch.clone()),
+                branch: if self.state.git.is_repository {
+                    non_empty(worktree.branch).unwrap_or_else(|| self.state.git.branch.clone())
+                } else {
+                    String::new()
+                },
+                is_repository: self.state.git.is_repository,
                 incoming: git.incoming,
                 outgoing: git.outgoing,
                 additions: git.additions,
@@ -119,6 +125,7 @@ impl CoduxApp {
 
         StatusGitSummary {
             branch: self.state.git.branch.clone(),
+            is_repository: self.state.git.is_repository,
             incoming: self.state.git.behind,
             outgoing: self.state.git.ahead,
             additions,
@@ -208,31 +215,38 @@ fn status_bar_content(
                     cx,
                 ))
                 .child(status_separator())
-                .child(status_git_segment(
-                    app_entity.clone(),
-                    &snapshot.git.branch,
-                    snapshot.git.additions,
-                    snapshot.git.deletions,
-                    cx,
-                ))
-                .child(status_sync_action_button(
-                    app_entity.clone(),
-                    status_text(&snapshot.language, "git.remote.pull", "Pull"),
-                    snapshot.git.incoming,
-                    0x6AA1FF,
-                    "status-pull",
-                    cx,
-                    |app, _event, window, cx| app.pull_project_git(window, cx),
-                ))
-                .child(status_sync_action_button(
-                    app_entity,
-                    status_text(&snapshot.language, "git.remote.push", "Push"),
-                    snapshot.git.outgoing,
-                    theme::GREEN,
-                    "status-push",
-                    cx,
-                    |app, _event, window, cx| app.push_project_git(window, cx),
-                )),
+                .when(snapshot.git.is_repository, |this| {
+                    let branch = if snapshot.git.branch.trim().is_empty() {
+                        status_text(&snapshot.language, "git.branch.none", "No Branch")
+                    } else {
+                        snapshot.git.branch.clone()
+                    };
+                    this.child(status_git_segment(
+                        app_entity.clone(),
+                        &branch,
+                        snapshot.git.additions,
+                        snapshot.git.deletions,
+                        cx,
+                    ))
+                    .child(status_sync_action_button(
+                        app_entity.clone(),
+                        status_text(&snapshot.language, "git.remote.pull", "Pull"),
+                        snapshot.git.incoming,
+                        0x6AA1FF,
+                        "status-pull",
+                        cx,
+                        |app, _event, window, cx| app.pull_project_git(window, cx),
+                    ))
+                    .child(status_sync_action_button(
+                        app_entity,
+                        status_text(&snapshot.language, "git.remote.push", "Push"),
+                        snapshot.git.outgoing,
+                        theme::GREEN,
+                        "status-push",
+                        cx,
+                        |app, _event, window, cx| app.push_project_git(window, cx),
+                    ))
+                }),
         )
 }
 

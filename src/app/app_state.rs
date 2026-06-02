@@ -38,12 +38,15 @@ pub struct CoduxApp {
     pub(in crate::app) desktop_pet_window: Option<AnyWindowHandle>,
     pub(in crate::app) settings_window: Option<AnyWindowHandle>,
     pub(in crate::app) about_window: Option<AnyWindowHandle>,
+    pub(in crate::app) git_clone_window: Option<AnyWindowHandle>,
+    pub(in crate::app) git_credentials_window: Option<AnyWindowHandle>,
     pub(in crate::app) memory_manager_window: Option<AnyWindowHandle>,
     pub(in crate::app) pet_claim_window: Option<AnyWindowHandle>,
     pub(in crate::app) pet_custom_install_window: Option<AnyWindowHandle>,
     pub(in crate::app) pet_dex_window: Option<AnyWindowHandle>,
     pub(in crate::app) ssh_profile_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
+    pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,
     pub(in crate::app) desktop_pet_line: String,
     pub(in crate::app) desktop_pet_tone: DesktopPetActivityTone,
     pub(in crate::app) desktop_pet_active_llm_key: String,
@@ -88,12 +91,20 @@ pub struct CoduxApp {
     pub(in crate::app) git_diff_window_error: Option<String>,
     pub(in crate::app) git_review_content: Option<GitReviewContentSummary>,
     pub(in crate::app) git_review_aligned_rows: Option<super::sidebars::GitReviewAlignedRows>,
+    pub(in crate::app) git_review_refreshing: bool,
     pub(in crate::app) git_clone_remote_url: String,
-    pub(in crate::app) git_clone_dialog_open: bool,
     pub(in crate::app) git_remote_editor_open: bool,
     pub(in crate::app) git_remote_name: String,
     pub(in crate::app) git_remote_url: String,
     pub(in crate::app) git_running_operation: Option<GitRunningOperation>,
+    pub(in crate::app) git_credential_project_id: Option<String>,
+    pub(in crate::app) git_credential_project_name: String,
+    pub(in crate::app) git_credential_project_path: String,
+    pub(in crate::app) git_credential_remote_url: String,
+    pub(in crate::app) git_credential_username: String,
+    pub(in crate::app) git_credential_password_or_token: String,
+    pub(in crate::app) git_credential_error: Option<String>,
+    pub(in crate::app) git_credential_retrying: bool,
     pub(in crate::app) git_commit_message: String,
     pub(in crate::app) git_commit_message_revision: u64,
     pub(in crate::app) pet_install_url: String,
@@ -117,6 +128,12 @@ pub struct CoduxApp {
     pub(in crate::app) settings_seen_revision: u64,
     pub(in crate::app) ssh_seen_revision: u64,
     pub(in crate::app) memory_seen_revision: u64,
+    pub(in crate::app) child_window_update_seen_revision: u64,
+    pub(in crate::app) child_window_settings_seen_revision: u64,
+    pub(in crate::app) child_window_ssh_seen_revision: u64,
+    pub(in crate::app) child_window_memory_seen_revision: u64,
+    pub(in crate::app) child_window_project_seen_revision: u64,
+    pub(in crate::app) child_window_git_seen_revision: u64,
     pub(in crate::app) pet_claim_species: String,
     pub(in crate::app) pet_name_editing: bool,
     pub(in crate::app) pet_dex_spotlight: Option<PetDexSpotlight>,
@@ -209,6 +226,13 @@ pub struct CoduxApp {
     pub(in crate::app) project_editor_path: String,
     pub(in crate::app) project_editor_badge_symbol: Option<String>,
     pub(in crate::app) project_editor_badge_color_hex: String,
+    pub(in crate::app) worktree_creator_project_id: Option<String>,
+    pub(in crate::app) worktree_creator_project_name: String,
+    pub(in crate::app) worktree_creator_project_path: String,
+    pub(in crate::app) worktree_creator_base_branch: String,
+    pub(in crate::app) worktree_creator_name: String,
+    pub(in crate::app) worktree_creator_error: Option<String>,
+    pub(in crate::app) worktree_creator_submitting: bool,
     pub(in crate::app) tooltip_state: CoduxTooltipState,
     pub(in crate::app) ui_performance_counts: HashMap<String, u64>,
     pub(in crate::app) ui_performance_last_report_at: f64,
@@ -749,6 +773,9 @@ pub(in crate::app) const PET_CUSTOM_INSTALL_WINDOW_WIDTH: f32 = 680.0;
 pub(in crate::app) const PET_CUSTOM_INSTALL_INPUT_HEIGHT: f32 = 230.0;
 pub(in crate::app) const PET_CUSTOM_INSTALL_READY_HEIGHT: f32 = 530.0;
 pub(in crate::app) const PET_CUSTOM_INSTALL_ERROR_HEIGHT: f32 = 280.0;
+pub(in crate::app) const GIT_CREDENTIALS_WINDOW_WIDTH: f32 = 440.0;
+pub(in crate::app) const GIT_CREDENTIALS_COMPACT_HEIGHT: f32 = 310.0;
+pub(in crate::app) const GIT_CREDENTIALS_EXPANDED_HEIGHT: f32 = 350.0;
 pub(in crate::app) const TASK_COLUMN_FIXED_WIDTH: f32 = 240.0;
 
 pub(in crate::app) fn resize_pet_custom_install_window(window: &mut Window, height: f32) {
@@ -769,6 +796,21 @@ pub(in crate::app) fn resize_pet_custom_install_window_handle(
     let _ = handle.update(cx, |_view, window, _cx| {
         resize_pet_custom_install_window(window, height);
     });
+}
+
+pub(in crate::app) fn resize_git_credentials_window(window: &mut Window, expanded: bool) {
+    let height = if expanded {
+        GIT_CREDENTIALS_EXPANDED_HEIGHT
+    } else {
+        GIT_CREDENTIALS_COMPACT_HEIGHT
+    };
+    window.resize(size(
+        px(GIT_CREDENTIALS_WINDOW_WIDTH),
+        px(height.clamp(
+            GIT_CREDENTIALS_COMPACT_HEIGHT,
+            GIT_CREDENTIALS_EXPANDED_HEIGHT,
+        )),
+    ));
 }
 
 impl Drop for CoduxApp {

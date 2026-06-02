@@ -19,7 +19,7 @@ use codux_runtime::{
     file_editor_layout::{FileEditorLayoutSummary, FileEditorTabSummary},
     files::FileChangeEvent,
     git::{
-        GitBranchSummary, GitCommitSummary, GitFileStatus, GitRemoteSummary,
+        GitBranchSummary, GitCommitSummary, GitCredentials, GitFileStatus, GitRemoteSummary,
         GitReviewContentSummary, GitReviewSummary, GitSummary,
     },
     i18n::translate,
@@ -135,6 +135,7 @@ mod workspace_shared;
 mod workspace_terminal;
 mod workspace_toolbar;
 mod workspace_views;
+mod worktree_creator;
 
 pub use self::app_state::CoduxApp;
 pub(crate) use self::app_state::set_active_settings_snapshot;
@@ -147,8 +148,9 @@ use self::{
         normalized_global_ai_history_snapshot_to_summary,
     },
     app_events::{
-        PetCustomInstallEvent, current_pet_custom_install_event, current_pet_update_event,
-        current_settings_update_event, current_ssh_update_event, publish_pet_custom_install,
+        ChildWindowUpdateKind, PetCustomInstallEvent, current_child_window_update_event,
+        current_pet_custom_install_event, current_pet_update_event, current_settings_update_event,
+        current_ssh_update_event, publish_child_window_update, publish_pet_custom_install,
         publish_pet_update, publish_settings_update, publish_ssh_update,
     },
     app_helpers::{
@@ -158,18 +160,18 @@ use self::{
         project_badge_text_from_name,
     },
     app_state::{
-        AIProviderTestResult, GitOperationCompletion, PET_CUSTOM_INSTALL_ERROR_HEIGHT,
-        PET_CUSTOM_INSTALL_INPUT_HEIGHT, PET_CUSTOM_INSTALL_READY_HEIGHT,
-        PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL, ProjectSwitchLoad,
-        ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad, ProjectSwitchTerminalLoad,
-        ProjectViewState, RuntimeActivityTickResult, RuntimeScheduledRefresh,
-        TASK_COLUMN_FIXED_WIDTH, TerminalViewState, TerminalViewStoreKey, WorktreeSidebarLoad,
-        WorktreeSwitchTerminalLoad, app_git_review, app_now_seconds, git_status_tree_key,
-        initial_project_view_store, initial_terminal_view_store, initial_worktree_view_store,
-        prewarm_terminal_restore, resize_pet_custom_install_window,
-        resize_pet_custom_install_window_handle, settings_with_active_restart_locked_values,
-        terminal_view_store_key, worktree_summary_has_git_counts, worktree_summary_has_rows,
-        worktree_view_store_key,
+        AIProviderTestResult, GIT_CREDENTIALS_COMPACT_HEIGHT, GIT_CREDENTIALS_WINDOW_WIDTH,
+        GitOperationCompletion, PET_CUSTOM_INSTALL_ERROR_HEIGHT, PET_CUSTOM_INSTALL_INPUT_HEIGHT,
+        PET_CUSTOM_INSTALL_READY_HEIGHT, PET_CUSTOM_INSTALL_WINDOW_WIDTH, PET_DEX_FRAME_INTERVAL,
+        ProjectSwitchLoad, ProjectSwitchPrimaryLoad, ProjectSwitchTaskLoad,
+        ProjectSwitchTerminalLoad, ProjectViewState, RuntimeActivityTickResult,
+        RuntimeScheduledRefresh, TASK_COLUMN_FIXED_WIDTH, TerminalViewState, TerminalViewStoreKey,
+        WorktreeSidebarLoad, WorktreeSwitchTerminalLoad, app_git_review, app_now_seconds,
+        git_status_tree_key, initial_project_view_store, initial_terminal_view_store,
+        initial_worktree_view_store, prewarm_terminal_restore, resize_git_credentials_window,
+        resize_pet_custom_install_window, resize_pet_custom_install_window_handle,
+        settings_with_active_restart_locked_values, terminal_view_store_key,
+        worktree_summary_has_git_counts, worktree_summary_has_rows, worktree_view_store_key,
     },
     desktop_pet::*,
     formatting::compact_number,
@@ -179,8 +181,9 @@ use self::{
     shell_utils::shell_quote,
     shortcuts::{shortcut_display_from_keystroke, shortcut_matches},
     sidebars::{
-        AssistantPanel, FileSidebarView, clipboard_external_paths, current_directory_suffix,
-        file_directory_option, git_diff_window_workspace, git_review_file_list,
+        AssistantPanel, FileSidebarView, GitSidebarLabels, clipboard_external_paths,
+        current_directory_suffix, file_directory_option, git_clone_window_workspace,
+        git_credentials_window_workspace, git_diff_window_workspace, git_review_file_list,
         git_review_workspace, memory_manager_window_workspace, parent_relative_directory,
     },
     ssh_profile_editor::ssh_profile_editor_workspace,

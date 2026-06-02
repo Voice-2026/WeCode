@@ -1,4 +1,7 @@
 use super::*;
+use crate::app::app_events::{
+    ChildWindowUpdateKind, publish_child_window_git_operation, publish_child_window_update,
+};
 use codux_runtime::git::GitReviewFile;
 
 impl CoduxApp {
@@ -116,14 +119,47 @@ impl CoduxApp {
         self.invalidate_git_panel(cx);
     }
 
-    pub(super) fn open_git_clone_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.git_clone_dialog_open = true;
-        self.status_message = "Git clone dialog opened".to_string();
+    pub(super) fn set_git_credential_username(
+        &mut self,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.git_credential_username = value;
+        self.git_credential_error = None;
+        resize_git_credentials_window(window, false);
         self.invalidate_git_panel(cx);
     }
 
-    pub(super) fn close_git_clone_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.git_clone_dialog_open = false;
+    pub(super) fn set_git_credential_password_or_token(
+        &mut self,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.git_credential_password_or_token = value;
+        self.git_credential_error = None;
+        resize_git_credentials_window(window, false);
+        self.invalidate_git_panel(cx);
+    }
+
+    pub(super) fn open_git_clone_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.open_git_clone_window(cx);
+    }
+
+    pub(super) fn close_git_credentials_dialog(
+        &mut self,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        window.remove_window();
+    }
+
+    pub(super) fn close_git_clone_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.window_mode == AppWindowMode::GitClone {
+            window.remove_window();
+            return;
+        }
         self.status_message = "Git clone dialog closed".to_string();
         self.invalidate_git_panel(cx);
     }
@@ -306,7 +342,7 @@ impl CoduxApp {
         .detach();
     }
 
-    pub(super) fn clone_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn clone_project_git(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project for Git clone".to_string();
             self.invalidate_git_panel(cx);
@@ -329,22 +365,36 @@ impl CoduxApp {
         let project_path = project.path.clone();
         let action = "clone".to_string();
         let service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
         self.git_running_operation = Some(GitRunningOperation {
             label: action.clone(),
             cancellable: false,
         });
+        publish_child_window_git_operation(Some(action.clone()));
         self.status_message = format!("Git clone started for {project_name}");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let worker_project_path = project_path.clone();
+            let worker_remote_url = remote_url.clone();
             let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                service.clone_project_git(&worker_project_path, &remote_url)
+                service.clone_project_git(&worker_project_path, &worker_remote_url)
             })
             .await
             .map_err(|error| error.to_string())
             .and_then(|result| result);
 
             let _ = this.update(cx, |app, cx| {
-                app.git_clone_dialog_open = false;
+                let should_close = result.is_ok();
+                publish_child_window_git_operation(None);
+                if let Err(error) = result.as_ref() {
+                    app.prepare_git_credentials_retry(
+                        project_id.clone(),
+                        project_name.clone(),
+                        project_path.clone(),
+                        remote_url.clone(),
+                        error.clone(),
+                        cx,
+                    );
+                }
                 app.apply_project_git_repository_result(
                     project_id,
                     project_path,
@@ -354,6 +404,117 @@ impl CoduxApp {
                     format!("Git repository cloned for {project_name}"),
                     cx,
                 );
+                if should_close {
+                    let _ = window_handle.update(cx, |_view, window, _cx| window.remove_window());
+                }
+            });
+        })
+        .detach();
+        self.invalidate_git_panel(cx);
+    }
+
+    fn prepare_git_credentials_retry(
+        &mut self,
+        project_id: String,
+        project_name: String,
+        project_path: String,
+        remote_url: String,
+        error: String,
+        cx: &mut Context<Self>,
+    ) {
+        if !git_error_needs_credentials(&error) {
+            return;
+        }
+        self.git_credential_project_id = Some(project_id);
+        self.git_credential_project_name = project_name;
+        self.git_credential_project_path = project_path;
+        self.git_credential_remote_url = remote_url;
+        self.git_credential_error = Some(error);
+        self.git_credential_retrying = false;
+        self.open_git_credentials_window(cx);
+    }
+
+    pub(super) fn retry_git_clone_with_credentials(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_id) = self.git_credential_project_id.clone() else {
+            self.git_credential_error = Some("No pending Git clone request.".to_string());
+            self.invalidate_git_panel(cx);
+            return;
+        };
+        let project_name = self.git_credential_project_name.clone();
+        let project_path = self.git_credential_project_path.clone();
+        let remote_url = self.git_credential_remote_url.clone();
+        let username = self.git_credential_username.trim().to_string();
+        let password_or_token = self.git_credential_password_or_token.trim().to_string();
+        if username.is_empty() || password_or_token.is_empty() {
+            self.git_credential_error = Some(
+                GitSidebarLabels::load(&self.state.settings.language).auth_credentials_required,
+            );
+            resize_git_credentials_window(window, true);
+            self.invalidate_git_panel(cx);
+            return;
+        }
+        if self.git_running_operation.is_some() || self.git_credential_retrying {
+            self.status_message = "Git operation is already running".to_string();
+            self.invalidate_git_panel(cx);
+            return;
+        }
+
+        let action = "clone".to_string();
+        let service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.git_credential_retrying = true;
+        self.git_credential_error = None;
+        resize_git_credentials_window(window, false);
+        self.git_running_operation = Some(GitRunningOperation {
+            label: action.clone(),
+            cancellable: false,
+        });
+        publish_child_window_git_operation(Some(action.clone()));
+        self.status_message = format!("Git clone retry started for {project_name}");
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let worker_project_path = project_path.clone();
+            let worker_remote_url = remote_url.clone();
+            let credentials = GitCredentials {
+                username,
+                password_or_token,
+            };
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.clone_project_git_with_credentials(
+                    &worker_project_path,
+                    &worker_remote_url,
+                    credentials,
+                )
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                let should_close = result.is_ok();
+                app.git_credential_retrying = false;
+                publish_child_window_git_operation(None);
+                if let Err(error) = result.as_ref() {
+                    app.git_credential_error = Some(error.clone());
+                    let _ = window_handle.update(cx, |_view, window, _cx| {
+                        resize_git_credentials_window(window, true);
+                    });
+                }
+                app.apply_project_git_repository_result(
+                    project_id,
+                    project_path,
+                    action,
+                    result,
+                    true,
+                    format!("Git repository cloned for {project_name}"),
+                    cx,
+                );
+                if should_close {
+                    let _ = window_handle.update(cx, |_view, window, _cx| window.remove_window());
+                }
             });
         })
         .detach();
@@ -379,6 +540,9 @@ impl CoduxApp {
         }
         match result {
             Ok(summary) => {
+                if action == "clone" {
+                    self.clear_git_credentials_state();
+                }
                 let selected_matches = self
                     .state
                     .selected_project
@@ -410,12 +574,26 @@ impl CoduxApp {
                     self.invalidate_task_column(cx);
                 }
                 self.status_message = success_message;
+                publish_child_window_update(ChildWindowUpdateKind::Git);
             }
             Err(error) => {
-                self.status_message = format!("Git {action} failed: {error}");
+                let title = format!("Git {action} failed");
+                self.status_message = title.clone();
+                self.show_system_error_alert(format!("Git {action} failed"), error, cx);
             }
         }
         self.invalidate_git_panel(cx);
+    }
+
+    fn clear_git_credentials_state(&mut self) {
+        self.git_credential_project_id = None;
+        self.git_credential_project_name.clear();
+        self.git_credential_project_path.clear();
+        self.git_credential_remote_url.clear();
+        self.git_credential_username.clear();
+        self.git_credential_password_or_token.clear();
+        self.git_credential_error = None;
+        self.git_credential_retrying = false;
     }
 
     pub(super) fn toggle_git_status_section(
@@ -1597,8 +1775,9 @@ impl CoduxApp {
                         "remote_action failed action={action} project={project_path} error={error}"
                     ),
                 );
-                self.status_message =
-                    format!("Git {} failed: {error}", git_remote_action_label(&action));
+                let title = format!("Git {} failed", git_remote_action_label(&action));
+                self.status_message = title.clone();
+                self.show_system_error_alert(title, error, cx);
             }
         }
         self.invalidate_git_panel(cx);
@@ -1735,6 +1914,7 @@ impl CoduxApp {
                     self.invalidate_task_column(cx);
                 }
                 self.status_message = completion.success_message;
+                publish_child_window_update(ChildWindowUpdateKind::Git);
                 self.runtime_trace(
                     "git",
                     &format!("operation ok label={operation_label} project={project_path}"),
@@ -1747,10 +1927,32 @@ impl CoduxApp {
                         "operation failed label={operation_label} project={project_path} error={error}"
                     ),
                 );
-                self.status_message = format!("{}: {error}", completion.failure_prefix);
+                self.status_message = completion.failure_prefix.clone();
+                self.show_system_error_alert(completion.failure_prefix, error, cx);
             }
         }
         self.invalidate_git_panel(cx);
+    }
+
+    pub(in crate::app) fn show_system_error_alert(
+        &mut self,
+        title: String,
+        message: String,
+        cx: &mut Context<Self>,
+    ) {
+        let service = self.runtime_service.clone();
+        let button_label = self.text("common.ok", "OK");
+        cx.spawn(async move |_: gpui::WeakEntity<Self>, _cx| {
+            let _ = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_alert_dialog(LocalizedAlertDialogRequest {
+                    title,
+                    message,
+                    button_label,
+                })
+            })
+            .await;
+        })
+        .detach();
     }
 
     pub(super) fn set_project_default_push_remote(
@@ -2403,4 +2605,15 @@ pub(in crate::app) fn merge_git_review_status_files(
             deletions: 0,
         });
     }
+}
+
+fn git_error_needs_credentials(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("credential")
+        || normalized.contains("authentication")
+        || normalized.contains("auth")
+        || normalized.contains("username")
+        || normalized.contains("password")
+        || normalized.contains("permission denied")
+        || normalized.contains("access denied")
 }

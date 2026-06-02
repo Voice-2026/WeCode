@@ -1,4 +1,6 @@
 use super::*;
+use crate::app::app_events::{ChildWindowUpdateKind, publish_child_window_update};
+use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
 
 const PROJECT_TASK_LOAD_RECENT_SECONDS: f64 = 3.0;
 const PROJECT_TASK_LOAD_START_DEBOUNCE_SECONDS: f64 = 1.0;
@@ -89,6 +91,9 @@ impl CoduxApp {
     }
 
     pub(super) fn refresh_git_panel_state_async(&mut self, cx: &mut Context<Self>) {
+        if self.git_review_refreshing {
+            return;
+        }
         let Some(project_path) = self.selected_worktree_path() else {
             return;
         };
@@ -98,6 +103,8 @@ impl CoduxApp {
         let base_branch = self.git_review.base_branch.clone();
         let runtime_service = self.runtime_service.clone();
         let generation = self.project_switch_generation;
+        self.git_review_refreshing = true;
+        self.invalidate_git_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                 codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
@@ -113,6 +120,10 @@ impl CoduxApp {
             .ok();
             let _ = this.update(cx, |app, cx| {
                 let Some((store_key, generation, git, git_review)) = result else {
+                    if app.project_switch_generation == generation {
+                        app.git_review_refreshing = false;
+                    }
+                    app.invalidate_git_panel(cx);
                     return;
                 };
                 if app.project_switch_generation != generation
@@ -122,13 +133,20 @@ impl CoduxApp {
                         view_state.git.git = git;
                         view_state.git.git_review = git_review;
                     }
+                    if app.project_switch_generation == generation {
+                        app.git_review_refreshing = false;
+                    }
+                    app.invalidate_git_panel(cx);
                     return;
                 }
                 app.state.git = git;
                 app.git_review = git_review;
+                app.git_review_refreshing = false;
                 app.normalize_selected_git_file();
                 app.normalize_selected_git_branch();
-                app.ensure_selected_git_review_file_loaded_async(cx);
+                if app.workspace_view == WorkspaceView::Review {
+                    app.ensure_selected_git_review_file_loaded_async(cx);
+                }
                 app.save_current_worktree_view_state();
                 app.invalidate_git_panel(cx);
             });
@@ -166,6 +184,15 @@ impl CoduxApp {
             Ok(()) => self.status_message = "selected project saved to state.json".to_string(),
             Err(error) => self.status_message = format!("selected in memory only: {error}"),
         }
+        self.select_project_after_state_reload(project_id, window, cx);
+    }
+
+    fn select_project_after_state_reload(
+        &mut self,
+        project_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
         let switch_generation = self.project_switch_generation;
         self.apply_selected_project_shell(&project_id, window, cx);
@@ -1238,31 +1265,37 @@ impl CoduxApp {
 
     pub(super) fn open_project_folder_from_dialog(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let locale = locale_from_language_setting(&self.state.settings.language);
-        match self
-            .runtime_service
-            .localized_open_dialog(LocalizedOpenDialogRequest {
-                title: translate(&locale, "project.open_folder.title", "Open Folder"),
-                message: translate(
-                    &locale,
-                    "project.open_folder.message",
-                    "Choose a project folder to import.",
-                ),
-                prompt: translate(&locale, "project.open_folder.prompt", "Open"),
-                default_path: None,
-                filters: Vec::new(),
-                directory: true,
-                multiple: false,
-                can_create_directories: Some(false),
-            }) {
-            Ok(Some(paths)) => {
+        let request = LocalizedOpenDialogRequest {
+            title: translate(&locale, "project.open_folder.title", "Open Folder"),
+            message: translate(
+                &locale,
+                "project.open_folder.message",
+                "Choose a project folder to import.",
+            ),
+            prompt: translate(&locale, "project.open_folder.prompt", "Open"),
+            default_path: None,
+            filters: Vec::new(),
+            directory: true,
+            multiple: false,
+            can_create_directories: Some(false),
+        };
+        let runtime_service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.status_message = "opening project folder dialog".to_string();
+        self.invalidate_project_management(cx);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                let paths = runtime_service.localized_open_dialog(request)?;
+                let Some(paths) = paths else {
+                    return Ok(None);
+                };
                 let Some(path) = paths.first().cloned() else {
-                    self.status_message = "project import canceled".to_string();
-                    self.invalidate_project_management(cx);
-                    return;
+                    return Ok(None);
                 };
                 let name = std::path::Path::new(&path)
                     .file_name()
@@ -1270,24 +1303,52 @@ impl CoduxApp {
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or("Project")
                     .to_string();
-                match self.runtime_service.create_or_select_project(&name, &path) {
-                    Ok(project_id) => {
-                        self.state = self.runtime_service.reload_state();
-                        self.normalize_selected_ai_session();
-                        self.normalize_selected_runtime_session();
-                        self.normalize_selected_ssh_profile();
-                        self.sync_project_list_store(cx);
-                        self.status_message = format!("project added/selected: {project_id}");
-                    }
-                    Err(error) => {
-                        self.status_message = format!("failed to add project: {error}");
-                    }
+                let project_id = runtime_service.create_or_select_project(&name, &path)?;
+                let state = runtime_service.reload_state();
+                Ok(Some((project_id, state)))
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join open project dialog: {error}")));
+
+            let _ = window_handle.update(cx, |_root, window, cx| {
+                let _ = this.update(cx, |app, cx| {
+                    app.apply_open_project_folder_result(result, window, cx);
+                });
+            });
+        })
+        .detach();
+    }
+
+    fn apply_open_project_folder_result(
+        &mut self,
+        result: Result<Option<(String, RuntimeState)>, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(Some((project_id, state))) => {
+                self.state = state;
+                let selected_project_id = self
+                    .state
+                    .selected_project
+                    .as_ref()
+                    .map(|project| project.id.clone());
+                if selected_project_id.as_deref() == Some(project_id.as_str()) {
+                    self.select_project_after_state_reload(project_id.clone(), window, cx);
+                } else {
+                    self.normalize_selected_ai_session();
+                    self.normalize_selected_runtime_session();
+                    self.normalize_selected_ssh_profile();
+                    self.sync_project_list_store(cx);
                 }
+                self.status_message = format!("project added/selected: {project_id}");
             }
             Ok(None) => {
                 self.status_message = "project import canceled".to_string();
             }
-            Err(error) => self.status_message = format!("failed to choose project folder: {error}"),
+            Err(error) => {
+                self.status_message = format!("failed to choose project folder: {error}");
+            }
         }
         self.invalidate_project_management(cx);
     }
@@ -1378,45 +1439,26 @@ impl CoduxApp {
             return;
         }
 
-        let state = self.state.clone();
-        let runtime = self.runtime.clone();
-        let runtime_service = self.runtime_service.clone();
-        let bounds = Bounds::centered(None, size(px(620.0), px(430.0)), cx);
-        let result = cx.open_window(
-            WindowOptions {
-                titlebar: Some(theme::codux_titlebar(translate(
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::ProjectEditor,
+                title: SharedString::from(translate(
                     &locale,
                     "project.create.title",
                     "Create Project",
-                ))),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(520.0), px(390.0))),
-                ..Default::default()
+                )),
+                size: size(px(620.0), px(430.0)),
+                min_size: size(px(520.0), px(390.0)),
+                already_open_message: "project creator already opened",
+                opened_message: "project creator opened",
+                failed_prefix: "failed to open project creator",
             },
-            move |window, cx| {
-                let app = CoduxApp::new_project_creator_window_from_state(
-                    state.clone(),
-                    runtime.clone(),
-                    runtime_service.clone(),
-                );
-                theme::apply_component_theme(
-                    &app.state.settings.theme,
-                    &app.state.settings.theme_color,
-                    Some(window),
-                    cx,
-                );
-                let view = cx.new(|_| app);
-                cx.new(|cx| Root::new(view, window, cx))
+            cx,
+            |state, runtime, runtime_service, _window, _cx| {
+                CoduxApp::new_project_creator_window_from_state(state, runtime, runtime_service)
             },
+            |_view, _window, _cx| {},
         );
-
-        self.status_message = match result {
-            Ok(handle) => {
-                self.project_editor_window = Some(handle.into());
-                "project creator opened".to_string()
-            }
-            Err(error) => format!("failed to open project creator: {error}"),
-        };
         self.invalidate_project_management(cx);
     }
 
@@ -1438,46 +1480,27 @@ impl CoduxApp {
             return;
         }
 
-        let state = self.state.clone();
-        let runtime = self.runtime.clone();
-        let runtime_service = self.runtime_service.clone();
-        let bounds = Bounds::centered(None, size(px(620.0), px(430.0)), cx);
-        let result = cx.open_window(
-            WindowOptions {
-                titlebar: Some(theme::codux_titlebar(translate(
-                    &locale,
-                    "project.edit.title",
-                    "Edit Project",
-                ))),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(520.0), px(390.0))),
-                ..Default::default()
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::ProjectEditor,
+                title: SharedString::from(translate(&locale, "project.edit.title", "Edit Project")),
+                size: size(px(620.0), px(430.0)),
+                min_size: size(px(520.0), px(390.0)),
+                already_open_message: "project editor already opened",
+                opened_message: "project editor opened",
+                failed_prefix: "failed to open project editor",
             },
-            move |window, cx| {
-                let app = CoduxApp::new_project_editor_window_from_state(
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                CoduxApp::new_project_editor_window_from_state(
                     project,
-                    state.clone(),
-                    runtime.clone(),
-                    runtime_service.clone(),
-                );
-                theme::apply_component_theme(
-                    &app.state.settings.theme,
-                    &app.state.settings.theme_color,
-                    Some(window),
-                    cx,
-                );
-                let view = cx.new(|_| app);
-                cx.new(|cx| Root::new(view, window, cx))
+                    state,
+                    runtime,
+                    runtime_service,
+                )
             },
+            |_view, _window, _cx| {},
         );
-
-        self.status_message = match result {
-            Ok(handle) => {
-                self.project_editor_window = Some(handle.into());
-                "project editor opened".to_string()
-            }
-            Err(error) => format!("failed to open project editor: {error}"),
-        };
         self.invalidate_project_management(cx);
     }
 
@@ -1585,6 +1608,7 @@ impl CoduxApp {
                     self.state = self.runtime_service.reload_state();
                     self.sync_project_list_store(cx);
                     self.status_message = format!("project saved: {name}");
+                    publish_child_window_update(ChildWindowUpdateKind::Project);
                     window.remove_window();
                 }
                 Err(error) => self.status_message = format!("failed to save project: {error}"),
@@ -1601,6 +1625,7 @@ impl CoduxApp {
                     self.state = self.runtime_service.reload_state();
                     self.sync_project_list_store(cx);
                     self.status_message = format!("project created: {name}");
+                    publish_child_window_update(ChildWindowUpdateKind::Project);
                     window.remove_window();
                 }
                 Err(error) => self.status_message = format!("failed to create project: {error}"),

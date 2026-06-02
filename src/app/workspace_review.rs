@@ -103,7 +103,6 @@ impl CoduxApp {
                             .gap_2()
                             .text_size(px(12.0))
                             .line_height(px(16.0))
-                            .text_color(color(theme::TEXT_DIM))
                             .child(changed_files_count),
                     ),
             )
@@ -118,6 +117,7 @@ impl CoduxApp {
                                     &self.git_review,
                                     selected_path,
                                     &self.git_expanded_dirs,
+                                    self.git_review_refreshing,
                                     git_labels.clone(),
                                     cx,
                                 ),

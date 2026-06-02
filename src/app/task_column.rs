@@ -14,6 +14,7 @@ struct TaskWorktreeRow {
     id: String,
     project_id: String,
     title: String,
+    path: String,
     is_default: bool,
     active: bool,
     activity_state: AIActivityState,
@@ -75,9 +76,13 @@ impl CoduxApp {
 struct TaskColumnLabels {
     language: String,
     no_project: String,
+    no_branch: String,
     sessions: String,
     changed_format: String,
+    create: String,
     open: String,
+    open_folder: String,
+    merge: String,
     delete: String,
     cancel: String,
     delete_confirm_format: String,
@@ -89,9 +94,13 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
     TaskColumnLabels {
         language: language.to_string(),
         no_project: tr("files.panel.no_project", "No project selected"),
+        no_branch: tr("git.branch.none", "No Branch"),
         sessions: tr("ai.sessions.history", "Session History"),
         changed_format: tr("worktree.sidebar.changed_format", "%@ changed"),
+        create: tr("worktree.create.title", "New Worktree"),
         open: tr("common.open", "Open"),
+        open_folder: tr("worktree.menu.open_folder", "Open Folder"),
+        merge: tr("worktree.menu.merge", "Merge to Mainline"),
         delete: tr("common.delete", "Delete"),
         cancel: tr("common.cancel", "Cancel"),
         delete_confirm_format: tr("ai.sessions.delete_confirm_format", "Delete %@?"),
@@ -112,6 +121,7 @@ fn task_session_row(session: &AISessionSummary) -> TaskSessionRow {
 pub(in crate::app) struct TaskColumnHeaderSnapshot {
     project_name: String,
     refreshing: bool,
+    create_label: String,
 }
 
 pub(in crate::app) struct TaskColumnHeaderView {
@@ -134,6 +144,7 @@ impl Render for TaskColumnHeaderView {
         task_column_header(
             self.snapshot.project_name.clone(),
             self.snapshot.refreshing,
+            self.snapshot.create_label.clone(),
             self.app_entity.clone(),
             cx,
         )
@@ -282,6 +293,7 @@ impl CoduxApp {
                 .map(|project| project.name.clone())
                 .unwrap_or(labels.no_project),
             refreshing: self.task_column_refreshing,
+            create_label: labels.create,
         }
     }
 
@@ -298,10 +310,20 @@ impl CoduxApp {
                     .as_deref()
                     .map(|id| id == worktree.id)
                     .unwrap_or(false);
+                let is_current_worktree_repository = if active {
+                    self.state.git.is_repository
+                } else {
+                    true
+                };
                 TaskWorktreeRow {
                     id: worktree.id.clone(),
                     project_id: worktree.project_id.clone(),
-                    title: worktree_row_title(worktree),
+                    title: worktree_row_title(
+                        worktree,
+                        &labels.no_branch,
+                        is_current_worktree_repository,
+                    ),
+                    path: worktree.path.clone(),
                     is_default: worktree.is_default,
                     active,
                     activity_state: self.ai_activity_for_worktree(worktree),
@@ -370,9 +392,12 @@ fn task_column_content(
 fn task_column_header(
     project_name: String,
     refreshing: bool,
+    create_label: String,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskColumnHeaderView>,
 ) -> impl IntoElement {
+    let create_entity = app_entity.clone();
+    let refresh_entity = app_entity;
     div()
         .h(px(44.0))
         .w_full()
@@ -400,22 +425,45 @@ fn task_column_header(
                         .child(project_name),
                 )
                 .child(
-                    Button::new("task-refresh")
-                        .ghost()
-                        .compact()
-                        .loading(refreshing)
-                        .disabled(refreshing)
-                        .text_color(cx.theme().secondary_foreground)
-                        .icon(
-                            Icon::new(HeroIconName::ArrowPath)
-                                .size_3p5()
-                                .text_color(cx.theme().secondary_foreground),
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .child(
+                            Button::new("task-create")
+                                .ghost()
+                                .compact()
+                                .text_color(cx.theme().secondary_foreground)
+                                .icon(
+                                    Icon::new(HeroIconName::Plus)
+                                        .size_3p5()
+                                        .text_color(cx.theme().secondary_foreground),
+                                )
+                                .tooltip(create_label.clone())
+                                .on_click(move |_, window, cx| {
+                                    cx.update_entity(&create_entity, |app: &mut CoduxApp, cx| {
+                                        app.open_worktree_creator_window(window, cx);
+                                    });
+                                }),
                         )
-                        .on_click(move |_, _window, cx| {
-                            cx.update_entity(&app_entity, |app, cx| {
-                                app.refresh_task_column_async(cx);
-                            });
-                        }),
+                        .child(
+                            Button::new("task-refresh")
+                                .ghost()
+                                .compact()
+                                .loading(refreshing)
+                                .disabled(refreshing)
+                                .text_color(cx.theme().secondary_foreground)
+                                .icon(
+                                    Icon::new(HeroIconName::ArrowPath)
+                                        .size_3p5()
+                                        .text_color(cx.theme().secondary_foreground),
+                                )
+                                .on_click(move |_, _window, cx| {
+                                    cx.update_entity(&refresh_entity, |app: &mut CoduxApp, cx| {
+                                        app.refresh_task_column_async(cx);
+                                    });
+                                }),
+                        ),
                 ),
         )
 }
@@ -428,7 +476,7 @@ fn task_list_area(
     cx: &mut Context<TaskWorktreeListView>,
 ) -> impl IntoElement {
     let rows = Rc::new(rows);
-    let changed_format = labels.changed_format.clone();
+    let row_labels = labels.clone();
     div().flex().flex_col().size_full().min_h_0().child(
         div()
             .flex()
@@ -449,7 +497,7 @@ fn task_list_area(
                         .pb(px(4.0))
                         .child(worktree_compact_row(
                             row,
-                            changed_format.clone(),
+                            row_labels.clone(),
                             app_entity.clone(),
                             cx,
                         ))
@@ -548,17 +596,21 @@ fn session_section_heading(
 
 fn worktree_compact_row(
     worktree: TaskWorktreeRow,
-    changed_format: String,
+    labels: TaskColumnLabels,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskWorktreeListView>,
 ) -> impl IntoElement {
     let worktree_id = worktree.id.clone();
+    let menu_worktree_id = worktree.id.clone();
+    let menu_worktree_path = worktree.path.clone();
+    let is_default = worktree.is_default;
     let activity_dismiss_id = if worktree.is_default {
         worktree.project_id.clone()
     } else {
         worktree.id.clone()
     };
     let activity_state = worktree.activity_state;
+    let select_entity = app_entity.clone();
     div()
         .id(SharedString::from(format!(
             "compact-worktree-{}",
@@ -576,7 +628,7 @@ fn worktree_compact_row(
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(move |_, window, cx| {
-            cx.update_entity(&app_entity, |app, cx| {
+            cx.update_entity(&select_entity, |app, cx| {
                 if activity_state == AIActivityState::Done {
                     app.dismiss_worktree_ai_completion(&activity_dismiss_id, cx);
                 }
@@ -613,7 +665,9 @@ fn worktree_compact_row(
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
                                 .child(
-                                    changed_format.replace("%@", &worktree.git_changes.to_string()),
+                                    labels
+                                        .changed_format
+                                        .replace("%@", &worktree.git_changes.to_string()),
                                 ),
                         )
                         .child(
@@ -636,6 +690,53 @@ fn worktree_compact_row(
                         ),
                 ),
         )
+        .context_menu(move |menu, _window, _cx| {
+            let open_entity = app_entity.clone();
+            let open_path = menu_worktree_path.clone();
+            let merge_entity = app_entity.clone();
+            let merge_worktree_id = menu_worktree_id.clone();
+            let remove_entity = app_entity.clone();
+            let remove_worktree_id = menu_worktree_id.clone();
+
+            let menu = menu.item(
+                PopupMenuItem::new(labels.open_folder.clone())
+                    .icon(HeroIconName::Folder)
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&open_entity, |app, cx| {
+                            app.open_worktree_folder(open_path.clone(), cx);
+                        });
+                    }),
+            );
+
+            if is_default {
+                return menu;
+            }
+
+            menu.separator()
+                .item(
+                    PopupMenuItem::new(labels.merge.clone())
+                        .icon(HeroIconName::ArrowDownTray)
+                        .on_click(move |_, _window, cx| {
+                            cx.update_entity(&merge_entity, |app, cx| {
+                                app.merge_worktree_by_id(merge_worktree_id.clone(), cx);
+                            });
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(labels.delete.clone())
+                        .icon(HeroIconName::Trash)
+                        .on_click(move |_, _window, cx| {
+                            cx.update_entity(&remove_entity, |app, cx| {
+                                app.request_remove_worktree_by_id(
+                                    remove_worktree_id.clone(),
+                                    false,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+        })
 }
 
 fn worktree_activity_dot(state: AIActivityState) -> AnyElement {
@@ -676,20 +777,22 @@ fn worktree_activity_dot(state: AIActivityState) -> AnyElement {
     }
 }
 
-fn worktree_row_title(worktree: &WorktreeInfo) -> String {
-    let branch = if worktree.branch.trim().is_empty() {
-        "main"
-    } else {
-        worktree.branch.trim()
-    };
+fn worktree_row_title(worktree: &WorktreeInfo, no_branch: &str, is_repository: bool) -> String {
+    let branch = worktree.branch.trim();
+    let name = worktree.name.trim();
+
+    if !is_repository || branch.is_empty() || branch == "uninitialized" {
+        return no_branch.to_string();
+    }
+
     if worktree.is_default {
         return branch.to_string();
     }
 
-    let name = worktree.name.trim();
     if !name.is_empty() {
         return name.to_string();
     }
+
     branch
         .split('/')
         .filter(|segment| !segment.is_empty())

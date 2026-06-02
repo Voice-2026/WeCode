@@ -1,6 +1,28 @@
 use super::*;
-use crate::app::app_events::current_memory_update_event;
+use crate::app::app_events::{current_child_window_update_event, current_memory_update_event};
 use crate::app::app_state::CoduxTooltipState;
+
+pub(in crate::app) struct AuxiliaryWindowSpec {
+    pub(in crate::app) slot: AuxiliaryWindowSlot,
+    pub(in crate::app) title: SharedString,
+    pub(in crate::app) size: gpui::Size<Pixels>,
+    pub(in crate::app) min_size: gpui::Size<Pixels>,
+    pub(in crate::app) already_open_message: &'static str,
+    pub(in crate::app) opened_message: &'static str,
+    pub(in crate::app) failed_prefix: &'static str,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::app) enum AuxiliaryWindowSlot {
+    Settings,
+    About,
+    GitClone,
+    GitCredentials,
+    MemoryManager,
+    ProjectEditor,
+    WorktreeCreator,
+    SshProfileEditor,
+}
 
 impl CoduxApp {
     pub(super) fn new_settings_window_from_state(
@@ -107,12 +129,15 @@ impl CoduxApp {
             desktop_pet_window: None,
             settings_window: None,
             about_window: None,
+            git_clone_window: None,
+            git_credentials_window: None,
             memory_manager_window: None,
             pet_claim_window: None,
             pet_custom_install_window: None,
             pet_dex_window: None,
             ssh_profile_editor_window: None,
             project_editor_window: None,
+            worktree_creator_window: None,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
             desktop_pet_tone: DesktopPetActivityTone::Normal,
             desktop_pet_active_llm_key: String::new(),
@@ -157,12 +182,20 @@ impl CoduxApp {
             git_diff_window_error: None,
             git_review_content: None,
             git_review_aligned_rows: None,
+            git_review_refreshing: false,
             git_clone_remote_url: String::new(),
-            git_clone_dialog_open: false,
             git_remote_editor_open: false,
             git_remote_name: "origin".to_string(),
             git_remote_url: String::new(),
             git_running_operation: None,
+            git_credential_project_id: None,
+            git_credential_project_name: String::new(),
+            git_credential_project_path: String::new(),
+            git_credential_remote_url: String::new(),
+            git_credential_username: String::new(),
+            git_credential_password_or_token: String::new(),
+            git_credential_error: None,
+            git_credential_retrying: false,
             git_commit_message: String::new(),
             git_commit_message_revision: 0,
             pet_install_url: String::new(),
@@ -186,6 +219,14 @@ impl CoduxApp {
             settings_seen_revision: current_settings_update_event().revision,
             ssh_seen_revision: current_ssh_update_event().revision,
             memory_seen_revision: current_memory_update_event().revision,
+            child_window_update_seen_revision: current_child_window_update_event().revision,
+            child_window_settings_seen_revision: current_child_window_update_event()
+                .settings_revision,
+            child_window_ssh_seen_revision: current_child_window_update_event().ssh_revision,
+            child_window_memory_seen_revision: current_child_window_update_event().memory_revision,
+            child_window_project_seen_revision: current_child_window_update_event()
+                .project_revision,
+            child_window_git_seen_revision: current_child_window_update_event().git_revision,
             pet_claim_species: String::new(),
             pet_name_editing: false,
             pet_dex_spotlight: None,
@@ -277,9 +318,99 @@ impl CoduxApp {
             project_editor_path: String::new(),
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
+            worktree_creator_project_id: None,
+            worktree_creator_project_name: String::new(),
+            worktree_creator_project_path: String::new(),
+            worktree_creator_base_branch: String::new(),
+            worktree_creator_name: String::new(),
+            worktree_creator_error: None,
+            worktree_creator_submitting: false,
             tooltip_state: CoduxTooltipState::default(),
             ui_performance_counts: HashMap::new(),
             ui_performance_last_report_at: 0.0,
+        }
+    }
+
+    pub(super) fn open_auxiliary_window(
+        &mut self,
+        spec: AuxiliaryWindowSpec,
+        cx: &mut Context<Self>,
+        build: impl FnOnce(
+            RuntimeState,
+            RuntimeInventory,
+            RuntimeService,
+            &mut Window,
+            &mut App,
+        ) -> CoduxApp
+        + 'static,
+        after_view: impl FnOnce(gpui::Entity<CoduxApp>, &mut Window, &mut App) + 'static,
+    ) -> bool {
+        if self.activate_auxiliary_window_slot(spec.slot, cx) {
+            self.status_message = spec.already_open_message.to_string();
+            self.invalidate_status_bar(cx);
+            return true;
+        }
+
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
+        let bounds = Bounds::centered(None, spec.size, cx);
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(theme::codux_titlebar(spec.title)),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(spec.min_size),
+                ..Default::default()
+            },
+            move |window, cx| {
+                let app = build(state, runtime, runtime_service, window, cx);
+                theme::apply_component_theme(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    Some(window),
+                    cx,
+                );
+                let view = cx.new(|_| app);
+                after_view(view.clone(), window, cx);
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+
+        match result {
+            Ok(handle) => {
+                *self.auxiliary_window_slot_mut(spec.slot) = Some(handle.into());
+                self.status_message = spec.opened_message.to_string();
+                true
+            }
+            Err(error) => {
+                self.status_message = format!("{}: {error}", spec.failed_prefix);
+                false
+            }
+        }
+    }
+
+    fn activate_auxiliary_window_slot(
+        &mut self,
+        slot: AuxiliaryWindowSlot,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let handle_slot = self.auxiliary_window_slot_mut(slot);
+        Self::activate_child_window(handle_slot, cx)
+    }
+
+    fn auxiliary_window_slot_mut(
+        &mut self,
+        slot: AuxiliaryWindowSlot,
+    ) -> &mut Option<AnyWindowHandle> {
+        match slot {
+            AuxiliaryWindowSlot::Settings => &mut self.settings_window,
+            AuxiliaryWindowSlot::About => &mut self.about_window,
+            AuxiliaryWindowSlot::GitClone => &mut self.git_clone_window,
+            AuxiliaryWindowSlot::GitCredentials => &mut self.git_credentials_window,
+            AuxiliaryWindowSlot::MemoryManager => &mut self.memory_manager_window,
+            AuxiliaryWindowSlot::ProjectEditor => &mut self.project_editor_window,
+            AuxiliaryWindowSlot::WorktreeCreator => &mut self.worktree_creator_window,
+            AuxiliaryWindowSlot::SshProfileEditor => &mut self.ssh_profile_editor_window,
         }
     }
 
@@ -559,7 +690,7 @@ impl CoduxApp {
             if self.task_column_collapsed || !task_create {
                 self.open_project_create_window(window, cx);
             } else {
-                self.create_worktree(window, cx);
+                self.open_worktree_creator_window(window, cx);
             }
             return true;
         }
@@ -635,47 +766,31 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let pane_label = pane.label(&self.state.settings.language);
-        if Self::activate_child_window(&mut self.settings_window, cx) {
-            self.status_message = format!("settings window already opened: {pane_label}");
-            self.invalidate_status_bar(cx);
-            return;
-        }
-
-        let bounds = Bounds::centered(None, size(px(980.0), px(720.0)), cx);
-        let result = cx.open_window(
-            WindowOptions {
-                titlebar: Some(theme::codux_titlebar("Codux Settings")),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(760.0), px(560.0))),
-                ..Default::default()
+        let opened = self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::Settings,
+                title: SharedString::from("Codux Settings"),
+                size: size(px(980.0), px(720.0)),
+                min_size: size(px(760.0), px(560.0)),
+                already_open_message: "settings window already opened",
+                opened_message: "settings window opened",
+                failed_prefix: "failed to open settings window",
             },
-            |window, cx| {
-                let mut app = CoduxApp::new_settings_window_from_state(
-                    self.state.clone(),
-                    self.runtime.clone(),
-                    self.runtime_service.clone(),
-                );
+            cx,
+            move |state, runtime, runtime_service, window, cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.active_settings_pane = pane;
-                theme::apply_component_theme(
-                    &app.state.settings.theme,
-                    &app.state.settings.theme_color,
-                    Some(window),
-                    cx,
-                );
-                let view = cx.new(|_| app);
+                let _ = (window, cx);
+                app
+            },
+            |view, _window, cx| {
                 view.update(cx, |app, cx| app.start_settings_remote_snapshot_loop(cx));
-                cx.new(|cx| Root::new(view, window, cx))
             },
         );
 
-        match result {
-            Ok(handle) => {
-                self.settings_window = Some(handle.into());
-                self.status_message = format!("settings window opened: {pane_label}");
-            }
-            Err(error) => {
-                self.status_message = format!("failed to open settings window: {error}");
-            }
+        if opened {
+            self.status_message = format!("{}: {pane_label}", self.status_message);
         }
         self.invalidate_status_bar(cx);
     }
@@ -686,6 +801,74 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.open_settings_window_with_pane(SettingsPane::Remote, cx);
+    }
+
+    pub(super) fn open_git_clone_window(&mut self, cx: &mut Context<Self>) {
+        let labels = GitSidebarLabels::load(&self.state.settings.language);
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::GitClone,
+                title: SharedString::from(labels.clone_repository.clone()),
+                size: size(px(420.0), px(190.0)),
+                min_size: size(px(360.0), px(170.0)),
+                already_open_message: "Git clone window already opened",
+                opened_message: "Git clone window opened",
+                failed_prefix: "failed to open Git clone window",
+            },
+            cx,
+            |state, runtime, runtime_service, _window, _cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                app.window_mode = AppWindowMode::GitClone;
+                app.status_message = "Git clone window ready".to_string();
+                app
+            },
+            |_view, _window, _cx| {},
+        );
+        self.invalidate_status_bar(cx);
+    }
+
+    pub(super) fn open_git_credentials_window(&mut self, cx: &mut Context<Self>) {
+        let labels = GitSidebarLabels::load(&self.state.settings.language);
+        let project_id = self.git_credential_project_id.clone();
+        let project_name = self.git_credential_project_name.clone();
+        let project_path = self.git_credential_project_path.clone();
+        let remote_url = self.git_credential_remote_url.clone();
+        let username = self.git_credential_username.clone();
+        let error = self.git_credential_error.clone();
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::GitCredentials,
+                title: SharedString::from(labels.credentials_title.clone()),
+                size: size(
+                    px(GIT_CREDENTIALS_WINDOW_WIDTH),
+                    px(GIT_CREDENTIALS_COMPACT_HEIGHT),
+                ),
+                min_size: size(px(380.0), px(GIT_CREDENTIALS_COMPACT_HEIGHT)),
+                already_open_message: "Git credentials window already opened",
+                opened_message: "Git credentials window opened",
+                failed_prefix: "failed to open Git credentials window",
+            },
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                app.window_mode = AppWindowMode::GitCredentials;
+                app.status_message = "Git credentials window ready".to_string();
+                app.git_credential_project_id = project_id;
+                app.git_credential_project_name = project_name;
+                app.git_credential_project_path = project_path;
+                app.git_credential_remote_url = remote_url;
+                app.git_credential_username = username;
+                app.git_credential_error = error;
+                app
+            },
+            |view, window, cx| {
+                let expanded = view.read(cx).git_credential_error.is_some();
+                resize_git_credentials_window(window, expanded);
+            },
+        );
+        self.invalidate_status_bar(cx);
     }
 
     pub(super) fn open_ssh_profile_dialog(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -733,42 +916,27 @@ impl CoduxApp {
         } else {
             "Add SSH Profile"
         };
-        let state = self.state.clone();
-        let runtime = self.runtime.clone();
-        let runtime_service = self.runtime_service.clone();
-        let bounds = Bounds::centered(None, size(px(520.0), px(430.0)), cx);
-        let result = cx.open_window(
-            WindowOptions {
-                titlebar: Some(theme::codux_titlebar(title)),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(460.0), px(390.0))),
-                ..Default::default()
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::SshProfileEditor,
+                title: SharedString::from(title),
+                size: size(px(520.0), px(430.0)),
+                min_size: size(px(460.0), px(390.0)),
+                already_open_message: "SSH profile editor already opened",
+                opened_message: "SSH profile editor opened",
+                failed_prefix: "failed to open SSH profile editor",
             },
-            move |window, cx| {
-                let app = CoduxApp::new_ssh_profile_editor_window_from_state(
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                CoduxApp::new_ssh_profile_editor_window_from_state(
                     profile,
-                    state.clone(),
-                    runtime.clone(),
-                    runtime_service.clone(),
-                );
-                theme::apply_component_theme(
-                    &app.state.settings.theme,
-                    &app.state.settings.theme_color,
-                    Some(window),
-                    cx,
-                );
-                let view = cx.new(|_| app);
-                cx.new(|cx| Root::new(view, window, cx))
+                    state,
+                    runtime,
+                    runtime_service,
+                )
             },
+            |_view, _window, _cx| {},
         );
-
-        self.status_message = match result {
-            Ok(handle) => {
-                self.ssh_profile_editor_window = Some(handle.into());
-                "SSH profile editor opened".to_string()
-            }
-            Err(error) => format!("failed to open SSH profile editor: {error}"),
-        };
         self.invalidate_remote_panel(cx);
     }
 
@@ -874,7 +1042,7 @@ impl CoduxApp {
             Some(panel)
         };
         if self.assistant_panel == Some(panel) {
-            self.refresh_assistant_panel_state(panel);
+            self.refresh_assistant_panel_state(panel, cx);
         }
         self.invalidate_ui(
             cx,
@@ -890,7 +1058,11 @@ impl CoduxApp {
         );
     }
 
-    pub(super) fn refresh_assistant_panel_state(&mut self, panel: AssistantPanel) {
+    pub(super) fn refresh_assistant_panel_state(
+        &mut self,
+        panel: AssistantPanel,
+        cx: &mut Context<Self>,
+    ) {
         match panel {
             AssistantPanel::AIStats => {
                 self.state.memory = self.runtime_service.reload_memory(
@@ -911,7 +1083,7 @@ impl CoduxApp {
                 self.refresh_files_panel_state();
             }
             AssistantPanel::Git => {
-                self.refresh_git_panel_state();
+                self.refresh_git_panel_state_async(cx);
             }
         }
     }
@@ -1136,7 +1308,7 @@ impl CoduxApp {
         register!(
             native_menu::CreateTask,
             |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.create_worktree(window, cx)
+                app.open_worktree_creator_window(window, cx)
             }
         );
         register!(

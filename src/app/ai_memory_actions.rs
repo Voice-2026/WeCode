@@ -1,5 +1,7 @@
 use super::*;
-use crate::app::app_events::publish_memory_update;
+use crate::app::app_events::{
+    ChildWindowUpdateKind, publish_child_window_update, publish_memory_update,
+};
 
 impl CoduxApp {
     pub(super) fn reload_ai_history(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -417,6 +419,7 @@ impl CoduxApp {
         self.status_message = "memory processing started".to_string();
         self.runtime_trace("memory", "manual_process start");
         publish_memory_update();
+        publish_child_window_update(ChildWindowUpdateKind::Memory);
         self.invalidate_status_bar(cx);
         let service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
@@ -459,6 +462,7 @@ impl CoduxApp {
                             ),
                         );
                         publish_memory_update();
+                        publish_child_window_update(ChildWindowUpdateKind::Memory);
                         if active {
                             app.start_memory_extraction_status_refresh(cx);
                         }
@@ -486,6 +490,7 @@ impl CoduxApp {
                             &format!("manual_process enqueue_failed error={error}"),
                         );
                         publish_memory_update();
+                        publish_child_window_update(ChildWindowUpdateKind::Memory);
                         app.invalidate_status_bar(cx);
                         app.invalidate_memory_panel(cx);
                     });
@@ -516,6 +521,7 @@ impl CoduxApp {
                 self.normalize_selected_memory_entry();
                 self.normalize_selected_memory_summary();
                 publish_memory_update();
+                publish_child_window_update(ChildWindowUpdateKind::Memory);
                 self.invalidate_status_bar(cx);
                 self.status_message = format!(
                     "memory indexed · checked {} · enqueued {} · pending {}",
@@ -538,6 +544,7 @@ impl CoduxApp {
                 self.state.memory_manager.extraction.running = 0;
                 self.reload_memory_manager_snapshot();
                 publish_memory_update();
+                publish_child_window_update(ChildWindowUpdateKind::Memory);
                 self.invalidate_status_bar(cx);
                 self.status_message = format!("failed to process memory: {error}");
             }

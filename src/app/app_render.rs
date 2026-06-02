@@ -40,6 +40,43 @@ impl Render for CoduxApp {
                 .into_any_element();
         }
 
+        if self.window_mode == AppWindowMode::GitClone {
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(git_clone_window_workspace(
+                    &self.git_clone_remote_url,
+                    self.git_running_operation.as_ref(),
+                    &self.state.settings.language,
+                    window,
+                    cx,
+                ))
+                .child(self.codux_tooltip_layer(window));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::GitCredentials {
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(git_credentials_window_workspace(
+                    self,
+                    &self.state.settings.language,
+                    window,
+                    cx,
+                ))
+                .child(self.codux_tooltip_layer(window));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
         if self.window_mode == AppWindowMode::MemoryManager {
             let memory_queue_active = self.state.memory_manager.extraction.queued > 0
                 || self.state.memory_manager.extraction.running > 0;
@@ -127,6 +164,19 @@ impl Render for CoduxApp {
                 .bg(cx.theme().background)
                 .on_key_down(cx.listener(Self::on_key_down))
                 .child(self.project_editor_workspace(window, cx))
+                .child(self.codux_tooltip_layer(window));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::WorktreeCreator {
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.worktree_creator_workspace(window, cx))
                 .child(self.codux_tooltip_layer(window));
             return self
                 .register_child_window_actions(root, cx)

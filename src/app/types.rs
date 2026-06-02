@@ -4,6 +4,8 @@ use crate::terminal::{TerminalLaunchContext, TerminalPane};
 pub(in crate::app) enum AppWindowMode {
     Main,
     About,
+    GitClone,
+    GitCredentials,
     GitDiff,
     MemoryManager,
     PetClaim,
@@ -11,6 +13,7 @@ pub(in crate::app) enum AppWindowMode {
     PetDex,
     Settings,
     ProjectEditor,
+    WorktreeCreator,
     SshProfileEditor,
     DesktopPet,
 }

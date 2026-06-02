@@ -12,6 +12,12 @@ pub(in crate::app) struct GitSidebarLabels {
     add_remote: String,
     add: String,
     cancel: String,
+    confirm: String,
+    credentials_message: String,
+    pub(in crate::app) credentials_title: String,
+    credential_username: String,
+    credential_password_or_token: String,
+    pub(in crate::app) auth_credentials_required: String,
     commit_message: String,
     commit: String,
     commit_push: String,
@@ -19,10 +25,12 @@ pub(in crate::app) struct GitSidebarLabels {
     load_last_commit_message: String,
     amend_last_commit: String,
     undo_last_commit: String,
+    no_branch: String,
     no_repository: String,
     no_repository_description: String,
     init_repository: String,
-    clone_repository: String,
+    pub(in crate::app) clone_repository: String,
+    clone_preparing: String,
     staged: String,
     staged_empty: String,
     changed: String,
@@ -50,6 +58,7 @@ pub(in crate::app) struct GitSidebarLabels {
     review_branch: String,
     review_select_file: String,
     review_empty: String,
+    review_no_repository: String,
     review_tree_limit: String,
 }
 
@@ -288,6 +297,21 @@ impl GitSidebarLabels {
             add_remote: tr("git.remote.add", "Add Remote"),
             add: tr("common.add", "Add"),
             cancel: tr("common.cancel", "Cancel"),
+            confirm: tr("common.confirm", "Confirm"),
+            credentials_message: tr(
+                "git.credentials.message",
+                "Remote access requires authentication. Enter your username and password or token to retry.",
+            ),
+            credentials_title: tr("git.credentials.title", "Git Credentials Required"),
+            credential_username: tr("git.credential.username", "Username"),
+            credential_password_or_token: tr(
+                "git.credential.password_or_token",
+                "Password or Token",
+            ),
+            auth_credentials_required: tr(
+                "git.auth.credentials_required",
+                "Username and password or token cannot be empty.",
+            ),
             commit_message: tr("git.commit.message.placeholder", "Enter Commit Message"),
             commit: tr("git.commit.action", "Commit"),
             commit_push: tr("git.commit.action_push", "Commit and Push"),
@@ -301,6 +325,7 @@ impl GitSidebarLabels {
                 "Edit Last Commit Message",
             ),
             undo_last_commit: tr("git.history.undo_last_commit", "Undo Last Commit"),
+            no_branch: tr("git.branch.none", "No Branch"),
             no_repository: tr("git.empty.no_repository", "No Repository"),
             no_repository_description: tr(
                 "git.empty.description",
@@ -310,6 +335,10 @@ impl GitSidebarLabels {
             clone_repository: tr(
                 "git.empty.clone_remote_repository",
                 "Clone Remote Repository",
+            ),
+            clone_preparing: tr(
+                "git.clone.preparing",
+                "Preparing to clone the repository...",
             ),
             staged: tr("git.files.staged", "Staged"),
             staged_empty: tr("git.files.staged.empty", "No staged changes"),
@@ -347,6 +376,7 @@ impl GitSidebarLabels {
                 "worktree.review.no_changes",
                 "No changes relative to the base branch.",
             ),
+            review_no_repository: tr("worktree.review.no_repository", "No Git repository."),
             review_tree_limit: tr(
                 "worktree.review.tree_limit_format",
                 "Showing first %@ rows of %@ changed files",
@@ -359,8 +389,7 @@ pub(in crate::app) fn git_section(
     git: &GitSummary,
     selected_branch: Option<&str>,
     default_push_remote: Option<&str>,
-    clone_remote_url: &str,
-    clone_dialog_open: bool,
+    _clone_remote_url: &str,
     language: &str,
     remote_editor_open: bool,
     remote_name: &str,
@@ -375,7 +404,7 @@ pub(in crate::app) fn git_section(
 ) -> impl IntoElement {
     let labels = Rc::new(GitSidebarLabels::load(language));
     let branch = if git.branch.trim().is_empty() {
-        "HEAD"
+        labels.no_branch.as_str()
     } else {
         git.branch.as_str()
     };
@@ -411,8 +440,7 @@ pub(in crate::app) fn git_section(
             )
             .into_any_element()
         } else {
-            git_empty_repository_panel(clone_remote_url, clone_dialog_open, labels, window, cx)
-                .into_any_element()
+            git_empty_repository_panel(labels, running_operation, cx).into_any_element()
         })
         .into_any_element()
 }
@@ -446,60 +474,70 @@ fn git_panel_header(
         .border_b_1()
         .border_color(color(theme::BORDER_SOFT))
         .child(
-            div().flex().items_center().min_w_0().child(
-                Button::new("git-sidebar-branch-menu")
-                    .compact()
-                    .ghost()
-                    .text_color(cx.theme().foreground)
-                    .child(
-                        div()
-                            .h(px(24.0))
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .min_w_0()
+            div()
+                .flex()
+                .items_center()
+                .min_w_0()
+                .when(git.is_repository, |this| {
+                    this.child(
+                        Button::new("git-sidebar-branch-menu")
+                            .compact()
+                            .ghost()
+                            .text_color(cx.theme().foreground)
                             .child(
                                 div()
-                                    .max_w(px(132.0))
-                                    .text_size(px(14.0))
-                                    .line_height(px(18.0))
-                                    .truncate()
-                                    .child(branch.to_string()),
+                                    .h(px(24.0))
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .max_w(px(132.0))
+                                            .text_size(px(14.0))
+                                            .line_height(px(18.0))
+                                            .truncate()
+                                            .child(branch.to_string()),
+                                    )
+                                    .child(
+                                        Icon::new(HeroIconName::ChevronDown)
+                                            .size_3()
+                                            .text_color(color(theme::TEXT_DIM)),
+                                    ),
                             )
-                            .child(
-                                Icon::new(HeroIconName::ChevronDown)
-                                    .size_3()
-                                    .text_color(color(theme::TEXT_DIM)),
-                            ),
+                            .dropdown_menu(move |menu, window, cx| {
+                                git_branch_dropdown_menu(
+                                    menu,
+                                    window,
+                                    cx,
+                                    branches.clone(),
+                                    remote_branches.clone(),
+                                    remotes.clone(),
+                                    default_push_remote.clone(),
+                                    current_branch.clone(),
+                                    upstream.clone(),
+                                    has_commits,
+                                    language.clone(),
+                                    app_entity.clone(),
+                                )
+                            }),
                     )
-                    .dropdown_menu(move |menu, window, cx| {
-                        git_branch_dropdown_menu(
-                            menu,
-                            window,
-                            cx,
-                            branches.clone(),
-                            remote_branches.clone(),
-                            remotes.clone(),
-                            default_push_remote.clone(),
-                            current_branch.clone(),
-                            upstream.clone(),
-                            has_commits,
-                            language.clone(),
-                            app_entity.clone(),
-                        )
-                    }),
-            ),
+                }),
         )
         .child(
             div()
                 .flex()
                 .items_center()
-                .child(assistant_header_icon_button(
-                    "git-sidebar-ai",
-                    HeroIconName::Sparkles,
-                    cx,
-                    |app, _event, window, cx| app.generate_git_commit_message_with_ai(window, cx),
-                ))
+                .when(git.is_repository, |this| {
+                    this.child(assistant_header_icon_button(
+                        "git-sidebar-ai",
+                        HeroIconName::Sparkles,
+                        cx,
+                        |app, _event, window, cx| {
+                            app.generate_git_commit_message_with_ai(window, cx)
+                        },
+                    ))
+                })
                 .when_some(running_operation, |this, operation| {
                     if operation.cancellable {
                         this.child(assistant_header_icon_button(
@@ -1489,12 +1527,11 @@ fn git_files_panel(
 }
 
 fn git_empty_repository_panel(
-    clone_remote_url: &str,
-    clone_dialog_open: bool,
     labels: Rc<GitSidebarLabels>,
-    window: &mut Window,
+    running_operation: Option<&GitRunningOperation>,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let cloning = running_operation.is_some_and(|operation| operation.label == "clone");
     div()
         .relative()
         .flex_1()
@@ -1535,15 +1572,19 @@ fn git_empty_repository_panel(
                         .text_size(px(12.0))
                         .line_height(px(17.0))
                         .text_color(color(theme::TEXT_MUTED))
-                        .child(labels.no_repository_description.clone()),
+                        .child(if cloning {
+                            labels.clone_preparing.clone()
+                        } else {
+                            labels.no_repository_description.clone()
+                        }),
                 )
-                .child(
-                    div()
-                        .mt(px(14.0))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.0))
-                        .child(
+                .when(cloning, |this| {
+                    this.child(git_clone_indeterminate_progress())
+                })
+                .child(div().mt(px(14.0)).flex().items_center().gap(px(8.0)).when(
+                    !cloning,
+                    |this| {
+                        this.child(
                             git_empty_action_button(labels.init_repository.clone(), true).on_click(
                                 cx.listener(|app, _event, window, cx| {
                                     app.init_project_git(window, cx)
@@ -1555,12 +1596,26 @@ fn git_empty_repository_panel(
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.open_git_clone_dialog(window, cx)
                                 })),
-                        ),
-                ),
+                        )
+                    },
+                )),
         )
-        .when(clone_dialog_open, |this| {
-            this.child(git_clone_dialog(clone_remote_url, labels, window, cx))
-        })
+}
+
+fn git_clone_indeterminate_progress() -> impl IntoElement {
+    div()
+        .mt(px(12.0))
+        .w(px(180.0))
+        .h(px(4.0))
+        .rounded(px(4.0))
+        .bg(color(theme::BORDER_SOFT))
+        .child(
+            div()
+                .h_full()
+                .w(gpui::relative(0.42))
+                .rounded(px(4.0))
+                .bg(color(theme::ACCENT)),
+        )
 }
 
 fn git_empty_action_button(label: String, primary: bool) -> Stateful<Div> {
@@ -1591,12 +1646,15 @@ fn git_empty_action_button(label: String, primary: bool) -> Stateful<Div> {
         .child(label)
 }
 
-fn git_clone_dialog(
+pub(in crate::app) fn git_clone_window_workspace(
     clone_remote_url: &str,
-    labels: Rc<GitSidebarLabels>,
+    running_operation: Option<&GitRunningOperation>,
+    language: &str,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let labels = Rc::new(GitSidebarLabels::load(language));
+    let cloning = running_operation.is_some_and(|operation| operation.label == "clone");
     let value = clone_remote_url.to_string();
     let input_state = window.use_keyed_state("git-clone-remote-url", cx, |window, cx| {
         InputState::new(window, cx)
@@ -1622,23 +1680,22 @@ fn git_clone_dialog(
     .detach();
 
     div()
-        .absolute()
-        .inset_0()
+        .size_full()
         .flex()
         .items_center()
         .justify_center()
-        .bg(color(theme::BG).opacity(0.62))
-        .p(px(16.0))
+        .bg(cx.theme().background)
+        .p(px(18.0))
         .child(
             div()
                 .w_full()
-                .max_w(px(320.0))
+                .max_w(px(380.0))
                 .rounded(px(8.0))
                 .border_1()
                 .border_color(cx.theme().border)
-                .bg(cx.theme().popover)
+                .bg(color(theme::BG_PANEL))
                 .shadow_lg()
-                .p(px(14.0))
+                .p(px(16.0))
                 .child(
                     div()
                         .flex()
@@ -1656,6 +1713,7 @@ fn git_clone_dialog(
                             Button::new("git-clone-dialog-close")
                                 .compact()
                                 .ghost()
+                                .disabled(cloning)
                                 .icon(Icon::new(HeroIconName::XMark).size_3p5())
                                 .on_click(cx.listener(|app, _event, window, cx| {
                                     app.close_git_clone_dialog(window, cx)
@@ -1663,10 +1721,23 @@ fn git_clone_dialog(
                         ),
                 )
                 .child(
-                    div()
-                        .mt(px(12.0))
-                        .child(Input::new(&input_state).with_size(gpui_component::Size::Medium)),
+                    div().mt(px(12.0)).child(
+                        Input::new(&input_state)
+                            .disabled(cloning)
+                            .with_size(gpui_component::Size::Medium),
+                    ),
                 )
+                .when(cloning, |this| {
+                    this.child(
+                        div()
+                            .mt(px(10.0))
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .text_color(color(theme::TEXT_MUTED))
+                            .child(labels.clone_preparing.clone()),
+                    )
+                    .child(git_clone_indeterminate_progress())
+                })
                 .child(
                     div()
                         .mt(px(12.0))
@@ -1677,6 +1748,7 @@ fn git_clone_dialog(
                             Button::new("git-clone-cancel")
                                 .compact()
                                 .ghost()
+                                .disabled(cloning)
                                 .text_color(cx.theme().secondary_foreground)
                                 .label(labels.cancel.clone())
                                 .on_click(cx.listener(|app, _event, window, cx| {
@@ -1687,7 +1759,8 @@ fn git_clone_dialog(
                             Button::new("git-clone-confirm")
                                 .compact()
                                 .primary()
-                                .disabled(clone_remote_url.trim().is_empty())
+                                .loading(cloning)
+                                .disabled(cloning || clone_remote_url.trim().is_empty())
                                 .text_color(color(0xFFFFFF))
                                 .label(labels.clone_repository.clone())
                                 .on_click(cx.listener(|app, _event, window, cx| {
@@ -1695,6 +1768,161 @@ fn git_clone_dialog(
                                 })),
                         ),
                 ),
+        )
+}
+
+pub(in crate::app) fn git_credentials_window_workspace(
+    app: &CoduxApp,
+    language: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let labels = Rc::new(GitSidebarLabels::load(language));
+    let retrying = app.git_credential_retrying
+        || app
+            .git_running_operation
+            .as_ref()
+            .is_some_and(|operation| operation.label == "clone");
+
+    child_window_shell(labels.credentials_title.clone(), cx)
+        .child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scrollbar()
+                .p(px(16.0))
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .mb(px(14.0))
+                        .text_size(px(14.0))
+                        .line_height(px(20.0))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(labels.credentials_message.clone()),
+                )
+                .child(git_credentials_input(
+                    "username",
+                    labels.credential_username.clone(),
+                    &app.git_credential_username,
+                    false,
+                    retrying,
+                    window,
+                    cx,
+                    |app, value, window, cx| app.set_git_credential_username(value, window, cx),
+                ))
+                .child(git_credentials_input(
+                    "password-or-token",
+                    labels.credential_password_or_token.clone(),
+                    &app.git_credential_password_or_token,
+                    true,
+                    retrying,
+                    window,
+                    cx,
+                    |app, value, window, cx| {
+                        app.set_git_credential_password_or_token(value, window, cx)
+                    },
+                ))
+                .when_some(app.git_credential_error.clone(), |this, error| {
+                    this.child(
+                        div()
+                            .mt(px(8.0))
+                            .text_size(px(12.0))
+                            .line_height(px(16.0))
+                            .text_color(color(0xF47C7C))
+                            .child(error),
+                    )
+                }),
+        )
+        .child(
+            div()
+                .h(px(56.0))
+                .flex_shrink_0()
+                .border_t_1()
+                .border_color(color(theme::BORDER_SOFT).opacity(0.45))
+                .px(px(16.0))
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(8.0))
+                .child(
+                    Button::new("git-credentials-cancel")
+                        .ghost()
+                        .disabled(retrying)
+                        .text_color(cx.theme().secondary_foreground)
+                        .child(git_credentials_button_label(labels.cancel.clone()))
+                        .on_click(cx.listener(|app, _event, window, cx| {
+                            app.close_git_credentials_dialog(window, cx)
+                        })),
+                )
+                .child(
+                    Button::new("git-credentials-confirm")
+                        .primary()
+                        .loading(retrying)
+                        .disabled(retrying)
+                        .text_color(color(0xFFFFFF))
+                        .child(git_credentials_button_label(labels.confirm.clone()))
+                        .on_click(cx.listener(|app, _event, window, cx| {
+                            app.retry_git_clone_with_credentials(window, cx)
+                        })),
+                ),
+        )
+}
+
+fn git_credentials_button_label(label: impl Into<String>) -> impl IntoElement {
+    div()
+        .text_size(px(14.0))
+        .line_height(px(18.0))
+        .child(label.into())
+}
+
+fn git_credentials_input(
+    id: &'static str,
+    label: String,
+    value: &str,
+    masked: bool,
+    disabled: bool,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> impl IntoElement {
+    let value = value.to_string();
+    let state = window.use_keyed_state(SharedString::from(format!("git-credential-{id}")), cx, {
+        let value = value.clone();
+        move |window, cx| {
+            InputState::new(window, cx)
+                .default_value(value.clone())
+                .masked(masked)
+        }
+    });
+    state.update(cx, |state, cx| {
+        if state.value().as_ref() != value.as_str() {
+            state.set_value(value.clone(), window, cx);
+        }
+    });
+    cx.subscribe_in(&state, window, move |app, state, event, window, cx| {
+        if matches!(event, InputEvent::Change) {
+            action(app, state.read(cx).value().to_string(), window, cx);
+        }
+    })
+    .detach();
+
+    div()
+        .mb(px(14.0))
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .child(
+            div()
+                .text_size(px(14.0))
+                .line_height(px(18.0))
+                .text_color(color(theme::TEXT))
+                .child(label),
+        )
+        .child(
+            Input::new(&state)
+                .disabled(disabled)
+                .with_size(gpui_component::Size::Medium),
         )
 }
 
@@ -3228,6 +3456,9 @@ pub(in crate::app) fn git_review_workspace(
     code_scroll_handle: ScrollHandle,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    if !review.is_repository {
+        return git_review_empty_workspace(labels.review_no_repository.clone()).into_any_element();
+    }
     let Some(selected_path) = selected_path else {
         return git_review_empty_workspace(labels.review_select_file.clone()).into_any_element();
     };
@@ -3235,7 +3466,8 @@ pub(in crate::app) fn git_review_workspace(
         return git_review_empty_workspace(labels.review_select_file.clone()).into_any_element();
     };
     if let Some(error) = content.error.clone() {
-        return git_review_empty_workspace(error).into_any_element();
+        let message = git_review_error_message(&error, labels.as_ref());
+        return git_review_empty_workspace(message).into_any_element();
     }
     let task_branch_mode = review.mode == "taskBranch";
     let original_title = labels.review_original.clone();
@@ -3269,9 +3501,16 @@ pub(in crate::app) fn git_review_workspace(
                         .gap_2()
                         .text_size(px(12.0))
                         .line_height(px(16.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .child(format!("+{}", content.added_lines.len()))
-                        .child(format!("-{}", content.deleted_lines.len())),
+                        .child(
+                            div()
+                                .text_color(color(theme::GREEN))
+                                .child(format!("+{}", content.added_lines.len())),
+                        )
+                        .child(
+                            div()
+                                .text_color(color(0xF47C7C))
+                                .child(format!("-{}", content.deleted_lines.len())),
+                        ),
                 ),
         )
         .child({
@@ -3341,6 +3580,18 @@ fn git_review_empty_workspace(message: String) -> impl IntoElement {
                         .child(message),
                 ),
         )
+}
+
+fn git_review_error_message(error: &str, labels: &GitSidebarLabels) -> String {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("could not find repository")
+        || normalized.contains("not a git repository")
+        || normalized.contains("no git repository")
+    {
+        return labels.review_no_repository.clone();
+    }
+
+    error.to_string()
 }
 
 #[derive(Clone, Copy)]
@@ -3578,6 +3829,7 @@ pub(in crate::app) fn git_review_file_list(
     review: &GitReviewSummary,
     selected_path: Option<&str>,
     expanded_dirs: &HashSet<String>,
+    refreshing: bool,
     labels: Rc<GitSidebarLabels>,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -3601,17 +3853,11 @@ pub(in crate::app) fn git_review_file_list(
                 .text_color(color(theme::TEXT_DIM))
                 .child(labels.review_changed_files.clone())
                 .child(
-                    div()
-                        .id("git-review-refresh")
-                        .size(px(24.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(5.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .hover(|style| style.bg(color(theme::BG_ROW_HOVER)))
-                        .cursor_pointer()
-                        .child(Icon::new(HeroIconName::ArrowPath).size_4())
+                    Button::new("git-review-refresh")
+                        .compact()
+                        .ghost()
+                        .loading(refreshing)
+                        .icon(Icon::new(HeroIconName::ArrowPath).size_4())
                         .on_click(cx.listener(|app, _event, _window, cx| {
                             app.refresh_git_panel_state_async(cx);
                         })),
@@ -3628,12 +3874,11 @@ pub(in crate::app) fn git_review_file_list(
                 .text_size(px(13.0))
                 .line_height(px(18.0))
                 .text_color(color(theme::TEXT_DIM))
-                .child(
-                    review
-                        .error
-                        .clone()
-                        .unwrap_or_else(|| labels.review_empty.clone()),
-                )
+                .child(if review.is_repository {
+                    labels.review_empty.clone()
+                } else {
+                    labels.review_no_repository.clone()
+                })
                 .into_any_element()
         } else {
             div()
@@ -3782,12 +4027,8 @@ fn git_review_file_row(
                         ),
                 )
                 .child(git_review_stats_cells(
-                    Some((
-                        format!("+{}", file.additions.max(0)),
-                        color(theme::GREEN),
-                        true,
-                    )),
-                    Some((format!("-{}", file.deletions.max(0)), color(0xF47C7C), true)),
+                    None,
+                    None,
                     Some((badge.0.to_string(), badge.1, true)),
                 )),
         )

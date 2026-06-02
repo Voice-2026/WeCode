@@ -99,6 +99,7 @@ impl CoduxApp {
     pub(super) fn apply_settings_summary(&mut self, settings: SettingsSummary) {
         self.replace_settings_summary(settings);
         let revision = publish_settings_update();
+        publish_child_window_update(ChildWindowUpdateKind::Settings);
         if revision > 0 {
             self.settings_seen_revision = revision;
         }

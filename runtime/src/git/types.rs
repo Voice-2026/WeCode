@@ -40,6 +40,13 @@ pub struct GitRemoteSummary {
     pub url: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCredentials {
+    pub username: String,
+    pub password_or_token: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitSummary {

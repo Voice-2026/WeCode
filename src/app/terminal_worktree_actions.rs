@@ -1,6 +1,168 @@
 use super::*;
+use crate::app::app_events::{ChildWindowUpdateKind, publish_child_window_update};
+use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
 
 impl CoduxApp {
+    pub(super) fn open_worktree_creator_window(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.state.selected_project.clone() else {
+            self.status_message = "no selected project to create worktree".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        };
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        let default_base_branch = self.default_worktree_base_branch();
+        let default_name = default_worktree_name();
+
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::WorktreeCreator,
+                title: SharedString::from(translate(
+                    &locale,
+                    "worktree.create.title",
+                    "New Worktree",
+                )),
+                size: size(px(420.0), px(300.0)),
+                min_size: size(px(360.0), px(260.0)),
+                already_open_message: "worktree creator already opened",
+                opened_message: "worktree creator opened",
+                failed_prefix: "failed to open worktree creator",
+            },
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                app.window_mode = AppWindowMode::WorktreeCreator;
+                app.status_message = "worktree creator ready".to_string();
+                app.worktree_creator_project_id = Some(project.id.clone());
+                app.worktree_creator_project_name = project.name.clone();
+                app.worktree_creator_project_path = project.path.clone();
+                app.worktree_creator_base_branch = default_base_branch;
+                app.worktree_creator_name = default_name;
+                app
+            },
+            |_view, _window, _cx| {},
+        );
+        self.invalidate_status_bar(cx);
+    }
+
+    fn default_worktree_base_branch(&self) -> String {
+        self.state
+            .git
+            .branches
+            .iter()
+            .find(|branch| branch.is_current)
+            .or_else(|| self.state.git.branches.first())
+            .map(|branch| branch.name.clone())
+            .filter(|branch| !branch.trim().is_empty())
+            .or_else(|| {
+                super::ai_runtime_status::selected_worktree_info(&self.state)
+                    .map(|worktree| worktree.branch)
+            })
+            .filter(|branch| !branch.trim().is_empty())
+            .unwrap_or_else(|| self.state.git.branch.clone())
+    }
+
+    pub(super) fn submit_worktree_creator(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.worktree_creator_submitting {
+            return;
+        }
+        let Some(project_id) = self.worktree_creator_project_id.clone() else {
+            self.worktree_creator_error = Some("No selected project.".to_string());
+            cx.notify();
+            return;
+        };
+        let project_path = self.worktree_creator_project_path.clone();
+        let branch_name = self.worktree_creator_name.trim().to_string();
+        let base_branch = self.worktree_creator_base_branch.trim().to_string();
+        if branch_name.is_empty() {
+            self.worktree_creator_error =
+                Some(self.text("worktree.branch.empty", "Branch name cannot be empty."));
+            cx.notify();
+            return;
+        }
+        if base_branch.is_empty() {
+            self.worktree_creator_error = Some(self.text(
+                "worktree.merge.base_missing",
+                "This worktree has no base branch.",
+            ));
+            cx.notify();
+            return;
+        }
+
+        self.worktree_creator_submitting = true;
+        self.worktree_creator_error = None;
+        cx.notify();
+
+        let service = self.runtime_service.clone();
+        let parent_service = self.runtime_service.clone();
+        let title = self.text("worktree.create.title", "New Worktree");
+        let button_label = self.text("common.ok", "OK");
+        cx.spawn(async move |_: gpui::WeakEntity<Self>, _cx| {
+            let worker_branch_name = branch_name.clone();
+            let worker_project_id = project_id.clone();
+            let worker_project_path = project_path.clone();
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.create_worktree_from_request(
+                    codux_runtime::worktree::WorktreeCreateRequest {
+                        project_id: worker_project_id,
+                        project_path: worker_project_path,
+                        base_branch: Some(base_branch),
+                        branch_name: worker_branch_name.clone(),
+                        task_title: Some(worker_branch_name),
+                    },
+                )
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            match result {
+                Ok(_) => {
+                    publish_child_window_update(ChildWindowUpdateKind::Project);
+                }
+                Err(error) => {
+                    let message = error.clone();
+                    let alert_service = parent_service.clone();
+                    let alert_title = title.clone();
+                    let alert_button = button_label.clone();
+                    let _ = codux_runtime::async_runtime::spawn_blocking(move || {
+                        alert_service.localized_alert_dialog(LocalizedAlertDialogRequest {
+                            title: alert_title,
+                            message,
+                            button_label: alert_button,
+                        })
+                    })
+                    .await;
+                }
+            }
+        })
+        .detach();
+        window.remove_window();
+    }
+
+    pub(super) fn open_worktree_folder(&mut self, path: String, cx: &mut Context<Self>) {
+        let path = path.trim().to_string();
+        if path.is_empty() {
+            self.status_message = "no worktree folder to open".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        }
+
+        match self.runtime_service.project_reveal_in_file_manager(&path) {
+            Ok(()) => self.status_message = format!("opened worktree folder: {path}"),
+            Err(error) => {
+                let title = "Open Worktree Folder Failed".to_string();
+                self.status_message = title.clone();
+                self.show_system_error_alert(title, error, cx);
+            }
+        }
+        self.invalidate_status_bar(cx);
+    }
+
     pub(super) fn ensure_active_terminal_mounted(
         &mut self,
         cx: &mut Context<Self>,
@@ -458,6 +620,64 @@ impl CoduxApp {
         self.invalidate_worktree_context(cx);
     }
 
+    pub(super) fn create_worktree_from_draft(
+        &mut self,
+        branch_name: String,
+        base_branch: String,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let Some(project) = &self.state.selected_project else {
+            return Err("No selected project.".to_string());
+        };
+        let branch_name = branch_name.trim().to_string();
+        let base_branch = base_branch.trim().to_string();
+        if branch_name.is_empty() {
+            return Err(self.text("worktree.branch.empty", "Branch name cannot be empty."));
+        }
+        if base_branch.is_empty() {
+            return Err(self.text(
+                "worktree.merge.base_missing",
+                "This worktree has no base branch.",
+            ));
+        }
+
+        match self.runtime_service.create_worktree_from_request(
+            codux_runtime::worktree::WorktreeCreateRequest {
+                project_id: project.id.clone(),
+                project_path: project.path.clone(),
+                base_branch: Some(base_branch),
+                branch_name: branch_name.clone(),
+                task_title: Some(branch_name.clone()),
+            },
+        ) {
+            Ok(snapshot) => {
+                self.state.worktrees = self
+                    .runtime_service
+                    .reload_worktrees(Some(&project.id), Some(&project.path));
+                if let Some(selected) = snapshot
+                    .worktrees
+                    .iter()
+                    .find(|worktree| worktree.branch == branch_name)
+                    .map(|worktree| worktree.id.clone())
+                    .or_else(|| Some(snapshot.selected_worktree_id.clone()))
+                {
+                    self.state.worktrees.selected_worktree_id = Some(selected);
+                }
+                self.status_message = self
+                    .text("worktree.create.success_format", "Created worktree %@.")
+                    .replace("%@", &branch_name);
+                self.save_current_project_view_state();
+                self.invalidate_worktree_context(cx);
+                Ok(())
+            }
+            Err(error) => {
+                self.status_message = format!("failed to create worktree: {error}");
+                self.invalidate_status_bar(cx);
+                Err(error)
+            }
+        }
+    }
+
     pub(super) fn remove_selected_worktree(
         &mut self,
         _window: &mut Window,
@@ -504,34 +724,318 @@ impl CoduxApp {
                 };
                 self.save_current_project_view_state();
             }
-            Err(error) => self.status_message = format!("failed to remove worktree: {error}"),
+            Err(error) => {
+                let title = self.text("worktree.remove.title", "Remove Worktree");
+                self.status_message = title.clone();
+                self.show_system_error_alert(title, error, cx);
+            }
         }
         self.invalidate_worktree_context(cx);
     }
 
-    pub(super) fn merge_selected_worktree(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn remove_worktree_by_id(
+        &mut self,
+        worktree_id: String,
+        remove_branch: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project to merge worktree".to_string();
+            self.status_message = "no selected project to remove worktree".to_string();
             self.invalidate_status_bar(cx);
             return;
         };
+        let Some(worktree) = self
+            .state
+            .worktrees
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.id == worktree_id)
+        else {
+            self.status_message = "worktree not found".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        };
+        if worktree.is_default {
+            self.status_message = self.text(
+                "worktree.default.remove_denied",
+                "The default worktree cannot be removed.",
+            );
+            self.invalidate_status_bar(cx);
+            return;
+        }
+
+        match self.runtime_service.remove_worktree(
+            &project.id,
+            &project.path,
+            &worktree_id,
+            remove_branch,
+        ) {
+            Ok(summary) => {
+                self.state.worktrees = summary;
+                self.status_message = self.text("worktree.remove.success", "Removed worktree.");
+                self.save_current_project_view_state();
+            }
+            Err(error) => {
+                let title = self.text("worktree.remove.title", "Remove Worktree");
+                self.status_message = title.clone();
+                self.show_system_error_alert(title, error, cx);
+            }
+        }
+        self.invalidate_worktree_context(cx);
+    }
+
+    pub(super) fn request_remove_worktree_by_id(
+        &mut self,
+        worktree_id: String,
+        remove_branch: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(worktree) = self
+            .state
+            .worktrees
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.id == worktree_id)
+            .cloned()
+        else {
+            self.status_message = "worktree not found".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        };
+        if worktree.is_default {
+            self.status_message = self.text(
+                "worktree.default.remove_denied",
+                "The default worktree cannot be removed.",
+            );
+            self.invalidate_status_bar(cx);
+            return;
+        }
+
+        let title = self.text("worktree.remove.title", "Remove Worktree");
+        let message = self
+            .text(
+                "worktree.remove.message_format",
+                "Remove %@ from Codux and the Git worktree list? The branch will not be deleted.",
+            )
+            .replace("%@", &worktree_confirm_display_name(&worktree));
+        let confirm_label = if remove_branch {
+            self.text(
+                "worktree.menu.remove_with_branch",
+                "Remove and Delete Branch",
+            )
+        } else {
+            self.text("worktree.menu.remove", "Remove")
+        };
+        let cancel_label = self.text("common.cancel", "Cancel");
+        let service = self.runtime_service.clone();
+        self.status_message = "waiting for worktree removal confirmation".to_string();
+        self.invalidate_status_bar(cx);
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                    title,
+                    message,
+                    confirm_label,
+                    cancel_label,
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(true) => app.remove_worktree_by_id(worktree_id, remove_branch, cx),
+                Ok(false) => {
+                    app.status_message = "worktree removal canceled".to_string();
+                    app.invalidate_status_bar(cx);
+                }
+                Err(error) => {
+                    let title = app.text("worktree.remove.title", "Remove Worktree");
+                    app.status_message = title.clone();
+                    app.show_system_error_alert(title, error, cx);
+                    app.invalidate_status_bar(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn merge_selected_worktree(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.selected_project.is_none() {
+            self.status_message = "no selected project to merge worktree".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        }
         let Some(worktree_id) = self.state.worktrees.selected_worktree_id.clone() else {
             self.status_message = "no selected worktree to merge".to_string();
             self.invalidate_status_bar(cx);
             return;
         };
-        match self
-            .runtime_service
-            .merge_worktree(&project.id, &project.path, &worktree_id)
-        {
-            Ok(summary) => {
-                self.state.worktrees = summary;
-                self.status_message = format!("worktree merged: {worktree_id}");
-                self.save_current_project_view_state();
-            }
-            Err(error) => self.status_message = format!("failed to merge worktree: {error}"),
+        self.request_merge_worktree_by_id(worktree_id, cx);
+    }
+
+    pub(super) fn merge_worktree_by_id(&mut self, worktree_id: String, cx: &mut Context<Self>) {
+        self.request_merge_worktree_by_id(worktree_id, cx);
+    }
+
+    pub(super) fn request_merge_worktree_by_id(
+        &mut self,
+        worktree_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project to merge worktree".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        };
+        let Some(worktree) = self
+            .state
+            .worktrees
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.id == worktree_id)
+            .cloned()
+        else {
+            self.status_message = "worktree not found".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        };
+        if worktree.is_default {
+            self.status_message = self.text(
+                "worktree.default.merge_denied",
+                "The default worktree cannot be merged into itself.",
+            );
+            self.invalidate_status_bar(cx);
+            return;
         }
-        self.invalidate_worktree_context(cx);
+
+        let project_id = project.id.clone();
+        let project_path = project.path.clone();
+        let worktree_name = worktree_confirm_display_name(&worktree);
+        let base_branch = self
+            .state
+            .worktrees
+            .tasks
+            .iter()
+            .find(|task| task.worktree_id == worktree_id)
+            .map(|task| task.base_branch.trim().to_string())
+            .filter(|branch| !branch.is_empty())
+            .or_else(|| {
+                let branch = self.state.git.branch.trim();
+                (!branch.is_empty()).then(|| branch.to_string())
+            })
+            .unwrap_or_else(|| self.text("git.branch.none", "No Branch"));
+        let title = self.text("worktree.merge.title", "Merge Worktree");
+        let message = self
+            .text(
+                "worktree.merge_to_mainline.message_format",
+                "Merge %@ into %@.",
+            )
+            .replacen("%@", &worktree_name, 1)
+            .replacen("%@", &base_branch, 1);
+        let confirm_label = self.text("worktree.menu.merge", "Merge to Mainline");
+        let cancel_label = self.text("common.cancel", "Cancel");
+        let ok_label = self.text("common.ok", "OK");
+        let service = self.runtime_service.clone();
+        let dialog_service = self.runtime_service.clone();
+        self.status_message = "waiting for worktree merge confirmation".to_string();
+        self.invalidate_status_bar(cx);
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let confirmed = codux_runtime::async_runtime::spawn_blocking({
+                let service = dialog_service.clone();
+                let title = title.clone();
+                let message = message.clone();
+                let confirm_label = confirm_label.clone();
+                let cancel_label = cancel_label.clone();
+                move || {
+                    service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                        title,
+                        message,
+                        confirm_label,
+                        cancel_label,
+                    })
+                }
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let should_merge = match confirmed {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |app, cx| {
+                        app.status_message = title.clone();
+                        app.show_system_error_alert(title.clone(), error, cx);
+                        app.invalidate_status_bar(cx);
+                    });
+                    return;
+                }
+            };
+            if !should_merge {
+                let _ = this.update(cx, |app, cx| {
+                    app.status_message = "worktree merge canceled".to_string();
+                    app.invalidate_status_bar(cx);
+                });
+                return;
+            }
+
+            let result = codux_runtime::async_runtime::spawn_blocking({
+                let service = service.clone();
+                let project_id = project_id.clone();
+                let project_path = project_path.clone();
+                let worktree_id = worktree_id.clone();
+                move || service.merge_worktree(&project_id, &project_path, &worktree_id)
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let error = match result {
+                Ok(summary) => {
+                    publish_child_window_update(ChildWindowUpdateKind::Project);
+                    let _ = this.update(cx, |app, cx| {
+                        let selected_matches =
+                            app.state.selected_project.as_ref().is_some_and(|project| {
+                                project.id == project_id && project.path == project_path
+                            });
+                        if selected_matches {
+                            app.state.worktrees = summary;
+                        }
+                        app.status_message = app.text("worktree.merge.success", "Merged worktree.");
+                        app.save_current_project_view_state();
+                        app.refresh_git_panel_state_async(cx);
+                        app.invalidate_worktree_context(cx);
+                    });
+                    return;
+                }
+                Err(error) => error,
+            };
+
+            let _ = codux_runtime::async_runtime::spawn_blocking({
+                let service = dialog_service;
+                let title = title.clone();
+                let ok_label = ok_label.clone();
+                let message = error.clone();
+                move || {
+                    service.localized_alert_dialog(LocalizedAlertDialogRequest {
+                        title,
+                        message,
+                        button_label: ok_label,
+                    })
+                }
+            })
+            .await;
+            let _ = this.update(cx, |app, cx| {
+                app.status_message = title.clone();
+                app.refresh_git_panel_state_async(cx);
+                app.invalidate_worktree_context(cx);
+            });
+        })
+        .detach();
     }
 
     pub(super) fn select_worktree(
@@ -719,4 +1223,20 @@ impl CoduxApp {
             .and_then(|slot| slot.pane.as_ref())
             .map(|pane| pane.view.clone())
     }
+}
+
+fn worktree_confirm_display_name(worktree: &WorktreeInfo) -> String {
+    let name = worktree.name.trim();
+    if !name.is_empty() {
+        return name.to_string();
+    }
+    let branch = worktree.branch.trim();
+    if !branch.is_empty() {
+        return branch.to_string();
+    }
+    worktree.path.clone()
+}
+
+fn default_worktree_name() -> String {
+    chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
 }

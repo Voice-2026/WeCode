@@ -454,6 +454,44 @@ fn remove_worktree_can_delete_matching_local_branch() {
     fs::remove_dir_all(support_dir).ok();
 }
 
+#[test]
+fn merge_worktree_reports_conflicts() {
+    let repo = temp_dir("worktree-merge-conflict");
+    create_repo_with_commit(&repo);
+    let support_dir = temp_dir("worktree-merge-conflict-support");
+    let service = WorktreeService::new(support_dir.clone());
+    let snapshot = service
+        .create_from_request(WorktreeCreateRequest {
+            project_id: "project".to_string(),
+            project_path: repo.to_string_lossy().to_string(),
+            base_branch: None,
+            branch_name: "feature/conflict".to_string(),
+            task_title: Some("Conflict task".to_string()),
+        })
+        .expect("create worktree");
+    let created = snapshot
+        .worktrees
+        .iter()
+        .find(|worktree| !worktree.is_default)
+        .expect("created worktree");
+
+    commit_file(&repo, "README.md", "hello\nbase\n", "base change");
+    commit_file(
+        Path::new(&created.path),
+        "README.md",
+        "hello\nfeature\n",
+        "feature change",
+    );
+
+    let error = service
+        .merge_worktree("project", repo.to_str().expect("repo"), &created.id)
+        .expect_err("merge should report conflict");
+
+    assert!(error.contains("Merge produced conflicts"));
+    fs::remove_dir_all(repo).ok();
+    fs::remove_dir_all(support_dir).ok();
+}
+
 fn temp_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -479,6 +517,32 @@ fn create_repo_with_commit(repo: &Path) {
     let signature = git2::Signature::now("Codux", "codux@example.test").expect("test signature");
     git.commit(Some("HEAD"), &signature, &signature, "initial", &tree, &[])
         .expect("commit");
+}
+
+fn commit_file(repo_path: &Path, relative_path: &str, content: &str, message: &str) {
+    let git = super::GitRepository::discover(repo_path).expect("discover repo");
+    fs::write(repo_path.join(relative_path), content).expect("write file");
+    let mut index = git.index().expect("index");
+    index
+        .add_path(Path::new(relative_path))
+        .expect("add changed file");
+    index.write().expect("write index");
+    let tree_id = index.write_tree().expect("write tree");
+    let tree = git.find_tree(tree_id).expect("find tree");
+    let parent = git
+        .head()
+        .and_then(|head| head.peel_to_commit())
+        .expect("head commit");
+    let signature = git2::Signature::now("Codux", "codux@example.test").expect("test signature");
+    git.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        message,
+        &tree,
+        &[&parent],
+    )
+    .expect("commit file");
 }
 
 fn create_branch(repo: &Path, branch: &str) {

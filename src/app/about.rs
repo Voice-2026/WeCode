@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
 use codux_runtime::{
     app_info::{AppAboutMetadata, DiagnosticsExportRequest},
     dialog::{DialogFilter, LocalizedSaveDialogRequest},
@@ -100,45 +101,25 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if Self::activate_child_window(&mut self.about_window, cx) {
-            self.status_message = "about window already opened".to_string();
-            self.invalidate_status_bar(cx);
-            return;
-        }
-
-        let bounds = Bounds::centered(None, size(px(420.0), px(520.0)), cx);
-        let result = cx.open_window(
-            WindowOptions {
-                titlebar: Some(theme::codux_titlebar("About Codux")),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(380.0), px(480.0))),
-                ..Default::default()
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::About,
+                title: SharedString::from("About Codux"),
+                size: size(px(420.0), px(520.0)),
+                min_size: size(px(380.0), px(480.0)),
+                already_open_message: "about window already opened",
+                opened_message: "about window opened",
+                failed_prefix: "failed to open about window",
             },
-            |window, cx| {
-                let mut app = CoduxApp::new_settings_window_from_state(
-                    self.state.clone(),
-                    self.runtime.clone(),
-                    self.runtime_service.clone(),
-                );
+            cx,
+            |state, runtime, runtime_service, _window, _cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::About;
-                theme::apply_component_theme(
-                    &app.state.settings.theme,
-                    &app.state.settings.theme_color,
-                    Some(window),
-                    cx,
-                );
-                let view = cx.new(|_| app);
-                cx.new(|cx| Root::new(view, window, cx))
+                app
             },
+            |_view, _window, _cx| {},
         );
-
-        self.status_message = match result {
-            Ok(handle) => {
-                self.about_window = Some(handle.into());
-                "about window opened".to_string()
-            }
-            Err(error) => format!("failed to open about window: {error}"),
-        };
         self.invalidate_status_bar(cx);
     }
 
@@ -147,44 +128,24 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if Self::activate_child_window(&mut self.memory_manager_window, cx) {
-            self.status_message = "memory manager window already opened".to_string();
-            self.invalidate_status_bar(cx);
-            return;
-        }
-
-        let bounds = Bounds::centered(None, size(px(900.0), px(720.0)), cx);
-        let state = self.state.clone();
-        let runtime = self.runtime.clone();
-        let runtime_service = self.runtime_service.clone();
-        let result = cx.open_window(
-            WindowOptions {
-                titlebar: Some(theme::codux_titlebar("Memory Manager")),
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(720.0), px(560.0))),
-                ..Default::default()
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::MemoryManager,
+                title: SharedString::from("Memory Manager"),
+                size: size(px(900.0), px(720.0)),
+                min_size: size(px(720.0), px(560.0)),
+                already_open_message: "memory manager window already opened",
+                opened_message: "memory manager window opened",
+                failed_prefix: "failed to open memory manager window",
             },
-            |window, cx| {
-                let app = CoduxApp::new_memory_manager_window(state, runtime, runtime_service);
-                theme::apply_component_theme(
-                    &app.state.settings.theme,
-                    &app.state.settings.theme_color,
-                    Some(window),
-                    cx,
-                );
-                let view = cx.new(|_| app);
+            cx,
+            |state, runtime, runtime_service, _window, _cx| {
+                CoduxApp::new_memory_manager_window(state, runtime, runtime_service)
+            },
+            |view, _window, cx| {
                 view.update(cx, |app, cx| app.reload_memory_manager_snapshot_async(cx));
-                cx.new(|cx| Root::new(view, window, cx))
             },
         );
-
-        self.status_message = match result {
-            Ok(handle) => {
-                self.memory_manager_window = Some(handle.into());
-                "memory manager window opened".to_string()
-            }
-            Err(error) => format!("failed to open memory manager window: {error}"),
-        };
         self.invalidate_status_bar(cx);
     }
 

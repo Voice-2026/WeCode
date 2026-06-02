@@ -32,6 +32,24 @@ impl GitService {
         clone_repository_git2(remote_url, project_path)
     }
 
+    pub fn clone_repository_with_credentials(
+        project_path: &str,
+        remote_url: &str,
+        credentials: GitCredentials,
+    ) -> Result<(), String> {
+        let remote_url = remote_url.trim();
+        if remote_url.is_empty() {
+            return Err("Remote URL cannot be empty.".to_string());
+        }
+        if credentials.username.trim().is_empty()
+            || credentials.password_or_token.trim().is_empty()
+        {
+            return Err("Username and password or token cannot be empty.".to_string());
+        }
+        let project_path = Path::new(project_path.trim());
+        clone_repository_git2_with_credentials(remote_url, project_path, credentials)
+    }
+
     pub fn path_status(
         project_path: &str,
         directory_path: &str,
