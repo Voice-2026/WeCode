@@ -249,6 +249,7 @@ pub struct TerminalView {
     pending_scroll_lines: i32,
     pending_scroll_pixels: f32,
     scroll_frame_pending: bool,
+    output_notify_pending: bool,
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
@@ -298,9 +299,9 @@ impl TerminalView {
                             view.sync_output_pending_notify = true;
                         } else if sync_notify || view.sync_output_pending_notify {
                             view.sync_output_pending_notify = false;
-                            cx.notify();
+                            view.schedule_output_notify(cx);
                         } else {
-                            cx.notify();
+                            view.schedule_output_notify(cx);
                         }
                     })
                     .is_err()
@@ -353,6 +354,7 @@ impl TerminalView {
             pending_scroll_lines: 0,
             pending_scroll_pixels: 0.0,
             scroll_frame_pending: false,
+            output_notify_pending: false,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
@@ -459,6 +461,7 @@ impl TerminalView {
     }
 
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let selection_dragging = self.selection.lock().dragging;
         if let Some((point, _)) = self.layout.lock().drag_cell_at(event.position) {
             if self.should_report_mouse(event.modifiers.shift) {
                 self.send_mouse_report(
@@ -471,9 +474,11 @@ impl TerminalView {
                 cx.notify();
                 return;
             }
-            self.selection
-                .lock()
-                .finish(self.selection_point_from_cell(point));
+            if selection_dragging {
+                self.selection
+                    .lock()
+                    .finish(self.selection_point_from_cell(point));
+            }
         } else {
             self.selection.lock().dragging = false;
         }
@@ -501,7 +506,7 @@ impl TerminalView {
             cx.stop_propagation();
             return;
         }
-        if event.dragging() {
+        if event.dragging() && self.selection.lock().dragging {
             let Some((point, scroll_lines)) = self.layout.lock().drag_cell_at(event.position)
             else {
                 return;
@@ -585,6 +590,23 @@ impl TerminalView {
                         cx.notify();
                     }
                 }
+            });
+        })
+        .detach();
+    }
+
+    fn schedule_output_notify(&mut self, cx: &mut Context<Self>) {
+        if self.output_notify_pending {
+            return;
+        }
+
+        self.output_notify_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |terminal: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_SCROLL_FRAME_INTERVAL).await;
+            let _ = terminal.update(cx, |terminal, cx| {
+                terminal.output_notify_pending = false;
+                cx.notify();
             });
         })
         .detach();
