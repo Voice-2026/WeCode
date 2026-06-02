@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const appName = process.env.CODUX_APP_NAME || "Codux";
 const bundleId = process.env.CODUX_BUNDLE_ID || "com.duxweb.codux";
-const binaryName = process.env.CODUX_BINARY_NAME || "codux-gpui-terminal";
+const binaryName = process.env.CODUX_BINARY_NAME || "codux";
 const buildId = process.env.RELEASE_BUILD_ID || `${process.platform}-${process.arch}`;
 const target = process.env.CARGO_BUILD_TARGET || "";
 const profile = process.env.CARGO_PROFILE || "release";

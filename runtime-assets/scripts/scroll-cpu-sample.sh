@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="${APP_NAME:-codux-gpui-terminal}"
+APP_NAME="${APP_NAME:-codux}"
 SAMPLE_SECONDS="${SAMPLE_SECONDS:-5}"
 SCROLL_EVENTS="${SCROLL_EVENTS:-240}"
 SCROLL_DELAY="${SCROLL_DELAY:-0.01}"

@@ -79,14 +79,14 @@ fn open_main_window(
     let bounds = Bounds::centered(None, size(px(1280.0), px(820.0)), cx);
     let result = cx.open_window(
         WindowOptions {
-            titlebar: Some(theme::codux_titlebar("Codux GPUI")),
+            titlebar: Some(theme::codux_titlebar("Codux")),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(1120.0), px(640.0))),
             icon: Some(std::sync::Arc::new(window_icon_image(settings))),
             ..Default::default()
         },
         |window, cx| {
-            let app = CoduxApp::new(window, cx).expect("failed to create Codux GPUI app");
+            let app = CoduxApp::new(window, cx).expect("failed to create Codux app");
             let view = cx.new(|_| app);
             view.update(cx, |app, cx| app.start_runtime_event_loop(cx));
             cx.new(|cx| Root::new(view, window, cx))
@@ -99,7 +99,7 @@ fn open_main_window(
             true
         }
         Err(error) => {
-            eprintln!("failed to open Codux GPUI window: {error}");
+            eprintln!("failed to open Codux window: {error}");
             false
         }
     }

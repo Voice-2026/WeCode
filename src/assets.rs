@@ -7,7 +7,7 @@ use std::borrow::Cow;
 #[folder = "runtime-assets"]
 #[include = "app-icons/**/*.svg"]
 #[include = "heroicons/**/*.svg"]
-#[include = "icons/**/*.svg"]
+#[include = "icons/**/*"]
 #[include = "rank-icons/**/*.svg"]
 struct RuntimeAssets;
 

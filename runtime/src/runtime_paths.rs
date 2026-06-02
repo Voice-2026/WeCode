@@ -94,19 +94,11 @@ pub fn opencode_session_map_dir_in(runtime_temp_dir: &Path) -> PathBuf {
 }
 
 pub fn app_display_name() -> &'static str {
-    if cfg!(debug_assertions) {
-        "Codux Dev"
-    } else {
-        "Codux"
-    }
+    "Codux"
 }
 
 pub fn app_slug() -> &'static str {
-    if cfg!(debug_assertions) {
-        "codux-dev"
-    } else {
-        "codux"
-    }
+    "codux"
 }
 
 pub fn app_support_candidates() -> Vec<PathBuf> {
@@ -114,10 +106,11 @@ pub fn app_support_candidates() -> Vec<PathBuf> {
 
     #[cfg(target_os = "macos")]
     {
+        if cfg!(debug_assertions) {
+            return vec![home.join("Library/Application Support/Codux Dev")];
+        }
         return vec![
             home.join("Library/Application Support/Codux"),
-            home.join("Library/Application Support/Codux Dev"),
-            home.join("Library/Application Support/Codux-dev"),
         ];
     }
 
@@ -126,11 +119,10 @@ pub fn app_support_candidates() -> Vec<PathBuf> {
         let base = std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join("AppData").join("Roaming"));
-        return vec![
-            base.join("Codux"),
-            base.join("Codux Dev"),
-            base.join("codux-dev"),
-        ];
+        if cfg!(debug_assertions) {
+            return vec![base.join("Codux Dev")];
+        }
+        return vec![base.join("Codux")];
     }
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -138,7 +130,11 @@ pub fn app_support_candidates() -> Vec<PathBuf> {
         let base = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".config"));
-        vec![base.join("codux"), base.join("codux-dev")]
+        if cfg!(debug_assertions) {
+            vec![base.join("Codux Dev")]
+        } else {
+            vec![base.join("Codux")]
+        }
     }
 }
 
@@ -175,4 +171,27 @@ fn windows_user_profile() -> Option<PathBuf> {
 #[cfg(not(target_os = "windows"))]
 fn windows_user_profile() -> Option<PathBuf> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_name_and_slug_stay_release_named_in_debug() {
+        assert_eq!(app_display_name(), "Codux");
+        assert_eq!(app_slug(), "codux");
+        assert!(runtime_temp_dir().ends_with("codux"));
+    }
+
+    #[test]
+    fn support_dir_matches_build_profile() {
+        let candidates = app_support_candidates();
+        assert_eq!(candidates.len(), 1);
+        if cfg!(debug_assertions) {
+            assert!(candidates[0].ends_with("Codux Dev"));
+        } else {
+            assert!(candidates[0].ends_with("Codux"));
+        }
+    }
 }

@@ -201,15 +201,7 @@ fn default_codex_effort() -> String {
 }
 
 fn runtime_temp_dir() -> PathBuf {
-    std::env::temp_dir().join(app_slug())
-}
-
-fn app_slug() -> &'static str {
-    if cfg!(debug_assertions) {
-        "codux-dev"
-    } else {
-        "codux"
-    }
+    crate::runtime_paths::runtime_temp_dir()
 }
 
 #[cfg(test)]

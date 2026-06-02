@@ -15,7 +15,7 @@ const channel =
 if (!dryRun) {
   updateCargoVersion("Cargo.toml", version);
   updateCargoVersion("runtime/Cargo.toml", version);
-  updateCargoLockPackageVersion("Cargo.lock", "codux-gpui-terminal", version);
+  updateCargoLockPackageVersion("Cargo.lock", "codux", version);
   updateCargoLockPackageVersion("Cargo.lock", "codux-runtime", version);
 }
 

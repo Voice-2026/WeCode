@@ -99,15 +99,7 @@ impl RuntimeActivityService {
 }
 
 fn runtime_temp_dir() -> PathBuf {
-    std::env::temp_dir().join(app_slug())
-}
-
-fn app_slug() -> &'static str {
-    if cfg!(debug_assertions) {
-        "codux-dev"
-    } else {
-        "codux"
-    }
+    crate::runtime_paths::runtime_temp_dir()
 }
 
 fn file_size(path: &Path) -> u64 {
@@ -218,7 +210,18 @@ fn is_ai_runtime_process(command: &str) -> bool {
     ["codex", "claude", "gemini", "opencode", "kiro", "agy"]
         .iter()
         .any(|needle| lower.contains(needle))
-        && !lower.contains("codux-gpui-terminal")
+        && !is_codux_process(command)
+}
+
+fn is_codux_process(command: &str) -> bool {
+    let executable = command.split_whitespace().next().unwrap_or_default();
+    let name = executable
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(executable)
+        .trim_matches('"')
+        .to_ascii_lowercase();
+    name == "codux" || name == "codux.exe"
 }
 
 #[cfg(test)]
@@ -280,6 +283,9 @@ mod tests {
         let process = parse_process_line(" 1234 /usr/bin/codex --foo").unwrap();
         assert_eq!(process.pid, 1234);
         assert!(is_ai_runtime_process(&process.command));
-        assert!(!is_ai_runtime_process("target/debug/codux-gpui-terminal"));
+        assert!(!is_ai_runtime_process("target/debug/codux"));
+        assert!(is_ai_runtime_process(
+            "/usr/bin/codex --project /Volumes/Web/codux-gpui"
+        ));
     }
 }

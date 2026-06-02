@@ -1144,7 +1144,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "codux-gpui-terminal"
+name = "codux"
 version = "1.0.8"
 dependencies = [
  "alacritty_terminal",

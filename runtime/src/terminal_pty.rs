@@ -1884,11 +1884,7 @@ fn default_user() -> String {
 }
 
 fn app_display_name() -> &'static str {
-    if cfg!(debug_assertions) {
-        "Codux Dev"
-    } else {
-        "Codux"
-    }
+    crate::runtime_paths::app_display_name()
 }
 
 fn default_lang() -> String {

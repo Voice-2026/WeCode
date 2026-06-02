@@ -1,5 +1,5 @@
 [package]
-name = "codux-gpui-terminal"
+name = "codux"
 version = "1.0.8"
 edition = "2024"
 
