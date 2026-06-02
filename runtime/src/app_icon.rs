@@ -12,6 +12,7 @@ struct IconPalette {
 }
 
 pub const ICON_SIZE: u32 = 128;
+const ICON_CONTENT_INSET_RATIO: f32 = 0.09;
 
 pub fn render_app_icon(style: &str, size: u32) -> AppIconImage {
     let palette = icon_palette(style);
@@ -94,7 +95,7 @@ fn apply_app_icon_impl(_style: &str) -> Result<(), String> {
 }
 
 fn icon_pixel(x: f32, y: f32, size: f32, palette: IconPalette) -> [f32; 4] {
-    let inset = size * 0.07;
+    let inset = size * ICON_CONTENT_INSET_RATIO;
     let rect_min = inset;
     let rect_max = size - inset;
     let rect_size = rect_max - rect_min;
@@ -230,5 +231,30 @@ mod tests {
         assert_eq!(image.height, 32);
         assert_eq!(image.pixels.len(), 32 * 32 * 4);
         assert!(image.pixels.chunks_exact(4).any(|pixel| pixel[3] > 0));
+    }
+
+    #[test]
+    fn rendered_icon_keeps_macos_visual_padding() {
+        let image = render_app_icon("default", 512);
+        let mut min_x = image.width;
+        let mut min_y = image.height;
+        let mut max_x = 0;
+        let mut max_y = 0;
+        for y in 0..image.height {
+            for x in 0..image.width {
+                let alpha = image.pixels[((y * image.width + x) * 4 + 3) as usize];
+                if alpha == 0 {
+                    continue;
+                }
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x);
+                max_y = max_y.max(y);
+            }
+        }
+        let visual_width = max_x - min_x + 1;
+        let ratio = visual_width as f32 / image.width as f32;
+
+        assert!((0.81..=0.83).contains(&ratio), "ratio={ratio}");
     }
 }

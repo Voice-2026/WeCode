@@ -21,6 +21,19 @@ impl Render for CoduxApp {
                 .into_any_element();
         }
 
+        if self.window_mode == AppWindowMode::UpdateDialog {
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.update_dialog_workspace(window, cx))
+                .child(self.codux_tooltip_layer(window));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
         if self.window_mode == AppWindowMode::GitDiff {
             let root = div()
                 .size_full()

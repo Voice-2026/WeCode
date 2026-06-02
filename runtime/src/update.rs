@@ -14,6 +14,7 @@ pub struct UpdateSummary {
     pub channel: String,
     pub endpoint: String,
     pub latest_version: Option<String>,
+    pub available: bool,
     pub platform_count: usize,
     pub notes_preview: String,
     pub error: Option<String>,
@@ -51,6 +52,10 @@ impl UpdateService {
                     .or_else(|| value.get("latestVersion"))
                     .and_then(Value::as_str)
                     .map(str::to_string);
+                summary.available = summary
+                    .latest_version
+                    .as_deref()
+                    .is_some_and(|version| version_is_newer(version, env!("CARGO_PKG_VERSION")));
                 summary.platform_count = value
                     .get("platforms")
                     .and_then(Value::as_object)
@@ -101,6 +106,7 @@ impl UpdateService {
                 current_version: current_version.to_string(),
                 latest_version: None,
                 download_url: None,
+                download_checksum: None,
                 notes: None,
                 channel: Some(settings.channel.clone()).filter(|value| !value.trim().is_empty()),
                 installation_mode: if settings.enabled {
@@ -134,9 +140,10 @@ impl UpdateService {
                 current_version: current_version.to_string(),
                 latest_version: None,
                 download_url: None,
+                download_checksum: None,
                 notes: None,
                 channel: Some(settings.channel.clone()).filter(|value| !value.trim().is_empty()),
-                installation_mode: "manifest".to_string(),
+                installation_mode: "manualManifest".to_string(),
                 message: format!("Unable to check updates: {error}"),
             },
         }
@@ -208,6 +215,7 @@ pub struct UpdateStatus {
     pub current_version: String,
     pub latest_version: Option<String>,
     pub download_url: Option<String>,
+    pub download_checksum: Option<String>,
     pub notes: Option<String>,
     pub channel: Option<String>,
     pub installation_mode: String,
@@ -232,9 +240,35 @@ fn update_status_from_manifest(
     let latest_text = latest
         .clone()
         .unwrap_or_else(|| current_version.to_string());
-    let message = if available {
+    let platform_entry = current_platform_manifest_entry(&manifest);
+    let download_url = manifest_download_url(&manifest, platform_entry);
+    let download_checksum = manifest_download_checksum(&manifest, platform_entry);
+    let manifest_automatic_install_supported = manifest
+        .get("automaticInstallSupported")
+        .or_else(|| manifest.get("automatic_install_supported"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let automatic_install_supported = manifest_automatic_install_supported
+        && platform_supports_automatic_install(download_url.as_deref());
+    let has_signed_updater = manifest
+        .get("platforms")
+        .and_then(Value::as_object)
+        .is_some_and(|platforms| {
+            platform_keys_for_current_target()
+                .iter()
+                .filter_map(|key| platforms.get(*key))
+                .any(|entry| {
+                    entry
+                        .get("signature")
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| !value.trim().is_empty())
+                })
+        });
+    let message = if available && automatic_install_supported {
+        format!("A new version {latest_text} is available.")
+    } else if available {
         format!(
-            "A new version {latest_text} is available. Automatic installation requires signed updater packaging; open the download URL to update manually."
+            "A new version {latest_text} is available. Open the download URL to update manually."
         )
     } else {
         format!("Current version {current_version} is up to date.")
@@ -243,18 +277,13 @@ fn update_status_from_manifest(
         configured: true,
         checking: false,
         available,
-        automatic_install_supported: false,
-        signed_updater_configured: false,
+        automatic_install_supported,
+        signed_updater_configured: automatic_install_supported && has_signed_updater,
         manifest_endpoint_configured: true,
         current_version: current_version.to_string(),
         latest_version: latest,
-        download_url: manifest
-            .get("downloadUrl")
-            .or_else(|| manifest.get("url"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
+        download_url,
+        download_checksum,
         notes: manifest
             .get("notes")
             .and_then(Value::as_str)
@@ -262,8 +291,101 @@ fn update_status_from_manifest(
             .filter(|value| !value.is_empty())
             .map(str::to_string),
         channel: Some(channel).filter(|value| !value.trim().is_empty()),
-        installation_mode: "manifest".to_string(),
+        installation_mode: if automatic_install_supported {
+            "automatic".to_string()
+        } else {
+            "manualManifest".to_string()
+        },
         message,
+    }
+}
+
+fn current_platform_manifest_entry<'a>(manifest: &'a Value) -> Option<&'a Value> {
+    let platforms = manifest.get("platforms").and_then(Value::as_object)?;
+    platform_keys_for_current_target()
+        .iter()
+        .filter_map(|key| platforms.get(*key))
+        .next()
+}
+
+fn manifest_download_url(manifest: &Value, platform_entry: Option<&Value>) -> Option<String> {
+    manifest_entry_string(platform_entry, "url").or_else(|| {
+        manifest
+            .get("downloadUrl")
+            .or_else(|| manifest.get("download_url"))
+            .or_else(|| manifest.get("url"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn manifest_download_checksum(manifest: &Value, platform_entry: Option<&Value>) -> Option<String> {
+    manifest_entry_string(platform_entry, "checksum").or_else(|| {
+        manifest
+            .get("checksum")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn manifest_entry_string(entry: Option<&Value>, key: &str) -> Option<String> {
+    entry
+        .and_then(|entry| entry.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn platform_supports_automatic_install(download_url: Option<&str>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return download_url
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|url| url.ends_with(".app.zip"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return download_url
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|url| url.ends_with(".exe"));
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = download_url;
+        false
+    }
+}
+
+fn platform_keys_for_current_target() -> &'static [&'static str] {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        &["darwin-aarch64-app", "darwin-aarch64"]
+    }
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        &["darwin-x86_64-app", "darwin-x86_64"]
+    }
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    {
+        &["windows-x86_64", "windows-x86_64-nsis", "windows-x86_64-msi"]
+    }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        &["linux-x86_64"]
+    }
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64"),
+        all(target_os = "linux", target_arch = "x86_64")
+    )))]
+    {
+        &[]
     }
 }
 
@@ -321,8 +443,103 @@ mod tests {
             status.download_url.as_deref(),
             Some("https://example.com/codux")
         );
-        assert_eq!(status.installation_mode, "manifest");
+        assert_eq!(status.download_checksum, None);
+        assert_eq!(status.installation_mode, "manualManifest");
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn status_reads_current_platform_download_url_from_platform_manifest() {
+        let status = update_status_from_manifest(
+            "1.0.0",
+            "stable".to_string(),
+            serde_json::json!({
+                "version": "1.2.0",
+                "platforms": {
+                    platform_keys_for_current_target().first().copied().unwrap_or("unknown"): {
+                        "url": "https://example.com/codux-platform",
+                        "checksum": "abc"
+                    }
+                }
+            }),
+        );
+
+        assert!(status.available);
+        if !platform_keys_for_current_target().is_empty() {
+            assert_eq!(
+                status.download_url.as_deref(),
+                Some("https://example.com/codux-platform")
+            );
+            assert_eq!(status.download_checksum.as_deref(), Some("abc"));
+        }
+        assert_eq!(status.installation_mode, "manualManifest");
+    }
+
+    #[test]
+    fn status_prefers_platform_download_url_over_manual_download_url() {
+        let platform_key = platform_keys_for_current_target()
+            .first()
+            .copied()
+            .unwrap_or("unknown");
+        let status = update_status_from_manifest(
+            "1.0.0",
+            "stable".to_string(),
+            serde_json::json!({
+                "version": "1.2.0",
+                "downloadUrl": "https://example.com/codux-manual.dmg",
+                "checksum": "manual-checksum",
+                "platforms": {
+                    platform_key: {
+                        "url": "https://example.com/codux-platform.app.zip",
+                        "checksum": "platform-checksum"
+                    }
+                }
+            }),
+        );
+
+        if !platform_keys_for_current_target().is_empty() {
+            assert_eq!(
+                status.download_url.as_deref(),
+                Some("https://example.com/codux-platform.app.zip")
+            );
+            assert_eq!(
+                status.download_checksum.as_deref(),
+                Some("platform-checksum")
+            );
+        }
+    }
+
+    #[test]
+    fn automatic_install_requires_supported_platform_asset() {
+        let platform_key = platform_keys_for_current_target()
+            .first()
+            .copied()
+            .unwrap_or("unknown");
+        let download_url = if cfg!(target_os = "windows") {
+            "https://example.com/Codux-setup.exe"
+        } else {
+            "https://example.com/Codux.app.zip"
+        };
+        let status = update_status_from_manifest(
+            "1.0.0",
+            "stable".to_string(),
+            serde_json::json!({
+                "version": "1.2.0",
+                "automaticInstallSupported": true,
+                "platforms": {
+                    platform_key: {
+                        "url": download_url,
+                        "checksum": "platform-checksum"
+                    }
+                }
+            }),
+        );
+
+        assert_eq!(
+            status.automatic_install_supported,
+            (cfg!(target_os = "macos") || cfg!(target_os = "windows"))
+                && !platform_keys_for_current_target().is_empty()
+        );
     }
 }

@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "codux-gpui-terminal"
-version = "0.1.0"
+version = "1.0.8"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "codux-runtime"
-version = "0.1.0"
+version = "1.0.8"
 dependencies = [
  "aes-gcm",
  "anyhow",

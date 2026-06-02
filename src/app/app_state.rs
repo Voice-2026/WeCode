@@ -236,6 +236,12 @@ pub struct CoduxApp {
     pub(in crate::app) worktree_creator_name: String,
     pub(in crate::app) worktree_creator_error: Option<String>,
     pub(in crate::app) worktree_creator_submitting: bool,
+    pub(in crate::app) update_dialog_phase: UpdateDialogPhase,
+    pub(in crate::app) update_dialog_status: Option<codux_runtime::update::UpdateStatus>,
+    pub(in crate::app) update_dialog_progress:
+        Option<codux_runtime::app_info::UpdateInstallProgressEvent>,
+    pub(in crate::app) update_dialog_result: Option<codux_runtime::app_info::UpdateInstallResult>,
+    pub(in crate::app) update_dialog_error: Option<String>,
     pub(in crate::app) tooltip_state: CoduxTooltipState,
     pub(in crate::app) ui_performance_counts: HashMap<String, u64>,
     pub(in crate::app) ui_performance_last_report_at: f64,
@@ -284,6 +290,18 @@ pub(in crate::app) struct RuntimeActivityTickResult {
     pub(in crate::app) dock_badge_count: Option<i64>,
     pub(in crate::app) changed: bool,
     pub(in crate::app) ai_state_error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::app) enum UpdateDialogPhase {
+    #[default]
+    Checking,
+    Available,
+    Latest,
+    NotConfigured,
+    Downloading,
+    Finished,
+    Error,
 }
 
 #[derive(Clone, Debug)]

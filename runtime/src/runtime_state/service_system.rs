@@ -16,6 +16,21 @@ impl RuntimeService {
         crate::app_info::install_update(&settings, repo_root, current_version)
     }
 
+    pub fn install_update_with_progress(
+        &self,
+        repo_root: PathBuf,
+        current_version: &str,
+        on_progress: impl FnMut(crate::app_info::UpdateInstallProgressEvent) + Send,
+    ) -> Result<UpdateInstallResult, String> {
+        let settings = AppSettingsStore::from_support_dir(self.support_dir.clone()).snapshot();
+        crate::app_info::install_update_with_progress(
+            &settings,
+            repo_root,
+            current_version,
+            on_progress,
+        )
+    }
+
     pub fn request_restart(&self) -> Result<(), String> {
         crate::app_info::request_restart()
     }

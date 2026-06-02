@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::fs;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use url::Url;
@@ -44,6 +44,7 @@ pub struct DiagnosticsExportResult {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInstallResult {
     pub installed: bool,
+    pub restart_to_install: bool,
     pub version: Option<String>,
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
@@ -169,10 +170,20 @@ pub fn install_update(
     repo_root: PathBuf,
     current_version: &str,
 ) -> Result<UpdateInstallResult, String> {
+    install_update_with_progress(settings, repo_root, current_version, |_| {})
+}
+
+pub fn install_update_with_progress(
+    settings: &AppSettings,
+    repo_root: PathBuf,
+    current_version: &str,
+    mut on_progress: impl FnMut(UpdateInstallProgressEvent) + Send,
+) -> Result<UpdateInstallResult, String> {
     let status = update_status(settings, repo_root, current_version);
     if !status.available {
         return Ok(UpdateInstallResult {
             installed: false,
+            restart_to_install: false,
             version: status.latest_version,
             downloaded_bytes: 0,
             total_bytes: None,
@@ -184,18 +195,41 @@ pub fn install_update(
         .download_url
         .as_deref()
         .ok_or_else(|| "Update is available, but no download URL was provided.".to_string())?;
-    open_url(download_url)?;
-    Ok(UpdateInstallResult {
-        installed: false,
-        version: status.latest_version,
+    on_progress(UpdateInstallProgressEvent {
+        phase: "downloading".to_string(),
+        version: status.latest_version.clone(),
         downloaded_bytes: 0,
         total_bytes: None,
-        message: "Update download URL opened. Automatic installation requires signed updater packaging."
-            .to_string(),
+    });
+    let destination = download_update(download_url, status.latest_version.as_deref(), |event| {
+        on_progress(UpdateInstallProgressEvent {
+            version: status.latest_version.clone(),
+            ..event
+        });
+    })?;
+    verify_download_checksum(&destination.path, status.download_checksum.as_deref())?;
+    let pending_install = prepare_update_install(&destination.path)?;
+    on_progress(UpdateInstallProgressEvent {
+        phase: "finished".to_string(),
+        version: status.latest_version.clone(),
+        downloaded_bytes: destination.bytes,
+        total_bytes: Some(destination.bytes),
+    });
+    Ok(UpdateInstallResult {
+        installed: pending_install.installed,
+        restart_to_install: pending_install.restart_to_install,
+        version: status.latest_version,
+        downloaded_bytes: destination.bytes,
+        total_bytes: Some(destination.bytes),
+        message: pending_install.message,
     })
 }
 
 pub fn request_restart() -> Result<(), String> {
+    if let Some(helper_path) = pending_update_installer_path()? {
+        spawn_update_installer_helper(&helper_path)?;
+        std::process::exit(0);
+    }
     let exe = std::env::current_exe().map_err(|error| error.to_string())?;
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     Command::new(exe)
@@ -203,6 +237,28 @@ pub fn request_restart() -> Result<(), String> {
         .spawn()
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn spawn_update_installer_helper(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("sh")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
 }
 
 pub fn open_runtime_log() -> Result<(), String> {
@@ -298,6 +354,359 @@ fn normalize_destination(path: &str) -> Result<PathBuf, String> {
 
 fn open_path(path: &Path) -> Result<(), String> {
     open_target(&path.display().to_string())
+}
+
+struct UpdateDownloadDestination {
+    path: PathBuf,
+    bytes: u64,
+}
+
+struct PendingUpdateInstall {
+    installed: bool,
+    restart_to_install: bool,
+    message: String,
+}
+
+fn download_update(
+    url: &str,
+    version: Option<&str>,
+    mut on_progress: impl FnMut(UpdateInstallProgressEvent) + Send,
+) -> Result<UpdateDownloadDestination, String> {
+    let destination = update_download_path(url, version)?;
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let result = crate::async_runtime::block_on(async {
+        let mut response = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(600))
+            .build()
+            .map_err(|error| error.to_string())?
+            .get(url)
+            .send()
+            .await
+            .and_then(|response| response.error_for_status())
+            .map_err(|error| error.to_string())?;
+        let total = response.content_length();
+        let temp_path = destination.with_extension(format!(
+            "{}download",
+            destination
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| format!("{extension}."))
+                .unwrap_or_default()
+        ));
+        let mut file = fs::File::create(&temp_path).map_err(|error| error.to_string())?;
+        let mut downloaded = 0_u64;
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            file.write_all(&chunk).map_err(|error| error.to_string())?;
+            downloaded += chunk.len() as u64;
+            on_progress(UpdateInstallProgressEvent {
+                phase: "downloading".to_string(),
+                version: None,
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+            });
+        }
+        file.flush().map_err(|error| error.to_string())?;
+        fs::rename(&temp_path, &destination).map_err(|error| error.to_string())?;
+        Ok::<u64, String>(downloaded)
+    });
+    result.map(|bytes| UpdateDownloadDestination {
+        path: destination,
+        bytes,
+    })
+}
+
+fn update_download_path(url: &str, version: Option<&str>) -> Result<PathBuf, String> {
+    let parsed = Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))?;
+    let file_name = parsed
+        .path_segments()
+        .and_then(|segments| segments.filter(|segment| !segment.is_empty()).next_back())
+        .map(percent_encoding::percent_decode_str)
+        .map(|decoded| decoded.decode_utf8_lossy().to_string())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            let version = version.unwrap_or("latest");
+            if cfg!(target_os = "macos") {
+                format!("Codux-{version}.dmg")
+            } else if cfg!(target_os = "windows") {
+                format!("Codux-{version}.zip")
+            } else {
+                format!("Codux-{version}.tar.gz")
+            }
+        });
+    Ok(runtime_temp_dir().join("updates").join(file_name))
+}
+
+fn verify_download_checksum(path: &Path, expected: Option<&str>) -> Result<(), String> {
+    let Some(expected) = expected.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    let actual = sha256_hex(&bytes);
+    if actual.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(format!(
+            "Downloaded update checksum mismatch. expected={expected} actual={actual}"
+        ))
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn prepare_update_install(artifact_path: &Path) -> Result<PendingUpdateInstall, String> {
+    #[cfg(target_os = "macos")]
+    {
+        return prepare_macos_update_install(artifact_path);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return prepare_windows_update_install(artifact_path);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        open_path(artifact_path)?;
+        Ok(PendingUpdateInstall {
+            installed: false,
+            restart_to_install: false,
+            message: format!(
+                "Update downloaded to {}. Complete the installer to update Codux.",
+                artifact_path.display()
+            ),
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn prepare_windows_update_install(artifact_path: &Path) -> Result<PendingUpdateInstall, String> {
+    if artifact_path.extension().and_then(|ext| ext.to_str()) != Some("exe") {
+        open_path(artifact_path)?;
+        return Ok(PendingUpdateInstall {
+            installed: false,
+            restart_to_install: false,
+            message: format!(
+                "Update downloaded to {}. Complete the installer to update Codux.",
+                artifact_path.display()
+            ),
+        });
+    }
+    let helper_path = runtime_temp_dir().join("updates").join("install-update.cmd");
+    fs::create_dir_all(helper_path.parent().unwrap_or_else(|| Path::new(".")))
+        .map_err(|error| error.to_string())?;
+    let script = windows_update_install_script(artifact_path, std::process::id())?;
+    fs::write(&helper_path, script).map_err(|error| error.to_string())?;
+    Ok(PendingUpdateInstall {
+        installed: false,
+        restart_to_install: true,
+        message: "Update downloaded. Restart Codux to apply it.".to_string(),
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn windows_update_install_script(artifact_path: &Path, parent_pid: u32) -> Result<String, String> {
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let install_dir = current_exe
+        .parent()
+        .ok_or_else(|| "Unable to resolve current application directory.".to_string())?;
+    Ok(format!(
+        r#"@echo off
+setlocal
+set "ARTIFACT={artifact}"
+set "PARENT_PID={parent_pid}"
+set "INSTALL_DIR={install_dir}"
+set "INSTALL_EXE={current_exe}"
+for /l %%i in (1,1,150) do (
+  tasklist /fi "PID eq %PARENT_PID%" | find "%PARENT_PID%" >nul
+  if errorlevel 1 goto install
+  powershell -NoProfile -Command "Start-Sleep -Milliseconds 200"
+)
+goto cleanup
+:install
+powershell -NoProfile -Command "Start-Process -FilePath $env:ARTIFACT -ArgumentList @('/S',('/D=' + $env:INSTALL_DIR)) -Wait"
+if exist "%INSTALL_EXE%" start "" "%INSTALL_EXE%"
+:cleanup
+del "%~f0"
+"#,
+        artifact = artifact_path.display(),
+        parent_pid = parent_pid,
+        install_dir = install_dir.display(),
+        current_exe = current_exe.display(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_macos_update_install(artifact_path: &Path) -> Result<PendingUpdateInstall, String> {
+    if artifact_path.extension().and_then(|ext| ext.to_str()) != Some("zip") {
+        open_path(artifact_path)?;
+        return Ok(PendingUpdateInstall {
+            installed: false,
+            restart_to_install: false,
+            message: format!(
+                "Update downloaded to {}. Complete the installer to update Codux.",
+                artifact_path.display()
+            ),
+        });
+    }
+    let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let Some(current_app) = current_macos_app_bundle(&current_exe) else {
+        open_path(artifact_path)?;
+        return Ok(PendingUpdateInstall {
+            installed: false,
+            restart_to_install: false,
+            message: format!(
+                "Update downloaded to {}. Complete the installer to update Codux.",
+                artifact_path.display()
+            ),
+        });
+    };
+    let staging_dir = runtime_temp_dir().join("updates").join("install-staging");
+    let helper_path = runtime_temp_dir().join("updates").join("install-update.sh");
+    fs::create_dir_all(&staging_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(helper_path.parent().unwrap_or_else(|| Path::new(".")))
+        .map_err(|error| error.to_string())?;
+    let script = macos_update_install_script(
+        artifact_path,
+        &staging_dir,
+        &current_app,
+        std::process::id(),
+    );
+    fs::write(&helper_path, script).map_err(|error| error.to_string())?;
+    set_executable(&helper_path)?;
+    Ok(PendingUpdateInstall {
+        installed: false,
+        restart_to_install: true,
+        message: "Update downloaded. Restart Codux to apply it.".to_string(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn current_macos_app_bundle(exe: &Path) -> Option<PathBuf> {
+    let mut current = exe;
+    while let Some(parent) = current.parent() {
+        if parent.file_name().and_then(|name| name.to_str()) == Some("Contents") {
+            return Some(parent.parent()?.to_path_buf());
+        }
+        current = parent;
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn macos_update_install_script(
+    artifact_path: &Path,
+    staging_dir: &Path,
+    current_app: &Path,
+    parent_pid: u32,
+) -> String {
+    let app_name = current_app
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Codux.app");
+    let reopen_path = current_app.display().to_string();
+    format!(
+        r#"#!/bin/sh
+set -eu
+ARTIFACT={artifact}
+STAGING={staging}
+CURRENT_APP={current_app}
+APP_NAME={app_name}
+PARENT_PID={parent_pid}
+trap 'rm -f "$0"' EXIT
+rm -rf "$STAGING"
+mkdir -p "$STAGING"
+/usr/bin/ditto -x -k "$ARTIFACT" "$STAGING"
+NEW_APP="$STAGING/$APP_NAME"
+if [ ! -d "$NEW_APP" ]; then
+  NEW_APP="$(/usr/bin/find "$STAGING" -maxdepth 2 -name '*.app' -type d | /usr/bin/head -n 1)"
+fi
+if [ -z "${{NEW_APP:-}}" ] || [ ! -d "$NEW_APP" ]; then
+  /usr/bin/open "$ARTIFACT"
+  exit 1
+fi
+wait_count=0
+while /bin/kill -0 "$PARENT_PID" 2>/dev/null; do
+  if [ "$wait_count" -ge 150 ]; then
+    /usr/bin/open "$ARTIFACT"
+    exit 1
+  fi
+  wait_count=$((wait_count + 1))
+  /bin/sleep 0.2
+done
+BACKUP="$CURRENT_APP.previous"
+rm -rf "$BACKUP"
+if [ -d "$CURRENT_APP" ]; then
+  mv "$CURRENT_APP" "$BACKUP"
+fi
+if ! /usr/bin/ditto "$NEW_APP" "$CURRENT_APP"; then
+  rm -rf "$CURRENT_APP"
+  if [ -d "$BACKUP" ]; then
+    mv "$BACKUP" "$CURRENT_APP"
+  fi
+  /usr/bin/open "$ARTIFACT"
+  exit 1
+fi
+rm -rf "$BACKUP"
+/usr/bin/open {reopen}
+"#,
+        artifact = shell_quote(&artifact_path.display().to_string()),
+        staging = shell_quote(&staging_dir.display().to_string()),
+        current_app = shell_quote(&current_app.display().to_string()),
+        app_name = shell_quote(app_name),
+        parent_pid = parent_pid,
+        reopen = shell_quote(&reopen_path),
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn set_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)
+        .map_err(|error| error.to_string())?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).map_err(|error| error.to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn set_executable(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn pending_update_installer_path() -> Result<Option<PathBuf>, String> {
+    let path = runtime_temp_dir().join("updates").join("install-update.sh");
+    if path.is_file() {
+        Ok(Some(path))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn pending_update_installer_path() -> Result<Option<PathBuf>, String> {
+    let path = runtime_temp_dir().join("updates").join("install-update.cmd");
+    if path.is_file() {
+        Ok(Some(path))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn pending_update_installer_path() -> Result<Option<PathBuf>, String> {
+    Ok(None)
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn open_target(target: &str) -> Result<(), String> {
@@ -412,5 +821,46 @@ mod tests {
         assert_eq!(value["notificationChannels"]["b"]["token"], "");
         assert_eq!(value["ai"]["providers"][0]["apiKey"], "******");
         assert_eq!(value["ai"]["providers"][0]["api_key"], "******");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_update_helper_waits_for_parent_and_cleans_itself() {
+        let script = macos_update_install_script(
+            Path::new("/tmp/Codux.app.zip"),
+            Path::new("/tmp/codux staging"),
+            Path::new("/Applications/Codux.app"),
+            12345,
+        );
+
+        assert!(script.contains("PARENT_PID=12345"));
+        assert!(script.contains("while /bin/kill -0 \"$PARENT_PID\""));
+        assert!(script.contains("trap 'rm -f \"$0\"' EXIT"));
+        assert!(script.contains("/usr/bin/ditto \"$NEW_APP\" \"$CURRENT_APP\""));
+        assert!(script.contains("/usr/bin/open '/Applications/Codux.app'"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn current_macos_app_bundle_resolves_bundle_from_executable_path() {
+        let bundle = current_macos_app_bundle(Path::new(
+            "/Applications/Codux.app/Contents/MacOS/Codux",
+        ));
+
+        assert_eq!(bundle, Some(PathBuf::from("/Applications/Codux.app")));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_update_helper_runs_nsis_silently_and_reopens_app() {
+        let script =
+            windows_update_install_script(Path::new(r"C:\Temp\Codux-setup.exe"), 12345).unwrap();
+
+        assert!(script.contains("PARENT_PID=12345"));
+        assert!(script.contains("set \"INSTALL_DIR="));
+        assert!(script.contains("Start-Process -FilePath $env:ARTIFACT"));
+        assert!(script.contains("('/D=' + $env:INSTALL_DIR)"));
+        assert!(script.contains("if exist \"%INSTALL_EXE%\" start \"\" \"%INSTALL_EXE%\""));
+        assert!(script.contains("del \"%~f0\""));
     }
 }

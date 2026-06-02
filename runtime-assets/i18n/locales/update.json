@@ -225,7 +225,7 @@
       "update.version.summary_format": "Current v%@ · Latest v%@"
     },
     "zh-Hans": {
-      "update.available.install": "立即安装",
+      "update.available.install": "立即更新",
       "update.available.later": "稍后再说",
       "update.available.message_format": "发现新版本 v%@，你当前使用的是 v%@。",
       "update.available.notes_title": "更新内容",
@@ -239,7 +239,7 @@
       "update.installed.message": "更新已下载并安装，重启 Codux 后生效。",
       "update.installed.title": "更新已安装",
       "update.installing": "正在安装...",
-      "update.latest.message": "暂未发现新版本。",
+      "update.latest.message": "已是最新版本",
       "update.latest.title": "已是最新版本",
       "update.not_configured.preview": "浏览器预览中未配置更新渠道。",
       "update.not_configured.title": "更新未配置",
@@ -253,7 +253,7 @@
       "update.version.summary_format": "当前 v%@ · 最新 v%@"
     },
     "zh-Hant": {
-      "update.available.install": "立即安裝",
+      "update.available.install": "立即更新",
       "update.available.later": "稍後再說",
       "update.available.message_format": "發現新版本 v%@，您目前使用的是 v%@。",
       "update.available.notes_title": "更新內容",
@@ -267,7 +267,7 @@
       "update.installed.message": "更新已下載並安裝，重新啟動 Codux 後生效。",
       "update.installed.title": "更新已安裝",
       "update.installing": "正在安裝...",
-      "update.latest.message": "暫未發現新版本。",
+      "update.latest.message": "已是最新版本",
       "update.latest.title": "已是最新版本",
       "update.not_configured.preview": "瀏覽器預覽中未配置更新渠道。",
       "update.not_configured.title": "更新未配置",

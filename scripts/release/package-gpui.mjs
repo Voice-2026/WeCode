@@ -1,0 +1,263 @@
+#!/usr/bin/env node
+/* global console, process */
+
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+
+const root = process.cwd();
+const appName = process.env.CODUX_APP_NAME || "Codux";
+const bundleId = process.env.CODUX_BUNDLE_ID || "com.duxweb.codux";
+const binaryName = process.env.CODUX_BINARY_NAME || "codux-gpui-terminal";
+const buildId = process.env.RELEASE_BUILD_ID || `${process.platform}-${process.arch}`;
+const target = process.env.CARGO_BUILD_TARGET || "";
+const profile = process.env.CARGO_PROFILE || "release";
+const stageRoot = process.env.RELEASE_STAGE_DIR || "release-artifacts";
+const outputDir = path.join(root, stageRoot, buildId);
+
+fs.rmSync(outputDir, { recursive: true, force: true });
+fs.mkdirSync(outputDir, { recursive: true });
+
+if (process.platform === "darwin") {
+  packageMacos();
+} else if (process.platform === "win32") {
+  packageWindows();
+} else {
+  packageGenericUnix();
+}
+
+function packageMacos() {
+  const binaryPath = releaseBinaryPath("");
+  const appDir = path.join(outputDir, `${appName}.app`);
+  const contentsDir = path.join(appDir, "Contents");
+  const macosDir = path.join(contentsDir, "MacOS");
+  const resourcesDir = path.join(contentsDir, "Resources");
+  fs.mkdirSync(macosDir, { recursive: true });
+  fs.mkdirSync(resourcesDir, { recursive: true });
+  fs.copyFileSync(binaryPath, path.join(macosDir, appName));
+  fs.copyFileSync(path.join(root, "runtime-assets", "icons", "icon.icns"), path.join(resourcesDir, "AppIcon.icns"));
+  fs.writeFileSync(path.join(contentsDir, "Info.plist"), macosInfoPlist(), "utf8");
+
+  const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
+  if (signingIdentity) {
+    run("codesign", [
+      "--force",
+      "--deep",
+      "--options",
+      "runtime",
+      "--timestamp",
+      "--sign",
+      signingIdentity,
+      appDir,
+    ]);
+    notarizeMacosApp(appDir);
+  }
+
+  const dmgName = `${artifactBaseName("macos")}.dmg`;
+  const dmgPath = path.join(outputDir, dmgName);
+  run("hdiutil", ["create", "-volname", appName, "-srcfolder", appDir, "-ov", "-format", "UDZO", dmgPath]);
+  if (signingIdentity) {
+    run("codesign", ["--force", "--timestamp", "--sign", signingIdentity, dmgPath]);
+    notarizeMacosArtifact(dmgPath);
+  }
+  writeSha256(dmgPath);
+
+  const zipName = `${artifactBaseName("macos")}.app.zip`;
+  run("ditto", ["-c", "-k", "--keepParent", appDir, path.join(outputDir, zipName)]);
+  writeSha256(path.join(outputDir, zipName));
+}
+
+function notarizeMacosApp(appDir) {
+  if (!appleNotaryConfigured()) return;
+  const notaryZip = path.join(outputDir, `${appName}-notary.zip`);
+  run("ditto", ["-c", "-k", "--keepParent", appDir, notaryZip]);
+  notarizeMacosArtifact(notaryZip);
+  fs.rmSync(notaryZip, { force: true });
+  run("xcrun", ["stapler", "staple", appDir]);
+}
+
+function notarizeMacosArtifact(artifactPath) {
+  if (!appleNotaryConfigured()) return;
+  run("xcrun", [
+    "notarytool",
+    "submit",
+    artifactPath,
+    "--apple-id",
+    process.env.APPLE_ID.trim(),
+    "--password",
+    process.env.APPLE_PASSWORD.trim(),
+    "--team-id",
+    process.env.APPLE_TEAM_ID.trim(),
+    "--wait",
+  ]);
+  if (artifactPath.endsWith(".dmg")) {
+    run("xcrun", ["stapler", "staple", artifactPath]);
+  }
+}
+
+function appleNotaryConfigured() {
+  return Boolean(
+    process.env.APPLE_ID?.trim() && process.env.APPLE_PASSWORD?.trim() && process.env.APPLE_TEAM_ID?.trim(),
+  );
+}
+
+function packageWindows() {
+  const exePath = releaseBinaryPath(".exe");
+  const packageDir = path.join(outputDir, appName);
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.copyFileSync(exePath, path.join(packageDir, `${appName}.exe`));
+  fs.copyFileSync(path.join(root, "runtime-assets", "icons", "icon.ico"), path.join(packageDir, "icon.ico"));
+  const zipPath = path.join(outputDir, `${artifactBaseName("windows")}.zip`);
+  run("powershell", [
+    "-NoProfile",
+    "-Command",
+    `Compress-Archive -Path '${packageDir.replaceAll("'", "''")}\\*' -DestinationPath '${zipPath.replaceAll("'", "''")}' -Force`,
+  ]);
+  writeSha256(zipPath);
+
+  const installerScriptPath = path.join(outputDir, `${appName}.nsi`);
+  const installerPath = path.join(outputDir, `${artifactBaseName("windows")}-setup.exe`);
+  fs.writeFileSync(installerScriptPath, windowsNsisScript(packageDir, installerPath), "utf8");
+  run("makensis", [installerScriptPath]);
+  writeSha256(installerPath);
+}
+
+function packageGenericUnix() {
+  const binaryPath = releaseBinaryPath("");
+  const packageDir = path.join(outputDir, appName);
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.copyFileSync(binaryPath, path.join(packageDir, "codux"));
+  const tarPath = path.join(outputDir, `${artifactBaseName("linux")}.tar.gz`);
+  run("tar", ["-czf", tarPath, "-C", outputDir, appName]);
+  writeSha256(tarPath);
+}
+
+function releaseBinaryPath(extension) {
+  const segments = [root, "target"];
+  if (target) segments.push(target);
+  segments.push(profile, `${binaryName}${extension}`);
+  const binaryPath = path.join(...segments);
+  if (!fs.existsSync(binaryPath)) {
+    throw new Error(`Built binary not found: ${binaryPath}`);
+  }
+  return binaryPath;
+}
+
+function artifactBaseName(platform) {
+  const version = readCargoVersion();
+  const arch = targetArchLabel();
+  return `codux-${version}-${platform}-${arch}`;
+}
+
+function targetArchLabel() {
+  if (target.includes("universal-apple-darwin")) return "universal";
+  if (target.includes("aarch64")) return "aarch64";
+  if (target.includes("x86_64")) return "x86_64";
+  if (process.arch === "arm64") return "aarch64";
+  if (process.arch === "x64") return "x86_64";
+  return process.arch || os.arch();
+}
+
+function readCargoVersion() {
+  const content = fs.readFileSync(path.join(root, "Cargo.toml"), "utf8");
+  return content.match(/^version = "(.+)"$/m)?.[1] || "0.0.0";
+}
+
+function macosInfoPlist() {
+  const version = readCargoVersion();
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>${escapeXml(appName)}</string>
+  <key>CFBundleExecutable</key>
+  <string>${escapeXml(appName)}</string>
+  <key>CFBundleIdentifier</key>
+  <string>${escapeXml(bundleId)}</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>${escapeXml(appName)}</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${escapeXml(version)}</string>
+  <key>CFBundleVersion</key>
+  <string>${escapeXml(bundleVersion(version))}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+`;
+}
+
+function bundleVersion(version) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/);
+  return match ? `${match[1]}.${match[2]}.${match[3]}` : version;
+}
+
+function escapeXml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function writeSha256(filePath) {
+  const hash = crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  fs.writeFileSync(`${filePath}.sha256`, `${hash}  ${path.basename(filePath)}\n`, "utf8");
+  console.log(`packaged ${path.basename(filePath)} sha256=${hash}`);
+}
+
+function windowsNsisScript(packageDir, installerPath) {
+  return `Unicode true
+Name "${escapeNsis(appName)}"
+OutFile "${escapeNsis(installerPath)}"
+InstallDir "$LOCALAPPDATA\\\\Programs\\\\${escapeNsis(appName)}"
+InstallDirRegKey HKCU "Software\\\\${escapeNsis(appName)}" "InstallDir"
+RequestExecutionLevel user
+SilentInstall normal
+ShowInstDetails nevershow
+
+Section "Install"
+  SetOutPath "$INSTDIR"
+  File /r "${escapeNsis(packageDir)}\\\\*"
+  CreateDirectory "$SMPROGRAMS\\\\${escapeNsis(appName)}"
+  CreateShortcut "$SMPROGRAMS\\\\${escapeNsis(appName)}\\\\${escapeNsis(appName)}.lnk" "$INSTDIR\\\\${escapeNsis(appName)}.exe"
+  WriteRegStr HKCU "Software\\\\${escapeNsis(appName)}" "InstallDir" "$INSTDIR"
+  WriteUninstaller "$INSTDIR\\\\Uninstall.exe"
+SectionEnd
+
+Section "Uninstall"
+  Delete "$SMPROGRAMS\\\\${escapeNsis(appName)}\\\\${escapeNsis(appName)}.lnk"
+  RMDir "$SMPROGRAMS\\\\${escapeNsis(appName)}"
+  Delete "$INSTDIR\\\\Uninstall.exe"
+  Delete "$INSTDIR\\\\${escapeNsis(appName)}.exe"
+  Delete "$INSTDIR\\\\icon.ico"
+  DeleteRegKey HKCU "Software\\\\${escapeNsis(appName)}"
+  RMDir "$INSTDIR"
+SectionEnd
+`;
+}
+
+function escapeNsis(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '$\\"');
+}
+
+function run(command, args) {
+  const result = spawnSync(command, args, { stdio: "inherit", env: process.env });
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+  }
+}

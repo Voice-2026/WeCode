@@ -572,9 +572,20 @@ fn settings_toggle(
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
+    settings_toggle_state(id, checked, false, cx, action)
+}
+
+fn settings_toggle_state(
+    id: impl Into<String>,
+    checked: bool,
+    disabled: bool,
+    cx: &mut Context<CoduxApp>,
+    action: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> AnyElement {
     let app_entity = cx.entity();
     Switch::new(SharedString::from(id.into()))
         .checked(checked)
+        .disabled(disabled)
         .with_size(gpui_component::Size::Medium)
         .on_click(move |_, window, cx| {
             cx.update_entity(&app_entity, |app, cx| {
@@ -588,6 +599,19 @@ fn settings_select_impl(
     id: impl Into<String>,
     value: &str,
     options: Vec<(String, SharedString)>,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+    language: &str,
+    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> AnyElement {
+    settings_select_state(id, value, options, false, window, cx, language, action)
+}
+
+fn settings_select_state(
+    id: impl Into<String>,
+    value: &str,
+    options: Vec<(String, SharedString)>,
+    disabled: bool,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
     language: &str,
@@ -636,7 +660,8 @@ fn settings_select_impl(
             Select::new(&state)
                 .placeholder(settings_text(&language, "common.choose", "Choose"))
                 .menu_width(if searchable { px(320.0) } else { px(220.0) })
-                .with_size(gpui_component::Size::Medium),
+                .with_size(gpui_component::Size::Medium)
+                .disabled(disabled),
         )
         .into_any_element()
 }
@@ -1408,6 +1433,14 @@ fn update_status_text(update: &UpdateSummary, language: &str) -> String {
         );
     }
     if let Some(version) = &update.latest_version {
+        if !update.available {
+            return settings_text(
+                language,
+                "settings.update.status.latest_format",
+                "Current version %@ is up to date.",
+            )
+            .replace("%@", env!("CARGO_PKG_VERSION"));
+        }
         let notes = update.notes_preview.trim();
         let available = settings_text(
             language,
@@ -1562,6 +1595,9 @@ fn settings_pet_pane(
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
+    let speech_disabled = settings.pet_speech_mode == "off";
+    let pet_desktop_disabled = !settings.pet_enabled;
+    let pet_speech_llm_provider_disabled = speech_disabled || !settings.pet_speech_llm_enabled;
     settings_form(vec![
         settings_card(
             Some(settings_text(language, "settings.pet.section.general", "General")),
@@ -1581,9 +1617,10 @@ fn settings_pet_pane(
                 settings_row(
                     settings_text(language, "settings.pet.desktop_widget", "Desktop Pet"),
                     None,
-                    settings_toggle(
+                    settings_toggle_state(
                         "settings-pet-desktop",
                         settings.pet_desktop_widget,
+                        pet_desktop_disabled,
                         cx,
                         |app, window, cx| app.toggle_pet_desktop_widget(window, cx),
                     ),
@@ -1623,11 +1660,16 @@ fn settings_pet_pane(
                 .into_any_element(),
                 settings_row(
                     settings_text(language, "settings.pet.speech.frequency", "Frequency"),
-                    None,
-                    settings_select_impl(
+                    Some(settings_text(
+                        language,
+                        "settings.pet.speech.frequency_help",
+                        "Frequency is estimated per hour, not a daily cap. The shortest global cooldown is 30 seconds.",
+                    )),
+                    settings_select_state(
                         "settings-pet-speech-frequency",
                         &settings.pet_speech_frequency,
                         pet_speech_frequency_options(language),
+                        speech_disabled,
                         window,
                         cx,
                         language,
@@ -1642,9 +1684,10 @@ fn settings_pet_pane(
                         "Speak Less During Work",
                     ),
                     None,
-                    settings_toggle(
+                    settings_toggle_state(
                         "settings-pet-speech-work",
                         settings.pet_speech_quiet_during_work,
+                        speech_disabled,
                         cx,
                         |app, window, cx| app.toggle_pet_speech_quiet_during_work(window, cx),
                     ),
@@ -1657,9 +1700,10 @@ fn settings_pet_pane(
                         "Speak More at Night",
                     ),
                     None,
-                    settings_toggle(
+                    settings_toggle_state(
                         "settings-pet-speech-night",
                         settings.pet_speech_louder_at_night,
+                        speech_disabled,
                         cx,
                         |app, window, cx| app.toggle_pet_speech_louder_at_night(window, cx),
                     ),
@@ -1672,9 +1716,10 @@ fn settings_pet_pane(
                         "Mute in Full Screen",
                     ),
                     None,
-                    settings_toggle(
+                    settings_toggle_state(
                         "settings-pet-speech-fullscreen",
                         settings.pet_speech_mute_on_fullscreen,
+                        speech_disabled,
                         cx,
                         |app, window, cx| app.toggle_pet_speech_mute_on_fullscreen(window, cx),
                     ),
@@ -1687,9 +1732,10 @@ fn settings_pet_pane(
                         "Quiet Hours 22:00-08:00",
                     ),
                     None,
-                    settings_toggle(
+                    settings_toggle_state(
                         "settings-pet-quiet-hours",
                         settings.pet_speech_quiet_hours_enabled,
+                        speech_disabled,
                         cx,
                         |app, window, cx| app.toggle_pet_speech_quiet_hours(window, cx),
                     ),
@@ -1700,23 +1746,27 @@ fn settings_pet_pane(
                     .flex()
                     .justify_end()
                     .gap(px(8.0))
-                    .child(settings_small_button(
+                    .child(settings_small_button_state(
                         "settings-pet-mute-30",
                         settings_text(
                             language,
                             "settings.pet.speech.mute_30_minutes",
                             "Mute for 30 Minutes",
                         ),
+                        false,
+                        speech_disabled,
                         cx,
                         |app, _event, _window, cx| app.set_pet_speech_temporary_mute(true, cx),
                     ))
-                    .child(settings_small_button(
+                    .child(settings_small_button_state(
                         "settings-pet-unmute",
                         settings_text(
                             language,
                             "settings.pet.speech.unmute",
                             "Clear Temporary Mute",
                         ),
+                        false,
+                        speech_disabled || !settings.pet_speech_temporary_muted,
                         cx,
                         |app, _event, _window, cx| app.set_pet_speech_temporary_mute(false, cx),
                     ))
@@ -1735,9 +1785,10 @@ fn settings_pet_pane(
                 settings_row(
                     settings_text(language, "settings.pet.llm.enabled", "Enable LLM Refinement"),
                     None,
-                    settings_toggle(
+                    settings_toggle_state(
                         "settings-pet-llm",
                         settings.pet_speech_llm_enabled,
+                        speech_disabled,
                         cx,
                         |app, window, cx| app.toggle_pet_speech_llm_enabled(window, cx),
                     ),
@@ -1746,10 +1797,11 @@ fn settings_pet_pane(
                 settings_row(
                     settings_text(language, "settings.pet.llm.channel", "LLM Provider"),
                     None,
-                    settings_select_impl(
+                    settings_select_state(
                         "pet-speech-provider",
                         &settings.pet_speech_provider_id,
                         ai_provider_options(settings, "petSpeech", language),
+                        pet_speech_llm_provider_disabled,
                         window,
                         cx,
                         language,
@@ -3779,41 +3831,75 @@ fn terminal_scrollback_options(language: &str) -> Vec<(String, SharedString)> {
 }
 
 fn pet_speech_mode_options(language: &str) -> Vec<(String, SharedString)> {
-    vec![
-        ("mixed", settings_text(language, "common.mixed", "Mixed")),
-        ("off", settings_text(language, "common.off", "Off")),
-        (
-            "encourage",
-            settings_text(language, "common.encourage", "Encourage"),
-        ),
-        ("roast", settings_text(language, "common.roast", "Roast")),
-        (
-            "flirty",
-            settings_text(language, "common.playful", "Playful"),
-        ),
-        (
-            "chuunibyou",
-            settings_text(language, "common.chuunibyou", "Chuunibyou"),
-        ),
-    ]
-    .into_iter()
-    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
-    .collect()
+    ["mixed", "off", "encourage", "roast", "flirty", "chuunibyou"]
+        .into_iter()
+        .map(|value| {
+            (
+                value.to_string(),
+                SharedString::from(settings_text(
+                    language,
+                    &format!("pet.speech.mode.{value}"),
+                    value,
+                )),
+            )
+        })
+        .collect()
 }
 
 fn pet_speech_frequency_options(language: &str) -> Vec<(String, SharedString)> {
-    vec![
-        ("quiet", settings_text(language, "common.quiet", "Quiet")),
-        ("normal", settings_text(language, "common.normal", "Normal")),
-        ("lively", settings_text(language, "common.lively", "Lively")),
-        (
-            "chatterbox",
-            settings_text(language, "common.chatterbox", "Chatterbox"),
-        ),
-    ]
-    .into_iter()
-    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
-    .collect()
+    ["quiet", "normal", "lively", "chatterbox"]
+        .into_iter()
+        .map(|value| {
+            (
+                value.to_string(),
+                SharedString::from(pet_speech_frequency_option_label(language, value)),
+            )
+        })
+        .collect()
+}
+
+fn pet_speech_frequency_option_label(language: &str, value: &str) -> String {
+    let (hourly, cooldown_seconds) = pet_speech_frequency_config(value);
+    let cooldown = pet_speech_cooldown_label(language, cooldown_seconds);
+    settings_text(
+        language,
+        "settings.pet.speech.frequency_option_format",
+        "%@ · %@/hour · cooldown %@",
+    )
+    .replacen(
+        "%@",
+        &settings_text(language, &format!("pet.speech.frequency.{value}"), value),
+        1,
+    )
+    .replacen("%@", hourly, 1)
+    .replacen("%@", &cooldown, 1)
+}
+
+fn pet_speech_frequency_config(value: &str) -> (&'static str, u32) {
+    match value {
+        "quiet" => ("0-1", 300),
+        "lively" => ("3-8", 30),
+        "chatterbox" => ("8-15", 30),
+        _ => ("1-3", 60),
+    }
+}
+
+fn pet_speech_cooldown_label(language: &str, seconds: u32) -> String {
+    if seconds >= 60 {
+        settings_text(
+            language,
+            "settings.pet.speech.cooldown.minutes_format",
+            "%d min",
+        )
+        .replace("%d", &(seconds / 60).to_string())
+    } else {
+        settings_text(
+            language,
+            "settings.pet.speech.cooldown.seconds_format",
+            "%d sec",
+        )
+        .replace("%d", &seconds.to_string())
+    }
 }
 
 fn runtime_tool_permission_options(language: &str) -> Vec<(String, SharedString)> {

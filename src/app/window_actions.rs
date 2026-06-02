@@ -16,6 +16,7 @@ pub(in crate::app) struct AuxiliaryWindowSpec {
 pub(in crate::app) enum AuxiliaryWindowSlot {
     Settings,
     About,
+    UpdateDialog,
     GitClone,
     GitCredentials,
     MemoryManager,
@@ -329,6 +330,11 @@ impl CoduxApp {
             worktree_creator_name: String::new(),
             worktree_creator_error: None,
             worktree_creator_submitting: false,
+            update_dialog_phase: UpdateDialogPhase::Checking,
+            update_dialog_status: None,
+            update_dialog_progress: None,
+            update_dialog_result: None,
+            update_dialog_error: None,
             tooltip_state: CoduxTooltipState::default(),
             ui_performance_counts: HashMap::new(),
             ui_performance_last_report_at: 0.0,
@@ -408,7 +414,9 @@ impl CoduxApp {
     ) -> &mut Option<AnyWindowHandle> {
         match slot {
             AuxiliaryWindowSlot::Settings => &mut self.settings_window,
-            AuxiliaryWindowSlot::About => &mut self.about_window,
+            AuxiliaryWindowSlot::About | AuxiliaryWindowSlot::UpdateDialog => {
+                &mut self.about_window
+            }
             AuxiliaryWindowSlot::GitClone => &mut self.git_clone_window,
             AuxiliaryWindowSlot::GitCredentials => &mut self.git_credentials_window,
             AuxiliaryWindowSlot::MemoryManager => &mut self.memory_manager_window,
@@ -1150,7 +1158,7 @@ impl CoduxApp {
         register!(
             native_menu::CheckUpdates,
             |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
-                app.reload_update(window, cx)
+                app.open_update_dialog_window(window, cx)
             }
         );
         register!(native_menu::ExportDiagnostics, |app: &mut CoduxApp,
