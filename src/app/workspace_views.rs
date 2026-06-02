@@ -975,13 +975,20 @@ fn terminal_pane_control_button(
         .child(Icon::new(icon).size_3p5().text_color(text_color));
 
     if enabled {
+        let on_click = std::rc::Rc::new(on_click);
         button
             .cursor_pointer()
             .hover(|style| style.bg(cx.theme().secondary_hover))
             .on_click(cx.listener(move |_view, _event, window, cx| {
                 cx.stop_propagation();
                 window.prevent_default();
-                app_entity.update(cx, |app, app_cx| on_click(app, window, app_cx));
+                let on_click = on_click.clone();
+                defer_terminal_workspace_app_update(
+                    app_entity.clone(),
+                    window,
+                    cx,
+                    move |app, window, app_cx| on_click(app, window, app_cx),
+                );
             }))
             .into_any_element()
     } else {
@@ -1021,9 +1028,12 @@ fn terminal_bottom_tab_button(
         .on_click(cx.listener({
             let app_entity = app_entity.clone();
             move |_view, _event, window, cx| {
-                app_entity.update(cx, |app, app_cx| {
-                    app.select_terminal_tab(terminal_id, window, app_cx)
-                });
+                defer_terminal_workspace_app_update(
+                    app_entity.clone(),
+                    window,
+                    cx,
+                    move |app, window, app_cx| app.select_terminal_tab(terminal_id, window, app_cx),
+                );
             }
         }))
         .child(
@@ -1047,9 +1057,14 @@ fn terminal_bottom_tab_button(
                 .on_click(cx.listener(move |_view, _event, window, cx| {
                     cx.stop_propagation();
                     window.prevent_default();
-                    app_entity.update(cx, |app, app_cx| {
-                        app.close_terminal_tab(terminal_id, window, app_cx)
-                    });
+                    defer_terminal_workspace_app_update(
+                        app_entity.clone(),
+                        window,
+                        cx,
+                        move |app, window, app_cx| {
+                            app.close_terminal_tab(terminal_id, window, app_cx)
+                        },
+                    );
                 }))
                 .child(Icon::new(HeroIconName::XMark).size_3()),
         )
@@ -1071,7 +1086,23 @@ fn terminal_bottom_add_button(
         .text_color(cx.theme().secondary_foreground)
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |_view, _event, window, cx| {
-            app_entity.update(cx, |app, app_cx| app.add_terminal_tab(window, app_cx));
+            defer_terminal_workspace_app_update(
+                app_entity.clone(),
+                window,
+                cx,
+                |app, window, app_cx| app.add_terminal_tab(window, app_cx),
+            );
         }))
         .child(Icon::new(HeroIconName::Plus).size_3p5())
+}
+
+fn defer_terminal_workspace_app_update(
+    app_entity: gpui::Entity<CoduxApp>,
+    window: &mut Window,
+    cx: &mut Context<TerminalWorkspaceView>,
+    update: impl FnOnce(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+) {
+    window.defer(cx, move |window, cx| {
+        app_entity.update(cx, |app, app_cx| update(app, window, app_cx));
+    });
 }
