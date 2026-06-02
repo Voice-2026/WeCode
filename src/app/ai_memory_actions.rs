@@ -29,9 +29,11 @@ impl CoduxApp {
             .indexed_project_ai_history_state(request)
         {
             Ok(state) => {
-                if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                let summary =
+                    ai_history_summary_from_state_or_status(&self.state.ai_history, &state);
+                if ai_history_should_replace(&self.state.ai_history, &summary) {
                     self.state.ai_history = summary;
-                } else {
+                } else if !summary.indexed {
                     apply_ai_history_project_state(&mut self.state.ai_history, &state);
                 }
                 self.ai_history_active_index_count =

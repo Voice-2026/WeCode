@@ -34,7 +34,20 @@ impl CoduxApp {
                 let worktrees =
                     runtime_service.reload_worktrees(Some(&project_id), Some(&project_path));
                 let request = ai_history_worktree_request(&project, worktree.as_ref());
-                let ai_history = runtime_service.reload_project_ai_history(&request.path);
+                let ai_history = runtime_service
+                    .indexed_project_ai_history_state(request)
+                    .ok()
+                    .map(|state| {
+                        ai_history_summary_from_state_or_status(
+                            &AIHistorySummary::default(),
+                            &state,
+                        )
+                    })
+                    .unwrap_or_else(|| AIHistorySummary {
+                        is_loading: true,
+                        detail: "loading".to_string(),
+                        ..AIHistorySummary::default()
+                    });
                 (
                     ProjectSwitchTaskLoad {
                         project_id: project_id.clone(),
@@ -159,6 +172,7 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let select_started_at = Instant::now();
         let previous_project_id = self
             .state
             .selected_project
@@ -176,20 +190,46 @@ impl CoduxApp {
             ),
         );
         if previous_project_id.is_some() {
+            let save_started_at = Instant::now();
             self.save_current_project_view_state_for_switch();
+            self.runtime_trace(
+                "project-switch",
+                &format!(
+                    "save_for_switch elapsed_ms={} to={project_id}",
+                    save_started_at.elapsed().as_millis()
+                ),
+            );
             self.spawn_persist_terminal_state(cx);
         }
         self.status_message = "selected project in memory".to_string();
         self.persist_selected_project_async(project_id.clone(), cx);
         self.select_project_after_state_reload(project_id, window, cx);
+        self.runtime_trace(
+            "project-switch",
+            &format!(
+                "select sync_done elapsed_ms={}",
+                select_started_at.elapsed().as_millis()
+            ),
+        );
     }
 
     fn persist_selected_project_async(&mut self, project_id: String, cx: &mut Context<Self>) {
         let runtime_service = self.runtime_service.clone();
+        let queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn_blocking({
                 let project_id = project_id.clone();
-                move || runtime_service.select_project(&project_id)
+                move || {
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "select_persist worker_start project={} queue_wait_ms={}",
+                            project_id,
+                            queued_at.elapsed().as_millis()
+                        ),
+                    );
+                    runtime_service.select_project(&project_id)
+                }
             })
             .await
             .map_err(|error| error.to_string())
@@ -208,7 +248,11 @@ impl CoduxApp {
                     Ok(()) => {
                         app.runtime_trace(
                             "project-switch",
-                            &format!("select persist done project={project_id}"),
+                            &format!(
+                                "select persist done project={} elapsed_ms={}",
+                                project_id,
+                                queued_at.elapsed().as_millis()
+                            ),
                         );
                     }
                     Err(error) => {
@@ -235,12 +279,18 @@ impl CoduxApp {
         self.memory_manager_scope = "project".to_string();
         self.memory_manager_project_id = Some(project_id.clone());
         if let Some(terminal_view_state) = terminal_view_state {
-            self.schedule_terminal_layout_restore(
-                terminal_view_state.terminal_layout,
-                terminal_view_state.terminal_runtime,
-                switch_generation,
-                window,
-                cx,
+            self.state.terminal_layout = terminal_view_state.terminal_layout;
+            self.state.terminal_runtime = terminal_view_state.terminal_runtime;
+            self.terminal_layout_loading = true;
+            self.terminals.clear();
+            self.active_terminal_id = 1;
+            self.next_terminal_index = 1;
+            self.runtime_trace(
+                "project-switch",
+                &format!(
+                    "terminal_restore deferred_to_load project={} generation={}",
+                    project_id, switch_generation
+                ),
             );
         } else {
             self.terminal_layout_loading = true;
@@ -459,9 +509,9 @@ impl CoduxApp {
         self.git_tree_children = state.git_tree_children;
         self.git_diff_preview = state.git_diff_preview;
         if let Some(content) = state.git_review_content {
-            self.restore_git_review_content_cache(content);
+            self.restore_git_review_derived_content(content);
         } else {
-            self.clear_git_review_content_cache();
+            self.clear_git_review_derived_content();
         }
         self.normalize_selected_git_file();
         self.normalize_selected_git_branch();
@@ -469,7 +519,7 @@ impl CoduxApp {
 
     pub(super) fn clear_worktree_view_state(&mut self) {
         self.file_directory.clear();
-        self.reset_file_tree_cache();
+        self.reset_file_tree_state();
         self.file_preview = "select a file to preview it".to_string();
         self.file_editable = false;
         self.file_dirty = false;
@@ -483,9 +533,9 @@ impl CoduxApp {
             HashSet::from(["changed".to_string(), "untracked".to_string()]);
         self.git_expanded_dirs.clear();
         self.git_tree_children.clear();
-        self.record_ui_cache_clear("git_tree");
+        self.record_ui_state_clear("git_tree");
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
-        self.clear_git_review_content_cache();
+        self.clear_git_review_derived_content();
         self.state.git = GitSummary::default();
         self.git_review = GitReviewSummary::default();
         self.normalize_selected_git_branch();
@@ -930,6 +980,7 @@ impl CoduxApp {
         let runtime_service = self.runtime_service.clone();
         let runtime_inventory = self.runtime.clone();
         let terminal_state = self.state.clone();
+        let terminal_manager = self.terminal_manager.clone();
         let terminal_runtime_service = runtime_service.clone();
         let terminal_project = project.clone();
         let terminal_runtime_inventory = runtime_inventory.clone();
@@ -941,11 +992,29 @@ impl CoduxApp {
         let stats_runtime_service = runtime_service.clone();
         let stats_project = project.clone();
         let should_load_tasks = self.begin_project_task_load(&project_id);
+        self.runtime_trace(
+            "project-switch",
+            &format!(
+                "spawn_loads project={} generation={} should_load_tasks={}",
+                project_id, generation, should_load_tasks
+            ),
+        );
 
+        let terminal_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let terminal = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                 codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
+                    let worker_started_at = Instant::now();
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "terminal_load worker_start project={} generation={} queue_wait_ms={}",
+                            terminal_project.id,
+                            generation,
+                            terminal_queued_at.elapsed().as_millis()
+                        ),
+                    );
                     let worktrees = terminal_runtime_service.reload_worktrees_from_state(
                         Some(&terminal_project.id),
                         Some(&terminal_project.path),
@@ -967,7 +1036,20 @@ impl CoduxApp {
                     terminal_state.worktrees = worktrees.clone();
                     terminal_state.terminal_layout = terminal_layout.clone();
                     terminal_state.terminal_runtime = terminal_runtime.clone();
-                    prewarm_terminal_restore(&terminal_state, &terminal_runtime_inventory);
+                    prewarm_terminal_restore(
+                        &terminal_state,
+                        &terminal_runtime_inventory,
+                        Some(&terminal_manager),
+                    );
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "terminal_load worker_done project={} generation={} elapsed_ms={}",
+                            terminal_project.id,
+                            generation,
+                            worker_started_at.elapsed().as_millis()
+                        ),
+                    );
                     ProjectSwitchTerminalLoad {
                         project_id: terminal_project.id,
                         generation,
@@ -991,12 +1073,32 @@ impl CoduxApp {
             let task_project_id = task_project.id.clone();
             let task_project_path = task_project.path.clone();
             let cleanup_project_id = task_project_id.clone();
+            let task_queued_at = Instant::now();
             cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
                 let task_load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                     codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                     move || {
+                        let worker_started_at = Instant::now();
+                        codux_runtime::runtime_trace::runtime_trace(
+                            "project-switch",
+                            &format!(
+                                "task_load worker_start project={} generation={} queue_wait_ms={}",
+                                task_project_id,
+                                generation,
+                                task_queued_at.elapsed().as_millis()
+                            ),
+                        );
                         let worktrees = task_runtime_service
                             .reload_worktrees(Some(&task_project_id), Some(&task_project_path));
+                        codux_runtime::runtime_trace::runtime_trace(
+                            "project-switch",
+                            &format!(
+                                "task_load worker_done project={} generation={} elapsed_ms={}",
+                                task_project_id,
+                                generation,
+                                worker_started_at.elapsed().as_millis()
+                            ),
+                        );
                         ProjectSwitchTaskLoad {
                             project_id: task_project_id,
                             generation,
@@ -1017,14 +1119,46 @@ impl CoduxApp {
             .detach();
         }
 
+        let primary_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let primary = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                 codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
+                    let worker_started_at = Instant::now();
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "primary_load worker_start project={} generation={} queue_wait_ms={}",
+                            primary_project.id,
+                            generation,
+                            primary_queued_at.elapsed().as_millis()
+                        ),
+                    );
                     let request =
                         ai_history_worktree_request(&primary_project, primary_worktree.as_ref());
-                    let ai_history =
-                        primary_runtime_service.reload_project_ai_history(&request.path);
+                    let ai_history = primary_runtime_service
+                        .indexed_project_ai_history_state(request)
+                        .ok()
+                        .map(|state| {
+                            ai_history_summary_from_state_or_status(
+                                &AIHistorySummary::default(),
+                                &state,
+                            )
+                        })
+                        .unwrap_or_else(|| AIHistorySummary {
+                            is_loading: true,
+                            detail: "loading".to_string(),
+                            ..AIHistorySummary::default()
+                        });
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "primary_load worker_done project={} generation={} elapsed_ms={}",
+                            primary_project.id,
+                            generation,
+                            worker_started_at.elapsed().as_millis()
+                        ),
+                    );
                     ProjectSwitchPrimaryLoad {
                         project_id: primary_project.id,
                         generation,
@@ -1042,10 +1176,21 @@ impl CoduxApp {
         })
         .detach();
 
+        let stats_queued_at = Instant::now();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                 codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
+                    let worker_started_at = Instant::now();
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "full_load worker_start project={} generation={} queue_wait_ms={}",
+                            stats_project.id,
+                            generation,
+                            stats_queued_at.elapsed().as_millis()
+                        ),
+                    );
                     let ai_global_history = stats_runtime_service.reload_global_ai_history();
                     let memory = stats_runtime_service.reload_memory(Some(&stats_project.id));
                     let memory_manager = stats_runtime_service.reload_memory_manager(
@@ -1053,6 +1198,15 @@ impl CoduxApp {
                         "project",
                         Some(&stats_project.id),
                         "active",
+                    );
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "project-switch",
+                        &format!(
+                            "full_load worker_done project={} generation={} elapsed_ms={}",
+                            stats_project.id,
+                            generation,
+                            worker_started_at.elapsed().as_millis()
+                        ),
                     );
                     ProjectSwitchLoad {
                         project_id: stats_project.id,
@@ -1199,10 +1353,20 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let existing = self.project_view_store.get(&load.project_id).cloned();
+        let store_ai_history = existing
+            .as_ref()
+            .map(|state| {
+                if ai_history_should_replace(&state.ai_history, &load.ai_history) {
+                    load.ai_history.clone()
+                } else {
+                    state.ai_history.clone()
+                }
+            })
+            .unwrap_or_else(|| load.ai_history.clone());
         self.project_view_store.insert(
             load.project_id.clone(),
             ProjectViewState {
-                ai_history: load.ai_history.clone(),
+                ai_history: store_ai_history,
                 ai_global_history: existing
                     .as_ref()
                     .map(|state| state.ai_global_history.clone())
@@ -1231,9 +1395,18 @@ impl CoduxApp {
         {
             return;
         }
-        self.state.ai_history = load.ai_history;
-        self.selected_ai_session_id = None;
-        self.state.ai_session_detail = None;
+        let replaced = ai_history_should_replace(&self.state.ai_history, &load.ai_history);
+        if replaced {
+            self.state.ai_history = load.ai_history;
+            self.selected_ai_session_id = None;
+            self.state.ai_session_detail = None;
+        } else if !load.ai_history.indexed {
+            self.state.ai_history.is_loading = load.ai_history.is_loading;
+            self.state.ai_history.queued = load.ai_history.queued;
+            self.state.ai_history.progress = load.ai_history.progress;
+            self.state.ai_history.detail = load.ai_history.detail;
+            self.state.ai_history.error = load.ai_history.error;
+        }
         self.runtime_trace(
             "project-switch",
             &format!(
@@ -1336,7 +1509,16 @@ impl CoduxApp {
         self.state.terminal_layout = terminal_layout.clone();
         self.state.terminal_runtime = terminal_runtime.clone();
         self.terminal_layout_loading = true;
+        let scheduled_at = Instant::now();
         cx.defer_in(window, move |app, _window, cx| {
+            app.runtime_trace(
+                "terminal-restore",
+                &format!(
+                    "deferred_start generation={} delay_ms={}",
+                    generation,
+                    scheduled_at.elapsed().as_millis()
+                ),
+            );
             if app.project_switch_generation != generation {
                 return;
             }
@@ -1348,20 +1530,40 @@ impl CoduxApp {
         self.state = self.runtime_service.reload_state();
         self.project_open_applications = self.runtime_service.project_open_applications();
         self.file_directory.clear();
-        self.reset_file_tree_cache();
+        self.reset_file_tree_state();
         self.file_editable = false;
         self.file_dirty = false;
         self.clear_file_selection();
         self.selected_git_file = None;
         self.normalize_selected_git_branch();
         self.git_diff_preview = "select a changed file to preview its diff".to_string();
-        self.clear_git_review_content_cache();
+        self.clear_git_review_derived_content();
         self.normalize_selected_ai_session();
         self.normalize_selected_runtime_session();
         self.normalize_selected_ssh_profile();
         self.status_message = "state reloaded from Codux support files".to_string();
         self.sync_project_list_store(cx);
         self.invalidate_project_management(cx);
+    }
+
+    pub(super) fn apply_project_list_state(&mut self, next: RuntimeState, cx: &mut Context<Self>) {
+        let previous_selected_id = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone());
+        self.state.projects = next.projects;
+        self.state.selected_project = previous_selected_id
+            .as_deref()
+            .and_then(|id| {
+                self.state
+                    .projects
+                    .iter()
+                    .find(|project| project.id == id)
+                    .cloned()
+            })
+            .or(next.selected_project);
+        self.sync_project_list_store(cx);
     }
 
     pub(super) fn reload_project_open_applications(
@@ -1570,16 +1772,16 @@ impl CoduxApp {
                 self.clear_file_selection();
                 self.file_tree_expanded_dirs.clear();
                 self.file_tree_children.clear();
-                self.record_ui_cache_clear("file_tree");
+                self.record_ui_state_clear("file_tree");
                 self.file_preview = "select a file to preview it".to_string();
                 self.file_editable = false;
                 self.file_dirty = false;
                 self.selected_git_file = None;
                 self.git_tree_children.clear();
                 self.git_expanded_dirs.clear();
-                self.record_ui_cache_clear("git_tree");
+                self.record_ui_state_clear("git_tree");
                 self.git_diff_preview = "select a changed file to preview its diff".to_string();
-                self.clear_git_review_content_cache();
+                self.clear_git_review_derived_content();
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();

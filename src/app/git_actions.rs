@@ -5,18 +5,18 @@ use crate::app::app_events::{
 use codux_runtime::git::GitReviewFile;
 
 impl CoduxApp {
-    pub(super) fn clear_git_review_content_cache(&mut self) {
+    pub(super) fn clear_git_review_derived_content(&mut self) {
         self.git_review_content = None;
-        self.git_review_aligned_rows = None;
+        self.git_review_derived_rows = None;
     }
 
-    pub(super) fn restore_git_review_content_cache(&mut self, content: GitReviewContentSummary) {
+    pub(super) fn restore_git_review_derived_content(&mut self, content: GitReviewContentSummary) {
         self.git_review_content = Some(content);
-        self.git_review_aligned_rows = None;
+        self.git_review_derived_rows = None;
     }
 
-    pub(super) fn ensure_git_review_aligned_rows(&mut self) {
-        if self.git_review_aligned_rows.is_some() {
+    pub(super) fn ensure_git_review_derived_rows(&mut self) {
+        if self.git_review_derived_rows.is_some() {
             return;
         }
         let Some(content) = self.git_review_content.as_ref() else {
@@ -34,7 +34,7 @@ impl CoduxApp {
         let final_content = content.worktree_content.as_str();
         let branch_content =
             (self.git_review.mode == "taskBranch").then_some(content.head_content.as_str());
-        self.git_review_aligned_rows = Some(super::sidebars::build_git_review_aligned_rows(
+        self.git_review_derived_rows = Some(super::sidebars::build_git_review_derived_rows(
             original_content,
             new_content,
             final_content,
@@ -44,10 +44,10 @@ impl CoduxApp {
         ));
     }
 
-    pub(super) fn set_git_review_content_cache(&mut self, content: GitReviewContentSummary) {
+    pub(super) fn set_git_review_derived_content(&mut self, content: GitReviewContentSummary) {
         self.git_review_content = Some(content);
-        self.git_review_aligned_rows = None;
-        self.ensure_git_review_aligned_rows();
+        self.git_review_derived_rows = None;
+        self.ensure_git_review_derived_rows();
     }
 
     pub(super) fn reload_project_git(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -557,7 +557,7 @@ impl CoduxApp {
                     self.git_expanded_sections.insert("untracked".to_string());
                     self.git_expanded_dirs.clear();
                     self.git_tree_children.clear();
-                    self.record_ui_cache_clear("git_tree");
+                    self.record_ui_state_clear("git_tree");
                     self.normalize_selected_git_file();
                     self.normalize_selected_git_branch();
                     if refresh_files {
@@ -565,7 +565,7 @@ impl CoduxApp {
                             &project_path,
                             file_directory_option(&self.file_directory),
                         );
-                        self.reset_file_tree_cache();
+                        self.reset_file_tree_state();
                         self.normalize_selected_file_entry();
                         self.git_clone_remote_url.clear();
                     }
@@ -717,7 +717,7 @@ impl CoduxApp {
         if self.selected_git_files.is_empty() {
             self.selected_git_file = None;
             self.git_diff_preview = "select a changed file to preview its diff".to_string();
-            self.clear_git_review_content_cache();
+            self.clear_git_review_derived_content();
         } else {
             self.selected_git_file = Some(file_path);
         }
@@ -751,7 +751,7 @@ impl CoduxApp {
                 );
                 self.selected_git_file = Some(file_path.clone());
                 self.git_diff_preview = diff;
-                self.set_git_review_content_cache(content);
+                self.set_git_review_derived_content(content);
                 self.status_message = format!("diff loaded: {file_path}");
             }
             Err(error) => self.status_message = format!("failed to load diff: {error}"),
@@ -774,7 +774,7 @@ impl CoduxApp {
         self.selected_git_file = Some(file_path.clone());
         self.selected_git_files.clear();
         self.selected_git_files.insert(file_path.clone());
-        self.clear_git_review_content_cache();
+        self.clear_git_review_derived_content();
         self.git_diff_preview = "loading diff...".to_string();
         self.invalidate_git_panel(cx);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
@@ -810,12 +810,12 @@ impl CoduxApp {
                 match diff {
                     Ok(diff) => {
                         app.git_diff_preview = diff;
-                        app.set_git_review_content_cache(content);
+                        app.set_git_review_derived_content(content);
                         app.status_message = format!("diff loaded: {file_path}");
                     }
                     Err(error) => {
                         app.git_diff_preview = format!("failed to load diff: {error}");
-                        app.clear_git_review_content_cache();
+                        app.clear_git_review_derived_content();
                         app.status_message = format!("failed to load diff: {error}");
                     }
                 }
@@ -838,7 +838,7 @@ impl CoduxApp {
         let Some(path) = self.git_review.files.first().map(|file| file.path.clone()) else {
             self.selected_git_file = None;
             self.selected_git_files.clear();
-            self.clear_git_review_content_cache();
+            self.clear_git_review_derived_content();
             return;
         };
         self.selected_git_files.clear();
@@ -862,7 +862,7 @@ impl CoduxApp {
         {
             self.selected_git_file = None;
             self.selected_git_files.clear();
-            self.clear_git_review_content_cache();
+            self.clear_git_review_derived_content();
             return;
         }
     }
@@ -1001,7 +1001,7 @@ impl CoduxApp {
             self.selected_git_file = None;
             self.selected_git_files.clear();
             self.git_diff_preview = "select a changed file to preview its diff".to_string();
-            self.clear_git_review_content_cache();
+            self.clear_git_review_derived_content();
         }
     }
 
@@ -1158,7 +1158,7 @@ impl CoduxApp {
                 success_message: format!("discarded {count} Git file paths"),
                 failure_prefix: "failed to discard Git file paths".to_string(),
                 clear_git_diff_preview: true,
-                clear_git_tree_cache: true,
+                clear_git_tree_state: true,
                 refresh_review: true,
                 ..Default::default()
             },
@@ -1199,7 +1199,7 @@ impl CoduxApp {
                 success_message: format!("added to .gitignore: {normalized_path}"),
                 failure_prefix: "failed to update .gitignore".to_string(),
                 clear_git_diff_preview: true,
-                clear_git_tree_cache: true,
+                clear_git_tree_state: true,
                 refresh_review: true,
                 ..Default::default()
             },
@@ -1240,7 +1240,7 @@ impl CoduxApp {
                 success_message: format!("added {count} Git paths to .gitignore"),
                 failure_prefix: "failed to update .gitignore".to_string(),
                 clear_git_diff_preview: true,
-                clear_git_tree_cache: true,
+                clear_git_tree_state: true,
                 refresh_review: true,
                 ..Default::default()
             },
@@ -1337,7 +1337,7 @@ impl CoduxApp {
                     "failed to {} Git file paths",
                     if stage { "stage" } else { "unstage" }
                 ),
-                clear_git_tree_cache: true,
+                clear_git_tree_state: true,
                 refresh_review: true,
                 ..Default::default()
             },
@@ -1880,17 +1880,17 @@ impl CoduxApp {
                     if completion.refresh_review {
                         self.refresh_git_review_for_project(&project_path);
                     }
-                    if completion.clear_git_tree_cache {
+                    if completion.clear_git_tree_state {
                         self.git_expanded_dirs.clear();
                         self.git_tree_children.clear();
-                        self.record_ui_cache_clear("git_tree");
+                        self.record_ui_state_clear("git_tree");
                     }
                     self.normalize_selected_git_file();
                     self.normalize_selected_git_branch();
                     if completion.clear_git_diff_preview {
                         self.git_diff_preview =
                             "select a changed file to preview its diff".to_string();
-                        self.clear_git_review_content_cache();
+                        self.clear_git_review_derived_content();
                     } else if let Some(file_path) = completion.diff_file_to_reload.as_deref()
                         && self.selected_git_file.is_some()
                     {
@@ -1907,7 +1907,7 @@ impl CoduxApp {
                             file_path,
                             self.git_review.base_branch.as_deref(),
                         );
-                        self.set_git_review_content_cache(content);
+                        self.set_git_review_derived_content(content);
                     }
                     self.state.worktrees = self
                         .runtime_service

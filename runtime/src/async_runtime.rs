@@ -33,6 +33,7 @@ struct PriorityBlockingQueue {
 struct PriorityBlockingJob {
     priority: u64,
     sequence: u64,
+    queued_at: std::time::Instant,
     run: Box<dyn FnOnce() -> Box<dyn Any + Send> + Send>,
     result: oneshot::Sender<Result<Box<dyn Any + Send>, tokio::task::JoinError>>,
 }
@@ -111,6 +112,7 @@ where
         .push(PriorityBlockingJob {
             priority,
             sequence,
+            queued_at: std::time::Instant::now(),
             run: Box::new(move || Box::new(function()) as Box<dyn Any + Send>),
             result,
         });
@@ -169,7 +171,26 @@ fn start_priority_blocking_worker(queue: Arc<PriorityBlockingQueue>) {
                 }
                 queue.notify.notified().await;
             };
+            crate::runtime_trace::runtime_trace(
+                "blocking-queue",
+                &format!(
+                    "worker_start priority={} sequence={} queue_wait_ms={}",
+                    job.priority,
+                    job.sequence,
+                    job.queued_at.elapsed().as_millis()
+                ),
+            );
+            let started_at = std::time::Instant::now();
             let result = runtime().spawn_blocking(job.run).await;
+            crate::runtime_trace::runtime_trace(
+                "blocking-queue",
+                &format!(
+                    "worker_done priority={} sequence={} elapsed_ms={}",
+                    job.priority,
+                    job.sequence,
+                    started_at.elapsed().as_millis()
+                ),
+            );
             let _ = job.result.send(result);
         }
     });

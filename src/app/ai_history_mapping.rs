@@ -69,6 +69,37 @@ pub(in crate::app) fn ai_history_summary_from_project_state(
     Some(summary)
 }
 
+pub(in crate::app) fn ai_history_summary_from_state_or_status(
+    current: &AIHistorySummary,
+    state: &AIHistoryProjectState,
+) -> AIHistorySummary {
+    ai_history_summary_from_project_state(state).unwrap_or_else(|| {
+        let mut summary = current.clone();
+        apply_ai_history_project_state(&mut summary, state);
+        summary
+    })
+}
+
+pub(in crate::app) fn ai_history_should_replace(
+    current: &AIHistorySummary,
+    next: &AIHistorySummary,
+) -> bool {
+    if !next.indexed {
+        return !current.indexed || current.sessions.is_empty();
+    }
+    if !current.indexed || current.sessions.is_empty() {
+        return true;
+    }
+    let current_indexed_at = current.indexed_at.unwrap_or(0.0);
+    let next_indexed_at = next.indexed_at.unwrap_or(0.0);
+    if next_indexed_at + f64::EPSILON < current_indexed_at {
+        return false;
+    }
+    let current_latest_session = latest_session_seen_at(current);
+    let next_latest_session = latest_session_seen_at(next);
+    next_latest_session + f64::EPSILON >= current_latest_session
+}
+
 pub(in crate::app) fn apply_ai_history_project_state(
     summary: &mut AIHistorySummary,
     state: &AIHistoryProjectState,
@@ -147,5 +178,64 @@ fn normalized_ai_session_to_summary(
         total_tokens: session.total_tokens,
         cached_input_tokens: session.cached_input_tokens,
         request_count: session.request_count,
+    }
+}
+
+fn latest_session_seen_at(summary: &AIHistorySummary) -> f64 {
+    summary
+        .sessions
+        .iter()
+        .map(|session| session.last_seen_at)
+        .fold(0.0, f64::max)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn history(indexed_at: f64, last_seen_at: f64) -> AIHistorySummary {
+        AIHistorySummary {
+            indexed: true,
+            indexed_at: Some(indexed_at),
+            sessions: vec![AISessionSummary {
+                id: "session".to_string(),
+                session_key: "session".to_string(),
+                external_session_id: Some("session".to_string()),
+                title: "Session".to_string(),
+                source: "codex".to_string(),
+                last_model: None,
+                last_seen_at,
+                total_tokens: 1,
+                cached_input_tokens: 0,
+                request_count: 1,
+            }],
+            ..AIHistorySummary::default()
+        }
+    }
+
+    #[test]
+    fn ai_history_replace_rejects_older_snapshot() {
+        let current = history(20.0, 200.0);
+        let older = history(10.0, 100.0);
+        assert!(!ai_history_should_replace(&current, &older));
+    }
+
+    #[test]
+    fn ai_history_replace_accepts_newer_snapshot() {
+        let current = history(10.0, 100.0);
+        let newer = history(20.0, 200.0);
+        assert!(ai_history_should_replace(&current, &newer));
+    }
+
+    #[test]
+    fn ai_history_replace_keeps_existing_sessions_for_status_only_update() {
+        let current = history(10.0, 100.0);
+        let status_only = AIHistorySummary {
+            indexed: false,
+            is_loading: true,
+            detail: "queued".to_string(),
+            ..AIHistorySummary::default()
+        };
+        assert!(!ai_history_should_replace(&current, &status_only));
     }
 }

@@ -3451,10 +3451,10 @@ pub(in crate::app) fn git_review_workspace(
     selected_path: Option<&str>,
     review: &GitReviewSummary,
     content: Option<&GitReviewContentSummary>,
-    aligned_rows: Option<&GitReviewAlignedRows>,
+    derived_rows: Option<&GitReviewDerivedRows>,
     labels: Rc<GitSidebarLabels>,
     code_scroll_handle: ScrollHandle,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<workspace_views::ReviewDiffContentView>,
 ) -> impl IntoElement {
     if !review.is_repository {
         return git_review_empty_workspace(labels.review_no_repository.clone()).into_any_element();
@@ -3514,7 +3514,7 @@ pub(in crate::app) fn git_review_workspace(
                 ),
         )
         .child({
-            let aligned_rows = aligned_rows.cloned().unwrap_or_default();
+            let derived_rows = derived_rows.cloned().unwrap_or_default();
             div()
                 .flex()
                 .flex_1()
@@ -3525,21 +3525,21 @@ pub(in crate::app) fn git_review_workspace(
                 .child(git_review_content_panel(
                     "git-review-original-code",
                     original_title.as_str(),
-                    aligned_rows.original.clone(),
+                    derived_rows.original.clone(),
                     VirtualListScrollHandle::from(code_scroll_handle.clone()),
                     cx,
                 ))
                 .child(git_review_content_panel(
                     "git-review-new-code",
                     labels.review_new_file.as_str(),
-                    aligned_rows.new_file.clone(),
+                    derived_rows.new_file.clone(),
                     VirtualListScrollHandle::from(code_scroll_handle.clone()),
                     cx,
                 ))
                 .child(git_review_content_panel(
                     "git-review-final-code",
                     labels.review_final_file.as_str(),
-                    aligned_rows.final_file.clone(),
+                    derived_rows.final_file.clone(),
                     VirtualListScrollHandle::from(code_scroll_handle.clone()),
                     cx,
                 ))
@@ -3547,7 +3547,7 @@ pub(in crate::app) fn git_review_workspace(
                     this.child(git_review_content_panel(
                         "git-review-branch-code",
                         labels.review_branch.as_str(),
-                        aligned_rows.branch.clone().unwrap_or_default(),
+                        derived_rows.branch.clone().unwrap_or_default(),
                         VirtualListScrollHandle::from(code_scroll_handle.clone()),
                         cx,
                     ))
@@ -3601,7 +3601,7 @@ enum GitReviewLineTone {
 }
 
 #[derive(Clone, Default)]
-pub(in crate::app) struct GitReviewAlignedRows {
+pub(in crate::app) struct GitReviewDerivedRows {
     original: Rc<Vec<GitReviewAlignedCell>>,
     new_file: Rc<Vec<GitReviewAlignedCell>>,
     final_file: Rc<Vec<GitReviewAlignedCell>>,
@@ -3620,7 +3620,7 @@ fn git_review_content_panel(
     title: &str,
     cells: Rc<Vec<GitReviewAlignedCell>>,
     scroll_handle: VirtualListScrollHandle,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<workspace_views::ReviewDiffContentView>,
 ) -> impl IntoElement {
     let item_sizes = Rc::new(vec![size(px(1.0), px(18.0)); cells.len()]);
     let list_cells = cells.clone();
@@ -3669,7 +3669,7 @@ fn git_review_content_panel(
                         cx.entity().clone(),
                         list_id,
                         item_sizes,
-                        move |_app, visible_range: Range<usize>, _window, _cx| {
+                        move |_view, visible_range: Range<usize>, _window, _cx| {
                             visible_range
                                 .filter_map(|index| {
                                     let cell = list_cells.get(index)?;
@@ -3720,14 +3720,14 @@ fn git_review_code_line(cell: GitReviewAlignedCell) -> AnyElement {
         .into_any_element()
 }
 
-pub(in crate::app) fn build_git_review_aligned_rows(
+pub(in crate::app) fn build_git_review_derived_rows(
     original_content: &str,
     new_content: &str,
     final_content: &str,
     branch_content: Option<&str>,
     deleted_lines: &[usize],
     added_lines: &[usize],
-) -> GitReviewAlignedRows {
+) -> GitReviewDerivedRows {
     let original_lines = split_review_lines(original_content);
     let new_lines = split_review_lines(new_content);
     let final_lines = split_review_lines(final_content);
@@ -3797,7 +3797,7 @@ pub(in crate::app) fn build_git_review_aligned_rows(
         }
     }
 
-    GitReviewAlignedRows {
+    GitReviewDerivedRows {
         original: Rc::new(original_cells),
         new_file: Rc::new(new_cells),
         final_file: Rc::new(final_cells),
@@ -3826,12 +3826,13 @@ fn review_cell(
 }
 
 pub(in crate::app) fn git_review_file_list(
+    app_entity: gpui::Entity<CoduxApp>,
     review: &GitReviewSummary,
     selected_path: Option<&str>,
     expanded_dirs: &HashSet<String>,
     refreshing: bool,
     labels: Rc<GitSidebarLabels>,
-    cx: &mut Context<CoduxApp>,
+    cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> impl IntoElement {
     let expanded_dirs = expanded_dirs.clone();
     div()
@@ -3858,8 +3859,13 @@ pub(in crate::app) fn git_review_file_list(
                         .ghost()
                         .loading(refreshing)
                         .icon(Icon::new(HeroIconName::ArrowPath).size_4())
-                        .on_click(cx.listener(|app, _event, _window, cx| {
-                            app.refresh_git_panel_state_async(cx);
+                        .on_click(cx.listener({
+                            let app_entity = app_entity.clone();
+                            move |_view, _event, _window, cx| {
+                                app_entity.update(cx, |app, app_cx| {
+                                    app.refresh_git_panel_state_async(app_cx);
+                                });
+                            }
                         })),
                 ),
         )
@@ -3893,6 +3899,7 @@ pub(in crate::app) fn git_review_file_list(
                     selected_path,
                     &expanded_dirs,
                     labels.clone(),
+                    app_entity.clone(),
                     cx,
                 ))
                 .into_any_element()
@@ -3906,7 +3913,8 @@ fn git_review_directory_rows(
     selected_path: Option<&str>,
     expanded_dirs: &HashSet<String>,
     labels: Rc<GitSidebarLabels>,
-    cx: &mut Context<CoduxApp>,
+    app_entity: gpui::Entity<CoduxApp>,
+    cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> Vec<AnyElement> {
     let (dirs, direct_files) = collect_immediate_git_review_entries(base_path, files);
     let mut rows = Vec::new();
@@ -3916,7 +3924,10 @@ fn git_review_directory_rows(
             return rows;
         }
         let expanded = expanded_dirs.contains(&git_status_tree_key("review", &dir.path));
-        rows.push(git_review_dir_row(&name, &dir, expanded, depth, cx).into_any_element());
+        rows.push(
+            git_review_dir_row(&name, &dir, expanded, depth, app_entity.clone(), cx)
+                .into_any_element(),
+        );
         if expanded {
             rows.extend(git_review_directory_rows(
                 files,
@@ -3925,6 +3936,7 @@ fn git_review_directory_rows(
                 selected_path,
                 expanded_dirs,
                 labels.clone(),
+                app_entity.clone(),
                 cx,
             ));
         }
@@ -3935,7 +3947,9 @@ fn git_review_directory_rows(
             return rows;
         }
         let selected = selected_path == Some(file.path.as_str());
-        rows.push(git_review_file_row(file, selected, depth, cx).into_any_element());
+        rows.push(
+            git_review_file_row(file, selected, depth, app_entity.clone(), cx).into_any_element(),
+        );
     }
     rows
 }
@@ -3962,7 +3976,8 @@ fn git_review_file_row(
     file: GitReviewFile,
     selected: bool,
     depth: usize,
-    cx: &mut Context<CoduxApp>,
+    app_entity: gpui::Entity<CoduxApp>,
+    cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> impl IntoElement {
     let path = file.path.clone();
     let badge = git_review_status_badge(&file.status);
@@ -3986,11 +4001,15 @@ fn git_review_file_row(
             color(theme::TEXT_MUTED)
         })
         .when(selected, |this| this.bg(color(theme::ACCENT).opacity(0.13)))
-        .on_click(cx.listener(move |app, event: &ClickEvent, _window, cx| {
+        .on_click(cx.listener(move |_view, event: &ClickEvent, _window, cx| {
             if event.click_count() >= 2 {
-                app.load_git_file_diff_async(path.clone(), cx);
+                app_entity.update(cx, |app, app_cx| {
+                    app.load_git_file_diff_async(path.clone(), app_cx);
+                });
             } else {
-                app.select_git_file_only(path.clone(), cx);
+                app_entity.update(cx, |app, app_cx| {
+                    app.select_git_file_only(path.clone(), app_cx);
+                });
             }
         }))
         .child(
@@ -4039,7 +4058,8 @@ fn git_review_dir_row(
     dir: &GitReviewDirSummary,
     expanded: bool,
     depth: usize,
-    cx: &mut Context<CoduxApp>,
+    app_entity: gpui::Entity<CoduxApp>,
+    cx: &mut Context<workspace_views::ReviewFileListView>,
 ) -> impl IntoElement {
     let path = dir.path.clone();
     Button::new(format!("review-dir-{path}"))
@@ -4049,8 +4069,10 @@ fn git_review_dir_row(
         .px_2()
         .rounded_sm()
         .text_color(color(theme::TEXT_MUTED))
-        .on_click(cx.listener(move |app, _event, _window, cx| {
-            app.toggle_git_review_dir(path.clone(), cx);
+        .on_click(cx.listener(move |_view, _event, _window, cx| {
+            app_entity.update(cx, |app, app_cx| {
+                app.toggle_git_review_dir(path.clone(), app_cx);
+            });
         }))
         .child(
             div()

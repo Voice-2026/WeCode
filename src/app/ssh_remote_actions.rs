@@ -40,13 +40,13 @@ impl CoduxApp {
         }
         if event.project_revision > self.child_window_project_seen_revision {
             self.child_window_project_seen_revision = event.project_revision;
-            self.state = self.runtime_service.reload_state();
+            let next = self.runtime_service.reload_state();
+            self.apply_project_list_state(next, cx);
             self.project_open_applications = self.runtime_service.project_open_applications();
             self.normalize_selected_git_branch();
             self.normalize_selected_ai_session();
             self.normalize_selected_runtime_session();
             self.normalize_selected_ssh_profile();
-            self.sync_project_list_store(cx);
             self.invalidate_project_management(cx);
             self.invalidate_task_column(cx);
             applied += 1;
@@ -1265,10 +1265,10 @@ impl CoduxApp {
                         || selected_path == Some(state.project_path.as_str()) =>
                 {
                     let is_loading = state.is_loading || state.queued;
-                    if let Some(summary) = ai_history_summary_from_project_state(&state) {
+                    let summary =
+                        ai_history_summary_from_state_or_status(&self.state.ai_history, &state);
+                    if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
-                    } else {
-                        apply_ai_history_project_state(&mut self.state.ai_history, &state);
                     }
                     if is_loading {
                         self.ai_index_progress_visible_until = self
@@ -1287,9 +1287,12 @@ impl CoduxApp {
                 AIHistoryEvent::Project { snapshot }
                     if selected_id == Some(snapshot.project_id.as_str()) =>
                 {
-                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
-                    self.normalize_selected_ai_session();
-                    applied += 1;
+                    let summary = normalized_ai_history_snapshot_to_summary(snapshot);
+                    if ai_history_should_replace(&self.state.ai_history, &summary) {
+                        self.state.ai_history = summary;
+                        self.normalize_selected_ai_session();
+                        applied += 1;
+                    }
                 }
                 AIHistoryEvent::Global { snapshot } => {
                     self.state.ai_global_history =
@@ -1369,7 +1372,7 @@ impl CoduxApp {
                 ProjectActivityEvent::GitChanged { project_path, .. }
                     if selected_path == Some(project_path.as_str()) =>
                 {
-                    self.refresh_file_tree_cache();
+                    self.refresh_file_tree_state();
                     applied += 1;
                 }
                 ProjectActivityEvent::AIHistory {
@@ -1380,10 +1383,13 @@ impl CoduxApp {
                 } if selected_id == Some(project_id.as_str())
                     || selected_path == Some(project_path.as_str()) =>
                 {
-                    self.state.ai_history = normalized_ai_history_snapshot_to_summary(snapshot);
-                    self.normalize_selected_ai_session();
-                    self.save_current_project_view_state();
-                    applied += 1;
+                    let summary = normalized_ai_history_snapshot_to_summary(snapshot);
+                    if ai_history_should_replace(&self.state.ai_history, &summary) {
+                        self.state.ai_history = summary;
+                        self.normalize_selected_ai_session();
+                        self.save_current_project_view_state();
+                        applied += 1;
+                    }
                 }
                 _ => {}
             }
@@ -1408,7 +1414,7 @@ impl CoduxApp {
             .count();
 
         if applied > 0 {
-            self.refresh_file_tree_cache();
+            self.refresh_file_tree_state();
             self.normalize_selected_file_entry();
         }
 

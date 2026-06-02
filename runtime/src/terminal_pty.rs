@@ -254,6 +254,32 @@ impl TerminalManager {
         Ok(id)
     }
 
+    pub fn ensure_session_with_context(
+        &self,
+        config: TerminalPtyConfig,
+        context: Option<&TerminalLaunchContext>,
+    ) -> Result<String> {
+        let requested_id = config
+            .terminal_id
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+        if let Some(session) = requested_id
+            .as_deref()
+            .and_then(|id| self.sessions.lock().get(id).cloned())
+        {
+            return Ok(session.id().to_string());
+        }
+
+        let (session, _writer, reader) = TerminalPtySession::spawn(config, context, None)?;
+        let session = Arc::new(session);
+        let id = session.id().to_string();
+        self.register_ai_runtime_terminal(&session);
+        let event_subscribers = session.event_subscribers.clone();
+        self.sessions.lock().insert(id.clone(), session);
+        spawn_headless_reader(id.clone(), reader, event_subscribers);
+        Ok(id)
+    }
+
     pub fn attach_or_create_with_context(
         &self,
         config: TerminalPtyConfig,
@@ -2081,6 +2107,41 @@ mod tests {
         );
 
         let _ = first_session.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_manager_ensures_session_before_ui_attach() {
+        let manager = TerminalManager::new();
+        let terminal_id = format!("test-prewarm-terminal-{}", Uuid::new_v4());
+        let config = TerminalPtyConfig {
+            terminal_id: Some(terminal_id.clone()),
+            shell: Some("/bin/cat".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            scrollback_lines: Some(100),
+            ..Default::default()
+        };
+
+        let ensured_id = manager
+            .ensure_session_with_context(config.clone(), None)
+            .expect("terminal should prewarm");
+        assert_eq!(ensured_id, terminal_id);
+
+        let emit: EventSink = Arc::new(|_| {});
+        let (session, rx) = manager
+            .attach_or_create_with_context(config, None, emit)
+            .expect("terminal should attach");
+        assert_eq!(session.id(), ensured_id);
+        session
+            .write(b"prewarm-shared-output\n")
+            .expect("write should succeed");
+        assert!(
+            recv_until_contains(&rx, "prewarm-shared-output", Duration::from_secs(2))
+                .contains("prewarm-shared-output")
+        );
+
+        let _ = session.kill();
     }
 
     #[cfg(unix)]

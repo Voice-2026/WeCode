@@ -605,6 +605,7 @@ impl CoduxApp {
         terminal_runtime: TerminalRuntimeSummary,
         cx: &mut Context<Self>,
     ) {
+        let restore_started_at = Instant::now();
         self.terminal_layout_loading = false;
         let owner_id = super::ai_runtime_status::terminal_layout_owner_id(&self.state);
         let (terminal_layout, terminal_runtime) = normalize_terminal_restore_state(
@@ -614,14 +615,35 @@ impl CoduxApp {
         );
         self.state.terminal_layout = terminal_layout;
         self.state.terminal_runtime = terminal_runtime;
+        let plan_started_at = Instant::now();
         let restore_plan = terminal_restore_plan_for_language(
             &self.state.terminal_layout,
             &self.state.terminal_runtime,
             &self.state.settings.language,
         );
+        self.runtime_trace(
+            "terminal-restore",
+            &format!(
+                "plan elapsed_ms={} owner={} tabs={} active_index={}",
+                plan_started_at.elapsed().as_millis(),
+                owner_id.as_deref().unwrap_or("none"),
+                restore_plan.tabs.len(),
+                restore_plan.active_index
+            ),
+        );
+        let artifacts_started_at = Instant::now();
         prepare_memory_launch_artifacts(&self.state);
+        self.runtime_trace(
+            "terminal-restore",
+            &format!(
+                "artifacts elapsed_ms={} owner={}",
+                artifacts_started_at.elapsed().as_millis(),
+                owner_id.as_deref().unwrap_or("none")
+            ),
+        );
         let launch_context = self.current_terminal_launch_context();
         let terminal_config = self.terminal_config_from_settings();
+        let spawn_started_at = Instant::now();
         match spawn_terminal_tabs(
             &restore_plan,
             self.terminal_manager.clone(),
@@ -630,6 +652,7 @@ impl CoduxApp {
             cx,
         ) {
             Ok((terminals, active_terminal_id, next_terminal_index)) => {
+                let tab_count = terminals.len();
                 self.terminals = terminals;
                 self.active_terminal_id = active_terminal_id;
                 self.next_terminal_index = next_terminal_index;
@@ -638,11 +661,36 @@ impl CoduxApp {
                     self.terminals.len(),
                     if self.terminals.len() == 1 { "" } else { "s" }
                 );
+                self.runtime_trace(
+                    "terminal-restore",
+                    &format!(
+                        "spawn_tabs elapsed_ms={} owner={} tabs={}",
+                        spawn_started_at.elapsed().as_millis(),
+                        owner_id.as_deref().unwrap_or("none"),
+                        tab_count
+                    ),
+                );
             }
             Err(error) => {
                 self.status_message = format!("failed to rebuild terminal layout: {error}");
+                self.runtime_trace(
+                    "terminal-restore",
+                    &format!(
+                        "spawn_tabs failed elapsed_ms={} owner={} error={error}",
+                        spawn_started_at.elapsed().as_millis(),
+                        owner_id.as_deref().unwrap_or("none")
+                    ),
+                );
             }
         }
+        self.runtime_trace(
+            "terminal-restore",
+            &format!(
+                "total elapsed_ms={} owner={}",
+                restore_started_at.elapsed().as_millis(),
+                owner_id.as_deref().unwrap_or("none")
+            ),
+        );
         self.invalidate_terminal_workspace(cx);
     }
 

@@ -92,7 +92,7 @@ pub struct CoduxApp {
     pub(in crate::app) git_diff_window_content: String,
     pub(in crate::app) git_diff_window_error: Option<String>,
     pub(in crate::app) git_review_content: Option<GitReviewContentSummary>,
-    pub(in crate::app) git_review_aligned_rows: Option<super::sidebars::GitReviewAlignedRows>,
+    pub(in crate::app) git_review_derived_rows: Option<super::sidebars::GitReviewDerivedRows>,
     pub(in crate::app) git_review_refreshing: bool,
     pub(in crate::app) git_clone_remote_url: String,
     pub(in crate::app) git_remote_editor_open: bool,
@@ -263,7 +263,7 @@ pub(in crate::app) struct GitOperationCompletion {
     pub(in crate::app) failure_prefix: String,
     pub(in crate::app) clear_commit_message: bool,
     pub(in crate::app) clear_git_diff_preview: bool,
-    pub(in crate::app) clear_git_tree_cache: bool,
+    pub(in crate::app) clear_git_tree_state: bool,
     pub(in crate::app) clear_remote_url: bool,
     pub(in crate::app) reload_state: bool,
     pub(in crate::app) refresh_review: bool,
@@ -739,7 +739,11 @@ pub(in crate::app) fn worktree_summary_has_git_counts(summary: &WorktreeSummary)
     })
 }
 
-pub(in crate::app) fn prewarm_terminal_restore(state: &RuntimeState, runtime: &RuntimeInventory) {
+pub(in crate::app) fn prewarm_terminal_restore(
+    state: &RuntimeState,
+    runtime: &RuntimeInventory,
+    terminal_manager: Option<&Arc<TerminalManager>>,
+) {
     prepare_memory_launch_artifacts(state);
     let (terminal_layout, terminal_runtime) = normalize_terminal_restore_state(
         super::ai_runtime_status::terminal_layout_owner_id(state).as_deref(),
@@ -789,6 +793,37 @@ pub(in crate::app) fn prewarm_terminal_restore(state: &RuntimeState, runtime: &R
                 &config,
                 pane_context.as_ref(),
             );
+            if let Some(terminal_manager) = terminal_manager {
+                let started_at = Instant::now();
+                let terminal_id = config
+                    .terminal_id
+                    .as_deref()
+                    .or_else(|| {
+                        pane_context
+                            .as_ref()
+                            .and_then(|context| context.terminal_id.as_deref())
+                    })
+                    .unwrap_or("none")
+                    .to_string();
+                match terminal_manager.ensure_session_with_context(config, pane_context.as_ref()) {
+                    Ok(_) => codux_runtime::runtime_trace::runtime_trace(
+                        "terminal-restore",
+                        &format!(
+                            "prewarm_attach elapsed_ms={} terminal_id={}",
+                            started_at.elapsed().as_millis(),
+                            terminal_id
+                        ),
+                    ),
+                    Err(error) => codux_runtime::runtime_trace::runtime_trace(
+                        "terminal-restore",
+                        &format!(
+                            "prewarm_attach failed elapsed_ms={} terminal_id={} error={error}",
+                            started_at.elapsed().as_millis(),
+                            terminal_id
+                        ),
+                    ),
+                }
+            }
         }
     }
 }
@@ -800,7 +835,7 @@ impl Default for GitOperationCompletion {
             failure_prefix: "Git operation failed".to_string(),
             clear_commit_message: false,
             clear_git_diff_preview: false,
-            clear_git_tree_cache: false,
+            clear_git_tree_state: false,
             clear_remote_url: false,
             reload_state: false,
             refresh_review: false,

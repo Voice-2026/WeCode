@@ -29,7 +29,7 @@ use std::{
     io::Write,
     ops::Range,
     sync::{Arc, mpsc},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 pub use codux_runtime::terminal_pty::TerminalLaunchContext;
@@ -68,10 +68,21 @@ impl TerminalPane {
             }
             TerminalEvent::Output { .. } => {}
         });
+        let terminal_id = config.terminal_id.clone();
+        let attach_started_at = Instant::now();
         let (session, output_rx) =
             terminal_manager.attach_or_create_with_context(config, context, emit)?;
+        codux_runtime::runtime_trace::runtime_trace(
+            "terminal-restore",
+            &format!(
+                "pty_attach elapsed_ms={} terminal_id={}",
+                attach_started_at.elapsed().as_millis(),
+                terminal_id.as_deref().unwrap_or("none")
+            ),
+        );
         let resize_handle = session.clone_handle();
         let writer = TerminalSessionWriter::new(session.clone());
+        let view_started_at = Instant::now();
         let view = cx.new(|cx| {
             TerminalView::new(
                 writer,
@@ -82,6 +93,14 @@ impl TerminalPane {
                 cx,
             )
         });
+        codux_runtime::runtime_trace::runtime_trace(
+            "terminal-restore",
+            &format!(
+                "view_create elapsed_ms={} terminal_id={}",
+                view_started_at.elapsed().as_millis(),
+                terminal_id.as_deref().unwrap_or("none")
+            ),
+        );
 
         Ok(Self { view, session })
     }

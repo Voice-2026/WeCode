@@ -59,6 +59,12 @@ impl CoduxApp {
                             view.update(cx, |_view, cx| cx.notify());
                         }
                     }
+                } else if self.workspace_view == WorkspaceView::Review {
+                    if !self.update_review_workspace_view(cx) {
+                        if let Some(view) = &self.workspace_body_view {
+                            view.update(cx, |_view, cx| cx.notify());
+                        }
+                    }
                 } else if let Some(view) = &self.workspace_body_view {
                     view.update(cx, |_view, cx| cx.notify());
                 }
@@ -278,8 +284,8 @@ impl CoduxApp {
         );
     }
 
-    pub(in crate::app) fn record_ui_cache_clear(&mut self, cache: &'static str) {
-        self.record_ui_performance_event("cache_clear", cache);
+    pub(in crate::app) fn record_ui_state_clear(&mut self, state: &'static str) {
+        self.record_ui_performance_event("state_clear", state);
     }
 
     pub(in crate::app) fn record_ui_performance_dynamic_event(&mut self, kind: &str, name: &str) {

@@ -99,6 +99,7 @@ pub(in crate::app) struct WorkspaceBodyView {
     pub(in crate::app) terminal_workspace_view: Option<gpui::Entity<TerminalWorkspaceView>>,
     pub(in crate::app) file_editor_workspace_view:
         Option<gpui::Entity<file_editor::FileEditorWorkspaceView>>,
+    pub(in crate::app) review_workspace_view: Option<gpui::Entity<ReviewWorkspaceView>>,
 }
 
 impl WorkspaceBodyView {
@@ -107,6 +108,7 @@ impl WorkspaceBodyView {
             app_entity,
             terminal_workspace_view: None,
             file_editor_workspace_view: None,
+            review_workspace_view: None,
         }
     }
 }
@@ -138,10 +140,167 @@ impl Render for WorkspaceBodyView {
                     view
                 };
                 gpui::AnyView::from(file_editor_view).into_any_element()
+            } else if app.workspace_view == WorkspaceView::Review {
+                let snapshot = app.review_workspace_snapshot();
+                let review_view = if let Some(view) = &self.review_workspace_view {
+                    view.clone()
+                } else {
+                    let view =
+                        app_cx.new(|_| ReviewWorkspaceView::new(app_entity.clone(), snapshot));
+                    self.review_workspace_view = Some(view.clone());
+                    view
+                };
+                gpui::AnyView::from(review_view).into_any_element()
             } else {
                 app.workspace_body(window, app_cx).into_any_element()
             }
         })
+    }
+}
+
+pub(in crate::app) struct ReviewWorkspaceView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: super::workspace_review::ReviewWorkspaceSnapshot,
+    file_list_view: Option<gpui::Entity<ReviewFileListView>>,
+    diff_content_view: Option<gpui::Entity<ReviewDiffContentView>>,
+}
+
+impl ReviewWorkspaceView {
+    fn new(
+        app_entity: gpui::Entity<CoduxApp>,
+        snapshot: super::workspace_review::ReviewWorkspaceSnapshot,
+    ) -> Self {
+        Self {
+            app_entity,
+            snapshot,
+            file_list_view: None,
+            diff_content_view: None,
+        }
+    }
+
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: super::workspace_review::ReviewWorkspaceSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for ReviewWorkspaceView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.clone();
+        let file_list_snapshot = snapshot.file_list_snapshot();
+        let diff_content_snapshot = snapshot.diff_content_snapshot();
+        let file_list_view = self.review_file_list_view(file_list_snapshot, cx);
+        let diff_content_view = self.review_diff_content_view(diff_content_snapshot, cx);
+        super::workspace_review::review_workspace_body(
+            snapshot,
+            file_list_view,
+            diff_content_view,
+            cx,
+        )
+        .into_any_element()
+    }
+}
+
+impl ReviewWorkspaceView {
+    fn review_file_list_view(
+        &mut self,
+        snapshot: super::workspace_review::ReviewFileListSnapshot,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<ReviewFileListView> {
+        if let Some(view) = &self.file_list_view {
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+            return view.clone();
+        }
+        let view = cx.new(|_| ReviewFileListView::new(self.app_entity.clone(), snapshot));
+        self.file_list_view = Some(view.clone());
+        view
+    }
+
+    fn review_diff_content_view(
+        &mut self,
+        snapshot: super::workspace_review::ReviewDiffContentSnapshot,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<ReviewDiffContentView> {
+        if let Some(view) = &self.diff_content_view {
+            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+            return view.clone();
+        }
+        let view = cx.new(|_| ReviewDiffContentView::new(snapshot));
+        self.diff_content_view = Some(view.clone());
+        view
+    }
+}
+
+pub(in crate::app) struct ReviewFileListView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: super::workspace_review::ReviewFileListSnapshot,
+}
+
+impl ReviewFileListView {
+    fn new(
+        app_entity: gpui::Entity<CoduxApp>,
+        snapshot: super::workspace_review::ReviewFileListSnapshot,
+    ) -> Self {
+        Self {
+            app_entity,
+            snapshot,
+        }
+    }
+
+    fn set_snapshot(
+        &mut self,
+        snapshot: super::workspace_review::ReviewFileListSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for ReviewFileListView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.clone();
+        super::workspace_review::review_file_list(self.app_entity.clone(), snapshot, cx)
+            .into_any_element()
+    }
+}
+
+pub(in crate::app) struct ReviewDiffContentView {
+    snapshot: super::workspace_review::ReviewDiffContentSnapshot,
+}
+
+impl ReviewDiffContentView {
+    fn new(snapshot: super::workspace_review::ReviewDiffContentSnapshot) -> Self {
+        Self { snapshot }
+    }
+
+    fn set_snapshot(
+        &mut self,
+        snapshot: super::workspace_review::ReviewDiffContentSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for ReviewDiffContentView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.clone();
+        super::workspace_review::review_diff_content(snapshot, cx).into_any_element()
     }
 }
 
@@ -335,7 +494,7 @@ fn workspace_toolbar_fingerprint(app: &CoduxApp) -> u64 {
     ))
 }
 
-fn workspace_view_hash<T: std::hash::Hash + ?Sized>(value: &T) -> u64 {
+pub(in crate::app) fn workspace_view_hash<T: std::hash::Hash + ?Sized>(value: &T) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     std::hash::Hash::hash(value, &mut hasher);
     std::hash::Hasher::finish(&hasher)
@@ -534,6 +693,19 @@ impl CoduxApp {
             return false;
         };
         let snapshot = self.file_editor_workspace_snapshot();
+        view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+        true
+    }
+
+    pub(in crate::app) fn update_review_workspace_view(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(view) = self
+            .workspace_body_view
+            .as_ref()
+            .and_then(|view| view.read(cx).review_workspace_view.clone())
+        else {
+            return false;
+        };
+        let snapshot = self.review_workspace_snapshot();
         view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
         true
     }

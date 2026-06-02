@@ -121,10 +121,10 @@ impl CoduxApp {
         self.invalidate_status_bar(cx);
     }
 
-    pub(super) fn reset_file_tree_cache(&mut self) {
+    pub(super) fn reset_file_tree_state(&mut self) {
         self.file_tree_expanded_dirs.clear();
         self.file_tree_children.clear();
-        self.record_ui_cache_clear("file_tree");
+        self.record_ui_state_clear("file_tree");
     }
 
     pub(super) fn file_tree_entry(&self, path: &str) -> Option<FileEntry> {
@@ -182,9 +182,9 @@ impl CoduxApp {
             .insert(directory_path.to_string(), children);
     }
 
-    pub(super) fn refresh_file_tree_cache(&mut self) {
+    pub(super) fn refresh_file_tree_state(&mut self) {
         let Some(project_path) = self.selected_worktree_path() else {
-            self.reset_file_tree_cache();
+            self.reset_file_tree_state();
             return;
         };
         self.state.files = self
@@ -196,7 +196,7 @@ impl CoduxApp {
             .cloned()
             .collect::<Vec<_>>();
         self.file_tree_children.clear();
-        self.record_ui_cache_clear("file_tree_children");
+        self.record_ui_state_clear("file_tree_children");
         for directory_path in expanded {
             let children = self
                 .runtime_service
@@ -529,7 +529,7 @@ impl CoduxApp {
         if let Some(files) = latest_files {
             self.state.files = files;
         }
-        self.refresh_file_tree_cache();
+        self.refresh_file_tree_state();
         if moved.len() == 1 {
             self.set_single_file_selection(moved[0].clone());
         } else {
@@ -920,7 +920,7 @@ impl CoduxApp {
             Ok(files) => {
                 let relative_path = join_relative_child_path(&self.file_directory, &name);
                 self.state.files = files;
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 self.set_single_file_selection(relative_path.clone());
                 self.file_preview = if directory {
                     "directory created".to_string()
@@ -1057,7 +1057,7 @@ impl CoduxApp {
         if let Some(files) = latest_files {
             self.state.files = files;
         }
-        self.refresh_file_tree_cache();
+        self.refresh_file_tree_state();
         self.clear_file_selection();
         self.file_preview = "select a file to preview it".to_string();
         self.file_editable = false;
@@ -1117,7 +1117,7 @@ impl CoduxApp {
                     &project_path,
                     file_directory_option(&self.file_directory),
                 );
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 self.set_single_file_selection(entry_path.clone());
                 self.state.git = self.runtime_service.reload_project_git(&project_path);
                 self.normalize_selected_git_file();
@@ -1242,7 +1242,7 @@ impl CoduxApp {
                 if was_expanded {
                     self.file_tree_expanded_dirs.insert(renamed_path.clone());
                 }
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 self.set_single_file_selection(renamed_path.clone());
                 if matches!(entry.kind, FileKind::File) {
                     match self
@@ -1367,7 +1367,7 @@ impl CoduxApp {
         ) {
             Ok((files, selected)) => {
                 self.state.files = files;
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 if let Some(path) = selected.clone() {
                     self.set_single_file_selection(path.clone());
                     match self
@@ -1425,7 +1425,7 @@ impl CoduxApp {
         ) {
             Ok((files, copied_path)) => {
                 self.state.files = files;
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 self.set_single_file_selection(copied_path.clone());
                 if matches!(entry.kind, FileKind::File) {
                     match self
@@ -1512,7 +1512,7 @@ impl CoduxApp {
         ) {
             Ok((files, selected)) => {
                 self.state.files = files;
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 self.selected_file_entry = selected.clone();
                 if let Some(path) = selected {
                     match self
@@ -1575,7 +1575,7 @@ impl CoduxApp {
         ) {
             Ok((files, selected)) => {
                 self.state.files = files;
-                self.refresh_file_tree_cache();
+                self.refresh_file_tree_state();
                 if let Some(path) = selected.clone() {
                     self.set_single_file_selection(path.clone());
                     match self

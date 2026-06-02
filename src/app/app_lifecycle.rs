@@ -231,7 +231,7 @@ impl CoduxApp {
             git_diff_window_content: String::new(),
             git_diff_window_error: None,
             git_review_content: None,
-            git_review_aligned_rows: None,
+            git_review_derived_rows: None,
             git_review_refreshing: false,
             git_clone_remote_url: String::new(),
             git_remote_editor_open: false,

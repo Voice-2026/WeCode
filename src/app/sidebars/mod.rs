@@ -16,8 +16,8 @@ pub(in crate::app) use files::{
     current_directory_suffix, file_directory_option, parent_relative_directory,
 };
 pub(in crate::app) use git::{
-    GitFilesPanelView, GitHistoryPanelView, GitReviewAlignedRows, GitSidebarLabels,
-    build_git_review_aligned_rows, git_clone_window_workspace, git_credentials_window_workspace,
+    GitFilesPanelView, GitHistoryPanelView, GitReviewDerivedRows, GitSidebarLabels,
+    build_git_review_derived_rows, git_clone_window_workspace, git_credentials_window_workspace,
     git_diff_window_workspace, git_review_file_list, git_review_workspace,
 };
 
