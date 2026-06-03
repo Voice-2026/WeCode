@@ -1590,6 +1590,7 @@ struct TerminalCursorPaint {
     point: TerminalPoint,
     shape: CursorShape,
     color: Hsla,
+    width_cols: usize,
     text_run: Option<TerminalTextRun>,
 }
 
@@ -1634,7 +1635,11 @@ impl TerminalCursorPaint {
                 y: px(f32::from(y).floor()),
             },
             size: Size {
-                width: px(f32::from(renderer.cell_width).round().max(1.0)),
+                width: px(
+                    (f32::from(renderer.cell_width) * self.width_cols.max(1) as f32)
+                        .round()
+                        .max(1.0),
+                ),
                 height: px(f32::from(renderer.cell_height).round().max(1.0)),
             },
         };
@@ -2673,6 +2678,9 @@ impl TerminalRenderer {
                 let col = content.cursor.point.column.0;
                 if row >= 0 && (row as usize) < content.screen_lines && col < content.columns {
                     let cursor_cell = rows[row as usize][col];
+                    let width_cols = cursor_cell
+                        .filter(|cell| cell.flags.contains(Flags::WIDE_CHAR))
+                        .map_or(1, |_| 2);
                     let text_run = cursor_cell
                         .filter(|cell| {
                             content.cursor.shape == CursorShape::Block
@@ -2718,6 +2726,7 @@ impl TerminalRenderer {
                         color: self
                             .palette
                             .resolve(Color::Named(NamedColor::Cursor), colors),
+                        width_cols,
                         text_run,
                     }
                 } else {
@@ -2727,17 +2736,28 @@ impl TerminalRenderer {
                         color: self
                             .palette
                             .resolve(Color::Named(NamedColor::Cursor), colors),
+                        width_cols: 1,
                         text_run: None,
                     }
                 }
             });
         let ime_cursor_bounds = (content.display_offset == 0).then(|| {
+            let width_cols = if content.cursor.point.line.0 >= 0
+                && (content.cursor.point.line.0 as usize) < content.screen_lines
+                && content.cursor.point.column.0 < content.columns
+            {
+                rows[content.cursor.point.line.0 as usize][content.cursor.point.column.0]
+                    .filter(|cell| cell.flags.contains(Flags::WIDE_CHAR))
+                    .map_or(1, |_| 2)
+            } else {
+                1
+            };
             let x = origin.x + self.cell_width * content.cursor.point.column.0 as f32;
             let y = origin.y + self.cell_height * content.cursor.point.line.0 as f32;
             Bounds {
                 origin: Point { x, y },
                 size: Size {
-                    width: self.cell_width,
+                    width: self.cell_width * width_cols as f32,
                     height: self.cell_height,
                 },
             }
