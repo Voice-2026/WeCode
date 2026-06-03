@@ -469,7 +469,6 @@ PY
       rm -f -- "${opencode_state_path}"
     fi
   fi
-  debug_log_line "process exit tool=${DMUX_ACTIVE_AI_TOOL:-$tool_name} session=${DMUX_SESSION_ID:-nil} code=${exit_code} externalSession=${external_session_id:-nil}"
   return "${exit_code}"
 }
 
@@ -584,7 +583,6 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
     else
       claude_external_session_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
       write_claude_session_map "${claude_external_session_id}"
-      debug_log_line "launch claude session=${DMUX_SESSION_ID} externalSession=${claude_external_session_id}"
       run_wrapped_command "${claude_external_session_id}" "${launch_model}" "" env PATH="$claude_launch_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --session-id "${claude_external_session_id}" "${launch_args[@]}"
       exit $?
     fi
@@ -613,7 +611,6 @@ if [[ "$tool_name" == "codex" ]]; then
     apply_codex_memory_workspace_args
     apply_codex_memory_developer_instructions
     launch_model="$(extract_model_target "${launch_args[@]}" || true)"
-    debug_log_line "launch codex managed session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-} binary=${real_bin} hooks=hooks"
     run_wrapped_command "" "${launch_model}" "" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable hooks "${launch_args[@]}"
     exit $?
   fi
@@ -633,7 +630,6 @@ if [[ "$tool_name" == "gemini" || "$tool_name" == "agy" ]]; then
   launch_model="$(extract_model_target "${launch_args[@]}" || true)"
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-  debug_log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil}"
   run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
@@ -650,7 +646,6 @@ if [[ "$tool_name" == "opencode" ]]; then
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
   opencode_config_dir="${wrapper_dir}/opencode-config"
-  debug_log_line "launch managed tool=${tool_name} session=${DMUX_SESSION_ID:-nil} project=${DMUX_PROJECT_ID:-nil} binary=${real_bin} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil} resume=${resume_target:-nil} configDir=${opencode_config_dir}"
   run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$search_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi

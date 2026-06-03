@@ -33,8 +33,29 @@ fn ensure_native_notification_application() {
 
     static INIT: Once = Once::new();
     INIT.call_once(|| {
-        let _ = notify_rust::set_application("com.duxweb.codux");
+        let identifier = native_notification_application_identifier();
+        match notify_rust::set_application(&identifier) {
+            Ok(()) => crate::runtime_trace::runtime_trace(
+                "notification",
+                &format!("native notification application={identifier}"),
+            ),
+            Err(error) => crate::runtime_trace::runtime_trace(
+                "notification",
+                &format!("native notification application failed id={identifier} error={error}"),
+            ),
+        }
     });
+}
+
+#[cfg(target_os = "macos")]
+fn native_notification_application_identifier() -> String {
+    if cfg!(debug_assertions) {
+        let installed = notify_rust::get_bundle_identifier_or_default("Codux");
+        if installed != "com.apple.Finder" {
+            return installed;
+        }
+    }
+    "com.duxweb.codux".to_string()
 }
 
 #[cfg(not(target_os = "macos"))]
