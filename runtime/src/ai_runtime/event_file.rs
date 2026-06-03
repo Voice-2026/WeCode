@@ -6,11 +6,14 @@ pub fn drain_runtime_event_dir(dir: &Path, now: f64) -> Vec<Vec<u8>> {
         return Vec::new();
     };
     let mut frames = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
+    let mut paths = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+        .collect::<Vec<_>>();
+    paths.sort_by(|left, right| file_name(left).cmp(&file_name(right)));
+
+    for path in paths {
         let age = fs::metadata(&path)
             .ok()
             .and_then(|metadata| metadata.modified().ok())
@@ -44,6 +47,12 @@ pub fn drain_runtime_event_dir(dir: &Path, now: f64) -> Vec<Vec<u8>> {
     frames
 }
 
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,6 +70,25 @@ mod tests {
         assert_eq!(frames, vec![br#"{"kind":"ai-hook"}"#.to_vec()]);
         assert!(!dir.join("one.json").exists());
         assert!(dir.join("skip.tmp").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn drains_runtime_event_files_in_file_name_order() {
+        let dir = std::env::temp_dir().join(format!("codux-event-order-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("200-turn.json"), br#"{"kind":"turnCompleted"}"#).unwrap();
+        fs::write(dir.join("100-prompt.json"), br#"{"kind":"promptSubmitted"}"#).unwrap();
+
+        let frames = drain_runtime_event_dir(&dir, now_seconds());
+
+        assert_eq!(
+            frames,
+            vec![
+                br#"{"kind":"promptSubmitted"}"#.to_vec(),
+                br#"{"kind":"turnCompleted"}"#.to_vec()
+            ]
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

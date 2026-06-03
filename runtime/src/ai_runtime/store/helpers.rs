@@ -40,6 +40,9 @@ pub(super) fn bridge_terminal_session(
     terminal: &AIRuntimeTerminalState,
     now: f64,
 ) -> Option<AISessionSnapshot> {
+    if !terminal.is_active {
+        return None;
+    }
     let tool = canonical_tool_name(terminal.tool.as_deref()?)?;
     if !matches!(
         tool.as_str(),
@@ -47,6 +50,7 @@ pub(super) fn bridge_terminal_session(
     ) {
         return None;
     }
+    let session_key = normalized_string(terminal.session_key.as_deref())?;
     let project_id = normalized_string(Some(terminal.project_id.as_str()))?;
     let terminal_id = normalized_string(Some(terminal.terminal_id.as_str()))?;
     Some(AISessionSnapshot {
@@ -58,7 +62,7 @@ pub(super) fn bridge_terminal_session(
         session_title: normalized_string(Some(terminal.title.as_str()))
             .unwrap_or_else(|| "Terminal".to_string()),
         tool,
-        ai_session_id: normalized_string(terminal.session_key.as_deref()),
+        ai_session_id: Some(session_key),
         model: None,
         state: "responding".to_string(),
         status: "running".to_string(),

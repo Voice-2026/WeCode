@@ -7,7 +7,7 @@ use super::{
 };
 use crate::runtime_paths::{
     claude_session_map_dir_in, home_dir, opencode_session_map_dir_in, runtime_event_dir_in,
-    runtime_socket_path_in, runtime_temp_dir,
+    runtime_temp_dir,
 };
 use serde::Serialize;
 use std::{
@@ -23,7 +23,7 @@ use std::{
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIRuntimeBridgeSnapshot {
-    pub socket_path: String,
+    pub runtime_event_dir: String,
     pub wrapper_bin_path: String,
     pub managed_hook_script_path: String,
     pub hook_config: AIRuntimeHookConfigStatus,
@@ -53,7 +53,6 @@ pub struct AIRuntimeBridge {
     wrapper_bin_dir: PathBuf,
     managed_hook_script: PathBuf,
     runtime_event_dir: PathBuf,
-    socket_path: PathBuf,
     temp_dir: PathBuf,
     home_dir: PathBuf,
     registry: Arc<AIRuntimeRegistry>,
@@ -78,7 +77,6 @@ impl AIRuntimeBridge {
             wrapper_bin_dir,
             managed_hook_script,
             runtime_event_dir: runtime_event_dir_in(&temp_dir),
-            socket_path: runtime_socket_path_in(&temp_dir),
             temp_dir,
             home_dir,
             registry: AIRuntimeRegistry::shared(),
@@ -243,10 +241,6 @@ impl AIRuntimeBridge {
         Ok(())
     }
 
-    pub fn socket_path(&self) -> &Path {
-        &self.socket_path
-    }
-
     pub fn wrapper_bin_dir(&self) -> &Path {
         &self.wrapper_bin_dir
     }
@@ -283,7 +277,7 @@ impl AIRuntimeBridge {
 
     pub fn snapshot(&self) -> AIRuntimeBridgeSnapshot {
         AIRuntimeBridgeSnapshot {
-            socket_path: self.socket_path.display().to_string(),
+            runtime_event_dir: self.runtime_event_dir.display().to_string(),
             wrapper_bin_path: self.wrapper_bin_dir.display().to_string(),
             managed_hook_script_path: self.managed_hook_script.display().to_string(),
             hook_config: hook_config_status(

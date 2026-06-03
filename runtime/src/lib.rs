@@ -35,7 +35,6 @@ pub mod runtime_activity;
 pub mod runtime_cache;
 pub mod runtime_bridge;
 pub mod runtime_event;
-pub mod runtime_ingress;
 pub mod runtime_paths;
 pub mod runtime_state;
 pub mod runtime_trace;

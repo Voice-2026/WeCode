@@ -24,8 +24,6 @@ impl CoduxApp {
         );
         let runtime = RuntimeInventory::load();
         let runtime_service = RuntimeService::new(state.support_dir.clone());
-        let runtime_ingress = RuntimeIngressService::new()
-            .start_background_with_ai_runtime(runtime_service.ai_runtime_bridge());
         let _ = runtime_service.recover_interrupted_memory_extraction_queue();
         let _ = runtime_service.clear_memory_extraction_failures();
         let power_sync_error = runtime_service.start_power_settings_sync().err();
@@ -154,7 +152,6 @@ impl CoduxApp {
             active_terminal_id,
             next_terminal_index,
             runtime,
-            runtime_ingress,
             state,
             runtime_service,
             is_exiting: false,

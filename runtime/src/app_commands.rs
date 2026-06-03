@@ -1896,7 +1896,7 @@ mod tests {
 
         let snapshot = ai_runtime_snapshot(&service);
         assert!(snapshot.terminals.is_empty());
-        assert!(!snapshot.socket_path.is_empty());
+        assert!(!snapshot.runtime_event_dir.is_empty());
 
         let runtime_state = ai_runtime_state_snapshot(&service);
         assert!(runtime_state.sessions.is_empty());

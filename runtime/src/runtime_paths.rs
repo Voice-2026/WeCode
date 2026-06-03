@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 pub const RUNTIME_ROOT_DIR_NAME: &str = "runtime-root";
 pub const RUNTIME_EVENT_DIR_NAME: &str = "runtime-events";
-pub const RUNTIME_SOCKET_FILE_NAME: &str = "runtime-events.sock";
 pub const RUNTIME_SUPPORT_DIR_NAME: &str = "runtime-support";
 pub const RUNTIME_LOG_FILE_NAME: &str = "runtime-rust.log";
 pub const LIVE_LOG_FILE_NAME: &str = "live-rust.log";
@@ -37,10 +36,6 @@ pub fn runtime_event_dir() -> PathBuf {
     runtime_event_dir_in(&runtime_temp_dir())
 }
 
-pub fn runtime_socket_path() -> PathBuf {
-    runtime_socket_path_in(&runtime_temp_dir())
-}
-
 pub fn runtime_log_preview_path() -> PathBuf {
     runtime_log_preview_path_in(&runtime_temp_dir())
 }
@@ -71,10 +66,6 @@ pub fn runtime_root_dir_in(runtime_temp_dir: &Path) -> PathBuf {
 
 pub fn runtime_event_dir_in(runtime_temp_dir: &Path) -> PathBuf {
     runtime_temp_dir.join(RUNTIME_EVENT_DIR_NAME)
-}
-
-pub fn runtime_socket_path_in(runtime_temp_dir: &Path) -> PathBuf {
-    runtime_temp_dir.join(RUNTIME_SOCKET_FILE_NAME)
 }
 
 pub fn runtime_log_preview_path_in(runtime_temp_dir: &Path) -> PathBuf {

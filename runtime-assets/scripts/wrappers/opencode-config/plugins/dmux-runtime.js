@@ -1,7 +1,5 @@
 import fs from "node:fs"
-import { spawnSync } from "node:child_process"
 
-const socketPath = process.env.DMUX_RUNTIME_SOCKET ?? ""
 const runtimeEventDir = process.env.DMUX_RUNTIME_EVENT_DIR ?? ""
 const logFile = process.env.DMUX_LOG_FILE ?? ""
 const opencodeSessionMapDir = process.env.DMUX_OPENCODE_SESSION_MAP_DIR ?? ""
@@ -61,62 +59,18 @@ function clearSessionMap(sessionID) {
 }
 
 function sendRuntimePayload(payload) {
-  if (runtimeEventDir) {
-    writeRuntimeEventFile({ kind: "opencode-runtime", payload })
-    return
-  }
-  if (!socketPath) return
-  const message = JSON.stringify({ kind: "opencode-runtime", payload })
-  const result = spawnSync("/usr/bin/nc", ["-U", "-w", "1", socketPath], {
-    input: `${message}\n`,
-    encoding: "utf8",
-    stdio: ["pipe", "ignore", "pipe"],
-    timeout: 1000,
-  })
-  if (result.error) {
-    log("socket-error", { message: result.error.message, socketPath })
-    return
-  }
-  if (result.status === 0) {
-    return
-  }
-  log("socket-close-error", {
-    code: result.status,
-    stderr: result.stderr?.trim() || null,
-    signal: result.signal ?? null,
-    socketPath,
-  })
+  writeRuntimeEventFile({ kind: "opencode-runtime", payload })
 }
 
 function sendAIHookPayload(payload) {
-  if (runtimeEventDir) {
-    writeRuntimeEventFile({ kind: "ai-hook", payload })
-    return
-  }
-  if (!socketPath) return
-  const message = JSON.stringify({ kind: "ai-hook", payload })
-  const result = spawnSync("/usr/bin/nc", ["-U", "-w", "1", socketPath], {
-    input: `${message}\n`,
-    encoding: "utf8",
-    stdio: ["pipe", "ignore", "pipe"],
-    timeout: 1000,
-  })
-  if (result.error) {
-    log("ai-hook-socket-error", { message: result.error.message, socketPath })
-    return
-  }
-  if (result.status === 0) {
-    return
-  }
-  log("ai-hook-socket-close-error", {
-    code: result.status,
-    stderr: result.stderr?.trim() || null,
-    signal: result.signal ?? null,
-    socketPath,
-  })
+  writeRuntimeEventFile({ kind: "ai-hook", payload })
 }
 
 function writeRuntimeEventFile(envelope) {
+  if (!runtimeEventDir) {
+    log("event-file-skip", { reason: "no-runtime-event-dir" })
+    return
+  }
   try {
     fs.mkdirSync(runtimeEventDir, { recursive: true })
     const file = `${Date.now()}-${Math.random().toString(16).slice(2)}.json`
@@ -295,14 +249,14 @@ export const DmuxRuntimePlugin = async ({ client }) => {
       level: "info",
       message: "Plugin initialized",
       extra: {
-        hasSocket: Boolean(socketPath),
+        hasEventDir: Boolean(runtimeEventDir),
         hasSession: Boolean(process.env.DMUX_SESSION_ID),
       },
     },
   })
 
   log("initialized", {
-    hasSocket: Boolean(socketPath),
+    hasEventDir: Boolean(runtimeEventDir),
     sessionID: process.env.DMUX_SESSION_ID ?? null,
     externalSessionID: currentSessionID,
   })

@@ -30,7 +30,6 @@ pub struct CoduxApp {
     pub(in crate::app) active_terminal_id: usize,
     pub(in crate::app) next_terminal_index: usize,
     pub(in crate::app) runtime: RuntimeInventory,
-    pub(in crate::app) runtime_ingress: RuntimeIngressStatus,
     pub(in crate::app) state: RuntimeState,
     pub(in crate::app) runtime_service: RuntimeService,
     pub(in crate::app) is_exiting: bool,

@@ -122,7 +122,6 @@ impl CoduxApp {
             active_terminal_id: 0,
             next_terminal_index: 1,
             runtime,
-            runtime_ingress: RuntimeIngressStatus::default(),
             state,
             runtime_service,
             is_exiting: false,

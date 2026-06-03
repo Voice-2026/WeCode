@@ -499,18 +499,20 @@ write_claude_session_map() {
 
 send_runtime_event() {
   local payload="$1"
-  [[ -n "${DMUX_RUNTIME_SOCKET:-}" ]] || {
-    log_line "hook skip action=${action} tool=${tool_name} reason=no-runtime-socket"
+  [[ -n "${DMUX_RUNTIME_EVENT_DIR:-}" ]] || {
+    log_line "hook skip action=${action} tool=${tool_name} reason=no-runtime-event-dir"
     return 0
   }
-  command -v /usr/bin/nc >/dev/null 2>&1 || {
-    log_line "hook skip action=${action} tool=${tool_name} reason=no-nc"
-    return 0
-  }
-  if print -r -- "${payload}" | /usr/bin/nc -U -w 1 "${DMUX_RUNTIME_SOCKET}" >/dev/null 2>&1; then
-    debug_log_line "hook sent action=${action} tool=${tool_name} socket=${DMUX_RUNTIME_SOCKET}"
+  /bin/mkdir -p -- "${DMUX_RUNTIME_EVENT_DIR}"
+  local name
+  name="$(printf '%s-%s.json' "$(/bin/date +%s%3N 2>/dev/null || /bin/date +%s)" "$(/usr/bin/uuidgen 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]')")"
+  local path="${DMUX_RUNTIME_EVENT_DIR}/${name}"
+  local tmp="${path}.tmp"
+  if print -rn -- "${payload}" >| "${tmp}" && /bin/mv -f -- "${tmp}" "${path}"; then
+    debug_log_line "hook written action=${action} tool=${tool_name} file=${name}"
   else
-    log_line "hook send failed action=${action} tool=${tool_name} socket=${DMUX_RUNTIME_SOCKET}"
+    /bin/rm -f -- "${tmp}" 2>/dev/null || true
+    log_line "hook write failed action=${action} tool=${tool_name} dir=${DMUX_RUNTIME_EVENT_DIR}"
   fi
 }
 

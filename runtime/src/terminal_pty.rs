@@ -1187,12 +1187,6 @@ pub fn terminal_environment(
         crate::runtime_paths::app_slug().to_string(),
     );
     values.insert(
-        "DMUX_RUNTIME_SOCKET".to_string(),
-        crate::runtime_paths::runtime_socket_path()
-            .display()
-            .to_string(),
-    );
-    values.insert(
         "DMUX_RUNTIME_EVENT_DIR".to_string(),
         crate::runtime_paths::runtime_event_dir()
             .display()

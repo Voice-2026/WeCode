@@ -543,7 +543,7 @@ write_claude_session_map() {
 
 if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
   helper_script="${wrapper_dir}/dmux-ai-state.sh"
-  if [[ -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_SOCKET:-}" ]]; then
+  if [[ -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_EVENT_DIR:-}" ]]; then
     local_permission_mode="$(configured_permission_mode || true)"
     claude_launch_path="${managed_system_first_path}"
     claude_maxproc="${DMUX_CLAUDE_MAXPROC:-2048}"
@@ -593,7 +593,7 @@ fi
 
 if [[ "$tool_name" == "codex" ]]; then
   helper_script="${wrapper_dir}/dmux-ai-state.sh"
-  if [[ "${1:-}" != "app-server" && -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_SOCKET:-}" ]]; then
+  if [[ "${1:-}" != "app-server" && -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_EVENT_DIR:-}" ]]; then
     local_permission_mode="$(configured_permission_mode || true)"
     launch_args=("$@")
     apply_configured_model_arg
