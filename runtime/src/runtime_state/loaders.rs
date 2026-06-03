@@ -5,11 +5,10 @@ fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) 
     .ok();
 
     let Some(state) = state else {
-        let projects = fallback_projects();
-        return (projects.clone(), projects.first().cloned());
+        return (Vec::new(), None);
     };
 
-    let mut projects = state
+    let projects = state
         .projects
         .into_iter()
         .map(|project| ProjectInfo {
@@ -28,19 +27,9 @@ fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) 
         })
         .collect::<Vec<_>>();
 
-    if projects.is_empty() {
-        projects = fallback_projects();
-    }
-
     let selected_project = state
         .selected_project_id
         .and_then(|id| projects.iter().find(|project| project.id == id).cloned())
-        .or_else(|| {
-            projects
-                .iter()
-                .find(|project| project.path == "/Volumes/Web/codux-tauri")
-                .cloned()
-        })
         .or_else(|| projects.first().cloned());
 
     (projects, selected_project)
@@ -63,12 +52,13 @@ fn load_git_review(
     project_path: &str,
     base_branch: Option<&str>,
 ) -> git::GitReviewSummary {
-    crate::runtime_cache::cached_git_review(support_dir, project_path, base_branch)
-        .unwrap_or_else(|| {
+    crate::runtime_cache::cached_git_review(support_dir, project_path, base_branch).unwrap_or_else(
+        || {
             let review = git::GitService::review(project_path, base_branch);
             crate::runtime_cache::save_git_review(support_dir, project_path, base_branch, &review);
             review
-        })
+        },
+    )
 }
 
 fn refresh_git_summary(support_dir: &Path, project_path: &str) -> git::GitSummary {
@@ -217,23 +207,4 @@ fn read_json_or_default(path: PathBuf) -> Value {
 
 fn app_support_dir() -> PathBuf {
     runtime_paths::app_support_dir()
-}
-
-fn fallback_projects() -> Vec<ProjectInfo> {
-    ["/Volumes/Web/codux-tauri", "/Volumes/Web/codux-gpui"]
-        .into_iter()
-        .map(|path| ProjectInfo {
-            id: path.to_string(),
-            name: Path::new(path)
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.to_string()),
-            path: path.to_string(),
-            exists: Path::new(path).exists(),
-            badge: crate::project_store::badge_from_name(path),
-            badge_symbol: None,
-            badge_color_hex: None,
-            git_default_push_remote_name: None,
-        })
-        .collect()
 }

@@ -215,7 +215,15 @@ impl Render for CoduxApp {
         }
 
         let project_column_view = self.project_column_view(cx);
-        let task_column_view = self.task_column_view(cx);
+        let has_project = self.state.selected_project.is_some();
+        let show_task_column = has_project && !self.task_column_collapsed;
+        let task_column_view = show_task_column.then(|| self.task_column_view(cx));
+        if !has_project {
+            self.task_column_view = None;
+            self.task_column_header_view = None;
+            self.task_worktree_list_view = None;
+            self.task_session_list_view = None;
+        }
         let workspace_column_view = self.workspace_column_view(cx);
         let status_bar_view = self.status_bar_view(cx);
         let project_column_width = px(if self.project_column_collapsed {
@@ -271,7 +279,7 @@ impl Render for CoduxApp {
                             .min_h_0()
                             .h_full()
                             .overflow_hidden()
-                            .when(!self.task_column_collapsed, |this| {
+                            .when_some(task_column_view, |this, task_column_view| {
                                 this.child(
                                     div()
                                         .flex_none()

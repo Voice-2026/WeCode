@@ -117,6 +117,14 @@ impl Render for WorkspaceBodyView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app_entity = self.app_entity.clone();
         self.app_entity.update(cx, |app, app_cx| {
+            if app.state.selected_project.is_none() {
+                self.terminal_workspace_view = None;
+                self.file_editor_workspace_view = None;
+                self.review_workspace_view = None;
+                return app
+                    .empty_project_workspace(window, app_cx)
+                    .into_any_element();
+            }
             if app.workspace_view == WorkspaceView::Terminal {
                 let snapshot = app.terminal_workspace_snapshot();
                 let terminal_view = if let Some(view) = &self.terminal_workspace_view {
@@ -155,6 +163,110 @@ impl Render for WorkspaceBodyView {
                 app.workspace_body(window, app_cx).into_any_element()
             }
         })
+    }
+}
+
+impl CoduxApp {
+    fn empty_project_workspace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        let title =
+            translate(&locale, "welcome.title_format", "Welcome to %@").replace("%@", "Codux");
+        let subtitle = translate(
+            &locale,
+            "welcome.subtitle",
+            "Create a new project or open an existing folder to get started.",
+        );
+        let new_project = translate(&locale, "menu.file.new_project", "New Project");
+        let open_project = translate(&locale, "welcome.open_project", "Open Project");
+
+        div()
+            .size_full()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .bg(color(theme::BG_TERMINAL))
+            .child(
+                div()
+                    .w(px(360.0))
+                    .max_w_full()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(14.0))
+                    .px_4()
+                    .text_center()
+                    .child(
+                        img("app-icons/codux-default.svg")
+                            .size(px(72.0))
+                            .object_fit(ObjectFit::Contain),
+                    )
+                    .child(
+                        div()
+                            .text_size(rems(1.375))
+                            .line_height(rems(1.75))
+                            .text_color(color(theme::TEXT))
+                            .child(title),
+                    )
+                    .child(
+                        div()
+                            .max_w(px(320.0))
+                            .text_size(rems(0.8125))
+                            .line_height(rems(1.25))
+                            .text_color(color(theme::TEXT_DIM))
+                            .child(subtitle),
+                    )
+                    .child(
+                        div()
+                            .mt_2()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                Button::new("welcome-new-project")
+                                    .primary()
+                                    .text_size(rems(0.875))
+                                    .on_click(window.listener_for(
+                                        &cx.entity(),
+                                        |app, _event, window, cx| {
+                                            app.open_project_create_window(window, cx);
+                                        },
+                                    ))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(Icon::new(HeroIconName::FolderPlus).size_3p5())
+                                            .child(new_project),
+                                    ),
+                            )
+                            .child(
+                                Button::new("welcome-open-project")
+                                    .secondary()
+                                    .text_size(rems(0.875))
+                                    .on_click(window.listener_for(
+                                        &cx.entity(),
+                                        |app, _event, window, cx| {
+                                            app.open_project_folder_from_dialog(window, cx);
+                                        },
+                                    ))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(Icon::new(HeroIconName::FolderOpen).size_3p5())
+                                            .child(open_project),
+                                    ),
+                            ),
+                    ),
+            )
     }
 }
 

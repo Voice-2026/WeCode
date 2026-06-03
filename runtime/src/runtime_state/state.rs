@@ -8,17 +8,23 @@ impl RuntimeState {
         let settings = load_settings(&support_dir);
         let selected_path = selected_project
             .as_ref()
-            .map(|project| project.path.as_str())
-            .unwrap_or("/Volumes/Web/codux-tauri");
-        let git = load_git_summary(&support_dir, selected_path);
-        let git_review = load_git_review(&support_dir, selected_path, None);
-        let files = load_file_entries(selected_path, None);
+            .map(|project| project.path.as_str());
+        let git = selected_path
+            .map(|path| load_git_summary(&support_dir, path))
+            .unwrap_or_default();
+        let git_review = selected_path
+            .map(|path| load_git_review(&support_dir, path, None))
+            .unwrap_or_default();
+        let files = selected_path
+            .map(|path| load_file_entries(path, None))
+            .unwrap_or_default();
         let ai_global_history = load_global_ai_history(&support_dir);
-        let ai_history = load_ai_history(&support_dir, selected_path);
-        let ai_session_detail = ai_history
-            .sessions
-            .first()
-            .map(|session| load_ai_session_detail(&support_dir, selected_path, &session.id));
+        let ai_history = selected_path
+            .map(|path| load_ai_history(&support_dir, path))
+            .unwrap_or_default();
+        let ai_session_detail = ai_history.sessions.first().and_then(|session| {
+            selected_path.map(|path| load_ai_session_detail(&support_dir, path, &session.id))
+        });
         let memory = load_memory(
             &support_dir,
             selected_project.as_ref().map(|project| project.id.as_str()),
