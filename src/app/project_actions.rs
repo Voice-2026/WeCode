@@ -1893,7 +1893,7 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.project_editor_path = value;
+        self.project_editor_path = clean_dialog_path(&value);
         self.invalidate_project_management(cx);
     }
 
@@ -1919,33 +1919,61 @@ impl CoduxApp {
 
     pub(super) fn choose_project_editor_directory(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let locale = locale_from_language_setting(&self.state.settings.language);
-        match self
-            .runtime_service
-            .localized_open_dialog(LocalizedOpenDialogRequest {
-                title: translate(
-                    &locale,
-                    "project.editor.choose_directory.title",
-                    "Choose Project Directory",
-                ),
-                message: translate(
-                    &locale,
-                    "project.editor.choose_directory.message",
-                    "Select a folder for this project.",
-                ),
-                prompt: translate(&locale, "project.editor.choose_directory.prompt", "Choose"),
-                default_path: Some(self.project_editor_path.clone()),
-                filters: Vec::new(),
-                directory: true,
-                multiple: false,
-                can_create_directories: Some(false),
-            }) {
+        let default_path = clean_dialog_path(&self.project_editor_path);
+        let request = LocalizedOpenDialogRequest {
+            title: translate(
+                &locale,
+                "project.editor.choose_directory.title",
+                "Choose Project Directory",
+            ),
+            message: translate(
+                &locale,
+                "project.editor.choose_directory.message",
+                "Select a folder for this project.",
+            ),
+            prompt: translate(&locale, "project.editor.choose_directory.prompt", "Choose"),
+            default_path: (!default_path.trim().is_empty()).then_some(default_path),
+            filters: Vec::new(),
+            directory: true,
+            multiple: false,
+            can_create_directories: Some(false),
+        };
+        let runtime_service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.status_message = "opening project directory dialog".to_string();
+        self.invalidate_project_management(cx);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                runtime_service.localized_open_dialog(request)
+            })
+            .await
+            .unwrap_or_else(|error| {
+                Err(format!("failed to join project directory dialog: {error}"))
+            });
+
+            let _ = window_handle.update(cx, |_root, _window, cx| {
+                let _ = this.update(cx, |app, cx| {
+                    app.apply_project_editor_directory_result(result, cx);
+                });
+            });
+        })
+        .detach();
+    }
+
+    fn apply_project_editor_directory_result(
+        &mut self,
+        result: Result<Option<Vec<String>>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
             Ok(Some(paths)) => {
                 if let Some(path) = paths.first() {
-                    self.project_editor_path = path.clone();
+                    self.project_editor_path = clean_dialog_path(path);
                     self.status_message = "project directory selected".to_string();
                 } else {
                     self.status_message = "project directory selection canceled".to_string();
@@ -1961,7 +1989,7 @@ impl CoduxApp {
 
     pub(super) fn save_project_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let name = self.project_editor_name.trim().to_string();
-        let path = self.project_editor_path.trim().to_string();
+        let path = clean_dialog_path(&self.project_editor_path);
         if name.is_empty() || path.is_empty() {
             self.status_message = "project name and path are required".to_string();
             self.invalidate_project_management(cx);
@@ -2062,4 +2090,22 @@ fn project_task_load_scheduler_key(project_id: &str) -> String {
 
 fn worktree_sidebar_load_scheduler_key(key: &super::app_state::WorktreeViewStoreKey) -> String {
     format!("worktree_sidebar:{}:{}", key.project_id, key.worktree_id)
+}
+
+fn clean_dialog_path(path: &str) -> String {
+    let path = path.trim();
+    if path.is_empty() {
+        return String::new();
+    }
+    if let Ok(url) = url::Url::parse(path) {
+        if url.scheme() == "file" {
+            if let Ok(file_path) = url.to_file_path() {
+                return file_path.to_string_lossy().into_owned();
+            }
+        }
+    }
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
 }

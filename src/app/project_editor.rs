@@ -385,7 +385,7 @@ fn project_editor_path_field(
                         .secondary()
                         .compact()
                         .text_color(cx.theme().secondary_foreground)
-                        .label(choose_label)
+                        .child(project_editor_button_label(choose_label))
                         .on_click(cx.listener(|app, _event, window, cx| {
                             app.choose_project_editor_directory(window, cx);
                         })),

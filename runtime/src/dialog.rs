@@ -56,11 +56,18 @@ pub fn localized_open_dialog(
     macos::open_dialog(request)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn localized_open_dialog(
+    request: LocalizedOpenDialogRequest,
+) -> Result<Option<Vec<String>>, String> {
+    windows::open_dialog(request)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn localized_open_dialog(
     _request: LocalizedOpenDialogRequest,
 ) -> Result<Option<Vec<String>>, String> {
-    Err("localized open dialog is only implemented on macOS".to_string())
+    Err("localized open dialog is only implemented on macOS and Windows".to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -310,11 +317,65 @@ mod macos {
 
 #[cfg(target_os = "windows")]
 mod windows {
-    use super::{LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest};
-    use std::os::windows::ffi::OsStrExt;
+    use super::{
+        LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest, LocalizedOpenDialogRequest,
+    };
+    use std::{ffi::OsStr, os::windows::ffi::OsStrExt, path::PathBuf};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         IDOK, MB_DEFBUTTON2, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW,
     };
+
+    pub fn open_dialog(request: LocalizedOpenDialogRequest) -> Result<Option<Vec<String>>, String> {
+        let mut dialog = rfd::FileDialog::new();
+        if !request.title.trim().is_empty() {
+            dialog = dialog.set_title(request.title.trim());
+        }
+        if let Some(default_path) = request.default_path.as_deref() {
+            let default_path = default_path.trim();
+            if !default_path.is_empty() {
+                dialog = dialog.set_directory(default_path);
+            }
+        }
+        if let Some(can_create_directories) = request.can_create_directories {
+            dialog = dialog.set_can_create_directories(can_create_directories);
+        }
+        for filter in &request.filters {
+            let extensions = filter
+                .extensions
+                .iter()
+                .map(|extension| extension.trim().trim_start_matches('.'))
+                .filter(|extension| !extension.is_empty())
+                .collect::<Vec<_>>();
+            if !extensions.is_empty() {
+                let name = filter._name.trim();
+                dialog =
+                    dialog.add_filter(if name.is_empty() { "Files" } else { name }, &extensions);
+            }
+        }
+        let paths = if request.directory {
+            if request.multiple {
+                dialog.pick_folders()
+            } else {
+                dialog.pick_folder().map(|path| vec![path])
+            }
+        } else if request.multiple {
+            dialog.pick_files()
+        } else {
+            dialog.pick_file().map(|path| vec![path])
+        };
+        Ok(paths.map(|paths| paths.into_iter().map(native_path_string).collect()))
+    }
+
+    fn native_path_string(path: PathBuf) -> String {
+        let value = path.to_string_lossy().into_owned();
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = value.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+        value
+    }
 
     pub fn confirm_dialog(request: LocalizedConfirmDialogRequest) -> Result<bool, String> {
         let title = to_wide(if request.title.trim().is_empty() {
