@@ -251,6 +251,8 @@ pub struct TerminalView {
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     selection_autoscroll: Option<SelectionAutoScroll>,
+    _observe_model: Subscription,
+    _observe_blink_manager: Subscription,
 }
 
 impl TerminalView {
@@ -275,6 +277,8 @@ impl TerminalView {
             config.colors.clone(),
         );
         let focus_handle = cx.focus_handle();
+        let observe_model = cx.observe(&model, |_, _, cx| cx.notify());
+        let observe_blink_manager = cx.observe(&blink_manager, |_, _, cx| cx.notify());
 
         Self {
             model,
@@ -292,6 +296,8 @@ impl TerminalView {
             focus_in_subscription: None,
             focus_out_subscription: None,
             selection_autoscroll: None,
+            _observe_model: observe_model,
+            _observe_blink_manager: observe_blink_manager,
         }
     }
 
