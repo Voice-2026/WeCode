@@ -33,6 +33,7 @@ hkdf = "0.12"
 image = "0.25.1"
 libc = "0.2"
 llm-json-repair = "0.1"
+minisign-verify = "0.2.5"
 notify = "8"
 notify-rust = { version = "4.17.0", default-features = false }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time"] }

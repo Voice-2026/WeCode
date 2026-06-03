@@ -104,8 +104,8 @@ fn sync_update_endpoint_for_channel(update: &mut serde_json::Map<String, Value>,
 
 fn update_endpoint_for_channel(channel: &str) -> &'static str {
     match channel {
-        "beta" => "https://github.com/duxweb/codux/releases/download/beta/latest.json",
-        _ => "https://github.com/duxweb/codux/releases/latest/download/latest.json",
+        "beta" => "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json",
+        _ => "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json",
     }
 }
 
@@ -114,5 +114,7 @@ fn is_managed_update_endpoint(endpoint: &str) -> bool {
         endpoint,
         "https://github.com/duxweb/codux/releases/latest/download/latest.json"
             | "https://github.com/duxweb/codux/releases/download/beta/latest.json"
+            | "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json"
+            | "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json"
     )
 }

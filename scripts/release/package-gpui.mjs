@@ -61,6 +61,12 @@ function packageMacos() {
   const zipName = `${artifactBaseName("macos")}.app.zip`;
   run("ditto", ["-c", "-k", "--keepParent", appDir, path.join(outputDir, zipName)]);
   writeSha256(path.join(outputDir, zipName));
+
+  const updaterName = `${artifactBaseName("macos")}-updater.app.tar.gz`;
+  const updaterPath = path.join(outputDir, updaterName);
+  run("tar", ["-czf", updaterPath, "-C", outputDir, `${appName}.app`]);
+  writeSha256(updaterPath);
+  signTauriUpdaterArtifact(updaterPath);
 }
 
 function notarizeMacosApp(appDir) {
@@ -132,6 +138,7 @@ function packageWindows() {
   fs.writeFileSync(installerScriptPath, windowsNsisScript(packageDir, installerPath), "utf8");
   run("makensis", [installerScriptPath]);
   writeSha256(installerPath);
+  signTauriUpdaterArtifact(installerPath);
 }
 
 function packageGenericUnix() {
@@ -230,6 +237,33 @@ function writeSha256(filePath) {
   console.log(`packaged ${path.basename(filePath)} sha256=${hash}`);
 }
 
+function signTauriUpdaterArtifact(filePath) {
+  const privateKey = process.env.TAURI_PRIVATE_KEY?.trim() || process.env.TAURI_SIGNING_PRIVATE_KEY?.trim();
+  if (!privateKey) {
+    if (isReleaseBuild()) {
+      throw new Error(`Tauri updater signature key is required for ${path.basename(filePath)}`);
+    }
+    console.warn(`skipping Tauri updater signature for ${path.basename(filePath)}: signing key is not configured`);
+    return;
+  }
+  const password =
+    process.env.TAURI_PRIVATE_KEY_PASSWORD ?? process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "";
+  const env = {
+    ...process.env,
+    TAURI_PRIVATE_KEY: privateKey,
+    TAURI_PRIVATE_KEY_PASSWORD: password,
+  };
+  run(
+    "npx",
+    ["--yes", "@tauri-apps/cli@2.0.0-rc.4", "signer", "sign", filePath],
+    { env },
+  );
+}
+
+function isReleaseBuild() {
+  return Boolean(process.env.GITHUB_ACTIONS || process.env.RELEASE_REQUIRE_TAURI_SIGNATURE === "true");
+}
+
 function windowsNsisScript(packageDir, installerPath) {
   return `Unicode true
 Name "${escapeNsis(appName)}"
@@ -265,8 +299,8 @@ function escapeNsis(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '$\\"');
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, { stdio: "inherit", env: process.env });
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, { stdio: "inherit", env: options.env || process.env });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
   }

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /* global console, process */
 
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -15,10 +14,14 @@ const repo = process.env.GITHUB_REPOSITORY || "duxweb/codux";
 const notesPath = process.env.RELEASE_NOTES_PATH || path.join(root, "dist", `release-notes-${version}.md`);
 const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
 const notes = fs.existsSync(notesPath) ? fs.readFileSync(notesPath, "utf8") : `Codux ${version}`;
-const legacyTauriManifestPath = path.join(root, "updates", channel, "latest.json");
+if (!["stable", "beta"].includes(channel)) {
+  throw new Error(`RELEASE_CHANNEL must be stable or beta, got ${channel}`);
+}
+const manifestPath = path.join(root, "updates", channel, "latest.json");
 const requireExistingRelease = process.env.RELEASE_REQUIRE_EXISTING === "true";
 const uploadLatest = process.env.RELEASE_UPLOAD_LATEST !== "false";
-const publishLegacyTauriManifest = process.env.RELEASE_PUBLISH_LEGACY_TAURI_MANIFEST === "true";
+const publishManifest = process.env.RELEASE_PUBLISH_MANIFEST !== "false";
+const uploadSigAssets = process.env.RELEASE_UPLOAD_SIG_ASSETS !== "false";
 const mergeExistingLatest = process.env.RELEASE_MERGE_EXISTING_LATEST === "true";
 
 const assets = collectAssets(artifactsDir);
@@ -33,14 +36,14 @@ fs.writeFileSync(latestPath, `${JSON.stringify(latestJson, null, 2)}\n`, "utf8")
 if (!dryRun) {
   upsertRelease();
   for (const asset of assets) {
+    if (!uploadSigAssets && asset.name.endsWith(".sig")) continue;
     run("gh", ["release", "upload", tagName, "--repo", repo, "--clobber", `${asset.path}#${asset.name}`]);
   }
   if (uploadLatest) {
     run("gh", ["release", "upload", tagName, "--repo", repo, "--clobber", `${latestPath}#latest.json`]);
-    uploadChannelLatest(latestPath);
   }
-  if (publishLegacyTauriManifest) {
-    publishLegacyTauriChannelManifest(latestPath);
+  if (publishManifest) {
+    publishChannelManifest(latestPath);
   }
 }
 
@@ -74,8 +77,6 @@ function mergeWithExistingLatest(next) {
       ...(existing.platforms || {}),
       ...next.platforms,
     },
-    downloadUrl: next.downloadUrl || existing.downloadUrl,
-    checksum: next.checksum || existing.checksum,
   };
 }
 
@@ -124,101 +125,104 @@ function normalizeAssetName(relativePath) {
 
 function artifactExt(file) {
   const name = path.basename(file);
+  if (name.endsWith(".app.tar.gz.sig")) return ".app.tar.gz.sig";
+  if (name.endsWith(".app.tar.gz")) return ".app.tar.gz";
+  if (name.endsWith(".tar.gz.sig")) return ".tar.gz.sig";
+  if (name.endsWith(".nsis.zip.sig")) return ".nsis.zip.sig";
+  if (name.endsWith(".msi.zip.sig")) return ".msi.zip.sig";
   if (name.endsWith(".app.zip")) return ".app.zip";
   if (name.endsWith(".tar.gz")) return ".tar.gz";
   if (name.endsWith(".sha256")) return ".sha256";
+  if (name.endsWith(".exe.sig")) return ".exe.sig";
+  if (name.endsWith(".msi.sig")) return ".msi.sig";
   return path.extname(name);
 }
 
 function shouldUpload(asset) {
-  return [".dmg", ".app.zip", ".zip", ".exe", ".msi", ".tar.gz", ".sha256"].includes(asset.ext);
+  return [
+    ".dmg",
+    ".app.zip",
+    ".zip",
+    ".exe",
+    ".msi",
+    ".app.tar.gz",
+    ".tar.gz",
+    ".sha256",
+    ".app.tar.gz.sig",
+    ".tar.gz.sig",
+    ".nsis.zip.sig",
+    ".msi.zip.sig",
+    ".exe.sig",
+    ".msi.sig",
+  ].includes(asset.ext);
 }
 
 function buildLatestJson(assets) {
-  const downloadAsset = preferredDownloadAsset(assets);
-  if (!downloadAsset) {
-    throw new Error("No downloadable release asset found.");
-  }
   const platforms = {};
-  for (const asset of assets.filter((item) => item.ext !== ".sha256").sort(platformManifestAssetSort)) {
-    for (const platform of platformKeys(asset.name)) {
+  const byName = new Map(assets.map((asset) => [asset.name, asset]));
+  const signatureAssets = assets
+    .filter((asset) => asset.name.endsWith(".sig"))
+    .sort((left, right) => signaturePriority(right.name) - signaturePriority(left.name));
+
+  for (const signatureAsset of signatureAssets) {
+    const bundleName = signatureAsset.name.slice(0, -".sig".length);
+    const bundleAsset = byName.get(bundleName);
+    if (!bundleAsset) {
+      console.warn(`Skipping ${signatureAsset.name}: matching bundle ${bundleName} was not found`);
+      continue;
+    }
+    for (const platform of platformKeys(signatureAsset.name)) {
       if (platforms[platform]) continue;
       platforms[platform] = {
-        url: releaseAssetUrl(asset.name),
-        checksum: sha256ForAsset(asset),
-        signature: "",
+        signature: fs.readFileSync(signatureAsset.path, "utf8").trim(),
+        url: releaseAssetUrl(bundleAsset.name),
       };
     }
+  }
+  if (!Object.keys(platforms).length) {
+    throw new Error("No signed updater assets found. Check Tauri updater signatures.");
   }
   return {
     version,
     notes,
     pub_date: new Date().toISOString(),
-    downloadUrl: releaseAssetUrl(downloadAsset.name),
-    checksum: sha256ForAsset(downloadAsset),
-    automaticInstallSupported: true,
     platforms,
   };
-}
-
-function platformManifestAssetSort(left, right) {
-  const leftScore = platformManifestAssetScore(left.name);
-  const rightScore = platformManifestAssetScore(right.name);
-  return leftScore - rightScore;
-}
-
-function platformManifestAssetScore(name) {
-  const lower = name.toLowerCase();
-  if (lower.includes("macos") && lower.endsWith(".app.zip")) return 0;
-  if (lower.includes("windows") && lower.endsWith(".exe")) return 0;
-  if (lower.includes("windows") && lower.endsWith(".msi")) return 1;
-  if (lower.includes("windows") && lower.endsWith(".zip")) return 10;
-  if (lower.endsWith(".tar.gz")) return 0;
-  if (lower.endsWith(".dmg")) return 10;
-  return 20;
-}
-
-function preferredDownloadAsset(assets) {
-  const candidates = assets.filter((asset) => asset.ext !== ".sha256");
-  return (
-    candidates.find((asset) => asset.name.endsWith(".dmg")) ||
-    candidates.find((asset) => asset.name.toLowerCase().includes("windows") && asset.name.endsWith(".exe")) ||
-    candidates.find((asset) => asset.name.endsWith(".zip")) ||
-    candidates[0]
-  );
 }
 
 function releaseAssetUrl(assetName) {
   return `https://github.com/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(assetName)}`;
 }
 
-function sha256ForAsset(asset) {
-  if (asset.ext === ".sha256") return "";
-  const sidecar = `${asset.path}.sha256`;
-  if (fs.existsSync(sidecar)) {
-    return fs.readFileSync(sidecar, "utf8").trim().split(/\s+/)[0] || "";
-  }
-  return crypto.createHash("sha256").update(fs.readFileSync(asset.path)).digest("hex");
-}
-
 function platformKeys(assetName) {
   const lower = assetName.toLowerCase();
-  if (lower.includes("macos") && lower.includes("universal")) {
+  if ((lower.includes("macos") || lower.includes("darwin")) && lower.includes("universal")) {
     return ["darwin-aarch64", "darwin-x86_64", "darwin-aarch64-app", "darwin-x86_64-app"];
   }
-  if (lower.includes("macos") && lower.includes("aarch64")) {
+  if ((lower.includes("macos") || lower.includes("darwin")) && lower.includes("aarch64")) {
     return ["darwin-aarch64", "darwin-aarch64-app"];
   }
-  if (lower.includes("macos") && lower.includes("x86_64")) {
+  if ((lower.includes("macos") || lower.includes("darwin")) && lower.includes("x86_64")) {
     return ["darwin-x86_64", "darwin-x86_64-app"];
   }
   if (lower.includes("windows") && lower.includes("x86_64")) {
-    return ["windows-x86_64"];
+    if (lower.includes("msi")) return ["windows-x86_64", "windows-x86_64-msi"];
+    return ["windows-x86_64", "windows-x86_64-nsis"];
   }
   if (lower.includes("linux") && lower.includes("x86_64")) {
     return ["linux-x86_64"];
   }
   return [];
+}
+
+function signaturePriority(name) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".app.tar.gz.sig")) return 100;
+  if (lower.endsWith(".nsis.zip.sig")) return 100;
+  if (lower.endsWith(".exe.sig")) return 100;
+  if (lower.endsWith(".msi.zip.sig")) return 90;
+  if (lower.endsWith(".msi.sig")) return 90;
+  return 0;
 }
 
 function run(command, args) {
@@ -267,55 +271,17 @@ function upsertRelease() {
   ]);
 }
 
-function uploadChannelLatest(latestPath) {
-  if (channel !== "beta") return;
-  const channelTag = "beta";
-  const releaseExists =
-    spawnSync("gh", ["release", "view", channelTag, "--repo", repo], {
-      stdio: "ignore",
-      env: process.env,
-    }).status === 0;
-  if (releaseExists) {
-    run("gh", [
-      "release",
-      "edit",
-      channelTag,
-      "--repo",
-      repo,
-      "--title",
-      "Codux Beta",
-      "--notes",
-      `Latest beta update metadata for Codux ${version}.`,
-      "--prerelease",
-    ]);
-  } else {
-    run("gh", [
-      "release",
-      "create",
-      channelTag,
-      "--repo",
-      repo,
-      "--title",
-      "Codux Beta",
-      "--notes",
-      `Latest beta update metadata for Codux ${version}.`,
-      "--prerelease",
-    ]);
-  }
-  run("gh", ["release", "upload", channelTag, "--repo", repo, "--clobber", `${latestPath}#latest.json`]);
-}
-
-function publishLegacyTauriChannelManifest(sourcePath) {
+function publishChannelManifest(sourcePath) {
   const latestContent = fs.readFileSync(sourcePath, "utf8");
   run("git", ["fetch", "origin", "main"]);
   run("git", ["checkout", "-B", "main", "origin/main"]);
-  fs.mkdirSync(path.dirname(legacyTauriManifestPath), { recursive: true });
-  fs.writeFileSync(legacyTauriManifestPath, latestContent, "utf8");
+  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+  fs.writeFileSync(manifestPath, latestContent, "utf8");
   run("git", ["config", "user.name", "github-actions[bot]"]);
   run("git", ["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"]);
-  run("git", ["add", legacyTauriManifestPath]);
+  run("git", ["add", manifestPath]);
   const diff = spawnSync("git", ["diff", "--cached", "--quiet"], { stdio: "inherit", env: process.env });
   if (diff.status === 0) return;
-  run("git", ["commit", "-m", `chore: update legacy Tauri ${channel} updater manifest for ${version}`]);
+  run("git", ["commit", "-m", `chore: update ${channel} updater manifest for ${version}`]);
   run("git", ["push", "origin", "HEAD:main"]);
 }

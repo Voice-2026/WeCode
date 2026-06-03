@@ -6,6 +6,7 @@ use crate::settings::AppSettings;
 use crate::update::UpdateService;
 pub use crate::update::UpdateStatus;
 use chrono::Utc;
+use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
@@ -14,6 +15,8 @@ use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use url::Url;
+
+const TAURI_UPDATER_PUBLIC_KEY: &str = "RWTIDGGsK4geAihw4QK08H+tw5BUDYrQDww6GRCVQKWtH6RvOVe/huaA";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +211,7 @@ pub fn install_update_with_progress(
         });
     })?;
     verify_download_checksum(&destination.path, status.download_checksum.as_deref())?;
+    verify_download_signature(&destination.path, status.download_signature.as_deref())?;
     let pending_install = prepare_update_install(&destination.path)?;
     on_progress(UpdateInstallProgressEvent {
         phase: "finished".to_string(),
@@ -461,6 +465,20 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+fn verify_download_signature(path: &Path, signature: Option<&str>) -> Result<(), String> {
+    let Some(signature) = signature.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let public_key = PublicKey::from_base64(TAURI_UPDATER_PUBLIC_KEY)
+        .map_err(|error| format!("Invalid updater public key: {error}"))?;
+    let signature = Signature::decode(signature)
+        .map_err(|error| format!("Invalid updater signature: {error}"))?;
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    public_key
+        .verify(&bytes, &signature, true)
+        .map_err(|error| format!("Downloaded update signature verification failed: {error}"))
+}
+
 fn prepare_update_install(artifact_path: &Path) -> Result<PendingUpdateInstall, String> {
     #[cfg(target_os = "macos")]
     {
@@ -543,7 +561,7 @@ del "%~f0"
 
 #[cfg(target_os = "macos")]
 fn prepare_macos_update_install(artifact_path: &Path) -> Result<PendingUpdateInstall, String> {
-    if artifact_path.extension().and_then(|ext| ext.to_str()) != Some("zip") {
+    if !is_macos_update_archive(artifact_path) {
         open_path(artifact_path)?;
         return Ok(PendingUpdateInstall {
             installed: false,
@@ -587,6 +605,16 @@ fn prepare_macos_update_install(artifact_path: &Path) -> Result<PendingUpdateIns
 }
 
 #[cfg(target_os = "macos")]
+fn is_macos_update_archive(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    file_name.ends_with(".app.tar.gz") || file_name.ends_with(".app.zip")
+}
+
+#[cfg(target_os = "macos")]
 fn current_macos_app_bundle(exe: &Path) -> Option<PathBuf> {
     let mut current = exe;
     while let Some(parent) = current.parent() {
@@ -621,7 +649,18 @@ PARENT_PID={parent_pid}
 trap 'rm -f "$0"' EXIT
 rm -rf "$STAGING"
 mkdir -p "$STAGING"
-/usr/bin/ditto -x -k "$ARTIFACT" "$STAGING"
+case "$ARTIFACT" in
+  *.app.tar.gz)
+    /usr/bin/tar -xzf "$ARTIFACT" -C "$STAGING"
+    ;;
+  *.app.zip)
+    /usr/bin/ditto -x -k "$ARTIFACT" "$STAGING"
+    ;;
+  *)
+    /usr/bin/open "$ARTIFACT"
+    exit 1
+    ;;
+esac
 NEW_APP="$STAGING/$APP_NAME"
 if [ ! -d "$NEW_APP" ]; then
   NEW_APP="$(/usr/bin/find "$STAGING" -maxdepth 2 -name '*.app' -type d | /usr/bin/head -n 1)"
@@ -823,11 +862,38 @@ mod tests {
         assert_eq!(value["ai"]["providers"][0]["api_key"], "******");
     }
 
+    #[test]
+    fn update_signature_verification_skips_empty_signature() {
+        let path = std::env::temp_dir().join(format!(
+            "codux-update-signature-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&path, b"payload").unwrap();
+
+        assert!(verify_download_signature(&path, None).is_ok());
+        assert!(verify_download_signature(&path, Some("")).is_ok());
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn update_signature_verification_rejects_invalid_signature() {
+        let path = std::env::temp_dir().join(format!(
+            "codux-update-signature-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&path, b"payload").unwrap();
+
+        assert!(verify_download_signature(&path, Some("invalid")).is_err());
+
+        let _ = fs::remove_file(path);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_update_helper_waits_for_parent_and_cleans_itself() {
         let script = macos_update_install_script(
-            Path::new("/tmp/Codux.app.zip"),
+            Path::new("/tmp/Codux.app.tar.gz"),
             Path::new("/tmp/codux staging"),
             Path::new("/Applications/Codux.app"),
             12345,
@@ -836,8 +902,19 @@ mod tests {
         assert!(script.contains("PARENT_PID=12345"));
         assert!(script.contains("while /bin/kill -0 \"$PARENT_PID\""));
         assert!(script.contains("trap 'rm -f \"$0\"' EXIT"));
+        assert!(script.contains("/usr/bin/tar -xzf \"$ARTIFACT\""));
         assert!(script.contains("/usr/bin/ditto \"$NEW_APP\" \"$CURRENT_APP\""));
         assert!(script.contains("/usr/bin/open '/Applications/Codux.app'"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_update_archive_accepts_tauri_tarball() {
+        assert!(is_macos_update_archive(Path::new(
+            "/tmp/Codux-updater.app.tar.gz"
+        )));
+        assert!(is_macos_update_archive(Path::new("/tmp/Codux.app.zip")));
+        assert!(!is_macos_update_archive(Path::new("/tmp/Codux.dmg")));
     }
 
     #[cfg(target_os = "macos")]

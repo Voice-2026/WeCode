@@ -156,8 +156,8 @@ pub(super) fn default_update_channel() -> &'static str {
 
 pub(super) fn update_endpoint_for_channel(channel: &str) -> String {
     match channel {
-        "beta" => "https://github.com/duxweb/codux/releases/download/beta/latest.json",
-        _ => "https://github.com/duxweb/codux/releases/latest/download/latest.json",
+        "beta" => "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json",
+        _ => "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json",
     }
     .to_string()
 }
@@ -167,5 +167,7 @@ pub(super) fn is_managed_update_endpoint(endpoint: &str) -> bool {
         endpoint,
         "https://github.com/duxweb/codux/releases/latest/download/latest.json"
             | "https://github.com/duxweb/codux/releases/download/beta/latest.json"
+            | "https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json"
+            | "https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json"
     )
 }

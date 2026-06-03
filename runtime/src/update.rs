@@ -105,6 +105,7 @@ impl UpdateService {
                 latest_version: None,
                 download_url: None,
                 download_checksum: None,
+                download_signature: None,
                 notes: None,
                 channel: Some(settings.channel.clone()).filter(|value| !value.trim().is_empty()),
                 installation_mode: if settings.enabled {
@@ -139,6 +140,7 @@ impl UpdateService {
                 latest_version: None,
                 download_url: None,
                 download_checksum: None,
+                download_signature: None,
                 notes: None,
                 channel: Some(settings.channel.clone()).filter(|value| !value.trim().is_empty()),
                 installation_mode: "manualManifest".to_string(),
@@ -203,6 +205,7 @@ pub struct UpdateStatus {
     pub latest_version: Option<String>,
     pub download_url: Option<String>,
     pub download_checksum: Option<String>,
+    pub download_signature: Option<String>,
     pub notes: Option<String>,
     pub channel: Option<String>,
     pub installation_mode: String,
@@ -230,27 +233,10 @@ fn update_status_from_manifest(
     let platform_entry = current_platform_manifest_entry(&manifest);
     let download_url = manifest_download_url(&manifest, platform_entry);
     let download_checksum = manifest_download_checksum(&manifest, platform_entry);
-    let manifest_automatic_install_supported = manifest
-        .get("automaticInstallSupported")
-        .or_else(|| manifest.get("automatic_install_supported"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let automatic_install_supported = manifest_automatic_install_supported
-        && platform_supports_automatic_install(download_url.as_deref());
-    let has_signed_updater = manifest
-        .get("platforms")
-        .and_then(Value::as_object)
-        .is_some_and(|platforms| {
-            platform_keys_for_current_target()
-                .iter()
-                .filter_map(|key| platforms.get(*key))
-                .any(|entry| {
-                    entry
-                        .get("signature")
-                        .and_then(Value::as_str)
-                        .is_some_and(|value| !value.trim().is_empty())
-                })
-        });
+    let download_signature = manifest_download_signature(platform_entry);
+    let has_signed_updater = download_signature.is_some();
+    let automatic_install_supported =
+        has_signed_updater && platform_supports_automatic_install(download_url.as_deref());
     let message = if available && automatic_install_supported {
         format!("A new version {latest_text} is available.")
     } else if available {
@@ -265,12 +251,13 @@ fn update_status_from_manifest(
         checking: false,
         available,
         automatic_install_supported,
-        signed_updater_configured: automatic_install_supported && has_signed_updater,
+        signed_updater_configured: automatic_install_supported,
         manifest_endpoint_configured: true,
         current_version: current_version.to_string(),
         latest_version: latest,
         download_url,
         download_checksum,
+        download_signature,
         notes: manifest
             .get("notes")
             .and_then(Value::as_str)
@@ -319,6 +306,10 @@ fn manifest_download_checksum(manifest: &Value, platform_entry: Option<&Value>) 
     })
 }
 
+fn manifest_download_signature(platform_entry: Option<&Value>) -> Option<String> {
+    manifest_entry_string(platform_entry, "signature")
+}
+
 fn manifest_entry_string(entry: Option<&Value>, key: &str) -> Option<String> {
     entry
         .and_then(|entry| entry.get(key))
@@ -333,7 +324,7 @@ fn platform_supports_automatic_install(download_url: Option<&str>) -> bool {
     {
         return download_url
             .map(str::to_ascii_lowercase)
-            .is_some_and(|url| url.ends_with(".app.zip"));
+            .is_some_and(|url| url.ends_with(".app.tar.gz"));
     }
     #[cfg(target_os = "windows")]
     {
@@ -506,18 +497,17 @@ mod tests {
         let download_url = if cfg!(target_os = "windows") {
             "https://example.com/Codux-setup.exe"
         } else {
-            "https://example.com/Codux.app.zip"
+            "https://example.com/Codux.app.tar.gz"
         };
         let status = update_status_from_manifest(
             "1.0.0",
             "stable".to_string(),
             serde_json::json!({
                 "version": "1.2.0",
-                "automaticInstallSupported": true,
                 "platforms": {
                     platform_key: {
                         "url": download_url,
-                        "checksum": "platform-checksum"
+                        "signature": "signed"
                     }
                 }
             }),
@@ -528,5 +518,34 @@ mod tests {
             (cfg!(target_os = "macos") || cfg!(target_os = "windows"))
                 && !platform_keys_for_current_target().is_empty()
         );
+    }
+
+    #[test]
+    fn automatic_install_requires_signed_tauri_platform_entry() {
+        let platform_key = platform_keys_for_current_target()
+            .first()
+            .copied()
+            .unwrap_or("unknown");
+        let download_url = if cfg!(target_os = "windows") {
+            "https://example.com/Codux-setup.exe"
+        } else {
+            "https://example.com/Codux.app.tar.gz"
+        };
+        let status = update_status_from_manifest(
+            "1.0.0",
+            "stable".to_string(),
+            serde_json::json!({
+                "version": "1.2.0",
+                "platforms": {
+                    platform_key: {
+                        "url": download_url,
+                        "signature": ""
+                    }
+                }
+            }),
+        );
+
+        assert!(!status.automatic_install_supported);
+        assert_eq!(status.installation_mode, "manualManifest");
     }
 }

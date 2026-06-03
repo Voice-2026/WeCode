@@ -426,7 +426,7 @@ mod tests {
         crate::config::flush_all_config_writes();
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains(
-            "\"endpoint\": \"https://github.com/duxweb/codux/releases/download/beta/latest.json\""
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json\""
         ));
 
         let summary = service
@@ -436,14 +436,14 @@ mod tests {
         crate::config::flush_all_config_writes();
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains(
-            "\"endpoint\": \"https://github.com/duxweb/codux/releases/latest/download/latest.json\""
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json\""
         ));
 
         fs::remove_dir_all(support_dir).ok();
     }
 
     #[test]
-    fn update_channel_does_not_manage_raw_legacy_endpoint() {
+    fn update_channel_keeps_raw_endpoint_in_sync() {
         let support_dir = temp_dir("settings-update-channel-raw");
         fs::write(
             support_dir.join("settings.json"),
@@ -467,7 +467,7 @@ mod tests {
         crate::config::flush_all_config_writes();
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains(
-            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/stable/latest.json\""
+            "\"endpoint\": \"https://raw.githubusercontent.com/duxweb/codux/main/updates/beta/latest.json\""
         ));
 
         fs::remove_dir_all(support_dir).ok();
