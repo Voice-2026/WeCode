@@ -31,6 +31,7 @@ pub(in crate::app) struct StatusBarSnapshot {
     remote_devices: usize,
     remote_online_devices: usize,
     git: StatusGitSummary,
+    git_running_label: Option<String>,
 }
 
 impl StatusBarView {
@@ -90,6 +91,10 @@ impl CoduxApp {
             remote_devices: self.state.remote.devices,
             remote_online_devices: self.state.remote.online_devices,
             git: self.status_git_summary(),
+            git_running_label: self
+                .git_running_operation
+                .as_ref()
+                .map(|operation| operation.label.clone()),
         }
     }
 
@@ -216,6 +221,11 @@ fn status_bar_content(
                 ))
                 .child(status_separator())
                 .when(snapshot.git.is_repository, |this| {
+                    let git_running_label = snapshot.git_running_label.as_deref();
+                    let git_operation_running = git_running_label.is_some();
+                    let pull_running = git_running_label == Some("pull");
+                    let push_running = git_running_label
+                        .is_some_and(|label| label == "push" || label.starts_with("push:"));
                     let branch = if snapshot.git.branch.trim().is_empty() {
                         status_text(&snapshot.language, "git.branch.none", "No Branch")
                     } else {
@@ -234,6 +244,8 @@ fn status_bar_content(
                         snapshot.git.incoming,
                         0x6AA1FF,
                         "status-pull",
+                        pull_running,
+                        git_operation_running,
                         cx,
                         |app, _event, window, cx| app.pull_project_git(window, cx),
                     ))
@@ -243,6 +255,8 @@ fn status_bar_content(
                         snapshot.git.outgoing,
                         theme::GREEN,
                         "status-push",
+                        push_running,
+                        git_operation_running,
                         cx,
                         |app, _event, window, cx| app.push_project_git(window, cx),
                     ))
@@ -256,6 +270,8 @@ fn status_sync_action_button(
     count: i64,
     accent: u32,
     id: &'static str,
+    loading: bool,
+    disabled: bool,
     cx: &mut Context<StatusBarView>,
     on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> impl IntoElement {
@@ -272,10 +288,24 @@ fn status_sync_action_button(
         .rounded_sm()
         .text_size(rems(0.75))
         .text_color(color(theme::TEXT_MUTED))
-        .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().list_hover))
+        .when(!disabled, |this| {
+            this.cursor_pointer()
+                .hover(|style| style.bg(cx.theme().list_hover))
+        })
+        .when(disabled, |this| this.opacity(0.58))
         .on_click(move |event, window, cx| {
+            if disabled {
+                cx.stop_propagation();
+                return;
+            }
             cx.update_entity(&app_entity, |app, cx| on_click(app, event, window, cx));
+        })
+        .when(loading, |this| {
+            this.child(Spinner::new().xsmall().color(color(if count > 0 {
+                accent
+            } else {
+                theme::TEXT_MUTED
+            })))
         })
         .child(
             div()

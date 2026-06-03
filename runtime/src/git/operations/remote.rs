@@ -110,29 +110,29 @@ fn rebase_current_branch_git2(
 ) -> Result<(), String> {
     let upstream = repo
         .find_annotated_commit(upstream_oid)
-        .map_err(|error| error.message().to_string())?;
+        .map_err(git_error_message)?;
     let mut options = git2::RebaseOptions::new();
     let mut rebase = repo
         .rebase(None, Some(&upstream), None, Some(&mut options))
-        .map_err(|error| error.message().to_string())?;
+        .map_err(git_error_message)?;
     let signature = repo_signature(repo)?;
     while let Some(operation) = rebase.next() {
         check_git_cancelled(cancel)?;
-        operation.map_err(|error| error.message().to_string())?;
+        operation.map_err(git_error_message)?;
         if repo
             .index()
-            .map_err(|error| error.message().to_string())?
+            .map_err(git_error_message)?
             .has_conflicts()
         {
             return Err("Pull rebase produced conflicts. Resolve them manually.".to_string());
         }
         rebase
             .commit(None, &signature, None)
-            .map_err(|error| error.message().to_string())?;
+            .map_err(git_error_message)?;
     }
     rebase
         .finish(Some(&signature))
-        .map_err(|error| error.message().to_string())
+        .map_err(git_error_message)
 }
 
 fn push_current_branch_git2(
@@ -187,18 +187,22 @@ fn fast_forward_head(repo: &GitRepository, target: git2::Oid) -> Result<(), Stri
         .ok()
         .and_then(|head| head.name().ok().map(str::to_string))
         .ok_or_else(|| "Cannot fast-forward detached HEAD.".to_string())?;
+    let target_object = repo
+        .find_object(target, None)
+        .map_err(git_error_message)?;
+    let mut checkout = git2::build::CheckoutBuilder::new();
+    checkout.safe();
+    repo.checkout_tree(&target_object, Some(&mut checkout))
+        .map_err(git_error_message)?;
     let mut reference = repo
         .find_reference(&head_name)
-        .map_err(|error| error.message().to_string())?;
+        .map_err(git_error_message)?;
     reference
         .set_target(target, "Fast-forward")
-        .map_err(|error| error.message().to_string())?;
+        .map_err(git_error_message)?;
     repo.set_head(&head_name)
-        .map_err(|error| error.message().to_string())?;
-    let mut checkout = git2::build::CheckoutBuilder::new();
-    checkout.force();
-    repo.checkout_head(Some(&mut checkout))
-        .map_err(|error| error.message().to_string())
+        .map_err(git_error_message)?;
+    Ok(())
 }
 
 fn upstream_remote_for_branch(repo: &GitRepository, branch: &str) -> Option<String> {
@@ -306,7 +310,15 @@ fn git_error_message(error: git2::Error) -> String {
 }
 
 fn normalize_git_error_message(message: &str) -> String {
-    if message.to_lowercase().contains("cannot push because a reference that you are trying to update on the remote contains commits that are not present locally") {
+    let lower = message.to_lowercase();
+    if lower.contains("unstaged changes exist in workdir")
+        || lower.contains("uncommitted changes exist in index")
+        || lower.contains("would be overwritten by checkout")
+        || lower.contains("local changes would be overwritten")
+    {
+        return "Pull requires a clean working tree. Commit, stash, or discard local changes, then try again.".to_string();
+    }
+    if lower.contains("cannot push because a reference that you are trying to update on the remote contains commits that are not present locally") {
         return "Push rejected because the remote branch has commits that are not present locally. Pull or sync first, then push again.".to_string();
     }
     message.to_string()
@@ -321,4 +333,21 @@ fn default_ssh_key_paths() -> Vec<PathBuf> {
         .into_iter()
         .map(|name| ssh.join(name))
         .collect()
+}
+
+#[cfg(test)]
+mod remote_operation_tests {
+    use super::normalize_git_error_message;
+
+    #[test]
+    fn normalizes_pull_dirty_worktree_errors() {
+        assert_eq!(
+            normalize_git_error_message("unstaged changes exist in workdir"),
+            "Pull requires a clean working tree. Commit, stash, or discard local changes, then try again."
+        );
+        assert_eq!(
+            normalize_git_error_message("Your local changes would be overwritten by checkout"),
+            "Pull requires a clean working tree. Commit, stash, or discard local changes, then try again."
+        );
+    }
 }
