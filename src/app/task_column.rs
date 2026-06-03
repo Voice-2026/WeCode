@@ -1,6 +1,7 @@
 use gpui_component::{InteractiveElementExt as _, menu::ContextMenuExt as _};
 
 use super::ai_runtime_status::AIActivityState;
+use super::ui_helpers::codux_tooltip_container;
 use super::{formatting::relative_time_label_for_language, *};
 
 pub(in crate::app) struct TaskColumnView {
@@ -80,6 +81,7 @@ struct TaskColumnLabels {
     sessions: String,
     changed_format: String,
     create: String,
+    refresh: String,
     open: String,
     open_folder: String,
     merge: String,
@@ -98,6 +100,7 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         sessions: tr("ai.sessions.history", "Session History"),
         changed_format: tr("worktree.sidebar.changed_format", "%@ changed"),
         create: tr("worktree.create.title", "New Worktree"),
+        refresh: tr("common.refresh", "Refresh"),
         open: tr("common.open", "Open"),
         open_folder: tr("worktree.menu.open_folder", "Open Folder"),
         merge: tr("worktree.menu.merge", "Merge to Mainline"),
@@ -122,6 +125,7 @@ pub(in crate::app) struct TaskColumnHeaderSnapshot {
     project_name: String,
     refreshing: bool,
     create_label: String,
+    refresh_label: String,
 }
 
 pub(in crate::app) struct TaskColumnHeaderView {
@@ -145,6 +149,7 @@ impl Render for TaskColumnHeaderView {
             self.snapshot.project_name.clone(),
             self.snapshot.refreshing,
             self.snapshot.create_label.clone(),
+            self.snapshot.refresh_label.clone(),
             self.app_entity.clone(),
             cx,
         )
@@ -294,6 +299,7 @@ impl CoduxApp {
                 .unwrap_or(labels.no_project),
             refreshing: self.task_column_refreshing,
             create_label: labels.create,
+            refresh_label: labels.refresh,
         }
     }
 
@@ -393,11 +399,12 @@ fn task_column_header(
     project_name: String,
     refreshing: bool,
     create_label: String,
+    refresh_label: String,
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskColumnHeaderView>,
 ) -> impl IntoElement {
     let create_entity = app_entity.clone();
-    let refresh_entity = app_entity;
+    let refresh_entity = app_entity.clone();
     div()
         .h(px(44.0))
         .w_full()
@@ -432,39 +439,58 @@ fn task_column_header(
                         .items_center()
                         .gap(px(4.0))
                         .child(
-                            Button::new("task-create")
-                                .ghost()
-                                .compact()
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(HeroIconName::Plus)
-                                        .size_3p5()
-                                        .text_color(cx.theme().secondary_foreground),
-                                )
-                                .tooltip(create_label.clone())
-                                .on_click(move |_, window, cx| {
-                                    cx.update_entity(&create_entity, |app: &mut CoduxApp, cx| {
-                                        app.open_worktree_creator_window(window, cx);
-                                    });
-                                }),
+                            codux_tooltip_container(
+                                app_entity.clone(),
+                                "task-create-tooltip",
+                                create_label.clone(),
+                            )
+                            .child(
+                                Button::new("task-create")
+                                    .ghost()
+                                    .compact()
+                                    .text_color(cx.theme().secondary_foreground)
+                                    .icon(
+                                        Icon::new(HeroIconName::Plus)
+                                            .size_3p5()
+                                            .text_color(cx.theme().secondary_foreground),
+                                    )
+                                    .on_click(move |_, window, cx| {
+                                        cx.update_entity(
+                                            &create_entity,
+                                            |app: &mut CoduxApp, cx| {
+                                                app.open_worktree_creator_window(window, cx);
+                                            },
+                                        );
+                                    }),
+                            ),
                         )
                         .child(
-                            Button::new("task-refresh")
-                                .ghost()
-                                .compact()
-                                .loading(refreshing)
-                                .disabled(refreshing)
-                                .text_color(cx.theme().secondary_foreground)
-                                .icon(
-                                    Icon::new(HeroIconName::ArrowPath)
-                                        .size_3p5()
-                                        .text_color(cx.theme().secondary_foreground),
-                                )
-                                .on_click(move |_, _window, cx| {
-                                    cx.update_entity(&refresh_entity, |app: &mut CoduxApp, cx| {
-                                        app.refresh_task_column_async(cx);
-                                    });
-                                }),
+                            codux_tooltip_container(
+                                app_entity,
+                                "task-refresh-tooltip",
+                                refresh_label,
+                            )
+                            .child(
+                                Button::new("task-refresh")
+                                    .ghost()
+                                    .compact()
+                                    .loading(refreshing)
+                                    .disabled(refreshing)
+                                    .text_color(cx.theme().secondary_foreground)
+                                    .icon(
+                                        Icon::new(HeroIconName::ArrowPath)
+                                            .size_3p5()
+                                            .text_color(cx.theme().secondary_foreground),
+                                    )
+                                    .on_click(move |_, _window, cx| {
+                                        cx.update_entity(
+                                            &refresh_entity,
+                                            |app: &mut CoduxApp, cx| {
+                                                app.refresh_task_column_async(cx);
+                                            },
+                                        );
+                                    }),
+                            ),
                         ),
                 ),
         )

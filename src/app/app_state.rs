@@ -254,6 +254,14 @@ pub(in crate::app) struct CoduxTooltipState {
     pub(in crate::app) id: Option<ElementId>,
     pub(in crate::app) text: SharedString,
     pub(in crate::app) bounds: Bounds<Pixels>,
+    pub(in crate::app) placement: CoduxTooltipPlacement,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::app) enum CoduxTooltipPlacement {
+    #[default]
+    Auto,
+    Right,
 }
 
 #[derive(Clone, Debug, PartialEq)]

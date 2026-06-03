@@ -1,6 +1,8 @@
 {
   "strings": {
     "de": {
+      "sidebar.collapse": "Seitenleiste einklappen",
+      "sidebar.expand": "Seitenleiste ausklappen",
       "sidebar.footer.add_project": "Projekt hinzufügen",
       "sidebar.footer.help": "Hilfe",
       "sidebar.footer.settings": "Einstellungen",
@@ -10,6 +12,8 @@
       "sidebar.workspace": "Arbeitsbereich"
     },
     "en": {
+      "sidebar.collapse": "Collapse Sidebar",
+      "sidebar.expand": "Expand Sidebar",
       "sidebar.footer.add_project": "Add Project",
       "sidebar.footer.help": "Help",
       "sidebar.footer.settings": "Settings",
@@ -19,6 +23,8 @@
       "sidebar.workspace": "Workspace"
     },
     "es": {
+      "sidebar.collapse": "Contraer barra lateral",
+      "sidebar.expand": "Expandir barra lateral",
       "sidebar.footer.add_project": "Agregar proyecto",
       "sidebar.footer.help": "Ayuda",
       "sidebar.footer.settings": "Ajustes",
@@ -28,6 +34,8 @@
       "sidebar.workspace": "Espacio de trabajo"
     },
     "fr": {
+      "sidebar.collapse": "Réduire la barre latérale",
+      "sidebar.expand": "Développer la barre latérale",
       "sidebar.footer.add_project": "Ajouter un projet",
       "sidebar.footer.help": "Aide",
       "sidebar.footer.settings": "Paramètres",
@@ -37,6 +45,8 @@
       "sidebar.workspace": "Espace de travail"
     },
     "ja": {
+      "sidebar.collapse": "サイドバーを折りたたむ",
+      "sidebar.expand": "サイドバーを展開",
       "sidebar.footer.add_project": "プロジェクトの追加",
       "sidebar.footer.help": "ヘルプ",
       "sidebar.footer.settings": "設定",
@@ -46,6 +56,8 @@
       "sidebar.workspace": "ワークスペース"
     },
     "ko": {
+      "sidebar.collapse": "사이드바 접기",
+      "sidebar.expand": "사이드바 펼치기",
       "sidebar.footer.add_project": "프로젝트 추가",
       "sidebar.footer.help": "도움말",
       "sidebar.footer.settings": "설정",
@@ -55,6 +67,8 @@
       "sidebar.workspace": "워크스페이스"
     },
     "pt-BR": {
+      "sidebar.collapse": "Recolher barra lateral",
+      "sidebar.expand": "Expandir barra lateral",
       "sidebar.footer.add_project": "Adicionar projeto",
       "sidebar.footer.help": "Ajuda",
       "sidebar.footer.settings": "Configurações",
@@ -64,6 +78,8 @@
       "sidebar.workspace": "Espaço de trabalho"
     },
     "ru": {
+      "sidebar.collapse": "Свернуть боковую панель",
+      "sidebar.expand": "Развернуть боковую панель",
       "sidebar.footer.add_project": "Добавить проект",
       "sidebar.footer.help": "Помощь",
       "sidebar.footer.settings": "Настройки",
@@ -73,6 +89,8 @@
       "sidebar.workspace": "Рабочая область"
     },
     "zh-Hans": {
+      "sidebar.collapse": "收起侧栏",
+      "sidebar.expand": "展开侧栏",
       "sidebar.footer.add_project": "添加项目",
       "sidebar.footer.help": "帮助",
       "sidebar.footer.settings": "设置",
@@ -82,6 +100,8 @@
       "sidebar.workspace": "工作区"
     },
     "zh-Hant": {
+      "sidebar.collapse": "收起側欄",
+      "sidebar.expand": "展開側欄",
       "sidebar.footer.add_project": "新增項目",
       "sidebar.footer.help": "幫助",
       "sidebar.footer.settings": "設定",

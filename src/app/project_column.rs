@@ -1,4 +1,6 @@
 use super::ai_runtime_status::AIActivityState;
+use super::app_state::CoduxTooltipPlacement;
+use super::ui_helpers::codux_tooltip_container_with_placement;
 use super::*;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
@@ -103,12 +105,7 @@ impl Render for ProjectColumnView {
             .bg(cx.theme().sidebar)
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
-            .child(project_column_header(
-                collapsed,
-                self.app_entity.clone(),
-                window,
-                cx,
-            ))
+            .child(project_column_header(collapsed))
             .child(
                 div()
                     .id("project-list-scroll")
@@ -167,12 +164,7 @@ impl Render for ProjectColumnView {
     }
 }
 
-fn project_column_header(
-    collapsed: bool,
-    app_entity: gpui::Entity<CoduxApp>,
-    window: &mut Window,
-    cx: &mut Context<ProjectColumnView>,
-) -> impl IntoElement {
+fn project_column_header(collapsed: bool) -> impl IntoElement {
     if collapsed {
         div()
             .h(px(48.0))
@@ -199,7 +191,6 @@ fn project_column_header(
             .px(px(10.0))
             .flex()
             .items_center()
-            .justify_between()
             .border_b_1()
             .border_color(color(theme::BORDER_SOFT))
             .child(
@@ -216,9 +207,6 @@ fn project_column_header(
                     .when(cfg!(target_os = "macos"), |this| this.invisible())
                     .child("Codux"),
             )
-            .child(project_column_toggle_button(
-                collapsed, app_entity, window, cx,
-            ))
             .into_any_element()
     }
 }
@@ -241,10 +229,16 @@ fn project_tools_snapshot(
         .py_3();
 
     if collapsed {
+        let add_project_label =
+            project_column_text(language, "sidebar.footer.add_project", "Add Project");
+        let settings_label = project_column_text(language, "menu.settings", "Settings");
+        let help_label = project_column_text(language, "sidebar.footer.help", "Help");
         base.flex_col()
             .items_center()
             .child(project_column_toggle_button(
                 collapsed,
+                language,
+                None,
                 app_entity.clone(),
                 window,
                 cx,
@@ -252,6 +246,7 @@ fn project_tools_snapshot(
             .child(project_tool_button(
                 HeroIconName::Plus,
                 None,
+                add_project_label,
                 "project-add-footer",
                 app_entity.clone(),
                 window,
@@ -261,6 +256,7 @@ fn project_tools_snapshot(
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
                 None,
+                settings_label,
                 "project-settings-footer",
                 app_entity.clone(),
                 window,
@@ -269,6 +265,7 @@ fn project_tools_snapshot(
             ))
             .child(project_more_button(
                 None,
+                help_label,
                 language,
                 has_project,
                 has_projects,
@@ -278,15 +275,25 @@ fn project_tools_snapshot(
             ))
             .into_any_element()
     } else {
+        let add_project_label =
+            project_column_text(language, "sidebar.footer.add_project", "Add Project");
+        let settings_label = project_column_text(language, "menu.settings", "Settings");
+        let help_label = project_column_text(language, "sidebar.footer.help", "Help");
+        let toggle_label = project_column_text(language, "sidebar.collapse", "Collapse Sidebar");
         base.flex_col()
             .items_start()
+            .child(project_column_toggle_button(
+                collapsed,
+                language,
+                Some(toggle_label),
+                app_entity.clone(),
+                window,
+                cx,
+            ))
             .child(project_tool_button(
                 HeroIconName::Plus,
-                Some(project_column_text(
-                    language,
-                    "sidebar.footer.add_project",
-                    "Add Project",
-                )),
+                Some(add_project_label.clone()),
+                add_project_label,
                 "project-add-footer",
                 app_entity.clone(),
                 window,
@@ -295,7 +302,8 @@ fn project_tools_snapshot(
             ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
-                Some(project_column_text(language, "menu.settings", "Settings")),
+                Some(settings_label.clone()),
+                settings_label,
                 "project-settings-footer",
                 app_entity.clone(),
                 window,
@@ -303,7 +311,8 @@ fn project_tools_snapshot(
                 |app, _event, window, cx| app.open_settings_window(window, cx),
             ))
             .child(project_more_button(
-                Some(project_column_text(language, "sidebar.footer.help", "Help")),
+                Some(help_label.clone()),
+                help_label,
                 language,
                 has_project,
                 has_projects,
@@ -318,6 +327,7 @@ fn project_tools_snapshot(
 fn project_tool_button(
     icon: HeroIconName,
     label: Option<String>,
+    tooltip: String,
     id: &'static str,
     app_entity: gpui::Entity<CoduxApp>,
     window: &mut Window,
@@ -336,9 +346,22 @@ fn project_tool_button(
         button
     };
 
-    button
+    let button = button
         .on_click(window.listener_for(&app_entity, on_click))
-        .child(project_tool_content(icon, label, cx))
+        .child(project_tool_content(icon, label, cx));
+
+    if has_label {
+        return button.into_any_element();
+    }
+
+    codux_tooltip_container_with_placement(
+        app_entity.clone(),
+        SharedString::from(format!("project-tool-{id}-tooltip")),
+        tooltip,
+        CoduxTooltipPlacement::Right,
+    )
+    .child(button)
+    .into_any_element()
 }
 
 fn project_tool_content(
@@ -388,6 +411,7 @@ fn project_tool_content(
 
 fn project_more_button(
     label: Option<String>,
+    tooltip: String,
     language: &str,
     _has_project: bool,
     _has_projects: bool,
@@ -407,21 +431,22 @@ fn project_more_button(
         button
     };
 
-    button
+    let menu_entity = app_entity.clone();
+    let button = button
         .child(project_tool_content(
             HeroIconName::EllipsisHorizontal,
             label,
             cx,
         ))
         .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
-            let fallback_entity = app_entity.clone();
-            let about_entity = app_entity.clone();
-            let updates_entity = app_entity.clone();
-            let diagnostics_entity = app_entity.clone();
-            let runtime_log_entity = app_entity.clone();
-            let live_log_entity = app_entity.clone();
-            let website_entity = app_entity.clone();
-            let github_entity = app_entity.clone();
+            let fallback_entity = menu_entity.clone();
+            let about_entity = menu_entity.clone();
+            let updates_entity = menu_entity.clone();
+            let diagnostics_entity = menu_entity.clone();
+            let runtime_log_entity = menu_entity.clone();
+            let live_log_entity = menu_entity.clone();
+            let website_entity = menu_entity.clone();
+            let github_entity = menu_entity.clone();
             let entries = project_help_menu_entries(&language);
             entries
                 .into_iter()
@@ -451,7 +476,20 @@ fn project_more_button(
                         ))
                     }
                 })
-        })
+        });
+
+    if has_label {
+        return button.into_any_element();
+    }
+
+    codux_tooltip_container_with_placement(
+        app_entity.clone(),
+        "project-tool-project-more-footer-tooltip",
+        tooltip,
+        CoduxTooltipPlacement::Right,
+    )
+    .child(button)
+    .into_any_element()
 }
 
 enum ProjectHelpMenuEntry {
@@ -514,6 +552,8 @@ fn project_column_text(language: &str, key: &str, fallback: &str) -> String {
 
 fn project_column_toggle_button(
     collapsed: bool,
+    language: &str,
+    label: Option<String>,
     app_entity: gpui::Entity<CoduxApp>,
     window: &mut Window,
     cx: &mut Context<ProjectColumnView>,
@@ -523,14 +563,42 @@ fn project_column_toggle_button(
     } else {
         HeroIconName::ChevronDoubleLeft
     };
-    Button::new("project-column-toggle")
+    let tooltip = project_column_text(
+        language,
+        if collapsed {
+            "sidebar.expand"
+        } else {
+            "sidebar.collapse"
+        },
+        if collapsed {
+            "Expand Sidebar"
+        } else {
+            "Collapse Sidebar"
+        },
+    );
+    let has_label = label.is_some();
+    let button = Button::new("project-column-toggle")
         .ghost()
         .text_color(cx.theme().secondary_foreground)
-        .w(px(40.0))
-        .icon(Icon::new(icon).text_color(cx.theme().secondary_foreground))
+        .w(if has_label { px(212.0) } else { px(40.0) })
+        .when(has_label, |this| this.justify_start())
         .on_click(window.listener_for(&app_entity, |app, _event, window, cx| {
             app.toggle_project_column(window, cx)
         }))
+        .child(project_tool_content(icon, label, cx));
+
+    if has_label {
+        return button.into_any_element();
+    }
+
+    codux_tooltip_container_with_placement(
+        app_entity.clone(),
+        "project-column-toggle-tooltip",
+        tooltip,
+        CoduxTooltipPlacement::Right,
+    )
+    .child(button)
+    .into_any_element()
 }
 
 fn project_row(
@@ -552,30 +620,39 @@ fn project_row(
             .items_center()
             .justify_center()
             .child(
-                div()
-                    .id(SharedString::from(format!("project-icon-{}", project.id)))
-                    .w(px(44.0))
-                    .h(px(44.0))
-                    .rounded(px(8.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_pointer()
-                    .when(active, |this| this.bg(cx.theme().list_hover))
-                    .hover(|style| style.bg(cx.theme().list_hover))
-                    .on_click(
-                        window.listener_for(&app_entity, move |app, _event, window, cx| {
-                            app.select_project(project_id.clone(), window, cx)
-                        }),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .child(project_icon(&project, active))
-                            .when(activity_state.is_active(), |this| {
-                                this.child(project_activity_badge(activity_state, cx))
-                            }),
-                    ),
+                codux_tooltip_container_with_placement(
+                    app_entity.clone(),
+                    SharedString::from(format!("project-icon-{}-tooltip", project.id)),
+                    project.name.clone(),
+                    CoduxTooltipPlacement::Right,
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("project-icon-{}", project.id)))
+                        .w(px(44.0))
+                        .h(px(44.0))
+                        .rounded(px(8.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .when(active, |this| this.bg(cx.theme().list_hover))
+                        .hover(|style| style.bg(cx.theme().list_hover))
+                        .on_click(window.listener_for(
+                            &app_entity,
+                            move |app, _event, window, cx| {
+                                app.select_project(project_id.clone(), window, cx)
+                            },
+                        ))
+                        .child(
+                            div()
+                                .relative()
+                                .child(project_icon(&project, active))
+                                .when(activity_state.is_active(), |this| {
+                                    this.child(project_activity_badge(activity_state, cx))
+                                }),
+                        ),
+                ),
             )
             .into_any_element();
     }

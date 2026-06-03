@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::app_state::CoduxTooltipState;
+use crate::app::app_state::{CoduxTooltipPlacement, CoduxTooltipState};
 use gpui::{
     AnyElement, Display, Element, GlobalElementId, InspectorElementId, LayoutId, Position,
     Stateful, Style, deferred,
@@ -19,6 +19,15 @@ pub(in crate::app) fn codux_tooltip_container(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
 ) -> Stateful<gpui::Div> {
+    codux_tooltip_container_with_placement(app_entity, id, text, CoduxTooltipPlacement::Auto)
+}
+
+pub(in crate::app) fn codux_tooltip_container_with_placement(
+    app_entity: gpui::Entity<CoduxApp>,
+    id: impl Into<ElementId>,
+    text: impl Into<SharedString>,
+    placement: CoduxTooltipPlacement,
+) -> Stateful<gpui::Div> {
     let text = text.into();
     let id = id.into();
     let tooltip_id = id.clone();
@@ -30,7 +39,14 @@ pub(in crate::app) fn codux_tooltip_container(
         .on_prepaint(move |element_bounds, _, _| bounds_writer.set(element_bounds))
         .on_hover(move |hovered, _window, cx| {
             app_entity.update(cx, |app, cx| {
-                app.set_codux_tooltip(*hovered, tooltip_id.clone(), text.clone(), bounds.get(), cx);
+                app.set_codux_tooltip(
+                    *hovered,
+                    tooltip_id.clone(),
+                    text.clone(),
+                    bounds.get(),
+                    placement,
+                    cx,
+                );
             });
         })
 }
@@ -42,6 +58,7 @@ impl CoduxApp {
         id: ElementId,
         text: SharedString,
         bounds: Bounds<Pixels>,
+        placement: CoduxTooltipPlacement,
         cx: &mut Context<Self>,
     ) {
         if !hovered {
@@ -51,6 +68,7 @@ impl CoduxApp {
         if self.tooltip_state.id.as_ref() == Some(&id)
             && self.tooltip_state.text == text
             && self.tooltip_state.bounds == bounds
+            && self.tooltip_state.placement == placement
         {
             return;
         }
@@ -58,6 +76,7 @@ impl CoduxApp {
             id: Some(id),
             text,
             bounds,
+            placement,
         };
         cx.notify();
     }
@@ -76,21 +95,22 @@ impl CoduxApp {
         };
 
         deferred(
-            codux_tooltip_positioner(self.tooltip_state.bounds).child(
-                div()
-                    .max_w(px(260.0))
-                    .rounded(px(6.0))
-                    .border_1()
-                    .border_color(color(0xFFFFFF).opacity(0.22))
-                    .bg(color(0x000000))
-                    .px_2()
-                    .py_1()
-                    .text_size(rems(0.75))
-                    .line_height(rems(1.0))
-                    .text_color(color(0xF4F6FA))
-                    .whitespace_normal()
-                    .child(self.tooltip_state.text.clone()),
-            ),
+            codux_tooltip_positioner(self.tooltip_state.bounds, self.tooltip_state.placement)
+                .child(
+                    div()
+                        .max_w(px(260.0))
+                        .rounded(px(6.0))
+                        .border_1()
+                        .border_color(color(0xFFFFFF).opacity(0.22))
+                        .bg(color(0x000000))
+                        .px_2()
+                        .py_1()
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(color(0xF4F6FA))
+                        .whitespace_normal()
+                        .child(self.tooltip_state.text.clone()),
+                ),
         )
         .with_priority(2)
         .into_any_element()
@@ -99,6 +119,7 @@ impl CoduxApp {
 
 struct CoduxTooltipPositioner {
     trigger_bounds: Bounds<Pixels>,
+    placement: CoduxTooltipPlacement,
     children: Vec<AnyElement>,
 }
 
@@ -106,9 +127,13 @@ struct CoduxTooltipPositionerState {
     child_layout_ids: Vec<LayoutId>,
 }
 
-fn codux_tooltip_positioner(trigger_bounds: Bounds<Pixels>) -> CoduxTooltipPositioner {
+fn codux_tooltip_positioner(
+    trigger_bounds: Bounds<Pixels>,
+    placement: CoduxTooltipPlacement,
+) -> CoduxTooltipPositioner {
     CoduxTooltipPositioner {
         trigger_bounds,
+        placement,
         children: Vec::new(),
     }
 }
@@ -184,6 +209,7 @@ impl Element for CoduxTooltipPositioner {
             tooltip_size,
             window.viewport_size(),
             window.client_inset().unwrap_or(px(0.0)) + px(8.0),
+            self.placement,
         ) - bounds.origin;
         let offset = point(offset.x.round(), offset.y.round());
 
@@ -223,8 +249,18 @@ fn codux_tooltip_position(
     tooltip_size: gpui::Size<Pixels>,
     viewport_size: gpui::Size<Pixels>,
     margin: Pixels,
+    placement: CoduxTooltipPlacement,
 ) -> gpui::Point<Pixels> {
     let gap = px(8.0);
+    if placement == CoduxTooltipPlacement::Right {
+        let right_limit = (viewport_size.width - tooltip_size.width - margin).max(margin);
+        let bottom_limit = (viewport_size.height - tooltip_size.height - margin).max(margin);
+        let x = (trigger_bounds.right() + gap).max(margin).min(right_limit);
+        let centered_y = trigger_bounds.center().y - tooltip_size.height / 2.0;
+        let y = centered_y.max(margin).min(bottom_limit);
+        return point(x, y);
+    }
+
     let centered_x = trigger_bounds.center().x - tooltip_size.width / 2.0;
     let below_y = trigger_bounds.bottom() + gap;
     let above_y = trigger_bounds.top() - tooltip_size.height - gap;
