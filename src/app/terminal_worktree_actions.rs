@@ -954,7 +954,7 @@ impl CoduxApp {
                 "Remove and Delete Branch",
             )
         } else {
-            self.text("worktree.menu.remove", "Remove")
+            self.text("common.remove", "Remove")
         };
         let cancel_label = self.text("common.cancel", "Cancel");
         let service = self.runtime_service.clone();

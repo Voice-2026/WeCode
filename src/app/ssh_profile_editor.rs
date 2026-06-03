@@ -80,7 +80,7 @@ impl SshProfileEditorLabels {
             choose: tr("common.choose", "Choose"),
             select: tr("common.choose", "Choose"),
             cancel: tr("common.cancel", "Cancel"),
-            test: tr("ssh.profile.test", "Test"),
+            test: tr("common.test", "Test"),
             testing: tr("ssh.profile.test.testing", "Testing..."),
             save: tr("common.save", "Save"),
         }

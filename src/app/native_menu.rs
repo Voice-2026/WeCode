@@ -141,7 +141,7 @@ impl MenuLabels {
             create_split: tr("menu.view.create_split", "Create Split"),
             create_tab: tr("menu.view.create_tab", "Create Tab"),
             create_task: tr("shortcut.task.create", "New Worktree"),
-            editor_save: tr("shortcut.editor.save", "Save"),
+            editor_save: tr("common.save", "Save"),
             editor_search: tr("shortcut.editor.search", "Search File"),
             toggle_fullscreen: tr("menu.view.toggle_full_screen", "Toggle Full Screen"),
             minimize: tr("menu.window.minimize", "Minimize"),

@@ -1027,7 +1027,7 @@ fn remote_pending_pairing_overlay(
                         ))
                         .child(settings_small_button(
                             "settings-remote-pending-confirm",
-                            settings_text(language, "settings.remote.confirm_pairing", "Confirm"),
+                            settings_text(language, "common.confirm", "Confirm"),
                             cx,
                             move |app, _event, window, cx| {
                                 app.confirm_remote_pairing(confirm_id.clone(), window, cx)
@@ -2737,7 +2737,7 @@ fn shortcut_definitions() -> Vec<ShortcutDefinition> {
         },
         ShortcutDefinition {
             id: "editor.save",
-            label_key: "shortcut.editor.save",
+            label_key: "common.save",
             fallback: "Save",
             default_value: primary_static(primary, "S"),
         },
@@ -3330,13 +3330,13 @@ fn settings_ai_provider_card(
                                             "Testing...",
                                         )
                                     } else {
-                                        settings_text(language, "settings.ai.provider.test", "Test")
+                                        settings_text(language, "common.test", "Test")
                                     }),
                             ),
                         )
                         .child(settings_small_button(
                             format!("settings-provider-remove-{}", provider.id),
-                            settings_text(language, "settings.ai.provider.remove", "Remove"),
+                            settings_text(language, "common.remove", "Remove"),
                             cx,
                             {
                                 let remove_id = provider.id.clone();
@@ -3482,7 +3482,7 @@ fn settings_notification_card(
                                     "Testing...",
                                 )
                             } else {
-                                settings_text(language, "settings.ai.provider.test", "Test")
+                                settings_text(language, "common.test", "Test")
                             },
                             testing,
                             test_disabled,

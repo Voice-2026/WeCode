@@ -30,11 +30,11 @@ fn file_sidebar_labels(language: &str) -> FileSidebarLabels {
         open: tr("files.panel.open", "Open"),
         reveal: tr("files.panel.reveal_finder", "Show in File Manager"),
         copy_path: tr("files.panel.copy_path", "Copy Path"),
-        copy: tr("files.panel.copy", "Copy"),
+        copy: tr("common.copy", "Copy"),
         paste: tr("files.panel.paste", "Paste"),
         rename: tr("common.rename", "Rename"),
         send_terminal: tr("files.panel.insert_path_terminal", "Send to Terminal"),
-        delete: tr("files.panel.delete", "Delete"),
+        delete: tr("common.delete", "Delete"),
         items_count_format: tr("files.panel.items_count_format", "%d file items"),
     }
 }
