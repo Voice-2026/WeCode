@@ -384,4 +384,35 @@ mod tests {
         assert_eq!(terminals[0].terminal_instance_id.as_deref(), Some("instance-1"));
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn supervisor_creates_running_session_from_terminal_registry_without_hooks() {
+        let supervisor = AIRuntimeSupervisor::new();
+        let registry = AIRuntimeRegistry::shared();
+        let dir = std::env::temp_dir().join(format!(
+            "codux-supervisor-registry-only-{}",
+            uuid::Uuid::new_v4()
+        ));
+        registry.upsert(crate::ai_runtime::registry::AIRuntimeTerminalBinding {
+            terminal_id: "term-1".to_string(),
+            project_id: "project-1".to_string(),
+            slot_id: "slot-1".to_string(),
+            title: "Codex".to_string(),
+            cwd: "/tmp/project".to_string(),
+            tool: Some("codex".to_string()),
+            is_active: true,
+            session_key: Some("session-key-1".to_string()),
+            terminal_instance_id: Some("instance-1".to_string()),
+        });
+        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
+        supervisor.poll_once().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        let snapshot = supervisor.state_snapshot();
+        assert_eq!(snapshot.running_count, 1);
+        assert_eq!(snapshot.sessions[0].terminal_id, "term-1");
+        assert_eq!(snapshot.sessions[0].tool, "codex");
+        assert_eq!(snapshot.sessions[0].state, "responding");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

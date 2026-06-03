@@ -21,7 +21,9 @@ mod summary;
 mod tests;
 
 use apply::{apply_hook_unlocked, apply_runtime_snapshot_unlocked};
-use helpers::{is_codex_transcript_session, mark_interrupted, now_seconds};
+use helpers::{
+    bridge_terminal_session, is_codex_transcript_session, mark_interrupted, now_seconds,
+};
 pub use helpers::{probe_request_for_session, should_poll_runtime_session};
 #[cfg(test)]
 use resolve::merge_snapshot_into_hook;
@@ -245,6 +247,10 @@ impl AIRuntimeStateStore {
 
         for terminal in terminals {
             let Some(existing) = core.sessions.get(&terminal.terminal_id).cloned() else {
+                if let Some(session) = bridge_terminal_session(terminal, now) {
+                    core.sessions.insert(terminal.terminal_id.clone(), session);
+                    did_change = true;
+                }
                 continue;
             };
             if existing.state != "responding" {

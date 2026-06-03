@@ -1110,6 +1110,16 @@ impl CoduxApp {
         let drained = self
             .runtime_service
             .drain_ai_runtime_events_and_enqueue_memory();
+        let ai_state_events = drained
+            .events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    codux_runtime::ai_runtime::AIRuntimeSupervisorEvent::State { .. }
+                )
+            })
+            .count();
         let memory_event = current_memory_update_event();
         let memory_update_event = memory_event.revision > self.memory_seen_revision;
         if memory_update_event {
@@ -1160,7 +1170,7 @@ impl CoduxApp {
 
         RuntimeActivityTickResult {
             ai_events: drained.events.len(),
-            ai_activity_changed,
+            ai_activity_changed: ai_activity_changed || ai_state_events > 0,
             memory_events: drained.memory.len() + usize::from(memory_update_event),
             changed: true,
             ai_state_error: None,

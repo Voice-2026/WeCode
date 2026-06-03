@@ -2,6 +2,7 @@ use super::AIRuntimeStateCore;
 use crate::ai_runtime::{
     constants::CODEX_INTERVAL_POLL_MINIMUM_SECONDS,
     payload::AIHookEventPayload,
+    registry::AIRuntimeTerminalState,
     snapshot::{AIRuntimeProbeRequest, AISessionSnapshot},
     state::{canonical_tool_name, normalized_string},
 };
@@ -33,6 +34,54 @@ pub(super) fn mark_interrupted(session: AISessionSnapshot, updated_at: f64) -> A
         updated_at,
         ..session
     }
+}
+
+pub(super) fn bridge_terminal_session(
+    terminal: &AIRuntimeTerminalState,
+    now: f64,
+) -> Option<AISessionSnapshot> {
+    let tool = canonical_tool_name(terminal.tool.as_deref()?)?;
+    if !matches!(
+        tool.as_str(),
+        "codex" | "claude" | "gemini" | "opencode" | "kiro"
+    ) {
+        return None;
+    }
+    let project_id = normalized_string(Some(terminal.project_id.as_str()))?;
+    let terminal_id = normalized_string(Some(terminal.terminal_id.as_str()))?;
+    Some(AISessionSnapshot {
+        terminal_id,
+        terminal_instance_id: normalized_string(terminal.terminal_instance_id.as_deref()),
+        project_id,
+        project_name: "Workspace".to_string(),
+        project_path: normalized_string(Some(terminal.cwd.as_str())),
+        session_title: normalized_string(Some(terminal.title.as_str()))
+            .unwrap_or_else(|| "Terminal".to_string()),
+        tool,
+        ai_session_id: normalized_string(terminal.session_key.as_deref()),
+        model: None,
+        state: "responding".to_string(),
+        status: "running".to_string(),
+        is_running: true,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_input_tokens: 0,
+        total_tokens: 0,
+        baseline_total_tokens: 0,
+        baseline_cached_input_tokens: 0,
+        baseline_resolved: false,
+        started_at: Some(now),
+        updated_at: now,
+        active_turn_started_at: Some(now),
+        runtime_turn_started_at: None,
+        has_completed_turn: false,
+        was_interrupted: false,
+        transcript_path: None,
+        notification_type: None,
+        target_tool_name: None,
+        message: None,
+        latest_assistant_preview: None,
+    })
 }
 
 pub(super) fn is_tool_activity_without_loading(

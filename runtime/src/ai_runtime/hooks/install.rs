@@ -98,19 +98,21 @@ fn install_tool_hooks(
         .unwrap_or_default();
 
     for (event_key, action) in removed_hook_definitions(tool) {
-        strip_managed_action_from_hooks(&mut hooks, event_key, action, Some(owner), Some(tool));
+        strip_managed_action_from_hooks(&mut hooks, event_key, action, None, Some(tool));
     }
     if tool == "claude" {
         strip_managed_action_from_hooks(
             &mut hooks,
             "Notification",
             "notification",
-            Some(owner),
+            None,
             Some("claude"),
         );
     }
 
     for (event_key, action, timeout, is_async) in definitions {
+        strip_managed_action_from_hooks(&mut hooks, event_key, action, None, Some(tool));
+
         let command = hook_command(managed_hook_script, action, owner, tool);
         let mut hook = Map::new();
         hook.insert("type".to_string(), Value::String("command".to_string()));
@@ -177,6 +179,8 @@ fn install_kiro_tool_hooks(
         .unwrap_or_default();
 
     for (event_key, action, timeout, is_async) in definitions {
+        strip_managed_action_from_hooks(&mut hooks, event_key, action, None, Some("kiro"));
+
         let command = hook_command(managed_hook_script, action, owner, "kiro");
         let mut hook = Map::new();
         hook.insert("command".to_string(), Value::String(command));
@@ -285,5 +289,54 @@ fn strip_managed_action_from_hooks(
 
     if !cleaned_groups.is_empty() {
         hooks.insert(event_key.to_string(), Value::Array(cleaned_groups));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_managed_action_removes_all_codux_owners_when_owner_is_unspecified() {
+        let mut hooks = Map::new();
+        hooks.insert(
+            "Stop".to_string(),
+            json!([
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "'/tmp/codux/dmux-ai-state.sh' 'codex-stop' 'codux' 'codex'"
+                        },
+                        {
+                            "type": "command",
+                            "command": "'/tmp/codux-dev/dmux-ai-state.sh' 'codex-stop' 'codux-dev' 'codex'"
+                        },
+                        {
+                            "type": "command",
+                            "command": "'/tmp/custom.sh' 'codex-stop' 'custom' 'codex'"
+                        }
+                    ]
+                }
+            ])
+            .as_array()
+            .cloned()
+            .map(Value::Array)
+            .unwrap(),
+        );
+
+        strip_managed_action_from_hooks(&mut hooks, "Stop", "codex-stop", None, Some("codex"));
+
+        let remaining = hooks
+            .get("Stop")
+            .and_then(|value| value.as_array())
+            .and_then(|groups| groups.first())
+            .and_then(|group| group.get("hooks"))
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(remaining.len(), 1);
+        assert!(remaining[0]["command"].as_str().unwrap().contains("custom"));
     }
 }
