@@ -1820,7 +1820,7 @@ impl CoduxApp {
                     "project.create.title",
                     "Create Project",
                 )),
-                size: size(px(620.0), px(430.0)),
+                size: size(px(620.0), px(446.0)),
                 min_size: size(px(520.0), px(390.0)),
                 already_open_message: "project creator already opened",
                 opened_message: "project creator opened",
@@ -1857,7 +1857,7 @@ impl CoduxApp {
             AuxiliaryWindowSpec {
                 slot: AuxiliaryWindowSlot::ProjectEditor,
                 title: SharedString::from(translate(&locale, "project.edit.title", "Edit Project")),
-                size: size(px(620.0), px(430.0)),
+                size: size(px(620.0), px(446.0)),
                 min_size: size(px(520.0), px(390.0)),
                 already_open_message: "project editor already opened",
                 opened_message: "project editor opened",

@@ -77,14 +77,9 @@ pub fn localized_save_dialog(
     Err("localized save dialog is only implemented on macOS".to_string())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub fn localized_confirm_dialog(request: LocalizedConfirmDialogRequest) -> Result<bool, String> {
-    macos::confirm_dialog(request)
-}
-
-#[cfg(target_os = "windows")]
-pub fn localized_confirm_dialog(request: LocalizedConfirmDialogRequest) -> Result<bool, String> {
-    windows::confirm_dialog(request)
+    native_confirm_dialog(request)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -92,14 +87,9 @@ pub fn localized_confirm_dialog(_request: LocalizedConfirmDialogRequest) -> Resu
     Err("localized confirm dialog is only implemented on macOS and Windows".to_string())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub fn localized_alert_dialog(request: LocalizedAlertDialogRequest) -> Result<(), String> {
-    macos::alert_dialog(request)
-}
-
-#[cfg(target_os = "windows")]
-pub fn localized_alert_dialog(request: LocalizedAlertDialogRequest) -> Result<(), String> {
-    windows::alert_dialog(request)
+    native_alert_dialog(request)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -109,15 +99,10 @@ pub fn localized_alert_dialog(_request: LocalizedAlertDialogRequest) -> Result<(
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use super::{
-        DialogFilter, LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest,
-        LocalizedSaveDialogRequest,
-    };
+    use super::{DialogFilter, LocalizedSaveDialogRequest};
     use dispatch2::DispatchQueue;
     use objc2::{MainThreadMarker, rc::autoreleasepool};
-    use objc2_app_kit::{
-        NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSModalResponseOK, NSSavePanel,
-    };
+    use objc2_app_kit::{NSModalResponseOK, NSSavePanel};
     use objc2_foundation::{NSArray, NSString, NSURL};
     use std::path::Path;
 
@@ -142,51 +127,6 @@ mod macos {
                     .URL()
                     .and_then(|url| url.to_file_path())
                     .map(|path| path.to_string_lossy().into_owned()))
-            })
-        })
-    }
-
-    pub fn confirm_dialog(request: LocalizedConfirmDialogRequest) -> Result<bool, String> {
-        run_on_main(move |marker| {
-            autoreleasepool(|_| {
-                let alert = NSAlert::new(marker);
-                if !request.title.trim().is_empty() {
-                    alert.setMessageText(&NSString::from_str(&request.title));
-                }
-                if !request.message.trim().is_empty() {
-                    alert.setInformativeText(&NSString::from_str(&request.message));
-                }
-                alert.setAlertStyle(NSAlertStyle::Warning);
-                alert.addButtonWithTitle(&NSString::from_str(button_label(
-                    &request.confirm_label,
-                    "OK",
-                )));
-                alert.addButtonWithTitle(&NSString::from_str(button_label(
-                    &request.cancel_label,
-                    "Cancel",
-                )));
-                Ok(alert.runModal() == NSAlertFirstButtonReturn)
-            })
-        })
-    }
-
-    pub fn alert_dialog(request: LocalizedAlertDialogRequest) -> Result<(), String> {
-        run_on_main(move |marker| {
-            autoreleasepool(|_| {
-                let alert = NSAlert::new(marker);
-                if !request.title.trim().is_empty() {
-                    alert.setMessageText(&NSString::from_str(&request.title));
-                }
-                if !request.message.trim().is_empty() {
-                    alert.setInformativeText(&NSString::from_str(&request.message));
-                }
-                alert.setAlertStyle(NSAlertStyle::Warning);
-                alert.addButtonWithTitle(&NSString::from_str(button_label(
-                    &request.button_label,
-                    "OK",
-                )));
-                let _ = alert.runModal();
-                Ok(())
             })
         })
     }
@@ -268,11 +208,6 @@ mod macos {
         #[allow(deprecated)]
         panel.setAllowedFileTypes(Some(&allowed));
     }
-
-    fn button_label<'a>(value: &'a str, fallback: &'a str) -> &'a str {
-        let value = value.trim();
-        if value.is_empty() { fallback } else { value }
-    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -331,62 +266,46 @@ fn native_path_string(path: std::path::PathBuf) -> String {
     value
 }
 
-#[cfg(target_os = "windows")]
-mod windows {
-    use super::{LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest};
-    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IDOK, MB_DEFBUTTON2, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW,
-    };
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_confirm_dialog(request: LocalizedConfirmDialogRequest) -> Result<bool, String> {
+    use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 
-    pub fn confirm_dialog(request: LocalizedConfirmDialogRequest) -> Result<bool, String> {
-        let title = to_wide(if request.title.trim().is_empty() {
-            "Confirm"
-        } else {
-            request.title.trim()
-        });
-        let message = to_wide(if request.message.trim().is_empty() {
-            "Continue?"
-        } else {
-            request.message.trim()
-        });
-        let response = unsafe {
-            MessageBoxW(
-                std::ptr::null_mut(),
-                message.as_ptr(),
-                title.as_ptr(),
-                MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2,
-            )
-        };
-        Ok(response == IDOK)
-    }
+    let confirm_label = dialog_label(&request.confirm_label, "OK");
+    let cancel_label = dialog_label(&request.cancel_label, "Cancel");
+    let result = MessageDialog::new()
+        .set_title(dialog_label(&request.title, "Confirm"))
+        .set_description(dialog_label(&request.message, "Continue?"))
+        .set_level(MessageLevel::Warning)
+        .set_buttons(MessageButtons::OkCancelCustom(
+            confirm_label.clone(),
+            cancel_label,
+        ))
+        .show();
+    Ok(result == MessageDialogResult::Custom(confirm_label) || result == MessageDialogResult::Ok)
+}
 
-    pub fn alert_dialog(request: LocalizedAlertDialogRequest) -> Result<(), String> {
-        let title = to_wide(if request.title.trim().is_empty() {
-            "Alert"
-        } else {
-            request.title.trim()
-        });
-        let message = to_wide(if request.message.trim().is_empty() {
-            "Operation failed."
-        } else {
-            request.message.trim()
-        });
-        unsafe {
-            MessageBoxW(
-                std::ptr::null_mut(),
-                message.as_ptr(),
-                title.as_ptr(),
-                MB_OK | MB_ICONWARNING,
-            )
-        };
-        Ok(())
-    }
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn native_alert_dialog(request: LocalizedAlertDialogRequest) -> Result<(), String> {
+    use rfd::{MessageButtons, MessageDialog, MessageLevel};
 
-    fn to_wide(value: &str) -> Vec<u16> {
-        std::ffi::OsStr::new(value)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
+    MessageDialog::new()
+        .set_title(dialog_label(&request.title, "Alert"))
+        .set_description(dialog_label(&request.message, "Operation failed."))
+        .set_level(MessageLevel::Warning)
+        .set_buttons(MessageButtons::OkCustom(dialog_label(
+            &request.button_label,
+            "OK",
+        )))
+        .show();
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn dialog_label(value: &str, fallback: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        fallback.to_string()
+    } else {
+        value.to_string()
     }
 }
