@@ -34,7 +34,6 @@ pub(in crate::app) struct AIStatsSidebarSnapshot {
     selected_project_id: Option<String>,
     statistics_mode: String,
     language: String,
-    global_fingerprint: u64,
     history_fingerprint: u64,
     runtime_fingerprint: u64,
 }
@@ -59,7 +58,6 @@ impl Render for AIStatsSidebarView {
         let app_entity = self.app_entity.clone();
         app_entity.update(cx, |app, cx| {
             ai_stats_sidebar(
-                &app.state.ai_global_history,
                 &app.state.ai_history,
                 app.state
                     .selected_project
@@ -103,7 +101,6 @@ impl CoduxApp {
                 .map(|project| project.id.clone()),
             statistics_mode: self.state.settings.statistics_mode.clone(),
             language: self.state.settings.language.clone(),
-            global_fingerprint: ai_global_history_fingerprint(&self.state.ai_global_history),
             history_fingerprint: ai_history_fingerprint(&self.state.ai_history),
             runtime_fingerprint: ai_runtime_state_fingerprint(&self.state.ai_runtime_state),
         }
@@ -290,33 +287,6 @@ fn ai_session_fingerprints(
             )
         })
         .collect()
-}
-
-fn ai_global_history_fingerprint(global: &AIGlobalHistorySummary) -> u64 {
-    hash_sidebar_value(&(
-        global.indexed_project_count,
-        global.session_count,
-        global.total_tokens,
-        global.cached_input_tokens,
-        global.today_total_tokens,
-        global.today_cached_input_tokens,
-        global
-            .project_totals
-            .iter()
-            .map(|project| {
-                (
-                    project.project_path.clone(),
-                    project.project_name.clone(),
-                    project.session_count,
-                    project.total_tokens,
-                    project.cached_input_tokens,
-                    project.today_total_tokens,
-                )
-            })
-            .collect::<Vec<_>>(),
-        ai_session_fingerprints(&global.recent_sessions),
-        global.error.clone(),
-    ))
 }
 
 fn ai_history_fingerprint(history: &AIHistorySummary) -> u64 {

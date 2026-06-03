@@ -2,8 +2,7 @@ use super::{formatting::relative_time_label_for_language, *};
 use crate::app::ui_helpers::{centered_empty_state, codux_tooltip_container, with_codux_tooltip};
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::{
-    ai_runtime_state::AIRuntimeStateSummary,
-    i18n::translate,
+    ai_runtime_state::AIRuntimeStateSummary, i18n::translate,
     settings::locale_from_language_setting,
 };
 use gpui::Hsla;
@@ -58,7 +57,6 @@ impl AIUsageLabels {
 }
 
 pub(in crate::app) fn ai_stats_sidebar(
-    global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     selected_project_id: Option<&str>,
     statistics_mode: &str,
@@ -86,20 +84,8 @@ pub(in crate::app) fn ai_stats_sidebar(
         include_cached,
     ) + live_project_total_tokens;
     let today_total_tokens = ai_history_today_total(history, include_cached) + live_today_tokens;
-    let tool_rows = ai_tool_rows(
-        history,
-        global,
-        &live_sessions,
-        &indexed_baselines,
-        include_cached,
-    );
-    let model_rows = ai_model_rows(
-        history,
-        global,
-        &live_sessions,
-        &indexed_baselines,
-        include_cached,
-    );
+    let tool_rows = ai_tool_rows(history, &live_sessions, &indexed_baselines, include_cached);
+    let model_rows = ai_model_rows(history, &live_sessions, &indexed_baselines, include_cached);
 
     div()
         .flex()
@@ -147,7 +133,6 @@ pub(in crate::app) fn ai_stats_sidebar(
                         ))),
                 )
                 .child(div().mt(px(12.0)).child(ai_today_usage_chart(
-                    global,
                     history,
                     &live_sessions,
                     &indexed_baselines,
@@ -156,7 +141,6 @@ pub(in crate::app) fn ai_stats_sidebar(
                     cx,
                 )))
                 .child(div().mt(px(12.0)).child(ai_recent_usage_heatmap(
-                    global,
                     history,
                     &live_sessions,
                     &indexed_baselines,
@@ -1875,7 +1859,6 @@ fn ai_metric_card(
 }
 
 fn ai_today_usage_chart(
-    global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
@@ -1886,7 +1869,6 @@ fn ai_today_usage_chart(
     let title = ai_sidebar_text(language, "ai.today_usage", "Today's Usage");
     let usage_labels = AIUsageLabels::load(language);
     let values = ai_today_bucket_values(
-        global,
         history,
         live_sessions,
         indexed_baselines,
@@ -1949,7 +1931,6 @@ fn ai_today_usage_chart(
 }
 
 fn ai_recent_usage_heatmap(
-    global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
@@ -1960,7 +1941,6 @@ fn ai_recent_usage_heatmap(
     let title = ai_sidebar_text(language, "ai.recent_usage", "Recent Usage");
     let usage_labels = AIUsageLabels::load(language);
     let values = ai_recent_heatmap_values(
-        global,
         history,
         live_sessions,
         indexed_baselines,
@@ -2122,14 +2102,8 @@ fn ai_ranking_row(
     )
 }
 
-fn ai_history_sessions<'a>(
-    history: &'a AIHistorySummary,
-    global: &'a AIGlobalHistorySummary,
-) -> Vec<&'a AISessionSummary> {
-    let mut sessions = Vec::new();
-    sessions.extend(history.sessions.iter());
-    sessions.extend(global.recent_sessions.iter());
-    sessions
+fn ai_history_sessions(history: &AIHistorySummary) -> Vec<&AISessionSummary> {
+    history.sessions.iter().collect()
 }
 
 fn ai_now_seconds() -> f64 {
@@ -2253,7 +2227,6 @@ fn ai_weekday_label(weekday: chrono::Weekday, labels: &AIUsageLabels) -> &'stati
 }
 
 fn ai_today_bucket_values(
-    global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
@@ -2289,7 +2262,7 @@ fn ai_today_bucket_values(
     }
 
     if !has_indexed_buckets {
-        for session in ai_history_sessions(history, global) {
+        for session in ai_history_sessions(history) {
             if session.last_seen_at < day_start {
                 continue;
             }
@@ -2320,16 +2293,6 @@ fn ai_today_bucket_values(
         );
     }
 
-    if buckets.iter().all(|bucket| bucket.value == 0) {
-        let last = buckets.len() - 1;
-        buckets[last].value = ai_display_tokens(
-            global.today_total_tokens,
-            global.today_cached_input_tokens,
-            include_cached,
-        )
-        .max(ai_history_today_total(history, include_cached));
-    }
-
     for (index, bucket) in buckets.iter_mut().enumerate() {
         let start = day_start + index as f64 * 1800.0;
         let end = if index == 47 {
@@ -2357,7 +2320,6 @@ fn ai_today_bucket_values(
 }
 
 fn ai_recent_heatmap_values(
-    global: &AIGlobalHistorySummary,
     history: &AIHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
@@ -2397,7 +2359,7 @@ fn ai_recent_heatmap_values(
     }
 
     if !has_indexed_heatmap {
-        for session in ai_history_sessions(history, global) {
+        for session in ai_history_sessions(history) {
             let session_day = ai_local_day_start_seconds(session.last_seen_at);
             let day_offset = ((today - session_day) / 86_400.0).round() as isize;
             if (0..values.len() as isize).contains(&day_offset) {
@@ -2425,17 +2387,6 @@ fn ai_recent_heatmap_values(
         }
     }
 
-    if values.iter().all(|cell| cell.value == 0) {
-        let last = values.len() - 1;
-        values[last].value = ai_display_tokens(
-            global.today_total_tokens,
-            global.today_cached_input_tokens,
-            include_cached,
-        )
-        .max(ai_history_today_total(history, include_cached));
-        values[last].is_known = values[last].value > 0;
-    }
-
     for (index, cell) in values.iter_mut().enumerate() {
         let day = first_day + index as f64 * 86_400.0;
         cell.tooltip = ai_usage_tooltip(
@@ -2451,7 +2402,6 @@ fn ai_recent_heatmap_values(
 
 fn ai_tool_rows(
     history: &AIHistorySummary,
-    global: &AIGlobalHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
@@ -2486,7 +2436,7 @@ fn ai_tool_rows(
     }
 
     ai_rank_rows(
-        ai_history_sessions(history, global)
+        ai_history_sessions(history)
             .into_iter()
             .map(|session| {
                 (
@@ -2509,7 +2459,6 @@ fn ai_tool_rows(
 
 fn ai_model_rows(
     history: &AIHistorySummary,
-    global: &AIGlobalHistorySummary,
     live_sessions: &[&codux_runtime::ai_runtime_state::AIRuntimeSessionSummary],
     indexed_baselines: &BTreeMap<String, (i64, i64)>,
     include_cached: bool,
@@ -2546,7 +2495,7 @@ fn ai_model_rows(
     }
 
     ai_rank_rows(
-        ai_history_sessions(history, global)
+        ai_history_sessions(history)
             .into_iter()
             .filter_map(|session| {
                 session.last_model.clone().map(|model| {

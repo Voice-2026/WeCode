@@ -1679,96 +1679,82 @@ pub(in crate::app) fn git_clone_window_workspace(
     )
     .detach();
 
-    div()
-        .size_full()
-        .flex()
-        .items_center()
-        .justify_center()
-        .bg(cx.theme().background)
-        .p(px(18.0))
+    child_window_shell(labels.clone_repository.clone(), cx)
         .child(
             div()
-                .w_full()
-                .max_w(px(380.0))
-                .rounded(px(8.0))
-                .border_1()
-                .border_color(cx.theme().border)
-                .bg(color(theme::BG_PANEL))
-                .shadow_lg()
-                .p(px(16.0))
+                .flex_1()
+                .min_h_0()
+                .p(px(18.0))
+                .flex()
+                .flex_col()
+                .gap(px(14.0))
+                .child(git_clone_input_label(labels.remote_url.clone()))
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_size(rems(0.875))
-                                .line_height(rems(1.125))
-                                .text_color(color(theme::TEXT))
-                                .child(labels.clone_repository.clone()),
-                        )
-                        .child(
-                            Button::new("git-clone-dialog-close")
-                                .compact()
-                                .ghost()
-                                .disabled(cloning)
-                                .icon(Icon::new(HeroIconName::XMark).size_3p5())
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.close_git_clone_dialog(window, cx)
-                                })),
-                        ),
-                )
-                .child(
-                    div().mt(px(12.0)).child(
-                        Input::new(&input_state)
-                            .disabled(cloning)
-                            .with_size(gpui_component::Size::Medium),
-                    ),
+                    Input::new(&input_state)
+                        .disabled(cloning)
+                        .with_size(gpui_component::Size::Medium),
                 )
                 .when(cloning, |this| {
                     this.child(
                         div()
-                            .mt(px(10.0))
                             .text_size(rems(0.75))
                             .line_height(rems(1.0))
                             .text_color(color(theme::TEXT_MUTED))
                             .child(labels.clone_preparing.clone()),
                     )
                     .child(git_clone_indeterminate_progress())
-                })
+                }),
+        )
+        .child(
+            div()
+                .h(px(58.0))
+                .flex_shrink_0()
+                .border_t_1()
+                .border_color(color(theme::BORDER_SOFT).opacity(0.45))
+                .px(px(18.0))
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(8.0))
                 .child(
-                    div()
-                        .mt(px(12.0))
-                        .flex()
-                        .justify_end()
-                        .gap_2()
-                        .child(
-                            Button::new("git-clone-cancel")
-                                .compact()
-                                .ghost()
-                                .disabled(cloning)
-                                .text_color(cx.theme().secondary_foreground)
-                                .label(labels.cancel.clone())
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.close_git_clone_dialog(window, cx)
-                                })),
-                        )
-                        .child(
-                            Button::new("git-clone-confirm")
-                                .compact()
-                                .primary()
-                                .loading(cloning)
-                                .disabled(cloning || clone_remote_url.trim().is_empty())
-                                .text_color(color(0xFFFFFF))
-                                .label(labels.clone_repository.clone())
-                                .on_click(cx.listener(|app, _event, window, cx| {
-                                    app.clone_project_git(window, cx)
-                                })),
+                    Button::new("git-clone-cancel")
+                        .ghost()
+                        .disabled(cloning)
+                        .text_color(cx.theme().secondary_foreground)
+                        .child(git_clone_button_label(labels.cancel.clone()))
+                        .on_click(cx.listener(|app, _event, window, cx| {
+                            app.close_git_clone_dialog(window, cx)
+                        })),
+                )
+                .child(
+                    Button::new("git-clone-confirm")
+                        .primary()
+                        .loading(cloning)
+                        .disabled(cloning || clone_remote_url.trim().is_empty())
+                        .text_color(color(0xFFFFFF))
+                        .child(git_clone_button_label(labels.clone_repository.clone()))
+                        .on_click(
+                            cx.listener(|app, _event, window, cx| {
+                                app.clone_project_git(window, cx)
+                            }),
                         ),
                 ),
         )
+}
+
+fn git_clone_input_label(label: impl Into<String>) -> impl IntoElement {
+    div()
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
+        .text_color(color(theme::TEXT))
+        .child(label.into())
+}
+
+fn git_clone_button_label(label: impl Into<String>) -> impl IntoElement {
+    div()
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
+        .child(label.into())
 }
 
 pub(in crate::app) fn git_credentials_window_workspace(
