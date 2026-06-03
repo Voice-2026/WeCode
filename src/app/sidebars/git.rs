@@ -336,10 +336,7 @@ impl GitSidebarLabels {
                 "git.empty.clone_remote_repository",
                 "Clone Remote Repository",
             ),
-            clone_preparing: tr(
-                "git.clone.preparing",
-                "Preparing to clone the repository...",
-            ),
+            clone_preparing: tr("git.clone.preparing", "Preparing to clone the repository"),
             staged: tr("git.files.staged", "Staged"),
             staged_empty: tr("git.files.staged.empty", "No staged changes"),
             changed: tr("git.files.changes", "Changes"),
@@ -1717,22 +1714,12 @@ pub(in crate::app) fn git_clone_window_workspace(
                 .justify_end()
                 .gap(px(8.0))
                 .child(
-                    Button::new("git-clone-cancel")
-                        .ghost()
-                        .disabled(cloning)
-                        .text_color(cx.theme().secondary_foreground)
-                        .child(git_clone_button_label(labels.cancel.clone()))
-                        .on_click(cx.listener(|app, _event, window, cx| {
-                            app.close_git_clone_dialog(window, cx)
-                        })),
-                )
-                .child(
                     Button::new("git-clone-confirm")
                         .primary()
                         .loading(cloning)
                         .disabled(cloning || clone_remote_url.trim().is_empty())
                         .text_color(color(0xFFFFFF))
-                        .child(git_clone_button_label(labels.clone_repository.clone()))
+                        .child(git_clone_button_label(labels.confirm.clone()))
                         .on_click(
                             cx.listener(|app, _event, window, cx| {
                                 app.clone_project_git(window, cx)

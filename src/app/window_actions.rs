@@ -847,8 +847,8 @@ impl CoduxApp {
             AuxiliaryWindowSpec {
                 slot: AuxiliaryWindowSlot::GitClone,
                 title: SharedString::from(labels.clone_repository.clone()),
-                size: size(px(420.0), px(190.0)),
-                min_size: size(px(360.0), px(170.0)),
+                size: size(px(420.0), px(230.0)),
+                min_size: size(px(360.0), px(210.0)),
                 already_open_message: "Git clone window already opened",
                 opened_message: "Git clone window opened",
                 failed_prefix: "failed to open Git clone window",

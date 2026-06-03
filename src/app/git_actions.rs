@@ -157,15 +157,6 @@ impl CoduxApp {
         window.remove_window();
     }
 
-    pub(super) fn close_git_clone_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.window_mode == AppWindowMode::GitClone {
-            window.remove_window();
-            return;
-        }
-        self.status_message = "Git clone dialog closed".to_string();
-        self.invalidate_git_panel(cx);
-    }
-
     pub(super) fn open_git_remote_editor(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.git_remote_editor_open = true;
         if self.git_remote_name.trim().is_empty() {
