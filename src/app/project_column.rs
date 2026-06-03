@@ -92,6 +92,8 @@ impl Render for ProjectColumnView {
             });
         let app_entity = self.app_entity.clone();
         let scroll_handle = self.scroll_handle.clone();
+        let language = self.language.clone();
+        let row_menu_labels = project_row_menu_labels(language.as_str());
 
         div()
             .flex()
@@ -144,6 +146,7 @@ impl Render for ProjectColumnView {
                                     project_id,
                                     activity_state,
                                     collapsed,
+                                    row_menu_labels.clone(),
                                     window,
                                     cx,
                                 ))
@@ -618,9 +621,13 @@ fn project_row(
     project_id: String,
     activity_state: AIActivityState,
     collapsed: bool,
+    labels: ProjectRowMenuLabels,
     window: &mut Window,
     cx: &mut Context<ProjectColumnView>,
 ) -> AnyElement {
+    let menu_project_id = project.id.clone();
+    let menu_project_name = project.name.clone();
+    let menu_project_path = project.path.clone();
     if collapsed {
         return div()
             .id(SharedString::from(format!("project-{}", project.id)))
@@ -654,6 +661,23 @@ fn project_row(
                                 app.select_project(project_id.clone(), window, cx)
                             },
                         ))
+                        .context_menu({
+                            let app_entity = app_entity.clone();
+                            let labels = labels.clone();
+                            let project_id = menu_project_id.clone();
+                            let project_name = menu_project_name.clone();
+                            let project_path = menu_project_path.clone();
+                            move |menu, _window, _cx| {
+                                project_row_context_menu(
+                                    menu,
+                                    app_entity.clone(),
+                                    project_id.clone(),
+                                    project_name.clone(),
+                                    project_path.clone(),
+                                    labels.clone(),
+                                )
+                            }
+                        })
                         .child(
                             div()
                                 .relative()
@@ -697,6 +721,19 @@ fn project_row(
                         app.select_project(project_id.clone(), window, cx)
                     }),
                 )
+                .context_menu({
+                    let app_entity = app_entity.clone();
+                    move |menu, _window, _cx| {
+                        project_row_context_menu(
+                            menu,
+                            app_entity.clone(),
+                            menu_project_id.clone(),
+                            menu_project_name.clone(),
+                            menu_project_path.clone(),
+                            labels.clone(),
+                        )
+                    }
+                })
                 .child(
                     div()
                         .relative()
@@ -733,6 +770,67 @@ fn project_row(
                 ),
         )
         .into_any_element()
+}
+
+#[derive(Clone)]
+struct ProjectRowMenuLabels {
+    open_folder: String,
+    edit: String,
+    remove: String,
+}
+
+fn project_row_menu_labels(language: &str) -> ProjectRowMenuLabels {
+    let locale = locale_from_language_setting(language);
+    ProjectRowMenuLabels {
+        open_folder: translate(&locale, "sidebar.project.open_folder", "Open Folder"),
+        edit: translate(&locale, "sidebar.project.edit", "Edit Project"),
+        remove: translate(&locale, "sidebar.project.remove", "Remove Project"),
+    }
+}
+
+fn project_row_context_menu(
+    menu: PopupMenu,
+    app_entity: gpui::Entity<CoduxApp>,
+    project_id: String,
+    project_name: String,
+    project_path: String,
+    labels: ProjectRowMenuLabels,
+) -> PopupMenu {
+    let open_entity = app_entity.clone();
+    let open_name = project_name.clone();
+    let open_path = project_path.clone();
+    let edit_entity = app_entity.clone();
+    let edit_id = project_id.clone();
+    let remove_entity = app_entity;
+
+    menu.item(
+        PopupMenuItem::new(labels.open_folder.clone())
+            .icon(HeroIconName::FolderOpen)
+            .on_click(move |_, _window, cx| {
+                cx.update_entity(&open_entity, |app, cx| {
+                    app.reveal_project_in_file_manager(open_name.clone(), open_path.clone(), cx);
+                });
+            }),
+    )
+    .item(
+        PopupMenuItem::new(labels.edit.clone())
+            .icon(HeroIconName::PencilSquare)
+            .on_click(move |_, window, cx| {
+                cx.update_entity(&edit_entity, |app, cx| {
+                    app.edit_project_by_id(edit_id.clone(), window, cx);
+                });
+            }),
+    )
+    .separator()
+    .item(
+        PopupMenuItem::new(labels.remove)
+            .icon(HeroIconName::Trash)
+            .on_click(move |_, _window, cx| {
+                cx.update_entity(&remove_entity, |app, cx| {
+                    app.request_remove_project_by_id(project_id.clone(), cx);
+                });
+            }),
+    )
 }
 
 fn project_activity_badge(

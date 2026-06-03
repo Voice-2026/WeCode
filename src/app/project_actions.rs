@@ -1599,6 +1599,28 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
     }
 
+    pub(super) fn reveal_project_in_file_manager(
+        &mut self,
+        project_name: String,
+        project_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .project_reveal_in_file_manager(&project_path)
+        {
+            Ok(()) => {
+                self.status_message = format!("revealed project: {project_name}");
+            }
+            Err(error) => {
+                let title = self.text("sidebar.project.open_folder", "Open Folder");
+                self.status_message = format!("failed to reveal project: {error}");
+                self.show_system_error_alert(title, error, cx);
+            }
+        }
+        self.invalidate_project_management(cx);
+    }
+
     pub(super) fn open_selected_project_in_application(
         &mut self,
         application_id: String,
@@ -1732,6 +1754,73 @@ impl CoduxApp {
             self.invalidate_project_management(cx);
             return;
         };
+        self.remove_project(project, cx);
+    }
+
+    pub(super) fn request_remove_project_by_id(
+        &mut self,
+        project_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self
+            .state
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .cloned()
+        else {
+            self.status_message = "project not found".to_string();
+            self.invalidate_project_management(cx);
+            return;
+        };
+
+        let title = self.text("project.remove.title", "Remove Project");
+        let message = self
+            .text(
+                "project.remove.confirm_format",
+                "Are you sure you want to remove project %@? Files on disk will not be deleted.",
+            )
+            .replace("%@", &project.name);
+        let confirm_label = self.text("common.remove", "Remove");
+        let cancel_label = self.text("common.cancel", "Cancel");
+        let service = self.runtime_service.clone();
+        self.status_message = "waiting for project removal confirmation".to_string();
+        self.invalidate_project_management(cx);
+        self.invalidate_status_bar(cx);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                    title,
+                    message,
+                    confirm_label,
+                    cancel_label,
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(true) => app.remove_project(project, cx),
+                Ok(false) => {
+                    app.status_message = "project removal canceled".to_string();
+                    app.invalidate_project_management(cx);
+                    app.invalidate_status_bar(cx);
+                }
+                Err(error) => {
+                    let title = app.text("project.remove.title", "Remove Project");
+                    app.status_message = title.clone();
+                    app.show_system_error_alert(title, error, cx);
+                    app.invalidate_project_management(cx);
+                    app.invalidate_status_bar(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn remove_project(&mut self, project: ProjectInfo, cx: &mut Context<Self>) {
         match self.runtime_service.close_project(&project.id) {
             Ok(next_project_id) => {
                 self.project_view_store.remove(&project.id);
@@ -1754,6 +1843,7 @@ impl CoduxApp {
             Err(error) => self.status_message = format!("failed to close project: {error}"),
         }
         self.invalidate_project_management(cx);
+        self.invalidate_status_bar(cx);
     }
 
     pub(super) fn close_all_projects(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1798,6 +1888,24 @@ impl CoduxApp {
 
     pub(super) fn rename_selected_project(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.open_selected_project_editor_window(_window, cx);
+    }
+
+    pub(super) fn edit_project_by_id(
+        &mut self,
+        project_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.as_str())
+            != Some(project_id.as_str())
+        {
+            self.select_project(project_id, window, cx);
+        }
+        self.open_selected_project_editor_window(window, cx);
     }
 
     pub(super) fn open_project_create_window(
