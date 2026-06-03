@@ -1,0 +1,31 @@
+{
+  "version": "1.5.0-beta.1",
+  "notes": "## 中文\n\n## [1.5.0-beta.1] - 2026-06-03\n\n### 调整\n\n- 将 Codux Desktop 重构为 Rust 原生 GPUI 应用，替换原有 Tauri/WebView 桌面壳，同时保持现有产品范围和用户侧工作流作为本次基线版本。\n- 主窗口、终端工作区、项目与 worktree 导航、文件浏览、Git 评审、AI runtime 状态、设置、更新弹窗和桌面宠物界面切换到原生 GPUI 渲染链路。\n- 围绕 Rust runtime 和本地缓存存储统一运行时状态、项目 / worktree UI 状态、终端布局、文件编辑器布局、Git 评审状态和桌面宠物基线处理。\n- 更新 Rust 原生桌面端的发布与自动更新链路，包括 GitHub Releases 元数据、Windows 安装包、macOS 应用包，以及独立公证的 macOS formal 包。\n\n### 说明\n\n- 这是 Codux 的首个 1.5.0 GPUI 基线测试版，重点是从 Tauri 切换到 Rust + GPUI 的桌面架构迁移，不作为现有 Codux 工作流之外的新增功能版本。\n\n---\n\n## English\n\n## [1.5.0-beta.1] - 2026-06-03\n\n### Changed\n\n- Rebuilt Codux Desktop as a Rust-native GPUI application, replacing the previous Tauri/WebView desktop shell while keeping the existing product scope and user-facing workflows as the release baseline.\n- Moved the main window, terminal workspace, project and worktree navigation, file browser, Git review, AI runtime status, settings, update dialogs, and desktop pet surfaces onto the native GPUI rendering path.\n- Consolidated runtime state, project/worktree UI state, terminal layout, file editor layout, Git review state, and desktop pet baseline handling around the Rust runtime and local cache stores.\n- Updated the release and updater pipeline for the Rust-native desktop build, including GitHub Releases metadata, Windows installer packaging, macOS app packaging, and the separate notarized macOS formal package.\n\n### Notes\n\n- This is the first 1.5.0 GPUI baseline beta for Codux. It focuses on the desktop architecture migration from Tauri to Rust + GPUI and does not introduce a separate feature expansion over the existing Codux workflows.",
+  "pub_date": "2026-06-03T14:20:11.631Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWhNL3YrNmQxUGJ3UHJQVjIxdDM3RE93TjBteFNNUWpvTkt4TlFwaGt1SkdnV3FrZTFFM1lOT3RIaHZha1dkNU1pQU1nam9wMTdIbDhzVHV4cFpSSkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNDk2Mzc0CWZpbGU6Y29kdXgtMS41LjAtYmV0YS4xLW1hY29zLXVuaXZlcnNhbC1hZGhvYy11cGRhdGVyLmFwcC50YXIuZ3oKWW5MZnZYZVdPSXhTQ1p1YmxzT3RnUmg5YTRka3E4TWtKajNEVEFVQlBJQjAyYmNJdXFwd3pKdUdLUmh5NldPWFNBdlJUcVNuVVlLTkl1ek9OMGZSRFE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.5.0-beta.1/codux-1.5.0-beta.1-macos-universal-adhoc-updater.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWhNL3YrNmQxUGJ3UHJQVjIxdDM3RE93TjBteFNNUWpvTkt4TlFwaGt1SkdnV3FrZTFFM1lOT3RIaHZha1dkNU1pQU1nam9wMTdIbDhzVHV4cFpSSkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNDk2Mzc0CWZpbGU6Y29kdXgtMS41LjAtYmV0YS4xLW1hY29zLXVuaXZlcnNhbC1hZGhvYy11cGRhdGVyLmFwcC50YXIuZ3oKWW5MZnZYZVdPSXhTQ1p1YmxzT3RnUmg5YTRka3E4TWtKajNEVEFVQlBJQjAyYmNJdXFwd3pKdUdLUmh5NldPWFNBdlJUcVNuVVlLTkl1ek9OMGZSRFE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.5.0-beta.1/codux-1.5.0-beta.1-macos-universal-adhoc-updater.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWhNL3YrNmQxUGJ3UHJQVjIxdDM3RE93TjBteFNNUWpvTkt4TlFwaGt1SkdnV3FrZTFFM1lOT3RIaHZha1dkNU1pQU1nam9wMTdIbDhzVHV4cFpSSkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNDk2Mzc0CWZpbGU6Y29kdXgtMS41LjAtYmV0YS4xLW1hY29zLXVuaXZlcnNhbC1hZGhvYy11cGRhdGVyLmFwcC50YXIuZ3oKWW5MZnZYZVdPSXhTQ1p1YmxzT3RnUmg5YTRka3E4TWtKajNEVEFVQlBJQjAyYmNJdXFwd3pKdUdLUmh5NldPWFNBdlJUcVNuVVlLTkl1ek9OMGZSRFE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.5.0-beta.1/codux-1.5.0-beta.1-macos-universal-adhoc-updater.app.tar.gz"
+    },
+    "darwin-x86_64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWhNL3YrNmQxUGJ3UHJQVjIxdDM3RE93TjBteFNNUWpvTkt4TlFwaGt1SkdnV3FrZTFFM1lOT3RIaHZha1dkNU1pQU1nam9wMTdIbDhzVHV4cFpSSkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNDk2Mzc0CWZpbGU6Y29kdXgtMS41LjAtYmV0YS4xLW1hY29zLXVuaXZlcnNhbC1hZGhvYy11cGRhdGVyLmFwcC50YXIuZ3oKWW5MZnZYZVdPSXhTQ1p1YmxzT3RnUmg5YTRka3E4TWtKajNEVEFVQlBJQjAyYmNJdXFwd3pKdUdLUmh5NldPWFNBdlJUcVNuVVlLTkl1ek9OMGZSRFE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.5.0-beta.1/codux-1.5.0-beta.1-macos-universal-adhoc-updater.app.tar.gz"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWlOazM3QzlTV1g0UVNMV2g2RUdWb2hvZGs5eDgxa0IyQ1JPM1VPeno0WVdSWmlmckFxK1RmQWxZSWQzVm5YbitCczExQmhvYzVaYzRaa3pqVTNOeUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNDk2Mzg4CWZpbGU6Y29kdXgtMS41LjAtYmV0YS4xLXdpbmRvd3MteDg2XzY0LXNldHVwLmV4ZQpNSHdmeHhoaXR0UzhKSGtGMUpMR2NCZVFydnU0cTRiaThscmlMWDZDN0NuQjNDZEpjV0lmWXcwL0lGVkZweUZwN1gydjZpTFVVMkVZY3pBN3c3RmpDUT09Cg==",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.5.0-beta.1/codux-1.5.0-beta.1-windows-x86_64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWlOazM3QzlTV1g0UVNMV2g2RUdWb2hvZGs5eDgxa0IyQ1JPM1VPeno0WVdSWmlmckFxK1RmQWxZSWQzVm5YbitCczExQmhvYzVaYzRaa3pqVTNOeUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNDk2Mzg4CWZpbGU6Y29kdXgtMS41LjAtYmV0YS4xLXdpbmRvd3MteDg2XzY0LXNldHVwLmV4ZQpNSHdmeHhoaXR0UzhKSGtGMUpMR2NCZVFydnU0cTRiaThscmlMWDZDN0NuQjNDZEpjV0lmWXcwL0lGVkZweUZwN1gydjZpTFVVMkVZY3pBN3c3RmpDUT09Cg==",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.5.0-beta.1/codux-1.5.0-beta.1-windows-x86_64-setup.exe"
+    }
+  }
+}
