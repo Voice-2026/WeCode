@@ -30,7 +30,6 @@ impl CoduxApp {
                     .overflow_y_scrollbar()
                     .flex()
                     .flex_col()
-                    .gap(px(24.0))
                     .p(px(18.0))
                     .child(project_editor_field(
                         tr("project.editor.name", "Project Name"),
@@ -170,6 +169,7 @@ fn project_editor_field(
         .flex()
         .flex_col()
         .gap(px(6.0))
+        .mb(px(24.0))
         .child(
             div()
                 .text_size(rems(0.875))
@@ -200,6 +200,7 @@ fn project_editor_symbol_field(
         .flex()
         .flex_col()
         .gap(px(6.0))
+        .mb(px(24.0))
         .child(
             div()
                 .text_size(rems(0.875))
@@ -359,6 +360,7 @@ fn project_editor_path_field(
         .flex()
         .flex_col()
         .gap(px(6.0))
+        .mb(px(24.0))
         .child(
             div()
                 .text_size(rems(0.875))
