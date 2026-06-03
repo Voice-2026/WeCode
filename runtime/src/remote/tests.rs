@@ -14,13 +14,14 @@ use super::pairing::remote_summary_show_pending_pairing;
 use super::types::{RemoteDeviceSettings, RemoteOutgoingEnvelope, RemotePairingInfo, RemoteSettings};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::remote_p2p::RemoteP2PLane;
-use crate::terminal_pty::TerminalSessionSnapshot;
+use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
 use super::{RemoteHostRuntime, RemoteService, remote_summary_from_settings};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
@@ -989,5 +990,22 @@ fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
     let events = runtime.drain_events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].host_id, "host-1");
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn remote_host_runtime_uses_injected_terminal_manager() {
+    let dir =
+        std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&dir).expect("create temp support");
+    let terminals = Arc::new(TerminalManager::new());
+    let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
+        dir.clone(),
+        Default::default(),
+        Arc::clone(&terminals),
+    );
+
+    assert!(Arc::ptr_eq(&terminals, &runtime.terminal_manager()));
+
     fs::remove_dir_all(dir).ok();
 }

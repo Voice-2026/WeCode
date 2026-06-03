@@ -80,6 +80,7 @@ use crate::{
         SSHService, SSHStore, SSHSummary, render_ssh_launch_context_from_support_dir,
     },
     terminal_layout::{TerminalLayoutService, TerminalLayoutSummary},
+    terminal_pty::TerminalManager,
     terminal_runtime::{TerminalRuntimeService, TerminalRuntimeSummary},
     tool_permissions::{ToolPermissionsService, ToolPermissionsSummary},
     update::{UpdateService, UpdateStatus, UpdateSummary},

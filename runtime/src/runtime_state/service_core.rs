@@ -1,5 +1,7 @@
 static POWER_MANAGER: OnceLock<Arc<PowerManager>> = OnceLock::new();
 static AI_HISTORY_INDEXER: OnceLock<AIHistoryIndexer> = OnceLock::new();
+static AI_RUNTIME_BRIDGE: OnceLock<Arc<AIRuntimeBridge>> = OnceLock::new();
+static TERMINAL_MANAGER: OnceLock<Arc<TerminalManager>> = OnceLock::new();
 static REMOTE_HOST_RUNTIME: OnceLock<Arc<RemoteHostRuntime>> = OnceLock::new();
 
 fn shared_power_manager() -> Arc<PowerManager> {
@@ -10,28 +12,51 @@ fn shared_ai_history_indexer() -> AIHistoryIndexer {
     AI_HISTORY_INDEXER.get_or_init(AIHistoryIndexer::new).clone()
 }
 
-fn shared_remote_host_runtime(support_dir: PathBuf, ai_history: AIHistoryIndexer) -> Arc<RemoteHostRuntime> {
+fn shared_ai_runtime_bridge() -> Arc<AIRuntimeBridge> {
+    Arc::clone(AI_RUNTIME_BRIDGE.get_or_init(|| Arc::new(AIRuntimeBridge::new())))
+}
+
+fn shared_terminal_manager(ai_runtime: Arc<AIRuntimeBridge>) -> Arc<TerminalManager> {
+    Arc::clone(
+        TERMINAL_MANAGER.get_or_init(|| Arc::new(TerminalManager::with_ai_runtime(ai_runtime))),
+    )
+}
+
+fn shared_remote_host_runtime(
+    support_dir: PathBuf,
+    ai_history: AIHistoryIndexer,
+    terminals: Arc<TerminalManager>,
+) -> Arc<RemoteHostRuntime> {
     Arc::clone(REMOTE_HOST_RUNTIME.get_or_init(|| {
-        Arc::new(RemoteHostRuntime::new_with_ai_history(support_dir, ai_history))
+        Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir,
+            ai_history,
+            terminals,
+        ))
     }))
 }
 
 impl RuntimeService {
     pub fn new(support_dir: PathBuf) -> Self {
         let ai_history_indexer = shared_ai_history_indexer();
+        let ai_runtime = shared_ai_runtime_bridge();
+        let terminal_manager = shared_terminal_manager(Arc::clone(&ai_runtime));
         let project_activity = Arc::new(ProjectActivityCoordinator::new(
             support_dir.clone(),
             ai_history_indexer.clone(),
         ));
         project_activity.seed_projects(ProjectStore::new(support_dir.clone()).projects_snapshot());
         let remote_ai_history_indexer = ai_history_indexer.clone();
-        let remote_host =
-            shared_remote_host_runtime(support_dir.clone(), remote_ai_history_indexer);
+        let remote_host = shared_remote_host_runtime(
+            support_dir.clone(),
+            remote_ai_history_indexer,
+            terminal_manager,
+        );
         Self {
             support_dir: support_dir.clone(),
             ai_history_indexer,
             project_activity,
-            ai_runtime: Arc::new(AIRuntimeBridge::new()),
+            ai_runtime,
             file_watch_manager: Arc::new(FileWatchManager::default()),
             git_watch_manager: Arc::new(git::GitWatchManager::default()),
             file_watch_events: Arc::new(Mutex::new(VecDeque::new())),

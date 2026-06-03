@@ -74,6 +74,10 @@ pub struct RuntimeService {
 }
 
 impl RuntimeService {
+    pub fn terminal_manager(&self) -> Arc<TerminalManager> {
+        self.remote_host.terminal_manager()
+    }
+
     pub fn ai_runtime_bridge(&self) -> Arc<AIRuntimeBridge> {
         Arc::clone(&self.ai_runtime)
     }

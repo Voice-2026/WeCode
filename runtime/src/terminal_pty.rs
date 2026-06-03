@@ -325,6 +325,11 @@ impl TerminalManager {
         self.session(session_id)?.resize(cols, rows)
     }
 
+    pub fn subscribe_events(&self, session_id: &str, emit: EventSink) -> Result<()> {
+        self.session(session_id)?.subscribe_events(emit);
+        Ok(())
+    }
+
     pub fn kill(&self, session_id: &str) -> Result<()> {
         let Some(session) = self.sessions.lock().remove(session_id) else {
             return Err(anyhow!("terminal session not found: {session_id}"));

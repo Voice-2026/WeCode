@@ -59,9 +59,7 @@ impl CoduxApp {
         prepare_memory_launch_artifacts(&state);
         let launch_context = terminal_launch_context(&state, &runtime, &tool_permissions);
         let terminal_config = terminal_config_for_settings(&state.settings);
-        let terminal_manager = Arc::new(TerminalManager::with_ai_runtime(
-            runtime_service.ai_runtime_bridge(),
-        ));
+        let terminal_manager = runtime_service.terminal_manager();
         let (terminals, active_terminal_id, next_terminal_index) = spawn_terminal_tabs(
             &restore_plan,
             terminal_manager.clone(),

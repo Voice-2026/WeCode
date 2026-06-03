@@ -34,6 +34,7 @@ pub struct RemoteHostRuntime {
     ai_history: AIHistoryIndexer,
     terminals: Arc<TerminalManager>,
     terminal_viewers_by_session: Mutex<HashMap<String, HashSet<String>>>,
+    terminal_event_subscriptions: Mutex<HashSet<String>>,
     terminal_upload_sessions: Mutex<HashMap<String, RemoteTerminalUploadSession>>,
     p2p: Mutex<Option<Arc<RemoteP2PHostTransport>>>,
     events: Mutex<VecDeque<RemoteSummary>>,
@@ -50,12 +51,25 @@ impl RemoteHostRuntime {
     }
 
     pub fn new_with_ai_history(support_dir: PathBuf, ai_history: AIHistoryIndexer) -> Self {
+        Self::new_with_ai_history_and_terminals(
+            support_dir,
+            ai_history,
+            Arc::new(TerminalManager::new()),
+        )
+    }
+
+    pub fn new_with_ai_history_and_terminals(
+        support_dir: PathBuf,
+        ai_history: AIHistoryIndexer,
+        terminals: Arc<TerminalManager>,
+    ) -> Self {
         let snapshot = RemoteService::new(support_dir.clone()).summary();
         Self {
             support_dir,
             ai_history,
-            terminals: Arc::new(TerminalManager::new()),
+            terminals,
             terminal_viewers_by_session: Mutex::new(HashMap::new()),
+            terminal_event_subscriptions: Mutex::new(HashSet::new()),
             terminal_upload_sessions: Mutex::new(HashMap::new()),
             p2p: Mutex::new(None),
             events: Mutex::new(VecDeque::new()),
@@ -85,6 +99,10 @@ impl RemoteHostRuntime {
             .lock()
             .map(|mut events| events.drain(..).collect())
             .unwrap_or_default()
+    }
+
+    pub fn terminal_manager(&self) -> Arc<TerminalManager> {
+        Arc::clone(&self.terminals)
     }
 
     pub fn apply_snapshot(&self, summary: RemoteSummary) -> RemoteSummary {
@@ -730,6 +748,7 @@ impl RemoteHostRuntime {
         };
         match self.terminals.create(config, emit) {
             Ok(session_id) => {
+                self.mark_terminal_event_subscription(&session_id);
                 self.register_terminal_viewer(&session_id, envelope.device_id.as_deref());
                 self.send_terminal_data(
                     "terminal.created",
@@ -1379,7 +1398,7 @@ impl RemoteHostRuntime {
         RemoteService::new(self.support_dir.clone())
     }
 
-    fn send_terminal_buffer(&self, session_id: &str, device_id: Option<&str>, offset: usize) {
+    fn send_terminal_buffer(self: &Arc<Self>, session_id: &str, device_id: Option<&str>, offset: usize) {
         self.register_terminal_viewer(session_id, device_id);
         match self.terminals.snapshot(session_id) {
             Ok(data) => {
@@ -1442,6 +1461,7 @@ impl RemoteHostRuntime {
         envelope: &RemoteEnvelope,
     ) -> Result<(), String> {
         if self.terminals.snapshot(session_id).is_ok() {
+            self.ensure_terminal_event_subscription(session_id);
             return Ok(());
         }
         let Some(runtime_session) = TerminalRuntimeService::new(self.support_dir.clone())
@@ -1483,11 +1503,33 @@ impl RemoteHostRuntime {
                 emit,
             )
             .map_err(|error| error.to_string())?;
+        self.mark_terminal_event_subscription(session_id);
         self.send_terminal_list(envelope.device_id.as_deref());
         Ok(())
     }
 
-    fn register_terminal_viewer(&self, session_id: &str, device_id: Option<&str>) {
+    fn ensure_terminal_event_subscription(self: &Arc<Self>, session_id: &str) {
+        let should_subscribe = self.mark_terminal_event_subscription(session_id);
+        if !should_subscribe {
+            return;
+        }
+        let runtime = Arc::clone(self);
+        let emit = Arc::new(move |event| runtime.handle_terminal_event(event));
+        if self.terminals.subscribe_events(session_id, emit).is_err() {
+            if let Ok(mut subscriptions) = self.terminal_event_subscriptions.lock() {
+                subscriptions.remove(session_id);
+            }
+        }
+    }
+
+    fn mark_terminal_event_subscription(&self, session_id: &str) -> bool {
+        self.terminal_event_subscriptions
+            .lock()
+            .map(|mut subscriptions| subscriptions.insert(session_id.to_string()))
+            .unwrap_or(false)
+    }
+
+    fn register_terminal_viewer(self: &Arc<Self>, session_id: &str, device_id: Option<&str>) {
         let Some(device_id) = device_id.filter(|value| !value.trim().is_empty()) else {
             return;
         };
@@ -1497,6 +1539,7 @@ impl RemoteHostRuntime {
                 .or_default()
                 .insert(device_id.to_string());
         }
+        self.ensure_terminal_event_subscription(session_id);
     }
 
     fn remove_terminal_viewer(&self, device_id: Option<&str>) {
@@ -1539,6 +1582,12 @@ impl RemoteHostRuntime {
                 }
             }
             TerminalEvent::Exit { session_id, .. } => {
+                if let Ok(mut subscriptions) = self.terminal_event_subscriptions.lock() {
+                    subscriptions.remove(&session_id);
+                }
+                if let Ok(mut viewers) = self.terminal_viewers_by_session.lock() {
+                    viewers.remove(&session_id);
+                }
                 self.send_terminal_data(
                     "terminal.closed",
                     None,
