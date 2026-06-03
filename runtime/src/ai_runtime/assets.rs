@@ -5,6 +5,26 @@ use std::os::unix::fs::PermissionsExt;
 
 const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     (
+        "scripts/shell-hooks/dmux-ai-hook.zsh",
+        include_bytes!("../../../runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh"),
+    ),
+    (
+        "scripts/shell-hooks/zsh/.zlogin",
+        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zlogin"),
+    ),
+    (
+        "scripts/shell-hooks/zsh/.zprofile",
+        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zprofile"),
+    ),
+    (
+        "scripts/shell-hooks/zsh/.zshenv",
+        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zshenv"),
+    ),
+    (
+        "scripts/shell-hooks/zsh/.zshrc",
+        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zshrc"),
+    ),
+    (
         "scripts/wrappers/bin/agy",
         include_bytes!("../../../runtime-assets/scripts/wrappers/bin/agy"),
     ),

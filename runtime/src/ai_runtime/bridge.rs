@@ -13,7 +13,11 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,6 +58,8 @@ pub struct AIRuntimeBridge {
     home_dir: PathBuf,
     registry: Arc<AIRuntimeRegistry>,
     supervisor: Arc<AIRuntimeSupervisor>,
+    started: AtomicBool,
+    start_lock: Mutex<()>,
 }
 
 impl AIRuntimeBridge {
@@ -61,7 +67,7 @@ impl AIRuntimeBridge {
         Self::with_paths(runtime_root_dir(), runtime_temp_dir(), home_dir())
     }
 
-    fn with_paths(root_dir: PathBuf, temp_dir: PathBuf, home_dir: PathBuf) -> Self {
+    pub(crate) fn with_paths(root_dir: PathBuf, temp_dir: PathBuf, home_dir: PathBuf) -> Self {
         let wrapper_bin_dir = root_dir.join("scripts").join("wrappers").join("bin");
         let managed_hook_script = root_dir
             .join("scripts")
@@ -77,6 +83,8 @@ impl AIRuntimeBridge {
             home_dir,
             registry: AIRuntimeRegistry::shared(),
             supervisor: Arc::new(AIRuntimeSupervisor::new()),
+            started: AtomicBool::new(false),
+            start_lock: Mutex::new(()),
         }
     }
 
@@ -86,9 +94,25 @@ impl AIRuntimeBridge {
     }
 
     pub fn start_event_processing_background(&self) -> Result<(), String> {
+        if self.started.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let _guard = self
+            .start_lock
+            .lock()
+            .map_err(|_| "AI runtime startup lock poisoned.".to_string())?;
+        if self.started.load(Ordering::Acquire) {
+            return Ok(());
+        }
         self.prepare()?;
         self.supervisor
-            .start(Arc::clone(&self.registry), self.runtime_event_dir.clone())
+            .start(Arc::clone(&self.registry), self.runtime_event_dir.clone())?;
+        self.started.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub fn ensure_started(&self) -> Result<(), String> {
+        self.start_event_processing_background()
     }
 
     pub fn submit_runtime_frame(&self, frame: Vec<u8>) -> Result<(), String> {
@@ -116,6 +140,7 @@ impl AIRuntimeBridge {
         fs::create_dir_all(self.wrapper_bin_dir.parent().unwrap_or(&self.root_dir))
             .map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.wrapper_bin_dir).map_err(|error| error.to_string())?;
+        fs::create_dir_all(self.zsh_hook_dir()).map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.temp_dir).map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.runtime_event_dir).map_err(|error| error.to_string())?;
         fs::create_dir_all(self.claude_session_map_dir()).map_err(|error| error.to_string())?;
@@ -123,6 +148,18 @@ impl AIRuntimeBridge {
         fs::create_dir_all(self.home_dir.join(".kiro").join("agents"))
             .map_err(|error| error.to_string())?;
 
+        stage_runtime_asset(
+            "scripts/shell-hooks/dmux-ai-hook.zsh",
+            &self.zsh_hook_script(),
+            false,
+        )?;
+        for file_name in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+            stage_runtime_asset(
+                &format!("scripts/shell-hooks/zsh/{file_name}"),
+                &self.zsh_hook_dir().join(file_name),
+                false,
+            )?;
+        }
         stage_runtime_asset(
             "scripts/wrappers/dmux-ai-state.sh",
             &self.managed_hook_script,
@@ -216,6 +253,20 @@ impl AIRuntimeBridge {
 
     pub fn managed_hook_script(&self) -> &Path {
         &self.managed_hook_script
+    }
+
+    pub fn zsh_hook_dir(&self) -> PathBuf {
+        self.root_dir
+            .join("scripts")
+            .join("shell-hooks")
+            .join("zsh")
+    }
+
+    pub fn zsh_hook_script(&self) -> PathBuf {
+        self.root_dir
+            .join("scripts")
+            .join("shell-hooks")
+            .join("dmux-ai-hook.zsh")
     }
 
     pub fn registry(&self) -> Arc<AIRuntimeRegistry> {

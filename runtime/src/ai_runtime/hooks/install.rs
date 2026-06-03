@@ -86,6 +86,7 @@ fn install_tool_hooks(
     definitions: &[(&str, &str, i64, bool)],
     managed_hook_script: &Path,
 ) -> Result<(), String> {
+    let owner = app_slug();
     if tool == "kiro" {
         return install_kiro_tool_hooks(path, definitions, managed_hook_script);
     }
@@ -97,14 +98,20 @@ fn install_tool_hooks(
         .unwrap_or_default();
 
     for (event_key, action) in removed_hook_definitions(tool) {
-        strip_managed_action_from_hooks(&mut hooks, event_key, action, Some(tool));
+        strip_managed_action_from_hooks(&mut hooks, event_key, action, Some(owner), Some(tool));
     }
     if tool == "claude" {
-        strip_managed_action_from_hooks(&mut hooks, "Notification", "notification", Some("claude"));
+        strip_managed_action_from_hooks(
+            &mut hooks,
+            "Notification",
+            "notification",
+            Some(owner),
+            Some("claude"),
+        );
     }
 
     for (event_key, action, timeout, is_async) in definitions {
-        let command = hook_command(managed_hook_script, action, app_slug(), tool);
+        let command = hook_command(managed_hook_script, action, owner, tool);
         let mut hook = Map::new();
         hook.insert("type".to_string(), Value::String("command".to_string()));
         hook.insert("command".to_string(), Value::String(command));
@@ -132,7 +139,7 @@ fn install_tool_hooks(
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|item| !is_managed_hook(item, action, tool))
+                .filter(|item| !is_managed_hook(item, action, owner, tool))
                 .collect::<Vec<_>>();
             if next_hooks.is_empty() {
                 continue;
@@ -161,6 +168,7 @@ fn install_kiro_tool_hooks(
     definitions: &[(&str, &str, i64, bool)],
     managed_hook_script: &Path,
 ) -> Result<(), String> {
+    let owner = app_slug();
     let mut root = load_json_object(path)?;
     ensure_kiro_agent_config_fields(&mut root);
     let mut hooks = root
@@ -169,7 +177,7 @@ fn install_kiro_tool_hooks(
         .unwrap_or_default();
 
     for (event_key, action, timeout, is_async) in definitions {
-        let command = hook_command(managed_hook_script, action, app_slug(), "kiro");
+        let command = hook_command(managed_hook_script, action, owner, "kiro");
         let mut hook = Map::new();
         hook.insert("command".to_string(), Value::String(command));
         hook.insert("timeout_ms".to_string(), Value::Number((*timeout).into()));
@@ -184,7 +192,7 @@ fn install_kiro_tool_hooks(
             .unwrap_or_default();
         let mut cleaned = Vec::new();
         for entry in entries {
-            if is_managed_hook(&entry, action, "kiro") {
+            if is_managed_hook(&entry, action, owner, "kiro") {
                 continue;
             }
             cleaned.push(entry);
@@ -243,6 +251,7 @@ fn strip_managed_action_from_hooks(
     hooks: &mut Map<String, Value>,
     event_key: &str,
     action: &str,
+    owner: Option<&str>,
     tool: Option<&str>,
 ) {
     let groups = hooks
@@ -264,7 +273,7 @@ fn strip_managed_action_from_hooks(
             .cloned()
             .unwrap_or_default()
             .into_iter()
-            .filter(|item| !is_managed_hook_action(item, action, tool))
+            .filter(|item| !is_managed_hook_action(item, action, owner, tool))
             .collect::<Vec<_>>();
         if next_hooks.is_empty() {
             continue;

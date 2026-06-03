@@ -7,6 +7,7 @@ use super::{
     },
     toml::json_string_literal,
 };
+use crate::runtime_paths::app_slug;
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, path::Path};
 
@@ -66,7 +67,7 @@ pub(super) fn managed_codex_hook_trust_states(
                 else {
                     continue;
                 };
-                if !is_codex_managed_hook_command(command, action) {
+                if !is_codex_managed_hook_command(command, action, app_slug()) {
                     continue;
                 }
                 let timeout = hook_object
@@ -99,21 +100,24 @@ pub(super) fn managed_codex_hook_trust_states(
     Ok(states)
 }
 
-fn is_codex_managed_hook_command(command: &str, action: &str) -> bool {
+fn is_codex_managed_hook_command(command: &str, action: &str, owner: &str) -> bool {
     if command.contains("dmux-ai-state.sh")
         && command.contains(&shell_quote(action))
+        && command.contains(&shell_quote(owner))
         && command.contains(&shell_quote("codex"))
     {
         return true;
     }
     if command.contains("dmux-ai-state.ps1")
         && command.contains(&windows_powershell_quote_cross_platform(action))
+        && command.contains(&windows_powershell_quote_cross_platform(owner))
         && command.contains(&windows_powershell_quote_cross_platform("codex"))
     {
         return true;
     }
     command.contains("dmux-ai-state.cmd")
         && command.contains(&windows_cmd_quote_cross_platform(action))
+        && command.contains(&windows_cmd_quote_cross_platform(owner))
         && command.contains(&windows_cmd_quote_cross_platform("codex"))
 }
 

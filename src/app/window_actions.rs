@@ -115,8 +115,8 @@ impl CoduxApp {
             window_mode: AppWindowMode::Settings,
             root_focus_handle: None,
             terminals: Vec::new(),
-            terminal_manager: Arc::new(TerminalManager::with_ai_runtime_registry(
-                runtime_service.ai_runtime_bridge().registry(),
+            terminal_manager: Arc::new(TerminalManager::with_ai_runtime(
+                runtime_service.ai_runtime_bridge(),
             )),
             terminal_layout_loading: false,
             active_terminal_id: 0,

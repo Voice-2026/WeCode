@@ -1,7 +1,7 @@
 use super::{command::is_managed_hook, json::load_json_object};
 use crate::{
     ai_runtime::bridge::{AIRuntimeHookConfigStatus, AIRuntimeToolHookConfigStatus},
-    runtime_paths::home_dir,
+    runtime_paths::{app_slug, home_dir},
 };
 use serde_json::{Map, Value};
 use std::path::Path;
@@ -63,6 +63,7 @@ pub fn tool_hook_config_status(
     tool: &str,
     definitions: &[(&str, &str)],
 ) -> AIRuntimeToolHookConfigStatus {
+    let owner = app_slug();
     let root = load_json_object(path).unwrap_or_default();
     let hooks = root
         .get("hooks")
@@ -72,7 +73,7 @@ pub fn tool_hook_config_status(
     let missing = definitions
         .iter()
         .filter_map(|(event_key, action)| {
-            (!has_managed_hook_for_event(&hooks, event_key, action, tool))
+            (!has_managed_hook_for_event(&hooks, event_key, action, owner, tool))
                 .then(|| format!("{event_key}:{action}"))
         })
         .collect::<Vec<_>>();
@@ -105,6 +106,7 @@ fn has_managed_hook_for_event(
     hooks: &Map<String, Value>,
     event_key: &str,
     action: &str,
+    owner: &str,
     tool: &str,
 ) -> bool {
     hooks
@@ -112,11 +114,15 @@ fn has_managed_hook_for_event(
         .and_then(|value| value.as_array())
         .map(|groups| {
             groups.iter().any(|group| {
-                is_managed_hook(group, action, tool)
+                is_managed_hook(group, action, owner, tool)
                     || group
                         .get("hooks")
                         .and_then(|value| value.as_array())
-                        .map(|items| items.iter().any(|item| is_managed_hook(item, action, tool)))
+                        .map(|items| {
+                            items
+                                .iter()
+                                .any(|item| is_managed_hook(item, action, owner, tool))
+                        })
                         .unwrap_or(false)
             })
         })
@@ -126,6 +132,7 @@ fn has_managed_hook_for_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_paths::app_slug;
     use std::fs;
     use uuid::Uuid;
 
@@ -134,34 +141,27 @@ mod tests {
         let root = std::env::temp_dir().join(format!("codux-claude-hooks-{}.json", Uuid::new_v4()));
         fs::write(
             &root,
-            r#"{
-              "hooks": {
-                "PreCompact": [
-                  {
-                    "matcher": "",
-                    "hooks": [
-                      {
-                        "type": "command",
-                        "command": "'/tmp/dmux-ai-state.sh' 'pre-compact' 'codux-tauri' 'claude'",
-                        "timeout": 10
-                      }
-                    ]
-                  }
-                ],
-                "PostCompact": [
-                  {
-                    "matcher": "",
-                    "hooks": [
-                      {
-                        "type": "command",
-                        "command": "'/tmp/dmux-ai-state.sh' 'post-compact' 'codux-tauri' 'claude'",
-                        "timeout": 10
-                      }
-                    ]
-                  }
-                ]
-              }
-            }"#,
+            serde_json::json!({
+                "hooks": {
+                    "PreCompact": [{
+                        "matcher": "",
+                        "hooks": [{
+                            "type": "command",
+                            "command": format!("'/tmp/dmux-ai-state.sh' 'pre-compact' '{}' 'claude'", app_slug()),
+                            "timeout": 10
+                        }]
+                    }],
+                    "PostCompact": [{
+                        "matcher": "",
+                        "hooks": [{
+                            "type": "command",
+                            "command": format!("'/tmp/dmux-ai-state.sh' 'post-compact' '{}' 'claude'", app_slug()),
+                            "timeout": 10
+                        }]
+                    }]
+                }
+            })
+            .to_string(),
         )
         .unwrap();
 
@@ -174,6 +174,39 @@ mod tests {
                 ("Stop", "stop"),
             ],
         );
+
+        assert!(!status.configured);
+        assert_eq!(status.missing, vec!["Stop:stop"]);
+        fs::remove_file(root).unwrap();
+    }
+
+    #[test]
+    fn tool_hook_config_status_ignores_other_owner_hooks() {
+        let root = std::env::temp_dir().join(format!("codux-owner-hooks-{}.json", Uuid::new_v4()));
+        let other_owner = if app_slug() == "codux" {
+            "codux-dev"
+        } else {
+            "codux"
+        };
+        fs::write(
+            &root,
+            serde_json::json!({
+                "hooks": {
+                    "Stop": [{
+                        "matcher": "",
+                        "hooks": [{
+                            "type": "command",
+                            "command": format!("'/tmp/dmux-ai-state.sh' 'stop' '{}' 'claude'", other_owner),
+                            "timeout": 10
+                        }]
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let status = tool_hook_config_status(&root, "claude", &[("Stop", "stop")]);
 
         assert!(!status.configured);
         assert_eq!(status.missing, vec!["Stop:stop"]);

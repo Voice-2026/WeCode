@@ -34,19 +34,18 @@ impl CoduxApp {
             return;
         }
 
+        self.refresh_desktop_pet_live_runtime_state();
         self.refresh_desktop_pet_activity_line(cx);
         self.start_pet_sprite_animation_loop(cx);
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             loop {
-                timer.timer(Duration::from_secs(5)).await;
+                timer.timer(Duration::from_millis(500)).await;
 
                 if this
                     .update(cx, |app, cx| {
                         app.state.runtime_events = app.runtime_service.reload_runtime_events();
-                        app.state.ai_runtime_state = app
-                            .runtime_service
-                            .reload_ai_runtime_state(&app.state.runtime_events);
+                        app.refresh_desktop_pet_live_runtime_state();
                         app.refresh_desktop_pet_activity_line(cx);
                     })
                     .is_err()
@@ -56,6 +55,13 @@ impl CoduxApp {
             }
         })
         .detach();
+    }
+
+    pub(super) fn refresh_desktop_pet_live_runtime_state(&mut self) {
+        let snapshot = self.runtime_service.ai_runtime_state_snapshot();
+        self.state.ai_runtime_state = self
+            .runtime_service
+            .summarize_ai_runtime_state_snapshot(&snapshot);
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -1081,6 +1087,7 @@ impl CoduxApp {
         );
         let animation = self.desktop_pet_animation();
         let sprite_frame = self.visible_pet_sprite_frame(animation.frame_count);
+        let sprite_visible_width = pet_sprite_visible_width(DESKTOP_PET_SPRITE_SIZE);
         let menu_entries = desktop_pet_menu_entries(&self.state.settings.language);
         let side = self.desktop_pet_side(window, cx);
         let bubble_is_left_tail = side == DesktopPetSide::Right;
@@ -1106,7 +1113,8 @@ impl CoduxApp {
                         div()
                             .absolute()
                             .bottom(px(DESKTOP_PET_SPRITE_BOTTOM))
-                            .size(px(DESKTOP_PET_SPRITE_SIZE))
+                            .w(px(sprite_visible_width))
+                            .h(px(DESKTOP_PET_SPRITE_SIZE))
                             .overflow_hidden()
                             .when(side == DesktopPetSide::Right, |this| {
                                 this.left(px(DESKTOP_PET_SPRITE_SIDE))

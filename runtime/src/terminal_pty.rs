@@ -1,5 +1,5 @@
+use crate::ai_runtime::{AIRuntimeBridge, AIRuntimeTerminalBinding};
 use anyhow::{Context, Result, anyhow};
-use crate::ai_runtime::{AIRuntimeRegistry, AIRuntimeTerminalBinding};
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -215,21 +215,21 @@ pub type EventSink = Arc<dyn Fn(TerminalEvent) + Send + Sync + 'static>;
 
 pub struct TerminalManager {
     sessions: parking_lot::Mutex<HashMap<String, Arc<TerminalPtySession>>>,
-    ai_runtime_registry: Option<Arc<AIRuntimeRegistry>>,
+    ai_runtime: Option<Arc<AIRuntimeBridge>>,
 }
 
 impl TerminalManager {
     pub fn new() -> Self {
         Self {
             sessions: parking_lot::Mutex::new(HashMap::new()),
-            ai_runtime_registry: None,
+            ai_runtime: None,
         }
     }
 
-    pub fn with_ai_runtime_registry(ai_runtime_registry: Arc<AIRuntimeRegistry>) -> Self {
+    pub fn with_ai_runtime(ai_runtime: Arc<AIRuntimeBridge>) -> Self {
         Self {
             sessions: parking_lot::Mutex::new(HashMap::new()),
-            ai_runtime_registry: Some(ai_runtime_registry),
+            ai_runtime: Some(ai_runtime),
         }
     }
 
@@ -270,6 +270,9 @@ impl TerminalManager {
             return Ok(session.id().to_string());
         }
 
+        if let Some(ai_runtime) = &self.ai_runtime {
+            ai_runtime.ensure_started().map_err(anyhow::Error::msg)?;
+        }
         let (session, _writer, reader) = TerminalPtySession::spawn(config, context, None)?;
         let session = Arc::new(session);
         let id = session.id().to_string();
@@ -299,6 +302,9 @@ impl TerminalManager {
             return Ok((session, rx));
         }
 
+        if let Some(ai_runtime) = &self.ai_runtime {
+            ai_runtime.ensure_started().map_err(anyhow::Error::msg)?;
+        }
         let (session, _writer, reader) =
             TerminalPtySession::spawn(config, context, Some(emit.clone()))?;
         let session = Arc::new(session);
@@ -357,17 +363,17 @@ impl TerminalManager {
     }
 
     fn register_ai_runtime_terminal(&self, session: &TerminalPtySession) {
-        let Some(registry) = &self.ai_runtime_registry else {
+        let Some(ai_runtime) = &self.ai_runtime else {
             return;
         };
-        registry.upsert(session.ai_runtime_binding());
+        ai_runtime.registry().upsert(session.ai_runtime_binding());
     }
 
     fn remove_ai_runtime_terminal(&self, session: &TerminalPtySession) {
-        let Some(registry) = &self.ai_runtime_registry else {
+        let Some(ai_runtime) = &self.ai_runtime else {
             return;
         };
-        registry.remove(session.id());
+        ai_runtime.registry().remove(session.id());
     }
 }
 
@@ -1059,6 +1065,7 @@ pub fn terminal_environment(
         .clone()
         .or_else(|| context.and_then(|context| context.session_title.clone()))
         .unwrap_or_else(|| "Terminal".to_string());
+    let shell_name = shell_name(shell);
 
     let mut values = captured_shell_environment(shell, &session_cwd, &home_text, &user);
     values.insert("HOME".to_string(), home_text.clone());
@@ -1092,6 +1099,24 @@ pub fn terminal_environment(
             .to_string();
         path = prepend_path_component(&wrapper_bin, &path);
         values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
+        if matches!(shell_name.as_deref(), Some("zsh")) {
+            values.insert(
+                "ZDOTDIR".to_string(),
+                context
+                    .runtime_root
+                    .join("scripts/shell-hooks/zsh")
+                    .display()
+                    .to_string(),
+            );
+            values.insert(
+                "DMUX_ZSH_HOOK_SCRIPT".to_string(),
+                context
+                    .runtime_root
+                    .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+                    .display()
+                    .to_string(),
+            );
+        }
         values.insert(
             "CODUX_SSH_PROFILES_FILE".to_string(),
             context
@@ -2041,9 +2066,13 @@ mod tests {
             env.get("DMUX_AI_MEMORY_INDEX_FILE").map(String::as_str),
             Some("/tmp/codux/memory-workspaces/project-1/MEMORY.md")
         );
-        assert_ne!(
+        assert_eq!(
             env.get("ZDOTDIR").map(String::as_str),
             Some("/runtime-assets/scripts/shell-hooks/zsh")
+        );
+        assert_eq!(
+            env.get("DMUX_ZSH_HOOK_SCRIPT").map(String::as_str),
+            Some("/runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh")
         );
     }
 
@@ -2193,8 +2222,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn terminal_manager_registers_ai_runtime_terminal_lifecycle() {
-        let registry = AIRuntimeRegistry::shared();
-        let manager = TerminalManager::with_ai_runtime_registry(Arc::clone(&registry));
+        let dir = std::env::temp_dir().join(format!("codux-terminal-bridge-{}", Uuid::new_v4()));
+        let bridge = Arc::new(AIRuntimeBridge::with_paths(
+            dir.join("root"),
+            dir.join("temp"),
+            dir.join("home"),
+        ));
+        let manager = TerminalManager::with_ai_runtime(Arc::clone(&bridge));
         let terminal_id = format!("test-ai-terminal-{}", Uuid::new_v4());
         let config = TerminalPtyConfig {
             terminal_id: Some(terminal_id.clone()),
@@ -2215,7 +2249,7 @@ mod tests {
             .attach_or_create_with_context(config, None, emit)
             .expect("terminal should start");
 
-        let terminals = registry.snapshot();
+        let terminals = bridge.registry().snapshot();
         assert_eq!(terminals.len(), 1);
         assert_eq!(terminals[0].terminal_id, terminal_id);
         assert_eq!(terminals[0].project_id, "project-1");
@@ -2223,7 +2257,8 @@ mod tests {
         assert_eq!(terminals[0].tool.as_deref(), Some("codex"));
 
         manager.kill(session.id()).expect("terminal should stop");
-        assert!(registry.snapshot().is_empty());
+        assert!(bridge.registry().snapshot().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]

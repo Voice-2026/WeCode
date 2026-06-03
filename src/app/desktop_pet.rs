@@ -529,8 +529,7 @@ pub(in crate::app) fn desktop_pet_bubble(
         .min_h(px(DESKTOP_PET_BUBBLE_MIN_HEIGHT))
         .when(left_tail, |this| this.right(px(DESKTOP_PET_BUBBLE_EDGE)))
         .when(!left_tail, |this| this.left(px(DESKTOP_PET_BUBBLE_EDGE)))
-        .child(pixel_bubble_body(stroke, 0.0, left_tail))
-        .child(pixel_bubble_body(fill, 3.0, left_tail))
+        .child(pixel_bubble_canvas(stroke, fill, left_tail))
         .child(
             div()
                 .relative()
@@ -555,40 +554,128 @@ pub(in crate::app) fn desktop_pet_bubble(
         .into_any_element()
 }
 
-fn pixel_bubble_body(color_hex: u32, inset: f32, left_tail: bool) -> AnyElement {
-    let left = if left_tail {
-        DESKTOP_PET_BUBBLE_TAIL_SIZE + inset
+fn pixel_bubble_canvas(stroke_hex: u32, fill_hex: u32, left_tail: bool) -> AnyElement {
+    let stroke = color(stroke_hex);
+    let fill = color(fill_hex);
+    canvas(
+        move |_, _, _| {},
+        move |bounds, _, window, _| {
+            if let Ok(path) = pixel_bubble_path(bounds, 0.0, left_tail) {
+                window.paint_path(path, stroke);
+            }
+            if let Ok(path) = pixel_bubble_path(bounds, 3.0, left_tail) {
+                window.paint_path(path, fill);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
+}
+
+fn pixel_bubble_path(
+    bounds: Bounds<Pixels>,
+    inset: f32,
+    left_tail: bool,
+) -> Result<gpui::Path<Pixels>, anyhow::Error> {
+    let width: f32 = bounds.size.width.into();
+    let height: f32 = bounds.size.height.into();
+    let tail = DESKTOP_PET_BUBBLE_TAIL_SIZE;
+    let area_x = if left_tail { tail + inset } else { inset };
+    let area_y = inset;
+    let area_width = width - tail - inset * 2.0;
+    let area_height = height - inset * 2.0;
+    let x: f32 = bounds.origin.x.into();
+    let y: f32 = bounds.origin.y.into();
+    let mut builder = PathBuilder::fill();
+    let points = pixel_bubble_points(area_width, area_height, left_tail);
+    if let Some((first, rest)) = points.split_first() {
+        builder.move_to(point(px(x + area_x + first.0), px(y + area_y + first.1)));
+        for (px_x, px_y) in rest {
+            builder.line_to(point(px(x + area_x + *px_x), px(y + area_y + *px_y)));
+        }
+        builder.line_to(point(px(x + area_x + first.0), px(y + area_y + first.1)));
+    }
+    builder.build()
+}
+
+fn pixel_bubble_points(width: f32, height: f32, left_tail: bool) -> Vec<(f32, f32)> {
+    let step: f32 = 3.0;
+    let tail = DESKTOP_PET_BUBBLE_TAIL_SIZE;
+    let corner = step * 2.0;
+    let tail_y = height / 2.0;
+
+    if left_tail {
+        vec![
+            (0.0, tail_y - step),
+            (step, tail_y - step),
+            (step, tail_y - step * 2.0),
+            (step * 2.0, tail_y - step * 2.0),
+            (step * 2.0, tail_y - tail),
+            (tail, tail_y - tail),
+            (tail, corner),
+            (tail + step, corner),
+            (tail + step, step),
+            (tail + corner, step),
+            (tail + corner, 0.0),
+            (width - corner, 0.0),
+            (width - corner, step),
+            (width - step, step),
+            (width - step, corner),
+            (width, corner),
+            (width, height - corner),
+            (width - step, height - corner),
+            (width - step, height - step),
+            (width - corner, height - step),
+            (width - corner, height),
+            (tail + corner, height),
+            (tail + corner, height - step),
+            (tail + step, height - step),
+            (tail + step, height - corner),
+            (tail, height - corner),
+            (tail, tail_y + tail),
+            (step * 2.0, tail_y + tail),
+            (step * 2.0, tail_y + step * 2.0),
+            (step, tail_y + step * 2.0),
+            (step, tail_y + step),
+            (0.0, tail_y + step),
+        ]
     } else {
-        inset
-    };
-    let right = if left_tail {
-        inset
-    } else {
-        DESKTOP_PET_BUBBLE_TAIL_SIZE + inset
-    };
-    let tail_y = DESKTOP_PET_BUBBLE_MIN_HEIGHT / 2.0;
-    div()
-        .absolute()
-        .top(px(inset))
-        .bottom(px(inset))
-        .left(px(left))
-        .right(px(right))
-        .bg(color(color_hex))
-        .child(
-            div()
-                .absolute()
-                .top(px(tail_y - DESKTOP_PET_BUBBLE_TAIL_SIZE / 2.0))
-                .when(left_tail, |this| {
-                    this.left(px(-DESKTOP_PET_BUBBLE_TAIL_SIZE))
-                })
-                .when(!left_tail, |this| {
-                    this.right(px(-DESKTOP_PET_BUBBLE_TAIL_SIZE))
-                })
-                .w(px(DESKTOP_PET_BUBBLE_TAIL_SIZE))
-                .h(px(DESKTOP_PET_BUBBLE_TAIL_SIZE))
-                .bg(color(color_hex)),
-        )
-        .into_any_element()
+        vec![
+            (0.0, corner),
+            (step, corner),
+            (step, step),
+            (corner, step),
+            (corner, 0.0),
+            (width - step * 5.0, 0.0),
+            (width - step * 5.0, step),
+            (width - step * 4.0, step),
+            (width - step * 4.0, corner),
+            (width - tail, corner),
+            (width - tail, tail_y - tail),
+            (width - step * 2.0, tail_y - tail),
+            (width - step * 2.0, tail_y - step * 2.0),
+            (width - step, tail_y - step * 2.0),
+            (width - step, tail_y - step),
+            (width, tail_y - step),
+            (width, tail_y + step),
+            (width - step, tail_y + step),
+            (width - step, tail_y + step * 2.0),
+            (width - step * 2.0, tail_y + step * 2.0),
+            (width - step * 2.0, tail_y + tail),
+            (width - tail, tail_y + tail),
+            (width - tail, height - corner),
+            (width - step * 4.0, height - corner),
+            (width - step * 4.0, height - step),
+            (width - step * 5.0, height - step),
+            (width - step * 5.0, height),
+            (corner, height),
+            (corner, height - step),
+            (step, height - step),
+            (step, height - corner),
+            (0.0, height - corner),
+        ]
+    }
 }
 
 pub(in crate::app) fn pet_sprite_element(
@@ -605,7 +692,8 @@ pub(in crate::app) fn pet_sprite_element(
     let y_offset = -(row as f32) * size;
 
     div()
-        .size(px(size))
+        .w(px(visible_width))
+        .h(px(size))
         .overflow_hidden()
         .flex_none()
         .child(
@@ -629,4 +717,129 @@ pub(in crate::app) fn pet_sprite_element(
                 }),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runtime_session(state: &str) -> codux_runtime::ai_runtime_state::AIRuntimeSessionSummary {
+        codux_runtime::ai_runtime_state::AIRuntimeSessionSummary {
+            terminal_id: "term-a".to_string(),
+            project_id: "project-a".to_string(),
+            project_path: None,
+            tool: "codex".to_string(),
+            ai_session_id: None,
+            model: None,
+            state: state.to_string(),
+            project_name: "Codux".to_string(),
+            session_title: "Session".to_string(),
+            started_at: Some(1.0),
+            updated_at: 2.0,
+            event_count: 1,
+            has_completed_turn: false,
+            was_interrupted: false,
+            notification_type: None,
+            target_tool_name: None,
+            message: None,
+            latest_assistant_preview: None,
+            total_tokens: 0,
+            cached_input_tokens: 0,
+            raw_total_tokens: 0,
+            raw_cached_input_tokens: 0,
+            baseline_total_tokens: 0,
+            baseline_cached_input_tokens: 0,
+            source: "runtime".to_string(),
+        }
+    }
+
+    #[test]
+    fn runtime_activity_line_uses_running_assistant_preview() {
+        let mut session = runtime_session("running");
+        session.latest_assistant_preview = Some("Analyzing files\n\nPreparing patch".to_string());
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![session],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "zh-CN");
+
+        assert_eq!(line.text, "Analyzing files\nPreparing patch");
+        assert_eq!(line.tone, DesktopPetActivityTone::Normal);
+    }
+
+    #[test]
+    fn runtime_activity_line_prioritizes_permission_requests() {
+        let mut running = runtime_session("running");
+        running.updated_at = 20.0;
+        running.latest_assistant_preview = Some("Working".to_string());
+        let mut permission = runtime_session("needs-input");
+        permission.updated_at = 10.0;
+        permission.notification_type = Some("PermissionRequest".to_string());
+        permission.target_tool_name = Some("Write".to_string());
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![running, permission],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "english");
+
+        assert!(line.text.contains("codex"));
+        assert!(line.text.contains("Write"));
+        assert_eq!(line.tone, DesktopPetActivityTone::Attention);
+    }
+
+    #[test]
+    fn runtime_activity_line_uses_needs_input_message() {
+        let mut session = runtime_session("needs-input");
+        session.message = Some("Choose an option\n\nthen continue".to_string());
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![session],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "english");
+
+        assert_eq!(line.text, "Choose an option\nthen continue");
+        assert_eq!(line.tone, DesktopPetActivityTone::Attention);
+    }
+
+    #[test]
+    fn runtime_activity_line_reports_recent_completion() {
+        let mut session = runtime_session("completed");
+        session.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        session.has_completed_turn = true;
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![session],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "english");
+
+        assert!(line.text.contains("codex"));
+        assert_eq!(line.tone, DesktopPetActivityTone::Success);
+    }
+
+    #[test]
+    fn runtime_activity_line_reports_recent_failure() {
+        let mut session = runtime_session("completed");
+        session.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        session.has_completed_turn = true;
+        session.was_interrupted = true;
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![session],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "english");
+
+        assert!(line.text.contains("codex"));
+        assert_eq!(line.tone, DesktopPetActivityTone::Warning);
+    }
 }

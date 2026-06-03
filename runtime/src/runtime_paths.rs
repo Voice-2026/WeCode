@@ -98,7 +98,11 @@ pub fn app_display_name() -> &'static str {
 }
 
 pub fn app_slug() -> &'static str {
-    "codux"
+    if cfg!(debug_assertions) {
+        "codux-dev"
+    } else {
+        "codux"
+    }
 }
 
 pub fn app_support_candidates() -> Vec<PathBuf> {
@@ -178,10 +182,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_name_and_slug_stay_release_named_in_debug() {
+    fn display_name_stays_release_named() {
         assert_eq!(app_display_name(), "Codux");
-        assert_eq!(app_slug(), "codux");
-        assert!(runtime_temp_dir().ends_with("codux"));
+    }
+
+    #[test]
+    fn slug_matches_build_profile() {
+        if cfg!(debug_assertions) {
+            assert_eq!(app_slug(), "codux-dev");
+            assert!(runtime_temp_dir().ends_with("codux-dev"));
+        } else {
+            assert_eq!(app_slug(), "codux");
+            assert!(runtime_temp_dir().ends_with("codux"));
+        }
     }
 
     #[test]
