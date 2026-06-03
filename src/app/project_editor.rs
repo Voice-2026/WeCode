@@ -30,7 +30,7 @@ impl CoduxApp {
                     .overflow_y_scrollbar()
                     .flex()
                     .flex_col()
-                    .gap(px(18.0))
+                    .gap(px(24.0))
                     .p(px(18.0))
                     .child(project_editor_field(
                         tr("project.editor.name", "Project Name"),
