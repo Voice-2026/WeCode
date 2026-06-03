@@ -1387,11 +1387,7 @@ fn terminal_runtime_summary_from_inputs(
             )
         })
         .collect::<HashMap<_, _>>();
-    let open_keys = sessions
-        .iter()
-        .map(|session| terminal_session_key(&session.terminal_id, &session.slot_id))
-        .collect::<HashSet<_>>();
-    let mut sessions = sessions
+    let sessions = sessions
         .into_iter()
         .map(|session| TerminalRuntimeSessionSummary {
             created_at: created_at_by_key
@@ -1424,26 +1420,12 @@ fn terminal_runtime_summary_from_inputs(
         })
         .collect::<Vec<_>>();
     let open_count = sessions.len();
-    sessions.extend(
-        existing
-            .sessions
-            .iter()
-            .filter(|session| {
-                !session.is_running
-                    && !open_keys.contains(&terminal_session_key(
-                        &session.terminal_id,
-                        &session.slot_id,
-                    ))
-            })
-            .cloned(),
-    );
-    let closed_count = sessions.len().saturating_sub(open_count);
     TerminalRuntimeSummary {
         path: String::new(),
         active_terminal_id,
         active_slot_id,
         open_count,
-        closed_count,
+        closed_count: 0,
         sessions,
         error: None,
     }

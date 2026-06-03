@@ -196,6 +196,8 @@ pub struct TerminalOutputSnapshot {
 pub struct TerminalSessionSnapshot {
     pub id: String,
     pub title: String,
+    pub slot_id: String,
+    pub session_key: Option<String>,
     pub project_id: String,
     pub project_name: String,
     pub cwd: String,
@@ -522,6 +524,8 @@ impl TerminalPtySession {
         let info = Arc::new(parking_lot::Mutex::new(TerminalSessionSnapshot {
             id: id.clone(),
             title: title.clone(),
+            slot_id: slot_id.clone(),
+            session_key: session_key.clone(),
             project_id: project_id.clone(),
             project_name,
             cwd: info_cwd.clone(),

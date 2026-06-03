@@ -136,7 +136,7 @@ function packageWindows() {
   const installerScriptPath = path.join(outputDir, `${appName}.nsi`);
   const installerPath = path.join(outputDir, `${artifactBaseName("windows")}-setup.exe`);
   fs.writeFileSync(installerScriptPath, windowsNsisScript(packageDir, installerPath), "utf8");
-  run("makensis", [installerScriptPath]);
+  run(windowsMakensisCommand(), [installerScriptPath]);
   writeSha256(installerPath);
   signTauriUpdaterArtifact(installerPath);
 }
@@ -299,9 +299,29 @@ function escapeNsis(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '$\\"');
 }
 
+function windowsMakensisCommand() {
+  if (process.platform !== "win32") return "makensis";
+  const candidates = [
+    process.env.MAKENSIS_PATH,
+    process.env.NSIS_HOME && path.join(process.env.NSIS_HOME, "makensis.exe"),
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, "NSIS", "makensis.exe"),
+    process.env["ProgramFiles(x86)"] && path.join(process.env["ProgramFiles(x86)"], "NSIS", "makensis.exe"),
+    process.env.ChocolateyInstall && path.join(process.env.ChocolateyInstall, "bin", "makensis.exe"),
+    "makensis",
+  ].filter(Boolean);
+  return candidates.find((candidate) => candidate === "makensis" || fs.existsSync(candidate)) || "makensis";
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { stdio: "inherit", env: options.env || process.env });
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+    const details = [
+      `exit code ${result.status}`,
+      result.signal ? `signal ${result.signal}` : "",
+      result.error ? `error ${result.error.message}` : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(`${command} ${args.join(" ")} failed with ${details}`);
   }
 }

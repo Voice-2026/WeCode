@@ -644,6 +644,8 @@ fn remote_terminal_snapshot_payload_matches_tauri_shape() {
     let payload = super::host::remote_terminal_snapshot_payload(TerminalSessionSnapshot {
         id: "term-1".to_string(),
         title: "Shell".to_string(),
+        slot_id: "slot-1".to_string(),
+        session_key: Some("session-key-1".to_string()),
         project_id: "project-1".to_string(),
         project_name: "Codux".to_string(),
         cwd: "/workspace/codux".to_string(),
@@ -657,7 +659,7 @@ fn remote_terminal_snapshot_payload_matches_tauri_shape() {
         last_active_at: "2026-01-01T00:00:01Z".to_string(),
         buffer_characters: 42,
         has_buffer: true,
-    });
+    }, &std::collections::HashMap::new());
 
     assert_eq!(payload.get("id").and_then(serde_json::Value::as_str), Some("term-1"));
     assert_eq!(
@@ -671,6 +673,10 @@ fn remote_terminal_snapshot_payload_matches_tauri_shape() {
     assert_eq!(payload.get("cols").and_then(serde_json::Value::as_u64), Some(120));
     assert_eq!(payload.get("rows").and_then(serde_json::Value::as_u64), Some(36));
     assert_eq!(
+        payload.get("slotId").and_then(serde_json::Value::as_str),
+        Some("slot-1")
+    );
+    assert_eq!(
         payload.get("isRunning").and_then(serde_json::Value::as_bool),
         Some(true)
     );
@@ -679,6 +685,32 @@ fn remote_terminal_snapshot_payload_matches_tauri_shape() {
             .get("bufferCharacters")
             .and_then(serde_json::Value::as_u64),
         Some(42)
+    );
+}
+
+#[test]
+fn remote_terminal_order_uses_runtime_order_before_id() {
+    let mut terminals = vec![
+        json!({
+            "id": "term-2",
+            "paneIndex": 1,
+            "sortOrder": 1,
+        }),
+        json!({
+            "id": "term-1",
+            "paneIndex": 0,
+            "sortOrder": 0,
+        }),
+    ];
+
+    terminals.sort_by_key(super::host::remote_terminal_order_key);
+
+    assert_eq!(
+        terminals
+            .iter()
+            .filter_map(|terminal| terminal.get("id").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>(),
+        vec!["term-1", "term-2"]
     );
 }
 

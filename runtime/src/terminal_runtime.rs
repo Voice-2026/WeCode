@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const RUNTIME_FILE_NAME: &str = "gpui-terminal-runtime.json";
-const CLOSED_HISTORY_LIMIT: usize = 24;
 const INPUT_HISTORY_LIMIT: usize = 20;
 const INPUT_TEXT_LIMIT: usize = 240;
 const OUTPUT_TAIL_LIMIT: usize = 12 * 1024;
@@ -125,11 +124,7 @@ impl TerminalRuntimeService {
             );
         }
 
-        let open_keys = sessions
-            .iter()
-            .map(|session| session_key(&session.terminal_id, &session.slot_id))
-            .collect::<HashSet<_>>();
-        let mut next_sessions = sessions
+        let next_sessions = sessions
             .into_iter()
             .map(|session| {
                 let key = session_key(&session.terminal_id, &session.slot_id);
@@ -158,26 +153,6 @@ impl TerminalRuntimeService {
                 }
             })
             .collect::<Vec<_>>();
-
-        let mut closed = existing_sessions
-            .into_iter()
-            .filter(|session| {
-                !open_keys.contains(&session_key(&session.terminal_id, &session.slot_id))
-            })
-            .map(|mut session| {
-                session.status = "closed".to_string();
-                session.is_running = false;
-                session.last_active_at = now;
-                session.has_buffer = false;
-                session.buffer_characters = 0;
-                session.input_history = sanitize_input_history(session.input_history);
-                session.output_tail = sanitize_output_tail(&session.output_tail);
-                session
-            })
-            .collect::<Vec<_>>();
-        closed.sort_by(|a, b| b.last_active_at.total_cmp(&a.last_active_at));
-        closed.truncate(CLOSED_HISTORY_LIMIT);
-        next_sessions.extend(closed);
 
         raw.insert("schemaVersion".to_string(), json!(1));
         raw.insert("source".to_string(), json!("gpui"));
@@ -373,7 +348,7 @@ mod tests {
     use uuid::Uuid;
 
     #[test]
-    fn save_from_gpui_preserves_unknown_fields_and_marks_closed_sessions() {
+    fn save_from_gpui_preserves_unknown_fields_and_removes_closed_sessions() {
         let support_dir =
             std::env::temp_dir().join(format!("codux-gpui-terminal-runtime-{}", Uuid::new_v4()));
         fs::create_dir_all(&support_dir).unwrap();
@@ -442,17 +417,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(summary.open_count, 1);
-        assert_eq!(summary.closed_count, 1);
-        assert!(
-            summary
-                .sessions
-                .iter()
-                .any(|session| session.terminal_id == "old-term"
-                    && session.status == "closed"
-                    && !session.is_running
-                    && !session.has_buffer
-                    && session.buffer_characters == 0)
-        );
+        assert_eq!(summary.closed_count, 0);
+        assert!(!summary.sessions.iter().any(|session| session.terminal_id == "old-term"));
         let open = summary
             .sessions
             .iter()

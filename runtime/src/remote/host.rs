@@ -29,6 +29,8 @@ use std::{
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message as WebSocketMessage;
 
+pub const REMOTE_PROTOCOL_VERSION: &str = "v1.0";
+
 pub struct RemoteHostRuntime {
     support_dir: PathBuf,
     ai_history: AIHistoryIndexer,
@@ -349,6 +351,7 @@ impl RemoteHostRuntime {
                     "name": remote_host_name(),
                     "platform": std::env::consts::OS,
                     "app": "Codux",
+                    "protocolVersion": REMOTE_PROTOCOL_VERSION,
                 }),
             ),
             "device.connected" => {
@@ -778,6 +781,8 @@ impl RemoteHostRuntime {
             self.send_error(envelope, &error);
             return;
         }
+        self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
+        self.apply_terminal_viewport(session_id, envelope);
         self.send_terminal_buffer(session_id, envelope.device_id.as_deref(), offset);
     }
 
@@ -825,6 +830,27 @@ impl RemoteHostRuntime {
         if self.ensure_remote_terminal_started(session_id, envelope).is_err() {
             return;
         }
+        self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
+        let _ = self.terminals.resize(session_id, cols, rows);
+    }
+
+    fn apply_terminal_viewport(&self, session_id: &str, envelope: &RemoteEnvelope) {
+        let Some(cols) = envelope
+            .payload
+            .get("cols")
+            .and_then(Value::as_u64)
+            .map(|value| value as u16)
+        else {
+            return;
+        };
+        let Some(rows) = envelope
+            .payload
+            .get("rows")
+            .and_then(Value::as_u64)
+            .map(|value| value as u16)
+        else {
+            return;
+        };
         let _ = self.terminals.resize(session_id, cols, rows);
     }
 
@@ -1255,26 +1281,7 @@ impl RemoteHostRuntime {
     }
 
     fn send_terminal_list(&self, device_id: Option<&str>) {
-        let running = self
-            .terminals
-            .list()
-            .into_iter()
-            .map(remote_terminal_snapshot_payload)
-            .collect::<Vec<_>>();
-        let mut known = running
-            .iter()
-            .filter_map(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
-            .collect::<HashSet<_>>();
-        let mut terminals = running;
-        terminals.extend(
-            TerminalRuntimeService::new(self.support_dir.clone())
-            .summary()
-            .sessions
-            .into_iter()
-                .filter(|terminal| known.insert(terminal.terminal_id.clone()))
-            .map(remote_terminal_runtime_payload)
-                .collect::<Vec<_>>(),
-        );
+        let terminals = self.remote_terminals();
         self.send(
             "terminal.list",
             device_id,
@@ -1433,11 +1440,18 @@ impl RemoteHostRuntime {
     }
 
     fn remote_terminals(&self) -> Vec<Value> {
+        let runtime_sessions = TerminalRuntimeService::new(self.support_dir.clone())
+            .summary()
+            .sessions
+            .into_iter()
+            .filter(|terminal| terminal.is_running)
+            .collect::<Vec<_>>();
+        let sort_order = remote_terminal_sort_order(&runtime_sessions);
         let running = self
             .terminals
             .list()
             .into_iter()
-            .map(remote_terminal_snapshot_payload)
+            .map(|terminal| remote_terminal_snapshot_payload(terminal, &sort_order))
             .collect::<Vec<_>>();
         let mut known = running
             .iter()
@@ -1445,13 +1459,12 @@ impl RemoteHostRuntime {
             .collect::<HashSet<_>>();
         let mut terminals = running;
         terminals.extend(
-            TerminalRuntimeService::new(self.support_dir.clone())
-                .summary()
-                .sessions
+            runtime_sessions
                 .into_iter()
                 .filter(|terminal| known.insert(terminal.terminal_id.clone()))
-                .map(remote_terminal_runtime_payload),
+                .map(|terminal| remote_terminal_runtime_payload(terminal, &sort_order)),
         );
+        terminals.sort_by_key(remote_terminal_order_key);
         terminals
     }
 
@@ -1940,7 +1953,44 @@ pub(crate) fn remote_ai_stats_payload(
     Ok(payload)
 }
 
-pub(crate) fn remote_terminal_snapshot_payload(terminal: TerminalSessionSnapshot) -> Value {
+fn remote_terminal_sort_order(
+    terminals: &[TerminalRuntimeSessionSummary],
+) -> HashMap<String, usize> {
+    terminals
+        .iter()
+        .enumerate()
+        .map(|(index, terminal)| (terminal.terminal_id.clone(), index))
+        .collect()
+}
+
+pub(crate) fn remote_terminal_order_key(value: &Value) -> (usize, usize, String) {
+    let order = value
+        .get("sortOrder")
+        .and_then(Value::as_u64)
+        .unwrap_or(u64::MAX) as usize;
+    let pane_index = value
+        .get("paneIndex")
+        .and_then(Value::as_u64)
+        .unwrap_or(u64::MAX) as usize;
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    (order, pane_index, id)
+}
+
+fn remote_terminal_pane_index_from_slot(slot_id: &str) -> Option<usize> {
+    let (_, value) = slot_id.rsplit_once('-')?;
+    value.parse::<usize>().ok()?.checked_sub(1)
+}
+
+pub(crate) fn remote_terminal_snapshot_payload(
+    terminal: TerminalSessionSnapshot,
+    sort_order: &HashMap<String, usize>,
+) -> Value {
+    let sort_order = sort_order.get(&terminal.id).copied().unwrap_or(usize::MAX);
+    let pane_index = remote_terminal_pane_index_from_slot(&terminal.slot_id);
     json!({
         "id": terminal.id,
         "title": terminal.title,
@@ -1953,6 +2003,10 @@ pub(crate) fn remote_terminal_snapshot_payload(terminal: TerminalSessionSnapshot
         "projectName": terminal.project_name,
         "projectPath": terminal.cwd,
         "cwd": terminal.cwd,
+        "slotId": terminal.slot_id,
+        "sessionKey": terminal.session_key,
+        "paneIndex": pane_index,
+        "sortOrder": sort_order,
         "shell": terminal.shell,
         "command": terminal.command,
         "kind": "desktop-shared",
@@ -1972,7 +2026,14 @@ pub(crate) fn remote_terminal_snapshot_payload(terminal: TerminalSessionSnapshot
     })
 }
 
-fn remote_terminal_runtime_payload(terminal: TerminalRuntimeSessionSummary) -> Value {
+fn remote_terminal_runtime_payload(
+    terminal: TerminalRuntimeSessionSummary,
+    sort_order: &HashMap<String, usize>,
+) -> Value {
+    let sort_order = sort_order
+        .get(&terminal.terminal_id)
+        .copied()
+        .unwrap_or(usize::MAX);
     json!({
         "id": terminal.terminal_id,
         "title": terminal.title,
@@ -1985,6 +2046,9 @@ fn remote_terminal_runtime_payload(terminal: TerminalRuntimeSessionSummary) -> V
         "projectName": terminal.project_name,
         "projectPath": terminal.cwd,
         "cwd": terminal.cwd,
+        "slotId": terminal.slot_id,
+        "paneIndex": terminal.pane_index,
+        "sortOrder": sort_order,
         "shell": "login shell",
         "command": "",
         "kind": "desktop-shared",
@@ -2003,6 +2067,5 @@ fn remote_terminal_runtime_payload(terminal: TerminalRuntimeSessionSummary) -> V
         "bufferLength": terminal.buffer_characters,
         "bufferCharacters": terminal.buffer_characters,
         "hasBuffer": terminal.has_buffer,
-        "slotId": terminal.slot_id,
     })
 }
