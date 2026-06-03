@@ -1496,6 +1496,7 @@ impl CoduxApp {
         self.dismissed_worktree_ai_completion_at
             .insert(project.id.clone(), app_now_seconds());
         self.status_message = format!("AI completion dismissed for {}", project.name);
+        self.refresh_dock_badge_now(cx);
         self.sync_project_activity_store(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
@@ -1534,8 +1535,17 @@ impl CoduxApp {
         self.state.ai_runtime_state = self
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&snapshot);
+        self.refresh_dock_badge_now(cx);
         self.sync_project_activity_store(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
+    }
+
+    fn refresh_dock_badge_now(&mut self, cx: &mut Context<Self>) {
+        let window_state = self.runtime_service.app_window_state(true, true);
+        let _ = self
+            .runtime_service
+            .set_dock_badge_count(window_state.dock_badge_count);
+        self.invalidate_status_bar(cx);
     }
 }

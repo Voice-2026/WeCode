@@ -269,6 +269,51 @@ fn reconcile_without_live_terminal_marks_running_session_interrupted() {
 }
 
 #[test]
+fn first_prompt_notifies_when_bridge_already_marked_terminal_running() {
+    let store = AIRuntimeStateStore::default();
+    let bridge = crate::ai_runtime::registry::AIRuntimeTerminalState {
+        terminal_id: "terminal-1".to_string(),
+        terminal_instance_id: Some("instance-1".to_string()),
+        project_id: "project-1".to_string(),
+        slot_id: "slot-1".to_string(),
+        title: "Codex".to_string(),
+        cwd: "/tmp/codex-project".to_string(),
+        tool: Some("codex".to_string()),
+        is_active: true,
+        session_key: Some("session-1".to_string()),
+    };
+
+    assert!(store.reconcile_bridge_snapshot(&[bridge]).did_change);
+
+    let prompt = test_hook("promptSubmitted", 1000.0);
+    let mutation = store.apply_hook(prompt);
+
+    assert!(mutation.did_change);
+    assert!(mutation.completion.is_none());
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 1);
+    assert_eq!(snapshot.sessions[0].state, "responding");
+}
+
+#[test]
+fn prompt_submitted_uses_wrapper_project_even_when_hook_cwd_differs() {
+    let store = AIRuntimeStateStore::default();
+    let mut prompt = test_hook("promptSubmitted", 1000.0);
+    prompt.project_path = Some("F:\\codux-gpui".to_string());
+    prompt.metadata = Some(AIHookEventMetadata {
+        cwd: Some("C:\\Users\\dux".to_string()),
+        ..empty_metadata()
+    });
+
+    let mutation = store.apply_hook(prompt);
+
+    assert!(mutation.did_change);
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 1);
+    assert_eq!(snapshot.sessions[0].state, "responding");
+}
+
+#[test]
 fn stale_runtime_completion_snapshot_after_prompt_stays_running() {
     let store = AIRuntimeStateStore::default();
     assert!(store.apply_hook(test_hook("sessionStarted", 1000.0)).did_change);

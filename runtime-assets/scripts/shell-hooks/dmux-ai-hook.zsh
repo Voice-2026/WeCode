@@ -21,6 +21,14 @@ _dmux_log_line() {
   print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [zsh-hook] $1" >> "${DMUX_LOG_FILE}"
 }
 
+_dmux_debug_log_line() {
+  case "${DMUX_WRAPPER_DEBUG:-}" in
+    1|true|TRUE|debug|verbose)
+      _dmux_log_line "$1"
+      ;;
+  esac
+}
+
 _dmux_json_escape() {
   local value="$1"
   value="${value//\\/\\\\}"
@@ -127,7 +135,7 @@ _dmux_ai_preexec() {
   export DMUX_ACTIVE_AI_INVOCATION_ID
   export DMUX_ACTIVE_AI_RESOLVED_PATH
   _dmux_prepend_wrapper_bin
-  _dmux_log_line "preexec tool=${tool} resolved=${resolved_path:-nil} wrapper=${DMUX_WRAPPER_BIN:-nil} session=${DMUX_SESSION_ID:-nil} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil}"
+  _dmux_debug_log_line "preexec tool=${tool} resolved=${resolved_path:-nil} wrapper=${DMUX_WRAPPER_BIN:-nil} session=${DMUX_SESSION_ID:-nil} invocation=${DMUX_ACTIVE_AI_INVOCATION_ID:-nil}"
 }
 
 _dmux_ai_precmd() {
@@ -163,4 +171,4 @@ add-zsh-hook zshexit _dmux_ai_zshexit
 
 _dmux_prepend_wrapper_bin
 _dmux_reset_terminal_input_modes
-_dmux_log_line "loaded session=${DMUX_SESSION_ID:-nil} wrapper=${DMUX_WRAPPER_BIN:-nil} claude=$(whence -p claude 2>/dev/null || print -r -- nil) codex=$(whence -p codex 2>/dev/null || print -r -- nil) kiro=$(whence -p kiro 2>/dev/null || print -r -- nil) kiroCli=$(whence -p kiro-cli 2>/dev/null || print -r -- nil)"
+_dmux_debug_log_line "loaded session=${DMUX_SESSION_ID:-nil} wrapper=${DMUX_WRAPPER_BIN:-nil} claude=$(whence -p claude 2>/dev/null || print -r -- nil) codex=$(whence -p codex 2>/dev/null || print -r -- nil) kiro=$(whence -p kiro 2>/dev/null || print -r -- nil) kiroCli=$(whence -p kiro-cli 2>/dev/null || print -r -- nil)"

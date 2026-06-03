@@ -737,8 +737,6 @@ fn project_activity_badge(
             .w(px(10.0))
             .h(px(10.0))
             .rounded_full()
-            .border_1()
-            .border_color(color(0xFFFFFF))
             .bg(color(theme::ORANGE))
             .into_any_element(),
         AIActivityState::Review => div()
@@ -759,8 +757,6 @@ fn project_activity_badge(
             .w(px(10.0))
             .h(px(10.0))
             .rounded_full()
-            .border_1()
-            .border_color(color(0xFFFFFF))
             .bg(color(theme::GREEN))
             .into_any_element(),
         AIActivityState::Idle => div().into_any_element(),

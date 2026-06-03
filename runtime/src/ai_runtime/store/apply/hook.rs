@@ -9,7 +9,7 @@ use crate::ai_runtime::{
         AIRuntimeStateCore,
         helpers::{
             is_tool_activity_without_loading, note_latest_active_started_at, now_seconds,
-            number_or, project_path_contains,
+            number_or,
         },
     },
 };
@@ -24,15 +24,6 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
     let Some(tool) = canonical_tool_name(&event.tool) else {
         return false;
     };
-    if !project_path_contains(
-        event.project_path.as_deref(),
-        event
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.cwd.as_deref()),
-    ) {
-        return false;
-    }
 
     let previous = core.sessions.get(&terminal_id).cloned();
     let terminal_instance_id = normalized_string(event.terminal_instance_id.as_deref());

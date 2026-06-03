@@ -163,24 +163,45 @@ impl AIRuntimeStateStore {
             return AIRuntimeStateMutation::default();
         };
         let did_change = apply_hook_unlocked(&mut core, event);
-        if did_change {
+        let should_notify_running = !did_change
+            && raw_kind == "promptSubmitted"
+            && core
+                .sessions
+                .get(raw_terminal_id.trim())
+                .map(|session| session.state == "responding")
+                .unwrap_or(false);
+        if did_change || should_notify_running {
             if let Some(session) = core.sessions.get(raw_terminal_id.trim()) {
                 super::runtime_log_line(
                     "runtime-state",
                     &format!(
-                        "hook terminal={} state={} completed={} interrupted={} updated_at={:.3} kind={}",
+                        "hook terminal={} state={} completed={} interrupted={} updated_at={:.3} kind={} notify_running={}",
                         session.terminal_id,
                         session.state,
                         session.has_completed_turn,
                         session.was_interrupted,
                         session.updated_at,
-                        raw_kind
+                        raw_kind,
+                        should_notify_running
                     ),
                 );
             }
+        } else if raw_kind == "promptSubmitted" {
+            let session_state = core
+                .sessions
+                .get(raw_terminal_id.trim())
+                .map(|session| session.state.as_str())
+                .unwrap_or("none");
+            super::runtime_log_line(
+                "runtime-state",
+                &format!(
+                    "hook no-change terminal={} kind={} current_state={}",
+                    raw_terminal_id, raw_kind, session_state
+                ),
+            );
         }
         AIRuntimeStateMutation {
-            did_change,
+            did_change: did_change || should_notify_running,
             completion: did_change
                 .then(|| next_completion_event_unlocked(&mut core))
                 .flatten(),

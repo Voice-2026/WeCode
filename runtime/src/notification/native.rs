@@ -17,13 +17,14 @@ fn show_native_notification_impl(title: &str, body: &str, group: &str) -> Result
     #[cfg(all(unix, not(target_os = "macos")))]
     notification.appname("Codux").icon("codux");
 
-    #[cfg(target_os = "windows")]
-    notification.app_id("com.duxweb.codux");
-
-    notification
+    let result = notification
         .show()
         .map(|_| ())
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string());
+    if result.is_ok() {
+        crate::runtime_trace::runtime_trace("notification", "native notification sent");
+    }
+    result
 }
 
 #[cfg(target_os = "macos")]

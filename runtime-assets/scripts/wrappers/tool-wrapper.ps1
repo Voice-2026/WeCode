@@ -26,6 +26,12 @@ function Write-Live-Log([string]$Message) {
   }
 }
 
+function Write-Debug-Live-Log([string]$Message) {
+  if ($env:DMUX_WRAPPER_DEBUG -in @("1", "true", "TRUE", "debug", "verbose")) {
+    Write-Live-Log $Message
+  }
+}
+
 function Split-PathList([string]$Value) {
   if ([string]::IsNullOrWhiteSpace($Value)) { return @() }
   return $Value -split [Regex]::Escape([IO.Path]::PathSeparator)
@@ -404,11 +410,11 @@ if ($Tool -eq "opencode") {
 
 $launchDir = ""
 if ($Tool -eq "codex") {
-  Write-Live-Log "launch codex managed session=$env:DMUX_SESSION_ID project=$env:DMUX_PROJECT_ID binary=$realBin hooks=$hooksFeature"
+  Write-Debug-Live-Log "launch codex managed session=$env:DMUX_SESSION_ID project=$env:DMUX_PROJECT_ID binary=$realBin hooks=$hooksFeature"
 } else {
-  Write-Live-Log "launch managed tool=$Tool session=$env:DMUX_SESSION_ID project=$env:DMUX_PROJECT_ID binary=$realBin"
+  Write-Debug-Live-Log "launch managed tool=$Tool session=$env:DMUX_SESSION_ID project=$env:DMUX_PROJECT_ID binary=$realBin"
 }
 Invoke-Real-Binary $realBin $launchArgs $searchPath $launchDir
 $exitCode = if ($null -eq $script:DMUX_WRAPPER_EXIT_CODE) { 0 } else { $script:DMUX_WRAPPER_EXIT_CODE }
-Write-Live-Log "process exit tool=$Tool session=$env:DMUX_SESSION_ID code=$exitCode"
+Write-Debug-Live-Log "process exit tool=$Tool session=$env:DMUX_SESSION_ID code=$exitCode"
 exit $exitCode

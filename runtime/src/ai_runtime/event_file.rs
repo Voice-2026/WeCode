@@ -33,14 +33,6 @@ pub fn drain_runtime_event_dir(dir: &Path, now: f64) -> Vec<Vec<u8>> {
             continue;
         }
         if let Some(data) = data.filter(|value| !value.is_empty()) {
-            runtime_log_line(
-                "hook-file",
-                &format!(
-                    "drain event-file bytes={} file={}",
-                    data.len(),
-                    path.display()
-                ),
-            );
             frames.push(data);
         }
     }

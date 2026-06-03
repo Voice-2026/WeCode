@@ -88,7 +88,7 @@ now() {
 log_line() {
   [[ -n "${DMUX_LOG_FILE:-}" ]] || return 0
   /bin/mkdir -p -- "${DMUX_LOG_FILE:h}"
-  print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [wrapper] $1" >> "${DMUX_LOG_FILE}"
+  print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [hook-file] $1" >> "${DMUX_LOG_FILE}"
 }
 
 debug_log_line() {

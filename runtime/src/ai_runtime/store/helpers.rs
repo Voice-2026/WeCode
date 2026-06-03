@@ -142,20 +142,6 @@ pub(super) fn is_codex_transcript_session(session: &AISessionSnapshot) -> bool {
         && normalized_string(session.transcript_path.as_deref()).is_some()
 }
 
-pub(super) fn project_path_contains(project_path: Option<&str>, cwd: Option<&str>) -> bool {
-    let Some(project) = normalize_path_string(project_path) else {
-        return true;
-    };
-    let Some(current) = normalize_path_string(cwd) else {
-        return true;
-    };
-    current == project || current.starts_with(&format!("{project}/"))
-}
-
-fn normalize_path_string(path: Option<&str>) -> Option<String> {
-    normalized_string(path).map(|value| value.trim_end_matches('/').to_string())
-}
-
 pub(super) fn number_or(previous: Option<i64>, value: Option<i64>) -> i64 {
     value
         .map(|value| value.max(0))

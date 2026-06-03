@@ -781,8 +781,6 @@ fn worktree_activity_dot(state: AIActivityState) -> AnyElement {
             .h(px(10.0))
             .flex_shrink_0()
             .rounded_full()
-            .border_1()
-            .border_color(color(0xFFFFFF))
             .bg(color(theme::ORANGE))
             .into_any_element(),
         AIActivityState::Review => div()
@@ -798,8 +796,6 @@ fn worktree_activity_dot(state: AIActivityState) -> AnyElement {
             .h(px(10.0))
             .rounded_full()
             .flex_shrink_0()
-            .border_1()
-            .border_color(color(0xFFFFFF))
             .bg(color(theme::GREEN))
             .into_any_element(),
     }
