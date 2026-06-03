@@ -2,6 +2,19 @@ use super::*;
 use crate::app::app_events::{ChildWindowUpdateEvent, current_memory_update_event};
 
 impl CoduxApp {
+    pub(super) fn open_remote_mobile_help(&mut self, cx: &mut Context<Self>) {
+        match self
+            .runtime_service
+            .open_url("https://codux.dux.cn/features/mobile/")
+        {
+            Ok(()) => self.status_message = "remote mobile help opened".to_string(),
+            Err(error) => {
+                self.status_message = format!("failed to open remote mobile help: {error}")
+            }
+        }
+        self.invalidate_remote_panel(cx);
+    }
+
     pub(super) fn apply_child_window_update_event(
         &mut self,
         event: ChildWindowUpdateEvent,
@@ -805,6 +818,7 @@ impl CoduxApp {
         match self.runtime_service.confirm_remote_pairing(&pairing_id) {
             Ok(remote) => {
                 self.state.remote = remote;
+                self.finish_remote_pairing_decision(&pairing_id);
                 self.normalize_selected_remote_device();
                 self.status_message = "remote pairing confirmed".to_string();
             }
@@ -825,12 +839,24 @@ impl CoduxApp {
         match self.runtime_service.reject_remote_pairing(&pairing_id) {
             Ok(remote) => {
                 self.state.remote = remote;
+                self.finish_remote_pairing_decision(&pairing_id);
                 self.normalize_selected_remote_device();
                 self.status_message = "remote pairing rejected".to_string();
             }
             Err(error) => self.status_message = format!("failed to reject remote pairing: {error}"),
         }
         self.invalidate_remote_panel(cx);
+    }
+
+    fn finish_remote_pairing_decision(&mut self, pairing_id: &str) {
+        self.state.remote.pairing = None;
+        self.state
+            .remote
+            .pending_pairing_list
+            .retain(|pairing| pairing.id != pairing_id);
+        self.state.remote.pending_pairings = self.state.remote.pending_pairing_list.len();
+        self.remote_pairing_sheet_open = false;
+        self.remote_pairing_creating = false;
     }
 
     pub(super) fn selected_remote_device(&self) -> Option<&RemoteDeviceSummary> {

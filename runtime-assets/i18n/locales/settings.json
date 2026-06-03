@@ -328,7 +328,8 @@
       "settings.remote.scan_code": "Scan-Code",
       "settings.remote.device_format": "Gerät: %@",
       "settings.remote.match_code_format": "Abgleichcode: %@",
-      "settings.ai.provider.kind": "Art"
+      "settings.ai.provider.kind": "Art",
+      "settings.remote.get_relay": "Abrufen"
     },
     "en": {
       "settings.ai_auto_refresh": "AI Auto Refresh",
@@ -658,7 +659,8 @@
       "settings.remote.scan_code": "Scan code",
       "settings.remote.device_format": "Device: %@",
       "settings.remote.match_code_format": "Match code: %@",
-      "settings.ai.provider.kind": "Kind"
+      "settings.ai.provider.kind": "Kind",
+      "settings.remote.get_relay": "Get"
     },
     "es": {
       "settings.ai_auto_refresh": "Actualización automática de IA",
@@ -988,7 +990,8 @@
       "settings.remote.scan_code": "Código para escanear",
       "settings.remote.device_format": "Dispositivo: %@",
       "settings.remote.match_code_format": "Código de verificación: %@",
-      "settings.ai.provider.kind": "Tipo"
+      "settings.ai.provider.kind": "Tipo",
+      "settings.remote.get_relay": "Obtener"
     },
     "fr": {
       "settings.ai_auto_refresh": "Actualisation auto IA",
@@ -1318,7 +1321,8 @@
       "settings.remote.scan_code": "Code à scanner",
       "settings.remote.device_format": "Appareil : %@",
       "settings.remote.match_code_format": "Code de vérification : %@",
-      "settings.ai.provider.kind": "Type"
+      "settings.ai.provider.kind": "Type",
+      "settings.remote.get_relay": "Obtenir"
     },
     "ja": {
       "settings.ai_auto_refresh": "AI 自動更新",
@@ -1648,7 +1652,8 @@
       "settings.remote.scan_code": "スキャンコード",
       "settings.remote.device_format": "デバイス: %@",
       "settings.remote.match_code_format": "照合コード: %@",
-      "settings.ai.provider.kind": "種類"
+      "settings.ai.provider.kind": "種類",
+      "settings.remote.get_relay": "取得"
     },
     "ko": {
       "settings.ai_auto_refresh": "AI 자동 새로고침",
@@ -1978,7 +1983,8 @@
       "settings.remote.scan_code": "스캔 코드",
       "settings.remote.device_format": "기기: %@",
       "settings.remote.match_code_format": "확인 코드: %@",
-      "settings.ai.provider.kind": "종류"
+      "settings.ai.provider.kind": "종류",
+      "settings.remote.get_relay": "가져오기"
     },
     "pt-BR": {
       "settings.ai_auto_refresh": "Atualização automática de IA",
@@ -2308,7 +2314,8 @@
       "settings.remote.scan_code": "Scan code",
       "settings.remote.device_format": "Device: %@",
       "settings.remote.match_code_format": "Match code: %@",
-      "settings.ai.provider.kind": "Tipo"
+      "settings.ai.provider.kind": "Tipo",
+      "settings.remote.get_relay": "Obter"
     },
     "ru": {
       "settings.ai_auto_refresh": "Автообновление ИИ",
@@ -2638,7 +2645,8 @@
       "settings.remote.scan_code": "Код для сканирования",
       "settings.remote.device_format": "Устройство: %@",
       "settings.remote.match_code_format": "Код совпадения: %@",
-      "settings.ai.provider.kind": "Тип"
+      "settings.ai.provider.kind": "Тип",
+      "settings.remote.get_relay": "Получить"
     },
     "zh-Hans": {
       "settings.ai_auto_refresh": "AI 自动刷新",
@@ -2968,7 +2976,8 @@
       "settings.remote.scan_code": "扫码配对",
       "settings.remote.device_format": "设备：%@",
       "settings.remote.match_code_format": "匹配码：%@",
-      "settings.ai.provider.kind": "类型"
+      "settings.ai.provider.kind": "类型",
+      "settings.remote.get_relay": "获取"
     },
     "zh-Hant": {
       "settings.ai_auto_refresh": "AI 自動重新整理",
@@ -3298,7 +3307,8 @@
       "settings.remote.scan_code": "掃碼配對",
       "settings.remote.device_format": "裝置：%@",
       "settings.remote.match_code_format": "匹配碼：%@",
-      "settings.ai.provider.kind": "類型"
+      "settings.ai.provider.kind": "類型",
+      "settings.remote.get_relay": "取得"
     }
   }
 }

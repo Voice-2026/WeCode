@@ -534,6 +534,31 @@ fn settings_text_input(
     cx: &mut Context<CoduxApp>,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
+    settings_text_input_sized(id, value, placeholder, masked, false, window, cx, action)
+}
+
+fn settings_text_input_full(
+    id: impl Into<SharedString>,
+    value: impl Into<String>,
+    placeholder: impl Into<String>,
+    masked: bool,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> AnyElement {
+    settings_text_input_sized(id, value, placeholder, masked, true, window, cx, action)
+}
+
+fn settings_text_input_sized(
+    id: impl Into<SharedString>,
+    value: impl Into<String>,
+    placeholder: impl Into<String>,
+    masked: bool,
+    full_width: bool,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> AnyElement {
     let value = value.into();
     let placeholder = placeholder.into();
     let key = SharedString::from(format!("settings-input-{}", id.into()));
@@ -556,7 +581,9 @@ fn settings_text_input(
     .detach();
 
     div()
-        .w(relative(0.3))
+        .when(full_width, |this| this.w_full())
+        .when(!full_width, |this| this.w(relative(0.3)))
+        .min_w_0()
         .child(Input::new(&state).with_size(gpui_component::Size::Medium))
         .into_any_element()
 }
@@ -2420,6 +2447,7 @@ fn settings_remote_pane(
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let configured = !remote.relay.trim().is_empty();
+    let relay_help_label = settings_text(language, "settings.remote.get_relay", "Get");
     let device_rows = if remote.device_list.is_empty() {
         vec![
             div()
@@ -2534,15 +2562,30 @@ fn settings_remote_pane(
                     settings_row(
                         settings_text(language, "settings.remote.server_url", "Relay Server URL"),
                         None,
-                        settings_text_input(
-                            "settings-remote-server-url",
-                            &remote.relay,
-                            "https://relay.example.com",
-                            false,
-                            window,
-                            cx,
-                            |app, value, window, cx| app.set_remote_server_url(value, window, cx),
-                        ),
+                        div()
+                            .w(relative(0.52))
+                            .min_w(px(280.0))
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(settings_text_input_full(
+                                "settings-remote-server-url",
+                                &remote.relay,
+                                "https://relay.example.com",
+                                false,
+                                window,
+                                cx,
+                                |app, value, window, cx| {
+                                    app.set_remote_server_url(value, window, cx)
+                                },
+                            ))
+                            .child(settings_small_button(
+                                "settings-remote-get-relay",
+                                relay_help_label.clone(),
+                                cx,
+                                |app, _event, _window, cx| app.open_remote_mobile_help(cx),
+                            ))
+                            .into_any_element(),
                     )
                     .into_any_element(),
                     settings_row(
