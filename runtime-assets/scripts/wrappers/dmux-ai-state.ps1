@@ -213,7 +213,7 @@ function Write-AIHookEvent([string]$Kind, $Payload) {
   $transcriptPath = Find-FirstString $Payload @("transcript_path", "transcriptPath")
   $model = Resolve-Model $Payload
   $cwd = Find-FirstString $Payload @("cwd", "current_working_directory", "working_directory")
-  if ([string]::IsNullOrWhiteSpace($cwd)) { $cwd = [Environment]::CurrentDirectory }
+  if ([string]::IsNullOrWhiteSpace($cwd)) { $cwd = $env:DMUX_PROJECT_PATH }
   $reason = Find-FirstString $Payload @("stop_reason", "reason")
   $targetTool = Find-FirstString $Payload @("tool_name", "toolName", "tool")
   $message = Find-FirstString $Payload @("message", "prompt")
