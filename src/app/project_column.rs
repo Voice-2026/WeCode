@@ -234,7 +234,7 @@ fn project_tools_snapshot(
         let add_project_label =
             project_column_text(language, "sidebar.footer.add_project", "Add Project");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
-        let help_label = project_column_text(language, "sidebar.footer.help", "Help");
+        let more_label = project_column_text(language, "sidebar.footer.more", "More");
         base.flex_col()
             .items_center()
             .child(project_column_toggle_button(
@@ -267,7 +267,7 @@ fn project_tools_snapshot(
             ))
             .child(project_more_button(
                 None,
-                help_label,
+                more_label,
                 language,
                 has_project,
                 has_projects,
@@ -280,7 +280,7 @@ fn project_tools_snapshot(
         let add_project_label =
             project_column_text(language, "sidebar.footer.add_project", "Add Project");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
-        let help_label = project_column_text(language, "sidebar.footer.help", "Help");
+        let more_label = project_column_text(language, "sidebar.footer.more", "More");
         let toggle_label = project_column_text(language, "sidebar.collapse", "Collapse Sidebar");
         base.flex_col()
             .items_start()
@@ -313,8 +313,8 @@ fn project_tools_snapshot(
                 |app, _event, window, cx| app.open_settings_window(window, cx),
             ))
             .child(project_more_button(
-                Some(help_label.clone()),
-                help_label,
+                Some(more_label.clone()),
+                more_label,
                 language,
                 has_project,
                 has_projects,
@@ -447,6 +447,7 @@ fn project_more_button(
             let diagnostics_entity = menu_entity.clone();
             let runtime_log_entity = menu_entity.clone();
             let live_log_entity = menu_entity.clone();
+            let open_folder_entity = menu_entity.clone();
             let website_entity = menu_entity.clone();
             let github_entity = menu_entity.clone();
             let entries = project_help_menu_entries(&language);
@@ -465,6 +466,7 @@ fn project_more_button(
                             "help:export-diagnostics" => diagnostics_entity.clone(),
                             "help:runtime-log" => runtime_log_entity.clone(),
                             "help:live-log" => live_log_entity.clone(),
+                            "help:open-folder" => open_folder_entity.clone(),
                             "help:website" => website_entity.clone(),
                             "help:github" => github_entity.clone(),
                             _ => fallback_entity.clone(),
@@ -507,6 +509,12 @@ fn project_help_menu_entries(language: &str) -> Vec<ProjectHelpMenuEntry> {
     use ProjectHelpMenuEntry::{Item, Separator};
     let label = |key: &str, fallback: &str| project_column_text(language, key, fallback);
     vec![
+        Item {
+            label: label("menu.file.open_folder", "Open Folder..."),
+            icon: HeroIconName::FolderOpen,
+            action_id: "help:open-folder",
+        },
+        Separator,
         Item {
             label: label("menu.app.about_format", "About Codux").replace("%@", "Codux"),
             icon: HeroIconName::InformationCircle,
