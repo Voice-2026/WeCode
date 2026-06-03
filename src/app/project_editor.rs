@@ -62,7 +62,7 @@ impl CoduxApp {
             )
             .child(
                 div()
-                    .h(px(52.0))
+                    .h(px(58.0))
                     .flex_shrink_0()
                     .border_t_1()
                     .border_color(color(theme::BORDER_SOFT).opacity(0.45))
@@ -70,31 +70,23 @@ impl CoduxApp {
                     .flex()
                     .items_center()
                     .justify_end()
+                    .gap(px(8.0))
                     .child(
-                        div()
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(
-                                Button::new("project-editor-cancel")
-                                    .ghost()
-                                    .compact()
-                                    .text_color(cx.theme().secondary_foreground)
-                                    .label(tr("common.cancel", "Cancel"))
-                                    .on_click(cx.listener(|_app, _event, window, _cx| {
-                                        window.remove_window();
-                                    })),
-                            )
-                            .child(
-                                Button::new("project-editor-save")
-                                    .primary()
-                                    .compact()
-                                    .label(submit_label)
-                                    .on_click(cx.listener(|app, _event, window, cx| {
-                                        app.save_project_editor(window, cx);
-                                    })),
-                            ),
+                        Button::new("project-editor-cancel")
+                            .ghost()
+                            .text_color(cx.theme().secondary_foreground)
+                            .child(project_editor_button_label(tr("common.cancel", "Cancel")))
+                            .on_click(cx.listener(|_app, _event, window, _cx| {
+                                window.remove_window();
+                            })),
+                    )
+                    .child(
+                        Button::new("project-editor-save")
+                            .primary()
+                            .child(project_editor_button_label(submit_label))
+                            .on_click(cx.listener(|app, _event, window, cx| {
+                                app.save_project_editor(window, cx);
+                            })),
                     ),
             )
     }
@@ -302,6 +294,13 @@ fn project_editor_color_field(
             }),
         ))
         .into_any_element()
+}
+
+fn project_editor_button_label(label: impl Into<String>) -> impl IntoElement {
+    div()
+        .text_size(rems(0.875))
+        .line_height(rems(1.125))
+        .child(label.into())
 }
 
 fn hex_color(value: &str) -> Option<u32> {
