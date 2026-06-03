@@ -3,10 +3,15 @@
 #[cfg(target_os = "macos")]
 use cocoa::{
     appkit::{
-        NSApp, NSColor, NSMenu, NSMenuItem, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+        NSApp, NSColor, NSEvent, NSMenu, NSMenuItem, NSScreen, NSView, NSWindow, NSWindowButton,
+        NSWindowStyleMask,
     },
     base::{NO, YES, id, nil},
     foundation::{NSAutoreleasePool, NSPoint, NSRect, NSSize, NSString},
+};
+use codux_runtime::desktop_pet::{
+    DesktopPetHitLayout, DesktopPetPhysicalPosition, DesktopPetPhysicalSize, DesktopPetSide,
+    DesktopPetWorkArea, desktop_pet_local_point_is_hotspot, desktop_pet_side_for_position,
 };
 use gpui::Window;
 #[cfg(target_os = "macos")]
@@ -26,20 +31,28 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicUsize, Ordering};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::time::Duration;
 #[cfg(target_os = "windows")]
+use std::{collections::HashMap, sync::Mutex};
+#[cfg(target_os = "windows")]
 use windows_sys::Win32::{
-    Foundation::{HWND, POINT},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::Dwm::{
         DWMNCRP_DISABLED, DWMWA_BORDER_COLOR, DWMWA_NCRENDERING_POLICY,
         DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DwmSetWindowAttribute,
     },
-    Graphics::Gdi::ClientToScreen,
+    Graphics::Gdi::{
+        ClientToScreen, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+        ScreenToClient,
+    },
     UI::WindowsAndMessaging::{
-        AppendMenuW, CreatePopupMenu, DestroyMenu, GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW,
-        MF_SEPARATOR, MF_STRING, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, TPM_LEFTALIGN,
-        TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN, TrackPopupMenu, WS_BORDER, WS_CAPTION,
-        WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_WINDOWEDGE, WS_SYSMENU, WS_THICKFRAME,
+        AppendMenuW, CallWindowProcW, CreatePopupMenu, DefWindowProcW, DestroyMenu, GWL_EXSTYLE,
+        GWL_STYLE, GWLP_WNDPROC, GetClientRect, GetCursorPos, GetWindowLongPtrW, GetWindowRect,
+        HTCAPTION, HTTRANSPARENT, HWND_TOPMOST, MF_SEPARATOR, MF_STRING, SWP_FRAMECHANGED,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
+        SetWindowLongPtrW, SetWindowPos, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        TPM_TOPALIGN, TrackPopupMenu, WINDOW_LONG_PTR_INDEX, WM_NCHITTEST, WNDPROC, WS_BORDER,
+        WS_CAPTION, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME,
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_EX_WINDOWEDGE, WS_SYSMENU,
+        WS_THICKFRAME,
     },
 };
 
@@ -58,6 +71,9 @@ static SELECTED_MENU_TAG: AtomicIsize = AtomicIsize::new(-1);
 static REOPEN_HANDLER_INSTALLED: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 static ORIGINAL_REOPEN_HANDLER: AtomicUsize = AtomicUsize::new(0);
+#[cfg(target_os = "windows")]
+static DESKTOP_PET_WNDPROCS: std::sync::OnceLock<Mutex<HashMap<isize, isize>>> =
+    std::sync::OnceLock::new();
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
@@ -218,8 +234,118 @@ pub(in crate::app) fn make_desktop_pet_window_transparent(window: &mut Window) {
         clear_layer_background(ns_view);
 
         let _: () = msg_send![ns_window, setIgnoresMouseEvents: NO];
-        let _: () = msg_send![ns_window, setMovableByWindowBackground: YES];
+        let _: () = msg_send![ns_window, setMovableByWindowBackground: NO];
     }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+pub(in crate::app) fn sync_desktop_pet_mouse_passthrough(window: &mut Window) {
+    let Some(ns_window) = appkit_window(window) else {
+        return;
+    };
+
+    unsafe {
+        let mouse = NSEvent::mouseLocation(nil);
+        let frame = NSWindow::frame(ns_window);
+        let scale_factor = NSWindow::backingScaleFactor(ns_window);
+        let local_x = mouse.x - frame.origin.x;
+        let local_y = frame.size.height - (mouse.y - frame.origin.y);
+        let side = desktop_pet_side_for_native_window(ns_window, frame);
+        let layout = DesktopPetHitLayout {
+            position: DesktopPetPhysicalPosition { x: 0.0, y: 0.0 },
+            size: DesktopPetPhysicalSize {
+                width: frame.size.width,
+                height: frame.size.height,
+            },
+            scale_factor,
+            side,
+        };
+        let should_ignore = !desktop_pet_local_point_is_hotspot(layout, local_x, local_y, false);
+        let is_ignored = ns_window.ignoresMouseEvents() == YES;
+        if is_ignored != should_ignore {
+            let _: () = msg_send![
+                ns_window,
+                setIgnoresMouseEvents: if should_ignore { YES } else { NO }
+            ];
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(in crate::app) fn sync_desktop_pet_mouse_passthrough(window: &mut Window) {
+    let Some(hwnd) = win32_hwnd(window) else {
+        return;
+    };
+
+    let mut cursor = POINT::default();
+    let mut window_rect = RECT::default();
+    unsafe {
+        if GetCursorPos(&mut cursor) == 0 || GetWindowRect(hwnd, &mut window_rect) == 0 {
+            return;
+        }
+    }
+
+    let width = (window_rect.right - window_rect.left).max(1) as f64;
+    let height = (window_rect.bottom - window_rect.top).max(1) as f64;
+    let scale_x = width / codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH;
+    let scale_y = height / codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT;
+    let local_x = (cursor.x - window_rect.left) as f64 / scale_x;
+    let local_y = (cursor.y - window_rect.top) as f64 / scale_y;
+    let layout = DesktopPetHitLayout {
+        position: DesktopPetPhysicalPosition { x: 0.0, y: 0.0 },
+        size: DesktopPetPhysicalSize {
+            width: codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH,
+            height: codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT,
+        },
+        scale_factor: 1.0,
+        side: desktop_pet_side_for_hwnd(hwnd),
+    };
+    let should_passthrough = !desktop_pet_local_point_is_hotspot(layout, local_x, local_y, false);
+    set_desktop_pet_window_passthrough(hwnd, should_passthrough);
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub(in crate::app) fn sync_desktop_pet_mouse_passthrough(_window: &mut Window) {}
+
+#[cfg(target_os = "macos")]
+unsafe fn desktop_pet_side_for_native_window(ns_window: id, frame: NSRect) -> DesktopPetSide {
+    let screen: id = unsafe { ns_window.screen() };
+    let work_area = if screen.is_null() {
+        DesktopPetWorkArea {
+            x: frame.origin.x,
+            y: frame.origin.y,
+            width: frame
+                .size
+                .width
+                .max(codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH),
+            height: frame
+                .size
+                .height
+                .max(codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT),
+            scale_factor: 1.0,
+        }
+    } else {
+        let screen_frame = unsafe { screen.visibleFrame() };
+        DesktopPetWorkArea {
+            x: screen_frame.origin.x,
+            y: screen_frame.origin.y,
+            width: screen_frame.size.width,
+            height: screen_frame.size.height,
+            scale_factor: 1.0,
+        }
+    };
+    desktop_pet_side_for_position(
+        DesktopPetPhysicalPosition {
+            x: frame.origin.x,
+            y: frame.origin.y,
+        },
+        DesktopPetPhysicalSize {
+            width: frame.size.width,
+            height: frame.size.height,
+        },
+        work_area,
+    )
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -267,6 +393,140 @@ pub(in crate::app) fn make_desktop_pet_window_transparent(window: &mut gpui::Win
 
         let _ = SetWindowPos(
             hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+        install_desktop_pet_hit_test(hwnd);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn install_desktop_pet_hit_test(hwnd: HWND) {
+    let procs = DESKTOP_PET_WNDPROCS.get_or_init(|| Mutex::new(HashMap::new()));
+    if procs
+        .lock()
+        .map_or(false, |procs| procs.contains_key(&(hwnd as isize)))
+    {
+        return;
+    }
+    unsafe {
+        let previous = SetWindowLongPtrW(
+            hwnd,
+            GWLP_WNDPROC as WINDOW_LONG_PTR_INDEX,
+            desktop_pet_window_proc as *const () as isize,
+        );
+        if previous != 0 {
+            let _ = procs
+                .lock()
+                .map(|mut procs| procs.insert(hwnd as isize, previous));
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn desktop_pet_window_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if msg == WM_NCHITTEST {
+        return desktop_pet_hit_test(hwnd, lparam);
+    }
+    call_desktop_pet_original_window_proc(hwnd, msg, wparam, lparam)
+}
+
+#[cfg(target_os = "windows")]
+fn desktop_pet_hit_test(hwnd: HWND, lparam: LPARAM) -> LRESULT {
+    let mut point = POINT {
+        x: lparam_loword(lparam),
+        y: lparam_hiword(lparam),
+    };
+    let mut rect = RECT::default();
+    unsafe {
+        let _ = ScreenToClient(hwnd, &mut point);
+        let _ = GetClientRect(hwnd, &mut rect);
+    }
+
+    let width = (rect.right - rect.left).max(1) as f64;
+    let height = (rect.bottom - rect.top).max(1) as f64;
+    let scale_x = width / codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH;
+    let scale_y = height / codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT;
+    let x = point.x as f64 / scale_x;
+    let y = point.y as f64 / scale_y;
+    let layout = DesktopPetHitLayout {
+        position: DesktopPetPhysicalPosition { x: 0.0, y: 0.0 },
+        size: DesktopPetPhysicalSize {
+            width: codux_runtime::desktop_pet::DESKTOP_PET_BASE_WIDTH,
+            height: codux_runtime::desktop_pet::DESKTOP_PET_BASE_HEIGHT,
+        },
+        scale_factor: 1.0,
+        side: desktop_pet_side_for_hwnd(hwnd),
+    };
+    if desktop_pet_local_point_is_hotspot(layout, x, y, false) {
+        HTCAPTION as LRESULT
+    } else {
+        HTTRANSPARENT as LRESULT
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn desktop_pet_side_for_hwnd(hwnd: HWND) -> DesktopPetSide {
+    let mut window_rect = RECT::default();
+    let mut monitor_info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    unsafe {
+        if GetWindowRect(hwnd, &mut window_rect) == 0 {
+            return DesktopPetSide::Right;
+        }
+
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if monitor.is_null() || GetMonitorInfoW(monitor, &mut monitor_info) == 0 {
+            return DesktopPetSide::Right;
+        }
+    }
+
+    desktop_pet_side_for_position(
+        DesktopPetPhysicalPosition {
+            x: window_rect.left as f64,
+            y: window_rect.top as f64,
+        },
+        DesktopPetPhysicalSize {
+            width: (window_rect.right - window_rect.left).max(1) as f64,
+            height: (window_rect.bottom - window_rect.top).max(1) as f64,
+        },
+        DesktopPetWorkArea {
+            x: monitor_info.rcWork.left as f64,
+            y: monitor_info.rcWork.top as f64,
+            width: (monitor_info.rcWork.right - monitor_info.rcWork.left).max(1) as f64,
+            height: (monitor_info.rcWork.bottom - monitor_info.rcWork.top).max(1) as f64,
+            scale_factor: 1.0,
+        },
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn set_desktop_pet_window_passthrough(hwnd: HWND, passthrough: bool) {
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let next_style = if passthrough {
+            style | WS_EX_TRANSPARENT
+        } else {
+            style & !WS_EX_TRANSPARENT
+        };
+        if next_style == style {
+            return;
+        }
+
+        let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_style as isize);
+        let _ = SetWindowPos(
+            hwnd,
             std::ptr::null_mut(),
             0,
             0,
@@ -274,6 +534,34 @@ pub(in crate::app) fn make_desktop_pet_window_transparent(window: &mut gpui::Win
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn lparam_loword(value: LPARAM) -> i32 {
+    (value & 0xffff) as u16 as i16 as i32
+}
+
+#[cfg(target_os = "windows")]
+fn lparam_hiword(value: LPARAM) -> i32 {
+    ((value >> 16) & 0xffff) as u16 as i16 as i32
+}
+
+#[cfg(target_os = "windows")]
+fn call_desktop_pet_original_window_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    let previous = DESKTOP_PET_WNDPROCS
+        .get()
+        .and_then(|procs| procs.lock().ok()?.get(&(hwnd as isize)).copied());
+    if let Some(previous) = previous {
+        let previous: WNDPROC = unsafe { std::mem::transmute(previous) };
+        unsafe { CallWindowProcW(previous, hwnd, msg, wparam, lparam) }
+    } else {
+        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
     }
 }
 

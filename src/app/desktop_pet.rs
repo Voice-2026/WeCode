@@ -508,23 +508,6 @@ pub(in crate::app) fn desktop_pet_sprite(
     )
 }
 
-pub(in crate::app) fn desktop_pet_point_is_in_sprite(point: gpui::Point<gpui::Pixels>) -> bool {
-    let left_x = DESKTOP_PET_SPRITE_SIDE;
-    let right_x = DESKTOP_PET_BASE_WIDTH as f32 - DESKTOP_PET_SPRITE_SIDE - DESKTOP_PET_SPRITE_SIZE;
-    let y = DESKTOP_PET_BASE_HEIGHT as f32 - DESKTOP_PET_SPRITE_BOTTOM - DESKTOP_PET_SPRITE_SIZE;
-    let x = point.x.as_f32();
-    let y_pos = point.y.as_f32();
-    let in_left_sprite = x >= left_x
-        && x <= left_x + DESKTOP_PET_SPRITE_SIZE
-        && y_pos >= y
-        && y_pos <= y + DESKTOP_PET_SPRITE_SIZE;
-    let in_right_sprite = x >= right_x
-        && x <= right_x + DESKTOP_PET_SPRITE_SIZE
-        && y_pos >= y
-        && y_pos <= y + DESKTOP_PET_SPRITE_SIZE;
-    in_left_sprite || in_right_sprite
-}
-
 pub(in crate::app) fn desktop_pet_bubble(
     line: String,
     tone: DesktopPetActivityTone,

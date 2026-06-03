@@ -58,6 +58,36 @@ impl CoduxApp {
         .detach();
     }
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub(super) fn start_desktop_pet_mouse_passthrough_loop(
+        &mut self,
+        window_handle: gpui::WindowHandle<Self>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.window_mode != AppWindowMode::DesktopPet {
+            return;
+        }
+
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |_this: gpui::WeakEntity<Self>, cx| {
+            loop {
+                timer.timer(Duration::from_millis(50)).await;
+
+                match window_handle.update(cx, |app, window, _cx| {
+                    if app.window_mode != AppWindowMode::DesktopPet {
+                        return false;
+                    }
+                    macos_window::sync_desktop_pet_mouse_passthrough(window);
+                    true
+                }) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => break,
+                }
+            }
+        })
+        .detach();
+    }
+
     pub(super) fn start_pet_event_sync_loop(&mut self, cx: &mut Context<Self>) {
         if !matches!(
             self.window_mode,
@@ -230,6 +260,8 @@ impl CoduxApp {
             },
             |window, cx| {
                 macos_window::make_desktop_pet_window_transparent(window);
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                macos_window::sync_desktop_pet_mouse_passthrough(window);
                 let app = CoduxApp::new_desktop_pet_window_from_state(
                     self.state.clone(),
                     self.runtime.clone(),
@@ -241,8 +273,16 @@ impl CoduxApp {
                     Some(window),
                     cx,
                 );
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                let window_handle = window.window_handle().downcast::<CoduxApp>();
                 let view = cx.new(|_| app);
-                view.update(cx, |app, cx| app.start_desktop_pet_speech_loop(cx));
+                view.update(cx, |app, cx| {
+                    app.start_desktop_pet_speech_loop(cx);
+                    #[cfg(any(target_os = "macos", target_os = "windows"))]
+                    if let Some(window_handle) = window_handle {
+                        app.start_desktop_pet_mouse_passthrough_loop(window_handle, cx);
+                    }
+                });
                 view
             },
         );
@@ -1054,29 +1094,6 @@ impl CoduxApp {
                 this.track_focus(focus_handle)
             })
             .on_key_down(cx.listener(Self::on_key_down))
-            .on_mouse_down(MouseButton::Left, |event, window, _cx| {
-                if desktop_pet_point_is_in_sprite(event.position) {
-                    window.start_window_move();
-                }
-            })
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |_app, event: &gpui::MouseDownEvent, window, cx| {
-                    macos_window::spawn_desktop_pet_native_menu(
-                        window,
-                        event.position,
-                        menu_entries.clone(),
-                        cx,
-                    );
-                    cx.stop_propagation();
-                }),
-            )
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|app, _event, window, cx| {
-                    app.save_desktop_pet_window_origin(window, cx)
-                }),
-            )
             .child(
                 div()
                     .size_full()
@@ -1097,6 +1114,30 @@ impl CoduxApp {
                             .when(side == DesktopPetSide::Left, |this| {
                                 this.right(px(DESKTOP_PET_SPRITE_SIDE))
                             })
+                            .window_control_area(WindowControlArea::Drag)
+                            .on_mouse_down(MouseButton::Left, |_event, window, _cx| {
+                                window.start_window_move();
+                            })
+                            .on_mouse_down(
+                                MouseButton::Right,
+                                cx.listener(
+                                    move |_app, event: &gpui::MouseDownEvent, window, cx| {
+                                        macos_window::spawn_desktop_pet_native_menu(
+                                            window,
+                                            event.position,
+                                            menu_entries.clone(),
+                                            cx,
+                                        );
+                                        cx.stop_propagation();
+                                    },
+                                ),
+                            )
+                            .on_mouse_up(
+                                MouseButton::Left,
+                                cx.listener(|app, _event, window, cx| {
+                                    app.save_desktop_pet_window_origin(window, cx)
+                                }),
+                            )
                             .flex()
                             .items_center()
                             .justify_center()
