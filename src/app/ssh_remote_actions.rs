@@ -1421,6 +1421,7 @@ impl CoduxApp {
 
         if applied > 0 {
             self.invalidate_task_column(cx);
+            self.invalidate_status_bar(cx);
         }
 
         applied

@@ -70,8 +70,29 @@ fn run_git_refresh_job(
     let project_id = project.id.clone();
     let project_name = project.name.clone();
     let project_path = project.path.clone();
-    let snapshot = GitService::status(&project_path);
+    let mut snapshot = GitService::status(&project_path);
+    let mut remote_refresh = "skipped";
+    if snapshot.is_repository && !snapshot.remotes.is_empty() {
+        match GitService::fetch(&project_path) {
+            Ok(()) => {
+                snapshot = GitService::status(&project_path);
+                remote_refresh = "ok";
+            }
+            Err(error) => {
+                remote_refresh = "failed";
+                runtime_trace(
+                    "git",
+                    &format!(
+                        "refresh_fetch failed project={} path={} error={}",
+                        project_id, project_path, error
+                    ),
+                );
+            }
+        }
+    }
     let is_repository = snapshot.is_repository;
+    let ahead = snapshot.ahead;
+    let behind = snapshot.behind;
     let staged_count = snapshot.staged;
     let unstaged_count = snapshot.unstaged;
     let untracked_count = snapshot.untracked;
@@ -91,8 +112,16 @@ fn run_git_refresh_job(
         "refresh_status",
         started_at,
         &format!(
-            "project={} path={} repo={} staged={} unstaged={} untracked={}",
-            project_id, project_path, is_repository, staged_count, unstaged_count, untracked_count
+            "project={} path={} repo={} remote_refresh={} ahead={} behind={} staged={} unstaged={} untracked={}",
+            project_id,
+            project_path,
+            is_repository,
+            remote_refresh,
+            ahead,
+            behind,
+            staged_count,
+            unstaged_count,
+            untracked_count
         ),
     );
 }
