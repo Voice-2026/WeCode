@@ -9,40 +9,40 @@ impl CoduxApp {
             .map(|project| project.id.clone())
     }
 
-    pub(super) fn ensure_project_list_store(
+    pub(super) fn ensure_project_list_state(
         &mut self,
         cx: &mut Context<Self>,
-    ) -> gpui::Entity<ProjectListStore> {
-        if let Some(store) = &self.project_list_store {
-            return store.clone();
+    ) -> gpui::Entity<ProjectListState> {
+        if let Some(state) = &self.project_list_state {
+            return state.clone();
         }
 
         let activity = self.project_activity_snapshot();
-        let store = cx.new(|_| {
-            let mut store =
-                ProjectListStore::new(self.state.projects.clone(), self.selected_project_id());
-            store.activity = activity;
-            store
+        let state = cx.new(|_| {
+            let mut state =
+                ProjectListState::new(self.state.projects.clone(), self.selected_project_id());
+            state.activity = activity;
+            state
         });
-        self.project_list_store = Some(store.clone());
-        store
+        self.project_list_state = Some(state.clone());
+        state
     }
 
-    pub(super) fn sync_project_list_store(&mut self, cx: &mut Context<Self>) {
-        let store = self.ensure_project_list_store(cx);
+    pub(super) fn sync_project_list_state(&mut self, cx: &mut Context<Self>) {
+        let state = self.ensure_project_list_state(cx);
         let projects = self.state.projects.clone();
         let selected_project_id = self.selected_project_id();
         let activity = self.project_activity_snapshot();
-        store.update(cx, |store, cx| {
-            store.set_snapshot(projects, selected_project_id, cx);
-            store.set_activity(activity, cx);
+        state.update(cx, |state, cx| {
+            state.set_snapshot(projects, selected_project_id, cx);
+            state.set_activity(activity, cx);
         });
     }
 
-    pub(super) fn sync_project_activity_store(&mut self, cx: &mut Context<Self>) {
-        let store = self.ensure_project_list_store(cx);
+    pub(super) fn sync_project_activity_state(&mut self, cx: &mut Context<Self>) {
+        let state = self.ensure_project_list_state(cx);
         let activity = self.project_activity_snapshot();
-        store.update(cx, |store, cx| store.set_activity(activity, cx));
+        state.update(cx, |state, cx| state.set_activity(activity, cx));
     }
 
     fn project_activity_snapshot(&self) -> HashMap<String, AIActivityState> {
@@ -83,7 +83,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) -> gpui::Entity<ProjectColumnView> {
         let app_entity = cx.entity();
-        let project_store = self.ensure_project_list_store(cx);
+        let project_list_state = self.ensure_project_list_state(cx);
         let collapsed = self.project_column_collapsed;
         let language = self.state.settings.language.clone();
         let has_project = self.state.selected_project.is_some();
@@ -115,18 +115,18 @@ impl CoduxApp {
         }
         let view = cx.new(|_| ProjectColumnView {
             app_entity: app_entity.clone(),
-            project_store,
+            project_list_state,
             collapsed,
             language,
             has_project,
             has_projects,
             has_worktree,
             scroll_handle,
-            _observe_project_store: None,
+            _observe_project_list_state: None,
         });
         view.update(cx, |view, cx| {
-            view._observe_project_store =
-                Some(cx.observe(&view.project_store, |_, _, cx| cx.notify()));
+            view._observe_project_list_state =
+                Some(cx.observe(&view.project_list_state, |_, _, cx| cx.notify()));
         });
         self.project_column_view = Some(view.clone());
         view

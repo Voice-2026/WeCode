@@ -7,9 +7,6 @@ mod tests {
                 file_search_status_message, generated_git_commit_message, git_remote_action_label,
                 project_badge_text_from_name, ssh_connect_command,
             },
-            app_state::{
-                empty_worktree_view_state, initial_project_view_store, initial_worktree_view_store,
-            },
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
                 normalize_terminal_restore_state, structural_terminal_layout,
@@ -20,224 +17,14 @@ mod tests {
         },
         terminal::TerminalLaunchContext,
     };
-    use codux_runtime::terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary};
     use codux_runtime::{
-        ai_history::{AIHistorySummary, AISessionSummary},
+        ai_history::AISessionSummary,
         git::GitSummary,
-        runtime_state::RuntimeState,
         ssh::SSHProfileSummary,
-        terminal_layout::{
-            TerminalLayoutService, TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary,
-            terminal_layout_storage_key,
-        },
+        terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
+        terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     };
-    use std::{
-        collections::HashMap,
-        fs,
-        path::PathBuf,
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    #[test]
-    fn initial_project_view_store_preloads_all_project_worktrees_from_state_json() {
-        let support_dir = temp_support_dir("project-view-store");
-        fs::create_dir_all(&support_dir).unwrap();
-        fs::write(
-            support_dir.join("state.json"),
-            r#"{
-                "projects": [
-                    {"id": "project-a", "name": "A", "path": "/tmp/a"},
-                    {"id": "project-b", "name": "B", "path": "/tmp/b"}
-                ],
-                "selectedProjectId": "project-a",
-                "worktrees": [
-                    {"id": "project-a", "projectId": "project-a", "name": "main", "branch": "main", "path": "/tmp/a", "status": "todo", "isDefault": true},
-                    {"id": "task-b", "projectId": "project-b", "name": "Task B", "branch": "feature/b", "path": "/tmp/b-task", "status": "todo", "isDefault": false}
-                ],
-                "worktreeTasks": [
-                    {"worktreeId": "task-b", "title": "Persisted task B", "baseBranch": "main", "baseCommit": null, "status": "todo", "createdAt": 1, "updatedAt": 2, "startedAt": null, "completedAt": null}
-                ],
-                "selectedWorktreeIdByProject": {
-                    "project-a": "project-a",
-                    "project-b": "task-b"
-                }
-            }"#,
-        )
-        .unwrap();
-
-        let state = RuntimeState::load_from_support_dir(support_dir.clone());
-        let store = initial_project_view_store(&state);
-        let project_b = store
-            .get("project-b")
-            .expect("project b should be preloaded from state.json");
-
-        assert_eq!(
-            project_b.worktrees.selected_worktree_id.as_deref(),
-            Some("task-b")
-        );
-        assert_eq!(project_b.worktrees.worktrees.len(), 1);
-        assert_eq!(project_b.worktrees.worktrees[0].name, "Task B");
-        assert_eq!(project_b.worktrees.tasks.len(), 1);
-        assert_eq!(project_b.worktrees.tasks[0].title, "Persisted task B");
-
-        fs::remove_dir_all(support_dir).ok();
-    }
-
-    #[test]
-    fn initial_worktree_view_store_isolates_terminal_layouts_by_project_and_worktree() {
-        let support_dir = temp_support_dir("terminal-view-store");
-        fs::create_dir_all(&support_dir).unwrap();
-        fs::write(
-            support_dir.join("state.json"),
-            r#"{
-                "projects": [
-                    {"id": "project-a", "name": "A", "path": "/tmp/a"},
-                    {"id": "project-b", "name": "B", "path": "/tmp/b"}
-                ],
-                "selectedProjectId": "project-a",
-                "worktrees": [
-                    {"id": "task-shared", "projectId": "project-a", "name": "Task A", "branch": "feature/a", "path": "/tmp/a-task", "status": "todo", "isDefault": false},
-                    {"id": "task-shared", "projectId": "project-b", "name": "Task B", "branch": "feature/b", "path": "/tmp/b-task", "status": "todo", "isDefault": false}
-                ],
-                "selectedWorktreeIdByProject": {
-                    "project-a": "task-shared",
-                    "project-b": "task-shared"
-                }
-            }"#,
-        )
-        .unwrap();
-
-        let terminal_layout_service = TerminalLayoutService::new(support_dir.clone());
-        terminal_layout_service
-            .save_from_gpui(
-                &terminal_layout_storage_key("project-a", "task-shared"),
-                Vec::new(),
-                "term-project-a".to_string(),
-                vec![TerminalPaneSummary {
-                    title: "Project A terminal".to_string(),
-                    terminal_id: "term-project-a".to_string(),
-                }],
-            )
-            .unwrap();
-        terminal_layout_service
-            .save_from_gpui(
-                &terminal_layout_storage_key("project-b", "task-shared"),
-                Vec::new(),
-                "term-project-b".to_string(),
-                vec![TerminalPaneSummary {
-                    title: "Project B terminal".to_string(),
-                    terminal_id: "term-project-b".to_string(),
-                }],
-            )
-            .unwrap();
-
-        let state = RuntimeState::load_from_support_dir(support_dir.clone());
-        let project_store = initial_project_view_store(&state);
-        let store = initial_worktree_view_store(&state, &project_store);
-        let project_a = store
-            .get(&crate::app::app_state::WorktreeViewStoreKey {
-                project_id: "project-a".to_string(),
-                worktree_id: "task-shared".to_string(),
-            })
-            .expect("project a terminal layout should load");
-        let project_b = store
-            .get(&crate::app::app_state::WorktreeViewStoreKey {
-                project_id: "project-b".to_string(),
-                worktree_id: "task-shared".to_string(),
-            })
-            .expect("project b terminal layout should load");
-
-        assert_eq!(
-            project_a.terminal.terminal_layout.top_panes[0].title,
-            "Project A terminal"
-        );
-        assert_eq!(
-            project_b.terminal.terminal_layout.top_panes[0].title,
-            "Project B terminal"
-        );
-
-        fs::remove_dir_all(support_dir).ok();
-    }
-
-    #[test]
-    fn initial_worktree_view_store_keeps_ai_history_on_current_worktree_only() {
-        let support_dir = temp_support_dir("worktree-ai-history-store");
-        fs::create_dir_all(&support_dir).unwrap();
-        fs::write(
-            support_dir.join("state.json"),
-            r#"{
-                "projects": [
-                    {"id": "project-a", "name": "A", "path": "/tmp/a"}
-                ],
-                "selectedProjectId": "project-a",
-                "worktrees": [
-                    {"id": "task-a", "projectId": "project-a", "name": "Task A", "branch": "feature/a", "path": "/tmp/a-task", "status": "todo", "isDefault": false},
-                    {"id": "task-b", "projectId": "project-a", "name": "Task B", "branch": "feature/b", "path": "/tmp/b-task", "status": "todo", "isDefault": false}
-                ],
-                "selectedWorktreeIdByProject": {
-                    "project-a": "task-a"
-                }
-            }"#,
-        )
-        .unwrap();
-
-        let mut state = RuntimeState::load_from_support_dir(support_dir.clone());
-        state.ai_history = AIHistorySummary {
-            sessions: vec![AISessionSummary {
-                id: "session-a".to_string(),
-                session_key: "session-a".to_string(),
-                external_session_id: None,
-                title: "Task A session".to_string(),
-                source: "codex".to_string(),
-                last_model: None,
-                last_seen_at: 1.0,
-                total_tokens: 10,
-                cached_input_tokens: 0,
-                request_count: 1,
-            }],
-            session_count: 1,
-            indexed: true,
-            indexed_at: Some(1.0),
-            ..AIHistorySummary::default()
-        };
-
-        let project_store = initial_project_view_store(&state);
-        let store = initial_worktree_view_store(&state, &project_store);
-        let task_a = store
-            .get(&crate::app::app_state::WorktreeViewStoreKey {
-                project_id: "project-a".to_string(),
-                worktree_id: "task-a".to_string(),
-            })
-            .expect("selected worktree should keep current AI history");
-        let task_b = store
-            .get(&crate::app::app_state::WorktreeViewStoreKey {
-                project_id: "project-a".to_string(),
-                worktree_id: "task-b".to_string(),
-            })
-            .expect("other worktree should exist");
-
-        assert_eq!(task_a.ai_history.sessions[0].id, "session-a");
-        assert!(task_b.ai_history.sessions.is_empty());
-
-        fs::remove_dir_all(support_dir).ok();
-    }
-
-    #[test]
-    fn empty_worktree_view_state_does_not_copy_current_ui_state() {
-        let state = empty_worktree_view_state();
-
-        assert!(state.ai_history.sessions.is_empty());
-        assert!(state.files.files.is_empty());
-        assert!(state.files.file_editor_tabs.is_empty());
-        assert!(state.git.git.changed_files.is_empty());
-        assert_eq!(state.git.git.staged, 0);
-        assert_eq!(state.git.git.unstaged, 0);
-        assert_eq!(state.git.git.untracked, 0);
-        assert!(state.git.git_review.files.is_empty());
-        assert!(state.terminal.terminal_layout.top_panes.is_empty());
-        assert!(state.terminal.terminal_layout.tabs.is_empty());
-        assert!(state.terminal.terminal_runtime.sessions.is_empty());
-    }
+    use std::{collections::HashMap, path::PathBuf};
 
     #[test]
     fn terminal_restore_plan_uses_terminal_ids_for_top_panes_and_bottom_tabs() {
@@ -715,13 +502,5 @@ mod tests {
             "file search has no matches"
         );
         assert_eq!(file_search_status_message(1, 3), "file search match 2 of 3");
-    }
-
-    fn temp_support_dir(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
-        std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"))
     }
 }

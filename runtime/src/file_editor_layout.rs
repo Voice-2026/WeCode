@@ -102,7 +102,7 @@ impl FileEditorLayoutService {
                 active_path,
                 error: None,
             };
-            cache.put_json_debounced(FILE_EDITOR_LAYOUT_NAMESPACE, owner_id, &layout)?;
+            cache.put_json(FILE_EDITOR_LAYOUT_NAMESPACE, owner_id, &layout)?;
             return Ok(layout);
         }
         Ok(self.load(Some(owner_id)))

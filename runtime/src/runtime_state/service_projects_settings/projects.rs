@@ -216,15 +216,18 @@ impl RuntimeService {
 
         let terminal_layout = TerminalLayoutService::new(self.support_dir.clone());
         let file_editor_layout = FileEditorLayoutService::new(self.support_dir.clone());
-        let file_tree_state = FileTreeStateService::new(self.support_dir.clone());
-        let git_ui_state = GitUiStateService::new(self.support_dir.clone());
+        let obsolete_cache =
+            crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
+                .ok();
 
         for workspace_id in workspace_ids {
             let _ = self.forget_pet_project_baseline(workspace_id);
             let _ = terminal_layout.delete(workspace_id);
             let _ = file_editor_layout.delete(workspace_id);
-            let _ = file_tree_state.delete(workspace_id);
-            let _ = git_ui_state.delete(workspace_id);
+            if let Some(cache) = obsolete_cache.as_ref() {
+                let _ = cache.delete_json("file-tree-state", workspace_id);
+                let _ = cache.delete_json("git-ui-state", workspace_id);
+            }
         }
     }
 }

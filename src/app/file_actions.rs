@@ -17,7 +17,7 @@ impl CoduxApp {
             self.invalidate_file_panel(cx);
             return;
         };
-        let Some(store_key) = super::app_state::worktree_view_store_key(&self.state) else {
+        let Some(scope_key) = super::app_state::current_worktree_scope_key(&self.state) else {
             self.status_message = "no selected worktree to refresh".to_string();
             self.invalidate_file_panel(cx);
             return;
@@ -59,7 +59,7 @@ impl CoduxApp {
                         .collect::<HashMap<_, _>>();
                     super::app_state::WorktreeFilePanelLoad {
                         generation,
-                        store_key,
+                        scope_key,
                         files,
                         file_tree_children,
                     }
@@ -87,13 +87,9 @@ impl CoduxApp {
         project_name: &str,
         cx: &mut Context<Self>,
     ) {
-        let current_key = super::app_state::worktree_view_store_key(&self.state);
-        if let Some(view_state) = self.worktree_view_store.get_mut(&load.store_key) {
-            view_state.files.files = load.files.clone();
-            view_state.files.file_tree_children = load.file_tree_children.clone();
-        }
+        let current_key = super::app_state::current_worktree_scope_key(&self.state);
         if self.project_switch_generation != load.generation
-            || current_key.as_ref() != Some(&load.store_key)
+            || current_key.as_ref() != Some(&load.scope_key)
         {
             self.invalidate_status_bar(cx);
             return;
@@ -102,7 +98,6 @@ impl CoduxApp {
         self.file_tree_children = load.file_tree_children;
         self.prune_missing_file_tree_directories();
         self.normalize_selected_file_entry();
-        self.save_current_worktree_view_state();
         self.status_message = format!(
             "file list reloaded for {}{}",
             project_name,
@@ -240,7 +235,6 @@ impl CoduxApp {
             self.reload_file_tree_directory(&relative_path);
             self.status_message = format!("directory expanded: {relative_path}");
         }
-        self.save_current_worktree_view_state();
         self.invalidate_file_panel(cx);
     }
 
@@ -260,7 +254,6 @@ impl CoduxApp {
     pub(super) fn select_file_entry(&mut self, relative_path: String, cx: &mut Context<Self>) {
         self.set_single_file_selection(relative_path.clone());
         self.status_message = format!("selected file item: {relative_path}");
-        self.save_current_worktree_view_state();
         self.invalidate_file_panel(cx);
     }
 
@@ -283,7 +276,6 @@ impl CoduxApp {
             self.selected_file_entries.len(),
             plural(self.selected_file_entries.len())
         );
-        self.save_current_worktree_view_state();
         self.invalidate_file_panel(cx);
     }
 
@@ -339,7 +331,6 @@ impl CoduxApp {
             self.selected_file_entries.len(),
             plural(self.selected_file_entries.len())
         );
-        self.save_current_worktree_view_state();
         self.invalidate_file_panel(cx);
     }
 
@@ -1123,7 +1114,6 @@ impl CoduxApp {
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
                 self.status_message = format!("file saved: {entry_path}");
-                self.save_current_worktree_view_state();
                 self.persist_file_editor_layout_async(cx);
             }
             Err(error) => self.status_message = format!("failed to save file: {error}"),
@@ -1186,7 +1176,6 @@ impl CoduxApp {
                 self.file_editable = editable;
                 self.file_dirty = false;
                 self.status_message = format!("file reloaded: {entry_path}");
-                self.save_current_worktree_view_state();
             }
             Err(error) => self.status_message = format!("failed to reload file: {error}"),
         }

@@ -32,7 +32,7 @@ impl ProjectStore {
         let layout = sanitize_terminal_layout(layout)
             .ok_or_else(|| "Terminal layout is empty.".to_string())?;
         crate::persistent_cache::PersistentCacheStore::for_file(self.state_cache_file())?
-            .put_json_debounced(terminal_layout_cache_namespace(), &project_id, &layout)?;
+            .put_json(terminal_layout_cache_namespace(), &project_id, &layout)?;
         Ok(layout)
     }
 }

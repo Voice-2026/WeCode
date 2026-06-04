@@ -18,6 +18,7 @@ struct StatusGitSummary {
 #[derive(Clone, PartialEq)]
 pub(in crate::app) struct StatusBarSnapshot {
     language: String,
+    theme_is_light: bool,
     developer_hud: bool,
     cpu_label: String,
     memory_label: String,
@@ -78,6 +79,7 @@ impl CoduxApp {
     pub(in crate::app) fn status_bar_snapshot(&self) -> StatusBarSnapshot {
         StatusBarSnapshot {
             language: self.state.settings.language.clone(),
+            theme_is_light: theme::terminal_theme_palette(&self.state.settings.theme).is_light,
             developer_hud: self.state.settings.developer_hud,
             cpu_label: self.state.performance.cpu_label.clone(),
             memory_label: self.state.performance.memory_label.clone(),
@@ -242,6 +244,7 @@ fn status_bar_content(
                         app_entity.clone(),
                         status_text(&snapshot.language, "git.remote.pull", "Pull"),
                         snapshot.git.incoming,
+                        snapshot.theme_is_light,
                         0x6AA1FF,
                         "status-pull",
                         pull_running,
@@ -253,6 +256,7 @@ fn status_bar_content(
                         app_entity,
                         status_text(&snapshot.language, "git.remote.push", "Push"),
                         snapshot.git.outgoing,
+                        snapshot.theme_is_light,
                         theme::GREEN,
                         "status-push",
                         push_running,
@@ -268,6 +272,7 @@ fn status_sync_action_button(
     app_entity: gpui::Entity<CoduxApp>,
     label: String,
     count: i64,
+    theme_is_light: bool,
     accent: u32,
     id: &'static str,
     loading: bool,
@@ -277,6 +282,8 @@ fn status_sync_action_button(
 ) -> impl IntoElement {
     let count = count.max(0);
     let label_color = if count > 0 { accent } else { theme::TEXT };
+    let count_bg = if theme_is_light { 0xFFFFFF } else { 0x000000 };
+    let count_text = if theme_is_light { 0x111111 } else { 0xA8ADB8 };
 
     div()
         .id(SharedString::from(format!("status-action-{id}")))
@@ -315,10 +322,10 @@ fn status_sync_action_button(
                     .items_center()
                     .justify_center()
                     .rounded_full()
-                    .bg(color(0xFFFFFF))
+                    .bg(theme::fixed_color(count_bg))
                     .text_size(rems(0.5625))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(color(accent))
+                    .text_color(theme::fixed_color(count_text))
                     .child(count.min(99).to_string()),
             )
         })

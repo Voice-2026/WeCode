@@ -6,24 +6,24 @@ use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 pub(in crate::app) struct ProjectColumnView {
     pub(in crate::app) app_entity: gpui::Entity<CoduxApp>,
-    pub(in crate::app) project_store: gpui::Entity<ProjectListStore>,
+    pub(in crate::app) project_list_state: gpui::Entity<ProjectListState>,
     pub(in crate::app) collapsed: bool,
     pub(in crate::app) language: String,
     pub(in crate::app) has_project: bool,
     pub(in crate::app) has_projects: bool,
     pub(in crate::app) has_worktree: bool,
     pub(in crate::app) scroll_handle: UniformListScrollHandle,
-    pub(in crate::app) _observe_project_store: Option<Subscription>,
+    pub(in crate::app) _observe_project_list_state: Option<Subscription>,
 }
 
-pub(in crate::app) struct ProjectListStore {
+pub(in crate::app) struct ProjectListState {
     pub(in crate::app) projects: Rc<Vec<ProjectInfo>>,
     pub(in crate::app) selected_project_id: Option<String>,
     pub(in crate::app) activity: HashMap<String, AIActivityState>,
     revision: u64,
 }
 
-impl ProjectListStore {
+impl ProjectListState {
     pub(in crate::app) fn new(
         projects: Vec<ProjectInfo>,
         selected_project_id: Option<String>,
@@ -83,11 +83,11 @@ impl Render for ProjectColumnView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = self.collapsed;
         let (projects, selected_project_id, activity) =
-            self.project_store.update(cx, |store, _cx| {
+            self.project_list_state.update(cx, |state, _cx| {
                 (
-                    store.projects.clone(),
-                    store.selected_project_id.clone(),
-                    store.activity.clone(),
+                    state.projects.clone(),
+                    state.selected_project_id.clone(),
+                    state.activity.clone(),
                 )
             });
         let app_entity = self.app_entity.clone();

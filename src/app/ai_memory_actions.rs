@@ -13,12 +13,12 @@ impl CoduxApp {
         let Some(project) = self.state.selected_project.clone() else {
             return;
         };
-        let store_key =
-            worktree_view_store_key(&self.state).unwrap_or_else(|| WorktreeViewStoreKey {
+        let scope_key =
+            current_worktree_scope_key(&self.state).unwrap_or_else(|| WorktreeScopeKey {
                 project_id: project.id.clone(),
                 worktree_id: project.id.clone(),
             });
-        let refresh_key = ai_history_refresh_key(&store_key);
+        let refresh_key = ai_history_refresh_key(&scope_key);
 
         if self.ai_history_refresh_keys.insert(refresh_key) {
             self.start_ai_history_refresh(true, cx);
@@ -34,8 +34,8 @@ impl CoduxApp {
             Ok(state) => {
                 let summary =
                     ai_history_summary_from_state_or_status(&self.state.ai_history, &state);
-                self.upsert_worktree_ai_history_state(store_key.clone(), summary.clone());
-                if worktree_view_store_key(&self.state).as_ref() != Some(&store_key) {
+                self.merge_worktree_ai_history_if_current(scope_key.clone(), summary.clone());
+                if current_worktree_scope_key(&self.state).as_ref() != Some(&scope_key) {
                     return;
                 }
                 if ai_history_should_replace(&self.state.ai_history, &summary) {
@@ -47,8 +47,14 @@ impl CoduxApp {
                     self.runtime_service.active_ai_history_index_count();
                 self.refresh_ai_global_history_summary();
                 self.normalize_selected_ai_session();
-                self.save_current_project_view_state();
-                self.invalidate_task_column(cx);
+                self.invalidate_ui(
+                    cx,
+                    [
+                        UiRegion::WorkspaceAssistant,
+                        UiRegion::AIStatsSidebar,
+                        UiRegion::StatusBar,
+                    ],
+                );
             }
             Err(error) => {
                 self.state.ai_history.error = Some(error.clone());
@@ -1216,6 +1222,6 @@ impl CoduxApp {
     }
 }
 
-fn ai_history_refresh_key(key: &WorktreeViewStoreKey) -> String {
+fn ai_history_refresh_key(key: &WorktreeScopeKey) -> String {
     format!("{}:{}", key.project_id, key.worktree_id)
 }

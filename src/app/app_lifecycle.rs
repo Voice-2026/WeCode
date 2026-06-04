@@ -155,9 +155,6 @@ impl CoduxApp {
             })
             .unwrap_or_default();
         let ai_history_active_index_count = runtime_service.active_ai_history_index_count();
-        let project_view_store = initial_project_view_store(&state);
-        let worktree_view_store = initial_worktree_view_store(&state, &project_view_store);
-
         let mut app = Self {
             window_mode: AppWindowMode::Main,
             root_focus_handle: None,
@@ -359,7 +356,7 @@ impl CoduxApp {
             assistant_panel: None,
             project_column_collapsed: true,
             task_column_collapsed: false,
-            project_list_store: None,
+            project_list_state: None,
             project_column_view: None,
             task_column_view: None,
             task_column_header_view: None,
@@ -376,8 +373,6 @@ impl CoduxApp {
             git_history_panel_view: None,
             status_bar_view: None,
             file_sidebar_view: None,
-            project_view_store,
-            worktree_view_store,
             project_open_applications,
             project_editor_project_id: None,
             project_editor_name: String::new(),

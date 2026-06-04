@@ -563,7 +563,6 @@ impl CoduxApp {
                     self.state.worktrees = self
                         .runtime_service
                         .reload_worktrees(Some(&project_id), Some(&project_path));
-                    self.save_current_worktree_view_state();
                     self.invalidate_task_column(cx);
                 }
                 self.status_message = success_message;
@@ -756,7 +755,7 @@ impl CoduxApp {
             self.invalidate_git_panel(cx);
             return;
         };
-        let Some(store_key) = super::app_state::worktree_view_store_key(&self.state) else {
+        let Some(scope_key) = super::app_state::current_worktree_scope_key(&self.state) else {
             return;
         };
         let base_branch = self.git_review.base_branch.clone();
@@ -782,18 +781,18 @@ impl CoduxApp {
                         &file_path,
                         base_branch.as_deref(),
                     );
-                    (store_key, generation, file_path, diff, content)
+                    (scope_key, generation, file_path, diff, content)
                 },
             )
             .await
             .ok();
             let _ = this.update(cx, |app, cx| {
-                let Some((store_key, generation, file_path, diff, content)) = result else {
+                let Some((scope_key, generation, file_path, diff, content)) = result else {
                     return;
                 };
                 if app.project_switch_generation != generation
-                    || super::app_state::worktree_view_store_key(&app.state).as_ref()
-                        != Some(&store_key)
+                    || super::app_state::current_worktree_scope_key(&app.state).as_ref()
+                        != Some(&scope_key)
                     || app.selected_git_file.as_deref() != Some(file_path.as_str())
                 {
                     return;
@@ -810,7 +809,6 @@ impl CoduxApp {
                         app.status_message = format!("failed to load diff: {error}");
                     }
                 }
-                app.save_current_worktree_view_state();
                 app.invalidate_git_panel(cx);
             });
         })
@@ -1756,7 +1754,6 @@ impl CoduxApp {
                     self.state.worktrees = self
                         .runtime_service
                         .reload_worktrees(Some(&project_id), Some(&project_path));
-                    self.save_current_worktree_view_state();
                     self.invalidate_task_column(cx);
                 }
                 self.status_message = format!("Git {} completed", git_remote_action_label(&action));
@@ -1854,7 +1851,7 @@ impl CoduxApp {
                 if selected_matches {
                     if completion.reload_state {
                         self.state = self.runtime_service.reload_state();
-                        self.sync_project_list_store(cx);
+                        self.sync_project_list_state(cx);
                     }
                     self.state.git = summary;
                     if completion.clear_commit_message {
@@ -1907,7 +1904,6 @@ impl CoduxApp {
                     self.state.worktrees = self
                         .runtime_service
                         .reload_worktrees(Some(&project_id), Some(&project_path));
-                    self.save_current_worktree_view_state();
                     self.invalidate_task_column(cx);
                 }
                 self.status_message = completion.success_message;
@@ -1977,7 +1973,7 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.normalize_selected_runtime_session();
                 self.normalize_selected_ssh_profile();
-                self.sync_project_list_store(cx);
+                self.sync_project_list_state(cx);
                 self.status_message = match remote_name {
                     Some(remote_name) => format!("default Git push remote saved: {remote_name}"),
                     None => "default Git push remote cleared".to_string(),

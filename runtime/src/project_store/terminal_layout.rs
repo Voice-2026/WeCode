@@ -10,9 +10,9 @@ pub struct TerminalLayoutRecord {
     pub active_terminal_id: String,
     #[serde(default)]
     pub top_panes: Vec<TerminalTopPaneRecord>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub top_ratios: Vec<f64>,
-    #[serde(default = "default_bottom_ratio")]
+    #[serde(default = "default_bottom_ratio", skip_serializing)]
     pub bottom_ratio: f64,
 }
 
@@ -220,5 +220,23 @@ mod tests {
             })
             .is_none()
         );
+    }
+
+    #[test]
+    fn terminal_layout_record_serialization_omits_resizable_dimensions() {
+        let layout = TerminalLayoutRecord {
+            tabs: Vec::new(),
+            active_terminal_id: "terminal-1".to_string(),
+            top_panes: vec![TerminalTopPaneRecord {
+                title: "Split".to_string(),
+                terminal_id: "terminal-1".to_string(),
+            }],
+            top_ratios: vec![1.0],
+            bottom_ratio: 0.72,
+        };
+
+        let value = serde_json::to_value(&layout).expect("serialize layout");
+        assert!(value.get("topRatios").is_none());
+        assert!(value.get("bottomRatio").is_none());
     }
 }

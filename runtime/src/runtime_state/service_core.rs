@@ -161,30 +161,6 @@ impl RuntimeService {
         load_file_entries(project_path, directory_path)
     }
 
-    pub fn reload_file_tree_state(&self, owner_id: Option<&str>) -> FileTreeStateSummary {
-        FileTreeStateService::new(self.support_dir.clone()).load(owner_id)
-    }
-
-    pub fn save_file_tree_state(
-        &self,
-        owner_id: &str,
-        state: FileTreeStateSummary,
-    ) -> Result<(), String> {
-        FileTreeStateService::new(self.support_dir.clone()).save(owner_id, &state)
-    }
-
-    pub fn reload_git_ui_state(&self, owner_id: Option<&str>) -> GitUiStateSummary {
-        GitUiStateService::new(self.support_dir.clone()).load(owner_id)
-    }
-
-    pub fn save_git_ui_state(
-        &self,
-        owner_id: &str,
-        state: GitUiStateSummary,
-    ) -> Result<(), String> {
-        GitUiStateService::new(self.support_dir.clone()).save(owner_id, &state)
-    }
-
     pub fn watch_project_files(
         &self,
         project_path: String,
@@ -715,6 +691,148 @@ mod app_runtime_ready_tests {
     }
 
     #[test]
+    fn project_and_worktree_switch_loads_terminal_layout_for_selected_worktree() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-project-worktree-terminal-layout-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let project_dir = support_dir.join("project");
+        let worktree_a_dir = support_dir.join("worktree-a");
+        let worktree_b_dir = support_dir.join("worktree-b");
+        fs::create_dir_all(&project_dir).expect("create project dir");
+        fs::create_dir_all(&worktree_a_dir).expect("create worktree a dir");
+        fs::create_dir_all(&worktree_b_dir).expect("create worktree b dir");
+        fs::write(
+            support_dir.join("state.json"),
+            json!({
+                "projects": [
+                    {
+                        "id": "project-1",
+                        "name": "Project",
+                        "path": project_dir.to_string_lossy()
+                    }
+                ],
+                "worktrees": [
+                    {
+                        "id": "worktree-a",
+                        "projectId": "project-1",
+                        "name": "Task A",
+                        "branch": "task-a",
+                        "path": worktree_a_dir.to_string_lossy(),
+                        "status": "active",
+                        "isDefault": false,
+                        "createdAt": 1,
+                        "updatedAt": 1
+                    },
+                    {
+                        "id": "worktree-b",
+                        "projectId": "project-1",
+                        "name": "Task B",
+                        "branch": "task-b",
+                        "path": worktree_b_dir.to_string_lossy(),
+                        "status": "active",
+                        "isDefault": false,
+                        "createdAt": 1,
+                        "updatedAt": 1
+                    }
+                ],
+                "worktreeTasks": [
+                    {
+                        "worktreeId": "worktree-a",
+                        "title": "Task A",
+                        "baseBranch": "main",
+                        "baseCommit": null,
+                        "status": "active",
+                        "createdAt": 1,
+                        "updatedAt": 1,
+                        "startedAt": null,
+                        "completedAt": null
+                    },
+                    {
+                        "worktreeId": "worktree-b",
+                        "title": "Task B",
+                        "baseBranch": "main",
+                        "baseCommit": null,
+                        "status": "active",
+                        "createdAt": 1,
+                        "updatedAt": 1,
+                        "startedAt": null,
+                        "completedAt": null
+                    }
+                ],
+                "selectedProjectId": "project-1",
+                "selectedWorktreeIdByProject": {
+                    "project-1": "worktree-a"
+                }
+            })
+            .to_string(),
+        )
+        .expect("write state");
+
+        let service = RuntimeService::new(PathBuf::from(&support_dir));
+        service
+            .save_terminal_layout(
+                &crate::terminal_layout::terminal_layout_storage_key("project-1", "worktree-a"),
+                Vec::new(),
+                "terminal-a".to_string(),
+                vec![TerminalPaneSummary {
+                    title: "Task A".to_string(),
+                    terminal_id: "terminal-a".to_string(),
+                }],
+            )
+            .expect("save worktree a terminal layout");
+        service
+            .save_terminal_layout(
+                &crate::terminal_layout::terminal_layout_storage_key("project-1", "worktree-b"),
+                Vec::new(),
+                "terminal-b".to_string(),
+                vec![TerminalPaneSummary {
+                    title: "Task B".to_string(),
+                    terminal_id: "terminal-b".to_string(),
+                }],
+            )
+            .expect("save worktree b terminal layout");
+
+        let state = RuntimeState::load_from_support_dir(support_dir.clone());
+        assert_eq!(
+            state.worktrees.selected_worktree_id.as_deref(),
+            Some("worktree-a")
+        );
+        assert_eq!(state.terminal_layout.active_terminal_id, "terminal-a");
+        assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-a");
+
+        service
+            .project_select_worktree(crate::project_store::ProjectSelectWorktreeRequest {
+                project_id: "project-1".to_string(),
+                worktree_id: "worktree-b".to_string(),
+            })
+            .expect("select worktree b");
+        let state = RuntimeState::load_from_support_dir(support_dir.clone());
+        assert_eq!(
+            state.worktrees.selected_worktree_id.as_deref(),
+            Some("worktree-b")
+        );
+        assert_eq!(state.terminal_layout.active_terminal_id, "terminal-b");
+        assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-b");
+
+        service
+            .project_select_worktree(crate::project_store::ProjectSelectWorktreeRequest {
+                project_id: "project-1".to_string(),
+                worktree_id: "worktree-a".to_string(),
+            })
+            .expect("select worktree a");
+        let state = RuntimeState::load_from_support_dir(support_dir.clone());
+        assert_eq!(
+            state.worktrees.selected_worktree_id.as_deref(),
+            Some("worktree-a")
+        );
+        assert_eq!(state.terminal_layout.active_terminal_id, "terminal-a");
+        assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-a");
+
+        let _ = fs::remove_dir_all(support_dir);
+    }
+
+    #[test]
     fn project_close_forgets_pet_baseline_and_close_all_forgets_all_baselines() {
         let support_dir = std::env::temp_dir().join(format!(
             "codux-project-close-pet-baseline-{}",
@@ -847,13 +965,11 @@ mod app_runtime_ready_tests {
             .save_terminal_layout(
                 "project-1",
                 Vec::new(),
-                String::new(),
+                "terminal-1".to_string(),
                 vec![TerminalPaneSummary {
-                    id: "pane-1".to_string(),
                     title: "Shell".to_string(),
                     terminal_id: "terminal-1".to_string(),
                 }],
-                "pane-1".to_string(),
             )
             .expect("save project terminal layout");
         service
@@ -867,25 +983,28 @@ mod app_runtime_ready_tests {
                 Some("src/main.rs".to_string()),
             )
             .expect("save worktree file editor layout");
-        service
-            .save_file_tree_state(
+        let obsolete_cache =
+            crate::persistent_cache::PersistentCacheStore::for_support_dir(support_dir.clone())
+                .expect("obsolete cache");
+        obsolete_cache
+            .put_json(
+                "file-tree-state",
                 "worktree-1",
-                FileTreeStateSummary {
-                    file_directory: "src".to_string(),
-                    selected_file_entry: Some("src/main.rs".to_string()),
-                    ..Default::default()
-                },
+                &serde_json::json!({
+                    "fileDirectory": "src",
+                    "selectedFileEntry": "src/main.rs"
+                }),
             )
-            .expect("save worktree file tree state");
-        service
-            .save_git_ui_state(
+            .expect("save obsolete file tree state");
+        obsolete_cache
+            .put_json(
+                "git-ui-state",
                 "worktree-1",
-                GitUiStateSummary {
-                    selected_git_file: Some("src/main.rs".to_string()),
-                    ..Default::default()
-                },
+                &serde_json::json!({
+                    "selectedGitFile": "src/main.rs"
+                }),
             )
-            .expect("save worktree git ui state");
+            .expect("save obsolete git ui state");
 
         let mut pet_snapshot = crate::pet::PetSnapshot {
             claimed_at: Some(1),
@@ -921,15 +1040,15 @@ mod app_runtime_ready_tests {
         assert!(service.terminal_layout_record("project-1").is_none());
         assert!(service.reload_file_editor_layout(Some("worktree-1")).tabs.is_empty());
         assert_eq!(
-            service
-                .reload_file_tree_state(Some("worktree-1"))
-                .selected_file_entry,
+            obsolete_cache
+                .get_json::<serde_json::Value>("file-tree-state", "worktree-1")
+                .expect("load obsolete file tree state"),
             None
         );
         assert_eq!(
-            service
-                .reload_git_ui_state(Some("worktree-1"))
-                .selected_git_file,
+            obsolete_cache
+                .get_json::<serde_json::Value>("git-ui-state", "worktree-1")
+                .expect("load obsolete git ui state"),
             None
         );
         let pet = service.pet_snapshot().expect("pet snapshot");

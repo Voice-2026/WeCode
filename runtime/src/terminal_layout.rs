@@ -14,7 +14,9 @@ pub struct TerminalLayoutSummary {
     pub active_terminal_id: String,
     pub top_panes: Vec<TerminalPaneSummary>,
     pub tabs: Vec<TerminalTabSummary>,
+    #[serde(default, skip_serializing)]
     pub top_ratios: Vec<f64>,
+    #[serde(default = "default_bottom_ratio", skip_serializing)]
     pub bottom_ratio: f64,
     pub error: Option<String>,
 }
@@ -103,6 +105,9 @@ impl TerminalLayoutService {
         active_terminal_id: String,
         top_panes: Vec<TerminalPaneSummary>,
     ) -> Result<TerminalLayoutSummary, String> {
+        if tabs.is_empty() && top_panes.is_empty() {
+            return Err("Terminal layout is empty.".to_string());
+        }
         let top_ratios = if top_panes.is_empty() {
             Vec::new()
         } else {
@@ -117,7 +122,7 @@ impl TerminalLayoutService {
             error: None,
         };
         crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())?
-            .put_json_debounced(TERMINAL_LAYOUT_NAMESPACE, project_id, &layout)?;
+            .put_json(TERMINAL_LAYOUT_NAMESPACE, project_id, &layout)?;
         Ok(layout)
     }
 
@@ -129,4 +134,71 @@ impl TerminalLayoutService {
 
 pub(crate) fn terminal_layout_cache_namespace() -> &'static str {
     TERMINAL_LAYOUT_NAMESPACE
+}
+
+fn default_bottom_ratio() -> f64 {
+    0.32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_layout_serialization_omits_resizable_dimensions() {
+        let layout = TerminalLayoutSummary {
+            active_terminal_id: "terminal-1".to_string(),
+            top_panes: vec![TerminalPaneSummary {
+                title: "Split".to_string(),
+                terminal_id: "terminal-1".to_string(),
+            }],
+            tabs: Vec::new(),
+            top_ratios: vec![1.0],
+            bottom_ratio: 0.72,
+            error: None,
+        };
+
+        let value = serde_json::to_value(&layout).expect("serialize layout");
+        assert!(value.get("topRatios").is_none());
+        assert!(value.get("bottomRatio").is_none());
+    }
+
+    #[test]
+    fn save_from_gpui_rejects_empty_layout_without_overwriting_existing_layout() {
+        let support_dir = std::env::temp_dir().join(format!(
+            "codux-terminal-layout-empty-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&support_dir).expect("create support dir");
+        let service = TerminalLayoutService::new(support_dir.clone());
+
+        service
+            .save_from_gpui(
+                "project-1::worktree-1",
+                Vec::new(),
+                "terminal-kept".to_string(),
+                vec![TerminalPaneSummary {
+                    title: "Shell".to_string(),
+                    terminal_id: "terminal-kept".to_string(),
+                }],
+            )
+            .expect("save initial layout");
+
+        let error = service
+            .save_from_gpui(
+                "project-1::worktree-1",
+                Vec::new(),
+                String::new(),
+                Vec::new(),
+            )
+            .expect_err("empty layout should be rejected");
+        assert_eq!(error, "Terminal layout is empty.");
+
+        let layout = service.load(Some("project-1::worktree-1"));
+        assert_eq!(layout.active_terminal_id, "terminal-kept");
+        assert_eq!(layout.top_panes.len(), 1);
+        assert_eq!(layout.top_panes[0].terminal_id, "terminal-kept");
+
+        let _ = std::fs::remove_dir_all(support_dir);
+    }
 }

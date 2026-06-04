@@ -163,8 +163,14 @@ impl CoduxApp {
             self.state.ai_history.queued = true;
             self.state.ai_history.progress = Some(0.0);
             self.state.ai_history.detail = "queued".to_string();
-            self.save_current_project_view_state();
-            self.invalidate_task_column(cx);
+            self.invalidate_ui(
+                cx,
+                [
+                    UiRegion::WorkspaceAssistant,
+                    UiRegion::AIStatsSidebar,
+                    UiRegion::StatusBar,
+                ],
+            );
             self.schedule_ai_index_progress_expiry(self.ai_index_progress_generation, cx);
         }
 

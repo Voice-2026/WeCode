@@ -70,7 +70,6 @@ impl CoduxApp {
                 self.state.worktrees = self
                     .runtime_service
                     .reload_worktrees(Some(&project.id), Some(&project.path));
-                self.save_current_worktree_view_state();
                 self.invalidate_task_column(cx);
                 self.refresh_git_panel_state_async(cx);
                 applied += 1;
@@ -180,7 +179,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to build SSH launch command: {error}");
             }
         }
-        self.sync_project_activity_store(cx);
+        self.sync_project_activity_state(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
     }
@@ -349,7 +348,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to choose SSH private key: {error}")
             }
         }
-        self.sync_project_activity_store(cx);
+        self.sync_project_activity_state(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
     }
@@ -1091,7 +1090,7 @@ impl CoduxApp {
             || has_scheduled_refresh;
         if changed {
             if !drained.events.is_empty() || ai_activity_changed {
-                self.sync_project_activity_store(cx);
+                self.sync_project_activity_state(cx);
                 self.invalidate_task_column(cx);
             }
             self.runtime_trace(
@@ -1182,7 +1181,7 @@ impl CoduxApp {
             }
         }
 
-        self.sync_project_activity_store(cx);
+        self.sync_project_activity_state(cx);
         self.invalidate_task_column(cx);
         self.runtime_trace(
             "runtime-activity",
@@ -1314,7 +1313,7 @@ impl CoduxApp {
             .as_ref()
             .map(|worktree| worktree.path.as_str())
             .or(selected_path);
-        let selected_worktree_key = worktree_view_store_key(&self.state);
+        let selected_worktree_key = current_worktree_scope_key(&self.state);
         let mut applied = 0;
         let previous_active_index_count = self.ai_history_active_index_count;
 
@@ -1328,7 +1327,7 @@ impl CoduxApp {
                     let summary =
                         ai_history_summary_from_state_or_status(&self.state.ai_history, &state);
                     if let Some(key) = selected_worktree_key.clone() {
-                        self.upsert_worktree_ai_history_state(key, summary.clone());
+                        self.merge_worktree_ai_history_if_current(key, summary.clone());
                     }
                     if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
@@ -1352,7 +1351,7 @@ impl CoduxApp {
                 {
                     let summary = normalized_ai_history_snapshot_to_summary(snapshot);
                     if let Some(key) = selected_worktree_key.clone() {
-                        self.upsert_worktree_ai_history_state(key, summary.clone());
+                        self.merge_worktree_ai_history_if_current(key, summary.clone());
                     }
                     if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
@@ -1378,7 +1377,6 @@ impl CoduxApp {
         let global_changed = self.ai_history_active_index_count != previous_active_index_count;
 
         if applied > 0 {
-            self.save_current_project_view_state();
             self.invalidate_task_column(cx);
         }
 
@@ -1408,7 +1406,7 @@ impl CoduxApp {
             .as_ref()
             .map(|worktree| worktree.path.as_str())
             .or(selected_path);
-        let selected_worktree_key = worktree_view_store_key(&self.state);
+        let selected_worktree_key = current_worktree_scope_key(&self.state);
         let mut applied = 0;
 
         for event in events {
@@ -1421,7 +1419,6 @@ impl CoduxApp {
                     self.state.git = snapshot;
                     self.normalize_selected_git_file();
                     self.normalize_selected_git_branch();
-                    self.save_current_worktree_view_state();
                     applied += 1;
                 }
                 ProjectActivityEvent::GitReview {
@@ -1431,7 +1428,6 @@ impl CoduxApp {
                 } if selected_path == Some(project_path.as_str()) => {
                     self.git_review = snapshot;
                     self.normalize_selected_git_file();
-                    self.save_current_worktree_view_state();
                     applied += 1;
                 }
                 ProjectActivityEvent::WorktreeSnapshot {
@@ -1442,7 +1438,6 @@ impl CoduxApp {
                     || selected_path == Some(project_path.as_str()) =>
                 {
                     self.merge_selected_project_worktrees(snapshot);
-                    self.save_current_project_view_state();
                     applied += 1;
                 }
                 ProjectActivityEvent::GitChanged { project_path, .. }
@@ -1461,12 +1456,11 @@ impl CoduxApp {
                 {
                     let summary = normalized_ai_history_snapshot_to_summary(snapshot);
                     if let Some(key) = selected_worktree_key.clone() {
-                        self.upsert_worktree_ai_history_state(key, summary.clone());
+                        self.merge_worktree_ai_history_if_current(key, summary.clone());
                     }
                     if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
                         self.normalize_selected_ai_session();
-                        self.save_current_project_view_state();
                         applied += 1;
                     }
                 }
@@ -1528,7 +1522,7 @@ impl CoduxApp {
                 self.status_message = format!("failed to poll AI runtime: {error}");
             }
         }
-        self.sync_project_activity_store(cx);
+        self.sync_project_activity_state(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
     }
@@ -1553,7 +1547,7 @@ impl CoduxApp {
             .insert(project.id.clone(), app_now_seconds());
         self.status_message = format!("AI completion dismissed for {}", project.name);
         self.refresh_dock_badge_now(cx);
-        self.sync_project_activity_store(cx);
+        self.sync_project_activity_state(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
     }
@@ -1592,7 +1586,7 @@ impl CoduxApp {
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&snapshot);
         self.refresh_dock_badge_now(cx);
-        self.sync_project_activity_store(cx);
+        self.sync_project_activity_state(cx);
         self.invalidate_task_column(cx);
         self.invalidate_remote_panel(cx);
     }

@@ -202,7 +202,7 @@ pub struct CoduxApp {
     pub(in crate::app) assistant_panel: Option<AssistantPanel>,
     pub(in crate::app) project_column_collapsed: bool,
     pub(in crate::app) task_column_collapsed: bool,
-    pub(in crate::app) project_list_store: Option<gpui::Entity<ProjectListStore>>,
+    pub(in crate::app) project_list_state: Option<gpui::Entity<ProjectListState>>,
     pub(in crate::app) project_column_view: Option<gpui::Entity<ProjectColumnView>>,
     pub(in crate::app) task_column_view: Option<gpui::Entity<TaskColumnView>>,
     pub(in crate::app) task_column_header_view: Option<gpui::Entity<TaskColumnHeaderView>>,
@@ -222,8 +222,6 @@ pub struct CoduxApp {
     pub(in crate::app) git_history_panel_view: Option<gpui::Entity<sidebars::GitHistoryPanelView>>,
     pub(in crate::app) status_bar_view: Option<gpui::Entity<StatusBarView>>,
     pub(in crate::app) file_sidebar_view: Option<gpui::Entity<FileSidebarView>>,
-    pub(in crate::app) project_view_store: HashMap<String, ProjectViewState>,
-    pub(in crate::app) worktree_view_store: HashMap<WorktreeViewStoreKey, WorktreeViewState>,
     pub(in crate::app) project_open_applications: Vec<ProjectOpenApplicationSummary>,
     pub(in crate::app) project_editor_project_id: Option<String>,
     pub(in crate::app) project_editor_name: String,
@@ -344,7 +342,7 @@ pub(in crate::app) struct ProjectSwitchTaskLoad {
 pub(in crate::app) struct ProjectSwitchTerminalLoad {
     pub(in crate::app) project_id: String,
     pub(in crate::app) generation: u64,
-    pub(in crate::app) store_key: WorktreeViewStoreKey,
+    pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) terminal_layout: TerminalLayoutSummary,
     pub(in crate::app) terminal_runtime: TerminalRuntimeSummary,
 }
@@ -352,15 +350,14 @@ pub(in crate::app) struct ProjectSwitchTerminalLoad {
 pub(in crate::app) struct ProjectSwitchPrimaryLoad {
     pub(in crate::app) project_id: String,
     pub(in crate::app) generation: u64,
-    pub(in crate::app) store_key: WorktreeViewStoreKey,
+    pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) ai_history: AIHistorySummary,
 }
 
 pub(in crate::app) struct WorktreeSwitchLoad {
     pub(in crate::app) project_id: String,
     pub(in crate::app) generation: u64,
-    pub(in crate::app) store_key: WorktreeViewStoreKey,
-    pub(in crate::app) worktrees: WorktreeSummary,
+    pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) ai_history: AIHistorySummary,
     pub(in crate::app) terminal_layout: TerminalLayoutSummary,
     pub(in crate::app) terminal_runtime: TerminalRuntimeSummary,
@@ -368,7 +365,7 @@ pub(in crate::app) struct WorktreeSwitchLoad {
 
 pub(in crate::app) struct WorktreeSidebarLoad {
     pub(in crate::app) generation: u64,
-    pub(in crate::app) store_key: WorktreeViewStoreKey,
+    pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) files: Vec<FileEntry>,
     pub(in crate::app) file_editor_layout: FileEditorLayoutSummary,
     pub(in crate::app) git: GitSummary,
@@ -377,30 +374,13 @@ pub(in crate::app) struct WorktreeSidebarLoad {
 
 pub(in crate::app) struct WorktreeFilePanelLoad {
     pub(in crate::app) generation: u64,
-    pub(in crate::app) store_key: WorktreeViewStoreKey,
+    pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) files: Vec<FileEntry>,
     pub(in crate::app) file_tree_children: HashMap<String, Vec<FileEntry>>,
 }
 
 #[derive(Clone)]
-pub(in crate::app) struct ProjectViewState {
-    pub(in crate::app) ai_history: AIHistorySummary,
-    pub(in crate::app) ai_global_history: AIGlobalHistorySummary,
-    pub(in crate::app) memory: MemorySummary,
-    pub(in crate::app) memory_manager: MemoryManagerSnapshot,
-    pub(in crate::app) worktrees: WorktreeSummary,
-}
-
-#[derive(Clone)]
-pub(in crate::app) struct WorktreeViewState {
-    pub(in crate::app) ai_history: AIHistorySummary,
-    pub(in crate::app) files: FileWorktreeViewState,
-    pub(in crate::app) git: GitWorktreeViewState,
-    pub(in crate::app) terminal: TerminalViewState,
-}
-
-#[derive(Clone)]
-pub(in crate::app) struct FileWorktreeViewState {
+pub(in crate::app) struct FilePanelState {
     pub(in crate::app) files: Vec<FileEntry>,
     pub(in crate::app) file_directory: String,
     pub(in crate::app) selected_file_entry: Option<String>,
@@ -413,7 +393,7 @@ pub(in crate::app) struct FileWorktreeViewState {
 }
 
 #[derive(Clone)]
-pub(in crate::app) struct GitWorktreeViewState {
+pub(in crate::app) struct GitPanelState {
     pub(in crate::app) git: GitSummary,
     pub(in crate::app) git_review: GitReviewSummary,
     pub(in crate::app) selected_git_file: Option<String>,
@@ -426,300 +406,10 @@ pub(in crate::app) struct GitWorktreeViewState {
     pub(in crate::app) git_review_content: Option<GitReviewContentSummary>,
 }
 
-#[derive(Clone)]
-pub(in crate::app) struct TerminalViewState {
-    pub(in crate::app) terminal_layout: TerminalLayoutSummary,
-    pub(in crate::app) terminal_runtime: TerminalRuntimeSummary,
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub(in crate::app) struct WorktreeViewStoreKey {
+pub(in crate::app) struct WorktreeScopeKey {
     pub(in crate::app) project_id: String,
     pub(in crate::app) worktree_id: String,
-}
-
-pub(in crate::app) fn empty_project_view_state() -> ProjectViewState {
-    ProjectViewState {
-        ai_history: AIHistorySummary::default(),
-        ai_global_history: AIGlobalHistorySummary::default(),
-        memory: MemorySummary::default(),
-        memory_manager: MemoryManagerSnapshot::default(),
-        worktrees: WorktreeSummary::default(),
-    }
-}
-
-pub(in crate::app) fn empty_worktree_view_state() -> WorktreeViewState {
-    WorktreeViewState {
-        ai_history: AIHistorySummary::default(),
-        files: empty_file_worktree_view_state(),
-        git: empty_git_worktree_view_state(),
-        terminal: empty_terminal_view_state(),
-    }
-}
-
-pub(in crate::app) fn empty_file_worktree_view_state() -> FileWorktreeViewState {
-    FileWorktreeViewState {
-        files: Vec::new(),
-        file_directory: String::new(),
-        selected_file_entry: None,
-        selected_file_entries: HashSet::new(),
-        file_selection_anchor: None,
-        file_tree_expanded_dirs: HashSet::new(),
-        file_tree_children: HashMap::new(),
-        file_editor_tabs: Vec::new(),
-        active_file_editor_tab: None,
-    }
-}
-
-pub(in crate::app) fn empty_git_worktree_view_state() -> GitWorktreeViewState {
-    GitWorktreeViewState {
-        git: GitSummary::default(),
-        git_review: GitReviewSummary::default(),
-        selected_git_file: None,
-        selected_git_files: HashSet::new(),
-        selected_git_branch: None,
-        git_expanded_sections: HashSet::new(),
-        git_expanded_dirs: HashSet::new(),
-        git_tree_children: HashMap::new(),
-        git_diff_preview: "select a changed file to preview its diff".to_string(),
-        git_review_content: None,
-    }
-}
-
-pub(in crate::app) fn empty_terminal_view_state() -> TerminalViewState {
-    TerminalViewState {
-        terminal_layout: TerminalLayoutSummary::default(),
-        terminal_runtime: TerminalRuntimeSummary::default(),
-    }
-}
-
-pub(in crate::app) fn initial_project_view_store(
-    state: &RuntimeState,
-) -> HashMap<String, ProjectViewState> {
-    let worktree_service = WorktreeService::new(state.support_dir.clone());
-    let persisted_worktrees = worktree_service.state_summaries(
-        state
-            .projects
-            .iter()
-            .map(|project| (project.id.as_str(), project.path.as_str())),
-    );
-    let selected_project_id = state
-        .selected_project
-        .as_ref()
-        .map(|project| project.id.as_str());
-    state
-        .projects
-        .iter()
-        .map(|project| {
-            let worktrees = if Some(project.id.as_str()) == selected_project_id {
-                state.worktrees.clone()
-            } else {
-                persisted_worktrees
-                    .get(&project.id)
-                    .cloned()
-                    .unwrap_or_default()
-            };
-            (
-                project.id.clone(),
-                ProjectViewState {
-                    ai_history: if Some(project.id.as_str()) == selected_project_id {
-                        state.ai_history.clone()
-                    } else {
-                        AIHistorySummary::default()
-                    },
-                    ai_global_history: state.ai_global_history.clone(),
-                    memory: if Some(project.id.as_str()) == selected_project_id {
-                        state.memory.clone()
-                    } else {
-                        MemorySummary::default()
-                    },
-                    memory_manager: if Some(project.id.as_str()) == selected_project_id {
-                        state.memory_manager.clone()
-                    } else {
-                        MemoryManagerSnapshot::default()
-                    },
-                    worktrees,
-                },
-            )
-        })
-        .collect()
-}
-
-pub(in crate::app) fn initial_worktree_view_store(
-    state: &RuntimeState,
-    project_view_store: &HashMap<String, ProjectViewState>,
-) -> HashMap<WorktreeViewStoreKey, WorktreeViewState> {
-    let file_editor_layout_service =
-        codux_runtime::file_editor_layout::FileEditorLayoutService::new(state.support_dir.clone());
-    let file_tree_state_service =
-        codux_runtime::file_tree_state::FileTreeStateService::new(state.support_dir.clone());
-    let git_ui_state_service =
-        codux_runtime::git_ui_state::GitUiStateService::new(state.support_dir.clone());
-    let worktree_keys = project_view_store
-        .iter()
-        .flat_map(|(project_id, project_state)| {
-            project_state
-                .worktrees
-                .worktrees
-                .iter()
-                .map(move |worktree| WorktreeViewStoreKey {
-                    project_id: project_id.clone(),
-                    worktree_id: worktree.id.clone(),
-                })
-        })
-        .collect::<Vec<_>>();
-    let file_editor_layouts = file_editor_layout_service
-        .load_many(worktree_keys.iter().map(|key| key.worktree_id.as_str()));
-    let file_tree_states =
-        file_tree_state_service.load_many(worktree_keys.iter().map(|key| key.worktree_id.as_str()));
-    let git_ui_states =
-        git_ui_state_service.load_many(worktree_keys.iter().map(|key| key.worktree_id.as_str()));
-    let terminal_layout_service =
-        codux_runtime::terminal_layout::TerminalLayoutService::new(state.support_dir.clone());
-    let terminal_layout_keys = worktree_keys
-        .iter()
-        .map(worktree_terminal_storage_key)
-        .collect::<Vec<_>>();
-    let terminal_layouts =
-        terminal_layout_service.load_many(terminal_layout_keys.iter().map(|key| key.as_str()));
-    let current_key = worktree_view_store_key(state);
-
-    worktree_keys
-        .into_iter()
-        .map(|key| {
-            let is_current = current_key.as_ref() == Some(&key);
-            let terminal_storage_key = worktree_terminal_storage_key(&key);
-            let file_editor_layout = file_editor_layouts
-                .get(&key.worktree_id)
-                .cloned()
-                .unwrap_or_default();
-            let (file_editor_tabs, active_file_editor_tab) =
-                file_editor_tabs_from_layout(file_editor_layout);
-            let file_tree_state = file_tree_states
-                .get(&key.worktree_id)
-                .cloned()
-                .unwrap_or_default();
-            let git_ui_state = git_ui_states
-                .get(&key.worktree_id)
-                .cloned()
-                .unwrap_or_default();
-            (
-                key,
-                WorktreeViewState {
-                    ai_history: if is_current {
-                        state.ai_history.clone()
-                    } else {
-                        AIHistorySummary::default()
-                    },
-                    files: FileWorktreeViewState {
-                        files: if is_current {
-                            state.files.clone()
-                        } else {
-                            file_tree_state.files
-                        },
-                        file_directory: file_tree_state.file_directory,
-                        selected_file_entry: file_tree_state.selected_file_entry,
-                        selected_file_entries: file_tree_state
-                            .selected_file_entries
-                            .into_iter()
-                            .collect(),
-                        file_selection_anchor: file_tree_state.file_selection_anchor,
-                        file_tree_expanded_dirs: file_tree_state
-                            .file_tree_expanded_dirs
-                            .into_iter()
-                            .collect(),
-                        file_tree_children: file_tree_state.file_tree_children,
-                        file_editor_tabs,
-                        active_file_editor_tab,
-                    },
-                    git: git_worktree_view_state_from_summary(git_ui_state, state, is_current),
-                    terminal: TerminalViewState {
-                        terminal_layout: if is_current {
-                            state.terminal_layout.clone()
-                        } else {
-                            terminal_layouts
-                                .get(&terminal_storage_key)
-                                .cloned()
-                                .unwrap_or_default()
-                        },
-                        terminal_runtime: if is_current {
-                            state.terminal_runtime.clone()
-                        } else {
-                            TerminalRuntimeSummary::default()
-                        },
-                    },
-                },
-            )
-        })
-        .collect()
-}
-
-pub(in crate::app) fn git_ui_state_summary_from_worktree(
-    state: &GitWorktreeViewState,
-) -> codux_runtime::git_ui_state::GitUiStateSummary {
-    codux_runtime::git_ui_state::GitUiStateSummary {
-        git: state.git.clone(),
-        git_review: state.git_review.clone(),
-        selected_git_file: state.selected_git_file.clone(),
-        selected_git_files: state.selected_git_files.iter().cloned().collect(),
-        selected_git_branch: state.selected_git_branch.clone(),
-        git_expanded_sections: state.git_expanded_sections.iter().cloned().collect(),
-        git_expanded_dirs: state.git_expanded_dirs.iter().cloned().collect(),
-        git_tree_children: state.git_tree_children.clone(),
-        git_diff_preview: state.git_diff_preview.clone(),
-        git_review_content: state.git_review_content.clone(),
-        error: None,
-    }
-}
-
-fn git_worktree_view_state_from_summary(
-    summary: codux_runtime::git_ui_state::GitUiStateSummary,
-    state: &RuntimeState,
-    is_current: bool,
-) -> GitWorktreeViewState {
-    let git = if is_current {
-        state.git.clone()
-    } else {
-        summary.git
-    };
-    let git_review = if is_current {
-        state.git_review.clone()
-    } else {
-        summary.git_review
-    };
-    let selected_git_branch = summary.selected_git_branch.or_else(|| {
-        is_current.then(|| {
-            git.branches
-                .iter()
-                .find(|branch| branch.is_current)
-                .or_else(|| git.branches.first())
-                .map(|branch| branch.name.clone())
-        })?
-    });
-    let mut git_expanded_sections = summary
-        .git_expanded_sections
-        .into_iter()
-        .collect::<HashSet<_>>();
-    if git_expanded_sections.is_empty() {
-        git_expanded_sections = HashSet::from(["changed".to_string(), "untracked".to_string()]);
-    }
-    let git_diff_preview = if summary.git_diff_preview.trim().is_empty() {
-        "select a changed file to preview its diff".to_string()
-    } else {
-        summary.git_diff_preview
-    };
-    GitWorktreeViewState {
-        git,
-        git_review,
-        selected_git_file: summary.selected_git_file,
-        selected_git_files: summary.selected_git_files.into_iter().collect(),
-        selected_git_branch,
-        git_expanded_sections,
-        git_expanded_dirs: summary.git_expanded_dirs.into_iter().collect(),
-        git_tree_children: summary.git_tree_children,
-        git_diff_preview,
-        git_review_content: summary.git_review_content,
-    }
 }
 
 pub(in crate::app) fn file_editor_tabs_from_layout(
@@ -747,18 +437,16 @@ pub(in crate::app) fn file_editor_tabs_from_layout(
     (tabs, active_path)
 }
 
-pub(in crate::app) fn worktree_view_store_key(
-    state: &RuntimeState,
-) -> Option<WorktreeViewStoreKey> {
+pub(in crate::app) fn current_worktree_scope_key(state: &RuntimeState) -> Option<WorktreeScopeKey> {
     let project_id = state.selected_project.as_ref()?.id.clone();
     let worktree_id = super::ai_runtime_status::terminal_layout_owner_id(state)?;
-    Some(WorktreeViewStoreKey {
+    Some(WorktreeScopeKey {
         project_id,
         worktree_id,
     })
 }
 
-pub(in crate::app) fn worktree_terminal_storage_key(key: &WorktreeViewStoreKey) -> String {
+pub(in crate::app) fn worktree_terminal_storage_key(key: &WorktreeScopeKey) -> String {
     super::ai_runtime_status::terminal_layout_storage_key(&key.project_id, &key.worktree_id)
 }
 

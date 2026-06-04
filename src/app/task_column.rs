@@ -316,19 +316,10 @@ impl CoduxApp {
                     .as_deref()
                     .map(|id| id == worktree.id)
                     .unwrap_or(false);
-                let is_current_worktree_repository = if active {
-                    self.state.git.is_repository
-                } else {
-                    true
-                };
                 TaskWorktreeRow {
                     id: worktree.id.clone(),
                     project_id: worktree.project_id.clone(),
-                    title: worktree_row_title(
-                        worktree,
-                        &labels.no_branch,
-                        is_current_worktree_repository,
-                    ),
+                    title: worktree_row_title(worktree, &labels.no_branch),
                     path: worktree.path.clone(),
                     is_default: worktree.is_default,
                     active,
@@ -801,11 +792,11 @@ fn worktree_activity_dot(state: AIActivityState) -> AnyElement {
     }
 }
 
-fn worktree_row_title(worktree: &WorktreeInfo, no_branch: &str, is_repository: bool) -> String {
+fn worktree_row_title(worktree: &WorktreeInfo, no_branch: &str) -> String {
     let branch = worktree.branch.trim();
     let name = worktree.name.trim();
 
-    if !is_repository || branch.is_empty() || branch == "uninitialized" {
+    if branch.is_empty() || branch == "uninitialized" {
         return no_branch.to_string();
     }
 
@@ -823,6 +814,45 @@ fn worktree_row_title(worktree: &WorktreeInfo, no_branch: &str, is_repository: b
         .next_back()
         .unwrap_or(branch)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worktree(name: &str, branch: &str, is_default: bool) -> WorktreeInfo {
+        WorktreeInfo {
+            id: "worktree-1".to_string(),
+            project_id: "project-1".to_string(),
+            name: name.to_string(),
+            branch: branch.to_string(),
+            path: "/workspace/project".to_string(),
+            status: "active".to_string(),
+            is_default,
+            exists: true,
+            git_summary: Default::default(),
+        }
+    }
+
+    #[test]
+    fn worktree_row_title_uses_worktree_fields_without_git_panel_state() {
+        assert_eq!(
+            worktree_row_title(&worktree("Task A", "feature/task-a", false), "No Branch"),
+            "Task A"
+        );
+        assert_eq!(
+            worktree_row_title(&worktree("", "feature/task-b", false), "No Branch"),
+            "task-b"
+        );
+        assert_eq!(
+            worktree_row_title(&worktree("Main", "main", true), "No Branch"),
+            "main"
+        );
+        assert_eq!(
+            worktree_row_title(&worktree("Draft", "uninitialized", false), "No Branch"),
+            "No Branch"
+        );
+    }
 }
 
 fn ai_session_compact_row(

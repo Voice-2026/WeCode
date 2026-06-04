@@ -396,7 +396,6 @@ impl CoduxApp {
         if let Some(editor) = self.file_editor_states.get(&key) {
             editor.update(cx, |state, cx| state.focus(window, cx));
         }
-        self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
         self.status_message = format!("file opened: {relative_path}");
         self.invalidate_ui(
@@ -423,7 +422,6 @@ impl CoduxApp {
         if let Some(editor) = self.active_file_editor_state() {
             editor.update(cx, |state, cx| state.focus(window, cx));
         }
-        self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
         if !self.update_file_editor_workspace_view(cx) {
             self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
@@ -459,7 +457,6 @@ impl CoduxApp {
                 })
                 .map(|tab| tab.relative_path.clone());
         }
-        self.save_current_worktree_view_state();
         self.persist_file_editor_layout_async(cx);
         if !self.update_file_editor_workspace_view(cx) {
             self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
@@ -692,7 +689,6 @@ impl CoduxApp {
         if let Some(active) = self.active_file_editor_tab.clone() {
             self.set_single_file_selection(active);
         }
-        self.save_current_worktree_view_state();
     }
 
     pub(super) fn load_current_file_editor_layout_async(&mut self, cx: &mut Context<Self>) {
@@ -700,7 +696,7 @@ impl CoduxApp {
             return;
         };
         let runtime_service = self.runtime_service.clone();
-        let store_key = super::app_state::worktree_view_store_key(&self.state);
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
         let generation = self.project_switch_generation;
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
@@ -714,7 +710,7 @@ impl CoduxApp {
                     return;
                 };
                 if app.project_switch_generation != generation
-                    || super::app_state::worktree_view_store_key(&app.state) != store_key
+                    || super::app_state::current_worktree_scope_key(&app.state) != scope_key
                 {
                     return;
                 }
@@ -771,7 +767,7 @@ impl CoduxApp {
     }
 
     pub(super) fn file_editor_state_key(&self, relative_path: &str) -> String {
-        if let Some(key) = worktree_view_store_key(&self.state) {
+        if let Some(key) = current_worktree_scope_key(&self.state) {
             format!("{}:{}:{}", key.project_id, key.worktree_id, relative_path)
         } else {
             relative_path.to_string()
