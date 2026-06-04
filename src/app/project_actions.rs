@@ -600,62 +600,7 @@ impl CoduxApp {
         let Some(key) = worktree_view_store_key(&self.state) else {
             return;
         };
-        let (
-            ai_history,
-            files,
-            file_tree_children,
-            git_tree_children,
-            git_review_content,
-            terminal,
-        ) = match self.worktree_view_store.remove(&key) {
-            Some(state) => (
-                state.ai_history,
-                state.files.files,
-                state.files.file_tree_children,
-                state.git.git_tree_children,
-                state.git.git_review_content,
-                state.terminal,
-            ),
-            None => (
-                self.state.ai_history.clone(),
-                self.state.files.clone(),
-                HashMap::new(),
-                HashMap::new(),
-                None,
-                self.terminal_view_state(),
-            ),
-        };
-        self.worktree_view_store.insert(
-            key.clone(),
-            super::app_state::WorktreeViewState {
-                ai_history,
-                files: super::app_state::FileWorktreeViewState {
-                    files,
-                    file_directory: self.file_directory.clone(),
-                    selected_file_entry: self.selected_file_entry.clone(),
-                    selected_file_entries: self.selected_file_entries.clone(),
-                    file_selection_anchor: self.file_selection_anchor.clone(),
-                    file_tree_expanded_dirs: self.file_tree_expanded_dirs.clone(),
-                    file_tree_children,
-                    file_editor_tabs: self.file_editor_tabs.clone(),
-                    active_file_editor_tab: self.active_file_editor_tab.clone(),
-                },
-                git: super::app_state::GitWorktreeViewState {
-                    git: self.state.git.clone(),
-                    git_review: self.git_review.clone(),
-                    selected_git_file: self.selected_git_file.clone(),
-                    selected_git_files: self.selected_git_files.clone(),
-                    selected_git_branch: self.selected_git_branch.clone(),
-                    git_expanded_sections: self.git_expanded_sections.clone(),
-                    git_expanded_dirs: self.git_expanded_dirs.clone(),
-                    git_tree_children,
-                    git_diff_preview: self.git_diff_preview.clone(),
-                    git_review_content: git_review_content
-                        .or_else(|| self.git_review_content.clone()),
-                },
-                terminal,
-            },
-        );
+        self.save_current_worktree_view_state_in_memory();
         self.trace_workspace_state(
             "save_worktree_for_switch",
             &key.worktree_id,
