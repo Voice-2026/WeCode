@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-04
+
+### Changed
+
+- Rebuilt Codux Desktop as a Rust-native GPUI application, replacing the previous Tauri/WebView desktop shell while keeping the existing product scope and user-facing workflows as the release baseline.
+- Moved the main window, terminal workspace, project and worktree navigation, file browser, Git review, AI runtime status, settings, update dialogs, and desktop pet surfaces onto the native GPUI rendering path.
+- Consolidated runtime state, project/worktree UI state, terminal layout, file editor layout, Git review state, and desktop pet baseline handling around the Rust runtime and local cache stores.
+- Updated the release and updater pipeline for the Rust-native desktop build, including GitHub Releases metadata, Windows installer packaging, macOS app packaging, and the separate notarized macOS formal package.
+
+### Notes
+
+- This is the first stable 1.5.0 GPUI baseline for Codux. It focuses on the desktop architecture migration from Tauri to Rust + GPUI and does not introduce a separate feature expansion over the existing Codux workflows.
+- Includes the 1.5.0-beta.1 validation cycle and fixes for GPUI terminal restore, project/worktree state recovery, AI runtime status, desktop pet behavior, remote mobile terminal compatibility, and the Tauri-compatible updater artifact format.
+
 ## [1.5.0-beta.1] - 2026-06-03
 
 ### Changed

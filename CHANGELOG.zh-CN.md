@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-04
+
+### 调整
+
+- 将 Codux Desktop 重构为 Rust 原生 GPUI 应用，替换原有 Tauri/WebView 桌面壳，同时保持现有产品范围和用户侧工作流作为本次基线版本。
+- 主窗口、终端工作区、项目与 worktree 导航、文件浏览、Git 评审、AI runtime 状态、设置、更新弹窗和桌面宠物界面切换到原生 GPUI 渲染链路。
+- 围绕 Rust runtime 和本地缓存存储统一运行时状态、项目 / worktree UI 状态、终端布局、文件编辑器布局、Git 评审状态和桌面宠物基线处理。
+- 更新 Rust 原生桌面端的发布与自动更新链路，包括 GitHub Releases 元数据、Windows 安装包、macOS 应用包，以及独立公证的 macOS formal 包。
+
+### 说明
+
+- 这是 Codux 的首个 1.5.0 GPUI 稳定基线版本，重点是从 Tauri 切换到 Rust + GPUI 的桌面架构迁移，不作为现有 Codux 工作流之外的新增功能版本。
+- 包含 1.5.0-beta.1 测试周期中的验证和修复，覆盖 GPUI 终端恢复、项目 / worktree 状态恢复、AI runtime 状态、桌面宠物、远程移动端终端兼容，以及兼容 Tauri 更新链路的发布产物格式。
+
 ## [1.5.0-beta.1] - 2026-06-03
 
 ### 调整
