@@ -171,7 +171,7 @@ unsafe fn offset_window_button(button: id, child_window: bool) {
     }
     unsafe {
         let mut frame: NSRect = msg_send![button, frame];
-        frame.origin.y += if child_window { -4.0 } else { 5.0 };
+        frame.origin.y += if child_window { -1.0 } else { 5.0 };
         let _: () = msg_send![button, setFrame: frame];
     }
 }
