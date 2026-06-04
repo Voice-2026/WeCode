@@ -1529,15 +1529,7 @@ fn update_status_text(update: &UpdateSummary, language: &str) -> String {
         return format!("{available} · {notes}");
     }
     if update.enabled {
-        format!(
-            "{} · {}",
-            update.channel,
-            settings_text(
-                language,
-                "settings.update.status.checking_github",
-                "Waiting to check"
-            )
-        )
+        String::new()
     } else {
         settings_text(
             language,
