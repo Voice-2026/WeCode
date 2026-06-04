@@ -281,6 +281,7 @@ $searchPath = Filter-Wrapper-Path $env:PATH
 if ([string]::IsNullOrWhiteSpace($searchPath)) {
   $searchPath = Filter-Wrapper-Path $env:DMUX_ORIGINAL_PATH
 }
+$runtimePath = Join-PathList @($wrapperBin, $searchPath)
 
 $realBin = Find-Real-Binary $Tool $searchPath
 if ([string]::IsNullOrWhiteSpace($realBin)) {
@@ -403,6 +404,6 @@ if ($Tool -eq "opencode") {
 }
 
 $launchDir = ""
-Invoke-Real-Binary $realBin $launchArgs $searchPath $launchDir
+Invoke-Real-Binary $realBin $launchArgs $runtimePath $launchDir
 $exitCode = if ($null -eq $script:DMUX_WRAPPER_EXIT_CODE) { 0 } else { $script:DMUX_WRAPPER_EXIT_CODE }
 exit $exitCode

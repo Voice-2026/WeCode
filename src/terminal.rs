@@ -488,7 +488,7 @@ fn default_terminal_font_family() -> &'static str {
 
 const DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER: f32 = 1.45;
 const TERMINAL_SCROLL_FRAME_INTERVAL: Duration = Duration::from_millis(16);
-const TERMINAL_OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const TERMINAL_OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(4);
 const TERMINAL_INITIAL_LAYOUT_WAIT: Duration = Duration::from_millis(120);
 const TERMINAL_ROW_CACHE_LIMIT: usize = 4096;
 static TERMINAL_TRACE_ENABLED: OnceLock<bool> = OnceLock::new();

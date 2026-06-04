@@ -371,6 +371,53 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn tool_wrapper_keeps_codux_ssh_available_to_ai_cli() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let dir = std::env::temp_dir().join(format!("codux-ai-wrapper-path-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+
+        let real_bin = dir.join("real-bin");
+        fs::create_dir_all(&real_bin).unwrap();
+        let fake_codex = real_bin.join("codex");
+        fs::write(
+            &fake_codex,
+            "#!/bin/sh\ncommand -v codux-ssh >/dev/null || exit 42\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_codex).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_codex, permissions).unwrap();
+
+        let wrapper = bridge.wrapper_bin_dir().join("codex");
+        let search_path = format!(
+            "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+            real_bin.display()
+        );
+        let zsh_dot_dir = dir.join("zsh");
+        fs::create_dir_all(&zsh_dot_dir).unwrap();
+        fs::write(zsh_dot_dir.join(".zshenv"), "").unwrap();
+        let output = Command::new(wrapper)
+            .env("PATH", &search_path)
+            .env("DMUX_ORIGINAL_PATH", &search_path)
+            .env("ZDOTDIR", zsh_dot_dir)
+            .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wrapper should expose codux-ssh to AI CLI, stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn bridge_prepare_installs_claude_hooks_and_preserves_settings() {
         let dir = std::env::temp_dir().join(format!("codux-ai-bridge-{}", Uuid::new_v4()));

@@ -144,10 +144,10 @@ fn configure_native_window_buttons(window: &mut Window, close_only: bool) {
 
         set_button_hidden(min_button, close_only);
         set_button_hidden(zoom_button, close_only);
-        offset_window_button(close_button, close_only);
         if !close_only {
-            offset_window_button(min_button, close_only);
-            offset_window_button(zoom_button, close_only);
+            offset_window_button(close_button);
+            offset_window_button(min_button);
+            offset_window_button(zoom_button);
         }
     }
 }
@@ -165,13 +165,13 @@ unsafe fn set_button_hidden(button: id, hidden: bool) {
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-unsafe fn offset_window_button(button: id, child_window: bool) {
+unsafe fn offset_window_button(button: id) {
     if button.is_null() {
         return;
     }
     unsafe {
         let mut frame: NSRect = msg_send![button, frame];
-        frame.origin.y += if child_window { -1.0 } else { 5.0 };
+        frame.origin.y += 5.0;
         let _: () = msg_send![button, setFrame: frame];
     }
 }

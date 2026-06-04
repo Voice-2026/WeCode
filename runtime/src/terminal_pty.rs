@@ -1091,8 +1091,6 @@ pub fn terminal_environment(
         .clone()
         .or_else(|| context.and_then(|context| context.session_title.clone()))
         .unwrap_or_else(|| "Terminal".to_string());
-    let shell_name = shell_name(shell);
-
     let mut values = captured_shell_environment(shell, &session_cwd, &home_text, &user);
     values.insert("HOME".to_string(), home_text.clone());
     values.insert("USER".to_string(), user.clone());
@@ -1125,22 +1123,6 @@ pub fn terminal_environment(
         let wrapper_bin = runtime_root.join("scripts/wrappers/bin").display().to_string();
         path = prepend_path_component(&wrapper_bin, &path);
         values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
-        if matches!(shell_name.as_deref(), Some("zsh")) {
-            values.insert(
-                "ZDOTDIR".to_string(),
-                runtime_root
-                    .join("scripts/shell-hooks/zsh")
-                    .display()
-                    .to_string(),
-            );
-            values.insert(
-                "DMUX_ZSH_HOOK_SCRIPT".to_string(),
-                runtime_root
-                    .join("scripts/shell-hooks/dmux-ai-hook.zsh")
-                    .display()
-                    .to_string(),
-            );
-        }
     }
     if let Some(support_dir) = config
         .support_dir
@@ -2109,13 +2091,11 @@ mod tests {
             Some("/tmp/codux/memory-workspaces/project-1/MEMORY.md")
         );
         assert_eq!(
-            env.get("ZDOTDIR").map(String::as_str),
-            Some("/runtime-assets/scripts/shell-hooks/zsh")
+            env.get("DMUX_WRAPPER_BIN").map(String::as_str),
+            Some("/runtime-assets/scripts/wrappers/bin")
         );
-        assert_eq!(
-            env.get("DMUX_ZSH_HOOK_SCRIPT").map(String::as_str),
-            Some("/runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh")
-        );
+        assert!(!env.contains_key("ZDOTDIR"));
+        assert!(!env.contains_key("DMUX_ZSH_HOOK_SCRIPT"));
     }
 
     #[test]

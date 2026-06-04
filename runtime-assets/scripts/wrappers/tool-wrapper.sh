@@ -8,6 +8,7 @@ wrapper_bin_dir="${wrapper_dir}/bin"
 current_path="${PATH:-}"
 orig_path="${DMUX_ORIGINAL_PATH:-}"
 search_path=""
+runtime_path=""
 
 is_wrapper_bin_dir() {
   local dir="$1"
@@ -38,8 +39,14 @@ if [[ -z "$search_path" ]]; then
   search_path="$(filtered_tool_search_path "$orig_path")"
 fi
 
+if [[ -n "$search_path" ]]; then
+  runtime_path="${wrapper_bin_dir}:${search_path}"
+else
+  runtime_path="${wrapper_bin_dir}"
+fi
+
 system_bin_prefix="/usr/bin:/bin:/usr/sbin:/sbin"
-managed_system_first_path="${system_bin_prefix}${search_path:+:${search_path}}"
+managed_system_first_path="${system_bin_prefix}${runtime_path:+:${runtime_path}}"
 
 resolve_from_search_path() {
   local binary_name="$1"
@@ -611,7 +618,7 @@ if [[ "$tool_name" == "codex" ]]; then
     apply_codex_memory_workspace_args
     apply_codex_memory_developer_instructions
     launch_model="$(extract_model_target "${launch_args[@]}" || true)"
-    run_wrapped_command "" "${launch_model}" "" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable hooks "${launch_args[@]}"
+    run_wrapped_command "" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable hooks "${launch_args[@]}"
     exit $?
   fi
 fi
@@ -630,7 +637,7 @@ if [[ "$tool_name" == "gemini" || "$tool_name" == "agy" ]]; then
   launch_model="$(extract_model_target "${launch_args[@]}" || true)"
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$search_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 
@@ -646,8 +653,8 @@ if [[ "$tool_name" == "opencode" ]]; then
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
   opencode_config_dir="${wrapper_dir}/opencode-config"
-  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$search_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 
-exec env PATH="$search_path" "$real_bin" "$@"
+exec env PATH="$runtime_path" "$real_bin" "$@"

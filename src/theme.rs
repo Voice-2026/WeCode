@@ -130,7 +130,7 @@ enum CoduxTitlebarKind {
 fn codux_traffic_light_position(kind: CoduxTitlebarKind) -> Option<gpui::Point<gpui::Pixels>> {
     match kind {
         CoduxTitlebarKind::Main => Some(point(px(12.0), px(15.0))),
-        CoduxTitlebarKind::Child => Some(point(px(14.0), px(21.0))),
+        CoduxTitlebarKind::Child => Some(point(px(12.0), px(17.0))),
     }
 }
 
