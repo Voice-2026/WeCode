@@ -105,6 +105,13 @@ pub struct TerminalPtyConfig {
     pub session_key: Option<String>,
     pub title: Option<String>,
     pub tool: Option<String>,
+    pub support_dir: Option<PathBuf>,
+    pub runtime_root: Option<PathBuf>,
+    pub session_instance_id: Option<String>,
+    pub tool_permissions_file: Option<PathBuf>,
+    pub memory_workspace_root: Option<PathBuf>,
+    pub memory_prompt_file: Option<PathBuf>,
+    pub memory_index_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -142,6 +149,13 @@ impl TerminalLaunchContext {
             slot_id: self.slot_id.clone(),
             session_key: self.session_key.clone(),
             title: self.session_title.clone(),
+            support_dir: Some(self.support_dir.clone()),
+            runtime_root: Some(self.runtime_root.clone()),
+            session_instance_id: self.session_instance_id.clone(),
+            tool_permissions_file: self.tool_permissions_file.clone(),
+            memory_workspace_root: self.memory_workspace_root.clone(),
+            memory_prompt_file: self.memory_prompt_file.clone(),
+            memory_index_file: self.memory_index_file.clone(),
             scrollback_lines: None,
             ..Default::default()
         }
@@ -513,8 +527,11 @@ impl TerminalPtySession {
             .clone()
             .filter(|value| !value.trim().is_empty())
             .or_else(|| context.and_then(|context| context.session_key.clone()));
-        let session_instance_id = context
-            .and_then(|context| context.session_instance_id.clone())
+        let session_instance_id = config
+            .session_instance_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| context.and_then(|context| context.session_instance_id.clone()))
             .or_else(|| Some(Uuid::new_v4().to_string().to_lowercase()));
         let title = config
             .title
@@ -1100,64 +1117,80 @@ pub fn terminal_environment(
         shell_path.as_deref().or(process_path.as_deref()),
         shell_path.is_none(),
     );
-    if let Some(context) = context {
-        let wrapper_bin = context
-            .runtime_root
-            .join("scripts/wrappers/bin")
-            .display()
-            .to_string();
+    let runtime_root = config
+        .runtime_root
+        .as_ref()
+        .or_else(|| context.map(|context| &context.runtime_root));
+    if let Some(runtime_root) = runtime_root {
+        let wrapper_bin = runtime_root.join("scripts/wrappers/bin").display().to_string();
         path = prepend_path_component(&wrapper_bin, &path);
         values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
         if matches!(shell_name.as_deref(), Some("zsh")) {
             values.insert(
                 "ZDOTDIR".to_string(),
-                context
-                    .runtime_root
+                runtime_root
                     .join("scripts/shell-hooks/zsh")
                     .display()
                     .to_string(),
             );
             values.insert(
                 "DMUX_ZSH_HOOK_SCRIPT".to_string(),
-                context
-                    .runtime_root
+                runtime_root
                     .join("scripts/shell-hooks/dmux-ai-hook.zsh")
                     .display()
                     .to_string(),
             );
         }
+    }
+    if let Some(support_dir) = config
+        .support_dir
+        .as_ref()
+        .or_else(|| context.map(|context| &context.support_dir))
+    {
         values.insert(
             "CODUX_SSH_PROFILES_FILE".to_string(),
-            context
-                .support_dir
-                .join("ssh_profiles.json")
-                .display()
-                .to_string(),
+            support_dir.join("ssh_profiles.json").display().to_string(),
         );
-        if let Some(path) = &context.tool_permissions_file {
-            values.insert(
-                "DMUX_TOOL_PERMISSION_SETTINGS_FILE".to_string(),
-                path.display().to_string(),
-            );
-        }
-        if let Some(path) = &context.memory_workspace_root {
-            values.insert(
-                "DMUX_AI_MEMORY_WORKSPACE_ROOT".to_string(),
-                path.display().to_string(),
-            );
-        }
-        if let Some(path) = &context.memory_prompt_file {
-            values.insert(
-                "DMUX_AI_MEMORY_PROMPT_FILE".to_string(),
-                path.display().to_string(),
-            );
-        }
-        if let Some(path) = &context.memory_index_file {
-            values.insert(
-                "DMUX_AI_MEMORY_INDEX_FILE".to_string(),
-                path.display().to_string(),
-            );
-        }
+    }
+    if let Some(path) = config
+        .tool_permissions_file
+        .as_ref()
+        .or_else(|| context.and_then(|context| context.tool_permissions_file.as_ref()))
+    {
+        values.insert(
+            "DMUX_TOOL_PERMISSION_SETTINGS_FILE".to_string(),
+            path.display().to_string(),
+        );
+    }
+    if let Some(path) = config
+        .memory_workspace_root
+        .as_ref()
+        .or_else(|| context.and_then(|context| context.memory_workspace_root.as_ref()))
+    {
+        values.insert(
+            "DMUX_AI_MEMORY_WORKSPACE_ROOT".to_string(),
+            path.display().to_string(),
+        );
+    }
+    if let Some(path) = config
+        .memory_prompt_file
+        .as_ref()
+        .or_else(|| context.and_then(|context| context.memory_prompt_file.as_ref()))
+    {
+        values.insert(
+            "DMUX_AI_MEMORY_PROMPT_FILE".to_string(),
+            path.display().to_string(),
+        );
+    }
+    if let Some(path) = config
+        .memory_index_file
+        .as_ref()
+        .or_else(|| context.and_then(|context| context.memory_index_file.as_ref()))
+    {
+        values.insert(
+            "DMUX_AI_MEMORY_INDEX_FILE".to_string(),
+            path.display().to_string(),
+        );
     }
     values.insert("PATH".to_string(), path.clone());
     values.insert("DMUX_ORIGINAL_PATH".to_string(), path);
@@ -1187,8 +1220,14 @@ pub fn terminal_environment(
     values.insert("DMUX_SESSION_CWD".to_string(), session_cwd);
     values.insert(
         "DMUX_SESSION_INSTANCE_ID".to_string(),
-        context
+        config
+            .session_instance_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                context
             .and_then(|context| context.session_instance_id.clone())
+            })
             .unwrap_or_else(|| Uuid::new_v4().to_string().to_lowercase()),
     );
     values.insert(

@@ -114,6 +114,7 @@ impl CoduxApp {
             window_mode: AppWindowMode::Settings,
             root_focus_handle: None,
             terminals: Vec::new(),
+            terminal_pane_registry: HashMap::new(),
             terminal_manager: Arc::new(TerminalManager::with_ai_runtime(
                 runtime_service.ai_runtime_bridge(),
             )),
@@ -251,7 +252,7 @@ impl CoduxApp {
             ai_index_progress_visible_until: 0.0,
             ai_index_progress_generation: 0,
             ai_history_active_index_count: 0,
-            ai_history_refresh_project_ids: HashSet::new(),
+            ai_history_refresh_keys: HashSet::new(),
             project_switch_generation: 0,
             scheduled_work_in_flight: HashSet::new(),
             scheduled_work_last_started_at: HashMap::new(),

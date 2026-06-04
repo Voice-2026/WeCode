@@ -1305,18 +1305,31 @@ impl CoduxApp {
         let selected_path = selected_project
             .as_ref()
             .map(|project| project.path.as_str());
+        let selected_worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
+        let selected_history_id = selected_worktree
+            .as_ref()
+            .map(|worktree| worktree.id.as_str())
+            .or(selected_id);
+        let selected_history_path = selected_worktree
+            .as_ref()
+            .map(|worktree| worktree.path.as_str())
+            .or(selected_path);
+        let selected_worktree_key = worktree_view_store_key(&self.state);
         let mut applied = 0;
         let previous_active_index_count = self.ai_history_active_index_count;
 
         for event in events {
             match event {
                 AIHistoryEvent::ProjectState { state }
-                    if selected_id == Some(state.project_id.as_str())
-                        || selected_path == Some(state.project_path.as_str()) =>
+                    if selected_history_id == Some(state.project_id.as_str())
+                        || selected_history_path == Some(state.project_path.as_str()) =>
                 {
                     let is_loading = state.is_loading || state.queued;
                     let summary =
                         ai_history_summary_from_state_or_status(&self.state.ai_history, &state);
+                    if let Some(key) = selected_worktree_key.clone() {
+                        self.upsert_worktree_ai_history_state(key, summary.clone());
+                    }
                     if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
                     }
@@ -1335,9 +1348,12 @@ impl CoduxApp {
                     applied += 1;
                 }
                 AIHistoryEvent::Project { snapshot }
-                    if selected_id == Some(snapshot.project_id.as_str()) =>
+                    if selected_history_id == Some(snapshot.project_id.as_str()) =>
                 {
                     let summary = normalized_ai_history_snapshot_to_summary(snapshot);
+                    if let Some(key) = selected_worktree_key.clone() {
+                        self.upsert_worktree_ai_history_state(key, summary.clone());
+                    }
                     if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
                         self.normalize_selected_ai_session();
@@ -1383,6 +1399,16 @@ impl CoduxApp {
             .as_ref()
             .map(|project| project.path.as_str());
         let selected_id = selected_project.as_ref().map(|project| project.id.as_str());
+        let selected_worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
+        let selected_history_id = selected_worktree
+            .as_ref()
+            .map(|worktree| worktree.id.as_str())
+            .or(selected_id);
+        let selected_history_path = selected_worktree
+            .as_ref()
+            .map(|worktree| worktree.path.as_str())
+            .or(selected_path);
+        let selected_worktree_key = worktree_view_store_key(&self.state);
         let mut applied = 0;
 
         for event in events {
@@ -1430,10 +1456,13 @@ impl CoduxApp {
                     project_path,
                     snapshot,
                     ..
-                } if selected_id == Some(project_id.as_str())
-                    || selected_path == Some(project_path.as_str()) =>
+                } if selected_history_id == Some(project_id.as_str())
+                    || selected_history_path == Some(project_path.as_str()) =>
                 {
                     let summary = normalized_ai_history_snapshot_to_summary(snapshot);
+                    if let Some(key) = selected_worktree_key.clone() {
+                        self.upsert_worktree_ai_history_state(key, summary.clone());
+                    }
                     if ai_history_should_replace(&self.state.ai_history, &summary) {
                         self.state.ai_history = summary;
                         self.normalize_selected_ai_session();

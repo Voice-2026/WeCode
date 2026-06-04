@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 pub struct TerminalRuntimeSummary {
     pub path: String,
     pub active_terminal_id: String,
-    pub active_slot_id: String,
     pub open_count: usize,
     pub closed_count: usize,
     pub sessions: Vec<TerminalRuntimeSessionSummary>,
@@ -16,8 +15,6 @@ pub struct TerminalRuntimeSummary {
 #[serde(rename_all = "camelCase")]
 pub struct TerminalRuntimeSessionSummary {
     pub terminal_id: String,
-    pub slot_id: String,
-    pub tab_id: String,
     pub pane_index: usize,
     pub title: String,
     pub project_id: String,
@@ -54,8 +51,6 @@ pub struct TerminalInputSummary {
 #[derive(Clone, Debug)]
 pub struct TerminalRuntimeSessionInput {
     pub terminal_id: String,
-    pub slot_id: String,
-    pub tab_id: String,
     pub pane_index: usize,
     pub title: String,
     pub project_id: String,

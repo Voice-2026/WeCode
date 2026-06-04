@@ -12,16 +12,16 @@ mod tests {
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
                 normalize_terminal_restore_state, structural_terminal_layout,
-                terminal_pane_launch_context, terminal_restore_plan,
+                terminal_pane_terminal_id, terminal_restore_plan,
             },
-            types::{TerminalPanePlan, TerminalTabPlan},
+            types::{TerminalPanePlan, TerminalTabPlacement, TerminalTabPlan},
             ui_helpers::restored_terminal_preview_lines,
         },
         terminal::TerminalLaunchContext,
     };
     use codux_runtime::terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary};
     use codux_runtime::{
-        ai_history::AISessionSummary,
+        ai_history::{AIHistorySummary, AISessionSummary},
         git::GitSummary,
         runtime_state::RuntimeState,
         ssh::SSHProfileSummary,
@@ -111,26 +111,22 @@ mod tests {
             .save_from_gpui(
                 &terminal_layout_storage_key("project-a", "task-shared"),
                 Vec::new(),
-                String::new(),
+                "term-project-a".to_string(),
                 vec![TerminalPaneSummary {
-                    id: "main-1".to_string(),
                     title: "Project A terminal".to_string(),
-                    terminal_id: String::new(),
+                    terminal_id: "term-project-a".to_string(),
                 }],
-                "main-1".to_string(),
             )
             .unwrap();
         terminal_layout_service
             .save_from_gpui(
                 &terminal_layout_storage_key("project-b", "task-shared"),
                 Vec::new(),
-                String::new(),
+                "term-project-b".to_string(),
                 vec![TerminalPaneSummary {
-                    id: "main-1".to_string(),
                     title: "Project B terminal".to_string(),
-                    terminal_id: String::new(),
+                    terminal_id: "term-project-b".to_string(),
                 }],
-                "main-1".to_string(),
             )
             .unwrap();
 
@@ -163,30 +159,88 @@ mod tests {
     }
 
     #[test]
-    fn terminal_restore_plan_uses_top_panes_and_bottom_tabs() {
+    fn initial_worktree_view_store_keeps_ai_history_on_current_worktree_only() {
+        let support_dir = temp_support_dir("worktree-ai-history-store");
+        fs::create_dir_all(&support_dir).unwrap();
+        fs::write(
+            support_dir.join("state.json"),
+            r#"{
+                "projects": [
+                    {"id": "project-a", "name": "A", "path": "/tmp/a"}
+                ],
+                "selectedProjectId": "project-a",
+                "worktrees": [
+                    {"id": "task-a", "projectId": "project-a", "name": "Task A", "branch": "feature/a", "path": "/tmp/a-task", "status": "todo", "isDefault": false},
+                    {"id": "task-b", "projectId": "project-a", "name": "Task B", "branch": "feature/b", "path": "/tmp/b-task", "status": "todo", "isDefault": false}
+                ],
+                "selectedWorktreeIdByProject": {
+                    "project-a": "task-a"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let mut state = RuntimeState::load_from_support_dir(support_dir.clone());
+        state.ai_history = AIHistorySummary {
+            sessions: vec![AISessionSummary {
+                id: "session-a".to_string(),
+                session_key: "session-a".to_string(),
+                external_session_id: None,
+                title: "Task A session".to_string(),
+                source: "codex".to_string(),
+                last_model: None,
+                last_seen_at: 1.0,
+                total_tokens: 10,
+                cached_input_tokens: 0,
+                request_count: 1,
+            }],
+            session_count: 1,
+            indexed: true,
+            indexed_at: Some(1.0),
+            ..AIHistorySummary::default()
+        };
+
+        let project_store = initial_project_view_store(&state);
+        let store = initial_worktree_view_store(&state, &project_store);
+        let task_a = store
+            .get(&crate::app::app_state::WorktreeViewStoreKey {
+                project_id: "project-a".to_string(),
+                worktree_id: "task-a".to_string(),
+            })
+            .expect("selected worktree should keep current AI history");
+        let task_b = store
+            .get(&crate::app::app_state::WorktreeViewStoreKey {
+                project_id: "project-a".to_string(),
+                worktree_id: "task-b".to_string(),
+            })
+            .expect("other worktree should exist");
+
+        assert_eq!(task_a.ai_history.sessions[0].id, "session-a");
+        assert!(task_b.ai_history.sessions.is_empty());
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_restore_plan_uses_terminal_ids_for_top_panes_and_bottom_tabs() {
         let layout = TerminalLayoutSummary {
-            active_slot_id: "bottom-2".to_string(),
-            active_tab_id: "bottom-2".to_string(),
+            active_terminal_id: "term-d".to_string(),
             top_panes: vec![
                 TerminalPaneSummary {
-                    id: "top-1".to_string(),
                     title: "分屏 1".to_string(),
                     terminal_id: "term-a".to_string(),
                 },
                 TerminalPaneSummary {
-                    id: "top-2".to_string(),
                     title: "长任务".to_string(),
                     terminal_id: "term-b".to_string(),
                 },
             ],
             tabs: vec![
                 TerminalTabSummary {
-                    id: "bottom-1".to_string(),
                     label: "标签页 1".to_string(),
                     terminal_id: "term-c".to_string(),
                 },
                 TerminalTabSummary {
-                    id: "bottom-2".to_string(),
                     label: "标签页 2".to_string(),
                     terminal_id: "term-d".to_string(),
                 },
@@ -199,8 +253,6 @@ mod tests {
         let runtime = TerminalRuntimeSummary {
             sessions: vec![TerminalRuntimeSessionSummary {
                 terminal_id: "term-a".to_string(),
-                slot_id: "top-1".to_string(),
-                tab_id: "top-1".to_string(),
                 pane_index: 0,
                 title: "分屏 1".to_string(),
                 project_id: "project-1".to_string(),
@@ -225,7 +277,7 @@ mod tests {
         let plan = terminal_restore_plan(&layout, &runtime);
 
         assert_eq!(plan.tabs.len(), 3);
-        assert_eq!(plan.tabs[0].label, "主终端");
+        assert_eq!(plan.tabs[0].placement, TerminalTabPlacement::Top);
         assert_eq!(
             plan.tabs[0]
                 .panes
@@ -234,32 +286,26 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["分屏 1", "长任务"]
         );
-        assert_eq!(plan.tabs[0].panes[0].source_id.as_deref(), Some("top-1"));
         assert_eq!(plan.tabs[0].panes[0].terminal_id.as_deref(), Some("term-a"));
         assert_eq!(
             plan.tabs[0].panes[0].restored_output_tail,
             "restored top output"
         );
-        assert_eq!(plan.tabs[0].panes[0].restored_output_bytes, 10);
-        assert_eq!(plan.tabs[1].label, "标签页 1");
-        assert_eq!(plan.tabs[1].source_id.as_deref(), Some("bottom-1"));
-        assert_eq!(plan.tabs[1].terminal_id, None);
-        assert_eq!(plan.tabs[2].label, "标签页 2");
+        assert_eq!(plan.tabs[1].placement, TerminalTabPlacement::Bottom);
+        assert_eq!(plan.tabs[1].terminal_id.as_deref(), Some("term-c"));
+        assert_eq!(plan.tabs[2].terminal_id.as_deref(), Some("term-d"));
         assert_eq!(plan.active_index, 2);
     }
 
     #[test]
-    fn terminal_restore_state_keeps_layout_structural_and_runtime_live() {
+    fn terminal_restore_state_keeps_valid_terminal_ids() {
         let layout = TerminalLayoutSummary {
-            active_slot_id: "gpui-pane-worktree-1-top-1".to_string(),
-            active_tab_id: String::new(),
+            active_terminal_id: "gpui-term-worktree-1-bottom-1".to_string(),
             top_panes: vec![TerminalPaneSummary {
-                id: "gpui-pane-worktree-1-top-1".to_string(),
                 title: "分屏 1".to_string(),
                 terminal_id: "gpui-term-worktree-1-top-1".to_string(),
             }],
             tabs: vec![TerminalTabSummary {
-                id: "bottom-worktree-1-1".to_string(),
                 label: "标签页 1".to_string(),
                 terminal_id: "gpui-term-worktree-1-bottom-1".to_string(),
             }],
@@ -269,14 +315,11 @@ mod tests {
         };
         let runtime = TerminalRuntimeSummary {
             active_terminal_id: "gpui-term-worktree-1-top-1".to_string(),
-            active_slot_id: "gpui-pane-worktree-1-top-1".to_string(),
             sessions: vec![TerminalRuntimeSessionSummary {
                 terminal_id: "gpui-term-worktree-1-top-1".to_string(),
-                slot_id: "gpui-pane-worktree-1-top-1".to_string(),
-                tab_id: "gpui-pane-worktree-1-top-1".to_string(),
                 pane_index: 0,
                 title: "分屏 1".to_string(),
-                project_id: "project-1".to_string(),
+                project_id: "worktree-1".to_string(),
                 project_name: "Codux".to_string(),
                 project_path: "/workspace/codux".to_string(),
                 cwd: "/workspace/codux".to_string(),
@@ -296,16 +339,22 @@ mod tests {
             ..Default::default()
         };
 
-        let (layout, runtime) =
-            normalize_terminal_restore_state(Some("worktree-1"), layout, runtime);
+        let (layout, runtime) = normalize_terminal_restore_state(
+            Some("worktree-1"),
+            layout,
+            runtime,
+            "simplifiedChinese",
+        );
         let plan = terminal_restore_plan(&layout, &runtime);
 
-        assert_eq!(layout.top_panes[0].id, "main-1");
-        assert_eq!(layout.top_panes[0].terminal_id, "");
-        assert_eq!(layout.tabs[0].id, "bottom-1");
-        assert_eq!(layout.tabs[0].terminal_id, "");
+        assert_eq!(layout.active_terminal_id, "gpui-term-worktree-1-bottom-1");
+        assert_eq!(
+            layout.top_panes[0].terminal_id,
+            "gpui-term-worktree-1-top-1"
+        );
+        assert_eq!(layout.tabs[0].terminal_id, "gpui-term-worktree-1-bottom-1");
         assert_eq!(runtime.sessions.len(), 1);
-        assert_eq!(plan.active_index, 0);
+        assert_eq!(plan.active_index, 1);
         assert_eq!(
             plan.tabs[0].panes[0].restored_output_tail,
             "worktree top output"
@@ -313,165 +362,35 @@ mod tests {
     }
 
     #[test]
-    fn terminal_restore_state_renumbers_layout_without_persisting_pty_identity() {
+    fn terminal_restore_state_rebuilds_invalid_layout_without_compat_fallback() {
         let layout = TerminalLayoutSummary {
-            active_slot_id: "gpui-pane-worktree-1-top-2".to_string(),
-            active_tab_id: String::new(),
+            active_terminal_id: String::new(),
             top_panes: vec![TerminalPaneSummary {
-                id: "gpui-pane-worktree-1-top-2".to_string(),
-                title: "恢复会话".to_string(),
-                terminal_id: "gpui-term-worktree-1-top-2".to_string(),
+                title: "旧布局".to_string(),
+                terminal_id: String::new(),
             }],
             tabs: Vec::new(),
             top_ratios: vec![1.0],
             bottom_ratio: 0.32,
             error: None,
         };
-        let runtime = TerminalRuntimeSummary {
-            active_terminal_id: "gpui-term-worktree-1-top-2".to_string(),
-            active_slot_id: "gpui-pane-worktree-1-top-2".to_string(),
-            sessions: vec![TerminalRuntimeSessionSummary {
-                terminal_id: "gpui-term-worktree-1-top-2".to_string(),
-                slot_id: "gpui-pane-worktree-1-top-2".to_string(),
-                tab_id: "gpui-pane-worktree-1-top-2".to_string(),
-                pane_index: 1,
-                title: "恢复会话".to_string(),
-                project_id: "project-1".to_string(),
-                project_name: "Codux".to_string(),
-                project_path: "/workspace/codux".to_string(),
-                cwd: "/workspace/codux".to_string(),
-                status: "running".to_string(),
-                is_running: true,
-                created_at: 1.0,
-                last_active_at: 2.0,
-                has_buffer: false,
-                buffer_characters: 0,
-                input_bytes: 0,
-                last_input_at: None,
-                input_history: Vec::new(),
-                output_bytes: 34,
-                output_tail: "restored second split".to_string(),
-                source: "gpui".to_string(),
-            }],
-            ..Default::default()
-        };
-
-        let (layout, runtime) =
-            normalize_terminal_restore_state(Some("worktree-1"), layout, runtime);
-        let plan = terminal_restore_plan(&layout, &runtime);
-
-        assert_eq!(layout.top_panes[0].id, "main-1");
-        assert_eq!(layout.top_panes[0].terminal_id, "");
-        assert_eq!(layout.active_slot_id, "main-1");
-        assert_eq!(plan.active_index, 0);
-        assert_eq!(
-            plan.tabs[0].panes[0].restored_output_tail,
-            "restored second split"
-        );
-        assert_eq!(plan.tabs[0].panes[0].restored_output_bytes, 34);
-    }
-
-    #[test]
-    fn terminal_restore_state_preserves_active_split_after_structural_renumbering() {
-        let layout = TerminalLayoutSummary {
-            active_slot_id: "old-top-2".to_string(),
-            active_tab_id: String::new(),
-            top_panes: vec![
-                TerminalPaneSummary {
-                    id: "old-top-1".to_string(),
-                    title: "分屏 1".to_string(),
-                    terminal_id: "old-term-1".to_string(),
-                },
-                TerminalPaneSummary {
-                    id: "old-top-2".to_string(),
-                    title: "分屏 2".to_string(),
-                    terminal_id: "old-term-2".to_string(),
-                },
-            ],
-            top_ratios: vec![0.5, 0.5],
-            ..TerminalLayoutSummary::default()
-        };
 
         let (layout, _) = normalize_terminal_restore_state(
             Some("worktree-1"),
             layout,
             TerminalRuntimeSummary::default(),
+            "simplifiedChinese",
         );
 
-        assert_eq!(layout.top_panes[0].id, "main-1");
-        assert_eq!(layout.top_panes[1].id, "main-2");
-        assert_eq!(layout.active_slot_id, "main-2");
-    }
-
-    #[test]
-    fn terminal_restore_plan_does_not_reuse_duplicate_runtime_terminal_ids() {
-        let layout = TerminalLayoutSummary {
-            active_slot_id: "main-2".to_string(),
-            active_tab_id: String::new(),
-            top_panes: vec![
-                TerminalPaneSummary {
-                    id: "main-1".to_string(),
-                    title: "分屏 1".to_string(),
-                    terminal_id: String::new(),
-                },
-                TerminalPaneSummary {
-                    id: "main-2".to_string(),
-                    title: "恢复会话".to_string(),
-                    terminal_id: String::new(),
-                },
-            ],
-            top_ratios: vec![0.5, 0.5],
-            ..TerminalLayoutSummary::default()
-        };
-        let duplicate_terminal_id = "gpui-term-worktree-1-duplicate".to_string();
-        let first = TerminalRuntimeSessionSummary {
-            terminal_id: duplicate_terminal_id.clone(),
-            slot_id: "gpui-pane-worktree-1-a".to_string(),
-            tab_id: "main-1".to_string(),
-            pane_index: 0,
-            title: "分屏 1".to_string(),
-            project_id: "worktree-1".to_string(),
-            project_name: "Codux".to_string(),
-            project_path: "/workspace/codux".to_string(),
-            cwd: "/workspace/codux".to_string(),
-            status: "running".to_string(),
-            is_running: true,
-            created_at: 1.0,
-            last_active_at: 2.0,
-            has_buffer: false,
-            buffer_characters: 0,
-            input_bytes: 0,
-            last_input_at: None,
-            input_history: Vec::new(),
-            output_bytes: 10,
-            output_tail: "first output".to_string(),
-            source: "gpui".to_string(),
-        };
-        let runtime = TerminalRuntimeSummary {
-            sessions: vec![
-                first.clone(),
-                TerminalRuntimeSessionSummary {
-                    slot_id: "gpui-pane-worktree-1-b".to_string(),
-                    tab_id: "main-2".to_string(),
-                    pane_index: 1,
-                    output_bytes: 20,
-                    output_tail: "duplicate output".to_string(),
-                    ..first
-                },
-            ],
-            ..Default::default()
-        };
-
-        let plan = terminal_restore_plan(&layout, &runtime);
-
-        assert_eq!(
-            plan.tabs[0].panes[0].terminal_id.as_deref(),
-            Some(duplicate_terminal_id.as_str())
+        assert_eq!(layout.top_panes.len(), 1);
+        assert!(layout.tabs.is_empty());
+        assert_eq!(layout.top_panes[0].title, "终端 1");
+        assert_eq!(layout.active_terminal_id, layout.top_panes[0].terminal_id);
+        assert!(
+            layout
+                .active_terminal_id
+                .starts_with("gpui-term-worktree-1-")
         );
-        assert_eq!(plan.tabs[0].panes[0].restored_output_tail, "first output");
-        assert_eq!(plan.tabs[0].panes[1].terminal_id, None);
-        assert_eq!(plan.tabs[0].panes[1].source_id, None);
-        assert_eq!(plan.tabs[0].panes[1].restored_output_tail, "");
     }
 
     #[test]
@@ -485,11 +404,10 @@ mod tests {
         assert_eq!(
             plan.tabs,
             vec![TerminalTabPlan {
-                source_id: None,
+                placement: TerminalTabPlacement::Top,
                 terminal_id: None,
                 label: "终端 1".to_string(),
                 panes: vec![TerminalPanePlan {
-                    source_id: None,
                     terminal_id: None,
                     title: "终端 1".to_string(),
                     restored_output_bytes: 0,
@@ -512,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_pane_launch_context_assigns_stable_runtime_identity() {
+    fn terminal_pane_terminal_id_normalizes_existing_runtime_id() {
         let base = TerminalLaunchContext {
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
@@ -532,53 +450,38 @@ mod tests {
         };
 
         let pane = TerminalPanePlan {
-            source_id: Some("top-existing".to_string()),
             terminal_id: Some("term-existing".to_string()),
             title: "分屏 2".to_string(),
             restored_output_bytes: 0,
             restored_output_tail: String::new(),
         };
 
-        let context = terminal_pane_launch_context(Some(&base), 3, 1, &pane)
-            .expect("context should be derived");
-        let repeated = terminal_pane_launch_context(Some(&base), 3, 1, &pane)
-            .expect("context should be derived");
+        let terminal_id =
+            terminal_pane_terminal_id(Some(&base), &pane).expect("terminal id should be derived");
+        let repeated =
+            terminal_pane_terminal_id(Some(&base), &pane).expect("terminal id should be derived");
 
-        assert_eq!(context.terminal_id.as_deref(), Some("term-existing"));
-        assert_eq!(context.slot_id.as_deref(), Some("top-existing"));
-        assert_eq!(
-            context.session_key.as_deref(),
-            Some("gpui:project-1:term-existing:top-existing")
-        );
-        assert_eq!(context.session_title.as_deref(), Some("分屏 2"));
-        assert_eq!(
-            context.session_cwd.as_deref(),
-            Some(PathBuf::from("/workspace/codux").as_path())
-        );
-        assert_eq!(context.session_instance_id, repeated.session_instance_id);
+        assert_eq!(terminal_id, "term-existing");
+        assert_eq!(terminal_id, repeated);
     }
 
     #[test]
-    fn terminal_layout_snapshot_keeps_titles_without_runtime_ids() {
+    fn structural_terminal_layout_removes_entries_without_terminal_ids() {
         let layout = TerminalLayoutSummary {
-            active_slot_id: "gpui-pane-worktree-1-top-2".to_string(),
-            active_tab_id: String::new(),
+            active_terminal_id: "term-2".to_string(),
             top_panes: vec![
                 TerminalPaneSummary {
-                    id: "gpui-pane-worktree-1-top-1".to_string(),
-                    title: "Main renamed".to_string(),
-                    terminal_id: "gpui-term-worktree-1-top-1".to_string(),
+                    title: "missing".to_string(),
+                    terminal_id: String::new(),
                 },
                 TerminalPaneSummary {
-                    id: "gpui-pane-worktree-1-top-2".to_string(),
-                    title: "Session renamed".to_string(),
-                    terminal_id: "gpui-term-worktree-1-top-2".to_string(),
+                    title: "kept".to_string(),
+                    terminal_id: "term-2".to_string(),
                 },
             ],
             tabs: vec![TerminalTabSummary {
-                id: "bottom-worktree-1-old".to_string(),
-                label: "Tab renamed".to_string(),
-                terminal_id: "gpui-term-worktree-1-bottom-old".to_string(),
+                label: "tab".to_string(),
+                terminal_id: String::new(),
             }],
             top_ratios: vec![0.5, 0.5],
             bottom_ratio: 0.32,
@@ -587,64 +490,10 @@ mod tests {
 
         let layout = structural_terminal_layout(layout);
 
-        assert_eq!(layout.top_panes[0].id, "main-1");
-        assert_eq!(layout.top_panes[0].title, "Main renamed");
-        assert_eq!(layout.top_panes[0].terminal_id, "");
-        assert_eq!(layout.top_panes[1].id, "main-2");
-        assert_eq!(layout.top_panes[1].title, "Session renamed");
-        assert_eq!(layout.top_panes[1].terminal_id, "");
-        assert_eq!(layout.tabs[0].id, "bottom-1");
-        assert_eq!(layout.tabs[0].label, "Tab renamed");
-        assert_eq!(layout.tabs[0].terminal_id, "");
-        assert_eq!(layout.active_slot_id, "main-2");
-    }
-
-    #[test]
-    fn terminal_pane_launch_context_generates_unique_runtime_identity_without_layout_ids() {
-        let base = TerminalLaunchContext {
-            project_id: "worktree-1".to_string(),
-            project_name: "Codux".to_string(),
-            project_path: PathBuf::from("/workspace/codux"),
-            support_dir: PathBuf::from("/support/Codux"),
-            runtime_root: PathBuf::from("/runtime-root"),
-            terminal_id: Some("gpui-term-worktree-1-top-2".to_string()),
-            slot_id: Some("gpui-pane-worktree-1-top-2".to_string()),
-            session_key: None,
-            session_title: None,
-            session_cwd: None,
-            session_instance_id: None,
-            tool_permissions_file: None,
-            memory_workspace_root: None,
-            memory_prompt_file: None,
-            memory_index_file: None,
-        };
-        let pane = TerminalPanePlan {
-            source_id: None,
-            terminal_id: None,
-            title: "New runtime".to_string(),
-            restored_output_bytes: 0,
-            restored_output_tail: String::new(),
-        };
-
-        let first =
-            terminal_pane_launch_context(Some(&base), 1, 0, &pane).expect("context should exist");
-        let second =
-            terminal_pane_launch_context(Some(&base), 1, 1, &pane).expect("context should exist");
-
-        assert_ne!(first.terminal_id, second.terminal_id);
-        assert_ne!(first.slot_id, second.slot_id);
-        assert!(
-            first
-                .terminal_id
-                .as_deref()
-                .is_some_and(|id| id.starts_with("gpui-term-worktree-1-"))
-        );
-        assert!(
-            first
-                .slot_id
-                .as_deref()
-                .is_some_and(|id| id.starts_with("gpui-pane-worktree-1-"))
-        );
+        assert_eq!(layout.top_panes.len(), 1);
+        assert_eq!(layout.top_panes[0].title, "kept");
+        assert!(layout.tabs.is_empty());
+        assert_eq!(layout.active_terminal_id, "term-2");
     }
 
     #[test]

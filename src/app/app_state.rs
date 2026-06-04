@@ -25,6 +25,7 @@ pub struct CoduxApp {
     pub(in crate::app) window_mode: AppWindowMode,
     pub(in crate::app) root_focus_handle: Option<FocusHandle>,
     pub(in crate::app) terminals: Vec<TerminalTab>,
+    pub(in crate::app) terminal_pane_registry: HashMap<String, TerminalPane>,
     pub(in crate::app) terminal_manager: Arc<TerminalManager>,
     pub(in crate::app) terminal_layout_loading: bool,
     pub(in crate::app) active_terminal_id: usize,
@@ -157,7 +158,7 @@ pub struct CoduxApp {
     pub(in crate::app) ai_index_progress_visible_until: f64,
     pub(in crate::app) ai_index_progress_generation: u64,
     pub(in crate::app) ai_history_active_index_count: usize,
-    pub(in crate::app) ai_history_refresh_project_ids: HashSet<String>,
+    pub(in crate::app) ai_history_refresh_keys: HashSet<String>,
     pub(in crate::app) project_switch_generation: u64,
     pub(in crate::app) scheduled_work_in_flight: HashSet<String>,
     pub(in crate::app) scheduled_work_last_started_at: HashMap<String, f64>,
@@ -351,6 +352,7 @@ pub(in crate::app) struct ProjectSwitchTerminalLoad {
 pub(in crate::app) struct ProjectSwitchPrimaryLoad {
     pub(in crate::app) project_id: String,
     pub(in crate::app) generation: u64,
+    pub(in crate::app) store_key: WorktreeViewStoreKey,
     pub(in crate::app) ai_history: AIHistorySummary,
 }
 
@@ -359,6 +361,7 @@ pub(in crate::app) struct WorktreeSwitchLoad {
     pub(in crate::app) generation: u64,
     pub(in crate::app) store_key: WorktreeViewStoreKey,
     pub(in crate::app) worktrees: WorktreeSummary,
+    pub(in crate::app) ai_history: AIHistorySummary,
     pub(in crate::app) terminal_layout: TerminalLayoutSummary,
     pub(in crate::app) terminal_runtime: TerminalRuntimeSummary,
 }
@@ -390,6 +393,7 @@ pub(in crate::app) struct ProjectViewState {
 
 #[derive(Clone)]
 pub(in crate::app) struct WorktreeViewState {
+    pub(in crate::app) ai_history: AIHistorySummary,
     pub(in crate::app) files: FileWorktreeViewState,
     pub(in crate::app) git: GitWorktreeViewState,
     pub(in crate::app) terminal: TerminalViewState,
@@ -547,6 +551,11 @@ pub(in crate::app) fn initial_worktree_view_store(
             (
                 key,
                 WorktreeViewState {
+                    ai_history: if is_current {
+                        state.ai_history.clone()
+                    } else {
+                        AIHistorySummary::default()
+                    },
                     files: FileWorktreeViewState {
                         files: if is_current {
                             state.files.clone()

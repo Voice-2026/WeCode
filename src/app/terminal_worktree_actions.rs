@@ -266,11 +266,13 @@ impl CoduxApp {
         let Some(tab_index) = self
             .terminals
             .iter()
-            .position(|tab| tab.source_id.is_some() && tab.id == self.active_terminal_id)
+            .position(|tab| {
+                tab.placement == TerminalTabPlacement::Bottom && tab.id == self.active_terminal_id
+            })
             .or_else(|| {
                 self.terminals
                     .iter()
-                    .position(|tab| tab.source_id.is_none())
+                    .position(|tab| tab.placement == TerminalTabPlacement::Top)
             })
             .or_else(|| (!self.terminals.is_empty()).then_some(0))
         else {
@@ -278,19 +280,42 @@ impl CoduxApp {
         };
         let config = self.terminal_config_from_settings();
         let terminal_manager = self.terminal_manager.clone();
+        let base_pty_config = self.current_terminal_base_pty_config();
+        let terminal_pane_registry = self.terminal_pane_registry.clone();
+        let mut registrations = Vec::new();
         let tab = &mut self.terminals[tab_index];
         for slot in &mut tab.panes {
             if slot.pane.is_some() {
                 continue;
             }
-            let pane = TerminalPane::spawn_with_context_and_config(
+            let pty_config = terminal_pty_config_for_terminal_id(
+                &base_pty_config,
+                slot.terminal_id.as_deref(),
+                &slot.title,
+            );
+            if let Some(pane) = slot
+                .terminal_id
+                .as_deref()
+                .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
+                .cloned()
+            {
+                slot.pane = Some(pane);
+                continue;
+            }
+            let pane = TerminalPane::spawn_with_pty_config(
                 cx,
                 terminal_manager.clone(),
-                slot.launch_context.as_ref(),
+                pty_config,
                 config.clone(),
             )
             .map_err(|error| error.to_string())?;
+            if let Some(terminal_id) = slot.terminal_id.clone() {
+                registrations.push((terminal_id, pane.clone()));
+            }
             slot.pane = Some(pane);
+        }
+        for (terminal_id, pane) in registrations {
+            self.register_terminal_pane(Some(&terminal_id), &pane);
         }
         Ok(())
     }
@@ -298,7 +323,6 @@ impl CoduxApp {
     pub(super) fn refresh_terminal_slot_snapshots(&mut self) {
         let terminal_manager = self.terminal_manager.clone();
         for tab in &mut self.terminals {
-            let tab_id = tab.id;
             let tab_terminal_id = tab.terminal_id.clone();
             for slot in &mut tab.panes {
                 if let Some(pane) = &slot.pane {
@@ -307,12 +331,14 @@ impl CoduxApp {
                     slot.restored_output_tail = output.tail;
                     continue;
                 }
-                let terminal_id = slot
-                    .launch_context
-                    .as_ref()
-                    .and_then(|context| context.terminal_id.clone())
+                let Some(terminal_id) = slot
+                    .terminal_id
+                    .clone()
                     .or_else(|| tab_terminal_id.clone())
-                    .unwrap_or_else(|| format!("gpui-term-unscoped-{tab_id}"));
+                    .filter(|id| !id.trim().is_empty())
+                else {
+                    continue;
+                };
                 if let Ok(output) = terminal_manager.output_snapshot(&terminal_id) {
                     slot.restored_output_bytes = output.bytes;
                     slot.restored_output_tail = output.tail;
@@ -324,7 +350,7 @@ impl CoduxApp {
     pub(super) fn detach_inactive_terminal_views(&mut self) {
         self.refresh_terminal_slot_snapshots();
         for tab in &mut self.terminals {
-            if tab.source_id.is_none() || tab.id == self.active_terminal_id {
+            if tab.placement == TerminalTabPlacement::Top || tab.id == self.active_terminal_id {
                 continue;
             }
             for slot in &mut tab.panes {
@@ -336,7 +362,7 @@ impl CoduxApp {
     pub(super) fn main_terminal(&self) -> Option<&TerminalTab> {
         self.terminals
             .iter()
-            .find(|tab| tab.source_id.is_none())
+            .find(|tab| tab.placement == TerminalTabPlacement::Top)
             .or_else(|| self.active_terminal())
     }
 
@@ -344,7 +370,7 @@ impl CoduxApp {
         let index = self
             .terminals
             .iter()
-            .position(|tab| tab.source_id.is_none())
+            .position(|tab| tab.placement == TerminalTabPlacement::Top)
             .or_else(|| {
                 let active_id = self.active_terminal_id;
                 self.terminals.iter().position(|tab| tab.id == active_id)
@@ -354,7 +380,9 @@ impl CoduxApp {
     }
 
     pub(super) fn bottom_terminals(&self) -> impl Iterator<Item = &TerminalTab> {
-        self.terminals.iter().filter(|tab| tab.source_id.is_some())
+        self.terminals
+            .iter()
+            .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
     }
 
     pub(super) fn active_bottom_terminal(&self) -> Option<&TerminalTab> {
@@ -374,27 +402,18 @@ impl CoduxApp {
         tab: &TerminalTab,
         _pane_index: usize,
         slot: &TerminalPaneSlot,
-    ) -> String {
-        slot.launch_context
-            .as_ref()
-            .and_then(|context| context.terminal_id.clone())
+    ) -> Option<String> {
+        slot.terminal_id
+            .clone()
             .or_else(|| tab.terminal_id.clone())
-            .unwrap_or_else(|| format!("gpui-term-unscoped-{}", tab.id))
+            .filter(|id| !id.trim().is_empty())
     }
 
-    pub(super) fn terminal_slot_slot_id(
-        tab: &TerminalTab,
-        pane_index: usize,
-        slot: &TerminalPaneSlot,
-    ) -> String {
-        slot.launch_context
-            .as_ref()
-            .and_then(|context| context.slot_id.clone())
-            .or_else(|| tab.source_id.clone())
-            .unwrap_or_else(|| format!("gpui-pane-unscoped-{}-{}", tab.id, pane_index + 1))
-    }
-
-    pub(super) fn kill_terminal_session_if_present(&self, terminal_id: &str) -> Result<(), String> {
+    pub(super) fn kill_terminal_session_if_present(
+        &mut self,
+        terminal_id: &str,
+    ) -> Result<(), String> {
+        self.remove_registered_terminal_pane(terminal_id);
         let exists = self
             .terminal_manager
             .list()
@@ -409,6 +428,43 @@ impl CoduxApp {
         }
     }
 
+    pub(super) fn register_terminal_panes(&mut self) {
+        for tab in &self.terminals {
+            let tab_terminal_id = tab.terminal_id.clone();
+            for slot in &tab.panes {
+                let Some(pane) = slot.pane.as_ref() else {
+                    continue;
+                };
+                let Some(terminal_id) = slot
+                    .terminal_id
+                    .clone()
+                    .or_else(|| tab_terminal_id.clone())
+                    .filter(|id| !id.trim().is_empty())
+                else {
+                    continue;
+                };
+                self.terminal_pane_registry
+                    .insert(terminal_id, pane.clone());
+            }
+        }
+    }
+
+    pub(super) fn remove_registered_terminal_pane(&mut self, terminal_id: &str) {
+        self.terminal_pane_registry.remove(terminal_id);
+    }
+
+    pub(super) fn register_terminal_pane(
+        &mut self,
+        terminal_id: Option<&str>,
+        pane: &TerminalPane,
+    ) {
+        let Some(terminal_id) = terminal_id.filter(|id| !id.trim().is_empty()) else {
+            return;
+        };
+        self.terminal_pane_registry
+            .insert(terminal_id.to_string(), pane.clone());
+    }
+
     pub(super) fn sync_terminal_state_after_layout_change(&mut self, _cx: &mut Context<Self>) {
         self.refresh_terminal_slot_snapshots();
         let owner_id = super::ai_runtime_status::terminal_layout_owner_id(&self.state);
@@ -416,15 +472,14 @@ impl CoduxApp {
             super::ai_runtime_status::current_terminal_layout_storage_key(&self.state);
         let layout_snapshot = self.terminal_layout_snapshot();
         let runtime_snapshot = self.terminal_runtime_snapshot();
-        let (tabs, active_tab_id, top_panes, active_slot_id) = layout_snapshot.clone();
+        let (tabs, active_terminal_id, top_panes) = layout_snapshot.clone();
         let top_ratios = if top_panes.is_empty() {
             Vec::new()
         } else {
             vec![1.0 / top_panes.len() as f64; top_panes.len()]
         };
         let layout = TerminalLayoutSummary {
-            active_slot_id,
-            active_tab_id,
+            active_terminal_id,
             top_panes,
             tabs,
             top_ratios,
@@ -435,10 +490,13 @@ impl CoduxApp {
             &self.state.terminal_runtime,
             runtime_snapshot.0.clone(),
             runtime_snapshot.1.clone(),
-            runtime_snapshot.2.clone(),
         );
-        let (layout, runtime) =
-            normalize_terminal_restore_state(owner_id.as_deref(), layout, runtime);
+        let (layout, runtime) = normalize_terminal_restore_state(
+            owner_id.as_deref(),
+            layout,
+            runtime,
+            &self.state.settings.language,
+        );
         self.state.terminal_layout = layout;
         self.state.terminal_runtime = runtime;
         self.save_current_terminal_view_state();
@@ -448,15 +506,14 @@ impl CoduxApp {
     pub(super) fn sync_terminal_state_for_project_switch(&mut self) {
         let owner_id = super::ai_runtime_status::terminal_layout_owner_id(&self.state);
         let layout_snapshot = self.terminal_layout_snapshot();
-        let (tabs, active_tab_id, top_panes, active_slot_id) = layout_snapshot;
+        let (tabs, active_terminal_id, top_panes) = layout_snapshot;
         let top_ratios = if top_panes.is_empty() {
             Vec::new()
         } else {
             vec![1.0 / top_panes.len() as f64; top_panes.len()]
         };
         let layout = TerminalLayoutSummary {
-            active_slot_id,
-            active_tab_id,
+            active_terminal_id,
             top_panes,
             tabs,
             top_ratios,
@@ -464,8 +521,12 @@ impl CoduxApp {
             error: None,
         };
         let runtime = self.lightweight_terminal_runtime_summary();
-        let (layout, runtime) =
-            normalize_terminal_restore_state(owner_id.as_deref(), layout, runtime);
+        let (layout, runtime) = normalize_terminal_restore_state(
+            owner_id.as_deref(),
+            layout,
+            runtime,
+            &self.state.settings.language,
+        );
         self.state.terminal_layout = layout;
         self.state.terminal_runtime = runtime;
         self.save_current_terminal_view_state();
@@ -481,107 +542,89 @@ impl CoduxApp {
             .and_then(|tab| {
                 tab.panes
                     .last()
-                    .and_then(|slot| slot.launch_context.as_ref())
-                    .and_then(|context| context.terminal_id.clone())
+                    .and_then(|slot| slot.terminal_id.clone())
                     .or_else(|| tab.terminal_id.clone())
             })
-            .unwrap_or_else(|| format!("gpui-term-unscoped-{}", self.active_terminal_id));
-        let active_slot_id = active
-            .and_then(|tab| {
-                tab.panes
-                    .last()
-                    .and_then(|slot| slot.launch_context.as_ref())
-                    .and_then(|context| context.slot_id.clone())
-                    .or_else(|| tab.source_id.clone())
-            })
-            .unwrap_or_else(|| format!("bottom-unscoped-{}", self.active_terminal_id));
+            .unwrap_or_default();
+        let base_pty_config = self.current_terminal_base_pty_config();
         let existing_by_key = self
             .state
             .terminal_runtime
             .sessions
             .iter()
-            .map(|session| {
-                (
-                    terminal_session_key(&session.terminal_id, &session.slot_id),
-                    session,
-                )
-            })
+            .map(|session| (session.terminal_id.clone(), session))
             .collect::<HashMap<_, _>>();
         let sessions = self
             .terminals
             .iter()
             .flat_map(|tab| {
-                tab.panes.iter().enumerate().map(|(pane_index, slot)| {
-                    let context = slot.launch_context.as_ref();
-                    let project = self.state.selected_project.as_ref();
-                    let terminal_id = Self::terminal_slot_terminal_id(tab, pane_index, slot);
-                    let slot_id = Self::terminal_slot_slot_id(tab, pane_index, slot);
-                    let existing = existing_by_key
-                        .get(&terminal_session_key(&terminal_id, &slot_id))
-                        .copied();
-                    let project_id = context
-                        .map(|context| context.project_id.clone())
-                        .or_else(|| project.map(|project| project.id.clone()))
-                        .or_else(|| existing.map(|session| session.project_id.clone()))
-                        .unwrap_or_default();
-                    let project_name = context
-                        .map(|context| context.project_name.clone())
-                        .or_else(|| project.map(|project| project.name.clone()))
-                        .or_else(|| existing.map(|session| session.project_name.clone()))
-                        .unwrap_or_default();
-                    let project_path = context
-                        .map(|context| context.project_path.display().to_string())
-                        .or_else(|| project.map(|project| project.path.clone()))
-                        .or_else(|| existing.map(|session| session.project_path.clone()))
-                        .unwrap_or_default();
-                    let cwd = context
-                        .and_then(|context| context.session_cwd.as_ref())
-                        .map(|cwd| cwd.display().to_string())
-                        .or_else(|| existing.map(|session| session.cwd.clone()))
-                        .unwrap_or_else(|| project_path.clone());
-                    TerminalRuntimeSessionSummary {
-                        terminal_id,
-                        slot_id,
-                        tab_id: tab
-                            .source_id
+                tab.panes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(pane_index, slot)| {
+                        let project = self.state.selected_project.as_ref();
+                        let terminal_id = Self::terminal_slot_terminal_id(tab, pane_index, slot)?;
+                        let existing = existing_by_key.get(&terminal_id).copied();
+                        let project_id = base_pty_config
+                            .project_id
                             .clone()
-                            .unwrap_or_else(|| format!("main-{}", pane_index + 1)),
-                        pane_index,
-                        title: slot.title.clone(),
-                        project_id,
-                        project_name,
-                        project_path,
-                        cwd,
-                        status: "running".to_string(),
-                        is_running: true,
-                        created_at: existing.map(|session| session.created_at).unwrap_or(now),
-                        last_active_at: now,
-                        has_buffer: existing.map(|session| session.has_buffer).unwrap_or(false),
-                        buffer_characters: existing
-                            .map(|session| session.buffer_characters)
-                            .unwrap_or_default(),
-                        input_bytes: existing
-                            .map(|session| session.input_bytes)
-                            .unwrap_or_default(),
-                        last_input_at: existing.and_then(|session| session.last_input_at),
-                        input_history: existing
-                            .map(|session| session.input_history.clone())
-                            .unwrap_or_default(),
-                        output_bytes: existing
-                            .map(|session| session.output_bytes)
-                            .unwrap_or(slot.restored_output_bytes),
-                        output_tail: existing
-                            .map(|session| session.output_tail.clone())
-                            .unwrap_or_else(|| slot.restored_output_tail.clone()),
-                        source: "gpui".to_string(),
-                    }
-                })
+                            .or_else(|| project.map(|project| project.id.clone()))
+                            .or_else(|| existing.map(|session| session.project_id.clone()))
+                            .unwrap_or_default();
+                        let project_name = base_pty_config
+                            .project_name
+                            .clone()
+                            .or_else(|| project.map(|project| project.name.clone()))
+                            .or_else(|| existing.map(|session| session.project_name.clone()))
+                            .unwrap_or_default();
+                        let project_path = base_pty_config
+                            .cwd
+                            .clone()
+                            .or_else(|| project.map(|project| project.path.clone()))
+                            .or_else(|| existing.map(|session| session.project_path.clone()))
+                            .unwrap_or_default();
+                        let cwd = base_pty_config
+                            .cwd
+                            .clone()
+                            .or_else(|| existing.map(|session| session.cwd.clone()))
+                            .unwrap_or_else(|| project_path.clone());
+                        Some(TerminalRuntimeSessionSummary {
+                            terminal_id,
+                            pane_index,
+                            title: slot.title.clone(),
+                            project_id,
+                            project_name,
+                            project_path,
+                            cwd,
+                            status: "running".to_string(),
+                            is_running: true,
+                            created_at: existing.map(|session| session.created_at).unwrap_or(now),
+                            last_active_at: now,
+                            has_buffer: existing.map(|session| session.has_buffer).unwrap_or(false),
+                            buffer_characters: existing
+                                .map(|session| session.buffer_characters)
+                                .unwrap_or_default(),
+                            input_bytes: existing
+                                .map(|session| session.input_bytes)
+                                .unwrap_or_default(),
+                            last_input_at: existing.and_then(|session| session.last_input_at),
+                            input_history: existing
+                                .map(|session| session.input_history.clone())
+                                .unwrap_or_default(),
+                            output_bytes: existing
+                                .map(|session| session.output_bytes)
+                                .unwrap_or(slot.restored_output_bytes),
+                            output_tail: existing
+                                .map(|session| session.output_tail.clone())
+                                .unwrap_or_else(|| slot.restored_output_tail.clone()),
+                            source: "gpui".to_string(),
+                        })
+                    })
             })
             .collect::<Vec<_>>();
         TerminalRuntimeSummary {
             path: self.state.terminal_runtime.path.clone(),
             active_terminal_id,
-            active_slot_id,
             open_count: sessions.len(),
             closed_count: 0,
             sessions,
@@ -589,150 +632,127 @@ impl CoduxApp {
         }
     }
 
-    pub(super) fn terminal_runtime_snapshot(
-        &self,
-    ) -> (String, String, Vec<TerminalRuntimeSessionInput>) {
+    pub(super) fn terminal_runtime_snapshot(&self) -> (String, Vec<TerminalRuntimeSessionInput>) {
         let active = self.active_terminal();
         let active_terminal_id = active
             .and_then(|tab| {
                 tab.panes
                     .last()
-                    .and_then(|slot| slot.launch_context.as_ref())
-                    .and_then(|context| context.terminal_id.clone())
+                    .and_then(|slot| slot.terminal_id.clone())
                     .or_else(|| tab.terminal_id.clone())
             })
-            .unwrap_or_else(|| format!("gpui-term-unscoped-{}", self.active_terminal_id));
-        let active_slot_id = active
-            .and_then(|tab| {
-                tab.panes
-                    .last()
-                    .and_then(|slot| slot.launch_context.as_ref())
-                    .and_then(|context| context.slot_id.clone())
-                    .or_else(|| tab.source_id.clone())
-            })
-            .unwrap_or_else(|| format!("bottom-unscoped-{}", self.active_terminal_id));
+            .unwrap_or_default();
+        let base_pty_config = self.current_terminal_base_pty_config();
         let sessions = self
             .terminals
             .iter()
             .flat_map(|tab| {
-                tab.panes.iter().enumerate().map(|(pane_index, slot)| {
-                    let context = slot.launch_context.as_ref();
-                    let project = self.state.selected_project.as_ref();
-                    let terminal_id = Self::terminal_slot_terminal_id(tab, pane_index, slot);
-                    let slot_id = Self::terminal_slot_slot_id(tab, pane_index, slot);
-                    let project_id = context
-                        .map(|context| context.project_id.clone())
-                        .or_else(|| project.map(|project| project.id.clone()))
-                        .unwrap_or_default();
-                    let project_name = context
-                        .map(|context| context.project_name.clone())
-                        .or_else(|| project.map(|project| project.name.clone()))
-                        .unwrap_or_default();
-                    let project_path = context
-                        .map(|context| context.project_path.display().to_string())
-                        .or_else(|| project.map(|project| project.path.clone()))
-                        .unwrap_or_default();
-                    let cwd = context
-                        .and_then(|context| context.session_cwd.as_ref())
-                        .map(|cwd| cwd.display().to_string())
-                        .unwrap_or_else(|| project_path.clone());
-                    let input = slot
-                        .pane
-                        .as_ref()
-                        .map(|pane| pane.input_snapshot())
-                        .or_else(|| self.terminal_manager.input_snapshot(&terminal_id).ok());
-                    let output = slot
-                        .pane
-                        .as_ref()
-                        .map(|pane| pane.output_snapshot())
-                        .or_else(|| self.terminal_manager.output_snapshot(&terminal_id).ok());
-                    let input_bytes = input.as_ref().map(|input| input.bytes).unwrap_or_default();
-                    let input_history = input
-                        .map(|input| {
-                            input
-                                .history
-                                .into_iter()
-                                .map(|entry| TerminalInputSummary {
-                                    text: entry.text,
-                                    bytes: entry.bytes,
-                                    timestamp: entry.timestamp,
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    let (output_bytes, output_tail) = output
-                        .filter(|output| !output.tail.is_empty())
-                        .map(|output| (output.bytes, output.tail))
-                        .unwrap_or_else(|| {
-                            (
-                                slot.restored_output_bytes,
-                                slot.restored_output_tail.clone(),
-                            )
-                        });
-                    TerminalRuntimeSessionInput {
-                        terminal_id,
-                        slot_id,
-                        tab_id: tab
-                            .source_id
+                tab.panes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(pane_index, slot)| {
+                        let project = self.state.selected_project.as_ref();
+                        let terminal_id = Self::terminal_slot_terminal_id(tab, pane_index, slot)?;
+                        let project_id = base_pty_config
+                            .project_id
                             .clone()
-                            .unwrap_or_else(|| format!("main-{}", pane_index + 1)),
-                        pane_index,
-                        title: slot.title.clone(),
-                        project_id,
-                        project_name,
-                        project_path,
-                        cwd,
-                        input_bytes,
-                        input_history,
-                        output_bytes,
-                        output_tail,
-                    }
-                })
+                            .or_else(|| project.map(|project| project.id.clone()))
+                            .unwrap_or_default();
+                        let project_name = base_pty_config
+                            .project_name
+                            .clone()
+                            .or_else(|| project.map(|project| project.name.clone()))
+                            .unwrap_or_default();
+                        let project_path = base_pty_config
+                            .cwd
+                            .clone()
+                            .or_else(|| project.map(|project| project.path.clone()))
+                            .unwrap_or_default();
+                        let cwd = base_pty_config
+                            .cwd
+                            .clone()
+                            .unwrap_or_else(|| project_path.clone());
+                        let input = slot
+                            .pane
+                            .as_ref()
+                            .map(|pane| pane.input_snapshot())
+                            .or_else(|| self.terminal_manager.input_snapshot(&terminal_id).ok());
+                        let output = slot
+                            .pane
+                            .as_ref()
+                            .map(|pane| pane.output_snapshot())
+                            .or_else(|| self.terminal_manager.output_snapshot(&terminal_id).ok());
+                        let input_bytes =
+                            input.as_ref().map(|input| input.bytes).unwrap_or_default();
+                        let input_history = input
+                            .map(|input| {
+                                input
+                                    .history
+                                    .into_iter()
+                                    .map(|entry| TerminalInputSummary {
+                                        text: entry.text,
+                                        bytes: entry.bytes,
+                                        timestamp: entry.timestamp,
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let (output_bytes, output_tail) = output
+                            .filter(|output| !output.tail.is_empty())
+                            .map(|output| (output.bytes, output.tail))
+                            .unwrap_or_else(|| {
+                                (
+                                    slot.restored_output_bytes,
+                                    slot.restored_output_tail.clone(),
+                                )
+                            });
+                        Some(TerminalRuntimeSessionInput {
+                            terminal_id,
+                            pane_index,
+                            title: slot.title.clone(),
+                            project_id,
+                            project_name,
+                            project_path,
+                            cwd,
+                            input_bytes,
+                            input_history,
+                            output_bytes,
+                            output_tail,
+                        })
+                    })
             })
             .collect();
-        (active_terminal_id, active_slot_id, sessions)
+        (active_terminal_id, sessions)
     }
 
     pub(super) fn terminal_layout_snapshot(
         &self,
-    ) -> (
-        Vec<TerminalTabSummary>,
-        String,
-        Vec<TerminalPaneSummary>,
-        String,
-    ) {
+    ) -> (Vec<TerminalTabSummary>, String, Vec<TerminalPaneSummary>) {
         let tabs = self
             .terminals
             .iter()
-            .filter(|tab| tab.source_id.is_some())
-            .enumerate()
-            .map(|(index, tab)| terminal_tab_summary(index, tab))
+            .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
+            .map(terminal_tab_summary)
             .collect::<Vec<_>>();
         let top_panes = self
             .main_terminal()
             .map(|tab| {
                 tab.panes
                     .iter()
-                    .enumerate()
-                    .map(|(index, slot)| terminal_pane_summary(index, slot))
+                    .map(terminal_pane_summary)
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let active = self.active_terminal();
-        let active_tab_id = active
-            .and_then(|tab| tab.source_id.clone())
-            .unwrap_or_default();
-        let active_slot_id = active
+        let active_terminal_id = self
+            .active_terminal()
             .and_then(|tab| {
-                tab.source_id.clone().or_else(|| {
-                    tab.panes
-                        .len()
-                        .checked_sub(1)
-                        .map(|index| format!("main-{}", index + 1))
-                })
+                tab.panes
+                    .last()
+                    .and_then(|slot| slot.terminal_id.clone())
+                    .or_else(|| tab.terminal_id.clone())
             })
             .unwrap_or_default();
-        (tabs, active_tab_id, top_panes, active_slot_id)
+        (tabs, active_terminal_id, top_panes)
     }
 
     pub(super) fn reload_terminal_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -759,6 +779,7 @@ impl CoduxApp {
             owner_id.as_deref(),
             terminal_layout,
             terminal_runtime,
+            &self.state.settings.language,
         );
         self.state.terminal_layout = terminal_layout;
         self.state.terminal_runtime = terminal_runtime;
@@ -789,13 +810,19 @@ impl CoduxApp {
             ),
         );
         let launch_context = self.current_terminal_launch_context();
+        let base_pty_config = launch_context
+            .as_ref()
+            .map(TerminalLaunchContext::to_config)
+            .unwrap_or_default();
         let terminal_config = self.terminal_config_from_settings();
         let spawn_started_at = Instant::now();
         match spawn_terminal_tabs(
             &restore_plan,
             self.terminal_manager.clone(),
             launch_context.as_ref(),
+            &base_pty_config,
             terminal_config,
+            &self.terminal_pane_registry,
             cx,
         ) {
             Ok((terminals, active_terminal_id, next_terminal_index)) => {
@@ -803,6 +830,7 @@ impl CoduxApp {
                 self.terminals = terminals;
                 self.active_terminal_id = active_terminal_id;
                 self.next_terminal_index = next_terminal_index;
+                self.register_terminal_panes();
                 self.status_message = format!(
                     "terminal layout reloaded · {} tab{}",
                     self.terminals.len(),
@@ -1410,6 +1438,26 @@ impl CoduxApp {
                     runtime_service.select_worktree(&project.id, &worktree_id)?;
                     let worktrees =
                         runtime_service.reload_worktrees(Some(&project.id), Some(&project.path));
+                    let selected_worktree = worktrees
+                        .worktrees
+                        .iter()
+                        .find(|worktree| worktree.id == worktree_id)
+                        .cloned();
+                    let request = ai_history_worktree_request(&project, selected_worktree.as_ref());
+                    let ai_history = runtime_service
+                        .indexed_project_ai_history_state(request)
+                        .ok()
+                        .map(|state| {
+                            ai_history_summary_from_state_or_status(
+                                &AIHistorySummary::default(),
+                                &state,
+                            )
+                        })
+                        .unwrap_or_else(|| AIHistorySummary {
+                            is_loading: true,
+                            detail: "loading".to_string(),
+                            ..AIHistorySummary::default()
+                        });
                     let terminal_layout = runtime_service.reload_terminal_layout(Some(
                         &super::app_state::worktree_terminal_storage_key(&store_key),
                     ));
@@ -1418,6 +1466,7 @@ impl CoduxApp {
                         generation,
                         store_key,
                         worktrees,
+                        ai_history,
                         terminal_layout,
                         terminal_runtime: TerminalRuntimeSummary::default(),
                     })
@@ -1479,6 +1528,7 @@ impl CoduxApp {
             ),
         );
         self.state.worktrees = load.worktrees;
+        self.upsert_worktree_ai_history_state(load.store_key.clone(), load.ai_history.clone());
         self.apply_saved_worktree_view_state(cx);
         self.ensure_active_file_editor_state(window, cx);
         self.spawn_worktree_sidebar_load(load.generation, cx);
@@ -1559,6 +1609,23 @@ impl CoduxApp {
         terminal_launch_context(&self.state, &self.runtime, &self.state.tool_permissions)
     }
 
+    pub(super) fn current_terminal_base_pty_config(&self) -> TerminalPtyConfig {
+        self.current_terminal_launch_context()
+            .map(|context| context.to_config())
+            .unwrap_or_default()
+    }
+
+    pub(super) fn terminal_pty_config_for_slot(
+        &self,
+        slot: &TerminalPaneSlot,
+    ) -> TerminalPtyConfig {
+        terminal_pty_config_for_terminal_id(
+            &self.current_terminal_base_pty_config(),
+            slot.terminal_id.as_deref(),
+            &slot.title,
+        )
+    }
+
     pub(super) fn active_terminal(&self) -> Option<&TerminalTab> {
         self.terminals
             .iter()
@@ -1620,7 +1687,6 @@ fn default_worktree_name() -> String {
 fn terminal_runtime_summary_from_inputs(
     existing: &TerminalRuntimeSummary,
     active_terminal_id: String,
-    active_slot_id: String,
     sessions: Vec<TerminalRuntimeSessionInput>,
 ) -> TerminalRuntimeSummary {
     let now = SystemTime::now()
@@ -1630,26 +1696,16 @@ fn terminal_runtime_summary_from_inputs(
     let created_at_by_key = existing
         .sessions
         .iter()
-        .map(|session| {
-            (
-                terminal_session_key(&session.terminal_id, &session.slot_id),
-                session.created_at,
-            )
-        })
+        .map(|session| (session.terminal_id.clone(), session.created_at))
         .collect::<HashMap<_, _>>();
     let sessions = sessions
         .into_iter()
         .map(|session| TerminalRuntimeSessionSummary {
             created_at: created_at_by_key
-                .get(&terminal_session_key(
-                    &session.terminal_id,
-                    &session.slot_id,
-                ))
+                .get(&session.terminal_id)
                 .copied()
                 .unwrap_or(now),
             terminal_id: session.terminal_id,
-            slot_id: session.slot_id,
-            tab_id: session.tab_id,
             pane_index: session.pane_index,
             title: session.title,
             project_id: session.project_id,
@@ -1673,14 +1729,9 @@ fn terminal_runtime_summary_from_inputs(
     TerminalRuntimeSummary {
         path: String::new(),
         active_terminal_id,
-        active_slot_id,
         open_count,
         closed_count: 0,
         sessions,
         error: None,
     }
-}
-
-fn terminal_session_key(terminal_id: &str, slot_id: &str) -> String {
-    format!("{terminal_id}\n{slot_id}")
 }

@@ -13,11 +13,14 @@ impl CoduxApp {
         let Some(project) = self.state.selected_project.clone() else {
             return;
         };
+        let store_key =
+            worktree_view_store_key(&self.state).unwrap_or_else(|| WorktreeViewStoreKey {
+                project_id: project.id.clone(),
+                worktree_id: project.id.clone(),
+            });
+        let refresh_key = ai_history_refresh_key(&store_key);
 
-        if self
-            .ai_history_refresh_project_ids
-            .insert(project.id.clone())
-        {
+        if self.ai_history_refresh_keys.insert(refresh_key) {
             self.start_ai_history_refresh(true, cx);
             return;
         }
@@ -31,6 +34,10 @@ impl CoduxApp {
             Ok(state) => {
                 let summary =
                     ai_history_summary_from_state_or_status(&self.state.ai_history, &state);
+                self.upsert_worktree_ai_history_state(store_key.clone(), summary.clone());
+                if worktree_view_store_key(&self.state).as_ref() != Some(&store_key) {
+                    return;
+                }
                 if ai_history_should_replace(&self.state.ai_history, &summary) {
                     self.state.ai_history = summary;
                 } else if !summary.indexed {
@@ -1174,28 +1181,18 @@ impl CoduxApp {
         let session_title = session.session_title.clone();
         let session_terminal_id = session.terminal_id.clone();
         self.selected_runtime_terminal_id = Some(session_terminal_id.clone());
-        let matched_terminal_id = self
+        let matched_view_id = self
             .terminals
             .iter()
             .find(|tab| {
-                tab.panes.iter().any(|slot| {
-                    slot.launch_context
-                        .as_ref()
-                        .and_then(|context| context.terminal_id.as_deref())
-                        .map(|id| id == session_terminal_id)
-                        .unwrap_or(false)
-                        || slot
-                            .launch_context
-                            .as_ref()
-                            .and_then(|context| context.slot_id.as_deref())
-                            .map(|id| id == session_terminal_id)
-                            .unwrap_or(false)
-                })
+                tab.panes
+                    .iter()
+                    .any(|slot| slot.terminal_id.as_deref() == Some(session_terminal_id.as_str()))
             })
             .map(|tab| tab.id);
-        if let Some(tab_id) = matched_terminal_id {
+        if let Some(view_id) = matched_view_id {
             self.refresh_terminal_slot_snapshots();
-            self.active_terminal_id = tab_id;
+            self.active_terminal_id = view_id;
             if let Err(error) = self.ensure_active_terminal_mounted(cx) {
                 self.status_message = format!("failed to focus terminal session: {error}");
                 self.invalidate_memory_panel(cx);
@@ -1207,7 +1204,7 @@ impl CoduxApp {
             self.detach_inactive_terminal_views();
             self.status_message = format!(
                 "selected runtime session {} and focused terminal {}",
-                session_title, tab_id
+                session_title, view_id
             );
         } else {
             self.status_message = format!(
@@ -1217,4 +1214,8 @@ impl CoduxApp {
         }
         self.invalidate_memory_panel(cx);
     }
+}
+
+fn ai_history_refresh_key(key: &WorktreeViewStoreKey) -> String {
+    format!("{}:{}", key.project_id, key.worktree_id)
 }

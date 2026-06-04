@@ -1,4 +1,4 @@
-use crate::terminal::{TerminalLaunchContext, TerminalPane};
+use crate::terminal::TerminalPane;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum AppWindowMode {
@@ -22,14 +22,20 @@ pub(in crate::app) enum AppWindowMode {
 pub(in crate::app) struct TerminalTab {
     pub(in crate::app) id: usize,
     pub(in crate::app) label: String,
-    pub(in crate::app) source_id: Option<String>,
+    pub(in crate::app) placement: TerminalTabPlacement,
     pub(in crate::app) terminal_id: Option<String>,
     pub(in crate::app) panes: Vec<TerminalPaneSlot>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum TerminalTabPlacement {
+    Top,
+    Bottom,
+}
+
 pub(in crate::app) struct TerminalPaneSlot {
     pub(in crate::app) title: String,
-    pub(in crate::app) launch_context: Option<TerminalLaunchContext>,
+    pub(in crate::app) terminal_id: Option<String>,
     pub(in crate::app) pane: Option<TerminalPane>,
     pub(in crate::app) restored_output_bytes: usize,
     pub(in crate::app) restored_output_tail: String,
@@ -37,7 +43,7 @@ pub(in crate::app) struct TerminalPaneSlot {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) struct TerminalTabPlan {
-    pub(in crate::app) source_id: Option<String>,
+    pub(in crate::app) placement: TerminalTabPlacement,
     pub(in crate::app) terminal_id: Option<String>,
     pub(in crate::app) label: String,
     pub(in crate::app) panes: Vec<TerminalPanePlan>,
@@ -45,7 +51,6 @@ pub(in crate::app) struct TerminalTabPlan {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) struct TerminalPanePlan {
-    pub(in crate::app) source_id: Option<String>,
     pub(in crate::app) terminal_id: Option<String>,
     pub(in crate::app) title: String,
     pub(in crate::app) restored_output_bytes: usize,

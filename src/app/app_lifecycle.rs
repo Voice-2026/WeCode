@@ -48,6 +48,7 @@ impl CoduxApp {
             super::ai_runtime_status::terminal_layout_owner_id(&state).as_deref(),
             state.terminal_layout.clone(),
             TerminalRuntimeSummary::default(),
+            &state.settings.language,
         );
         state.terminal_layout = terminal_layout;
         state.terminal_runtime = terminal_runtime;
@@ -58,13 +59,20 @@ impl CoduxApp {
         );
         prepare_memory_launch_artifacts(&state);
         let launch_context = terminal_launch_context(&state, &runtime, &tool_permissions);
+        let base_pty_config = launch_context
+            .as_ref()
+            .map(TerminalLaunchContext::to_config)
+            .unwrap_or_default();
         let terminal_config = terminal_config_for_settings(&state.settings);
         let terminal_manager = runtime_service.terminal_manager();
+        let terminal_pane_registry = HashMap::new();
         let (terminals, active_terminal_id, next_terminal_index) = spawn_terminal_tabs(
             &restore_plan,
             terminal_manager.clone(),
             launch_context.as_ref(),
+            &base_pty_config,
             terminal_config,
+            &terminal_pane_registry,
             cx,
         )?;
         if let Some(view) = terminals
@@ -131,19 +139,30 @@ impl CoduxApp {
         let pet_custom_pets = pet_catalog.custom_pets.clone();
         let pet_sprite_paths =
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
-        let ai_history_refresh_project_ids = state
+        let ai_history_refresh_keys = state
             .selected_project
             .as_ref()
-            .map(|project| HashSet::from([project.id.clone()]))
+            .map(|project| {
+                HashSet::from([format!(
+                    "{}:{}",
+                    project.id,
+                    state
+                        .worktrees
+                        .selected_worktree_id
+                        .clone()
+                        .unwrap_or_else(|| project.id.clone())
+                )])
+            })
             .unwrap_or_default();
         let ai_history_active_index_count = runtime_service.active_ai_history_index_count();
         let project_view_store = initial_project_view_store(&state);
         let worktree_view_store = initial_worktree_view_store(&state, &project_view_store);
 
-        let app = Self {
+        let mut app = Self {
             window_mode: AppWindowMode::Main,
             root_focus_handle: None,
             terminals,
+            terminal_pane_registry: HashMap::new(),
             terminal_manager,
             terminal_layout_loading: false,
             active_terminal_id,
@@ -294,7 +313,7 @@ impl CoduxApp {
             ai_index_progress_visible_until: 0.0,
             ai_index_progress_generation: 0,
             ai_history_active_index_count,
-            ai_history_refresh_project_ids,
+            ai_history_refresh_keys,
             project_switch_generation: 0,
             scheduled_work_in_flight: HashSet::new(),
             scheduled_work_last_started_at: HashMap::new(),
@@ -381,6 +400,7 @@ impl CoduxApp {
             ui_performance_counts: HashMap::new(),
             ui_performance_last_report_at: 0.0,
         };
+        app.register_terminal_panes();
         Ok(app)
     }
 

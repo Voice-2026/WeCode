@@ -4,38 +4,51 @@ impl CoduxApp {
     pub(in crate::app) fn add_terminal_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         prepare_memory_launch_artifacts(&self.state);
         let launch_context = self.current_terminal_launch_context();
-        let owner_id = launch_context
+        let base_pty_config = launch_context
+            .as_ref()
+            .map(TerminalLaunchContext::to_config)
+            .unwrap_or_default();
+        let Some(owner_id) = launch_context
             .as_ref()
             .map(|context| context.project_id.as_str())
-            .unwrap_or("unscoped");
+        else {
+            self.status_message = "no selected workspace for terminal".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
         let id = self.next_terminal_index;
         let tab_number = self.bottom_terminals().count() + 1;
         let title = format!("Tab {tab_number}");
         let pane_plan = TerminalPanePlan {
-            source_id: Some(unique_bottom_slot_id(owner_id)),
             terminal_id: Some(bottom_terminal_id(owner_id, tab_number.saturating_sub(1))),
             title: title.clone(),
             restored_output_bytes: 0,
             restored_output_tail: String::new(),
         };
-        let pane_context = terminal_pane_launch_context(launch_context.as_ref(), id, 0, &pane_plan);
-        match TerminalPane::spawn_with_context_and_config(
+        let pane_terminal_id = terminal_pane_terminal_id(launch_context.as_ref(), &pane_plan);
+        let pty_config = terminal_pty_config_for_terminal_id(
+            &base_pty_config,
+            pane_terminal_id.as_deref(),
+            &title,
+        );
+        match TerminalPane::spawn_with_pty_config(
             cx,
             self.terminal_manager.clone(),
-            pane_context.as_ref(),
+            pty_config,
             self.terminal_config_from_settings(),
         ) {
             Ok(pane) => {
                 self.refresh_terminal_slot_snapshots();
+                self.register_terminal_pane(pane_terminal_id.as_deref(), &pane);
                 self.next_terminal_index += 1;
                 self.terminals.push(TerminalTab {
                     id,
                     label: title.clone(),
-                    source_id: Some(bottom_slot_id(owner_id, tab_number.saturating_sub(1))),
-                    terminal_id: None,
+                    placement: TerminalTabPlacement::Bottom,
+                    terminal_id: pane_terminal_id.clone(),
                     panes: vec![TerminalPaneSlot {
                         title: title.clone(),
-                        launch_context: pane_context,
+                        terminal_id: pane_terminal_id,
                         pane: Some(pane),
                         restored_output_bytes: 0,
                         restored_output_tail: String::new(),
@@ -57,6 +70,10 @@ impl CoduxApp {
     pub(in crate::app) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         prepare_memory_launch_artifacts(&self.state);
         let launch_context = self.current_terminal_launch_context();
+        let base_pty_config = launch_context
+            .as_ref()
+            .map(TerminalLaunchContext::to_config)
+            .unwrap_or_default();
         let Some(active_tab) = self.main_terminal() else {
             return;
         };
@@ -65,36 +82,43 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         }
-        let tab_id = active_tab.id;
-        let owner_id = launch_context
+        let Some(owner_id) = launch_context
             .as_ref()
             .map(|context| context.project_id.as_str())
-            .unwrap_or("unscoped");
+        else {
+            self.status_message = "no selected workspace for terminal".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
         let pane_index = active_tab.panes.len();
         let title = self
             .text("terminal.split.default_format", "Split %d")
             .replace("%d", &(active_tab.panes.len() + 1).to_string());
         let pane_plan = TerminalPanePlan {
-            source_id: Some(top_slot_id(owner_id, pane_index)),
             terminal_id: Some(top_terminal_id(owner_id, pane_index)),
             title: title.clone(),
             restored_output_bytes: 0,
             restored_output_tail: String::new(),
         };
-        let pane_context =
-            terminal_pane_launch_context(launch_context.as_ref(), tab_id, pane_index, &pane_plan);
-        match TerminalPane::spawn_with_context_and_config(
+        let pane_terminal_id = terminal_pane_terminal_id(launch_context.as_ref(), &pane_plan);
+        let pty_config = terminal_pty_config_for_terminal_id(
+            &base_pty_config,
+            pane_terminal_id.as_deref(),
+            &title,
+        );
+        match TerminalPane::spawn_with_pty_config(
             cx,
             self.terminal_manager.clone(),
-            pane_context.as_ref(),
+            pty_config,
             self.terminal_config_from_settings(),
         ) {
             Ok(terminal) => {
+                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal);
                 terminal.view.read(cx).focus_handle().focus(window, cx);
                 if let Some(tab) = self.main_terminal_mut() {
                     tab.panes.push(TerminalPaneSlot {
                         title,
-                        launch_context: pane_context,
+                        terminal_id: pane_terminal_id,
                         pane: Some(terminal),
                         restored_output_bytes: 0,
                         restored_output_tail: String::new(),
@@ -117,7 +141,7 @@ impl CoduxApp {
         let Some(tab_index) = self
             .terminals
             .iter()
-            .position(|tab| tab.source_id.is_none())
+            .position(|tab| tab.placement == TerminalTabPlacement::Top)
             .or_else(|| {
                 self.terminals
                     .iter()
@@ -136,24 +160,28 @@ impl CoduxApp {
         }
 
         self.refresh_terminal_slot_snapshots();
-        let tab_id = self.terminals[tab_index].id;
+        let tab_view_id = self.terminals[tab_index].id;
         let mut slot = self.terminals[tab_index].panes.remove(pane_index);
         let title = slot.title.clone();
         if slot.pane.is_none() {
-            let Some(launch_context) = slot.launch_context.clone() else {
+            if slot.terminal_id.is_none() {
                 self.terminals[tab_index].panes.insert(pane_index, slot);
                 self.status_message =
                     "terminal pane cannot be floated without a stable session".to_string();
                 self.invalidate_terminal_workspace(cx);
                 return;
-            };
-            match TerminalPane::spawn_with_context_and_config(
+            }
+            let pty_config = self.terminal_pty_config_for_slot(&slot);
+            match TerminalPane::spawn_with_pty_config(
                 cx,
                 self.terminal_manager.clone(),
-                Some(&launch_context),
+                pty_config,
                 self.terminal_config_from_settings(),
             ) {
-                Ok(pane) => slot.pane = Some(pane),
+                Ok(pane) => {
+                    self.register_terminal_pane(slot.terminal_id.as_deref(), &pane);
+                    slot.pane = Some(pane);
+                }
                 Err(error) => {
                     self.terminals[tab_index].panes.insert(pane_index, slot);
                     self.status_message =
@@ -177,7 +205,7 @@ impl CoduxApp {
             title.clone(),
             app_entity,
             project_id,
-            tab_id,
+            tab_view_id,
             pane_index,
             slot,
             cx,
@@ -221,7 +249,7 @@ impl CoduxApp {
     pub(in crate::app) fn restore_floated_terminal_slot(
         &mut self,
         project_id: Option<String>,
-        tab_id: usize,
+        tab_view_id: usize,
         pane_index: usize,
         slot: TerminalPaneSlot,
         cx: &mut Context<Self>,
@@ -241,11 +269,11 @@ impl CoduxApp {
         let Some(tab_index) = self
             .terminals
             .iter()
-            .position(|tab| tab.id == tab_id)
+            .position(|tab| tab.id == tab_view_id)
             .or_else(|| {
                 self.terminals
                     .iter()
-                    .position(|tab| tab.source_id.is_none())
+                    .position(|tab| tab.placement == TerminalTabPlacement::Top)
             })
         else {
             return;
@@ -266,7 +294,7 @@ impl CoduxApp {
         let Some(tab_index) = self
             .terminals
             .iter()
-            .position(|tab| tab.source_id.is_none())
+            .position(|tab| tab.placement == TerminalTabPlacement::Top)
             .or_else(|| {
                 self.terminals
                     .iter()
@@ -286,20 +314,20 @@ impl CoduxApp {
         self.refresh_terminal_slot_snapshots();
         let removed = self.terminals[tab_index].panes.remove(pane_index);
         let terminal_id = removed
-            .launch_context
-            .as_ref()
-            .and_then(|context| context.terminal_id.clone())
+            .terminal_id
+            .clone()
             .or_else(|| self.terminals[tab_index].terminal_id.clone())
-            .unwrap_or_else(|| {
-                format!(
-                    "gpui-pane-unscoped-{}-{}",
-                    self.terminals[tab_index].id,
-                    pane_index + 1
-                )
-            });
+            .unwrap_or_default();
+        if terminal_id.trim().is_empty() {
+            self.terminals[tab_index].panes.insert(pane_index, removed);
+            self.status_message = "terminal split has no terminal id".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        }
         let still_referenced = self.terminals.iter().any(|tab| {
             tab.panes.iter().enumerate().any(|(index, slot)| {
-                Self::terminal_slot_terminal_id(tab, index, slot) == terminal_id
+                Self::terminal_slot_terminal_id(tab, index, slot).as_deref()
+                    == Some(terminal_id.as_str())
             })
         });
         let kill_result = if still_referenced {
@@ -371,6 +399,10 @@ impl CoduxApp {
     ) {
         prepare_memory_launch_artifacts(&self.state);
         let launch_context = self.current_terminal_launch_context();
+        let base_pty_config = launch_context
+            .as_ref()
+            .map(TerminalLaunchContext::to_config)
+            .unwrap_or_default();
         let Some(active_tab) = self.main_terminal() else {
             self.status_message = "no main terminal to restore session".to_string();
             self.invalidate_terminal_workspace(cx);
@@ -382,34 +414,41 @@ impl CoduxApp {
             return;
         }
 
-        let tab_id = active_tab.id;
-        let owner_id = launch_context
+        let Some(owner_id) = launch_context
             .as_ref()
             .map(|context| context.project_id.as_str())
-            .unwrap_or("unscoped");
+        else {
+            self.status_message = "no selected workspace for terminal".to_string();
+            self.invalidate_terminal_workspace(cx);
+            return;
+        };
         let pane_index = active_tab.panes.len();
         let pane_plan = TerminalPanePlan {
-            source_id: Some(top_slot_id(owner_id, pane_index)),
             terminal_id: Some(top_terminal_id(owner_id, pane_index)),
             title: title.clone(),
             restored_output_bytes: 0,
             restored_output_tail: String::new(),
         };
-        let pane_context =
-            terminal_pane_launch_context(launch_context.as_ref(), tab_id, pane_index, &pane_plan);
-        match TerminalPane::spawn_with_context_and_config(
+        let pane_terminal_id = terminal_pane_terminal_id(launch_context.as_ref(), &pane_plan);
+        let pty_config = terminal_pty_config_for_terminal_id(
+            &base_pty_config,
+            pane_terminal_id.as_deref(),
+            &title,
+        );
+        match TerminalPane::spawn_with_pty_config(
             cx,
             self.terminal_manager.clone(),
-            pane_context.as_ref(),
+            pty_config,
             self.terminal_config_from_settings(),
         ) {
             Ok(terminal) => {
+                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal);
                 let send_result = terminal.send_text(&format!("{command}\n"));
                 terminal.view.read(cx).focus_handle().focus(window, cx);
                 if let Some(tab) = self.main_terminal_mut() {
                     tab.panes.push(TerminalPaneSlot {
                         title,
-                        launch_context: pane_context,
+                        terminal_id: pane_terminal_id,
                         pane: Some(terminal),
                         restored_output_bytes: 0,
                         restored_output_tail: String::new(),
@@ -442,19 +481,22 @@ impl CoduxApp {
         };
         self.refresh_terminal_slot_snapshots();
         let removed = self.terminals.remove(index);
-        let kill_errors = removed
+        let terminal_ids = removed
             .panes
             .iter()
             .enumerate()
             .filter_map(|(pane_index, slot)| {
-                let terminal_id = Self::terminal_slot_terminal_id(&removed, pane_index, slot);
-                self.kill_terminal_session_if_present(&terminal_id).err()
+                Self::terminal_slot_terminal_id(&removed, pane_index, slot)
             })
+            .collect::<Vec<_>>();
+        let kill_errors = terminal_ids
+            .iter()
+            .filter_map(|terminal_id| self.kill_terminal_session_if_present(terminal_id).err())
             .collect::<Vec<_>>();
         self.active_terminal_id = self
             .terminals
             .get(index.saturating_sub(1))
-            .filter(|tab| tab.source_id.is_some())
+            .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
             .or_else(|| self.bottom_terminals().next())
             .map(|tab| tab.id)
             .unwrap_or(0);

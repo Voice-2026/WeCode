@@ -1,5 +1,6 @@
 use super::types::{
-    TerminalPanePlan, TerminalPaneSlot, TerminalRestorePlan, TerminalTab, TerminalTabPlan,
+    TerminalPanePlan, TerminalPaneSlot, TerminalRestorePlan, TerminalTab, TerminalTabPlacement,
+    TerminalTabPlan,
 };
 use crate::terminal::{
     ColorPalette, TerminalConfig, TerminalLaunchContext, TerminalPane,
@@ -14,13 +15,14 @@ use codux_runtime::{
     runtime_state::RuntimeState,
     settings::{AppSettingsStore, SettingsSummary, locale_from_language_setting},
     terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
-    terminal_pty::TerminalManager,
+    terminal_pty::{TerminalManager, TerminalPtyConfig},
     terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     tool_permissions::ToolPermissionsSummary,
     worktree::WorktreeInfo,
 };
 use gpui::px;
-use std::{collections::HashSet, path::PathBuf, sync::Arc};
+use std::sync::Arc;
+use std::{collections::HashMap, path::PathBuf};
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -45,10 +47,9 @@ pub(in crate::app) fn terminal_restore_plan_for_language(
         tr("terminal.split.default_format", "Split %d").replace("%d", &index.to_string())
     };
     let mut tabs = Vec::new();
-    let mut used_runtime_terminal_ids = HashSet::new();
     if !layout.top_panes.is_empty() {
         tabs.push(TerminalTabPlan {
-            source_id: None,
+            placement: TerminalTabPlacement::Top,
             terminal_id: None,
             label: tr("terminal.main", "Main Terminal"),
             panes: layout
@@ -61,17 +62,16 @@ pub(in crate::app) fn terminal_restore_plan_for_language(
                     } else {
                         pane.title.clone()
                     };
-                    let session = unique_runtime_session(
-                        runtime_top_session(runtime, index),
-                        &mut used_runtime_terminal_ids,
-                    );
+                    let terminal_id = normalized_terminal_id(&pane.terminal_id);
+                    let session = terminal_id
+                        .as_deref()
+                        .and_then(|id| runtime_session_by_terminal_id(runtime, id));
                     TerminalPanePlan {
-                        source_id: session
-                            .map(|session| session.slot_id.clone())
-                            .filter(|id| !id.trim().is_empty()),
-                        terminal_id: session
-                            .map(|session| session.terminal_id.clone())
-                            .filter(|id| !id.trim().is_empty()),
+                        terminal_id: terminal_id.or_else(|| {
+                            session
+                                .map(|session| session.terminal_id.clone())
+                                .filter(|id| !id.trim().is_empty())
+                        }),
                         title,
                         restored_output_bytes: session
                             .map(|session| session.output_bytes)
@@ -90,20 +90,19 @@ pub(in crate::app) fn terminal_restore_plan_for_language(
         } else {
             tab.label.clone()
         };
-        let session = unique_runtime_session(
-            runtime_bottom_session(runtime, index, &tab.id),
-            &mut used_runtime_terminal_ids,
-        );
+        let terminal_id = normalized_terminal_id(&tab.terminal_id);
+        let session = terminal_id
+            .as_deref()
+            .and_then(|id| runtime_session_by_terminal_id(runtime, id));
         TerminalTabPlan {
-            source_id: Some(tab.id.clone()).filter(|id| !id.trim().is_empty()),
-            terminal_id: None,
+            placement: TerminalTabPlacement::Bottom,
+            terminal_id: terminal_id.clone(),
             panes: vec![TerminalPanePlan {
-                source_id: session
-                    .map(|session| session.slot_id.clone())
-                    .filter(|id| !id.trim().is_empty()),
-                terminal_id: session
-                    .map(|session| session.terminal_id.clone())
-                    .filter(|id| !id.trim().is_empty()),
+                terminal_id: terminal_id.or_else(|| {
+                    session
+                        .map(|session| session.terminal_id.clone())
+                        .filter(|id| !id.trim().is_empty())
+                }),
                 title: label.clone(),
                 restored_output_bytes: session
                     .map(|session| session.output_bytes)
@@ -118,58 +117,35 @@ pub(in crate::app) fn terminal_restore_plan_for_language(
     if tabs.is_empty() {
         let default_title = tab_title(1);
         tabs.push(TerminalTabPlan {
-            source_id: None,
+            placement: TerminalTabPlacement::Top,
             terminal_id: None,
             label: default_title.clone(),
             panes: vec![TerminalPanePlan {
-                source_id: None,
                 terminal_id: None,
                 title: default_title,
-                restored_output_bytes: restored_terminal_output_bytes(runtime, None, None),
-                restored_output_tail: restored_terminal_output_tail(runtime, None, None),
+                restored_output_bytes: 0,
+                restored_output_tail: String::new(),
             }],
         });
     }
     for (index, tab) in tabs.iter_mut().enumerate() {
         if tab.panes.is_empty() {
             tab.panes.push(TerminalPanePlan {
-                source_id: tab.source_id.clone(),
                 terminal_id: tab.terminal_id.clone(),
                 title: split_title(index + 1),
                 restored_output_bytes: restored_terminal_output_bytes(
                     runtime,
                     tab.terminal_id.as_deref(),
-                    tab.source_id.as_deref(),
                 ),
                 restored_output_tail: restored_terminal_output_tail(
                     runtime,
                     tab.terminal_id.as_deref(),
-                    tab.source_id.as_deref(),
                 ),
             });
         }
     }
 
-    let active_index = layout
-        .tabs
-        .iter()
-        .position(|tab| !layout.active_tab_id.is_empty() && tab.id == layout.active_tab_id)
-        .map(|index| {
-            if layout.top_panes.is_empty() {
-                index
-            } else {
-                index + 1
-            }
-        })
-        .or_else(|| {
-            (!layout.top_panes.is_empty()
-                && (layout.active_slot_id.is_empty()
-                    || layout
-                        .top_panes
-                        .iter()
-                        .any(|pane| pane.id == layout.active_slot_id)))
-            .then_some(0)
-        })
+    let active_index = active_terminal_layout_index(layout)
         .unwrap_or(0)
         .min(tabs.len().saturating_sub(1));
 
@@ -180,34 +156,24 @@ pub(in crate::app) fn normalize_terminal_restore_state(
     owner_id: Option<&str>,
     mut layout: TerminalLayoutSummary,
     runtime: TerminalRuntimeSummary,
+    language: &str,
 ) -> (TerminalLayoutSummary, TerminalRuntimeSummary) {
     let Some(owner_id) = owner_id.filter(|id| !id.trim().is_empty()) else {
         return (layout, runtime);
     };
 
     layout = structural_terminal_layout(layout);
-    if !layout
-        .top_panes
-        .iter()
-        .any(|pane| pane.id == layout.active_slot_id)
-        && !layout
-            .tabs
-            .iter()
-            .any(|tab| tab.id == layout.active_slot_id)
-    {
-        layout.active_slot_id = layout
+    if layout.top_panes.is_empty() && layout.tabs.is_empty() {
+        layout = default_terminal_layout_for_owner(Some(owner_id), language);
+    }
+    if !layout_has_terminal(&layout, &layout.active_terminal_id) {
+        layout.active_terminal_id = layout
             .top_panes
             .first()
-            .map(|pane| pane.id.clone())
-            .or_else(|| layout.tabs.first().map(|tab| tab.id.clone()))
+            .map(|pane| pane.terminal_id.clone())
+            .or_else(|| layout.tabs.first().map(|tab| tab.terminal_id.clone()))
             .unwrap_or_default();
     }
-    layout.active_tab_id = layout
-        .tabs
-        .iter()
-        .find(|tab| tab.id == layout.active_slot_id)
-        .map(|tab| tab.id.clone())
-        .unwrap_or_default();
 
     let mut runtime = runtime_for_owner(runtime, owner_id);
     if !runtime
@@ -217,27 +183,12 @@ pub(in crate::app) fn normalize_terminal_restore_state(
     {
         runtime.active_terminal_id.clear();
     }
-    if !runtime.sessions.iter().any(|session| {
-        session.slot_id == runtime.active_slot_id || session.tab_id == runtime.active_slot_id
-    }) {
-        runtime.active_slot_id.clear();
-    }
     (layout, runtime)
-}
-
-pub(in crate::app) fn bottom_slot_id(owner_id: &str, index: usize) -> String {
-    let _ = owner_id;
-    format!("bottom-{}", index + 1)
 }
 
 pub(in crate::app) fn bottom_terminal_id(owner_id: &str, index: usize) -> String {
     let _ = index;
     unique_terminal_id(owner_id)
-}
-
-pub(in crate::app) fn top_slot_id(owner_id: &str, index: usize) -> String {
-    let _ = index;
-    unique_main_slot_id(owner_id)
 }
 
 pub(in crate::app) fn top_terminal_id(owner_id: &str, index: usize) -> String {
@@ -248,114 +199,97 @@ pub(in crate::app) fn top_terminal_id(owner_id: &str, index: usize) -> String {
 pub(in crate::app) fn structural_terminal_layout(
     mut layout: TerminalLayoutSummary,
 ) -> TerminalLayoutSummary {
-    let old_active_slot_id = layout.active_slot_id.clone();
-    let old_active_tab_id = layout.active_tab_id.clone();
-
-    for (index, pane) in layout.top_panes.iter_mut().enumerate() {
-        let old_id = pane.id.clone();
-        pane.id = structural_top_slot_id(index);
-        pane.terminal_id.clear();
-        if old_active_slot_id == old_id {
-            layout.active_slot_id = pane.id.clone();
-        }
-    }
-
-    for (index, tab) in layout.tabs.iter_mut().enumerate() {
-        let old_id = tab.id.clone();
-        tab.id = structural_bottom_slot_id(index);
-        tab.terminal_id.clear();
-        if old_active_slot_id == old_id || old_active_tab_id == old_id {
-            layout.active_slot_id = tab.id.clone();
-            layout.active_tab_id = tab.id.clone();
-        }
-    }
-
-    if !layout
+    layout
         .top_panes
-        .iter()
-        .any(|pane| pane.id == layout.active_slot_id)
-        && !layout
-            .tabs
-            .iter()
-            .any(|tab| tab.id == layout.active_slot_id)
-    {
-        layout.active_slot_id = layout
+        .retain(|pane| !pane.terminal_id.trim().is_empty());
+    layout.tabs.retain(|tab| !tab.terminal_id.trim().is_empty());
+    if !layout_has_terminal(&layout, &layout.active_terminal_id) {
+        layout.active_terminal_id = layout
             .top_panes
             .first()
-            .map(|pane| pane.id.clone())
-            .or_else(|| layout.tabs.first().map(|tab| tab.id.clone()))
+            .map(|pane| pane.terminal_id.clone())
+            .or_else(|| layout.tabs.first().map(|tab| tab.terminal_id.clone()))
             .unwrap_or_default();
     }
-    layout.active_tab_id = layout
-        .tabs
-        .iter()
-        .find(|tab| tab.id == layout.active_slot_id)
-        .map(|tab| tab.id.clone())
-        .unwrap_or_default();
     layout
 }
 
-fn structural_top_slot_id(index: usize) -> String {
-    format!("main-{}", index + 1)
+pub(in crate::app) fn default_terminal_layout_for_owner(
+    owner_id: Option<&str>,
+    language: &str,
+) -> TerminalLayoutSummary {
+    let locale = locale_from_language_setting(language);
+    let title = translate(&locale, "terminal.tab.default_format", "Terminal %d").replace("%d", "1");
+    let terminal_id = owner_id
+        .filter(|id| !id.trim().is_empty())
+        .map(|id| top_terminal_id(id, 0))
+        .unwrap_or_default();
+    TerminalLayoutSummary {
+        active_terminal_id: terminal_id.clone(),
+        top_panes: vec![TerminalPaneSummary { title, terminal_id }],
+        top_ratios: vec![1.0],
+        bottom_ratio: 0.32,
+        error: None,
+        ..TerminalLayoutSummary::default()
+    }
 }
 
-fn structural_bottom_slot_id(index: usize) -> String {
-    format!("bottom-{}", index + 1)
+fn layout_has_terminal(layout: &TerminalLayoutSummary, terminal_id: &str) -> bool {
+    let terminal_id = terminal_id.trim();
+    !terminal_id.is_empty()
+        && (layout
+            .top_panes
+            .iter()
+            .any(|pane| pane.terminal_id == terminal_id)
+            || layout.tabs.iter().any(|tab| tab.terminal_id == terminal_id))
 }
 
-fn unique_main_slot_id(owner_id: &str) -> String {
-    format!("gpui-pane-{owner_id}-{}", Uuid::new_v4())
-}
-
-pub(in crate::app) fn unique_bottom_slot_id(owner_id: &str) -> String {
-    format!("bottom-{owner_id}-{}", Uuid::new_v4())
+fn active_terminal_layout_index(layout: &TerminalLayoutSummary) -> Option<usize> {
+    let active_terminal_id = layout.active_terminal_id.trim();
+    if active_terminal_id.is_empty() {
+        return None;
+    }
+    if layout
+        .top_panes
+        .iter()
+        .any(|pane| pane.terminal_id == active_terminal_id)
+    {
+        return Some(0);
+    }
+    layout
+        .tabs
+        .iter()
+        .position(|tab| tab.terminal_id == active_terminal_id)
+        .map(|index| {
+            if layout.top_panes.is_empty() {
+                index
+            } else {
+                index + 1
+            }
+        })
 }
 
 fn unique_terminal_id(owner_id: &str) -> String {
     format!("gpui-term-{owner_id}-{}", Uuid::new_v4())
 }
 
-fn runtime_top_session(
-    runtime: &TerminalRuntimeSummary,
-    index: usize,
-) -> Option<&TerminalRuntimeSessionSummary> {
-    runtime
-        .sessions
-        .iter()
-        .filter(|session| !session.slot_id.starts_with("bottom-"))
-        .nth(index)
-}
-
-fn runtime_bottom_session<'a>(
-    runtime: &'a TerminalRuntimeSummary,
-    index: usize,
-    structural_tab_id: &str,
-) -> Option<&'a TerminalRuntimeSessionSummary> {
-    runtime
-        .sessions
-        .iter()
-        .filter(|session| session.slot_id.starts_with("bottom-"))
-        .find(|session| session.tab_id == structural_tab_id)
-        .or_else(|| {
-            runtime
-                .sessions
-                .iter()
-                .filter(|session| session.slot_id.starts_with("bottom-"))
-                .nth(index)
-        })
-}
-
-fn unique_runtime_session<'a>(
-    session: Option<&'a TerminalRuntimeSessionSummary>,
-    used_terminal_ids: &mut HashSet<String>,
-) -> Option<&'a TerminalRuntimeSessionSummary> {
-    let session = session?;
-    if session.terminal_id.trim().is_empty()
-        || !used_terminal_ids.insert(session.terminal_id.clone())
-    {
-        return None;
+fn normalized_terminal_id(terminal_id: &str) -> Option<String> {
+    let terminal_id = terminal_id.trim();
+    if terminal_id.is_empty() {
+        None
+    } else {
+        Some(terminal_id.to_string())
     }
-    Some(session)
+}
+
+fn runtime_session_by_terminal_id<'a>(
+    runtime: &'a TerminalRuntimeSummary,
+    terminal_id: &str,
+) -> Option<&'a TerminalRuntimeSessionSummary> {
+    runtime
+        .sessions
+        .iter()
+        .find(|session| session.terminal_id == terminal_id)
 }
 
 fn runtime_for_owner(
@@ -386,24 +320,17 @@ fn terminal_session_belongs_to_owner(
         return true;
     }
     let terminal_prefix = format!("gpui-term-{owner_id}-");
-    let pane_prefix = format!("gpui-pane-{owner_id}-");
-    let bottom_prefix = format!("bottom-{owner_id}-");
     session.terminal_id.starts_with(&terminal_prefix)
-        || session.slot_id.starts_with(&pane_prefix)
-        || session.slot_id.starts_with(&bottom_prefix)
-        || session.tab_id.starts_with(&pane_prefix)
-        || session.tab_id.starts_with(&bottom_prefix)
 }
 
 fn restored_terminal_output_tail(
     runtime: &TerminalRuntimeSummary,
     terminal_id: Option<&str>,
-    slot_id: Option<&str>,
 ) -> String {
     runtime
         .sessions
         .iter()
-        .find(|session| terminal_session_matches(session, terminal_id, slot_id))
+        .find(|session| terminal_id.is_some_and(|id| session.terminal_id == id))
         .map(|session| session.output_tail.clone())
         .unwrap_or_default()
 }
@@ -411,115 +338,152 @@ fn restored_terminal_output_tail(
 fn restored_terminal_output_bytes(
     runtime: &TerminalRuntimeSummary,
     terminal_id: Option<&str>,
-    slot_id: Option<&str>,
 ) -> usize {
     runtime
         .sessions
         .iter()
-        .find(|session| terminal_session_matches(session, terminal_id, slot_id))
+        .find(|session| terminal_id.is_some_and(|id| session.terminal_id == id))
         .map(|session| session.output_bytes)
         .unwrap_or_default()
-}
-
-fn terminal_session_matches(
-    session: &TerminalRuntimeSessionSummary,
-    terminal_id: Option<&str>,
-    slot_id: Option<&str>,
-) -> bool {
-    let terminal_id = terminal_id.filter(|id| !id.trim().is_empty());
-    let slot_id = slot_id.filter(|id| !id.trim().is_empty());
-    let terminal_matches = terminal_id.is_some_and(|id| session.terminal_id == id);
-    let slot_matches = slot_id.is_some_and(|id| session.slot_id == id || session.tab_id == id);
-    match (terminal_id, slot_id) {
-        (Some(_), Some(_)) => terminal_matches && slot_matches,
-        (Some(_), None) => terminal_matches,
-        (None, Some(_)) => slot_matches,
-        (None, None) => false,
-    }
 }
 
 pub(in crate::app) fn spawn_terminal_tabs<C>(
     plan: &TerminalRestorePlan,
     terminal_manager: Arc<TerminalManager>,
     launch_context: Option<&TerminalLaunchContext>,
+    base_pty_config: &TerminalPtyConfig,
     terminal_config: TerminalConfig,
+    terminal_pane_registry: &HashMap<String, TerminalPane>,
     cx: &mut C,
 ) -> Result<(Vec<TerminalTab>, usize, usize)>
 where
     C: gpui::AppContext,
 {
+    let (mut tabs, active_terminal_id, next_id) =
+        restore_terminal_tabs_skeleton(plan, launch_context);
+    for (tab_plan_index, tab_plan) in plan.tabs.iter().enumerate() {
+        let mount_tab = tab_plan_index == plan.active_index
+            || (tab_plan.placement == TerminalTabPlacement::Top && tab_plan.terminal_id.is_none());
+        if mount_tab && let Some(tab) = tabs.get_mut(tab_plan_index) {
+            mount_terminal_tab_panes(
+                tab,
+                terminal_manager.clone(),
+                base_pty_config,
+                &terminal_config,
+                terminal_pane_registry,
+                cx,
+            )?;
+        }
+    }
+    Ok((tabs, active_terminal_id, next_id))
+}
+
+fn mount_terminal_tab_panes<C>(
+    tab: &mut TerminalTab,
+    terminal_manager: Arc<TerminalManager>,
+    base_pty_config: &TerminalPtyConfig,
+    terminal_config: &TerminalConfig,
+    terminal_pane_registry: &HashMap<String, TerminalPane>,
+    cx: &mut C,
+) -> Result<()>
+where
+    C: gpui::AppContext,
+{
+    for slot in &mut tab.panes {
+        if slot.pane.is_some() {
+            continue;
+        }
+        if let Some(pane) = slot
+            .terminal_id
+            .as_deref()
+            .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
+            .cloned()
+        {
+            slot.pane = Some(pane);
+            continue;
+        }
+        let pty_config = terminal_pty_config_for_terminal_id(
+            base_pty_config,
+            slot.terminal_id.as_deref(),
+            &slot.title,
+        );
+        slot.pane = Some(TerminalPane::spawn_with_pty_config(
+            cx,
+            terminal_manager.clone(),
+            pty_config,
+            terminal_config.clone(),
+        )?);
+    }
+    Ok(())
+}
+
+pub(in crate::app) fn terminal_pty_config_for_terminal_id(
+    base: &TerminalPtyConfig,
+    terminal_id: Option<&str>,
+    title: &str,
+) -> TerminalPtyConfig {
+    let mut config = base.clone();
+    config.slot_id = None;
+    if let Some(terminal_id) = terminal_id.filter(|id| !id.trim().is_empty()) {
+        config.terminal_id = Some(terminal_id.to_string());
+        if let Some(project_id) = config.project_id.clone() {
+            let session_key = format!("gpui:{project_id}:{terminal_id}");
+            let session_instance_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, session_key.as_bytes());
+            config.session_key = Some(session_key);
+            config.session_instance_id = Some(session_instance_id.to_string());
+        }
+    } else if let (Some(project_id), Some(terminal_id)) =
+        (config.project_id.clone(), config.terminal_id.clone())
+    {
+        let session_key = format!("gpui:{project_id}:{terminal_id}");
+        let session_instance_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, session_key.as_bytes());
+        config.session_key = Some(session_key);
+        config.session_instance_id = Some(session_instance_id.to_string());
+    }
+    config.title = Some(title.to_string());
+    config
+}
+
+pub(in crate::app) fn restore_terminal_tabs_skeleton(
+    plan: &TerminalRestorePlan,
+    launch_context: Option<&TerminalLaunchContext>,
+) -> (Vec<TerminalTab>, usize, usize) {
     let mut next_id = 1;
     let mut tabs = Vec::new();
-    for (tab_plan_index, tab_plan) in plan.tabs.iter().enumerate() {
-        let tab_id = next_id;
+    for tab_plan in &plan.tabs {
+        let view_id = next_id;
         next_id += 1;
         let mut panes = Vec::new();
-        let mount_tab = tab_plan_index == plan.active_index
-            || (tab_plan.source_id.is_none() && tab_plan.terminal_id.is_none());
-        for (pane_index, pane_plan) in tab_plan.panes.iter().enumerate() {
-            let mut pane_plan = pane_plan.clone();
-            if pane_plan.source_id.is_none()
-                && tab_plan.source_id.is_some()
-                && let Some(base_context) = launch_context
-            {
-                pane_plan.source_id = Some(unique_bottom_slot_id(&base_context.project_id));
-            }
-            let pane_context =
-                terminal_pane_launch_context(launch_context, tab_id, pane_index, &pane_plan);
-            let pane = if mount_tab {
-                Some(TerminalPane::spawn_with_context_and_config(
-                    cx,
-                    terminal_manager.clone(),
-                    pane_context.as_ref(),
-                    terminal_config.clone(),
-                )?)
-            } else {
-                None
-            };
+        for pane_plan in &tab_plan.panes {
+            let terminal_id = terminal_pane_terminal_id(launch_context, pane_plan);
             panes.push(TerminalPaneSlot {
                 title: pane_plan.title.clone(),
-                launch_context: pane_context.clone(),
-                pane,
+                terminal_id,
+                pane: None,
                 restored_output_bytes: pane_plan.restored_output_bytes,
                 restored_output_tail: pane_plan.restored_output_tail.clone(),
             });
         }
         if panes.is_empty() {
-            let mut pane_plan = TerminalPanePlan {
-                source_id: None,
+            let pane_plan = TerminalPanePlan {
                 terminal_id: tab_plan.terminal_id.clone(),
                 title: tab_plan.label.clone(),
                 restored_output_bytes: 0,
                 restored_output_tail: String::new(),
             };
-            if tab_plan.source_id.is_some()
-                && let Some(base_context) = launch_context
-            {
-                pane_plan.source_id = Some(unique_bottom_slot_id(&base_context.project_id));
-            }
-            let pane_context = terminal_pane_launch_context(launch_context, tab_id, 0, &pane_plan);
-            let pane = if mount_tab {
-                Some(TerminalPane::spawn_with_context_and_config(
-                    cx,
-                    terminal_manager.clone(),
-                    pane_context.as_ref(),
-                    terminal_config.clone(),
-                )?)
-            } else {
-                None
-            };
+            let terminal_id = terminal_pane_terminal_id(launch_context, &pane_plan);
             panes.push(TerminalPaneSlot {
                 title: tab_plan.label.clone(),
-                launch_context: pane_context.clone(),
-                pane,
+                terminal_id,
+                pane: None,
                 restored_output_bytes: pane_plan.restored_output_bytes,
                 restored_output_tail: pane_plan.restored_output_tail,
             });
         }
         tabs.push(TerminalTab {
-            id: tab_id,
+            id: view_id,
             label: tab_plan.label.clone(),
-            source_id: tab_plan.source_id.clone(),
+            placement: tab_plan.placement,
             terminal_id: tab_plan.terminal_id.clone(),
             panes,
         });
@@ -529,7 +493,7 @@ where
         .or_else(|| tabs.first())
         .map(|tab| tab.id)
         .unwrap_or(1);
-    Ok((tabs, active_terminal_id, next_id))
+    (tabs, active_terminal_id, next_id)
 }
 
 pub(in crate::app) fn terminal_launch_context(
@@ -553,11 +517,7 @@ pub(in crate::app) fn terminal_launch_context(
         .map(|worktree| worktree.path.clone())
         .unwrap_or_else(|| project.path.clone());
     let default_terminal_id = format!("gpui-term-{}-1", workspace_id);
-    let default_slot_id = format!("gpui-pane-{}-1", workspace_id);
-    let default_session_key = format!(
-        "gpui:{}:{}:{}",
-        workspace_id, default_terminal_id, default_slot_id
-    );
+    let default_session_key = format!("gpui:{}:{}", workspace_id, default_terminal_id);
     let default_session_instance_id =
         Uuid::new_v5(&Uuid::NAMESPACE_URL, default_session_key.as_bytes()).to_string();
     let memory_artifacts = (state.memory.available && state.settings.memory_enabled)
@@ -569,7 +529,7 @@ pub(in crate::app) fn terminal_launch_context(
         support_dir: state.support_dir.clone(),
         runtime_root: runtime.root.clone(),
         terminal_id: Some(default_terminal_id),
-        slot_id: Some(default_slot_id),
+        slot_id: None,
         session_key: Some(default_session_key),
         session_title: None,
         session_cwd: None,
@@ -682,34 +642,18 @@ fn terminal_color_palette(theme_name: &str, theme_color: &str) -> ColorPalette {
         .build()
 }
 
-pub(in crate::app) fn terminal_pane_launch_context(
+pub(in crate::app) fn terminal_pane_terminal_id(
     base: Option<&TerminalLaunchContext>,
-    _tab_id: usize,
-    _pane_index: usize,
     pane: &TerminalPanePlan,
-) -> Option<TerminalLaunchContext> {
-    let mut context = base.cloned()?;
-    let terminal_id = pane
-        .terminal_id
-        .clone()
-        .filter(|id| !id.trim().is_empty())
-        .map(|id| project_terminal_id(&context.project_id, &id))
-        .unwrap_or_else(|| unique_terminal_id(&context.project_id));
-    let slot_id = pane
-        .source_id
-        .clone()
-        .filter(|id| !id.trim().is_empty())
-        .map(|id| project_slot_id(&context.project_id, &id))
-        .unwrap_or_else(|| unique_main_slot_id(&context.project_id));
-    let session_key = format!("gpui:{}:{terminal_id}:{slot_id}", context.project_id);
-    let session_instance_id = Uuid::new_v5(&Uuid::NAMESPACE_URL, session_key.as_bytes());
-    context.terminal_id = Some(terminal_id);
-    context.slot_id = Some(slot_id);
-    context.session_key = Some(session_key);
-    context.session_title = Some(pane.title.clone());
-    context.session_cwd = Some(context.project_path.clone());
-    context.session_instance_id = Some(session_instance_id.to_string());
-    Some(context)
+) -> Option<String> {
+    let context = base?;
+    Some(
+        pane.terminal_id
+            .clone()
+            .filter(|id| !id.trim().is_empty())
+            .map(|id| project_terminal_id(&context.project_id, &id))
+            .unwrap_or_else(|| unique_terminal_id(&context.project_id)),
+    )
 }
 
 fn project_terminal_id(project_id: &str, terminal_id: &str) -> String {
@@ -719,16 +663,6 @@ fn project_terminal_id(project_id: &str, terminal_id: &str) -> String {
         format!("gpui-term-{project_id}-{suffix}")
     } else {
         terminal_id.to_string()
-    }
-}
-
-fn project_slot_id(project_id: &str, slot_id: &str) -> String {
-    if slot_id.starts_with(&format!("gpui-pane-{project_id}-")) {
-        slot_id.to_string()
-    } else if let Some(suffix) = slot_id.strip_prefix("gpui-pane-") {
-        format!("gpui-pane-{project_id}-{suffix}")
-    } else {
-        slot_id.to_string()
     }
 }
 
@@ -751,21 +685,21 @@ pub(in crate::app) fn prepare_memory_launch_artifacts(state: &RuntimeState) {
     );
 }
 
-pub(in crate::app) fn terminal_tab_summary(index: usize, tab: &TerminalTab) -> TerminalTabSummary {
+pub(in crate::app) fn terminal_tab_summary(tab: &TerminalTab) -> TerminalTabSummary {
     TerminalTabSummary {
-        id: structural_bottom_slot_id(index),
         label: tab.label.clone(),
-        terminal_id: String::new(),
+        terminal_id: tab
+            .panes
+            .first()
+            .and_then(|slot| slot.terminal_id.clone())
+            .or_else(|| tab.terminal_id.clone())
+            .unwrap_or_default(),
     }
 }
 
-pub(in crate::app) fn terminal_pane_summary(
-    index: usize,
-    slot: &TerminalPaneSlot,
-) -> TerminalPaneSummary {
+pub(in crate::app) fn terminal_pane_summary(slot: &TerminalPaneSlot) -> TerminalPaneSummary {
     TerminalPaneSummary {
-        id: structural_top_slot_id(index),
         title: slot.title.clone(),
-        terminal_id: String::new(),
+        terminal_id: slot.terminal_id.clone().unwrap_or_default(),
     }
 }

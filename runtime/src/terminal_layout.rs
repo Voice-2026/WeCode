@@ -10,8 +10,8 @@ pub fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> Strin
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalLayoutSummary {
-    pub active_slot_id: String,
-    pub active_tab_id: String,
+    #[serde(default)]
+    pub active_terminal_id: String,
     pub top_panes: Vec<TerminalPaneSummary>,
     pub tabs: Vec<TerminalTabSummary>,
     pub top_ratios: Vec<f64>,
@@ -22,7 +22,6 @@ pub struct TerminalLayoutSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalPaneSummary {
-    pub id: String,
     pub title: String,
     pub terminal_id: String,
 }
@@ -30,7 +29,6 @@ pub struct TerminalPaneSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalTabSummary {
-    pub id: String,
     pub label: String,
     pub terminal_id: String,
 }
@@ -102,9 +100,8 @@ impl TerminalLayoutService {
         &self,
         project_id: &str,
         tabs: Vec<TerminalTabSummary>,
-        active_tab_id: String,
+        active_terminal_id: String,
         top_panes: Vec<TerminalPaneSummary>,
-        active_slot_id: String,
     ) -> Result<TerminalLayoutSummary, String> {
         let top_ratios = if top_panes.is_empty() {
             Vec::new()
@@ -113,11 +110,10 @@ impl TerminalLayoutService {
         };
         let layout = TerminalLayoutSummary {
             tabs,
-            active_tab_id,
+            active_terminal_id,
             top_panes,
             top_ratios,
             bottom_ratio: 0.32,
-            active_slot_id,
             error: None,
         };
         crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())?

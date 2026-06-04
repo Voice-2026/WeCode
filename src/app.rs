@@ -45,7 +45,7 @@ use codux_runtime::{
     settings::{SettingsSummary, locale_from_language_setting},
     ssh::{SSHConnectionProfile, SSHProfileSummary, SSHProfileUpsertRequest, SSHSummary},
     terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
-    terminal_pty::TerminalManager,
+    terminal_pty::{TerminalManager, TerminalPtyConfig},
     terminal_runtime::{
         TerminalInputSummary, TerminalRuntimeSessionInput, TerminalRuntimeSessionSummary,
         TerminalRuntimeSummary,
@@ -205,11 +205,11 @@ use self::{
     },
     terminal_float::terminal_float_window,
     terminal_state::{
-        bottom_slot_id, bottom_terminal_id, normalize_terminal_restore_state,
-        prepare_memory_launch_artifacts, spawn_terminal_tabs, terminal_config_for_settings,
-        terminal_launch_context, terminal_pane_launch_context, terminal_pane_summary,
-        terminal_restore_plan_for_language, terminal_tab_summary, top_slot_id, top_terminal_id,
-        unique_bottom_slot_id,
+        bottom_terminal_id, normalize_terminal_restore_state, prepare_memory_launch_artifacts,
+        restore_terminal_tabs_skeleton, spawn_terminal_tabs, terminal_config_for_settings,
+        terminal_launch_context, terminal_pane_summary, terminal_pane_terminal_id,
+        terminal_pty_config_for_terminal_id, terminal_restore_plan_for_language,
+        terminal_tab_summary, top_terminal_id,
     },
     types::*,
     ui_helpers::{
