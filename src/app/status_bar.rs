@@ -20,6 +20,8 @@ pub(in crate::app) struct StatusBarSnapshot {
     language: String,
     theme_is_light: bool,
     developer_hud: bool,
+    runtime_ready: bool,
+    runtime_queue_busy: bool,
     cpu_label: String,
     memory_label: String,
     ai_index_count: usize,
@@ -40,12 +42,13 @@ impl StatusBarView {
         &mut self,
         snapshot: StatusBarSnapshot,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if self.snapshot == snapshot {
-            return;
+            return false;
         }
         self.snapshot = snapshot;
         cx.notify();
+        true
     }
 }
 
@@ -62,7 +65,9 @@ impl CoduxApp {
     ) -> gpui::Entity<StatusBarView> {
         let snapshot = self.status_bar_snapshot();
         if let Some(view) = &self.status_bar_view {
-            view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+            view.update(cx, |view, cx| {
+                view.set_snapshot(snapshot, cx);
+            });
             return view.clone();
         }
         let app_entity = cx.entity();
@@ -85,6 +90,11 @@ impl CoduxApp {
             )
             .is_light,
             developer_hud: self.state.settings.developer_hud,
+            runtime_ready: self.runtime_ready,
+            runtime_queue_busy: {
+                let status = codux_runtime::async_runtime::blocking_queue_status();
+                status.queued > 0 || status.running > 0
+            },
             cpu_label: self.state.performance.cpu_label.clone(),
             memory_label: self.state.performance.memory_label.clone(),
             ai_index_count: self.ai_history_active_index_count,
@@ -180,6 +190,12 @@ fn status_bar_content(
                 .min_w_0()
                 .items_center()
                 .gap_1()
+                .child(status_runtime_ready_segment(
+                    snapshot.runtime_ready,
+                    snapshot.runtime_queue_busy,
+                    &snapshot.language,
+                ))
+                .child(status_separator())
                 .when(snapshot.developer_hud, |this| {
                     this.child(status_metric(
                         "status-performance-cpu",
@@ -271,6 +287,42 @@ fn status_bar_content(
                         |app, _event, window, cx| app.push_project_git(window, cx),
                     ))
                 }),
+        )
+}
+
+fn status_runtime_ready_segment(
+    runtime_ready: bool,
+    runtime_queue_busy: bool,
+    language: &str,
+) -> impl IntoElement {
+    let label = if !runtime_ready {
+        status_text(language, "runtime.status.preparing", "Preparing")
+    } else if runtime_queue_busy {
+        status_text(language, "runtime.status.busy", "Busy")
+    } else {
+        status_text(language, "runtime.status.ready", "Ready")
+    };
+    let color_value = if !runtime_ready || runtime_queue_busy {
+        theme::ORANGE
+    } else {
+        theme::GREEN
+    };
+
+    div()
+        .id("status-runtime-ready")
+        .h(px(20.0))
+        .px(px(6.0))
+        .flex()
+        .items_center()
+        .gap(px(5.0))
+        .text_size(rems(0.75))
+        .text_color(color(theme::TEXT_MUTED))
+        .child(div().size(px(6.0)).rounded_full().bg(color(color_value)))
+        .child(
+            div()
+                .mt(px(1.0))
+                .text_color(color(theme::TEXT))
+                .child(label),
         )
 }
 

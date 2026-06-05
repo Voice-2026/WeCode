@@ -665,6 +665,18 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle, cx);
         let point = self.layout.lock().cell_at(event.position);
+        if event.button == MouseButton::Left && event.modifiers.shift {
+            if let Some(point) = point {
+                self.selection
+                    .lock()
+                    .extend(self.selection_point_from_cell(point, cx));
+            }
+            self.selection_autoscroll = None;
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+
         if self.should_report_mouse(event.modifiers.shift, cx) {
             if let Some(point) = point {
                 self.send_mouse_report(
@@ -2284,6 +2296,14 @@ impl SelectionState {
             self.head = Some(point);
             self.dragging = true;
         }
+    }
+
+    fn extend(&mut self, point: TerminalSelectionPoint) {
+        if self.anchor.is_none() {
+            self.anchor = self.head.or(Some(point));
+        }
+        self.head = Some(point);
+        self.dragging = true;
     }
 
     fn finish(&mut self, point: TerminalSelectionPoint) {
@@ -4937,6 +4957,22 @@ mod tests {
             touch_phase: TouchPhase::Moved,
             ..Default::default()
         }));
+    }
+
+    #[test]
+    fn shift_click_extends_existing_terminal_selection_anchor() {
+        let mut selection = SelectionState::default();
+        selection.start(TerminalSelectionPoint { line: 2, col: 4 });
+        selection.finish(TerminalSelectionPoint { line: 2, col: 8 });
+        selection.extend(TerminalSelectionPoint { line: 4, col: 3 });
+
+        assert_eq!(
+            selection.range(),
+            Some(SelectionRange {
+                start: TerminalSelectionPoint { line: 2, col: 4 },
+                end: TerminalSelectionPoint { line: 4, col: 3 },
+            })
+        );
     }
 
     #[test]

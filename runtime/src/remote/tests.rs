@@ -1,82 +1,32 @@
 use super::crypto::{
-    ensure_remote_host_identity, remote_base64_url_encode, remote_e2e_decrypt,
-    remote_e2e_encrypt, remote_e2e_symmetric_key, remote_pairing_match_code,
-    remote_pairing_qr_payload,
+    ensure_remote_host_identity, remote_base64_url_encode, remote_e2e_decrypt, remote_e2e_encrypt,
+    remote_e2e_symmetric_key, remote_pairing_match_code, remote_pairing_qr_payload,
 };
-use super::http::{default_remote_server_url, remote_url};
 use super::host::{
     quote_terminal_path, remote_ai_stats_payload, remote_file_list, remote_file_read,
-    remote_file_rename, remote_file_write, remote_p2p_lane, remote_pending_pairing_summary,
-    remote_terminal_upload_directory, remote_terminal_upload_kind, sanitized_remote_upload_name,
-    terminal_upload_path_input, unique_remote_upload_path,
+    remote_file_rename, remote_file_write, remote_terminal_upload_directory,
+    remote_terminal_upload_kind, sanitized_remote_upload_name, terminal_upload_path_input,
+    unique_remote_upload_path,
+};
+use super::http::default_remote_server_url;
+use super::iroh_transport::{
+    RemoteIrohNodeAddr, iroh_client_send, iroh_client_send_with_hold, iroh_pairing_request_payload,
 };
 use super::pairing::remote_summary_show_pending_pairing;
-use super::types::{RemoteDeviceSettings, RemoteOutgoingEnvelope, RemotePairingInfo, RemoteSettings};
+use super::summary::remote_summary_from_settings;
+use super::types::{
+    RemoteDeviceSettings, RemoteOutgoingEnvelope, RemotePairingInfo, RemoteSettings,
+};
+use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::config::flush_all_config_writes;
-use crate::remote_p2p::RemoteP2PLane;
 use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
-use super::{RemoteHostRuntime, RemoteService, remote_summary_from_settings};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::sync::Arc;
-use std::sync::mpsc;
 use std::time::Duration;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
-
-fn remote_test_server_sequence(
-    response_bodies: Vec<&'static str>,
-) -> (String, mpsc::Receiver<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
-    let address = listener.local_addr().expect("test server address");
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        for response_body in response_bodies {
-            let (mut stream, _) = listener.accept().expect("accept request");
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-            let mut request = Vec::new();
-            let mut buffer = [0_u8; 1024];
-            loop {
-                let Ok(read) = stream.read(&mut buffer) else {
-                    break;
-                };
-                if read == 0 {
-                    break;
-                }
-                request.extend_from_slice(&buffer[..read]);
-                let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
-                else {
-                    continue;
-                };
-                let headers = String::from_utf8_lossy(&request[..header_end]);
-                let content_length = headers
-                    .lines()
-                    .find_map(|line| {
-                        line.split_once(':').and_then(|(key, value)| {
-                            key.eq_ignore_ascii_case("content-length")
-                                .then(|| value.trim().parse::<usize>().ok())
-                                .flatten()
-                        })
-                    })
-                    .unwrap_or(0);
-                if request.len() >= header_end + 4 + content_length {
-                    break;
-                }
-            }
-            let _ = tx.send(String::from_utf8_lossy(&request).to_string());
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response_body.len(),
-                response_body
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (format!("http://{address}"), rx)
-}
 
 #[test]
 fn summary_matches_tauri_remote_status_shape_from_settings() {
@@ -134,33 +84,6 @@ fn disabled_remote_uses_default_relay_and_disabled_encryption() {
 }
 
 #[test]
-fn remote_url_matches_tauri_http_and_websocket_shape() {
-    let http = remote_url(
-        "https://relay.example/base",
-        "/api/hosts/host-1/devices",
-        &[("token", "secret token")],
-        false,
-    )
-    .unwrap();
-    assert_eq!(
-        http,
-        "https://relay.example/api/hosts/host-1/devices?token=secret+token"
-    );
-
-    let websocket = remote_url(
-        "https://relay.example",
-        "/ws/host",
-        &[("hostId", "host-1"), ("token", "secret")],
-        true,
-    )
-    .unwrap();
-    assert_eq!(
-        websocket,
-        "wss://relay.example/ws/host?hostId=host-1&token=secret"
-    );
-}
-
-#[test]
 fn remote_identity_and_pairing_payload_match_tauri_shape() {
     let mut settings = RemoteSettings {
         is_enabled: true,
@@ -181,9 +104,200 @@ fn remote_identity_and_pairing_payload_match_tauri_shape() {
         expires_at: "2026-01-01T00:00:00Z".to_string(),
         qr_payload: String::new(),
     };
-    let payload = remote_pairing_qr_payload(&settings, &pairing);
+    let payload = remote_pairing_qr_payload(
+        &settings,
+        &pairing,
+        RemoteIrohNodeAddr {
+            node_id: "node-1".to_string(),
+            relay_url: Some("https://relay.iroh.network".to_string()),
+            direct_addresses: vec!["127.0.0.1:12345".to_string()],
+        },
+    );
     assert!(!payload.is_empty());
     assert!(remote_pairing_match_code(&settings, "123456", "secret", "device-public").is_some());
+}
+
+#[test]
+fn iroh_pairing_payload_contains_protocol_transport_and_node_addr() {
+    let settings = RemoteSettings {
+        is_enabled: true,
+        server_url: "http://relay.example".to_string(),
+        host_id: "host-1".to_string(),
+        host_token: "token".to_string(),
+        host_private_key: "host-private".to_string(),
+        host_public_key: "host-public".to_string(),
+        iroh_secret_key: String::new(),
+        iroh_node_id: "node-1".to_string(),
+        cached_devices: Vec::new(),
+    };
+    let pairing = RemotePairingInfo {
+        pairing_id: "pair-1".to_string(),
+        code: "123456".to_string(),
+        secret: "secret".to_string(),
+        host_public_key: Some("host-public".to_string()),
+        crypto_version: Some(1),
+        expires_at: "later".to_string(),
+        qr_payload: String::new(),
+    };
+    let payload = remote_pairing_qr_payload(
+        &settings,
+        &pairing,
+        RemoteIrohNodeAddr {
+            node_id: "node-1".to_string(),
+            relay_url: Some("https://relay.iroh.network".to_string()),
+            direct_addresses: vec!["127.0.0.1:12345".to_string()],
+        },
+    );
+    let decoded = String::from_utf8(super::crypto::remote_base64_url_decode(&payload).unwrap())
+        .expect("utf8");
+    let value: Value = serde_json::from_str(&decoded).expect("json");
+    assert_eq!(value["transport"], "iroh");
+    assert_eq!(value["code"], "123456");
+    assert_eq!(value["secret"], "secret");
+    assert_eq!(value["pairingId"], "pair-1");
+    assert_eq!(value["hostPublicKey"], "host-public");
+    assert_eq!(value["cryptoVersion"], 1);
+    assert_eq!(
+        value["protocolVersion"],
+        super::host::REMOTE_PROTOCOL_VERSION
+    );
+    assert_eq!(value["iroh"]["nodeId"], "node-1");
+    assert_eq!(value["iroh"]["directAddresses"][0], "127.0.0.1:12345");
+}
+
+#[test]
+fn iroh_host_runtime_pairs_and_serves_host_info() {
+    crate::async_runtime::block_on(async {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-gpui-iroh-pairing-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).expect("create temp support");
+        fs::write(
+            dir.join("settings.json"),
+            serde_json::to_string_pretty(&json!({
+                "remote": {
+                    "isEnabled": true,
+                    "serverURL": "iroh://default"
+                }
+            }))
+            .unwrap(),
+        )
+        .expect("write settings");
+
+        let runtime = Arc::new(RemoteHostRuntime::new(dir.clone()));
+        runtime.start();
+        let pairing = runtime
+            .create_pairing_async()
+            .await
+            .expect("create pairing")
+            .pairing
+            .expect("pairing");
+        let decoded = String::from_utf8(
+            super::crypto::remote_base64_url_decode(&pairing.qr_payload).expect("decode qr"),
+        )
+        .expect("utf8");
+        let payload: Value = serde_json::from_str(&decoded).expect("qr json");
+        let iroh_addr: RemoteIrohNodeAddr =
+            serde_json::from_value(payload["iroh"].clone()).expect("iroh addr");
+
+        let device_id = uuid::Uuid::new_v4().to_string();
+        let device_secret = StaticSecret::from([9_u8; 32]);
+        let device_public = X25519PublicKey::from(&device_secret);
+        let device_private_key = remote_base64_url_encode(&device_secret.to_bytes());
+        let device_public_key = remote_base64_url_encode(device_public.as_bytes());
+        let request_payload = iroh_pairing_request_payload(
+            &pairing.pairing_id,
+            &pairing.code,
+            &pairing.secret,
+            "iPhone",
+            &device_public_key,
+        );
+        assert_eq!(request_payload["deviceName"], "iPhone");
+        assert_eq!(request_payload["devicePublicKey"], device_public_key);
+        assert!(request_payload.get("deviceId").is_none());
+        assert!(request_payload.get("name").is_none());
+        assert!(request_payload.get("publicKey").is_none());
+        let request = serde_json::to_vec(&super::types::RemoteOutgoingEnvelope {
+            kind: "pairing.request".to_string(),
+            device_id: Some(device_id.clone()),
+            session_id: None,
+            seq: None,
+            payload: request_payload,
+        })
+        .expect("pairing request json");
+        iroh_client_send(iroh_addr.clone(), request)
+            .await
+            .expect("send pairing request");
+
+        let mut saw_pending = false;
+        for _ in 0..20 {
+            let poll = runtime.poll_pairing_status(&pairing).expect("poll pairing");
+            if poll.summary.pending_pairings == 1 {
+                saw_pending = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(saw_pending, "host should receive iroh pairing request");
+        runtime
+            .confirm_pairing(&pairing.pairing_id)
+            .expect("confirm pairing");
+
+        let info = super::types::RemoteOutgoingEnvelope {
+            kind: "host.info".to_string(),
+            device_id: Some(device_id.clone()),
+            session_id: None,
+            seq: None,
+            payload: json!({}),
+        };
+        let settings =
+            super::remote_settings_from_raw(&RemoteService::new(dir.clone()).raw_settings());
+        let key = super::crypto::remote_e2e_symmetric_key(
+            &device_private_key,
+            &settings.host_public_key,
+            &settings.host_id,
+            &device_id,
+        )
+        .expect("mobile e2e key");
+        let payload = serde_json::to_vec(&info).expect("host info json");
+        let encrypted =
+            super::crypto::remote_e2e_encrypt(&payload, &key, &settings.host_id, &device_id)
+                .expect("encrypt host info");
+        let secure_info = serde_json::to_vec(&super::types::RemoteOutgoingEnvelope {
+            kind: "secure.message".to_string(),
+            device_id: Some(device_id.clone()),
+            session_id: None,
+            seq: None,
+            payload: encrypted,
+        })
+        .expect("secure host info json");
+        let send_task = tokio::spawn(iroh_client_send_with_hold(
+            iroh_addr,
+            secure_info,
+            Some(Duration::from_millis(500)),
+        ));
+
+        let mut saw_online = false;
+        for _ in 0..20 {
+            let snapshot = runtime.snapshot();
+            if snapshot
+                .device_list
+                .iter()
+                .any(|device| device.id == device_id && device.online == Some(true))
+            {
+                saw_online = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        send_task
+            .await
+            .expect("join host info send")
+            .expect("send host info");
+        assert!(saw_online, "confirmed device should be online");
+        runtime.shutdown();
+    });
 }
 
 #[test]
@@ -237,69 +351,6 @@ fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
 }
 
 #[test]
-fn pairing_request_summary_matches_tauri_pending_status_shape() {
-    let settings = RemoteSettings {
-        is_enabled: true,
-        server_url: "http://relay.example".to_string(),
-        host_id: "host-1".to_string(),
-        host_token: "host-token".to_string(),
-        host_public_key: "host-public".to_string(),
-        ..Default::default()
-    };
-    let active_pairing = RemotePairingInfo {
-        pairing_id: "pair-1".to_string(),
-        code: "123456".to_string(),
-        secret: "secret".to_string(),
-        host_public_key: Some("host-public".to_string()),
-        crypto_version: Some(1),
-        expires_at: "2026-01-01T00:00:00Z".to_string(),
-        qr_payload: "payload".to_string(),
-    };
-    let mut current = remote_summary_from_settings(settings.clone());
-    current.status = "connected".to_string();
-    current.pairing = Some(active_pairing);
-
-    let pending = remote_pending_pairing_summary(
-        current,
-        settings.clone(),
-        &json!({
-            "pairingId": "pair-1",
-            "deviceName": "iPhone",
-            "devicePublicKey": "device-public",
-            "code": "654321"
-        }),
-    )
-    .expect("pending pairing");
-
-    assert_eq!(pending.status, "connected");
-    assert_eq!(pending.message, "Confirm device pairing.");
-    assert!(pending.pairing.is_none());
-    assert_eq!(pending.pending_pairings, 1);
-    assert_eq!(pending.pending_pairing_list[0].id, "pair-1");
-    assert_eq!(pending.pending_pairing_list[0].device_name, "iPhone");
-    assert_eq!(pending.pending_pairing_list[0].device_public_key, "device-public");
-    assert_ne!(pending.pending_pairing_list[0].code, "654321");
-
-    let updated = remote_pending_pairing_summary(
-        pending,
-        settings,
-        &json!({
-            "pairingId": "pair-1",
-            "deviceName": "iPad",
-            "devicePublicKey": "device-public-2",
-            "code": "111222"
-        }),
-    )
-    .expect("updated pending pairing");
-    assert_eq!(updated.pending_pairings, 1);
-    assert_eq!(updated.pending_pairing_list[0].device_name, "iPad");
-    assert_eq!(
-        updated.pending_pairing_list[0].device_public_key,
-        "device-public-2"
-    );
-}
-
-#[test]
 fn remote_e2e_crypto_matches_tauri_envelope_shape() {
     let host_secret = StaticSecret::from([7_u8; 32]);
     let host_public = X25519PublicKey::from(&host_secret);
@@ -323,19 +374,32 @@ fn remote_e2e_crypto_matches_tauri_envelope_shape() {
     let encrypted =
         remote_e2e_encrypt(plaintext, &host_key, "host-1", "device-1").expect("encrypt");
 
-    assert_eq!(encrypted.get("v").and_then(serde_json::Value::as_i64), Some(1));
+    assert_eq!(
+        encrypted.get("v").and_then(serde_json::Value::as_i64),
+        Some(1)
+    );
     assert_eq!(
         encrypted.get("alg").and_then(serde_json::Value::as_str),
         Some("X25519-HKDF-SHA256-AES-256-GCM")
     );
-    assert!(encrypted.get("nonce").and_then(serde_json::Value::as_str).is_some());
+    assert!(
+        encrypted
+            .get("nonce")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
     assert!(
         encrypted
             .get("ciphertext")
             .and_then(serde_json::Value::as_str)
             .is_some()
     );
-    assert!(encrypted.get("tag").and_then(serde_json::Value::as_str).is_some());
+    assert!(
+        encrypted
+            .get("tag")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
 
     let decrypted =
         remote_e2e_decrypt(&encrypted, &device_key, "host-1", "device-1").expect("decrypt");
@@ -456,7 +520,9 @@ fn remote_service_wraps_and_unwraps_secure_envelopes_with_sequence_guard() {
     assert_eq!(send_seq.get("device-1"), Some(&1));
 
     let text = serde_json::to_string(&secure).expect("serialize secure envelope");
-    let parsed = service.parse_incoming_envelope(&text).expect("parse secure envelope");
+    let parsed = service
+        .parse_incoming_envelope(&text)
+        .expect("parse secure envelope");
     let mut receive_seq = HashMap::new();
     let decrypted = service
         .decrypt_envelope_if_needed(parsed.clone(), &mut receive_seq)
@@ -502,7 +568,7 @@ fn remote_host_runtime_stops_without_enabled_remote_settings() {
     assert!(!summary.enabled);
     assert_eq!(summary.status, "stopped");
     assert_eq!(summary.message, "Remote Host stopped.");
-    assert!(!host.send_relay("host.info", None, None, json!({})));
+    assert!(!host.send_transport("host.info", None, None, json!({})));
 
     fs::remove_dir_all(dir).ok();
 }
@@ -562,7 +628,10 @@ fn remote_file_list_matches_tauri_mobile_shape_and_sorting() {
     fs::write(dir.join(".hidden"), "hidden").expect("write hidden");
 
     let payload = remote_file_list(Some(dir.to_str().unwrap()), Some("project-picker"));
-    assert_eq!(payload.get("path").and_then(serde_json::Value::as_str), Some(dir.to_str().unwrap()));
+    assert_eq!(
+        payload.get("path").and_then(serde_json::Value::as_str),
+        Some(dir.to_str().unwrap())
+    );
     assert_eq!(
         payload.get("purpose").and_then(serde_json::Value::as_str),
         Some("project-picker")
@@ -593,11 +662,23 @@ fn remote_file_read_write_and_rename_match_tauri_mobile_limits() {
 
     remote_file_write(source.to_str().unwrap(), "hello").expect("write");
     let payload = remote_file_read(source.to_str().unwrap()).expect("read");
-    assert_eq!(payload.get("name").and_then(serde_json::Value::as_str), Some("note.txt"));
-    assert_eq!(payload.get("content").and_then(serde_json::Value::as_str), Some("hello"));
+    assert_eq!(
+        payload.get("name").and_then(serde_json::Value::as_str),
+        Some("note.txt")
+    );
+    assert_eq!(
+        payload.get("content").and_then(serde_json::Value::as_str),
+        Some("hello")
+    );
     assert!(remote_file_read(dir.to_str().unwrap()).is_err());
 
-    assert!(remote_file_rename(source.to_str().unwrap(), other.join("note.txt").to_str().unwrap()).is_err());
+    assert!(
+        remote_file_rename(
+            source.to_str().unwrap(),
+            other.join("note.txt").to_str().unwrap()
+        )
+        .is_err()
+    );
     remote_file_rename(source.to_str().unwrap(), renamed.to_str().unwrap()).expect("rename");
     assert!(renamed.exists());
 
@@ -629,53 +710,90 @@ fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
         Some("project-1")
     );
     assert_eq!(
-        payload.get("projectName").and_then(serde_json::Value::as_str),
+        payload
+            .get("projectName")
+            .and_then(serde_json::Value::as_str),
         Some("Project One")
     );
-    assert!(payload.get("projectSummary").and_then(serde_json::Value::as_object).is_some());
+    assert!(
+        payload
+            .get("projectSummary")
+            .and_then(serde_json::Value::as_object)
+            .is_some()
+    );
     assert_eq!(
-        payload.get("sessions").and_then(serde_json::Value::as_array).map(Vec::len),
+        payload
+            .get("sessions")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
         Some(0)
     );
-    assert!(payload.get("updatedAt").and_then(serde_json::Value::as_str).is_some());
+    assert!(
+        payload
+            .get("updatedAt")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+    );
 }
 
 #[test]
 fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
-    let payload = super::host::remote_terminal_snapshot_payload(TerminalSessionSnapshot {
-        id: "term-1".to_string(),
-        title: "Shell".to_string(),
-        slot_id: "slot-1".to_string(),
-        session_key: Some("session-key-1".to_string()),
-        project_id: "project-1".to_string(),
-        project_name: "Codux".to_string(),
-        cwd: "/workspace/codux".to_string(),
-        shell: "zsh".to_string(),
-        command: String::new(),
-        cols: 120,
-        rows: 36,
-        status: "running".to_string(),
-        is_running: true,
-        created_at: "2026-01-01T00:00:00Z".to_string(),
-        last_active_at: "2026-01-01T00:00:01Z".to_string(),
-        buffer_characters: 42,
-        has_buffer: true,
-    });
+    let payload = super::host::remote_terminal_snapshot_payload(
+        TerminalSessionSnapshot {
+            id: "term-1".to_string(),
+            title: "Shell".to_string(),
+            slot_id: "slot-1".to_string(),
+            session_key: Some("session-key-1".to_string()),
+            project_id: "project-1".to_string(),
+            project_name: "Codux".to_string(),
+            cwd: "/workspace/codux".to_string(),
+            shell: "zsh".to_string(),
+            command: String::new(),
+            cols: 120,
+            rows: 36,
+            status: "running".to_string(),
+            is_running: true,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            last_active_at: "2026-01-01T00:00:01Z".to_string(),
+            buffer_characters: 42,
+            has_buffer: true,
+        },
+        "tab",
+    );
 
-    assert_eq!(payload.get("id").and_then(serde_json::Value::as_str), Some("term-1"));
     assert_eq!(
-        payload.get("displayTitle").and_then(serde_json::Value::as_str),
+        payload.get("id").and_then(serde_json::Value::as_str),
+        Some("term-1")
+    );
+    assert_eq!(
+        payload
+            .get("layoutKind")
+            .and_then(serde_json::Value::as_str),
+        Some("tab")
+    );
+    assert_eq!(
+        payload
+            .get("displayTitle")
+            .and_then(serde_json::Value::as_str),
         Some("Codux · Shell")
     );
-    assert_eq!(payload.get("cols").and_then(serde_json::Value::as_u64), Some(120));
-    assert_eq!(payload.get("rows").and_then(serde_json::Value::as_u64), Some(36));
+    assert_eq!(
+        payload.get("cols").and_then(serde_json::Value::as_u64),
+        Some(120)
+    );
+    assert_eq!(
+        payload.get("rows").and_then(serde_json::Value::as_u64),
+        Some(36)
+    );
     assert!(payload.get("kind").is_none());
     assert!(payload.get("slotId").is_none());
     assert!(payload.get("sessionKey").is_none());
     assert!(payload.get("paneIndex").is_none());
     assert!(payload.get("sortOrder").is_none());
     assert_eq!(
-        payload.get("isRunning").and_then(serde_json::Value::as_bool),
+        payload
+            .get("isRunning")
+            .and_then(serde_json::Value::as_bool),
         Some(true)
     );
     assert_eq!(
@@ -766,14 +884,6 @@ fn terminal_upload_path_input_quotes_shell_sensitive_paths() {
         )),
         r#""C:\Users\Codux User\AppData\Local\Temp\file name.txt""#
     );
-}
-
-#[test]
-fn remote_p2p_lane_matches_tauri_routing() {
-    assert_eq!(remote_p2p_lane("terminal.upload.ack"), RemoteP2PLane::Upload);
-    assert_eq!(remote_p2p_lane("terminal.uploaded"), RemoteP2PLane::Upload);
-    assert_eq!(remote_p2p_lane("terminal.output"), RemoteP2PLane::Terminal);
-    assert_eq!(remote_p2p_lane("p2p.pong"), RemoteP2PLane::Terminal);
 }
 
 #[test]
@@ -896,10 +1006,6 @@ fn reads_settings_json_without_exposing_tokens() {
 
 #[test]
 fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
-    let (relay_url, request_rx) = remote_test_server_sequence(vec![
-        "{}",
-        r#"{"devices":[{"id":"device-2","hostId":"host-1","name":"Tablet","online":true},{"id":"device-3","hostId":"host-1","name":"Laptop","online":true}]}"#,
-    ]);
     let dir = std::env::temp_dir().join(format!(
         "codux-gpui-remote-mutate-test-{}",
         uuid::Uuid::new_v4()
@@ -910,7 +1016,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "serverURL": relay_url,
+                "serverURL": "iroh://default",
                 "hostID": "host-1",
                 "hostToken": "secret-token",
                 "cachedDevices": [
@@ -926,38 +1032,26 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
     let service = RemoteService::new(dir.clone());
     let enabled = service.set_enabled(true).expect("enable remote");
     assert!(enabled.enabled);
-    assert_eq!(enabled.relay, relay_url);
+    assert_eq!(enabled.relay, "iroh://default");
 
     let revoked = service
         .revoke_device("device-1")
         .expect("revoke cached device");
     assert_eq!(revoked.status, "connected");
     assert_eq!(revoked.message, "Device removed.");
-    assert_eq!(revoked.devices, 2);
+    assert_eq!(revoked.devices, 1);
     assert_eq!(revoked.device_list[0].id, "device-2");
-    let request = request_rx.recv().expect("revoke request");
-    assert!(request.contains("POST /api/devices/revoke"));
-    assert!(request.contains("\"hostId\":\"host-1\""));
-    assert!(request.contains("\"token\":\"secret-token\""));
-    assert!(request.contains("\"deviceId\":\"device-1\""));
-    let refresh_request = request_rx.recv().expect("refresh request");
-    assert!(refresh_request.contains("GET /api/hosts/host-1/devices?token=secret-token"));
     flush_all_config_writes();
     let raw = fs::read_to_string(dir.join("settings.json")).expect("settings");
     assert!(raw.contains("secret-token"));
     assert!(!raw.contains("\"id\": \"device-1\""));
     assert!(raw.contains("\"id\": \"device-2\""));
-    assert!(raw.contains("\"id\": \"device-3\""));
 
     fs::remove_dir_all(dir).ok();
 }
 
 #[test]
-fn refresh_devices_registers_host_first_when_missing_host_identity() {
-    let (relay_url, request_rx) = remote_test_server_sequence(vec![
-        r#"{"hostId":"registered-host","token":"registered-token"}"#,
-        r#"{"devices":[{"id":"device-1","hostId":"registered-host","name":"Phone","online":true}]}"#,
-    ]);
+fn refresh_devices_returns_local_cached_devices_without_network_sync() {
     let dir = std::env::temp_dir().join(format!(
         "codux-gpui-remote-refresh-test-{}",
         uuid::Uuid::new_v4()
@@ -968,10 +1062,12 @@ fn refresh_devices_registers_host_first_when_missing_host_identity() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "serverURL": relay_url,
-                "hostID": "",
-                "hostToken": "",
-                "cachedDevices": []
+                "serverURL": "iroh://default",
+                "hostID": "host-1",
+                "hostToken": "registered-token",
+                "cachedDevices": [
+                    {"id":"device-1","hostId":"host-1","name":"Phone","online":true}
+                ]
             }
         }))
         .unwrap(),
@@ -982,17 +1078,13 @@ fn refresh_devices_registers_host_first_when_missing_host_identity() {
         .refresh_devices()
         .expect("refresh devices");
 
-    assert_eq!(summary.host_id, "registered-host");
+    assert_eq!(summary.host_id, "host-1");
     assert_eq!(summary.devices, 1);
     assert_eq!(summary.device_list[0].id, "device-1");
-    assert_eq!(summary.device_list[0].online, Some(false));
-    let register_request = request_rx.recv().expect("register request");
-    assert!(register_request.contains("POST /api/hosts/register"));
-    let devices_request = request_rx.recv().expect("devices request");
-    assert!(devices_request.contains("GET /api/hosts/registered-host/devices?token=registered-token"));
+    assert_eq!(summary.device_list[0].online, Some(true));
     flush_all_config_writes();
     let raw = fs::read_to_string(dir.join("settings.json")).expect("settings");
-    assert!(raw.contains("registered-host"));
+    assert!(raw.contains("host-1"));
     assert!(raw.contains("registered-token"));
     assert!(raw.contains("device-1"));
 
@@ -1001,8 +1093,7 @@ fn refresh_devices_registers_host_first_when_missing_host_identity() {
 
 #[test]
 fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
-    let dir =
-        std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("create temp support");
     let runtime = RemoteHostRuntime::new(dir.clone());
     let summary = remote_summary_from_settings(RemoteSettings {
@@ -1025,8 +1116,7 @@ fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
 
 #[test]
 fn remote_host_runtime_uses_injected_terminal_manager() {
-    let dir =
-        std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("codux-gpui-remote-host-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("create temp support");
     let terminals = Arc::new(TerminalManager::new());
     let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(

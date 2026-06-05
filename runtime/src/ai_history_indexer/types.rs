@@ -1,5 +1,5 @@
 use crate::ai_history_normalized::{
-    AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot,
+    AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint,
 };
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -22,6 +22,7 @@ pub(super) enum AIHistoryJob {
 pub(super) struct AIHistoryIndexerState {
     pub(super) projects: HashMap<String, AIHistoryProjectState>,
     pub(super) queued_or_running_projects: HashSet<String>,
+    pub(super) project_source_fingerprints: HashMap<String, AIHistorySourceFingerprint>,
     pub(super) next_version: u64,
 }
 

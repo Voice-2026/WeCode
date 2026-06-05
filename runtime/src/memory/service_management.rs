@@ -189,16 +189,24 @@ impl MemoryService {
         let target_rows = manager_target_rows(conn, projects)?;
         let selected_target_title = selected_memory_target_title(&target_rows, scope, project_id);
         let current_overview = memory_scope_overview(conn, scope, project_id)?;
-        let (entries, summaries, failed_extractions) = match tab {
+        let (entries, summaries, queued_extractions, failed_extractions) = match tab {
             "summary" => (
                 Vec::new(),
                 list_summaries_for_management(conn, scope, project_id)?,
+                Vec::new(),
                 Vec::new(),
             ),
             "failed" => (
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
                 self.failed_extraction_tasks(project_id, limit)?,
+            ),
+            "queue" => (
+                Vec::new(),
+                Vec::new(),
+                self.active_extraction_tasks(project_id, limit)?,
+                Vec::new(),
             ),
             "history" => (
                 list_entries_for_management(
@@ -211,9 +219,11 @@ impl MemoryService {
                 )?,
                 Vec::new(),
                 Vec::new(),
+                Vec::new(),
             ),
             _ => (
                 list_entries_for_management(conn, scope, project_id, None, Some("active"), limit)?,
+                Vec::new(),
                 Vec::new(),
                 Vec::new(),
             ),
@@ -231,6 +241,7 @@ impl MemoryService {
             project_profile,
             entries,
             summaries,
+            queued_extractions,
             failed_extractions,
             extraction: MemoryExtractionSummary {
                 queued: count_queue(conn, &["queued", "pending"])?,

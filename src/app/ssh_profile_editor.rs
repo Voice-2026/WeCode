@@ -1,31 +1,5 @@
+use super::app_select::{CoduxSelectOption, codux_select};
 use super::*;
-
-#[derive(Clone)]
-struct SshCredentialOption {
-    value: String,
-    label: SharedString,
-}
-
-impl SshCredentialOption {
-    fn new(value: &'static str, label: impl Into<SharedString>) -> Self {
-        Self {
-            value: value.to_string(),
-            label: label.into(),
-        }
-    }
-}
-
-impl SelectItem for SshCredentialOption {
-    type Value = String;
-
-    fn title(&self) -> SharedString {
-        self.label.clone()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.value
-    }
-}
 
 #[derive(Clone)]
 struct SshProfileEditorLabels {
@@ -87,11 +61,11 @@ impl SshProfileEditorLabels {
     }
 }
 
-fn ssh_credential_options(labels: &SshProfileEditorLabels) -> Vec<SshCredentialOption> {
+fn ssh_credential_options(labels: &SshProfileEditorLabels) -> Vec<CoduxSelectOption> {
     vec![
-        SshCredentialOption::new("none", labels.credential_none.clone()),
-        SshCredentialOption::new("password", labels.credential_password.clone()),
-        SshCredentialOption::new("privateKey", labels.credential_private_key.clone()),
+        CoduxSelectOption::new("none", labels.credential_none.clone()),
+        CoduxSelectOption::new("password", labels.credential_password.clone()),
+        CoduxSelectOption::new("privateKey", labels.credential_private_key.clone()),
     ]
 }
 
@@ -354,36 +328,8 @@ fn ssh_dialog_select(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let select_id = "ssh-credential-select";
     let options = ssh_credential_options(labels);
-    let selected_index = options.iter().position(|item| item.value == value);
-    let state = window.use_keyed_state("ssh-credential-select", cx, {
-        let options = options.clone();
-        move |window, cx| {
-            SelectState::new(
-                options,
-                selected_index.map(|row| gpui_component::IndexPath::default().row(row)),
-                window,
-                cx,
-            )
-        }
-    });
-    state.update(cx, |state, cx| {
-        let options = ssh_credential_options(labels);
-        let selected_index = options.iter().position(|item| item.value == value);
-        state.set_items(options, window, cx);
-        state.set_selected_index(
-            selected_index.map(|row| gpui_component::IndexPath::default().row(row)),
-            window,
-            cx,
-        );
-    });
-    cx.subscribe_in(&state, window, move |app, _, event, window, cx| {
-        let SelectEvent::Confirm(selected) = event;
-        if let Some(value) = selected.clone() {
-            app.set_ssh_draft_credential_kind(value, window, cx);
-        }
-    })
-    .detach();
 
     div()
         .mb(px(16.0))
@@ -397,10 +343,16 @@ fn ssh_dialog_select(
                 .text_color(color(theme::TEXT_MUTED))
                 .child(labels.credential.clone()),
         )
-        .child(
-            Select::new(&state)
-                .placeholder(labels.select.clone())
-                .menu_width(px(220.0))
-                .with_size(Size::Medium),
-        )
+        .child(codux_select(
+            select_id,
+            value,
+            options,
+            labels.select.clone(),
+            relative(1.0),
+            px(220.0),
+            false,
+            window,
+            cx,
+            |app, value, window, cx| app.set_ssh_draft_credential_kind(value, window, cx),
+        ))
 }

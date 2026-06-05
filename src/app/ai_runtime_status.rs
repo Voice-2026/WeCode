@@ -134,11 +134,11 @@ pub(in crate::app) fn aggregate_project_activity(
     if activities.contains(&AIActivityState::Review) {
         return AIActivityState::Review;
     }
-    if activities.contains(&AIActivityState::Running) {
-        return AIActivityState::Running;
-    }
     if activities.contains(&AIActivityState::Done) {
         return AIActivityState::Done;
+    }
+    if activities.contains(&AIActivityState::Running) {
+        return AIActivityState::Running;
     }
     AIActivityState::Idle
 }
@@ -171,11 +171,16 @@ fn resolve_displayed_phase<'a>(
     project_phase: &'a AIRuntimeProjectPhaseSummary,
     completed_phase: &'a AIRuntimeProjectPhaseSummary,
 ) -> &'a AIRuntimeProjectPhaseSummary {
-    if is_idle_phase(project_phase) {
-        completed_phase
-    } else {
-        project_phase
+    if project_phase.kind == "needsInput" {
+        return project_phase;
     }
+    if completed_phase.kind == "completed" {
+        return completed_phase;
+    }
+    if project_phase.kind == "running" {
+        return project_phase;
+    }
+    project_phase
 }
 
 fn phase_to_activity(phase: &AIRuntimeProjectPhaseSummary) -> AIActivityState {
@@ -185,10 +190,6 @@ fn phase_to_activity(phase: &AIRuntimeProjectPhaseSummary) -> AIActivityState {
         "completed" => AIActivityState::Done,
         _ => AIActivityState::Idle,
     }
-}
-
-fn is_idle_phase(phase: &AIRuntimeProjectPhaseSummary) -> bool {
-    phase.kind.is_empty() || phase.kind == "idle"
 }
 
 #[cfg(test)]
@@ -226,5 +227,75 @@ mod tests {
         let next = previous.clone();
 
         assert!(!ai_activity_project_states_changed(&previous, &next));
+    }
+
+    #[test]
+    fn resolve_displayed_phase_prioritizes_review_done_running_idle() {
+        let running = AIRuntimeProjectPhaseSummary {
+            kind: "running".to_string(),
+            ..Default::default()
+        };
+        let completed = AIRuntimeProjectPhaseSummary {
+            kind: "completed".to_string(),
+            updated_at: 2.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_displayed_phase(&running, &completed).kind,
+            "completed"
+        );
+
+        let review = AIRuntimeProjectPhaseSummary {
+            kind: "needsInput".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_displayed_phase(&review, &completed).kind,
+            "needsInput"
+        );
+
+        let idle = AIRuntimeProjectPhaseSummary::default();
+        assert_eq!(resolve_displayed_phase(&idle, &completed).kind, "completed");
+    }
+
+    #[test]
+    fn aggregate_project_activity_prioritizes_done_before_running() {
+        let worktrees = vec![
+            WorktreeInfo {
+                id: "worktree-a".to_string(),
+                project_id: "project-a".to_string(),
+                name: "main".to_string(),
+                branch: "main".to_string(),
+                path: "/tmp/project-a".to_string(),
+                status: "active".to_string(),
+                is_default: true,
+                exists: true,
+                git_summary: Default::default(),
+            },
+            WorktreeInfo {
+                id: "worktree-b".to_string(),
+                project_id: "project-a".to_string(),
+                name: "feature".to_string(),
+                branch: "feature".to_string(),
+                path: "/tmp/project-a-feature".to_string(),
+                status: "active".to_string(),
+                is_default: false,
+                exists: true,
+                git_summary: Default::default(),
+            },
+        ];
+        let mut worktree_activity = HashMap::new();
+        worktree_activity.insert("worktree-a".to_string(), AIActivityState::Running);
+        worktree_activity.insert("worktree-b".to_string(), AIActivityState::Done);
+
+        assert_eq!(
+            aggregate_project_activity(
+                AIActivityState::Idle,
+                "project-a",
+                &worktrees,
+                &worktree_activity,
+            ),
+            AIActivityState::Done
+        );
     }
 }

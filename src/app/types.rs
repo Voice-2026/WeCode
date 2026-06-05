@@ -82,6 +82,7 @@ pub(in crate::app) enum MemoryManagerTab {
     Active,
     Failed,
     History,
+    Queue,
     Summary,
 }
 
@@ -91,6 +92,7 @@ impl MemoryManagerTab {
             Self::Active => "active",
             Self::Failed => "failed",
             Self::History => "history",
+            Self::Queue => "queue",
             Self::Summary => "summary",
         }
     }

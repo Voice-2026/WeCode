@@ -93,16 +93,6 @@ pub struct RemotePendingPairing {
     pub code: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemotePairingStatusResponse {
-    pub(crate) status: String,
-    pub(crate) pairing_id: Option<String>,
-    pub(crate) code: Option<String>,
-    pub(crate) device_name: Option<String>,
-    pub(crate) device_public_key: Option<String>,
-}
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RemoteSettings {
@@ -121,6 +111,10 @@ pub(crate) struct RemoteSettings {
     pub(crate) host_private_key: String,
     #[serde(default)]
     pub(crate) host_public_key: String,
+    #[serde(default)]
+    pub(crate) iroh_secret_key: String,
+    #[serde(default)]
+    pub(crate) iroh_node_id: String,
     #[serde(default)]
     pub(crate) cached_devices: Vec<RemoteDeviceSettings>,
 }

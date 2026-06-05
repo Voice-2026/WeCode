@@ -2,7 +2,6 @@
   "strings": {
     "de": {
       "menu.app.about_format": "Über %@",
-      "menu.file.close_all_projects": "Alle Projekte schließen…",
       "menu.file.close_current_project": "Aktuelles Projekt schließen",
       "menu.file.close_current_split": "Aktuellen Split schließen",
       "menu.file.close_window": "Fenster schließen",
@@ -45,7 +44,6 @@
     },
     "en": {
       "menu.app.about_format": "About %@",
-      "menu.file.close_all_projects": "Close All Projects…",
       "menu.file.close_current_project": "Close Current Project",
       "menu.file.close_current_split": "Close Current Split",
       "menu.file.close_window": "Close Window",
@@ -88,7 +86,6 @@
     },
     "es": {
       "menu.app.about_format": "Acerca de %@",
-      "menu.file.close_all_projects": "Cerrar todos los proyectos...",
       "menu.file.close_current_project": "Cerrar proyecto actual",
       "menu.file.close_current_split": "Cerrar división actual",
       "menu.file.close_window": "Cerrar ventana",
@@ -131,7 +128,6 @@
     },
     "fr": {
       "menu.app.about_format": "À propos de %@",
-      "menu.file.close_all_projects": "Fermer tous les projets…",
       "menu.file.close_current_project": "Fermer le projet en cours",
       "menu.file.close_current_split": "Fermer le partage actuel",
       "menu.file.close_window": "Fermer la fenêtre",
@@ -174,7 +170,6 @@
     },
     "ja": {
       "menu.app.about_format": "%@について",
-      "menu.file.close_all_projects": "すべてのプロジェクトを閉じます…",
       "menu.file.close_current_project": "現在のプロジェクトを閉じる",
       "menu.file.close_current_split": "現在の分割を閉じる",
       "menu.file.close_window": "ウインドウを閉じる",
@@ -217,7 +212,6 @@
     },
     "ko": {
       "menu.app.about_format": "%@ 소개",
-      "menu.file.close_all_projects": "모든 프로젝트 닫기…",
       "menu.file.close_current_project": "현재 프로젝트 닫기",
       "menu.file.close_current_split": "현재 분할 닫기",
       "menu.file.close_window": "윈도우 닫기",
@@ -260,7 +254,6 @@
     },
     "pt-BR": {
       "menu.app.about_format": "Sobre %@",
-      "menu.file.close_all_projects": "Fechar todos os projetos…",
       "menu.file.close_current_project": "Fechar projeto atual",
       "menu.file.close_current_split": "Fechar divisão atual",
       "menu.file.close_window": "Fechar janela",
@@ -303,7 +296,6 @@
     },
     "ru": {
       "menu.app.about_format": "О %@",
-      "menu.file.close_all_projects": "Закрыть все проекты…",
       "menu.file.close_current_project": "Закрыть текущий проект",
       "menu.file.close_current_split": "Закрыть текущий сплит",
       "menu.file.close_window": "Закрыть окно",
@@ -346,7 +338,6 @@
     },
     "zh-Hans": {
       "menu.app.about_format": "关于 %@",
-      "menu.file.close_all_projects": "关闭全部项目…",
       "menu.file.close_current_project": "关闭当前项目",
       "menu.file.close_current_split": "关闭当前分屏",
       "menu.file.close_window": "关闭窗口",
@@ -389,7 +380,6 @@
     },
     "zh-Hant": {
       "menu.app.about_format": "關於 %@",
-      "menu.file.close_all_projects": "關閉所有項目...",
       "menu.file.close_current_project": "關閉目前項目",
       "menu.file.close_current_split": "關閉目前拆分",
       "menu.file.close_window": "關閉視窗",

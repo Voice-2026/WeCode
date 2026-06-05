@@ -8,6 +8,61 @@ where
     load_project_history_with_home(project, &home_dir(), &mut on_progress)
 }
 
+pub fn project_history_source_fingerprint(
+    project: &AIHistoryProjectRequest,
+) -> AIHistorySourceFingerprint {
+    let home = home_dir();
+    project_history_source_fingerprint_with_home(project, &home)
+}
+
+fn project_history_source_fingerprint_with_home(
+    project: &AIHistoryProjectRequest,
+    home: &Path,
+) -> AIHistorySourceFingerprint {
+    if project.path.trim().is_empty() {
+        return AIHistorySourceFingerprint { files: Vec::new() };
+    }
+    let mut files = Vec::new();
+    collect_source_fingerprints("claude", claude_project_log_paths(&project.path, home), &mut files);
+    collect_source_fingerprints("codex", codex_session_paths(&project.path, home), &mut files);
+    collect_source_fingerprints("gemini", gemini_session_paths(&project.path, home), &mut files);
+    collect_source_fingerprints("kiro", kiro_session_paths(&project.path, home), &mut files);
+    collect_source_fingerprints("opencode", opencode_history_source_paths(home), &mut files);
+    files.sort_by(|left, right| {
+        left.source
+            .cmp(&right.source)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    AIHistorySourceFingerprint { files }
+}
+
+fn collect_source_fingerprints(
+    source: &str,
+    paths: Vec<PathBuf>,
+    fingerprints: &mut Vec<AIHistorySourceFileFingerprint>,
+) {
+    for path in paths {
+        let Ok(metadata) = fs::metadata(&path) else {
+            continue;
+        };
+        fingerprints.push(AIHistorySourceFileFingerprint {
+            source: source.to_string(),
+            path: normalized_source_path(&path),
+            modified_millis: metadata
+                .modified()
+                .ok()
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis())
+                .unwrap_or(0),
+            size: metadata.len(),
+        });
+    }
+}
+
+fn normalized_source_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 pub fn load_indexed_project_history(
     project: AIHistoryProjectRequest,
 ) -> Result<Option<AIHistorySnapshot>> {

@@ -31,26 +31,41 @@ impl CoduxApp {
         cx: &mut Context<Self>,
         region: UiRegion,
     ) {
-        self.record_ui_performance_event("invalidate", region.label());
         match region {
-            UiRegion::Root => cx.notify(),
+            UiRegion::StatusBar => {
+                if let Some(view) = &self.status_bar_view {
+                    let snapshot = self.status_bar_snapshot();
+                    let changed = view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+                    if changed {
+                        self.record_ui_performance_event("invalidate", region.label());
+                    }
+                }
+            }
+            UiRegion::Root => {
+                self.record_ui_performance_event("invalidate", region.label());
+                cx.notify();
+            }
             UiRegion::ProjectColumn => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.project_column_view.is_some() {
                     let _ = self.project_column_view(cx);
                 }
             }
             UiRegion::TaskColumn => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.task_column_view.is_some() {
                     self.update_task_column_child_views(cx);
                 }
             }
             UiRegion::WorkspaceChrome => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if let Some(view) = &self.workspace_toolbar_view {
                     let snapshot = self.workspace_toolbar_snapshot();
                     view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
                 }
             }
             UiRegion::WorkspaceBody => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.workspace_view == WorkspaceView::Terminal {
                     self.update_terminal_workspace_view(cx);
                 } else if self.workspace_view == WorkspaceView::Files {
@@ -70,27 +85,32 @@ impl CoduxApp {
                 }
             }
             UiRegion::WorkspaceAssistant => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if let Some(view) = &self.workspace_assistant_view {
                     let snapshot = self.workspace_assistant_snapshot();
                     view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
                 }
             }
             UiRegion::AIStatsSidebar => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.ai_stats_sidebar_view.is_some() {
                     let _ = self.ai_stats_sidebar_view(cx);
                 }
             }
             UiRegion::SshSidebar => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.ssh_sidebar_view.is_some() {
                     let _ = self.ssh_sidebar_view(cx);
                 }
             }
             UiRegion::FileSidebar => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.file_sidebar_view.is_some() {
                     let _ = self.file_sidebar_view(cx);
                 }
             }
             UiRegion::GitSidebar => {
+                self.record_ui_performance_event("invalidate", region.label());
                 if self.git_sidebar_view.is_some() {
                     let _ = self.git_sidebar_view(cx);
                 }
@@ -99,12 +119,6 @@ impl CoduxApp {
                 }
                 if self.git_history_panel_view.is_some() {
                     let _ = self.git_history_panel_view(cx);
-                }
-            }
-            UiRegion::StatusBar => {
-                if let Some(view) = &self.status_bar_view {
-                    let snapshot = self.status_bar_snapshot();
-                    view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
                 }
             }
         }

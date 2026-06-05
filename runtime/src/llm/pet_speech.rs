@@ -20,13 +20,8 @@ pub async fn pet_idle_speech_with_settings(
         });
     }
     let locale = locale_from_language_setting(language);
-    let fallback_text = normalized_non_empty(&request.fallback_text);
-    let system_prompt = pet_speech_system_prompt(&locale);
-    let prompt = if let Some(fallback_text) = fallback_text {
-        pet_speech_event_prompt(&request, &fallback_text)
-    } else {
-        pet_speech_idle_prompt(&locale)
-    };
+    let system_prompt = pet_speech_system_prompt(&locale, settings.pet.speech_mode.as_str());
+    let prompt = pet_speech_prompt(&request);
     let provider = select_provider(
         settings,
         Some(settings.pet.speech_provider_id.as_str()),
@@ -50,7 +45,7 @@ pub async fn pet_idle_speech_with_settings(
         Some(&system_prompt),
         LLMProviderCompletionOptions {
             max_tokens: 80,
-            temperature: 0.2,
+            temperature: 0.8,
             preserve_formatting: true,
             json_response: true,
             ..LLMProviderCompletionOptions::default()
@@ -84,9 +79,34 @@ fn quiet_hours_active(settings: &AISettings) -> bool {
     }
 }
 
-fn pet_speech_system_prompt(locale: &str) -> String {
+fn pet_speech_system_prompt(locale: &str, mode: &str) -> String {
     let language = pet_speech_language_label(locale);
-    format!("Return minified JSON only: {{\"text\":\"...\"}}. One short safe {language} pet line.")
+    let persona = pet_speech_persona(mode);
+    format!(
+        "You are Codux's desktop pet, a small companion that watches AI coding work and helps the user keep momentum.\n\
+Return minified JSON only: {{\"text\":\"...\"}}.\n\
+Write exactly one random, self-initiated, original short pet line in {language}.\n\
+Personality: {persona}\n\
+Rules:\n\
+- Do not polish, rewrite, or paraphrase any provided text.\n\
+- Use facts only as guardrails for what is currently true.\n\
+- You may choose your own wording, angle, and mood within the personality.\n\
+- Do not invent task results, token counts, errors, or permissions that were not provided.\n\
+- Be concise, natural, and suitable for a tiny speech bubble.\n\
+- No markdown, no emoji, no explanations, no quotes around the sentence inside text beyond JSON syntax.\n\
+- Keep text under 28 {language} characters when possible, and always under 80 Unicode characters."
+    )
+}
+
+fn pet_speech_persona(mode: &str) -> &'static str {
+    match mode.trim() {
+        "encourage" => "warm, steady, supportive, quietly focused",
+        "roast" => "playfully sarcastic but never cruel or insulting",
+        "flirty" => "lightly charming and affectionate without being explicit",
+        "chuunibyou" => "dramatic fantasy-style, compact, like a tiny ritual companion",
+        "mixed" => "varied between supportive, playful, and slightly dramatic while staying helpful",
+        _ => "warm, concise, and calm",
+    }
 }
 
 fn pet_speech_language_label(locale: &str) -> &'static str {
@@ -114,17 +134,13 @@ fn pet_speech_language_label(locale: &str) -> &'static str {
     }
 }
 
-fn pet_speech_event_prompt(request: &PetIdleSpeechRequest, fallback_text: &str) -> String {
+fn pet_speech_prompt(request: &PetIdleSpeechRequest) -> String {
+    let event = normalized_non_empty(&request.event).unwrap_or_else(|| "idle".to_string());
+    let facts = normalized_non_empty(&request.facts)
+        .unwrap_or_else(|| "No specific runtime facts are available.".to_string());
     format!(
-        "Event: {}\nFallback line: {}\nReturn {{\"text\":\"...\"}}.",
-        normalized_non_empty(&request.event).unwrap_or_else(|| "activity".to_string()),
-        fallback_text
+        "Event: {event}\nFacts: {facts}\nSpeak as the pet with a fresh random line for this moment.\nReturn {{\"text\":\"...\"}}."
     )
-}
-
-fn pet_speech_idle_prompt(locale: &str) -> String {
-    let _ = locale;
-    "Event: idle\nReturn {\"text\":\"...\"}.".to_string()
 }
 
 fn decode_pet_speech_response(raw: &str) -> String {

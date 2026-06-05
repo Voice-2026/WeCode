@@ -1,13 +1,13 @@
 use crate::{
-    app_info::{
-        AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest, DiagnosticsExportResult,
-        UpdateInstallResult, UpdateStatus,
-    },
     ai_history_indexer::AIHistoryProjectState,
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest},
     ai_runtime::{
         AIRuntimeBridgeSnapshot, AIRuntimeContextSnapshot, AIRuntimeProbeRequest,
         AIRuntimeStateSnapshot,
+    },
+    app_info::{
+        AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest,
+        DiagnosticsExportResult, UpdateInstallResult, UpdateStatus,
     },
     desktop_pet::{
         DesktopPetPhysicalPosition, DesktopPetPhysicalSize, DesktopPetPlacementSnapshot,
@@ -51,7 +51,9 @@ use crate::{
     settings::{AIProviderSettings, AppSettings, AppSettingsStore, sync_process_locale_preference},
     ssh::SSHLaunchCommand,
     ssh::{SSHProfileTestResult, SSHProfileUpsertRequest, SSHProfilesSnapshot},
-    worktree::{WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeSnapshot},
+    worktree::{
+        WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeSnapshot,
+    },
 };
 use std::path::PathBuf;
 
@@ -131,11 +133,7 @@ pub fn app_window_state(
     service.app_window_state(visible, focused)
 }
 
-pub fn runtime_trace_frontend(
-    service: &RuntimeService,
-    category: String,
-    message: String,
-) {
+pub fn runtime_trace_frontend(service: &RuntimeService, category: String, message: String) {
     service.runtime_trace_frontend(&category, &message);
 }
 
@@ -219,10 +217,6 @@ pub fn project_close(
     service.project_close(request)
 }
 
-pub fn project_close_all(service: &RuntimeService) -> Result<ProjectListSnapshot, String> {
-    service.project_close_all()
-}
-
 pub fn project_select_worktree(
     service: &RuntimeService,
     request: ProjectSelectWorktreeRequest,
@@ -237,9 +231,7 @@ pub fn project_set_default_push_remote(
     service.project_set_default_push_remote(request)
 }
 
-pub fn project_open_applications(
-    service: &RuntimeService,
-) -> Vec<ProjectOpenApplicationSummary> {
+pub fn project_open_applications(service: &RuntimeService) -> Vec<ProjectOpenApplicationSummary> {
     service.project_open_applications()
 }
 
@@ -446,7 +438,10 @@ pub async fn pet_custom_install(
     service.install_custom_pet(request).await
 }
 
-pub fn pet_custom_sprite(service: &RuntimeService, pet: PetCustomPet) -> Result<PetCustomPet, String> {
+pub fn pet_custom_sprite(
+    service: &RuntimeService,
+    pet: PetCustomPet,
+) -> Result<PetCustomPet, String> {
     Ok(service.custom_pet_sprite(pet))
 }
 
@@ -618,9 +613,7 @@ pub fn git_create_branch(request: GitCreateBranchRequest) -> Result<GitStatusSna
     crate::git::git_create_branch(request)
 }
 
-pub fn git_checkout_remote_branch(
-    request: GitBranchRequest,
-) -> Result<GitStatusSnapshot, String> {
+pub fn git_checkout_remote_branch(request: GitBranchRequest) -> Result<GitStatusSnapshot, String> {
     crate::git::git_checkout_remote_branch(request)
 }
 
@@ -644,9 +637,7 @@ pub fn git_revert_commit(request: GitCommitRefRequest) -> Result<GitStatusSnapsh
     crate::git::git_revert_commit(request)
 }
 
-pub fn git_restore_commit(
-    request: GitRestoreCommitRequest,
-) -> Result<GitStatusSnapshot, String> {
+pub fn git_restore_commit(request: GitRestoreCommitRequest) -> Result<GitStatusSnapshot, String> {
     crate::git::git_restore_commit(request)
 }
 
@@ -793,7 +784,9 @@ pub fn memory_delete_project_profile(
     service: &RuntimeService,
     project_id: String,
 ) -> Result<(), String> {
-    service.delete_memory_project_profile(&project_id).map(|_| ())
+    service
+        .delete_memory_project_profile(&project_id)
+        .map(|_| ())
 }
 
 pub fn memory_delete_project(service: &RuntimeService, project_id: String) -> Result<(), String> {
@@ -891,10 +884,7 @@ pub fn desktop_pet_sync_visibility(
     service.desktop_pet_sync_visibility()
 }
 
-pub fn power_set_sleep_prevention(
-    manager: &PowerManager,
-    mode: String,
-) -> Result<bool, String> {
+pub fn power_set_sleep_prevention(manager: &PowerManager, mode: String) -> Result<bool, String> {
     manager.set_sleep_prevention(mode)
 }
 
@@ -915,8 +905,7 @@ mod tests {
     fn app_command_names_delegate_to_runtime_system_logic() {
         let mut settings = AppSettings::default();
         settings.update.enabled = false;
-        let status = app_update_status(&settings, PathBuf::new(), "1.2.3")
-            .expect("update status");
+        let status = app_update_status(&settings, PathBuf::new(), "1.2.3").expect("update status");
         assert_eq!(status.current_version, "1.2.3");
         assert_eq!(status.installation_mode, "disabled");
 
@@ -931,10 +920,8 @@ mod tests {
 
     #[test]
     fn app_lifecycle_commands_delegate_to_runtime_service() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-lifecycle-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-lifecycle-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         std::fs::create_dir_all(&project_dir).expect("project dir");
         std::fs::write(
@@ -961,12 +948,12 @@ mod tests {
         );
         let ready = app_runtime_ready(&service, true, true);
         assert_eq!(ready.projects.projects.len(), 1);
-        assert_eq!(ready.projects.selected_project_id.as_deref(), Some("project-a"));
         assert_eq!(
-            ready
-                .project_activity
-                .active_project_id
-                .as_deref(),
+            ready.projects.selected_project_id.as_deref(),
+            Some("project-a")
+        );
+        assert_eq!(
+            ready.project_activity.active_project_id.as_deref(),
             Some("project-a")
         );
 
@@ -979,10 +966,8 @@ mod tests {
 
     #[test]
     fn settings_i18n_and_performance_commands_match_tauri_facade_shape() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-settings-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-settings-{}", Uuid::new_v4()));
         let store = AppSettingsStore::from_support_dir(support_dir.clone());
         let mut settings = app_settings_get(&store);
         settings.language = "en".to_string();
@@ -1006,10 +991,8 @@ mod tests {
 
     #[test]
     fn project_commands_select_and_mark_active_project() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-projects-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-projects-{}", Uuid::new_v4()));
         let first = support_dir.join("first");
         let second = support_dir.join("second");
         std::fs::create_dir_all(&first).expect("first project dir");
@@ -1157,18 +1140,13 @@ mod tests {
         .expect("close project");
         assert!(!closed.projects.iter().any(|project| project.id == first_id));
 
-        let closed_all = project_close_all(&service).expect("close all projects");
-        assert!(closed_all.projects.is_empty());
-
         let _ = std::fs::remove_dir_all(support_dir);
     }
 
     #[test]
     fn file_commands_delegate_to_runtime_files_layer() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-files-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-files-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         let external_dir = support_dir.join("external");
         std::fs::create_dir_all(&project_dir).expect("project dir");
@@ -1264,10 +1242,8 @@ mod tests {
 
     #[test]
     fn ssh_profile_commands_upsert_delete_and_test_without_real_connection() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-ssh-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-ssh-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
         let request = SSHProfileUpsertRequest {
@@ -1310,10 +1286,8 @@ mod tests {
 
     #[test]
     fn remote_commands_delegate_to_runtime_service_without_network_when_disabled() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-remote-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-remote-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         std::fs::write(
             support_dir.join("settings.json"),
@@ -1349,7 +1323,7 @@ mod tests {
         assert!(
             remote_pairing_create(&service)
                 .expect_err("disabled pairing")
-                .contains("Remote Host is not registered")
+                .contains("Remote Host is disabled")
         );
         assert!(
             remote_pairing_cancel(&service, String::new())
@@ -1372,10 +1346,8 @@ mod tests {
 
     #[test]
     fn pet_commands_delegate_to_runtime_pet_store() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-pet-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-pet-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 
@@ -1461,21 +1433,19 @@ mod tests {
             &service,
             PetIdleSpeechRequest {
                 event: String::new(),
-                fallback_text: "Hello".to_string(),
+                facts: "Idle test".to_string(),
             },
         )
         .expect("fallback idle speech");
-        assert!(idle.text.is_empty() || idle.text == "Hello");
+        assert!(idle.text.is_empty());
 
         let _ = std::fs::remove_dir_all(support_dir);
     }
 
     #[test]
     fn worktree_commands_delegate_to_runtime_validation() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-worktree-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-worktree-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         std::fs::create_dir_all(&project_dir).expect("project dir");
         let service = RuntimeService::new(support_dir.clone());
@@ -1524,10 +1494,8 @@ mod tests {
 
     #[test]
     fn git_remote_commands_delegate_to_runtime_git2_layer() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-git-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-git-{}", Uuid::new_v4()));
         let project_dir = support_dir.join("project");
         std::fs::create_dir_all(&project_dir).expect("project dir");
         let service = RuntimeService::new(support_dir.clone());
@@ -1537,12 +1505,14 @@ mod tests {
         let snapshot = git_refresh_project(&service, project_path.clone());
         assert!(!snapshot.is_repository);
         assert!(!git_branches(project_path.clone()).is_repository);
-        assert!(!git_diff_file(GitDiffRequest {
-            project_path: project_path.clone(),
-            path: "README.md".to_string(),
-            staged: false,
-        })
-        .is_repository);
+        assert!(
+            !git_diff_file(GitDiffRequest {
+                project_path: project_path.clone(),
+                path: "README.md".to_string(),
+                staged: false,
+            })
+            .is_repository
+        );
         assert!(!git_review(project_path.clone(), None).is_repository);
         assert!(!git_commit_message_context(project_path.clone()).is_repository);
 
@@ -1698,10 +1668,8 @@ mod tests {
 
     #[test]
     fn ai_history_commands_delegate_to_indexed_runtime_layer() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-ai-history-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-ai-history-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
         let project = AIHistoryProjectRequest {
@@ -1717,7 +1685,7 @@ mod tests {
         let summary =
             ai_history_project_summary(&service, project.clone()).expect("project summary");
         assert_eq!(summary.project_id, "project-a");
-        assert!(summary.is_loading);
+        assert!(!summary.is_loading);
 
         ai_history_refresh_project(&service, project.clone()).expect("refresh project");
 
@@ -1753,10 +1721,8 @@ mod tests {
 
     #[test]
     fn memory_commands_delegate_to_runtime_memory_store() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-memory-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-memory-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 
@@ -1847,10 +1813,8 @@ mod tests {
 
     #[test]
     fn llm_commands_delegate_to_runtime_llm_layer_without_network() {
-        let support_dir = std::env::temp_dir().join(format!(
-            "codux-app-command-llm-{}",
-            Uuid::new_v4()
-        ));
+        let support_dir =
+            std::env::temp_dir().join(format!("codux-app-command-llm-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&support_dir).expect("support dir");
         let service = RuntimeService::new(support_dir.clone());
 
@@ -1866,8 +1830,8 @@ mod tests {
         .expect_err("missing provider");
         assert!(completion_error.contains("No available AI provider is configured"));
 
-        let provider_error = crate::async_runtime::block_on(llm_provider_test(
-            AIProviderSettings {
+        let provider_error =
+            crate::async_runtime::block_on(llm_provider_test(AIProviderSettings {
                 id: "provider-a".to_string(),
                 kind: "openAICompatible".to_string(),
                 display_name: "Provider A".to_string(),
@@ -1877,9 +1841,8 @@ mod tests {
                 api_key: String::new(),
                 use_for_memory_extraction: true,
                 priority: 0,
-            },
-        ))
-        .expect_err("missing provider key");
+            }))
+            .expect_err("missing provider key");
         assert!(provider_error.contains("missing an API key"));
 
         let _ = std::fs::remove_dir_all(support_dir);

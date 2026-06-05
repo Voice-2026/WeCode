@@ -6,7 +6,10 @@ mod types;
 
 pub use helpers::{normalized_memory_module, parse_uuid_string, valid_summary_content};
 pub use parser::{decode_extraction_response, should_stop_memory_queue_after_error};
-pub use prompt::{extraction_system_prompt, make_extraction_prompt, trim_memory_text};
+pub use prompt::{
+    extraction_system_prompt, make_extraction_prompt, memory_extraction_language_label,
+    trim_memory_text,
+};
 pub use provider::{
     ensure_memory_provider_available, provider_summary, select_memory_provider, supports_completion,
 };
@@ -72,6 +75,7 @@ mod tests {
             }],
             &[],
             "codux-gpui",
+            "zh-Hans",
             &AIMemorySettings {
                 summary_target_token_budget: 256,
                 max_extraction_transcript_tokens: 512,
@@ -83,6 +87,23 @@ mod tests {
         assert!(prompt.contains("version=2"));
         assert!(prompt.contains("Prefers maintainable small files."));
         assert!(prompt.contains("<transcript>"));
+        assert!(prompt.contains("in Simplified Chinese"));
+        assert!(prompt.contains("JSON keys and enum values must remain in English"));
+    }
+
+    #[test]
+    fn memory_extraction_language_label_maps_supported_locales() {
+        assert_eq!(
+            memory_extraction_language_label("zh-Hant"),
+            "Traditional Chinese"
+        );
+        assert_eq!(
+            memory_extraction_language_label("zh-CN"),
+            "Simplified Chinese"
+        );
+        assert_eq!(memory_extraction_language_label("ja"), "Japanese");
+        assert_eq!(memory_extraction_language_label("pt-BR"), "Portuguese");
+        assert_eq!(memory_extraction_language_label("en"), "English");
     }
 
     fn provider(

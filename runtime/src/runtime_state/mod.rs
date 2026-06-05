@@ -15,20 +15,20 @@ use crate::{
         AppAboutMetadata, AppDiagnosticsSnapshot, DiagnosticsExportRequest,
         DiagnosticsExportResult, UpdateInstallResult,
     },
-    dialog::{
-        LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest, LocalizedOpenDialogRequest,
-        LocalizedSaveDialogRequest,
-    },
     desktop_pet::{
         DesktopPetHitLayout, DesktopPetPhysicalPosition, DesktopPetPhysicalSize,
         DesktopPetPlacementSnapshot, DesktopPetSavedOrigin, DesktopPetService,
         DesktopPetVisibilitySnapshot, DesktopPetWorkArea,
     },
+    dialog::{
+        LocalizedAlertDialogRequest, LocalizedConfirmDialogRequest, LocalizedOpenDialogRequest,
+        LocalizedSaveDialogRequest,
+    },
+    file_editor_layout::{FileEditorLayoutService, FileEditorLayoutSummary, FileEditorTabSummary},
     files::{
         FileChangeEvent, FileExternalCopyRequest, FileWatchManager, FileWatchRegistration,
         FilesService,
     },
-    file_editor_layout::{FileEditorLayoutService, FileEditorLayoutSummary, FileEditorTabSummary},
     git,
     i18n::{self, I18nBundle},
     llm::{
@@ -36,9 +36,9 @@ use crate::{
         PetIdleSpeechRequest, PetIdleSpeechResponse,
     },
     memory::{
-        MemoryEnqueueResult, MemoryExtractionStatusSnapshot, MemoryManagementRequest,
-        MemoryManagementSnapshot, MemoryManagerSnapshot, MemoryManagerSnapshotRequest,
-        MemoryExtractionEnqueueResult, MemoryProjectMigrationRequest, MemoryProjectProfile,
+        MemoryEnqueueResult, MemoryExtractionEnqueueResult, MemoryExtractionStatusSnapshot,
+        MemoryManagementRequest, MemoryManagementSnapshot, MemoryManagerSnapshot,
+        MemoryManagerSnapshotRequest, MemoryProjectMigrationRequest, MemoryProjectProfile,
         MemoryProjectProfileRefreshResult, MemoryService, MemorySummary, MemorySummaryRow,
         MemorySummaryUpdateRequest,
     },
@@ -62,8 +62,7 @@ use crate::{
         TerminalLayoutsSnapshot,
     },
     remote::{
-        RemoteHostRuntime, RemotePairingInfo, RemotePairingPollResult, RemoteService,
-        RemoteSummary,
+        RemoteHostRuntime, RemotePairingInfo, RemotePairingPollResult, RemoteService, RemoteSummary,
     },
     runtime_activity::{RuntimeActivityService, RuntimeActivitySummary},
     runtime_bridge::RuntimeInventory,

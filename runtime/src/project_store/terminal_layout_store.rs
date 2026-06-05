@@ -6,18 +6,20 @@ use crate::terminal_layout::terminal_layout_cache_namespace;
 
 impl ProjectStore {
     pub fn terminal_layout(&self, project_id: &str) -> Option<TerminalLayoutRecord> {
-        self.terminal_layouts_snapshot().layouts.get(project_id).cloned()
+        self.terminal_layouts_snapshot()
+            .layouts
+            .get(project_id)
+            .cloned()
     }
 
     pub fn terminal_layouts_snapshot(&self) -> TerminalLayoutsSnapshot {
-        let layouts = crate::persistent_cache::PersistentCacheStore::for_file(self.state_cache_file())
-            .and_then(|cache| {
-                cache.scan_json::<TerminalLayoutRecord>(terminal_layout_cache_namespace())
-            })
-            .unwrap_or_default();
-        TerminalLayoutsSnapshot {
-            layouts,
-        }
+        let layouts =
+            crate::persistent_cache::PersistentCacheStore::for_file(self.state_cache_file())
+                .and_then(|cache| {
+                    cache.scan_json::<TerminalLayoutRecord>(terminal_layout_cache_namespace())
+                })
+                .unwrap_or_default();
+        TerminalLayoutsSnapshot { layouts }
     }
 
     pub fn save_terminal_layout(

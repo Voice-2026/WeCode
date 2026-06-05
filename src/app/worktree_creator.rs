@@ -1,33 +1,6 @@
+use super::app_select::{CoduxSelectOption, codux_select};
 use super::*;
 use gpui_component::input::{Input, InputEvent, InputState};
-
-#[derive(Clone)]
-struct WorktreeBranchOption {
-    value: String,
-    label: SharedString,
-}
-
-impl WorktreeBranchOption {
-    fn new(value: impl Into<String>) -> Self {
-        let value = value.into();
-        Self {
-            label: SharedString::from(value.clone()),
-            value,
-        }
-    }
-}
-
-impl SelectItem for WorktreeBranchOption {
-    type Value = String;
-
-    fn title(&self) -> SharedString {
-        self.label.clone()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.value
-    }
-}
 
 impl CoduxApp {
     pub(in crate::app) fn worktree_creator_workspace(
@@ -153,50 +126,33 @@ fn worktree_branch_select(
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let items = options
+    let select_id = "worktree-branch-select";
+    let options = options
         .into_iter()
-        .map(WorktreeBranchOption::new)
+        .map(|value| CoduxSelectOption::new(value.clone(), SharedString::from(value)))
         .collect::<Vec<_>>();
-    let selected_index = items.iter().position(|item| item.value == value);
-    let state = window.use_keyed_state("worktree-branch-select", cx, {
-        let items = items.clone();
-        move |window, cx| {
-            SelectState::new(
-                items,
-                selected_index.map(|row| gpui_component::IndexPath::default().row(row)),
-                window,
-                cx,
-            )
-        }
-    });
-    state.update(cx, |state, cx| {
-        state.set_items(items, window, cx);
-        state.set_selected_index(
-            selected_index.map(|row| gpui_component::IndexPath::default().row(row)),
-            window,
-            cx,
-        );
-    });
-    cx.subscribe_in(&state, window, |app, _, event, _window, cx| {
-        let SelectEvent::Confirm(selected) = event;
-        if let Some(value) = selected {
-            app.worktree_creator_base_branch = value.to_string();
-            app.worktree_creator_error = None;
-            cx.notify();
-        }
-    })
-    .detach();
 
     div()
         .flex()
         .flex_col()
         .gap(px(6.0))
         .child(worktree_creator_label(label))
-        .child(
-            Select::new(&state)
-                .menu_width(px(260.0))
-                .with_size(Size::Medium),
-        )
+        .child(codux_select(
+            select_id,
+            value,
+            options,
+            SharedString::from("Choose"),
+            relative(1.0),
+            px(260.0),
+            false,
+            window,
+            cx,
+            |app, value, _window, cx| {
+                app.worktree_creator_base_branch = value;
+                app.worktree_creator_error = None;
+                cx.notify();
+            },
+        ))
 }
 
 fn worktree_creator_input(

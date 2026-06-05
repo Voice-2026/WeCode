@@ -123,6 +123,39 @@ impl MemoryService {
         self.extraction_status_snapshot()
     }
 
+    pub fn clear_extraction_task(
+        &self,
+        task_id: &str,
+        statuses: &[&str],
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        let task_id = task_id.trim();
+        if task_id.is_empty() {
+            return Err("Memory extraction task id is empty.".to_string());
+        }
+        if statuses.is_empty() {
+            return Err("Memory extraction task status list is empty.".to_string());
+        }
+        self.ensure_queue_schema()?;
+        let conn = self.open_connection()?;
+        let placeholders = std::iter::repeat("?")
+            .take(statuses.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "UPDATE memory_extraction_queue SET status = 'cleared' WHERE id = ? AND status IN ({placeholders});"
+        );
+        let mut values = Vec::with_capacity(statuses.len() + 1);
+        values.push(task_id);
+        values.extend(statuses.iter().copied());
+        let changed = conn
+            .execute(&sql, rusqlite::params_from_iter(values))
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err("Memory extraction task not found.".to_string());
+        }
+        self.extraction_status_snapshot()
+    }
+
     pub fn failed_extraction_tasks(
         &self,
         project_id: Option<&str>,
@@ -131,6 +164,16 @@ impl MemoryService {
         self.ensure_queue_schema()?;
         let conn = self.open_connection()?;
         db_failed_extraction_tasks(&conn, project_id, limit)
+    }
+
+    pub fn active_extraction_tasks(
+        &self,
+        project_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<MemoryExtractionTask>, String> {
+        self.ensure_queue_schema()?;
+        let conn = self.open_connection()?;
+        db_active_extraction_tasks(&conn, project_id, limit)
     }
 
     pub(super) fn enqueue_extraction_if_needed(

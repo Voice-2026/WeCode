@@ -184,9 +184,11 @@ pub fn desktop_pet_initial_position(
 ) -> DesktopPetSavedOrigin {
     let scale_factor = normalized_scale_factor(work_area.scale_factor);
     let position = saved_origin.unwrap_or_else(|| DesktopPetSavedOrigin {
-        x: work_area.x / scale_factor + work_area.width / scale_factor - DESKTOP_PET_BASE_WIDTH
+        x: work_area.x / scale_factor + work_area.width / scale_factor
+            - DESKTOP_PET_BASE_WIDTH
             - DESKTOP_PET_MARGIN,
-        y: work_area.y / scale_factor + work_area.height / scale_factor - DESKTOP_PET_BASE_HEIGHT
+        y: work_area.y / scale_factor + work_area.height / scale_factor
+            - DESKTOP_PET_BASE_HEIGHT
             - DESKTOP_PET_DEFAULT_BOTTOM_MARGIN,
     });
     desktop_pet_clamped_logical_position(
@@ -266,8 +268,8 @@ pub fn desktop_pet_local_point_is_hotspot(
     } else {
         layout.size.width - 24.0 - DESKTOP_PET_SPRITE_SIZE + DESKTOP_PET_SPRITE_VISIBLE_INSET_X
     };
-    let sprite_y = layout.size.height - 8.0 - DESKTOP_PET_SPRITE_SIZE
-        + DESKTOP_PET_SPRITE_VISIBLE_INSET_TOP;
+    let sprite_y =
+        layout.size.height - 8.0 - DESKTOP_PET_SPRITE_SIZE + DESKTOP_PET_SPRITE_VISIBLE_INSET_TOP;
     let sprite_width = DESKTOP_PET_SPRITE_SIZE - DESKTOP_PET_SPRITE_VISIBLE_INSET_X * 2.0;
     let sprite_height = DESKTOP_PET_SPRITE_SIZE
         - DESKTOP_PET_SPRITE_VISIBLE_INSET_TOP
@@ -381,7 +383,10 @@ mod tests {
             scale_factor: 1.0,
         };
         let origin = desktop_pet_initial_position(None, work_area);
-        assert_eq!(origin.x, 1440.0 - DESKTOP_PET_BASE_WIDTH - DESKTOP_PET_MARGIN);
+        assert_eq!(
+            origin.x,
+            1440.0 - DESKTOP_PET_BASE_WIDTH - DESKTOP_PET_MARGIN
+        );
         assert_eq!(
             origin.y,
             900.0 - DESKTOP_PET_BASE_HEIGHT - DESKTOP_PET_DEFAULT_BOTTOM_MARGIN

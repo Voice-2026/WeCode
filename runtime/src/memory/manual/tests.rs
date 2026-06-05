@@ -172,7 +172,12 @@ fn automatic_enqueue_respects_idle_delay_and_enabled_flag() {
     ];
 
     let result = service
-        .enqueue_automatic_extraction_candidates(&settings, std::slice::from_ref(&project), &sessions, &[])
+        .enqueue_automatic_extraction_candidates(
+            &settings,
+            std::slice::from_ref(&project),
+            &sessions,
+            &[],
+        )
         .unwrap();
 
     assert_eq!(result.checked_count, 1);
@@ -214,12 +219,8 @@ fn automatic_enqueue_skips_session_with_active_pending_task() {
         max_index_sessions: 10,
         ..Default::default()
     };
-    let first_session = runtime_session(
-        "term-a",
-        "same-session",
-        &first.display().to_string(),
-        10.0,
-    );
+    let first_session =
+        runtime_session("term-a", "same-session", &first.display().to_string(), 10.0);
     let updated_session = runtime_session(
         "term-a",
         "same-session",
@@ -326,7 +327,11 @@ fn automatic_enqueue_limits_batch_and_stores_only_task_metadata() {
     };
     assert_eq!(stored_paths.len(), 10);
     assert!(stored_paths.iter().all(|path| path.ends_with(".jsonl")));
-    assert!(stored_paths.iter().all(|path| !path.contains("large content")));
+    assert!(
+        stored_paths
+            .iter()
+            .all(|path| !path.contains("large content"))
+    );
 
     fs::remove_dir_all(support_dir).unwrap();
 }

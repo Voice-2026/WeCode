@@ -1,7 +1,7 @@
 use super::{
     assets::{stage_runtime_asset, stage_runtime_dir},
-    hooks::{hook_config_status_in, install_managed_hook_configs_in},
     event_file::clear_runtime_event_dir,
+    hooks::{hook_config_status_in, install_managed_hook_configs_in},
     log::runtime_log_line,
     paths::runtime_root_dir,
     registry::{AIRuntimeRegistry, AIRuntimeTerminalState},
@@ -395,10 +395,7 @@ mod tests {
         fs::set_permissions(&fake_codex, permissions).unwrap();
 
         let wrapper = bridge.wrapper_bin_dir().join("codex");
-        let search_path = format!(
-            "{}:/usr/bin:/bin:/usr/sbin:/sbin",
-            real_bin.display()
-        );
+        let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
         let zsh_dot_dir = dir.join("zsh");
         fs::create_dir_all(&zsh_dot_dir).unwrap();
         fs::write(zsh_dot_dir.join(".zshenv"), "").unwrap();
@@ -477,13 +474,17 @@ mod tests {
         let lines = stdout.lines().collect::<Vec<_>>();
         assert_eq!(
             lines.first().copied(),
-            Some(bridge.wrapper_bin_dir().join("codex").display().to_string().as_str())
+            Some(
+                bridge
+                    .wrapper_bin_dir()
+                    .join("codex")
+                    .display()
+                    .to_string()
+                    .as_str()
+            )
         );
         let expected_histfile = format!("HISTFILE={}", home.join(".zsh_history").display());
-        assert_eq!(
-            lines.get(1).copied(),
-            Some(expected_histfile.as_str())
-        );
+        assert_eq!(lines.get(1).copied(), Some(expected_histfile.as_str()));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -595,10 +596,19 @@ mod tests {
                 .any(|arg| arg == "--dangerously-bypass-approvals-and-sandbox")
         );
         assert!(args.lines().any(|arg| arg == "--model=gpt-5.1"));
-        assert!(args.lines().any(|arg| arg == "model_reasoning_effort=\"high\""));
+        assert!(
+            args.lines()
+                .any(|arg| arg == "model_reasoning_effort=\"high\"")
+        );
         assert!(args.lines().any(|arg| arg == "--add-dir"));
-        assert!(args.lines().any(|arg| arg == memory_root.display().to_string()));
-        assert!(args.lines().any(|arg| arg.starts_with("developer_instructions=")));
+        assert!(
+            args.lines()
+                .any(|arg| arg == memory_root.display().to_string())
+        );
+        assert!(
+            args.lines()
+                .any(|arg| arg.starts_with("developer_instructions="))
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

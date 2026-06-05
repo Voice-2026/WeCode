@@ -3,10 +3,12 @@ use super::types::AppSettings;
 pub fn locale_from_language_setting(language: &str) -> String {
     match language {
         "english" => "en",
-        "simplifiedChinese" | "zh-CN" | "zh_CN" | "zh-Hans" | "zh-Hans-CN"
-        | "zh_Hans_CN" => "zh-Hans",
-        "traditionalChinese" | "zh-TW" | "zh_TW" | "zh-Hant" | "zh-Hant-TW"
-        | "zh_Hant_TW" => "zh-Hant",
+        "simplifiedChinese" | "zh-CN" | "zh_CN" | "zh-Hans" | "zh-Hans-CN" | "zh_Hans_CN" => {
+            "zh-Hans"
+        }
+        "traditionalChinese" | "zh-TW" | "zh_TW" | "zh-Hant" | "zh-Hant-TW" | "zh_Hant_TW" => {
+            "zh-Hant"
+        }
         "japanese" => "ja",
         "korean" => "ko",
         "french" => "fr",
@@ -84,7 +86,9 @@ fn macos_global_preferred_locale() -> Option<String> {
         CFPreferencesCopyAppValue, CFPreferencesCopyValue, kCFPreferencesAnyApplication,
         kCFPreferencesAnyHost, kCFPreferencesCurrentUser,
     };
-    use core_foundation_sys::string::{CFStringCreateWithCString, CFStringRef, kCFStringEncodingUTF8};
+    use core_foundation_sys::string::{
+        CFStringCreateWithCString, CFStringRef, kCFStringEncodingUTF8,
+    };
     use std::ffi::CString;
 
     let key = CString::new("AppleLanguages").ok()?;

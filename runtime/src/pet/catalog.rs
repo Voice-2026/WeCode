@@ -7,6 +7,12 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
 pub(super) fn pet_catalog(support_dir: PathBuf) -> PetCatalog {
+    let mut catalog = bundled_pet_catalog();
+    catalog.custom_pets = load_custom_pets(&support_dir, true);
+    catalog
+}
+
+pub(super) fn bundled_pet_catalog() -> PetCatalog {
     PetCatalog {
         species: PET_SPECIES
             .iter()
@@ -20,7 +26,7 @@ pub(super) fn pet_catalog(support_dir: PathBuf) -> PetCatalog {
                 description_key: format!("pet.claim.{species}.description"),
             })
             .collect(),
-        custom_pets: load_custom_pets(&support_dir, true),
+        custom_pets: Vec::new(),
         atlas: PetAtlasSpec {
             columns: 8,
             rows: 9,

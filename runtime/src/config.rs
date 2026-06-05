@@ -1,6 +1,6 @@
 use parking_lot::{Mutex, RwLock};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use std::{
     collections::HashMap,
@@ -131,10 +131,7 @@ impl ConfigStore {
                     if let Err(error) = write_snapshot(&writer_path, &snapshot) {
                         crate::runtime_trace::runtime_trace(
                             "config",
-                            &format!(
-                                "failed to write {}: {error}",
-                                writer_path.display()
-                            ),
+                            &format!("failed to write {}: {error}", writer_path.display()),
                         );
                     }
                 }
@@ -282,10 +279,7 @@ pub fn raw_state_snapshot(path: &Path) -> Map<String, Value> {
     ConfigStore::for_file(path.to_path_buf()).snapshot()
 }
 
-pub fn save_raw_state_snapshot(
-    path: &Path,
-    snapshot: &Map<String, Value>,
-) -> Result<(), String> {
+pub fn save_raw_state_snapshot(path: &Path, snapshot: &Map<String, Value>) -> Result<(), String> {
     let mut snapshot = snapshot.clone();
     sanitize_state_snapshot(&mut snapshot);
     ConfigStore::for_file(path.to_path_buf()).save_snapshot(&snapshot)
@@ -360,9 +354,11 @@ fn write_snapshot(path: &Path, snapshot: &Map<String, Value>) -> Result<(), Stri
 }
 
 fn read_value_snapshot(path: &Path) -> Result<Value, String> {
-    fs::read_to_string(path).map_err(|error| error.to_string()).and_then(|content| {
-        serde_json::from_str::<Value>(&content).map_err(|error| error.to_string())
-    })
+    fs::read_to_string(path)
+        .map_err(|error| error.to_string())
+        .and_then(|content| {
+            serde_json::from_str::<Value>(&content).map_err(|error| error.to_string())
+        })
 }
 
 fn write_value_snapshot(path: &Path, snapshot: &Value) -> Result<(), String> {
@@ -416,7 +412,9 @@ mod tests {
 
         assert!(saved.get("terminalLayouts").is_none());
         assert!(saved.get("fileEditorLayouts").is_none());
-        let worktree = saved["worktrees"].as_array().unwrap()[0].as_object().unwrap();
+        let worktree = saved["worktrees"].as_array().unwrap()[0]
+            .as_object()
+            .unwrap();
         assert!(worktree.get("gitSummary").is_none());
         assert!(worktree.get("git_summary").is_none());
 

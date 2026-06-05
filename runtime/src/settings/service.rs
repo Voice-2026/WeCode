@@ -37,6 +37,14 @@ impl SettingsService {
         Ok(summary_from_raw(&raw))
     }
 
+    fn update_pet_string(&self, key: &str, value: String) -> Result<SettingsSummary, String> {
+        let mut raw = self.raw_settings();
+        let pet = pet_mut(&mut raw)?;
+        pet.insert(key.to_string(), Value::String(value));
+        self.save_raw_settings(&raw)?;
+        Ok(summary_from_raw(&raw))
+    }
+
     fn update_ai_pet_string(&self, key: &str, value: String) -> Result<SettingsSummary, String> {
         let mut raw = self.raw_settings();
         let pet = ai_pet_mut(&mut raw)?;

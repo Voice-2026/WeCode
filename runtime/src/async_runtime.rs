@@ -10,8 +10,8 @@ use std::{
 };
 
 pub use tokio::{
-    sync::{Notify, Semaphore, oneshot},
     sync::mpsc::{Receiver, Sender, channel},
+    sync::{Notify, Semaphore, oneshot},
     task::JoinHandle,
 };
 
@@ -28,6 +28,13 @@ struct PriorityBlockingQueue {
     notify: Notify,
     sequence: AtomicU64,
     started: AtomicBool,
+    running: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BlockingQueueStatus {
+    pub queued: usize,
+    pub running: usize,
 }
 
 struct PriorityBlockingJob {
@@ -125,6 +132,21 @@ where
         .expect("Codux priority blocking result type mismatch"))
 }
 
+pub fn blocking_queue_status() -> BlockingQueueStatus {
+    let Some(queue) = PRIORITY_BLOCKING_QUEUE.get() else {
+        return BlockingQueueStatus::default();
+    };
+    let queued = queue
+        .jobs
+        .lock()
+        .expect("Codux priority blocking queue poisoned")
+        .len();
+    BlockingQueueStatus {
+        queued,
+        running: queue.running.load(Ordering::Relaxed) as usize,
+    }
+}
+
 pub async fn run_semaphore_limited_blocking<F, R>(function: F) -> Result<R, tokio::task::JoinError>
 where
     F: FnOnce() -> R + Send + 'static,
@@ -148,6 +170,7 @@ fn priority_blocking_queue() -> Arc<PriorityBlockingQueue> {
                 notify: Notify::new(),
                 sequence: AtomicU64::new(0),
                 started: AtomicBool::new(false),
+                running: AtomicU64::new(0),
             })
         })
         .clone();
@@ -181,7 +204,9 @@ fn start_priority_blocking_worker(queue: Arc<PriorityBlockingQueue>) {
                 ),
             );
             let started_at = std::time::Instant::now();
+            queue.running.fetch_add(1, Ordering::Relaxed);
             let result = runtime().spawn_blocking(job.run).await;
+            queue.running.fetch_sub(1, Ordering::Relaxed);
             crate::runtime_trace::runtime_trace(
                 "blocking-queue",
                 &format!(

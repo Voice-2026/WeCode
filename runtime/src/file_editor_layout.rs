@@ -60,9 +60,10 @@ impl FileEditorLayoutService {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        let cache =
-            crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
-                .ok();
+        let cache = crate::persistent_cache::PersistentCacheStore::for_support_dir(
+            self.support_dir.clone(),
+        )
+        .ok();
         owner_ids
             .into_iter()
             .map(|owner_id| {
@@ -89,8 +90,9 @@ impl FileEditorLayoutService {
         tabs: Vec<FileEditorTabSummary>,
         active_path: Option<String>,
     ) -> Result<FileEditorLayoutSummary, String> {
-        let cache =
-            crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())?;
+        let cache = crate::persistent_cache::PersistentCacheStore::for_support_dir(
+            self.support_dir.clone(),
+        )?;
         if tabs.is_empty() {
             cache.delete_json(FILE_EDITOR_LAYOUT_NAMESPACE, owner_id)?;
         } else {

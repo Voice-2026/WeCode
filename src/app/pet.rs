@@ -177,6 +177,47 @@ impl CoduxApp {
         );
     }
 
+    pub(in crate::app) fn refresh_pet_cache_async(&mut self, cx: &mut Context<Self>) {
+        let service = self.runtime_service.clone();
+        let source_root = self.runtime.source_root.clone();
+        let support_dir = self.state.support_dir.clone();
+        self.runtime_trace("pet", "cache_refresh queued");
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend("pet", "cache_refresh start");
+                let pet = service.reload_pet();
+                let catalog = service.pet_catalog();
+                let snapshot = service.pet_snapshot().unwrap_or_default();
+                let custom_pets = catalog.custom_pets.clone();
+                service.runtime_trace_frontend("pet", "cache_refresh ok");
+                (pet, catalog, snapshot, custom_pets)
+            })
+            .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok((pet, catalog, snapshot, custom_pets)) => {
+                        let sprite_paths =
+                            pet_sprite_path_cache(&source_root, &support_dir, &catalog);
+                        app.state.pet = pet;
+                        app.pet_catalog = catalog;
+                        app.pet_snapshot = snapshot;
+                        app.pet_custom_pets = custom_pets;
+                        app.pet_sprite_paths = sprite_paths;
+                    }
+                    Err(error) => {
+                        app.runtime_trace(
+                            "pet",
+                            &format!("cache_refresh failed join_error={error}"),
+                        );
+                    }
+                }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            });
+        })
+        .detach();
+    }
+
     pub(in crate::app) fn sync_pet_custom_install_event_for_activity_tick(&mut self) -> bool {
         let event = current_pet_custom_install_event();
         self.apply_pet_custom_install_event(event)
@@ -1206,23 +1247,21 @@ fn pet_legacy_row(
             .text_color(cx.theme().secondary_foreground)
             .icon(Icon::new(HeroIconName::ArrowUturnLeft).size_3p5())
             .on_click(cx.listener(move |app, _event, _window, cx| {
-                match app.runtime_service.restore_archived_pet(PetRestoreRequest {
-                    legacy_id: legacy_id.clone(),
-                }) {
-                    Ok(_) => {
-                        app.refresh_pet_cache();
+                let legacy_id = legacy_id.clone();
+                app.run_pet_change_async(
+                    "restore_pet",
+                    "restoring pet".to_string(),
+                    move |service| {
+                        service
+                            .restore_archived_pet(PetRestoreRequest { legacy_id })
+                            .map(|_| ())
+                    },
+                    |app, _cx| {
                         app.pet_dex_spotlight = None;
-                        let revision = publish_pet_update();
-                        if revision > 0 {
-                            app.pet_update_seen_revision = revision;
-                        }
                         app.status_message = "pet restored".to_string();
-                    }
-                    Err(error) => {
-                        app.status_message = format!("failed to restore pet: {error}");
-                    }
-                }
-                cx.notify();
+                    },
+                    cx,
+                );
             })),
             pet_catalog_text(&language, "pet.archive.restore.action", "Restore"),
         ))

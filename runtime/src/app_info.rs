@@ -488,7 +488,8 @@ fn decode_updater_signature(signature: &str) -> Result<Signature, String> {
                 .map_err(|_| format!("Invalid updater signature: {raw_error}"))?;
             let decoded = std::str::from_utf8(&decoded)
                 .map_err(|_| format!("Invalid updater signature: {raw_error}"))?;
-            Signature::decode(decoded).map_err(|error| format!("Invalid updater signature: {error}"))
+            Signature::decode(decoded)
+                .map_err(|error| format!("Invalid updater signature: {error}"))
         }
     }
 }
@@ -529,7 +530,9 @@ fn prepare_windows_update_install(artifact_path: &Path) -> Result<PendingUpdateI
             ),
         });
     }
-    let helper_path = runtime_temp_dir().join("updates").join("install-update.cmd");
+    let helper_path = runtime_temp_dir()
+        .join("updates")
+        .join("install-update.cmd");
     fs::create_dir_all(helper_path.parent().unwrap_or_else(|| Path::new(".")))
         .map_err(|error| error.to_string())?;
     let script = windows_update_install_script(artifact_path, std::process::id())?;
@@ -745,7 +748,9 @@ fn pending_update_installer_path() -> Result<Option<PathBuf>, String> {
 
 #[cfg(target_os = "windows")]
 fn pending_update_installer_path() -> Result<Option<PathBuf>, String> {
-    let path = runtime_temp_dir().join("updates").join("install-update.cmd");
+    let path = runtime_temp_dir()
+        .join("updates")
+        .join("install-update.cmd");
     if path.is_file() {
         Ok(Some(path))
     } else {
@@ -941,9 +946,8 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn current_macos_app_bundle_resolves_bundle_from_executable_path() {
-        let bundle = current_macos_app_bundle(Path::new(
-            "/Applications/Codux.app/Contents/MacOS/Codux",
-        ));
+        let bundle =
+            current_macos_app_bundle(Path::new("/Applications/Codux.app/Contents/MacOS/Codux"));
 
         assert_eq!(bundle, Some(PathBuf::from("/Applications/Codux.app")));
     }

@@ -96,6 +96,16 @@ fn mix_towards(color: Hsla, target: Hsla, amount: f32) -> Hsla {
     raw_color(mix_hex(rgba_to_u32(color), rgba_to_u32(target), amount))
 }
 
+pub fn divider_for_surface(surface: Hsla) -> Hsla {
+    let rgb = surface.to_rgb();
+    let luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+    if luminance > 0.5 {
+        raw_color(0x000000).opacity(0.10)
+    } else {
+        raw_color(0xFFFFFF).opacity(0.12)
+    }
+}
+
 pub fn codux_main_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
     codux_titlebar(title, CoduxTitlebarKind::Main)
 }
@@ -486,7 +496,6 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
         control_bg,
         control_hover,
         input,
-        ring,
         accent_bg,
         accent,
         primary_hover,
@@ -518,12 +527,15 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
             app_surface,
             raw_color(terminal.foreground),
             mix_towards(terminal_background, selection, 0.34),
-            raw_color(terminal.muted_foreground),
+            mix_towards(
+                raw_color(terminal.muted_foreground),
+                terminal_background,
+                0.28,
+            ),
             mix_towards(terminal_background, current_line, 0.30),
             raw_color(0xFFFFFF).opacity(0.055),
             raw_color(0xFFFFFF).opacity(0.085),
             raw_color(0xFFFFFF).opacity(0.075),
-            accent_color.opacity(0.30),
             accent_color.opacity(0.17),
             accent_color,
             mix_towards(accent_color, raw_color(0xFFFFFF), 0.18),
@@ -555,7 +567,6 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
             raw_color(0x000000).opacity(0.055),
             raw_color(0x000000).opacity(0.085),
             raw_color(0x000000).opacity(0.075),
-            accent_color.opacity(0.34),
             accent_color.opacity(0.12),
             accent_color,
             mix_towards(accent_color, raw_color(0x000000), 0.12),
@@ -631,7 +642,7 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
     theme.accent_foreground = foreground;
     theme.input = input;
     theme.caret = accent;
-    theme.ring = ring;
+    theme.ring = accent;
     theme.selection = accent.opacity(if is_dark { 0.28 } else { 0.20 });
     let highlight_style = std::sync::Arc::make_mut(&mut theme.highlight_theme)
         .style

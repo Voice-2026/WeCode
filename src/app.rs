@@ -57,11 +57,11 @@ use codux_runtime::{
 };
 use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext, Bounds, ClipboardItem, Context, ElementId,
-    FocusHandle, FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent,
+    FocusHandle, FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent, Length,
     MouseButton, ObjectFit, ParentElement, PathBuilder, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, UniformListScrollHandle, Window,
     WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowKind,
-    WindowOptions, canvas, div, img, linear_color_stop, linear_gradient, point,
+    WindowOptions, anchored, canvas, deferred, div, img, linear_color_stop, linear_gradient, point,
     prelude::FluentBuilder as _, px, relative, rems, size,
 };
 use gpui_component::{
@@ -70,7 +70,6 @@ use gpui_component::{
     input::{Input, InputEvent, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
     resizable::{resizable_panel, v_resizable},
-    select::{Select, SelectEvent, SelectItem, SelectState},
     spinner::Spinner,
     tag::Tag,
     v_virtual_list,
@@ -92,6 +91,7 @@ mod app_events;
 mod app_helpers;
 mod app_lifecycle;
 mod app_render;
+mod app_select;
 mod app_state;
 mod desktop_pet;
 mod file_actions;

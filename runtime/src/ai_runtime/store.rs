@@ -116,7 +116,7 @@ impl AIRuntimeStateStore {
             return false;
         };
         let AIProjectPhase::Completed { updated_at, .. } =
-            completed_phase_unlocked(&core, project_id)
+            completed_phase_unlocked(&core, project_id, now_seconds())
         else {
             return false;
         };

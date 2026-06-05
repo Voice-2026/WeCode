@@ -40,7 +40,6 @@ impl WorktreeService {
             support_dir,
         }
     }
-
 }
 
 include!("worktree/service_summary.rs");

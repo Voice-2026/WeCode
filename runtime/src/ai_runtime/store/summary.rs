@@ -6,8 +6,16 @@ use crate::ai_runtime::snapshot::{
 };
 use std::collections::HashSet;
 
+const NEEDS_INPUT_VISIBLE_SECONDS: f64 = 30.0;
+
 pub(super) fn state_snapshot_unlocked(core: &AIRuntimeStateCore) -> AIRuntimeStateSnapshot {
-    let mut sessions = core.sessions.values().cloned().collect::<Vec<_>>();
+    let now = now_seconds();
+    let mut sessions = core
+        .sessions
+        .values()
+        .cloned()
+        .map(|session| visible_session_snapshot(session, now))
+        .collect::<Vec<_>>();
     sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
     let mut project_ids = sessions
         .iter()
@@ -20,9 +28,9 @@ pub(super) fn state_snapshot_unlocked(core: &AIRuntimeStateCore) -> AIRuntimeSta
         .iter()
         .map(|project_id| AIProjectStateSnapshot {
             project_id: project_id.clone(),
-            project_phase: project_phase_unlocked(core, project_id),
-            completed_phase: completed_phase_unlocked(core, project_id),
-            totals: project_totals_unlocked(core, Some(project_id)),
+            project_phase: project_phase_unlocked(core, project_id, now),
+            completed_phase: completed_phase_unlocked(core, project_id, now),
+            totals: project_totals_unlocked(core, Some(project_id), now),
         })
         .collect::<Vec<_>>();
     let needs_input_count = projects
@@ -40,20 +48,20 @@ pub(super) fn state_snapshot_unlocked(core: &AIRuntimeStateCore) -> AIRuntimeSta
     AIRuntimeStateSnapshot {
         sessions,
         projects,
-        global_totals: project_totals_unlocked(core, None),
+        global_totals: project_totals_unlocked(core, None, now),
         needs_input_count,
         running_count,
         completion_count,
-        latest_completion: latest_completion_unlocked(core),
-        updated_at: now_seconds(),
+        latest_completion: latest_completion_unlocked(core, now),
+        updated_at: now,
     }
 }
 
-fn project_phase_unlocked(core: &AIRuntimeStateCore, project_id: &str) -> AIProjectPhase {
+fn project_phase_unlocked(core: &AIRuntimeStateCore, project_id: &str, now: f64) -> AIProjectPhase {
     let sessions = sorted_project_sessions(core, project_id);
     if let Some(session) = sessions
         .iter()
-        .find(|session| session.state == "needsInput")
+        .find(|session| session_has_active_needs_input(session, now))
     {
         return AIProjectPhase::NeedsInput {
             tool: session.tool.clone(),
@@ -73,11 +81,12 @@ fn project_phase_unlocked(core: &AIRuntimeStateCore, project_id: &str) -> AIProj
 pub(super) fn completed_phase_unlocked(
     core: &AIRuntimeStateCore,
     project_id: &str,
+    now: f64,
 ) -> AIProjectPhase {
     let sessions = sorted_project_sessions(core, project_id);
     if sessions
         .iter()
-        .any(|session| session.state == "needsInput" || session.state == "responding")
+        .any(|session| session_has_active_needs_input(session, now))
     {
         return AIProjectPhase::Idle;
     }
@@ -112,6 +121,7 @@ pub(super) fn completed_phase_unlocked(
 pub(super) fn project_totals_unlocked(
     core: &AIRuntimeStateCore,
     project_id: Option<&str>,
+    now: f64,
 ) -> AIProjectTotals {
     core.sessions
         .values()
@@ -125,13 +135,13 @@ pub(super) fn project_totals_unlocked(
             total.cached_input_tokens +=
                 (session.cached_input_tokens - session.baseline_cached_input_tokens).max(0);
             total.running += usize::from(session.state == "responding");
-            total.needs_input += usize::from(session.state == "needsInput");
+            total.needs_input += usize::from(session_has_active_needs_input(session, now));
             total.completed += usize::from(session.has_completed_turn);
             total
         })
 }
 
-fn latest_completion_unlocked(core: &AIRuntimeStateCore) -> Option<AILatestCompletion> {
+fn latest_completion_unlocked(core: &AIRuntimeStateCore, now: f64) -> Option<AILatestCompletion> {
     let mut latest = None;
     for project_id in core
         .sessions
@@ -143,7 +153,7 @@ fn latest_completion_unlocked(core: &AIRuntimeStateCore) -> Option<AILatestCompl
             tool,
             was_interrupted,
             updated_at,
-        } = completed_phase_unlocked(core, &project_id)
+        } = completed_phase_unlocked(core, &project_id, now)
         else {
             continue;
         };
@@ -175,7 +185,7 @@ fn latest_completion_unlocked(core: &AIRuntimeStateCore) -> Option<AILatestCompl
 pub(super) fn next_completion_event_unlocked(
     core: &mut AIRuntimeStateCore,
 ) -> Option<AIRuntimeCompletionEvent> {
-    let latest = latest_completion_unlocked(core)?;
+    let latest = latest_completion_unlocked(core, now_seconds())?;
     let session = core
         .sessions
         .values()
@@ -223,6 +233,21 @@ pub(super) fn next_completion_event_unlocked(
         was_interrupted: latest.was_interrupted,
         session: Some(session),
     })
+}
+
+fn session_has_active_needs_input(session: &AISessionSnapshot, now: f64) -> bool {
+    session.state == "needsInput" && now - session.updated_at <= NEEDS_INPUT_VISIBLE_SECONDS
+}
+
+fn visible_session_snapshot(mut session: AISessionSnapshot, now: f64) -> AISessionSnapshot {
+    if session.state == "needsInput" && !session_has_active_needs_input(&session, now) {
+        session.state = "idle".to_string();
+        session.status = "idle".to_string();
+        session.notification_type = None;
+        session.target_tool_name = None;
+        session.message = None;
+    }
+    session
 }
 
 fn completion_event_key(session: &AISessionSnapshot) -> String {

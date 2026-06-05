@@ -380,7 +380,11 @@ fn platform_keys_for_current_target() -> &'static [&'static str] {
     }
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
-        &["windows-x86_64", "windows-x86_64-nsis", "windows-x86_64-msi"]
+        &[
+            "windows-x86_64",
+            "windows-x86_64-nsis",
+            "windows-x86_64-msi",
+        ]
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {

@@ -311,7 +311,9 @@ mod tests {
         let supervisor = AIRuntimeSupervisor::new();
         let registry = AIRuntimeRegistry::shared();
         let dir = std::env::temp_dir().join(format!("codux-supervisor-{}", uuid::Uuid::new_v4()));
-        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
+        supervisor
+            .start(Arc::clone(&registry), dir.clone())
+            .unwrap();
         supervisor
             .submit_frame(
                 br#"{"kind":"ai-hook","payload":{"kind":"promptSubmitted","terminalID":"term-1","projectID":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Task","tool":"codex","updatedAt":10}}"#
@@ -383,7 +385,9 @@ mod tests {
             session_key: Some("session-key-1".to_string()),
             terminal_instance_id: Some("instance-1".to_string()),
         });
-        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
+        supervisor
+            .start(Arc::clone(&registry), dir.clone())
+            .unwrap();
         supervisor
             .submit_frame(
                 format!(
@@ -411,7 +415,10 @@ mod tests {
         let terminals = registry.snapshot();
         assert_eq!(terminals.len(), 1);
         assert_eq!(terminals[0].terminal_id, "term-1");
-        assert_eq!(terminals[0].terminal_instance_id.as_deref(), Some("instance-1"));
+        assert_eq!(
+            terminals[0].terminal_instance_id.as_deref(),
+            Some("instance-1")
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -434,7 +441,9 @@ mod tests {
             session_key: Some("session-key-1".to_string()),
             terminal_instance_id: Some("instance-1".to_string()),
         });
-        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
+        supervisor
+            .start(Arc::clone(&registry), dir.clone())
+            .unwrap();
         supervisor.poll_once().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
 
@@ -476,7 +485,9 @@ mod tests {
             session_key: None,
             terminal_instance_id: Some("instance-2".to_string()),
         });
-        supervisor.start(Arc::clone(&registry), dir.clone()).unwrap();
+        supervisor
+            .start(Arc::clone(&registry), dir.clone())
+            .unwrap();
         supervisor.poll_once().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(100));
 

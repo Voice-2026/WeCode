@@ -1,4 +1,11 @@
 impl RuntimeService {
+    fn memory_extraction_output_locale(&self) -> String {
+        let language = SettingsService::new(self.support_dir.clone())
+            .summary()
+            .language;
+        crate::settings::locale_from_language_setting(&language)
+    }
+
     pub fn reload_project_ai_history(&self, project_path: &str) -> AIHistorySummary {
         load_ai_history(&self.support_dir, project_path)
     }
@@ -64,6 +71,11 @@ impl RuntimeService {
         MemoryService::new(self.support_dir.clone()).extraction_status_snapshot()
     }
 
+    pub fn automatic_memory_extraction_available(&self) -> bool {
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        crate::memory::extraction::select_memory_provider(&settings, None).is_some()
+    }
+
     pub fn cancel_memory_extraction_queue(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
         MemoryService::new(self.support_dir.clone()).cancel_extraction_queue()
     }
@@ -78,6 +90,21 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         MemoryService::new(self.support_dir.clone()).clear_extraction_failures()
+    }
+
+    pub fn clear_failed_memory_extraction(
+        &self,
+        task_id: &str,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        MemoryService::new(self.support_dir.clone()).clear_extraction_task(task_id, &["failed"])
+    }
+
+    pub fn clear_pending_memory_extraction(
+        &self,
+        task_id: &str,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        MemoryService::new(self.support_dir.clone())
+            .clear_extraction_task(task_id, &["queued", "pending"])
     }
 
     pub fn retry_failed_memory_extraction(
@@ -104,10 +131,9 @@ impl RuntimeService {
         let projects = self.memory_project_workspaces();
         let _ = self.ai_runtime.poll_runtime_state();
         let runtime_state = self.ai_runtime.runtime_state_snapshot();
-        let history_sessions = indexed_sessions_since(Some(memory_history_cutoff_seconds(
-            &settings.memory,
-        )))
-        .map_err(|error| error.to_string())?;
+        let history_sessions =
+            indexed_sessions_since(Some(memory_history_cutoff_seconds(&settings.memory)))
+                .map_err(|error| error.to_string())?;
         memory_service.enqueue_automatic_extraction_candidates(
             &settings.memory,
             &projects,
@@ -120,6 +146,7 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         let root_projects = ProjectStore::new(self.support_dir.clone())
             .project_summaries()
@@ -140,6 +167,7 @@ impl RuntimeService {
                 &projects,
                 &runtime_state.sessions,
                 &history_sessions,
+                &output_locale,
             )
             .await
     }
@@ -148,9 +176,10 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_next_memory_extraction_task(&settings, &projects)
+            .process_next_memory_extraction_task(&settings, &projects, &output_locale)
             .await
     }
 
@@ -158,9 +187,10 @@ impl RuntimeService {
         &self,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_memory_extraction_queue(&settings, &projects)
+            .process_memory_extraction_queue(&settings, &projects, &output_locale)
             .await
     }
 
@@ -169,9 +199,10 @@ impl RuntimeService {
         limit: usize,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_memory_extraction_queue_limited(&settings, &projects, limit)
+            .process_memory_extraction_queue_limited(&settings, &projects, &output_locale, limit)
             .await
     }
 

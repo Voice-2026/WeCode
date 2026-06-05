@@ -66,8 +66,7 @@ pub(super) fn sanitize_terminal_layout(
 
 fn sanitize_bottom_tabs(tabs: Vec<TerminalBottomTabRecord>) -> Vec<TerminalBottomTabRecord> {
     let mut seen = HashSet::new();
-    tabs
-        .into_iter()
+    tabs.into_iter()
         .filter_map(|tab| {
             let terminal_id = normalized_string(&tab.terminal_id)?;
             if !seen.insert(terminal_id.clone()) {
@@ -121,9 +120,7 @@ fn terminal_exists(
 ) -> bool {
     let terminal_id = terminal_id.trim();
     !terminal_id.is_empty()
-        && (top_panes
-            .iter()
-            .any(|pane| pane.terminal_id == terminal_id)
+        && (top_panes.iter().any(|pane| pane.terminal_id == terminal_id)
             || tabs.iter().any(|tab| tab.terminal_id == terminal_id))
 }
 

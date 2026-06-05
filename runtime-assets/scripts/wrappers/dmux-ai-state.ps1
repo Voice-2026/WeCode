@@ -126,6 +126,33 @@ function Resolve-SessionId($Payload) {
   return $null
 }
 
+function Get-ConfiguredPermissionMode {
+  if ([string]::IsNullOrWhiteSpace($env:DMUX_TOOL_PERMISSION_SETTINGS_FILE)) { return "" }
+  if (-not (Test-Path -LiteralPath $env:DMUX_TOOL_PERMISSION_SETTINGS_FILE)) { return "" }
+  $key = switch ($Tool) {
+    "codex" { "codex" }
+    "claude" { "claudeCode" }
+    "claude-code" { "claudeCode" }
+    "gemini" { "gemini" }
+    "agy" { "gemini" }
+    "opencode" { "opencode" }
+    "kiro" { "kiro" }
+    default { "" }
+  }
+  if ([string]::IsNullOrWhiteSpace($key)) { return "" }
+  try {
+    $settings = Get-Content -LiteralPath $env:DMUX_TOOL_PERMISSION_SETTINGS_FILE -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+    $value = Get-ObjectProperty $settings $key
+    if ($value -is [string] -and -not [string]::IsNullOrWhiteSpace($value)) { return $value }
+  } catch {
+  }
+  return ""
+}
+
+function Has-FullAccessPermission {
+  return [string]::Equals((Get-ConfiguredPermissionMode), "fullAccess", [StringComparison]::Ordinal)
+}
+
 function Write-ClaudeMemoryAdditionalContext([string]$HookEventName = "UserPromptSubmit") {
   if ([string]::IsNullOrWhiteSpace($env:DMUX_AI_MEMORY_INDEX_FILE)) { return }
   if (-not (Test-Path -LiteralPath $env:DMUX_AI_MEMORY_INDEX_FILE)) { return }
@@ -160,7 +187,12 @@ function Get-EventKind([string]$Value) {
     "before-agent" { return "promptSubmitted" }
     "pre-compact" { return "memoryRefreshing" }
     "post-compact" { return "memoryRefreshing" }
-    "permission-request" { return "needsInput" }
+    "permission-request" {
+      if (($Tool -eq "claude" -or $Tool -eq "claude-code") -and (Has-FullAccessPermission)) {
+        return "promptSubmitted"
+      }
+      return "needsInput"
+    }
     "codex-permission-request" { return "needsInput" }
     "permission-denied" { return "needsInput" }
     "elicitation" { return "needsInput" }
@@ -183,6 +215,12 @@ function Get-Source([string]$Value, $Payload) {
     "codex-prompt-submit" { return "user-input" }
     "elicitation-result" { return "user-input" }
     "before-agent" { return "user-input" }
+    "permission-request" {
+      if (($Tool -eq "claude" -or $Tool -eq "claude-code") -and (Has-FullAccessPermission)) {
+        return "permission-auto-allowed"
+      }
+      return $null
+    }
     "pre-compact" { return "pre-compact" }
     "post-compact" { return "post-compact" }
     default {
@@ -195,7 +233,12 @@ function Get-Source([string]$Value, $Payload) {
 
 function Get-NotificationType([string]$Value, $Payload) {
   switch ($Value) {
-    "permission-request" { return "permission-request" }
+    "permission-request" {
+      if (($Tool -eq "claude" -or $Tool -eq "claude-code") -and (Has-FullAccessPermission)) {
+        return $null
+      }
+      return "permission-request"
+    }
     "codex-permission-request" { return "permission-request" }
     "permission-denied" { return "permission-denied" }
     "elicitation" { return "elicitation" }

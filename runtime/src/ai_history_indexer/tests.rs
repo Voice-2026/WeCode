@@ -1,9 +1,11 @@
 use super::state::{
     mark_project_completed, mark_project_progress, mark_project_queued, mark_project_running,
+    project_source_fingerprint_unchanged, set_project_source_fingerprint,
 };
 use super::types::AIHistoryIndexerState;
 use crate::ai_history_normalized::{
-    AIHistoryProjectRequest, AIHistorySnapshot, AIProjectUsageSummary,
+    AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFileFingerprint,
+    AIHistorySourceFingerprint, AIProjectUsageSummary,
 };
 use std::sync::{Arc, Mutex};
 
@@ -52,6 +54,42 @@ fn project_state_tracks_queue_progress_and_completion() {
             .queued_or_running_projects
             .contains(&project.id)
     );
+}
+
+#[test]
+fn project_source_fingerprint_tracks_changes_per_project() {
+    let state = Arc::new(Mutex::new(AIHistoryIndexerState::default()));
+    let fingerprint = AIHistorySourceFingerprint {
+        files: vec![AIHistorySourceFileFingerprint {
+            source: "codex".to_string(),
+            path: "/tmp/project/session.jsonl".to_string(),
+            modified_millis: 10,
+            size: 128,
+        }],
+    };
+    assert!(!project_source_fingerprint_unchanged(
+        &state,
+        "project-1",
+        &fingerprint
+    ));
+    set_project_source_fingerprint(&state, "project-1", fingerprint.clone());
+    assert!(project_source_fingerprint_unchanged(
+        &state,
+        "project-1",
+        &fingerprint
+    ));
+
+    let changed = AIHistorySourceFingerprint {
+        files: vec![AIHistorySourceFileFingerprint {
+            size: 256,
+            ..fingerprint.files[0].clone()
+        }],
+    };
+    assert!(!project_source_fingerprint_unchanged(
+        &state,
+        "project-1",
+        &changed
+    ));
 }
 
 fn test_project() -> AIHistoryProjectRequest {

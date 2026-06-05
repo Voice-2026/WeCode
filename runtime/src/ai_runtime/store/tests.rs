@@ -71,11 +71,12 @@ fn runtime_snapshot_sets_restored_session_baseline() {
     assert_eq!(session.baseline_cached_input_tokens, 3_000);
     assert!(session.baseline_resolved);
     assert_eq!(
-        summary::project_totals_unlocked(&core, Some("project-1")).total_tokens,
+        summary::project_totals_unlocked(&core, Some("project-1"), now_seconds()).total_tokens,
         0
     );
     assert_eq!(
-        summary::project_totals_unlocked(&core, Some("project-1")).cached_input_tokens,
+        summary::project_totals_unlocked(&core, Some("project-1"), now_seconds())
+            .cached_input_tokens,
         0
     );
 }
@@ -165,7 +166,7 @@ fn codex_stale_completed_turn_after_new_prompt_stays_running() {
     assert_eq!(session.state, "responding");
     assert!(session.has_completed_turn);
     assert!(matches!(
-        completed_phase_unlocked(&core, "project-1"),
+        completed_phase_unlocked(&core, "project-1", now_seconds()),
         AIProjectPhase::Idle
     ));
 }
@@ -216,9 +217,104 @@ fn session_started_clears_previous_completion_flag() {
     assert_eq!(session.state, "idle");
     assert!(!session.has_completed_turn);
     assert!(matches!(
-        completed_phase_unlocked(&core, "project-1"),
+        completed_phase_unlocked(&core, "project-1", now_seconds()),
         AIProjectPhase::Idle
     ));
+}
+
+#[test]
+fn stale_needs_input_is_not_visible_in_snapshot() {
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        AIHookEventPayload {
+            kind: "needsInput".to_string(),
+            updated_at: 1.0,
+            metadata: Some(AIHookEventMetadata {
+                notification_type: Some("permission-request".to_string()),
+                target_tool_name: Some("AskUserQuestion".to_string()),
+                ..empty_metadata()
+            }),
+            ..test_hook_for("claude", "claude-term-1", "claude-external-1", 1.0)
+        }
+    ));
+
+    let snapshot = state_snapshot_unlocked(&core);
+
+    assert_eq!(snapshot.needs_input_count, 0);
+    assert_eq!(snapshot.global_totals.needs_input, 0);
+    assert_eq!(snapshot.sessions[0].state, "idle");
+    assert!(snapshot.sessions[0].notification_type.is_none());
+    assert!(matches!(
+        snapshot.projects[0].project_phase,
+        AIProjectPhase::Idle
+    ));
+}
+
+#[test]
+fn fresh_needs_input_remains_visible_in_snapshot() {
+    let now = now_seconds();
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        AIHookEventPayload {
+            kind: "needsInput".to_string(),
+            updated_at: now,
+            metadata: Some(AIHookEventMetadata {
+                notification_type: Some("permission-request".to_string()),
+                target_tool_name: Some("AskUserQuestion".to_string()),
+                ..empty_metadata()
+            }),
+            ..test_hook_for("claude", "claude-term-1", "claude-external-1", now)
+        }
+    ));
+
+    let snapshot = state_snapshot_unlocked(&core);
+
+    assert_eq!(snapshot.needs_input_count, 1);
+    assert_eq!(snapshot.global_totals.needs_input, 1);
+    assert_eq!(snapshot.sessions[0].state, "needsInput");
+    assert!(matches!(
+        snapshot.projects[0].project_phase,
+        AIProjectPhase::NeedsInput { .. }
+    ));
+}
+
+#[test]
+fn prompt_submitted_after_needs_input_restores_running_state() {
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        AIHookEventPayload {
+            kind: "needsInput".to_string(),
+            updated_at: 1000.0,
+            metadata: Some(AIHookEventMetadata {
+                notification_type: Some("permission-request".to_string()),
+                target_tool_name: Some("AskUserQuestion".to_string()),
+                ..empty_metadata()
+            }),
+            ..test_hook_for("claude", "claude-term-1", "claude-external-1", 1000.0)
+        }
+    ));
+    assert!(apply_hook_unlocked(
+        &mut core,
+        AIHookEventPayload {
+            kind: "promptSubmitted".to_string(),
+            updated_at: 1001.0,
+            metadata: Some(AIHookEventMetadata {
+                source: Some("permission-auto-allowed".to_string()),
+                ..empty_metadata()
+            }),
+            ..test_hook_for("claude", "claude-term-1", "claude-external-1", 1001.0)
+        }
+    ));
+
+    let snapshot = state_snapshot_unlocked(&core);
+
+    assert_eq!(snapshot.running_count, 1);
+    assert_eq!(snapshot.needs_input_count, 0);
+    assert_eq!(snapshot.sessions[0].state, "responding");
+    assert!(snapshot.sessions[0].notification_type.is_none());
 }
 
 #[test]
@@ -255,7 +351,11 @@ fn prompt_submitted_clears_previous_interruption_flag() {
 #[test]
 fn reconcile_without_live_terminal_marks_running_session_interrupted() {
     let store = AIRuntimeStateStore::default();
-    assert!(store.apply_hook(test_hook("promptSubmitted", 1000.0)).did_change);
+    assert!(
+        store
+            .apply_hook(test_hook("promptSubmitted", 1000.0))
+            .did_change
+    );
 
     let mutation = store.reconcile_bridge_snapshot(&[]);
 
@@ -318,12 +418,22 @@ fn multiple_same_tool_sessions_are_isolated_by_terminal_id() {
     let store = AIRuntimeStateStore::default();
     assert!(
         store
-            .apply_hook(test_hook_for("codex", "codex-term-1", "codex-session-1", 1000.0))
+            .apply_hook(test_hook_for(
+                "codex",
+                "codex-term-1",
+                "codex-session-1",
+                1000.0
+            ))
             .did_change
     );
     assert!(
         store
-            .apply_hook(test_hook_for("codex", "codex-term-2", "codex-session-2", 1001.0))
+            .apply_hook(test_hook_for(
+                "codex",
+                "codex-term-2",
+                "codex-session-2",
+                1001.0
+            ))
             .did_change
     );
 
@@ -428,8 +538,16 @@ fn multiple_claude_sessions_are_isolated_by_terminal_id_and_external_session_id(
 #[test]
 fn stale_runtime_completion_snapshot_after_prompt_stays_running() {
     let store = AIRuntimeStateStore::default();
-    assert!(store.apply_hook(test_hook("sessionStarted", 1000.0)).did_change);
-    assert!(store.apply_hook(test_hook("promptSubmitted", 1020.0)).did_change);
+    assert!(
+        store
+            .apply_hook(test_hook("sessionStarted", 1000.0))
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(test_hook("promptSubmitted", 1020.0))
+            .did_change
+    );
 
     let mutation = store.apply_runtime_snapshot(
         "terminal-1",
@@ -470,7 +588,11 @@ fn stale_runtime_completion_snapshot_after_prompt_stays_running() {
 #[test]
 fn same_second_completion_snapshot_after_prompt_completes() {
     let store = AIRuntimeStateStore::default();
-    assert!(store.apply_hook(test_hook("sessionStarted", 1000.0)).did_change);
+    assert!(
+        store
+            .apply_hook(test_hook("sessionStarted", 1000.0))
+            .did_change
+    );
     assert!(
         store
             .apply_hook(test_hook("promptSubmitted", 1020.178))
@@ -512,8 +634,16 @@ fn same_second_completion_snapshot_after_prompt_completes() {
 #[test]
 fn later_probe_for_same_completed_turn_does_not_notify_twice() {
     let store = AIRuntimeStateStore::default();
-    assert!(store.apply_hook(test_hook("sessionStarted", 1000.0)).did_change);
-    assert!(store.apply_hook(test_hook("promptSubmitted", 1020.0)).did_change);
+    assert!(
+        store
+            .apply_hook(test_hook("sessionStarted", 1000.0))
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(test_hook("promptSubmitted", 1020.0))
+            .did_change
+    );
 
     let complete = store.apply_hook(AIHookEventPayload {
         kind: "turnCompleted".to_string(),
@@ -560,8 +690,16 @@ fn later_probe_for_same_completed_turn_does_not_notify_twice() {
 #[test]
 fn same_session_next_prompt_completion_notifies_again() {
     let store = AIRuntimeStateStore::default();
-    assert!(store.apply_hook(test_hook("sessionStarted", 1000.0)).did_change);
-    assert!(store.apply_hook(test_hook("promptSubmitted", 1020.0)).did_change);
+    assert!(
+        store
+            .apply_hook(test_hook("sessionStarted", 1000.0))
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(test_hook("promptSubmitted", 1020.0))
+            .did_change
+    );
     assert!(
         store
             .apply_hook(AIHookEventPayload {
@@ -577,7 +715,11 @@ fn same_session_next_prompt_completion_notifies_again() {
             .is_some()
     );
 
-    assert!(store.apply_hook(test_hook("promptSubmitted", 1040.0)).did_change);
+    assert!(
+        store
+            .apply_hook(test_hook("promptSubmitted", 1040.0))
+            .did_change
+    );
     let second = store.apply_hook(AIHookEventPayload {
         kind: "turnCompleted".to_string(),
         updated_at: 1050.0,

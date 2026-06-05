@@ -26,7 +26,6 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .get("showsDockBadge")
             .and_then(Value::as_bool)
             .unwrap_or(defaults.shows_dock_badge),
-        shell: string_value(raw, "shell", defaults.shell),
         terminal_font_family: raw
             .get("terminalFontFamily")
             .and_then(Value::as_str)
@@ -229,6 +228,29 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(|pet| pet.get("reminders"))
             .and_then(Value::as_bool)
             .unwrap_or(defaults.pet_reminders),
+        pet_sedentary_reminders: pet
+            .and_then(|pet| pet.get("sedentaryReminders"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_sedentary_reminders),
+        pet_late_night_reminders: pet
+            .and_then(|pet| pet.get("lateNightReminders"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.pet_late_night_reminders),
+        pet_hydration_reminder_minutes: pet
+            .and_then(|pet| pet.get("hydrationReminderMinutes"))
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 60, 15, 240).to_string())
+            .unwrap_or(defaults.pet_hydration_reminder_minutes),
+        pet_sedentary_reminder_minutes: pet
+            .and_then(|pet| pet.get("sedentaryReminderMinutes"))
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 60, 15, 240).to_string())
+            .unwrap_or(defaults.pet_sedentary_reminder_minutes),
+        pet_late_night_reminder_minutes: pet
+            .and_then(|pet| pet.get("lateNightReminderMinutes"))
+            .and_then(Value::as_str)
+            .map(|value| numeric_string(value, 60, 15, 240).to_string())
+            .unwrap_or(defaults.pet_late_night_reminder_minutes),
         pet_speech_mode: ai_pet
             .and_then(|pet| pet.get("speechMode"))
             .and_then(Value::as_str)

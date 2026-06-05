@@ -19,7 +19,7 @@ mod tests;
 mod time;
 mod types;
 
-use catalog::{hydrate_custom_pet_data_url, load_custom_pets, pet_catalog};
+use catalog::{bundled_pet_catalog, hydrate_custom_pet_data_url, load_custom_pets, pet_catalog};
 use chrono::{Datelike, Local, TimeZone};
 use constants::*;
 #[cfg(test)]

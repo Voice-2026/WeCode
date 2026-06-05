@@ -10,7 +10,10 @@ pub fn hook_config_status(opencode_config_dir: &Path) -> AIRuntimeHookConfigStat
     hook_config_status_in(&home_dir(), opencode_config_dir)
 }
 
-pub fn hook_config_status_in(home_dir: &Path, opencode_config_dir: &Path) -> AIRuntimeHookConfigStatus {
+pub fn hook_config_status_in(
+    home_dir: &Path,
+    opencode_config_dir: &Path,
+) -> AIRuntimeHookConfigStatus {
     AIRuntimeHookConfigStatus {
         codex: tool_hook_config_status(
             &home_dir.join(".codex").join("hooks.json"),

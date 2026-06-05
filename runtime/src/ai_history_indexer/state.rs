@@ -1,5 +1,7 @@
 use super::{AIHistoryIndexerState, AIHistoryProjectState};
-use crate::ai_history_normalized::{AIHistoryProjectRequest, AIHistorySnapshot};
+use crate::ai_history_normalized::{
+    AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint,
+};
 use std::sync::{Arc, Mutex};
 
 pub(super) fn current_project_state(
@@ -135,6 +137,30 @@ pub(super) fn mark_project_completed(
     };
     guard.projects.insert(project.id.clone(), next.clone());
     Ok(next)
+}
+
+pub(super) fn project_source_fingerprint_unchanged(
+    state: &Arc<Mutex<AIHistoryIndexerState>>,
+    project_id: &str,
+    fingerprint: &AIHistorySourceFingerprint,
+) -> bool {
+    state
+        .lock()
+        .ok()
+        .and_then(|guard| guard.project_source_fingerprints.get(project_id).cloned())
+        .is_some_and(|previous| previous == *fingerprint)
+}
+
+pub(super) fn set_project_source_fingerprint(
+    state: &Arc<Mutex<AIHistoryIndexerState>>,
+    project_id: &str,
+    fingerprint: AIHistorySourceFingerprint,
+) {
+    if let Ok(mut guard) = state.lock() {
+        guard
+            .project_source_fingerprints
+            .insert(project_id.to_string(), fingerprint);
+    }
 }
 
 pub(super) fn mark_project_failed(

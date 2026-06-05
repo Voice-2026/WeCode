@@ -104,12 +104,7 @@ mod tests {
             "command": "'/tmp/dmux-ai-state.sh' 'codex-stop' 'codux-dev' 'codex'"
         });
 
-        assert!(is_managed_hook(
-            &hook,
-            "codex-stop",
-            "codux-dev",
-            "codex"
-        ));
+        assert!(is_managed_hook(&hook, "codex-stop", "codux-dev", "codex"));
         assert!(!is_managed_hook(&hook, "codex-stop", "codux", "codex"));
     }
 

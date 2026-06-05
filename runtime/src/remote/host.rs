@@ -1,21 +1,25 @@
-use super::crypto::{remote_base64_url_decode, remote_host_name, remote_pairing_match_code};
-use super::http::{remote_error_message, remote_server_url, remote_url};
-use super::types::{
-    RemoteEnvelope, RemoteOutgoingEnvelope, RemotePendingPairing, RemoteSettings, RemoteSummary,
-};
 use super::RemoteService;
-use base64::Engine;
+use super::crypto::{remote_base64_url_decode, remote_host_name};
+use super::iroh_transport::{
+    RemoteIrohHandshake, RemoteIrohHostTransport, RemoteIrohNodeAddr, iroh_secret_key_from_settings,
+};
+use super::pairing::remote_summary_show_pending_pairing;
+use super::types::{
+    RemoteDeviceSettings, RemoteEnvelope, RemotePairingInfo, RemotePairingPollResult, RemoteSummary,
+};
 use crate::ai_history_indexer::{AIHistoryIndexer, AIHistoryProjectState};
 use crate::ai_history_normalized::AIHistoryProjectRequest;
 use crate::project_store::{ProjectCreateRequest, ProjectStore, ProjectUpdateRequest};
-use crate::remote_p2p::{RemoteP2PHostTransport, RemoteP2PLane, RemoteP2PSignal};
 use crate::terminal_layout::{
-    TerminalLayoutService, TerminalPaneSummary, terminal_layout_storage_key,
+    TerminalLayoutService, TerminalPaneSummary, TerminalTabSummary, terminal_layout_storage_key,
 };
 use crate::terminal_pty::{
     TerminalEvent, TerminalManager, TerminalPtyConfig, TerminalSessionSnapshot,
 };
-use futures_util::{SinkExt, StreamExt};
+use crate::worktree::{
+    WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeService,
+};
+use base64::Engine;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -26,12 +30,10 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
-use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message as WebSocketMessage;
 
-pub const REMOTE_PROTOCOL_VERSION: &str = "v1.0";
+pub const REMOTE_PROTOCOL_VERSION: &str = "v2.0";
 
 struct RemoteProjectScope {
     project_id: String,
@@ -45,6 +47,7 @@ struct RemoteTerminalPlan {
     config: TerminalPtyConfig,
     scope: RemoteProjectScope,
     title: String,
+    layout_kind: String,
 }
 
 pub struct RemoteHostRuntime {
@@ -55,10 +58,11 @@ pub struct RemoteHostRuntime {
     remote_project_scope_by_device: Mutex<HashMap<String, String>>,
     terminal_event_subscriptions: Mutex<HashSet<String>>,
     terminal_upload_sessions: Mutex<HashMap<String, RemoteTerminalUploadSession>>,
-    p2p: Mutex<Option<Arc<RemoteP2PHostTransport>>>,
+    transport: Mutex<Option<Arc<RemoteIrohHostTransport>>>,
+    active_pairing: Mutex<Option<RemotePairingInfo>>,
+    pending_pairings: Mutex<HashMap<String, RemoteIrohHandshake>>,
     events: Mutex<VecDeque<RemoteSummary>>,
     snapshot: Mutex<RemoteSummary>,
-    socket_tx: Mutex<Option<mpsc::UnboundedSender<String>>>,
     connection_generation: AtomicU64,
     send_seq_by_device: Mutex<HashMap<String, i64>>,
     receive_seq_by_device: Mutex<HashMap<String, i64>>,
@@ -91,10 +95,11 @@ impl RemoteHostRuntime {
             remote_project_scope_by_device: Mutex::new(HashMap::new()),
             terminal_event_subscriptions: Mutex::new(HashSet::new()),
             terminal_upload_sessions: Mutex::new(HashMap::new()),
-            p2p: Mutex::new(None),
+            transport: Mutex::new(None),
+            active_pairing: Mutex::new(None),
+            pending_pairings: Mutex::new(HashMap::new()),
             events: Mutex::new(VecDeque::new()),
             snapshot: Mutex::new(snapshot),
-            socket_tx: Mutex::new(None),
             connection_generation: AtomicU64::new(0),
             send_seq_by_device: Mutex::new(HashMap::new()),
             receive_seq_by_device: Mutex::new(HashMap::new()),
@@ -131,30 +136,41 @@ impl RemoteHostRuntime {
     }
 
     pub fn start(self: &Arc<Self>) -> RemoteSummary {
-        self.ensure_p2p_transport();
         let summary = self.service().summary();
-        if !summary.enabled || summary.relay.trim().is_empty() {
+        if !summary.enabled {
             self.stop_with_message("Remote Host stopped.");
             return self.snapshot();
         }
         let current = self.snapshot();
-        let has_started_connect_loop = self.connection_generation.load(Ordering::SeqCst) > 0;
-        if has_started_connect_loop
-            && current.enabled
-            && current.relay == summary.relay
-            && matches!(current.status.as_str(), "connected" | "connecting")
-        {
+        let has_transport = self
+            .transport
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .is_some();
+        let is_starting = current.enabled
+            && current.status == "connecting"
+            && self.connection_generation.load(Ordering::SeqCst) > 0;
+        let is_connected = current.enabled && current.status == "connected" && has_transport;
+        if is_starting || is_connected {
             return current;
         }
         self.update_snapshot(summary);
-        self.spawn_connect_loop(0);
+        self.spawn_iroh_start();
         self.snapshot()
     }
 
     pub fn stop_with_message(&self, message: &str) {
         self.connection_generation.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut tx) = self.socket_tx.lock() {
-            *tx = None;
+        let transport = self
+            .transport
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take());
+        if let Some(transport) = transport {
+            crate::async_runtime::spawn(async move {
+                transport.shutdown().await;
+            });
         }
         let mut summary = self.service().summary();
         summary.status = "stopped".to_string();
@@ -164,9 +180,6 @@ impl RemoteHostRuntime {
 
     pub fn shutdown(&self) {
         self.stop_with_message("Remote Host stopped.");
-        if let Ok(mut p2p) = self.p2p.lock() {
-            *p2p = None;
-        }
         if let Ok(mut viewers) = self.terminal_viewers_by_session.lock() {
             viewers.clear();
         }
@@ -180,166 +193,151 @@ impl RemoteHostRuntime {
 
     pub fn reconnect(self: &Arc<Self>) -> RemoteSummary {
         crate::runtime_trace::runtime_trace("remote", "host_reconnect requested");
-        if let Ok(mut tx) = self.socket_tx.lock() {
-            *tx = None;
-        }
+        self.stop_with_message("Remote Host reconnecting.");
         let mut summary = self.service().summary();
         summary.status = "connecting".to_string();
-        summary.message = "Connecting relay...".to_string();
+        summary.message = "Starting Iroh remote host...".to_string();
         summary.pairing = self.snapshot().pairing;
         self.update_snapshot(summary);
-        self.spawn_connect_loop(0);
+        self.spawn_iroh_start();
         self.snapshot()
     }
 
-    pub fn send_relay(
+    pub fn send_transport(
         &self,
         kind: &str,
         device_id: Option<&str>,
         session_id: Option<&str>,
         payload: Value,
     ) -> bool {
-        let Some(text) = self.outgoing_relay_text(kind, device_id, session_id, payload) else {
+        let Some(data) = self.outgoing_transport_text(kind, device_id, session_id, payload) else {
             return false;
         };
-        self.socket_tx
-            .lock()
-            .ok()
-            .and_then(|tx| tx.as_ref().cloned())
-            .map(|tx| tx.send(text).is_ok())
-            .unwrap_or(false)
+        let transport = self.transport.lock().ok().and_then(|value| value.clone());
+        let Some(transport) = transport else {
+            return false;
+        };
+        transport.send(data.into_bytes(), device_id)
     }
 
-    fn spawn_connect_loop(self: &Arc<Self>, initial_delay_ms: u64) {
+    fn spawn_iroh_start(self: &Arc<Self>) {
         let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let runtime = Arc::clone(self);
         crate::async_runtime::spawn(async move {
-            if initial_delay_ms > 0 {
-                tokio::time::sleep(Duration::from_millis(initial_delay_ms)).await;
+            if let Err(error) = runtime.start_iroh_transport(generation).await {
+                let mut status = runtime.service().summary();
+                status.status = "failed".to_string();
+                status.message = error;
+                status.pairing = runtime.snapshot().pairing;
+                runtime.update_snapshot(status);
             }
-            runtime.connect_loop(generation).await;
         });
     }
 
-    async fn connect_loop(self: Arc<Self>, generation: u64) {
-        let mut delay = 1_u64;
-        loop {
-            if generation != self.connection_generation.load(Ordering::SeqCst) {
-                return;
-            }
-            let summary = self.service().summary();
-            if !summary.enabled {
-                return;
-            }
-            if let Err(error) = self.connect_once(generation).await {
-                let mut status = self.service().summary();
-                status.status = "failed".to_string();
-                status.message = error;
-                status.pairing = self.snapshot().pairing;
-                self.update_snapshot(status);
-            }
-            if generation != self.connection_generation.load(Ordering::SeqCst) {
-                return;
-            }
-            tokio::time::sleep(Duration::from_secs(delay)).await;
-            delay = (delay * 2).min(30);
-        }
-    }
-
-    async fn connect_once(self: &Arc<Self>, generation: u64) -> Result<(), String> {
+    async fn start_iroh_transport(self: &Arc<Self>, generation: u64) -> Result<(), String> {
         crate::runtime_trace::runtime_trace(
             "remote",
-            &format!("connect_once start generation={generation}"),
+            &format!("iroh_start generation={generation}"),
         );
-        self.service().register_host_async().await?;
+        let mut raw = self.service().raw_settings();
+        let mut settings = self.service().register_host_in_raw_async(&mut raw).await?;
         if generation != self.connection_generation.load(Ordering::SeqCst) {
             return Ok(());
         }
-        let snapshot = self.snapshot();
-        if snapshot.status == "connecting" && self.socket_tx.lock().ok().and_then(|tx| tx.clone()).is_none() {
-            let mut connecting = self.service().summary();
-            connecting.status = "connecting".to_string();
-            connecting.message = "Connecting relay...".to_string();
-            connecting.pairing = snapshot.pairing;
-            self.update_snapshot(connecting);
+        let (secret_key, encoded_secret) = iroh_secret_key_from_settings(&settings.iroh_secret_key);
+        settings.iroh_secret_key = encoded_secret;
+        settings.iroh_node_id = secret_key.public().to_string();
+        raw.insert(
+            "remote".to_string(),
+            serde_json::to_value(&settings).map_err(|error| error.to_string())?,
+        );
+        self.service().save_raw_settings(&raw)?;
+        let weak_for_message = Arc::downgrade(self);
+        let weak_for_state = Arc::downgrade(self);
+        let weak_for_pairing = Arc::downgrade(self);
+        let transport = RemoteIrohHostTransport::bind(
+            secret_key,
+            Arc::new(move |device_id, data| {
+                if let Some(runtime) = weak_for_message.upgrade() {
+                    crate::async_runtime::spawn(async move {
+                        runtime.handle_transport_message(device_id, data);
+                    });
+                }
+            }),
+            Arc::new(move |device_id, state| {
+                if let Some(runtime) = weak_for_state.upgrade() {
+                    if state == "connected" {
+                        runtime.update_device_online(Some(&device_id), true);
+                    } else if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
+                        runtime.update_device_online(Some(&device_id), false);
+                        runtime.clear_remote_project_scope(Some(&device_id));
+                        runtime.remove_terminal_viewer(Some(&device_id));
+                    }
+                }
+            }),
+            Arc::new(move |handshake| {
+                if let Some(runtime) = weak_for_pairing.upgrade() {
+                    runtime.handle_iroh_pairing_request(handshake);
+                }
+            }),
+        )
+        .await?;
+        if generation != self.connection_generation.load(Ordering::SeqCst) {
+            transport.shutdown().await;
+            return Ok(());
         }
-        if let Err(error) = self.service().refresh_devices_async().await {
-            crate::runtime_trace::runtime_trace(
-                "remote",
-                &format!("connect_once refresh_devices failed error={error}"),
-            );
-        }
-        let settings = super::remote_settings_from_raw(&self.service().raw_settings());
-        let ws_url = remote_url(
-            &remote_server_url(&settings),
-            "/ws/host",
-            &[
-                ("hostId", settings.host_id.as_str()),
-                ("token", settings.host_token.as_str()),
-            ],
-            true,
-        )?;
+        let node_addr = match Self::wait_iroh_node_addr(&transport).await {
+            Ok(addr) => addr,
+            Err(error) => {
+                transport.shutdown().await;
+                return Err(error);
+            }
+        };
         crate::runtime_trace::runtime_trace(
             "remote",
-            &format!("connect_once websocket_connect generation={generation}"),
+            &format!(
+                "iroh_addr node={} relay={} direct={}",
+                node_addr.node_id,
+                node_addr.relay_url.clone().unwrap_or_default(),
+                node_addr.direct_addresses.len()
+            ),
         );
-        let (socket, _) = tokio_tungstenite::connect_async(&ws_url)
-            .await
-            .map_err(remote_error_message)?;
-        let (mut write, mut read) = socket.split();
-        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-        if let Ok(mut current) = self.socket_tx.lock() {
-            *current = Some(tx);
+        if generation != self.connection_generation.load(Ordering::SeqCst) {
+            transport.shutdown().await;
+            return Ok(());
         }
-
+        if let Ok(mut current) = self.transport.lock() {
+            *current = Some(transport.clone());
+        }
         let mut connected = self.service().summary();
         connected.status = "connected".to_string();
-        connected.message = "Remote Host connected.".to_string();
+        connected.message = "Iroh Remote Host connected.".to_string();
         connected.pairing = self.snapshot().pairing;
         self.update_snapshot(connected);
-        crate::runtime_trace::runtime_trace(
-            "remote",
-            &format!("connect_once connected generation={generation}"),
-        );
-
-        let writer = crate::async_runtime::spawn(async move {
-            while let Some(message) = rx.recv().await {
-                if write
-                    .send(WebSocketMessage::Text(message.into()))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-
-        while let Some(message) = read.next().await {
-            if generation != self.connection_generation.load(Ordering::SeqCst) {
-                writer.abort();
-                return Ok(());
-            }
-            match message {
-                Ok(WebSocketMessage::Text(text)) => {
-                    self.handle_socket_text(text.to_string());
-                }
-                Ok(WebSocketMessage::Close(_)) => break,
-                Ok(_) => {}
-                Err(error) => {
-                    writer.abort();
-                    return Err(error.to_string());
-                }
-            }
-        }
-        writer.abort();
-        if let Ok(mut current) = self.socket_tx.lock() {
-            *current = None;
-        }
-        Err("Remote Host disconnected.".to_string())
+        Ok(())
     }
 
-    fn handle_socket_text(self: &Arc<Self>, text: String) {
-        let Ok(raw) = self.service().parse_incoming_envelope(&text) else {
+    async fn wait_iroh_node_addr(
+        transport: &Arc<RemoteIrohHostTransport>,
+    ) -> Result<RemoteIrohNodeAddr, String> {
+        let mut last_error = "Iroh Remote Host address is not ready.".to_string();
+        for _ in 0..50 {
+            match transport.node_addr().await {
+                Ok(addr) if !addr.node_id.trim().is_empty() => return Ok(addr),
+                Ok(_) => {
+                    last_error = "Iroh Remote Host node id is not ready.".to_string();
+                }
+                Err(error) => {
+                    last_error = format!("Iroh Remote Host address is not ready: {error}");
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        Err(last_error)
+    }
+
+    fn handle_transport_message(self: Arc<Self>, device_id: String, data: Vec<u8>) {
+        let Ok(raw) = serde_json::from_slice::<RemoteEnvelope>(&data) else {
             return;
         };
         let envelope = {
@@ -354,12 +352,11 @@ impl RemoteHostRuntime {
         let Some(envelope) = envelope else {
             return;
         };
-        self.handle_remote_envelope(envelope);
+        self.handle_remote_envelope(envelope.with_device_id(device_id));
     }
 
     fn handle_remote_envelope(self: &Arc<Self>, envelope: RemoteEnvelope) {
         match envelope.kind.as_str() {
-            "pairing.request" => self.handle_pairing_request(&envelope),
             "host.info" => self.send(
                 "host.info",
                 envelope.device_id.as_deref(),
@@ -380,10 +377,14 @@ impl RemoteHostRuntime {
                 self.update_device_online(envelope.device_id.as_deref(), false);
                 self.clear_remote_project_scope(envelope.device_id.as_deref());
                 self.remove_terminal_viewer(envelope.device_id.as_deref());
-                self.close_p2p(envelope.device_id.as_deref());
             }
             "project.list" => self.send_project_list(envelope.device_id.as_deref()),
             "project.select" => self.handle_project_select(&envelope),
+            "worktree.list" => self.handle_worktree_list(&envelope),
+            "worktree.select" => self.handle_worktree_select(&envelope),
+            "worktree.create" => self.handle_worktree_create(&envelope),
+            "worktree.merge" => self.handle_worktree_merge(&envelope),
+            "worktree.delete" | "worktree.remove" => self.handle_worktree_remove(&envelope),
             "terminal.list" => self.send_terminal_list(envelope.device_id.as_deref()),
             "terminal.create" => self.handle_terminal_create(&envelope),
             "terminal.buffer" => self.handle_terminal_buffer(&envelope),
@@ -414,120 +415,234 @@ impl RemoteHostRuntime {
             "project.edit" => self.handle_project_edit(&envelope),
             "project.remove" => self.handle_project_remove(&envelope),
             "ai.stats" => self.handle_ai_stats(&envelope),
-            "p2p.ping" => self.send_terminal_data(
-                "p2p.pong",
+            "transport.ping" => self.send_terminal_data(
+                "transport.pong",
                 envelope.device_id.as_deref(),
                 None,
                 envelope.payload,
             ),
-            "p2p.offer" => self.handle_p2p_offer(&envelope),
-            "p2p.candidate" => self.handle_p2p_candidate(&envelope),
             _ => {}
         }
     }
 
-    fn ensure_p2p_transport(self: &Arc<Self>) {
-        if self.p2p.lock().ok().and_then(|value| value.clone()).is_some() {
+    fn handle_iroh_pairing_request(&self, handshake: RemoteIrohHandshake) {
+        let active_pairing = self
+            .active_pairing
+            .lock()
+            .ok()
+            .and_then(|value| value.clone());
+        let Some(active_pairing) = active_pairing else {
+            return;
+        };
+        if handshake.pairing_id.as_deref() != Some(active_pairing.pairing_id.as_str())
+            || handshake.pairing_code.as_deref() != Some(active_pairing.code.as_str())
+            || handshake.pairing_secret.as_deref() != Some(active_pairing.secret.as_str())
+            || handshake.device_public_key.trim().is_empty()
+        {
             return;
         }
-        let weak_for_signal = Arc::downgrade(self);
-        let weak_for_message = Arc::downgrade(self);
-        let weak_for_state = Arc::downgrade(self);
-        let Ok(transport) = RemoteP2PHostTransport::new(
-            Arc::new(move |signal: RemoteP2PSignal| {
-                if let Some(runtime) = weak_for_signal.upgrade() {
-                    runtime.send_relay(&signal.kind, Some(&signal.device_id), None, signal.payload);
-                }
-            }),
-            Arc::new(move |device_id: String, data: Vec<u8>| {
-                if let Some(runtime) = weak_for_message.upgrade() {
-                    crate::async_runtime::spawn(async move {
-                        runtime.handle_p2p_message(device_id, data);
-                    });
-                }
-            }),
-            Arc::new(move |device_id: String, state: String| {
-                if let Some(runtime) = weak_for_state.upgrade() {
-                    if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
-                        runtime.remove_terminal_viewer(Some(&device_id));
-                    }
-                }
-            }),
-        ) else {
-            return;
-        };
-        if let Ok(mut current) = self.p2p.lock() {
-            *current = Some(transport);
+        if let Ok(mut pending) = self.pending_pairings.lock() {
+            pending.insert(active_pairing.pairing_id.clone(), handshake.clone());
         }
-    }
-
-    fn handle_p2p_offer(self: &Arc<Self>, envelope: &RemoteEnvelope) {
-        self.ensure_p2p_transport();
-        let Some(device_id) = envelope.device_id.clone() else {
-            return;
-        };
-        let Some(p2p) = self.p2p.lock().ok().and_then(|value| value.clone()) else {
-            return;
-        };
-        let payload = envelope.payload.clone();
-        crate::async_runtime::spawn(async move {
-            p2p.handle_offer(device_id, payload).await;
-        });
-    }
-
-    fn handle_p2p_candidate(self: &Arc<Self>, envelope: &RemoteEnvelope) {
-        self.ensure_p2p_transport();
-        let Some(device_id) = envelope.device_id.clone() else {
-            return;
-        };
-        let Some(p2p) = self.p2p.lock().ok().and_then(|value| value.clone()) else {
-            return;
-        };
-        let payload = envelope.payload.clone();
-        crate::async_runtime::spawn(async move {
-            p2p.handle_candidate(device_id, payload).await;
-        });
-    }
-
-    fn close_p2p(&self, device_id: Option<&str>) {
-        let Some(device_id) = device_id.map(str::to_string) else {
-            return;
-        };
-        let Some(p2p) = self.p2p.lock().ok().and_then(|value| value.clone()) else {
-            return;
-        };
-        crate::async_runtime::spawn(async move {
-            p2p.close(&device_id).await;
-        });
-    }
-
-    fn handle_p2p_message(self: Arc<Self>, device_id: String, data: Vec<u8>) {
-        let Ok(raw) = serde_json::from_slice::<RemoteEnvelope>(&data) else {
-            return;
-        };
-        let envelope = {
-            let Ok(mut received) = self.receive_seq_by_device.lock() else {
-                return;
-            };
-            self.service()
-                .decrypt_envelope_if_needed(raw.with_device_id(device_id), &mut received)
-                .ok()
-                .flatten()
-        };
-        let Some(envelope) = envelope else {
-            return;
-        };
-        self.handle_remote_envelope(envelope);
-    }
-
-    fn handle_pairing_request(&self, envelope: &RemoteEnvelope) {
         let settings = super::remote_settings_from_raw(&self.service().raw_settings());
-        let Some(status) =
-            remote_pending_pairing_summary(self.snapshot(), settings, &envelope.payload)
-        else {
-            return;
+        let summary = remote_summary_show_pending_pairing(
+            settings,
+            &active_pairing,
+            active_pairing.pairing_id.clone(),
+            handshake.device_name,
+            handshake.device_public_key,
+            active_pairing.code.clone(),
+            active_pairing.secret.clone(),
+        );
+        self.update_snapshot(summary);
+    }
+
+    pub fn create_pairing(self: &Arc<Self>) -> Result<RemoteSummary, String> {
+        crate::async_runtime::block_on(self.create_pairing_async())
+    }
+
+    pub async fn create_pairing_async(self: &Arc<Self>) -> Result<RemoteSummary, String> {
+        let started_at = Instant::now();
+        crate::runtime_trace::runtime_trace("remote", "iroh_pairing_create start");
+        if !self.snapshot().enabled {
+            return Err("Remote Host is disabled.".to_string());
+        }
+        let has_transport = self
+            .transport
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .is_some();
+        let is_starting = self.snapshot().status == "connecting"
+            && self.connection_generation.load(Ordering::SeqCst) > 0;
+        if !has_transport && !is_starting {
+            self.spawn_iroh_start();
+        }
+        let mut transport = self.transport.lock().ok().and_then(|value| value.clone());
+        for _ in 0..50 {
+            if transport.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            transport = self.transport.lock().ok().and_then(|value| value.clone());
+        }
+        let Some(transport) = transport else {
+            return Err("Iroh Remote Host is not ready.".to_string());
         };
-        self.update_snapshot(status);
+        let raw = self.service().raw_settings();
+        let settings = super::remote_settings_from_raw(&raw);
+        if settings.host_public_key.trim().is_empty() {
+            return Err("Remote Host encryption identity is not ready.".to_string());
+        }
+        let mut pairing = RemotePairingInfo {
+            pairing_id: uuid::Uuid::new_v4().to_string(),
+            code: remote_pairing_code(),
+            secret: super::crypto::remote_random_token(),
+            host_public_key: (!settings.host_public_key.trim().is_empty())
+                .then(|| settings.host_public_key.clone()),
+            crypto_version: Some(1),
+            expires_at: (chrono::Utc::now() + chrono::Duration::minutes(10)).to_rfc3339(),
+            qr_payload: String::new(),
+        };
+        let iroh_addr = Self::wait_iroh_node_addr(&transport).await?;
+        pairing.qr_payload =
+            super::crypto::remote_pairing_qr_payload(&settings, &pairing, iroh_addr);
+        if let Ok(mut active) = self.active_pairing.lock() {
+            *active = Some(pairing.clone());
+        }
+        if let Ok(mut pending) = self.pending_pairings.lock() {
+            pending.clear();
+        }
+        let mut summary = self.service().summary();
+        summary.status = "connected".to_string();
+        summary.message = format!("Pairing code: {}", pairing.code);
+        summary.pairing = Some(pairing.clone());
+        self.update_snapshot(summary.clone());
+        crate::runtime_trace::runtime_trace_elapsed(
+            "remote",
+            "iroh_pairing_create ok",
+            started_at,
+            &format!("pairing_id={}", pairing.pairing_id),
+        );
+        Ok(summary)
+    }
+
+    pub fn poll_pairing_status(
+        &self,
+        pairing: &RemotePairingInfo,
+    ) -> Result<RemotePairingPollResult, String> {
+        let pending = self
+            .pending_pairings
+            .lock()
+            .ok()
+            .and_then(|pending| pending.get(&pairing.pairing_id).cloned());
+        if let Some(handshake) = pending {
+            let settings = super::remote_settings_from_raw(&self.service().raw_settings());
+            let summary = remote_summary_show_pending_pairing(
+                settings,
+                pairing,
+                pairing.pairing_id.clone(),
+                handshake.device_name,
+                handshake.device_public_key,
+                pairing.code.clone(),
+                pairing.secret.clone(),
+            );
+            self.update_snapshot(summary.clone());
+            return Ok(RemotePairingPollResult {
+                summary,
+                finished: true,
+            });
+        }
+        let mut summary = self.snapshot();
+        summary.pairing = Some(pairing.clone());
+        summary.status = "connected".to_string();
+        summary.message = format!("Pairing code: {}", pairing.code);
+        Ok(RemotePairingPollResult {
+            summary,
+            finished: false,
+        })
+    }
+
+    pub fn cancel_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
+        let pairing_id = pairing_id.trim();
+        if pairing_id.is_empty() {
+            return Err("Missing pairing id.".to_string());
+        }
+        if let Ok(mut active) = self.active_pairing.lock() {
+            if active.as_ref().map(|pairing| pairing.pairing_id.as_str()) == Some(pairing_id) {
+                *active = None;
+            }
+        }
+        if let Ok(mut pending) = self.pending_pairings.lock() {
+            pending.remove(pairing_id);
+        }
+        let mut summary = self.service().summary();
+        summary.status = "connected".to_string();
+        summary.message = "Pairing cancelled.".to_string();
+        self.update_snapshot(summary.clone());
+        Ok(summary)
+    }
+
+    pub fn reject_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
+        self.cancel_pairing(pairing_id).map(|mut summary| {
+            summary.message = "Pairing rejected.".to_string();
+            self.update_snapshot(summary.clone());
+            summary
+        })
+    }
+
+    pub fn confirm_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
+        let pairing_id = pairing_id.trim();
+        if pairing_id.is_empty() {
+            return Err("Missing pairing id.".to_string());
+        }
+        let handshake = self
+            .pending_pairings
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(pairing_id))
+            .ok_or_else(|| "Remote pairing request not found.".to_string())?;
+        let mut raw = self.service().raw_settings();
+        let mut settings = super::remote_settings_from_raw(&raw);
+        let device_id = handshake.device_id.clone();
+        let now = chrono::Utc::now().to_rfc3339();
+        settings
+            .cached_devices
+            .retain(|device| device.id != device_id);
+        settings.cached_devices.push(RemoteDeviceSettings {
+            id: device_id.clone(),
+            host_id: settings.host_id.clone(),
+            name: handshake.device_name.clone(),
+            public_key: handshake.device_public_key.clone(),
+            created_at: now.clone(),
+            last_seen: now,
+            revoked_at: None,
+            online: Some(false),
+        });
+        raw.insert(
+            "remote".to_string(),
+            serde_json::to_value(&settings).map_err(|error| error.to_string())?,
+        );
+        self.service().save_raw_settings(&raw)?;
+        if let Ok(mut active) = self.active_pairing.lock() {
+            *active = None;
+        }
+        self.send_plain(
+            "pairing.confirmed",
+            Some(&device_id),
+            None,
+            json!({
+                "hostId": settings.host_id,
+                "deviceId": device_id,
+                "token": settings.host_token,
+                "hostName": remote_host_name(),
+            }),
+        );
+        let mut summary = self.service().summary();
+        summary.status = "connected".to_string();
+        summary.message = "Pairing confirmed.".to_string();
+        self.update_snapshot(summary.clone());
+        Ok(summary)
     }
 
     fn handle_file_read(&self, envelope: &RemoteEnvelope) {
@@ -707,6 +822,180 @@ impl RemoteHostRuntime {
         }
     }
 
+    fn handle_worktree_list(&self, envelope: &RemoteEnvelope) {
+        let Ok((project_id, project_path)) = self.worktree_request_scope(envelope) else {
+            self.send_error(envelope, "Project id and path are required.");
+            return;
+        };
+        self.send_worktree_summary(
+            "worktree.list",
+            envelope.device_id.as_deref(),
+            &project_id,
+            &project_path,
+        );
+    }
+
+    fn handle_worktree_select(&self, envelope: &RemoteEnvelope) {
+        let Ok((project_id, project_path)) = self.worktree_request_scope(envelope) else {
+            self.send_error(envelope, "Project id and path are required.");
+            return;
+        };
+        let Some(worktree_id) = envelope.payload.get("worktreeId").and_then(Value::as_str) else {
+            self.send_error(envelope, "Worktree id is required.");
+            return;
+        };
+        let service = WorktreeService::new(self.support_dir.clone());
+        match service.select_worktree(&project_id, worktree_id) {
+            Ok(()) => {
+                self.send_worktree_summary(
+                    "worktree.updated",
+                    envelope.device_id.as_deref(),
+                    &project_id,
+                    &project_path,
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_worktree_create(&self, envelope: &RemoteEnvelope) {
+        let Ok((project_id, project_path)) = self.worktree_request_scope(envelope) else {
+            self.send_error(envelope, "Project id and path are required.");
+            return;
+        };
+        let Some(branch_name) = envelope.payload.get("branchName").and_then(Value::as_str) else {
+            self.send_error(envelope, "Branch name is required.");
+            return;
+        };
+        let request = WorktreeCreateRequest {
+            project_id: project_id.clone(),
+            project_path: project_path.clone(),
+            base_branch: envelope
+                .payload
+                .get("baseBranch")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            branch_name: branch_name.to_string(),
+            task_title: envelope
+                .payload
+                .get("taskTitle")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        };
+        match WorktreeService::new(self.support_dir.clone()).create_from_request(request) {
+            Ok(snapshot) => {
+                let git = crate::git::GitService::status(&project_path);
+                self.send(
+                    "worktree.updated",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({
+                        "projectId": project_id,
+                        "selectedWorktreeId": snapshot.selected_worktree_id,
+                        "worktrees": snapshot.worktrees,
+                        "tasks": snapshot.tasks,
+                        "baseBranches": remote_worktree_base_branches(&git),
+                        "defaultBaseBranch": remote_default_worktree_base_branch(&git),
+                        "error": snapshot.error,
+                    }),
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_worktree_merge(&self, envelope: &RemoteEnvelope) {
+        let Ok((project_id, project_path)) = self.worktree_request_scope(envelope) else {
+            self.send_error(envelope, "Project id and path are required.");
+            return;
+        };
+        let Some(worktree_path) = envelope.payload.get("worktreePath").and_then(Value::as_str)
+        else {
+            self.send_error(envelope, "Worktree path is required.");
+            return;
+        };
+        let request = WorktreeMergeRequest {
+            project_id: project_id.clone(),
+            project_path: project_path.clone(),
+            worktree_path: worktree_path.to_string(),
+            base_branch: envelope
+                .payload
+                .get("baseBranch")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            remove_branch: envelope
+                .payload
+                .get("removeBranch")
+                .and_then(Value::as_bool),
+        };
+        match WorktreeService::new(self.support_dir.clone()).merge_from_request(request) {
+            Ok(snapshot) => {
+                let git = crate::git::GitService::status(&project_path);
+                self.send(
+                    "worktree.updated",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({
+                        "projectId": project_id,
+                        "selectedWorktreeId": snapshot.selected_worktree_id,
+                        "worktrees": snapshot.worktrees,
+                        "tasks": snapshot.tasks,
+                        "baseBranches": remote_worktree_base_branches(&git),
+                        "defaultBaseBranch": remote_default_worktree_base_branch(&git),
+                        "error": snapshot.error,
+                    }),
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_worktree_remove(&self, envelope: &RemoteEnvelope) {
+        let Ok((project_id, project_path)) = self.worktree_request_scope(envelope) else {
+            self.send_error(envelope, "Project id and path are required.");
+            return;
+        };
+        let Some(worktree_path) = envelope.payload.get("worktreePath").and_then(Value::as_str)
+        else {
+            self.send_error(envelope, "Worktree path is required.");
+            return;
+        };
+        let request = WorktreeRemoveRequest {
+            project_id: project_id.clone(),
+            project_path: project_path.clone(),
+            worktree_path: worktree_path.to_string(),
+            remove_branch: envelope
+                .payload
+                .get("removeBranch")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        };
+        match WorktreeService::new(self.support_dir.clone()).remove_from_request(request) {
+            Ok(snapshot) => {
+                let git = crate::git::GitService::status(&project_path);
+                self.send(
+                    "worktree.updated",
+                    envelope.device_id.as_deref(),
+                    None,
+                    json!({
+                        "projectId": project_id,
+                        "selectedWorktreeId": snapshot.selected_worktree_id,
+                        "worktrees": snapshot.worktrees,
+                        "tasks": snapshot.tasks,
+                        "baseBranches": remote_worktree_base_branches(&git),
+                        "defaultBaseBranch": remote_default_worktree_base_branch(&git),
+                        "error": snapshot.error,
+                    }),
+                );
+                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
     fn handle_ai_stats(&self, envelope: &RemoteEnvelope) {
         let project_id = envelope
             .payload
@@ -752,7 +1041,12 @@ impl RemoteHostRuntime {
         self.set_remote_project_scope(envelope.device_id.as_deref(), &plan.scope.project_id);
         match self.terminals.create(plan.config, emit) {
             Ok(session_id) => {
-                self.persist_remote_terminal_layout(&plan.scope.layout_key, &session_id, &plan.title);
+                self.persist_remote_terminal_layout(
+                    &plan.scope.layout_key,
+                    &session_id,
+                    &plan.title,
+                    &plan.layout_kind,
+                );
                 self.mark_terminal_event_subscription(&session_id);
                 self.register_terminal_viewer(&session_id, envelope.device_id.as_deref());
                 self.send_terminal_data(
@@ -829,7 +1123,10 @@ impl RemoteHostRuntime {
             .get("rows")
             .and_then(Value::as_u64)
             .unwrap_or(30) as u16;
-        if self.ensure_remote_terminal_started(session_id, envelope).is_err() {
+        if self
+            .ensure_remote_terminal_started(session_id, envelope)
+            .is_err()
+        {
             return;
         }
         self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
@@ -1279,7 +1576,12 @@ impl RemoteHostRuntime {
                 })
             })
             .collect::<Vec<_>>();
-        self.send("project.list", device_id, None, json!({ "projects": projects }));
+        self.send(
+            "project.list",
+            device_id,
+            None,
+            json!({ "projects": projects }),
+        );
     }
 
     fn send_terminal_list(&self, device_id: Option<&str>) {
@@ -1292,8 +1594,60 @@ impl RemoteHostRuntime {
         );
     }
 
+    fn send_worktree_summary(
+        &self,
+        kind: &str,
+        device_id: Option<&str>,
+        project_id: &str,
+        project_path: &str,
+    ) {
+        let summary = WorktreeService::new(self.support_dir.clone())
+            .summary(Some(project_id), Some(project_path));
+        let base_branches = remote_worktree_base_branches(&summary.active_git);
+        let default_base_branch = remote_default_worktree_base_branch(&summary.active_git);
+        self.send(
+            kind,
+            device_id,
+            None,
+            json!({
+                "projectId": project_id,
+                "selectedWorktreeId": summary.selected_worktree_id,
+                "worktrees": summary.worktrees,
+                "tasks": summary.tasks,
+                "available": summary.available,
+                "baseBranches": base_branches,
+                "defaultBaseBranch": default_base_branch,
+                "error": summary.error,
+            }),
+        );
+    }
+
     fn send(&self, kind: &str, device_id: Option<&str>, session_id: Option<&str>, payload: Value) {
-        self.send_relay(kind, device_id, session_id, payload);
+        self.send_transport(kind, device_id, session_id, payload);
+    }
+
+    fn send_plain(
+        &self,
+        kind: &str,
+        device_id: Option<&str>,
+        session_id: Option<&str>,
+        payload: Value,
+    ) -> bool {
+        let envelope = super::types::RemoteOutgoingEnvelope {
+            kind: kind.to_string(),
+            device_id: device_id.map(str::to_string),
+            session_id: session_id.map(str::to_string),
+            seq: None,
+            payload,
+        };
+        let Ok(data) = serde_json::to_vec(&envelope) else {
+            return false;
+        };
+        let transport = self.transport.lock().ok().and_then(|value| value.clone());
+        let Some(transport) = transport else {
+            return false;
+        };
+        transport.send(data, device_id)
     }
 
     fn send_terminal_data(
@@ -1303,37 +1657,11 @@ impl RemoteHostRuntime {
         session_id: Option<&str>,
         payload: Value,
     ) {
-        let inner = RemoteOutgoingEnvelope {
-            kind: kind.to_string(),
-            device_id: device_id.map(str::to_string),
-            session_id: session_id.map(str::to_string),
-            seq: None,
-            payload: payload.clone(),
-        };
-        let Some(p2p) = self.p2p.lock().ok().and_then(|value| value.clone()) else {
-            self.send_relay(kind, device_id, session_id, payload);
-            return;
-        };
-        let Ok(data) = serde_json::to_vec(&inner) else {
-            self.send_relay(kind, device_id, session_id, payload);
-            return;
-        };
-        let lane = remote_p2p_lane(kind);
-        let relay_text = self.outgoing_relay_text(kind, device_id, session_id, payload);
-        let socket_tx = self.socket_tx.lock().ok().and_then(|value| value.clone());
-        let device_id = device_id.map(str::to_string);
-        crate::async_runtime::spawn(async move {
-            if p2p.send(data, device_id.as_deref(), lane).await {
-                return;
-            }
-            if let (Some(tx), Some(text)) = (socket_tx, relay_text) {
-                let _ = tx.send(text);
-            }
-        });
+        self.send_transport(kind, device_id, session_id, payload);
     }
 
     fn send_error(&self, envelope: &RemoteEnvelope, message: &str) {
-        self.send_relay(
+        self.send_transport(
             "error",
             envelope.device_id.as_deref(),
             envelope.session_id.as_deref(),
@@ -1341,7 +1669,7 @@ impl RemoteHostRuntime {
         );
     }
 
-    fn outgoing_relay_text(
+    fn outgoing_transport_text(
         &self,
         kind: &str,
         device_id: Option<&str>,
@@ -1352,7 +1680,7 @@ impl RemoteHostRuntime {
             return None;
         };
         self.service()
-            .outgoing_relay_text(kind, device_id, session_id, payload, &mut send_seq)
+            .outgoing_transport_text(kind, device_id, session_id, payload, &mut send_seq)
     }
 
     fn update_device_online(&self, device_id: Option<&str>, online: bool) {
@@ -1360,6 +1688,13 @@ impl RemoteHostRuntime {
             return;
         };
         let mut status = self.snapshot();
+        if !status
+            .device_list
+            .iter()
+            .any(|device| device.id == device_id)
+        {
+            status = self.summary_from_settings_preserving_connection();
+        }
         if let Some(device) = status
             .device_list
             .iter_mut()
@@ -1407,7 +1742,12 @@ impl RemoteHostRuntime {
         RemoteService::new(self.support_dir.clone())
     }
 
-    fn send_terminal_buffer(self: &Arc<Self>, session_id: &str, device_id: Option<&str>, offset: usize) {
+    fn send_terminal_buffer(
+        self: &Arc<Self>,
+        session_id: &str,
+        device_id: Option<&str>,
+        offset: usize,
+    ) {
         self.register_terminal_viewer(session_id, device_id);
         match self.terminals.snapshot(session_id) {
             Ok(data) => {
@@ -1442,14 +1782,50 @@ impl RemoteHostRuntime {
     }
 
     fn remote_terminals(&self) -> Vec<Value> {
+        let layouts = self.remote_terminal_layout_kinds();
         let mut terminals = self
             .terminals
             .list()
             .into_iter()
-            .map(remote_terminal_snapshot_payload)
+            .map(|terminal| {
+                let layout_kind = layouts
+                    .get(&terminal.id)
+                    .map(String::as_str)
+                    .unwrap_or("split");
+                remote_terminal_snapshot_payload(terminal, layout_kind)
+            })
             .collect::<Vec<_>>();
         terminals.sort_by_key(remote_terminal_order_key);
         terminals
+    }
+
+    fn remote_terminal_layout_kinds(&self) -> HashMap<String, String> {
+        let project_store = ProjectStore::new(self.support_dir.clone());
+        let snapshot = project_store.snapshot();
+        let keys = snapshot
+            .projects
+            .iter()
+            .map(|project| {
+                let worktree_id = snapshot
+                    .selected_worktree_id_by_project
+                    .get(&project.id)
+                    .map(String::as_str)
+                    .unwrap_or(&project.id);
+                terminal_layout_storage_key(&project.id, worktree_id)
+            })
+            .collect::<Vec<_>>();
+        let layouts = TerminalLayoutService::new(self.support_dir.clone())
+            .load_many(keys.iter().map(String::as_str));
+        let mut result = HashMap::new();
+        for layout in layouts.values() {
+            for pane in &layout.top_panes {
+                result.insert(pane.terminal_id.clone(), "split".to_string());
+            }
+            for tab in &layout.tabs {
+                result.insert(tab.terminal_id.clone(), "tab".to_string());
+            }
+        }
+        result
     }
 
     fn remote_terminal_plan_from_envelope(
@@ -1510,6 +1886,7 @@ impl RemoteHostRuntime {
             config,
             scope,
             title,
+            layout_kind: remote_terminal_layout_kind(&envelope.payload),
         })
     }
 
@@ -1531,7 +1908,12 @@ impl RemoteHostRuntime {
         self.terminals
             .create(plan.config, emit)
             .map_err(|error| error.to_string())?;
-        self.persist_remote_terminal_layout(&plan.scope.layout_key, session_id, &plan.title);
+        self.persist_remote_terminal_layout(
+            &plan.scope.layout_key,
+            session_id,
+            &plan.title,
+            &plan.layout_kind,
+        );
         self.mark_terminal_event_subscription(session_id);
         self.send_terminal_list(envelope.device_id.as_deref());
         Ok(())
@@ -1541,7 +1923,10 @@ impl RemoteHostRuntime {
         let layout = TerminalLayoutService::new(self.support_dir.clone()).load(Some(layout_key));
         let active = layout.active_terminal_id.trim();
         if !active.is_empty()
-            && (layout.top_panes.iter().any(|pane| pane.terminal_id == active)
+            && (layout
+                .top_panes
+                .iter()
+                .any(|pane| pane.terminal_id == active)
                 || layout.tabs.iter().any(|tab| tab.terminal_id == active))
         {
             return Some(active.to_string());
@@ -1559,13 +1944,17 @@ impl RemoteHostRuntime {
         layout_key: &str,
         terminal_id: &str,
         title: &str,
+        layout_kind: &str,
     ) {
         if layout_key.trim().is_empty() {
             return;
         }
         let service = TerminalLayoutService::new(self.support_dir.clone());
         let layout = service.load(Some(layout_key));
-        if layout.top_panes.iter().any(|pane| pane.terminal_id == terminal_id)
+        if layout
+            .top_panes
+            .iter()
+            .any(|pane| pane.terminal_id == terminal_id)
             || layout.tabs.iter().any(|tab| tab.terminal_id == terminal_id)
         {
             return;
@@ -1575,15 +1964,20 @@ impl RemoteHostRuntime {
         } else {
             title.trim()
         };
-        let _ = service.save_from_gpui(
-            layout_key,
-            Vec::new(),
-            terminal_id.to_string(),
-            vec![TerminalPaneSummary {
+        let mut tabs = layout.tabs;
+        let mut top_panes = layout.top_panes;
+        if layout_kind == "tab" {
+            tabs.push(TerminalTabSummary {
+                label: title.to_string(),
+                terminal_id: terminal_id.to_string(),
+            });
+        } else {
+            top_panes.push(TerminalPaneSummary {
                 title: title.to_string(),
                 terminal_id: terminal_id.to_string(),
-            }],
-        );
+            });
+        }
+        let _ = service.save_from_gpui(layout_key, tabs, terminal_id.to_string(), top_panes);
     }
 
     fn remote_project_scope(&self, project_id: &str) -> Result<RemoteProjectScope, String> {
@@ -1619,6 +2013,33 @@ impl RemoteHostRuntime {
             return Err("Project id is required.".to_string());
         };
         self.remote_project_scope(&scoped_project_id)
+    }
+
+    fn worktree_request_scope(
+        &self,
+        envelope: &RemoteEnvelope,
+    ) -> Result<(String, String), String> {
+        let project_id = envelope
+            .payload
+            .get("projectId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "Project id is required.".to_string())?;
+        let project_path = envelope
+            .payload
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                ProjectStore::new(self.support_dir.clone())
+                    .projects_snapshot()
+                    .into_iter()
+                    .find(|project| project.id == project_id)
+                    .map(|project| project.path)
+            })
+            .ok_or_else(|| "Project path is required.".to_string())?;
+        Ok((project_id.to_string(), project_path))
     }
 
     fn set_remote_project_scope(&self, device_id: Option<&str>, project_id: &str) {
@@ -1767,72 +2188,6 @@ struct RemoteTerminalUploadSession {
     received_bytes: u64,
 }
 
-pub(crate) fn remote_pending_pairing_summary(
-    mut status: RemoteSummary,
-    settings: RemoteSettings,
-    payload: &Value,
-) -> Option<RemoteSummary> {
-    let pairing_id = payload
-        .get("pairingId")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    if pairing_id.is_empty() {
-        return None;
-    }
-    let device_name = payload
-        .get("deviceName")
-        .and_then(Value::as_str)
-        .unwrap_or("Mobile Device")
-        .to_string();
-    let device_public_key = payload
-        .get("devicePublicKey")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let active_pairing = status
-        .pairing
-        .as_ref()
-        .filter(|pairing| pairing.pairing_id == pairing_id)
-        .cloned();
-    let pairing_code = payload
-        .get("code")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| active_pairing.as_ref().map(|pairing| pairing.code.clone()))
-        .unwrap_or_default();
-    let pairing_secret = active_pairing
-        .as_ref()
-        .map(|pairing| pairing.secret.clone())
-        .unwrap_or_default();
-    let match_code =
-        remote_pairing_match_code(&settings, &pairing_code, &pairing_secret, &device_public_key)
-            .unwrap_or_else(|| pairing_code.clone());
-
-    if active_pairing.is_some() {
-        status.pairing = None;
-    }
-    if let Some(existing) = status
-        .pending_pairing_list
-        .iter_mut()
-        .find(|pairing| pairing.id == pairing_id)
-    {
-        existing.device_name = device_name;
-        existing.device_public_key = device_public_key;
-        existing.code = match_code;
-    } else {
-        status.pending_pairing_list.push(RemotePendingPairing {
-            id: pairing_id,
-            device_name,
-            device_public_key,
-            code: match_code,
-        });
-    }
-    status.pending_pairings = status.pending_pairing_list.len();
-    status.message = "Confirm device pairing.".to_string();
-    Some(status)
-}
-
 fn default_project_name(path: &str) -> String {
     Path::new(path)
         .file_name()
@@ -1947,8 +2302,13 @@ fn remote_upload_decode(data: &str) -> Result<Vec<u8>, String> {
     remote_base64_url_decode(data).or_else(|_| {
         base64::engine::general_purpose::STANDARD
             .decode(data)
-            .map_err(remote_error_message)
+            .map_err(|error| error.to_string())
     })
+}
+
+fn remote_pairing_code() -> String {
+    let value = uuid::Uuid::new_v4().as_u128() % 1_000_000;
+    format!("{value:06}")
 }
 
 pub(crate) fn remote_terminal_upload_directory(session_id: &str) -> PathBuf {
@@ -1992,13 +2352,6 @@ pub(crate) fn remote_terminal_upload_kind(payload: &Value) -> String {
         "file".to_string()
     } else {
         "image".to_string()
-    }
-}
-
-pub(crate) fn remote_p2p_lane(kind: &str) -> RemoteP2PLane {
-    match kind {
-        "terminal.upload.ack" | "terminal.uploaded" => RemoteP2PLane::Upload,
-        _ => RemoteP2PLane::Terminal,
     }
 }
 
@@ -2099,10 +2452,14 @@ pub(crate) fn remote_terminal_order_key(value: &Value) -> (String, String) {
     (created_at, id)
 }
 
-pub(crate) fn remote_terminal_snapshot_payload(terminal: TerminalSessionSnapshot) -> Value {
+pub(crate) fn remote_terminal_snapshot_payload(
+    terminal: TerminalSessionSnapshot,
+    layout_kind: &str,
+) -> Value {
     json!({
         "id": terminal.id,
         "title": terminal.title,
+        "layoutKind": layout_kind,
         "displayTitle": if terminal.project_name.trim().is_empty() {
             terminal.title.clone()
         } else {
@@ -2123,6 +2480,46 @@ pub(crate) fn remote_terminal_snapshot_payload(terminal: TerminalSessionSnapshot
         "bufferCharacters": terminal.buffer_characters,
         "hasBuffer": terminal.has_buffer,
     })
+}
+
+fn remote_terminal_layout_kind(payload: &Value) -> String {
+    match payload
+        .get("layoutKind")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(str::to_lowercase)
+        .as_deref()
+    {
+        Some("tab") => "tab".to_string(),
+        _ => "split".to_string(),
+    }
+}
+
+fn remote_worktree_base_branches(git: &crate::git::GitSummary) -> Vec<String> {
+    let mut values = Vec::new();
+    remote_push_unique_branch(&mut values, git.branch.as_str());
+    for branch in &git.branches {
+        remote_push_unique_branch(&mut values, branch.name.as_str());
+    }
+    values
+}
+
+fn remote_default_worktree_base_branch(git: &crate::git::GitSummary) -> String {
+    git.branches
+        .iter()
+        .find(|branch| branch.is_current)
+        .or_else(|| git.branches.first())
+        .map(|branch| branch.name.clone())
+        .filter(|branch| !branch.trim().is_empty())
+        .unwrap_or_else(|| git.branch.clone())
+}
+
+fn remote_push_unique_branch(values: &mut Vec<String>, value: &str) {
+    let branch = value.trim();
+    if branch.is_empty() || values.iter().any(|item| item == branch) {
+        return;
+    }
+    values.push(branch.to_string());
 }
 
 #[cfg(test)]
@@ -2244,7 +2641,7 @@ mod tests {
         let runtime = RemoteHostRuntime::new(support_dir.clone());
         let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
 
-        runtime.persist_remote_terminal_layout(&layout_key, "terminal-mobile-b", "Mobile");
+        runtime.persist_remote_terminal_layout(&layout_key, "terminal-mobile-b", "Mobile", "split");
 
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
         assert_eq!(layout.active_terminal_id, "terminal-mobile-b");

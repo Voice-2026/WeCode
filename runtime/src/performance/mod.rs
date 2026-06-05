@@ -89,5 +89,4 @@ mod tests {
         assert!(snapshot.cpu_percent >= 0.0);
         assert!(snapshot.memory_bytes >= snapshot.memory.main_bytes);
     }
-
 }

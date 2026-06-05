@@ -88,6 +88,7 @@ impl MemoryService {
         projects: &[ProjectWorkspaceRecord],
         runtime_sessions: &[AISessionSnapshot],
         history_sessions: &[AISessionSummary],
+        output_locale: &str,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         if !settings.memory.enabled {
             return self.extraction_status_snapshot();
@@ -100,7 +101,7 @@ impl MemoryService {
             history_sessions,
         )?;
         let mut status = self
-            .process_memory_extraction_queue(settings, projects)
+            .process_memory_extraction_queue(settings, projects, output_locale)
             .await?;
         status.checked_count = enqueued.checked_count;
         status.enqueued_count = enqueued.enqueued_count;
@@ -143,8 +144,11 @@ impl MemoryService {
             return Ok(false);
         };
         let session_id = session_identifier(session);
-        if self.has_active_extraction_for_session(&project.project_id, &session.tool, &session_id)?
-        {
+        if self.has_active_extraction_for_session(
+            &project.project_id,
+            &session.tool,
+            &session_id,
+        )? {
             return Ok(false);
         }
         let Some(source) = resolve_transcript_source(session, &project) else {
@@ -341,7 +345,10 @@ fn memory_project_context_from_history(
         .find(|project| {
             project.root_project_id == session.project_id
                 || paths_equivalent(Some(project.workspace_path.as_str()), &session.project_path)
-                || paths_equivalent(Some(project.root_project_path.as_str()), &session.project_path)
+                || paths_equivalent(
+                    Some(project.root_project_path.as_str()),
+                    &session.project_path,
+                )
         })
         .map(|project| MemoryProjectContext {
             project_id: project.root_project_id.clone(),

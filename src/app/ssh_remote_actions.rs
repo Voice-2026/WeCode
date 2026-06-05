@@ -2,19 +2,6 @@ use super::*;
 use crate::app::app_events::{ChildWindowUpdateEvent, current_memory_update_event};
 
 impl CoduxApp {
-    pub(super) fn open_remote_mobile_help(&mut self, cx: &mut Context<Self>) {
-        match self
-            .runtime_service
-            .open_url("https://codux.dux.cn/features/mobile/")
-        {
-            Ok(()) => self.status_message = "remote mobile help opened".to_string(),
-            Err(error) => {
-                self.status_message = format!("failed to open remote mobile help: {error}")
-            }
-        }
-        self.invalidate_remote_panel(cx);
-    }
-
     pub(super) fn apply_child_window_update_event(
         &mut self,
         event: ChildWindowUpdateEvent,
@@ -55,7 +42,7 @@ impl CoduxApp {
             self.child_window_project_seen_revision = event.project_revision;
             let next = self.runtime_service.reload_state();
             self.apply_project_list_state(next, cx);
-            self.project_open_applications = self.runtime_service.project_open_applications();
+            self.reload_project_open_applications_async(cx);
             self.normalize_selected_git_branch();
             self.normalize_selected_ai_session();
             self.normalize_selected_runtime_session();
@@ -517,27 +504,6 @@ impl CoduxApp {
                 );
             }
             Err(error) => self.status_message = format!("failed to save remote setting: {error}"),
-        }
-        self.invalidate_remote_panel(cx);
-    }
-
-    pub(super) fn set_remote_server_url(
-        &mut self,
-        value: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match self.runtime_service.set_remote_server_url(&value) {
-            Ok(remote) => {
-                let settings = self.runtime_service.reload_state().settings;
-                self.apply_settings_summary(settings);
-                self.state.remote = remote;
-                self.normalize_selected_remote_device();
-                self.status_message = "remote server saved".to_string();
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save remote server: {error}");
-            }
         }
         self.invalidate_remote_panel(cx);
     }

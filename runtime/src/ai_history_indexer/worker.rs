@@ -1,11 +1,13 @@
 use super::events::push_history_event;
 use super::state::{
     mark_project_completed, mark_project_failed, mark_project_progress, mark_project_running,
+    project_source_fingerprint_unchanged, set_project_source_fingerprint,
 };
 use super::types::{AIHistoryEvent, AIHistoryIndexerState, AIHistoryJob};
 use crate::ai_history_normalized::{
     AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot,
     index_global_history_fresh, index_project_history_fresh_with_progress,
+    load_indexed_project_history, project_history_source_fingerprint,
 };
 use crate::runtime_trace::{runtime_trace, runtime_trace_elapsed};
 use std::collections::VecDeque;
@@ -121,20 +123,41 @@ fn run_project_index(
     let started_at = Instant::now();
     let project_id = project.id.clone();
     let project_path = project.path.clone();
+    let fingerprint = project_history_source_fingerprint(&project);
+    if project_source_fingerprint_unchanged(&state, &project_id, &fingerprint) {
+        if let Ok(Some(snapshot)) = load_indexed_project_history(project.clone()) {
+            runtime_trace_elapsed(
+                "ai-history",
+                "run_project_index skipped_unchanged",
+                started_at,
+                &format!(
+                    "project={} path={} files={} sessions={} total_tokens={}",
+                    project_id,
+                    project_path,
+                    fingerprint.files.len(),
+                    snapshot.sessions.len(),
+                    snapshot.project_summary.project_total_tokens
+                ),
+            );
+            return Ok(snapshot);
+        }
+    }
     let progress_project = project.clone();
     let snapshot = index_project_history_fresh_with_progress(project, |progress, detail| {
         if let Ok(next_state) = mark_project_progress(&state, &progress_project, progress, detail) {
             push_history_event(events, AIHistoryEvent::ProjectState { state: next_state });
         }
     });
+    set_project_source_fingerprint(&state, &project_id, fingerprint.clone());
     runtime_trace_elapsed(
         "ai-history",
         "run_project_index",
         started_at,
         &format!(
-            "project={} path={} sessions={} total_tokens={}",
+            "project={} path={} files={} sessions={} total_tokens={}",
             project_id,
             project_path,
+            fingerprint.files.len(),
             snapshot.sessions.len(),
             snapshot.project_summary.project_total_tokens
         ),

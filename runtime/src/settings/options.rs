@@ -217,6 +217,10 @@ fn sanitize_pet_speech_frequency(value: &str) -> String {
     .to_string()
 }
 
+fn sanitize_pet_reminder_minutes(value: &str) -> String {
+    numeric_string(value, 60, 15, 240).to_string()
+}
+
 fn sanitize_provider_reference(value: &str) -> String {
     let value = value.trim();
     if value.is_empty() {
@@ -329,10 +333,6 @@ fn current_unix_seconds() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0)
-}
-
-fn default_shell() -> String {
-    "system".to_string()
 }
 
 fn default_true() -> bool {

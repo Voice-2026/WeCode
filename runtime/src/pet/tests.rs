@@ -159,6 +159,30 @@ fn catalog_loads_custom_pets_with_data_urls() {
 }
 
 #[test]
+fn bundled_catalog_skips_custom_pet_io() {
+    let support_dir = temp_support_dir();
+    fs::create_dir_all(support_dir.join("custom-pets/demo")).unwrap();
+    fs::write(
+        support_dir.join("custom-pets/demo/pet.json"),
+        r#"{"id":"demo","displayName":"Demo","spritesheetPath":"sprite.png"}"#,
+    )
+    .unwrap();
+    fs::write(
+        support_dir.join("custom-pets/demo/sprite.png"),
+        [1_u8, 2, 3],
+    )
+    .unwrap();
+
+    let catalog = PetService::new(support_dir.clone()).bundled_catalog();
+
+    assert_eq!(catalog.species.len(), PET_SPECIES.len());
+    assert_eq!(catalog.atlas.columns, 8);
+    assert!(catalog.custom_pets.is_empty());
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
 fn pet_store_claim_refresh_rename_archive_restore_and_persist() {
     let support_dir = temp_support_dir();
     let store = PetStore {

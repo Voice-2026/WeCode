@@ -106,7 +106,8 @@ fn state_summary_reads_active_git_from_runtime_state() {
         },
     );
 
-    let summary = WorktreeService::new(support_dir.clone()).state_summary(Some("p1"), Some(project_path));
+    let summary =
+        WorktreeService::new(support_dir.clone()).state_summary(Some("p1"), Some(project_path));
 
     assert!(summary.active_git.is_repository);
     assert_eq!(summary.active_git.branch, "main");
@@ -139,10 +140,8 @@ fn summary_includes_per_worktree_git_stats() {
     )
     .unwrap();
 
-    let summary = WorktreeService::new(support_dir.clone()).summary(
-        Some("p1"),
-        Some(repo.to_str().expect("repo path")),
-    );
+    let summary = WorktreeService::new(support_dir.clone())
+        .summary(Some("p1"), Some(repo.to_str().expect("repo path")));
 
     assert_eq!(summary.worktrees.len(), 1);
     assert_eq!(summary.worktrees[0].git_summary.changes, 1);
@@ -176,10 +175,8 @@ fn worktree_git_stats_match_review_totals() {
     )
     .unwrap();
 
-    let summary = WorktreeService::new(support_dir.clone()).summary(
-        Some("p1"),
-        Some(repo.to_str().expect("repo path")),
-    );
+    let summary = WorktreeService::new(support_dir.clone())
+        .summary(Some("p1"), Some(repo.to_str().expect("repo path")));
     let review = crate::git::GitService::review(repo.to_str().expect("repo path"), None);
     let review_additions: i64 = review.files.iter().map(|file| file.additions).sum();
     let review_deletions: i64 = review.files.iter().map(|file| file.deletions).sum();

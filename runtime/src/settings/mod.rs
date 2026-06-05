@@ -1,7 +1,7 @@
 pub mod app_settings;
 
-use crate::llm::{self, LLMProviderTestResult};
 use crate::config::ConfigStore;
+use crate::llm::{self, LLMProviderTestResult};
 pub use app_settings::{
     AIRuntimeToolSettings, AppSettings, AppSettingsStore, NotificationChannelSettings,
     RemoteHostDeviceSettings, RemoteSettings, UpdateSettings, sync_process_locale_preference,

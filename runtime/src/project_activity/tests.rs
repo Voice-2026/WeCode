@@ -133,10 +133,8 @@ fn git_background_refresh_is_limited_per_tick() {
 
 #[test]
 fn git_changed_refresh_is_debounced_per_project() {
-    let support_dir = std::env::temp_dir().join(format!(
-        "codux-project-activity-{}",
-        std::process::id()
-    ));
+    let support_dir =
+        std::env::temp_dir().join(format!("codux-project-activity-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&support_dir);
     std::fs::create_dir_all(&support_dir).expect("create temp support dir");
     std::fs::write(
@@ -145,8 +143,7 @@ fn git_changed_refresh_is_debounced_per_project() {
     )
     .expect("write state");
 
-    let coordinator =
-        ProjectActivityCoordinator::new(support_dir.clone(), AIHistoryIndexer::new());
+    let coordinator = ProjectActivityCoordinator::new(support_dir.clone(), AIHistoryIndexer::new());
     let store = ProjectStore::new(support_dir.clone());
 
     coordinator.refresh_git_changed(

@@ -65,7 +65,9 @@ impl RuntimeActivityService {
 
         let runtime_log = crate::runtime_paths::runtime_log_path_in(&self.support_dir);
         let live_log = crate::runtime_paths::live_log_path_in(&self.runtime_temp_dir);
-        let runtime_root = self.runtime_temp_dir.join(crate::runtime_paths::RUNTIME_ROOT_DIR_NAME);
+        let runtime_root = self
+            .runtime_temp_dir
+            .join(crate::runtime_paths::RUNTIME_ROOT_DIR_NAME);
         let runtime_support = self
             .support_dir
             .join(crate::runtime_paths::RUNTIME_SUPPORT_DIR_NAME);
@@ -243,11 +245,7 @@ mod tests {
             "one\ntwo\nthree\n",
         )
         .unwrap();
-        fs::write(
-            hook_dir.join("dmux-ai-state.sh"),
-            "#!/bin/sh\n",
-        )
-        .unwrap();
+        fs::write(hook_dir.join("dmux-ai-state.sh"), "#!/bin/sh\n").unwrap();
 
         let service = RuntimeActivityService {
             support_dir: support_dir.clone(),

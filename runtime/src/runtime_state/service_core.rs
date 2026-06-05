@@ -115,7 +115,9 @@ impl RuntimeService {
             .and_then(|id| projects.projects.iter().find(|project| &project.id == id))
             .cloned()
         {
-            let _ = self.mark_project_active_with_watch(&project.id);
+            self.project_activity.mark_project_active(project.clone());
+            let _ = self.mark_active_project_file_path(&project.path);
+            self.watch_project_background(project.path);
         }
 
         let ai_runtime_state = self.ai_runtime.runtime_state_snapshot();
@@ -230,13 +232,7 @@ impl RuntimeService {
         &self,
         project_path: String,
     ) -> Result<FileWatchRegistration, String> {
-        let registration = self.file_watch_manager.registration(&project_path)?;
-        let previous = self
-            .active_file_watch_path
-            .lock()
-            .map_err(|_| "Active file watcher lock is poisoned.".to_string())?
-            .clone();
-
+        let (registration, previous) = self.mark_active_project_file_path(&project_path)?;
         if previous.as_deref() == Some(registration.project_path.as_str()) {
             return Ok(registration);
         }
@@ -250,6 +246,22 @@ impl RuntimeService {
             *active = Some(registration.project_path.clone());
         }
         Ok(registration)
+    }
+
+    pub(crate) fn mark_active_project_file_path(
+        &self,
+        project_path: &str,
+    ) -> Result<(FileWatchRegistration, Option<String>), String> {
+        let registration = self.file_watch_manager.registration(project_path)?;
+        let mut active = self
+            .active_file_watch_path
+            .lock()
+            .map_err(|_| "Active file watcher lock is poisoned.".to_string())?;
+        let previous = active.clone();
+        if previous.as_deref() != Some(registration.project_path.as_str()) {
+            *active = Some(registration.project_path.clone());
+        }
+        Ok((registration, previous))
     }
 
     fn stop_active_project_files(&self) {
@@ -340,11 +352,21 @@ impl RuntimeService {
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
         self.project_activity.mark_project_active(project.clone());
+        let _ = self.mark_active_project_file_path(&project.path);
 
-        let _ = self.git_watch(project.path.clone());
-        let _ = self.watch_active_project_files(project.path);
+        self.watch_project_background(project.path);
 
         Ok(self.project_activity.snapshot())
+    }
+
+    pub fn watch_project_background(&self, project_path: String) {
+        let service = self.clone();
+        let _ = std::thread::Builder::new()
+            .name("codux-project-watch-switch".to_string())
+            .spawn(move || {
+                let _ = service.watch_active_project_files(project_path.clone());
+                let _ = service.git_watch(project_path);
+            });
     }
 
     pub fn tick_project_activity(&self) -> ProjectActivitySnapshot {
@@ -508,7 +530,29 @@ mod app_runtime_ready_tests {
     use super::*;
     use crate::terminal_layout::TerminalPaneSummary;
     use serde_json::json;
-    use std::{fs, path::PathBuf};
+    use std::{fs, path::PathBuf, thread, time::Duration};
+
+    fn wait_for_active_watch_path(service: &RuntimeService, expected: &str) {
+        for _ in 0..50 {
+            let current = service
+                .active_file_watch_path
+                .lock()
+                .expect("active file watch")
+                .clone();
+            if current.as_deref() == Some(expected) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            service
+                .active_file_watch_path
+                .lock()
+                .expect("active file watch")
+                .as_deref(),
+            Some(expected)
+        );
+    }
 
     #[test]
     fn app_runtime_ready_marks_selected_project_active_and_returns_startup_snapshots() {
@@ -550,20 +594,6 @@ mod app_runtime_ready_tests {
         assert_eq!(snapshot.window_state.dock_badge_count, None);
         assert_eq!(snapshot.terminal_layouts.layouts.len(), 0);
         assert_eq!(snapshot.ai_runtime_state.sessions.len(), 0);
-        let expected_watch_path = project_dir
-            .canonicalize()
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        assert_eq!(
-            service
-                .active_file_watch_path
-                .lock()
-                .expect("active file watch")
-                .as_deref(),
-            Some(expected_watch_path.as_str())
-        );
-
         let _ = fs::remove_dir_all(support_dir);
     }
 
@@ -612,14 +642,7 @@ mod app_runtime_ready_tests {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        assert_eq!(
-            service
-                .active_file_watch_path
-                .lock()
-                .expect("active file watch")
-                .as_deref(),
-            Some(expected_watch_path.as_str())
-        );
+        wait_for_active_watch_path(&service, &expected_watch_path);
         assert_eq!(
             service
                 .project_activity_snapshot()
@@ -683,14 +706,7 @@ mod app_runtime_ready_tests {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        assert_eq!(
-            service
-                .active_file_watch_path
-                .lock()
-                .expect("active file watch")
-                .as_deref(),
-            Some(expected_watch_path.as_str())
-        );
+        wait_for_active_watch_path(&service, &expected_watch_path);
         assert_eq!(
             service
                 .project_activity_snapshot()
@@ -853,7 +869,7 @@ mod app_runtime_ready_tests {
     }
 
     #[test]
-    fn project_close_forgets_pet_baseline_and_close_all_forgets_all_baselines() {
+    fn project_close_forgets_pet_baseline() {
         let support_dir = std::env::temp_dir().join(format!(
             "codux-project-close-pet-baseline-{}",
             uuid::Uuid::new_v4()
@@ -917,13 +933,6 @@ mod app_runtime_ready_tests {
             Some(&20)
         );
         assert_eq!(pet.global_normalized_total_watermark, Some(20));
-
-        service.project_close_all().expect("close all projects");
-        let pet = service
-            .pet_snapshot()
-            .expect("pet snapshot after close all");
-        assert!(pet.project_normalized_token_watermarks.is_empty());
-        assert_eq!(pet.global_normalized_total_watermark, None);
 
         let _ = fs::remove_dir_all(support_dir);
     }

@@ -58,11 +58,13 @@ impl CoduxApp {
         if self.window_mode != AppWindowMode::Main {
             return;
         }
+        self.start_runtime_ready_initialization(cx);
         self.sync_desktop_pet_window(false, cx);
         let timer = cx.background_executor().clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let mut ticks = 0_u64;
             let mut performance_ticks_until_refresh = 0_u64;
+            let mut last_runtime_queue_busy = false;
             loop {
                 timer.timer(Duration::from_millis(200)).await;
                 ticks = ticks.wrapping_add(1);
@@ -70,6 +72,11 @@ impl CoduxApp {
                 let include_slow_tick = ticks % 5 == 0;
                 let include_project_activity_tick = ticks % 75 == 0;
                 let include_runtime_refresh_tick = ticks % 150 == 0;
+                let runtime_queue_status = codux_runtime::async_runtime::blocking_queue_status();
+                let runtime_queue_busy =
+                    runtime_queue_status.queued > 0 || runtime_queue_status.running > 0;
+                let runtime_queue_busy_changed = runtime_queue_busy != last_runtime_queue_busy;
+                last_runtime_queue_busy = runtime_queue_busy;
 
                 if this
                     .update(cx, |app, cx| {
@@ -103,7 +110,7 @@ impl CoduxApp {
                         if result.pet_update_events > 0 {
                             app.sync_desktop_pet_window(false, cx);
                         }
-                        if performance_changed {
+                        if performance_changed || runtime_queue_busy_changed {
                             app.invalidate_status_bar(cx);
                         }
                         if today_level_changed {
@@ -127,6 +134,77 @@ impl CoduxApp {
                     return;
                 }
             }
+        })
+        .detach();
+    }
+
+    fn start_runtime_ready_initialization(&mut self, cx: &mut Context<Self>) {
+        if self.runtime_ready {
+            return;
+        }
+        let runtime_service = self.runtime_service.clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                let started_at = std::time::Instant::now();
+                runtime_service
+                    .runtime_trace_frontend("startup", "runtime background initialization start");
+                let tool_permissions = runtime_service.sync_tool_permissions();
+                let ai_runtime_status = match runtime_service.start_ai_runtime_event_processing() {
+                    Ok(_) => {
+                        let snapshot = runtime_service.ai_runtime_state_snapshot();
+                        let summary =
+                            runtime_service.summarize_ai_runtime_state_snapshot(&snapshot);
+                        Ok((tool_permissions, snapshot, summary))
+                    }
+                    Err(error) => Err((tool_permissions, error)),
+                };
+                runtime_service.runtime_trace_frontend(
+                    "startup",
+                    &format!(
+                        "runtime background initialization finish elapsed_ms={}",
+                        started_at.elapsed().as_millis()
+                    ),
+                );
+                ai_runtime_status
+            })
+            .await;
+
+            let _ = this.update(cx, |app, cx| {
+                app.runtime_ready = true;
+                match result {
+                    Ok(Ok((tool_permissions, snapshot, summary))) => {
+                        app.state.tool_permissions = tool_permissions;
+                        app.state.ai_runtime_state = summary;
+                        app.status_message = format!(
+                            "runtime ready · {} session{}",
+                            snapshot.sessions.len(),
+                            if snapshot.sessions.len() == 1 {
+                                ""
+                            } else {
+                                "s"
+                            }
+                        );
+                    }
+                    Ok(Err((tool_permissions, error))) => {
+                        app.state.tool_permissions = tool_permissions;
+                        app.status_message =
+                            format!("runtime ready with AI runtime error: {error}");
+                    }
+                    Err(error) => {
+                        app.status_message =
+                            format!("runtime ready with initialization join error: {error}");
+                    }
+                }
+                app.invalidate_ui(
+                    cx,
+                    [
+                        UiRegion::StatusBar,
+                        UiRegion::WorkspaceAssistant,
+                        UiRegion::AIStatsSidebar,
+                    ],
+                );
+                app.refresh_window_runtime_data(cx);
+            });
         })
         .detach();
     }

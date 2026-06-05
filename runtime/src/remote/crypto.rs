@@ -1,20 +1,77 @@
-use super::http::remote_server_url;
+use super::iroh_transport::RemoteIrohNodeAddr;
 use super::types::{RemotePairingInfo, RemoteSettings};
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{Engine as _, engine::general_purpose};
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
+#[cfg(unix)]
+use std::ffi::CStr;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 pub(crate) fn remote_host_name() -> String {
+    platform_host_name()
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| crate::runtime_paths::app_display_name().to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn platform_host_name() -> Option<String> {
+    macos_scutil_value("ComputerName")
+        .or_else(|| macos_scutil_value("LocalHostName"))
+        .or_else(unix_host_name)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_scutil_value(key: &str) -> Option<String> {
+    let output = std::process::Command::new("/usr/sbin/scutil")
+        .args(["--get", key])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_host_name() -> Option<String> {
+    unix_host_name()
+}
+
+#[cfg(unix)]
+fn unix_host_name() -> Option<String> {
+    let mut buffer = [0_i8; 256];
+    let result = unsafe { libc::gethostname(buffer.as_mut_ptr(), buffer.len()) };
+    if result != 0 {
+        return None;
+    }
+    unsafe { CStr::from_ptr(buffer.as_ptr()) }
+        .to_str()
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(target_os = "windows")]
+fn platform_host_name() -> Option<String> {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| crate::runtime_paths::app_display_name().to_string())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn platform_host_name() -> Option<String> {
+    None
 }
 
 pub(crate) fn remote_random_token() -> String {
@@ -47,14 +104,18 @@ pub(crate) fn ensure_remote_host_identity(settings: &mut RemoteSettings) {
 pub(crate) fn remote_pairing_qr_payload(
     settings: &RemoteSettings,
     pairing: &RemotePairingInfo,
+    iroh_addr: RemoteIrohNodeAddr,
 ) -> String {
     let payload = json!({
-        "server": remote_server_url(settings),
+        "transport": "iroh",
         "code": pairing.code,
         "secret": pairing.secret,
+        "pairingId": pairing.pairing_id,
         "hostName": remote_host_name(),
         "hostPublicKey": settings.host_public_key,
         "cryptoVersion": 1,
+        "protocolVersion": super::host::REMOTE_PROTOCOL_VERSION,
+        "iroh": iroh_addr,
     });
     serde_json::to_vec(&payload)
         .ok()

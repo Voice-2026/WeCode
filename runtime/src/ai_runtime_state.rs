@@ -1,6 +1,4 @@
-use crate::{
-    ai_runtime::{AIProjectPhase, AIRuntimeStateSnapshot, AISessionSnapshot},
-};
+use crate::ai_runtime::{AIProjectPhase, AIRuntimeStateSnapshot, AISessionSnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;

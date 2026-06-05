@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-05
+
+### Added
+
+- Added the Iroh-based remote transport foundation and aligned the remote protocol around shared runtime models for desktop and mobile clients.
+- Added terminal font family selection backed by runtime system-font discovery.
+- Added startup readiness and runtime busy status reporting in the status bar.
+
+### Changed
+
+- Reworked settings selects, dialog actions, update windows, memory management views, pet controls, and remote mobile guidance for a more consistent GPUI interaction path.
+- Moved startup scanning, system services, memory queue work, menu actions, project dialogs, and other blocking operations further into runtime-managed async flows.
+- Improved AI memory extraction scheduling, queue visibility, failure handling, and locale-aware prompts.
+- Refined terminal rendering, focus recovery, input stability, shortcuts, font handling, and project/worktree switching.
+
+### Fixed
+
+- Fixed settings dropdowns closing unexpectedly or failing to scroll.
+- Fixed settings-window crashes caused by reading app state while it was already being updated.
+- Fixed project removal, worktree switching, Git status updates, AI history refresh, and desktop pet chat/layout edge cases.
+- Fixed update download/progress window sizing and release-note display regressions.
+
 ## [1.5.2] - 2026-06-05
 
 ### Fixed

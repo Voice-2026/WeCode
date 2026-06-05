@@ -23,8 +23,8 @@ impl RemoteService {
             _ => return Ok(None),
         };
         let plaintext = self.decrypt_device_payload(&device_id, &envelope.payload)?;
-        let mut inner =
-            serde_json::from_slice::<RemoteEnvelope>(&plaintext).map_err(|error| error.to_string())?;
+        let mut inner = serde_json::from_slice::<RemoteEnvelope>(&plaintext)
+            .map_err(|error| error.to_string())?;
         if let Some(seq) = inner.seq {
             let previous = receive_seq_by_device.get(&device_id).copied().unwrap_or(0);
             if seq <= previous {
@@ -63,7 +63,7 @@ impl RemoteService {
         })
     }
 
-    pub fn outgoing_relay_text(
+    pub fn outgoing_transport_text(
         &self,
         kind: &str,
         device_id: Option<&str>,

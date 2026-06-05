@@ -3,6 +3,7 @@ mod devices;
 mod envelope;
 mod host;
 mod http;
+mod iroh_transport;
 mod pairing;
 mod registration;
 mod settings;
@@ -12,13 +13,12 @@ mod types;
 
 use std::path::PathBuf;
 
+pub use host::RemoteHostRuntime;
 pub(crate) use settings::{remote_settings_from_raw, remote_settings_mut};
-pub(crate) use summary::remote_summary_from_settings;
 pub use types::{
     RemoteDeviceSummary, RemoteEnvelope, RemoteOutgoingEnvelope, RemotePairingInfo,
     RemotePairingPollResult, RemotePendingPairing, RemoteSummary,
 };
-pub use host::RemoteHostRuntime;
 
 pub struct RemoteService {
     settings_path: PathBuf,

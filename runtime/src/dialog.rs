@@ -347,8 +347,7 @@ fn native_save_dialog(request: LocalizedSaveDialogRequest) -> Result<Option<Stri
             .collect::<Vec<_>>();
         if !extensions.is_empty() {
             let name = filter._name.trim();
-            dialog =
-                dialog.add_filter(if name.is_empty() { "Files" } else { name }, &extensions);
+            dialog = dialog.add_filter(if name.is_empty() { "Files" } else { name }, &extensions);
         }
     }
     Ok(dialog.save_file().map(native_path_string))

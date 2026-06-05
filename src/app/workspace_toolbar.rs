@@ -389,6 +389,8 @@ fn workspace_segmented_tab(
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let label = label.into();
+    let active_bg = cx.theme().primary.opacity(0.14);
+    let inactive_hover_bg = cx.theme().secondary_hover;
     div()
         .id(SharedString::from(format!("workspace-view-tab-{index}")))
         .h(px(22.0))
@@ -398,22 +400,22 @@ fn workspace_segmented_tab(
         .justify_center()
         .rounded_sm()
         .text_color(if active {
-            cx.theme().primary_foreground
+            cx.theme().primary
         } else {
             cx.theme().secondary_foreground
         })
         .bg(if active {
-            cx.theme().primary
+            active_bg
         } else {
             cx.theme().transparent
         })
         .when(enabled, |this| {
             this.cursor_pointer()
-                .hover(|style| {
+                .hover(move |style| {
                     if active {
-                        style.bg(cx.theme().primary)
+                        style.bg(active_bg)
                     } else {
-                        style.bg(cx.theme().secondary_hover)
+                        style.bg(inactive_hover_bg)
                     }
                 })
                 .on_click(cx.listener(move |app, _event, window, cx| {

@@ -1,4 +1,5 @@
 use super::*;
+use chrono::Timelike as _;
 
 #[derive(Clone)]
 struct DesktopPetLabels {
@@ -99,6 +100,7 @@ impl DesktopPetActivityLine {
 pub(in crate::app) struct DesktopPetLlmContext {
     pub(in crate::app) event: &'static str,
     pub(in crate::app) fallback_text: String,
+    pub(in crate::app) facts: String,
     pub(in crate::app) tone: DesktopPetActivityTone,
     pub(in crate::app) tool: String,
     pub(in crate::app) updated_at: f64,
@@ -281,6 +283,18 @@ pub(in crate::app) fn desktop_pet_llm_context(
         return Some(DesktopPetLlmContext {
             event: "permission",
             fallback_text,
+            facts: if let Some(target) = session
+                .target_tool_name
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                format!(
+                    "{} is waiting for permission to use {target}.",
+                    session.tool
+                )
+            } else {
+                format!("{} is waiting for permission.", session.tool)
+            },
             tone: DesktopPetActivityTone::Attention,
             tool: session.tool.clone(),
             updated_at: session.updated_at,
@@ -300,6 +314,7 @@ pub(in crate::app) fn desktop_pet_llm_context(
                 tr("pet.activity.waiting_input_format", "%@ needs input"),
                 &session.tool,
             ),
+            facts: format!("{} is waiting for user input.", session.tool),
             tone: DesktopPetActivityTone::Attention,
             tool: session.tool.clone(),
             updated_at: session.updated_at,
@@ -331,6 +346,14 @@ pub(in crate::app) fn desktop_pet_llm_context(
                     &session.tool,
                 )
             },
+            facts: if failed {
+                format!(
+                    "{} finished with an interrupted or failed state.",
+                    session.tool
+                )
+            } else {
+                format!("{} completed the latest turn.", session.tool)
+            },
             tone: if failed {
                 DesktopPetActivityTone::Warning
             } else {
@@ -356,6 +379,7 @@ pub(in crate::app) fn desktop_pet_llm_context(
                 tr("pet.activity.running_format", "%@ is running"),
                 &session.tool,
             ),
+            facts: format!("{} is currently running.", session.tool),
             tone: DesktopPetActivityTone::Normal,
             tool: session.tool.clone(),
             updated_at: session.updated_at,
@@ -372,6 +396,128 @@ pub(in crate::app) fn desktop_pet_llm_cooldown_seconds(value: &str) -> f64 {
         "quiet" => 15.0 * 60.0,
         _ => 5.0 * 60.0,
     }
+}
+
+pub(in crate::app) fn desktop_pet_reminder_line(
+    settings: &SettingsSummary,
+    pet: &PetSnapshot,
+    language: &str,
+    now: f64,
+    hydration_due_at: &mut f64,
+    sedentary_due_at: &mut f64,
+    late_night_due_at: &mut f64,
+) -> Option<DesktopPetLlmContext> {
+    reminder_context(
+        settings.pet_reminders,
+        &settings.pet_hydration_reminder_minutes,
+        "reminder.hydration",
+        "hydration",
+        desktop_pet_species_line(pet, language, "hydration"),
+        now,
+        hydration_due_at,
+    )
+    .or_else(|| {
+        reminder_context(
+            settings.pet_sedentary_reminders,
+            &settings.pet_sedentary_reminder_minutes,
+            "reminder.sedentary",
+            "sedentary",
+            format!(
+                "{} minutes seated. Suggest a short stretch.",
+                settings.pet_sedentary_reminder_minutes
+            ),
+            now,
+            sedentary_due_at,
+        )
+    })
+    .or_else(|| {
+        let hour = chrono::Local::now().hour();
+        if !(22..=23).contains(&hour) && !(0..=5).contains(&hour) {
+            *late_night_due_at = 0.0;
+            return None;
+        }
+        reminder_context(
+            settings.pet_late_night_reminders,
+            &settings.pet_late_night_reminder_minutes,
+            "reminder.lateNight",
+            "late-night",
+            format!("{hour:02}:00 late-night coding. Suggest wrapping up gently."),
+            now,
+            late_night_due_at,
+        )
+    })
+}
+
+fn reminder_context(
+    enabled: bool,
+    minutes: &str,
+    event: &'static str,
+    tool: &str,
+    fallback_text: String,
+    now: f64,
+    due_at: &mut f64,
+) -> Option<DesktopPetLlmContext> {
+    if !enabled {
+        *due_at = 0.0;
+        return None;
+    }
+    let interval_seconds = reminder_interval_seconds(minutes);
+    if *due_at <= 0.0 {
+        *due_at = now + interval_seconds;
+        return None;
+    }
+    if now < *due_at {
+        return None;
+    }
+    *due_at = now + interval_seconds;
+    Some(DesktopPetLlmContext {
+        event,
+        fallback_text,
+        facts: reminder_facts(event, tool, minutes),
+        tone: DesktopPetActivityTone::Attention,
+        tool: tool.to_string(),
+        updated_at: now,
+    })
+}
+
+fn reminder_facts(event: &str, tool: &str, minutes: &str) -> String {
+    match event {
+        "reminder.hydration" => {
+            format!("A hydration reminder is due after {minutes} minutes.")
+        }
+        "reminder.sedentary" => {
+            format!("A sedentary reminder is due after {minutes} minutes.")
+        }
+        "reminder.lateNight" => {
+            "It is late-night coding time and a rest reminder is due.".to_string()
+        }
+        _ => format!("{tool} reminder is due."),
+    }
+}
+
+fn reminder_interval_seconds(minutes: &str) -> f64 {
+    minutes
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .unwrap_or(60.0)
+        .clamp(15.0, 240.0)
+        * 60.0
+}
+
+fn desktop_pet_species_line(pet: &PetSnapshot, language: &str, kind: &str) -> String {
+    let locale = locale_from_language_setting(language);
+    let species = pet.species.trim();
+    let species = if species.is_empty() {
+        "voidcat"
+    } else {
+        species.strip_prefix("custom:").unwrap_or(species)
+    };
+    let key = format!("pet.bubble.{species}.{kind}");
+    let fallback_key = format!("pet.bubble.voidcat.{kind}");
+    let fallback = translate(&locale, &fallback_key, "A small reminder");
+    translate(&locale, &key, &fallback)
 }
 
 pub(in crate::app) fn normalized_desktop_pet_preview(value: Option<&str>) -> Option<String> {

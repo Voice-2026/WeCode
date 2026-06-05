@@ -21,6 +21,9 @@ impl CoduxApp {
         } else {
             tr("common.create", "Create")
         };
+        let can_submit = !self.project_editor_saving
+            && !self.project_editor_name.trim().is_empty()
+            && !self.project_editor_path.trim().is_empty();
 
         child_window_shell(title, cx)
             .child(
@@ -73,14 +76,18 @@ impl CoduxApp {
                             window.remove_window();
                         },
                     ))
-                    .child(dialog_primary_button(
-                        "project-editor-save",
-                        submit_label,
-                        cx,
-                        |app, _event, window, cx| {
-                            app.save_project_editor(window, cx);
-                        },
-                    )),
+                    .child(
+                        dialog_primary_button(
+                            "project-editor-save",
+                            submit_label,
+                            cx,
+                            |app, _event, window, cx| {
+                                app.save_project_editor(window, cx);
+                            },
+                        )
+                        .disabled(!can_submit)
+                        .loading(self.project_editor_saving),
+                    ),
                 cx,
             ))
     }

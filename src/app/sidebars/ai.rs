@@ -525,7 +525,6 @@ pub(in crate::app) fn memory_manager_window_workspace(
     let summary_tab = ai_sidebar_text(language, "memory.manager.tab.summary", "Summary");
     let memories_tab = ai_sidebar_text(language, "memory.manager.tab.active", "Memories");
     let history_tab = ai_sidebar_text(language, "memory.manager.tab.history", "History");
-    let failed_tab = ai_sidebar_text(language, "memory.manager.tab.failed", "Failed");
     let empty_entries = ai_sidebar_text(
         language,
         "memory.manager.empty.entries",
@@ -541,28 +540,21 @@ pub(in crate::app) fn memory_manager_window_workspace(
         "memory.manager.empty.failed",
         "No failed memory tasks",
     );
-    let selected_target_title = if selected_scope == "user" {
+    let selected_target_title = if active_tab == MemoryManagerTab::Queue {
+        ai_sidebar_text(language, "memory.manager.section.queue", "Memory Queue")
+    } else if active_tab == MemoryManagerTab::Failed {
+        ai_sidebar_text(language, "memory.manager.section.failed", "Failed Records")
+    } else if selected_scope == "user" {
         ai_sidebar_text(language, "memory.manager.user_memory", "User Memory")
     } else {
         manager.selected_target_title.clone()
     };
-    let overview_template = ai_sidebar_text(
-        language,
-        "memory.manager.overview_format",
-        "%lld active, %lld archived, %lld profiles, %lld summaries, %lld tokens",
-    );
-    let overview = &manager.current_overview;
-    let overview_label = overview_template
-        .replacen("%lld", &overview.active_entry_count.to_string(), 1)
-        .replacen(
-            "%lld",
-            &(overview.archived_entry_count + overview.merged_entry_count).to_string(),
-            1,
-        )
-        .replacen("%lld", &overview.profile_count.to_string(), 1)
-        .replacen("%lld", &overview.summary_count.to_string(), 1)
-        .replacen("%lld", &overview.total_token_estimate.to_string(), 1);
-    let target_rows = manager.target_rows.clone();
+    let target_rows = manager
+        .target_rows
+        .iter()
+        .filter(|target| target.scope != "user")
+        .cloned()
+        .collect::<Vec<_>>();
     let content = ai_memory_manager_window_content(
         manager,
         active_tab,
@@ -640,6 +632,13 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                         .child(subtitle),
                                 ),
                         )
+                        .child(ai_memory_manager_section_switcher(
+                            manager,
+                            active_tab,
+                            selected_scope,
+                            language,
+                            cx,
+                        ))
                         .child(
                             div()
                                 .flex_1()
@@ -647,6 +646,16 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                 .overflow_y_scrollbar()
                                 .px_2()
                                 .pb_3()
+                                .when(!target_rows.is_empty(), |this| {
+                                    this.child(ai_memory_group_label(
+                                        ai_sidebar_text(
+                                            language,
+                                            "memory.manager.section.projects",
+                                            "Projects",
+                                        ),
+                                        cx,
+                                    ))
+                                })
                                 .children(target_rows.into_iter().map(|target| {
                                     ai_memory_manager_target_row(
                                         target,
@@ -688,19 +697,18 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                 .child(
                                                     div()
                                                         .truncate()
-                                                        .text_size(rems(0.875))
-                                                        .line_height(rems(1.125))
+                                                        .text_size(rems(0.9375))
+                                                        .line_height(rems(1.25))
+                                                        .font_weight(gpui::FontWeight::SEMIBOLD)
                                                         .text_color(cx.theme().foreground)
                                                         .child(selected_target_title),
                                                 )
                                                 .child(
-                                                    div()
-                                                        .mt(px(4.0))
-                                                        .truncate()
-                                                        .text_size(rems(0.75))
-                                                        .line_height(rems(1.0))
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .child(overview_label),
+                                                    div().mt(px(10.0)).child(
+                                                        ai_memory_overview_strip(
+                                                            manager, active_tab, language, cx,
+                                                        ),
+                                                    ),
                                                 ),
                                         )
                                         .child(
@@ -708,26 +716,63 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                 .flex()
                                                 .items_center()
                                                 .gap_1()
-                                                .when(selected_scope == "project", |this| {
-                                                    this.child(ai_memory_migrate_project_button(
-                                                        manager,
-                                                        selected_project_id,
-                                                        language,
-                                                        cx,
-                                                    ))
-                                                    .child(ai_memory_row_icon_button(
-                                                        "memory-manager-window-delete-project",
-                                                        HeroIconName::Trash,
+                                                .when(
+                                                    selected_scope == "project"
+                                                        && active_tab != MemoryManagerTab::Queue
+                                                        && active_tab != MemoryManagerTab::Failed,
+                                                    |this| {
+                                                        this.child(
+                                                            ai_memory_migrate_project_button(
+                                                                manager,
+                                                                selected_project_id,
+                                                                language,
+                                                                cx,
+                                                            ),
+                                                        )
+                                                        .child(ai_memory_row_icon_button(
+                                                            "memory-manager-window-delete-project",
+                                                            HeroIconName::Trash,
+                                                            ai_sidebar_text(
+                                                                language,
+                                                                "memory.manager.delete_project",
+                                                                "Delete Project Memory",
+                                                            ),
+                                                            cx,
+                                                            |app, _event, window, cx| {
+                                                                app.delete_selected_memory_project(
+                                                                    window, cx,
+                                                                )
+                                                            },
+                                                        ))
+                                                    },
+                                                )
+                                                .when(active_tab == MemoryManagerTab::Queue, |this| {
+                                                    this.child(ai_memory_row_icon_button(
+                                                        "memory-manager-window-clear-queue",
+                                                        HeroIconName::XCircle,
                                                         ai_sidebar_text(
                                                             language,
-                                                            "memory.manager.delete_project",
-                                                            "Delete Project Memory",
+                                                            "memory.manager.queue.clear",
+                                                            "Clear Queue",
                                                         ),
                                                         cx,
                                                         |app, _event, window, cx| {
-                                                            app.delete_selected_memory_project(
-                                                                window, cx,
-                                                            )
+                                                            app.cancel_memory_extraction_queue(window, cx)
+                                                        },
+                                                    ))
+                                                })
+                                                .when(active_tab == MemoryManagerTab::Failed, |this| {
+                                                    this.child(ai_memory_row_icon_button(
+                                                        "memory-manager-window-clear-failed",
+                                                        HeroIconName::XCircle,
+                                                        ai_sidebar_text(
+                                                            language,
+                                                            "memory.manager.failed.clear",
+                                                            "Clear Failed Records",
+                                                        ),
+                                                        cx,
+                                                        |app, _event, window, cx| {
+                                                            app.clear_memory_extraction_failures(window, cx)
                                                         },
                                                     ))
                                                 })
@@ -747,12 +792,11 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                                 )),
                                         ),
                                 )
-                                .child(
-                                    div()
-                                        .mt(px(14.0))
-                                        .flex()
-                                        .items_center()
-                                        .child(ai_memory_manager_tab_button(
+                                .child(div().mt(px(14.0)).flex().items_center().when(
+                                    active_tab != MemoryManagerTab::Queue
+                                        && active_tab != MemoryManagerTab::Failed,
+                                    |this| {
+                                        this.child(ai_memory_manager_tab_button(
                                             summary_tab,
                                             MemoryManagerTab::Summary,
                                             active_tab,
@@ -764,19 +808,16 @@ pub(in crate::app) fn memory_manager_window_workspace(
                                             active_tab,
                                             cx,
                                         ))
-                                        .child(ai_memory_manager_tab_button(
-                                            history_tab,
-                                            MemoryManagerTab::History,
-                                            active_tab,
-                                            cx,
-                                        ))
-                                        .child(ai_memory_manager_tab_button(
-                                            failed_tab,
-                                            MemoryManagerTab::Failed,
-                                            active_tab,
-                                            cx,
-                                        )),
-                                ),
+                                        .child(
+                                            ai_memory_manager_tab_button(
+                                                history_tab,
+                                                MemoryManagerTab::History,
+                                                active_tab,
+                                                cx,
+                                            ),
+                                        )
+                                    },
+                                )),
                         )
                         .child(
                             div()
@@ -789,6 +830,206 @@ pub(in crate::app) fn memory_manager_window_workspace(
                 ),
         )
         .child(ai_memory_manager_status_bar(manager, language))
+}
+
+/// Shared card shell for every memory manager card (queue / failed / summary /
+/// profile / entry). One consistent radius, border, surface and padding so the
+/// content area stops looking like a pile of mismatched boxes.
+fn ai_memory_card(cx: &mut Context<CoduxApp>) -> gpui::Div {
+    div()
+        .w_full()
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().secondary)
+        .px(px(14.0))
+        .py(px(12.0))
+}
+
+/// A small statistic chip (value + label) used in the content header to replace
+/// the dense "%lld active, %lld archived…" text line.
+fn ai_memory_stat_chip(
+    value: impl Into<String>,
+    label: impl Into<String>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .items_baseline()
+        .gap(px(5.0))
+        .rounded(px(7.0))
+        .bg(cx.theme().secondary)
+        .px(px(9.0))
+        .py(px(5.0))
+        .child(
+            div()
+                .text_size(rems(0.875))
+                .line_height(rems(1.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(cx.theme().foreground)
+                .child(value.into()),
+        )
+        .child(
+            div()
+                .text_size(rems(0.6875))
+                .line_height(rems(1.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(label.into()),
+        )
+}
+
+/// Labeled navigation row for the left sidebar section switcher. Replaces the
+/// icon-only segmented control so each destination reads clearly.
+fn ai_memory_nav_row(
+    id: &'static str,
+    icon: HeroIconName,
+    label: impl Into<String>,
+    count: Option<i64>,
+    active: bool,
+    cx: &mut Context<CoduxApp>,
+    on_click: impl Fn(&mut CoduxApp, &gpui::ClickEvent, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> impl IntoElement {
+    let label = label.into();
+    let foreground = if active {
+        cx.theme().foreground
+    } else {
+        cx.theme().muted_foreground
+    };
+    div()
+        .id(id)
+        .h(px(34.0))
+        .w_full()
+        .rounded(px(8.0))
+        .px(px(10.0))
+        .flex()
+        .items_center()
+        .gap(px(9.0))
+        .cursor_pointer()
+        .text_color(foreground)
+        .bg(if active {
+            cx.theme().sidebar_accent
+        } else {
+            cx.theme().transparent
+        })
+        .hover(|style| style.bg(cx.theme().list_hover))
+        .on_click(cx.listener(on_click))
+        .child(Icon::new(icon).size_4().text_color(foreground))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .truncate()
+                .text_size(rems(0.8125))
+                .line_height(rems(1.0))
+                .child(label),
+        )
+        .when_some(count.filter(|count| *count > 0), |this, count| {
+            this.child(
+                div()
+                    .flex_none()
+                    .rounded_full()
+                    .px(px(7.0))
+                    .py(px(2.0))
+                    .text_size(rems(0.6875))
+                    .line_height(rems(1.0))
+                    .text_color(if active {
+                        cx.theme().foreground
+                    } else {
+                        cx.theme().muted_foreground
+                    })
+                    .bg(if active {
+                        cx.theme().primary.opacity(0.16)
+                    } else {
+                        cx.theme().muted
+                    })
+                    .child(count.to_string()),
+            )
+        })
+}
+
+/// Small uppercase group label for the left sidebar (e.g. "Projects").
+fn ai_memory_group_label(label: impl Into<String>, cx: &mut Context<CoduxApp>) -> impl IntoElement {
+    div()
+        .px(px(10.0))
+        .pt(px(10.0))
+        .pb(px(4.0))
+        .text_size(rems(0.6875))
+        .line_height(rems(1.0))
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(cx.theme().muted_foreground)
+        .child(label.into())
+}
+
+/// Content-header overview. For scope tabs this renders visual stat chips; for
+/// the queue/failed tabs it falls back to a concise status line.
+fn ai_memory_overview_strip(
+    manager: &MemoryManagerSnapshot,
+    active_tab: MemoryManagerTab,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    if active_tab == MemoryManagerTab::Queue {
+        let text = ai_sidebar_text(
+            language,
+            "memory.status.detail",
+            "Memory queue: %lld pending, %lld running",
+        )
+        .replacen("%lld", &manager.extraction.queued.max(0).to_string(), 1)
+        .replacen("%lld", &manager.extraction.running.max(0).to_string(), 1);
+        return ai_memory_overview_text(text, cx);
+    }
+    if active_tab == MemoryManagerTab::Failed {
+        let text = format!(
+            "{} {}",
+            manager.extraction.failed.max(0),
+            ai_sidebar_text(language, "memory.status.short_failed", "Failed")
+        );
+        return ai_memory_overview_text(text, cx);
+    }
+
+    let overview = &manager.current_overview;
+    let archived = overview.archived_entry_count + overview.merged_entry_count;
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(6.0))
+        .child(ai_memory_stat_chip(
+            overview.active_entry_count.to_string(),
+            ai_sidebar_text(language, "memory.manager.stat.active", "Active"),
+            cx,
+        ))
+        .child(ai_memory_stat_chip(
+            archived.to_string(),
+            ai_sidebar_text(language, "memory.manager.stat.archived", "Archived"),
+            cx,
+        ))
+        .child(ai_memory_stat_chip(
+            overview.profile_count.to_string(),
+            ai_sidebar_text(language, "memory.manager.stat.profiles", "Profiles"),
+            cx,
+        ))
+        .child(ai_memory_stat_chip(
+            overview.summary_count.to_string(),
+            ai_sidebar_text(language, "memory.manager.stat.summaries", "Summaries"),
+            cx,
+        ))
+        .child(ai_memory_stat_chip(
+            overview.total_token_estimate.to_string(),
+            ai_sidebar_text(language, "memory.manager.stat.tokens", "Tokens"),
+            cx,
+        ))
+        .into_any_element()
+}
+
+fn ai_memory_overview_text(text: String, cx: &mut Context<CoduxApp>) -> AnyElement {
+    div()
+        .truncate()
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
+        .text_color(cx.theme().muted_foreground)
+        .child(text)
+        .into_any_element()
 }
 
 fn ai_memory_manager_status_bar(
@@ -883,6 +1124,10 @@ fn ai_memory_manager_window_content(
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let mut content = div().size_full().flex().flex_col();
+    if active_tab == MemoryManagerTab::Queue {
+        return ai_memory_manager_queue_content(manager, language, window, cx).into_any_element();
+    }
+
     if active_tab == MemoryManagerTab::Summary {
         if is_project_scope {
             if let Some(profile) = manager.project_profile.clone() {
@@ -955,6 +1200,236 @@ fn ai_memory_manager_window_content(
         .into_any_element()
 }
 
+fn ai_memory_manager_section_switcher(
+    manager: &MemoryManagerSnapshot,
+    active_tab: MemoryManagerTab,
+    selected_scope: &str,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let user_active = selected_scope == "user"
+        && active_tab != MemoryManagerTab::Queue
+        && active_tab != MemoryManagerTab::Failed;
+    let queue_count = manager.extraction.queued.max(0) + manager.extraction.running.max(0);
+    let failed_count = manager.extraction.failed.max(0);
+    div()
+        .px(px(8.0))
+        .pb(px(6.0))
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .child(ai_memory_nav_row(
+            "ai-memory-manager-section-user",
+            HeroIconName::UserCircle,
+            ai_sidebar_text(language, "memory.manager.section.user", "User Memory"),
+            None,
+            user_active,
+            cx,
+            |app, _event, _window, cx| {
+                app.select_memory_manager_target("user".to_string(), None, cx)
+            },
+        ))
+        .child(ai_memory_nav_row(
+            "ai-memory-manager-section-queue",
+            HeroIconName::QueueList,
+            ai_sidebar_text(language, "memory.manager.section.queue", "Memory Queue"),
+            Some(queue_count),
+            active_tab == MemoryManagerTab::Queue,
+            cx,
+            |app, _event, _window, cx| app.select_memory_manager_queue(cx),
+        ))
+        .child(ai_memory_nav_row(
+            "ai-memory-manager-section-failed",
+            HeroIconName::ExclamationTriangle,
+            ai_sidebar_text(language, "memory.manager.section.failed", "Failed Records"),
+            Some(failed_count),
+            active_tab == MemoryManagerTab::Failed,
+            cx,
+            |app, _event, _window, cx| {
+                app.select_memory_manager_failed_records(cx);
+            },
+        ))
+}
+
+fn ai_memory_manager_queue_content(
+    manager: &MemoryManagerSnapshot,
+    language: &str,
+    _window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let queued = manager.extraction.queued.max(0);
+    let running = manager.extraction.running.max(0);
+    let failed = manager.extraction.failed.max(0);
+    let has_queue = !manager.queued_extractions.is_empty();
+    let empty_label = ai_sidebar_text(
+        language,
+        "memory.manager.queue.empty",
+        "No queued memory tasks",
+    );
+    let queued_label = ai_sidebar_text(language, "memory.status.short_queued", "Queued");
+    let running_label = ai_sidebar_text(language, "memory.status.short_remembering", "Remembering");
+    let failed_label = ai_sidebar_text(language, "memory.status.short_failed", "Failed");
+
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .when(!has_queue, |this| {
+            this.child(ai_memory_manager_empty_row(empty_label, cx))
+        })
+        .when(has_queue, |this| {
+            this.child(
+                ai_memory_card(cx)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(Spinner::new().xsmall().color(color(theme::ORANGE)))
+                            .child(
+                                div()
+                                    .text_size(rems(0.875))
+                                    .line_height(rems(1.125))
+                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .text_color(cx.theme().foreground)
+                                    .child(ai_sidebar_text(
+                                        language,
+                                        "memory.status.processing",
+                                        "Remembering",
+                                    )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .mt(px(12.0))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(ai_memory_queue_count_badge(queued_label, queued, cx))
+                            .child(ai_memory_queue_count_badge(running_label, running, cx))
+                            .child(ai_memory_queue_count_badge(failed_label, failed, cx)),
+                    )
+                    .when_some(manager.extraction.last_error.clone(), |this, error| {
+                        this.child(
+                            div()
+                                .mt(px(10.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.25))
+                                .text_color(cx.theme().danger)
+                                .child(error),
+                        )
+                    }),
+            )
+            .children(
+                manager.queued_extractions.iter().cloned().map(|task| {
+                    ai_memory_queued_extraction_row(task, language, cx).into_any_element()
+                }),
+            )
+        })
+}
+
+fn ai_memory_queue_count_badge(
+    label: String,
+    count: i64,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    div()
+        .rounded_full()
+        .px(px(8.0))
+        .py(px(3.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
+        .text_color(cx.theme().muted_foreground)
+        .bg(cx.theme().muted)
+        .child(format!("{count} {label}"))
+}
+
+fn ai_memory_queued_extraction_row(
+    task: codux_runtime::memory::MemoryExtractionTask,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let clear_id = task.id.clone();
+    let title = if task.session_id.trim().is_empty() {
+        task.tool.clone()
+    } else {
+        format!("{} · {}", task.tool, task.session_id)
+    };
+    let subtitle = task
+        .workspace_path
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| task.project_id.clone());
+    let status_label = memory_extraction_status_label(&task.status, language);
+    let status_color = if task.status == "running" {
+        color(theme::ORANGE)
+    } else {
+        color(theme::ACCENT)
+    };
+
+    ai_memory_card(cx)
+        .mt(px(8.0))
+        .child(
+            div()
+                .flex()
+                .items_start()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .child(
+                            div()
+                                .truncate()
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
+                                .text_color(cx.theme().foreground)
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .mt(px(4.0))
+                                .truncate()
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(subtitle),
+                        ),
+                )
+                .child(
+                    div()
+                        .rounded_full()
+                        .px(px(8.0))
+                        .py(px(3.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(status_color)
+                        .bg(status_color.opacity(0.14))
+                        .child(status_label),
+                )
+                .when(task.status != "running", |this| {
+                    this.child(ai_memory_row_icon_button(
+                        format!("ai-memory-manager-clear-pending-{clear_id}"),
+                        HeroIconName::Trash,
+                        ai_sidebar_text(language, "common.delete", "Delete"),
+                        cx,
+                        move |app, _event, window, cx| {
+                            app.clear_pending_memory_extraction(clear_id.clone(), window, cx)
+                        },
+                    ))
+                }),
+        )
+        .child(
+            div()
+                .mt(px(7.0))
+                .text_size(rems(0.6875))
+                .line_height(rems(1.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(memory_date_label(task.enqueued_at)),
+        )
+}
+
 fn ai_memory_manager_target_row(
     target: codux_runtime::memory::MemoryManagerTargetRow,
     selected_scope: &str,
@@ -980,28 +1455,29 @@ fn ai_memory_manager_target_row(
     };
     let active = scope == selected_scope
         && (scope != "project" || project_id.as_deref() == selected_project_id);
-    let active_bg = cx.theme().sidebar_accent;
+    let foreground = if active {
+        cx.theme().foreground
+    } else {
+        cx.theme().muted_foreground
+    };
     div()
         .id(SharedString::from(format!(
             "memory-manager-target-{}",
             target.id
         )))
-        .mb(px(6.0))
-        .min_h(px(54.0))
+        .mb(px(2.0))
+        .min_h(px(48.0))
         .w_full()
         .rounded(px(8.0))
         .px(px(10.0))
+        .py(px(7.0))
         .flex()
         .items_center()
-        .gap_2()
+        .gap(px(9.0))
         .cursor_pointer()
-        .text_color(if active {
-            cx.theme().foreground
-        } else {
-            cx.theme().muted_foreground
-        })
+        .text_color(foreground)
         .bg(if active {
-            active_bg
+            cx.theme().sidebar_accent
         } else {
             cx.theme().transparent
         })
@@ -1009,7 +1485,12 @@ fn ai_memory_manager_target_row(
         .on_click(cx.listener(move |app, _event, _window, cx| {
             app.select_memory_manager_target(scope.clone(), project_id.clone(), cx)
         }))
-        .child(Icon::new(HeroIconName::Folder).size_4())
+        .child(
+            Icon::new(HeroIconName::Folder)
+                .size_4()
+                .flex_shrink_0()
+                .text_color(foreground),
+        )
         .child(
             div()
                 .min_w_0()
@@ -1017,14 +1498,14 @@ fn ai_memory_manager_target_row(
                 .child(
                     div()
                         .truncate()
-                        .text_size(rems(0.875))
+                        .text_size(rems(0.8125))
                         .line_height(rems(1.125))
                         .child(title),
                 )
                 .child(
                     div()
                         .truncate()
-                        .text_size(rems(0.75))
+                        .text_size(rems(0.6875))
                         .line_height(rems(1.0))
                         .text_color(cx.theme().muted_foreground)
                         .child(subtitle),
@@ -1036,10 +1517,15 @@ fn ai_memory_manager_target_row(
                 .rounded_full()
                 .px(px(7.0))
                 .py(px(2.0))
-                .text_size(rems(0.75))
+                .text_size(rems(0.6875))
                 .line_height(rems(1.0))
+                .text_color(if active {
+                    cx.theme().foreground
+                } else {
+                    cx.theme().muted_foreground
+                })
                 .bg(if active {
-                    color(theme::ACCENT).opacity(0.16)
+                    cx.theme().primary.opacity(0.16)
                 } else {
                     cx.theme().muted
                 })
@@ -1055,32 +1541,37 @@ fn ai_memory_manager_tab_button(
 ) -> impl IntoElement {
     let label = label.into();
     let active = tab == active_tab;
-    let active_bg = ai_stats_track_surface(cx);
+    let hover_bg = cx.theme().secondary_hover;
     div()
         .id(SharedString::from(format!(
             "ai-memory-manager-tab-{}",
             tab.as_str()
         )))
-        .mr(px(8.0))
-        .h(px(32.0))
-        .px(px(14.0))
-        .rounded(px(8.0))
+        .mr(px(6.0))
+        .h(px(30.0))
+        .px(px(12.0))
+        .rounded(px(7.0))
         .flex()
         .items_center()
         .cursor_pointer()
-        .text_size(rems(0.875))
-        .line_height(rems(1.125))
-        .text_color(if active {
-            color(theme::TEXT)
+        .text_size(rems(0.8125))
+        .line_height(rems(1.0))
+        .font_weight(if active {
+            gpui::FontWeight::MEDIUM
         } else {
-            color(theme::TEXT_MUTED)
+            gpui::FontWeight::NORMAL
+        })
+        .text_color(if active {
+            cx.theme().foreground
+        } else {
+            cx.theme().muted_foreground
         })
         .bg(if active {
-            active_bg
+            cx.theme().secondary
         } else {
             cx.theme().transparent
         })
-        .hover(move |style| style.bg(active_bg))
+        .hover(move |style| style.bg(hover_bg))
         .on_click(cx.listener(move |app, _event, _window, cx| app.set_memory_manager_tab(tab, cx)))
         .child(label)
 }
@@ -1207,29 +1698,41 @@ fn ai_memory_project_profile_row(
         "memory.manager.project_profile",
         "Project Profile",
     );
-    div()
+    ai_memory_card(cx)
         .mt(px(8.0))
-        .rounded(px(8.0))
-        .px(px(14.0))
-        .py(px(12.0))
-        .bg(ai_stats_surface(cx))
         .child(
             div()
                 .flex()
-                .items_start()
+                .items_center()
                 .justify_between()
                 .gap_2()
                 .child(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .text_color(color(theme::TEXT))
-                        .child(label),
+                        .flex()
+                        .items_center()
+                        .gap(px(7.0))
+                        .child(
+                            Icon::new(HeroIconName::DocumentText)
+                                .size_4()
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .child(label),
+                        ),
                 )
                 .child(if refreshing {
-                    ai_memory_refreshing_label(language).into_any_element()
+                    ai_memory_refreshing_label(language, cx).into_any_element()
                 } else {
                     ai_memory_row_icon_button(
                         "ai-memory-refresh-project-profile",
@@ -1262,10 +1765,10 @@ fn ai_memory_project_profile_row(
         )
         .child(
             div()
-                .mt(px(10.0))
-                .text_size(rems(0.75))
-                .line_height(rems(1.125))
-                .text_color(color(theme::TEXT))
+                .mt(px(9.0))
+                .text_size(rems(0.8125))
+                .line_height(rems(1.375))
+                .text_color(cx.theme().foreground)
                 .w_full()
                 .child(profile.content),
         )
@@ -1286,12 +1789,8 @@ fn ai_memory_project_profile_empty_row(
         "memory.manager.project_profile.empty",
         "No project profile exists",
     );
-    div()
+    ai_memory_card(cx)
         .mt(px(8.0))
-        .rounded(px(8.0))
-        .px(px(14.0))
-        .py(px(12.0))
-        .bg(ai_stats_surface(cx))
         .child(
             div()
                 .flex()
@@ -1302,13 +1801,29 @@ fn ai_memory_project_profile_empty_row(
                     div()
                         .min_w_0()
                         .flex_1()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .text_color(color(theme::TEXT))
-                        .child(label),
+                        .flex()
+                        .items_center()
+                        .gap(px(7.0))
+                        .child(
+                            Icon::new(HeroIconName::DocumentText)
+                                .size_4()
+                                .flex_shrink_0()
+                                .text_color(cx.theme().muted_foreground),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .truncate()
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(cx.theme().foreground)
+                                .child(label),
+                        ),
                 )
                 .child(if refreshing {
-                    ai_memory_refreshing_label(language).into_any_element()
+                    ai_memory_refreshing_label(language, cx).into_any_element()
                 } else {
                     ai_memory_row_icon_button(
                         "ai-memory-create-project-profile",
@@ -1330,18 +1845,18 @@ fn ai_memory_project_profile_empty_row(
             div()
                 .mt(px(8.0))
                 .text_size(rems(0.75))
-                .line_height(rems(1.0625))
-                .text_color(color(theme::TEXT_MUTED))
+                .line_height(rems(1.25))
+                .text_color(cx.theme().muted_foreground)
                 .child(empty_label),
         )
 }
 
-fn ai_memory_refreshing_label(language: &str) -> impl IntoElement {
+fn ai_memory_refreshing_label(language: &str, cx: &mut Context<CoduxApp>) -> impl IntoElement {
     div()
         .px(px(7.0))
         .text_size(rems(0.75))
         .line_height(rems(1.0))
-        .text_color(color(theme::TEXT_DIM))
+        .text_color(cx.theme().muted_foreground)
         .child(ai_sidebar_text(language, "common.processing", "Processing"))
 }
 
@@ -1387,24 +1902,19 @@ fn ai_memory_manager_summary_row(
     let active = selected_memory_summary_id
         .map(|id| id == summary.id.as_str())
         .unwrap_or(false);
-    let active_bg = ai_stats_track_surface(cx);
 
-    div()
+    ai_memory_card(cx)
         .id(SharedString::from(format!(
             "ai-memory-manager-summary-{}",
             summary.id
         )))
-        .mb(px(6.0))
-        .rounded(px(8.0))
-        .px(px(12.0))
-        .py(px(11.0))
+        .mb(px(8.0))
         .cursor_pointer()
-        .bg(if active {
-            active_bg
-        } else {
-            ai_stats_surface(cx)
+        .when(active, |this| {
+            this.border_color(cx.theme().primary.opacity(0.55))
+                .bg(cx.theme().secondary_hover)
         })
-        .hover(move |style| style.bg(active_bg))
+        .hover(|style| style.border_color(cx.theme().primary.opacity(0.35)))
         .on_click(cx.listener(move |app, _event, _window, cx| {
             app.selected_memory_summary_id = Some(summary_id.clone());
             app.status_message = format!("selected memory summary: {summary_id}");
@@ -1422,7 +1932,8 @@ fn ai_memory_manager_summary_row(
                         .flex_1()
                         .text_size(rems(0.875))
                         .line_height(rems(1.125))
-                        .text_color(color(theme::TEXT))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(cx.theme().foreground)
                         .child(format!("{} {}", summary.scope, version_label)),
                 )
                 .child(
@@ -1432,9 +1943,9 @@ fn ai_memory_manager_summary_row(
                         .child(
                             div()
                                 .mr(px(4.0))
-                                .text_size(rems(0.75))
+                                .text_size(rems(0.6875))
                                 .line_height(rems(1.0))
-                                .text_color(color(theme::TEXT_DIM))
+                                .text_color(cx.theme().muted_foreground)
                                 .child(tokens_label),
                         )
                         .child(ai_memory_row_icon_button(
@@ -1471,10 +1982,10 @@ fn ai_memory_manager_summary_row(
                 .into_any_element()
         } else {
             div()
-                .mt(px(10.0))
-                .text_size(rems(0.75))
-                .line_height(rems(1.125))
-                .text_color(color(theme::TEXT))
+                .mt(px(9.0))
+                .text_size(rems(0.8125))
+                .line_height(rems(1.375))
+                .text_color(cx.theme().foreground)
                 .w_full()
                 .child(summary.content.clone())
                 .into_any_element()
@@ -1500,19 +2011,20 @@ fn ai_memory_manager_entry_groups(
         .into_iter()
         .map(|(module_key, group_entries)| {
             div()
-                .mb(px(18.0))
+                .mb(px(16.0))
                 .child(
                     div()
                         .mb(px(8.0))
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(div().size(px(8.0)).rounded_full().bg(color(theme::ACCENT)))
+                        .child(div().size(px(7.0)).rounded_full().bg(cx.theme().primary))
                         .child(
                             div()
-                                .text_size(rems(0.75))
+                                .text_size(rems(0.6875))
                                 .line_height(rems(1.0))
-                                .text_color(color(theme::TEXT_MUTED))
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(cx.theme().muted_foreground)
                                 .child(memory_module_title(&module_key, language)),
                         )
                         .child(
@@ -1520,26 +2032,22 @@ fn ai_memory_manager_entry_groups(
                                 .rounded_full()
                                 .px(px(7.0))
                                 .py(px(1.0))
-                                .text_size(rems(0.75))
+                                .text_size(rems(0.6875))
                                 .line_height(rems(1.0))
-                                .text_color(color(theme::ACCENT))
-                                .bg(color(theme::ACCENT).opacity(0.12))
+                                .text_color(cx.theme().primary)
+                                .bg(cx.theme().primary.opacity(0.12))
                                 .child(group_entries.len().to_string()),
                         ),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .children(group_entries.into_iter().map(|entry| {
-                            let active = selected_memory_entry_id
-                                .map(|id| id == entry.id.as_str())
-                                .unwrap_or(false);
-                            ai_memory_manager_entry_row(entry, active, active_tab, language, cx)
-                                .into_any_element()
-                        })),
-                )
+                .child(div().flex().flex_col().gap(px(8.0)).children(
+                    group_entries.into_iter().map(|entry| {
+                        let active = selected_memory_entry_id
+                            .map(|id| id == entry.id.as_str())
+                            .unwrap_or(false);
+                        ai_memory_manager_entry_row(entry, active, active_tab, language, cx)
+                            .into_any_element()
+                    }),
+                ))
                 .into_any_element()
         })
         .collect()
@@ -1555,34 +2063,41 @@ fn ai_memory_manager_entry_row(
     let select_id = entry.id.clone();
     let archive_id = entry.id.clone();
     let delete_id = entry.id.clone();
-    let active_bg = ai_stats_track_surface(cx);
     let can_archive = active_tab == MemoryManagerTab::Active && entry.status == "active";
 
-    div()
+    ai_memory_card(cx)
         .id(SharedString::from(format!(
             "ai-memory-manager-entry-{}",
             entry.id
         )))
-        .rounded(px(8.0))
-        .px(px(14.0))
-        .py(px(12.0))
         .cursor_pointer()
-        .bg(if active {
-            active_bg
-        } else {
-            ai_stats_surface(cx)
+        .when(active, |this| {
+            this.border_color(cx.theme().primary.opacity(0.55))
+                .bg(cx.theme().secondary_hover)
         })
-        .hover(move |style| style.bg(active_bg))
+        .hover(|style| style.border_color(cx.theme().primary.opacity(0.35)))
         .on_click(cx.listener(move |app, _event, window, cx| {
             app.select_memory_entry(select_id.clone(), window, cx)
         }))
         .child(
             div()
                 .flex()
-                .items_start()
+                .items_center()
                 .justify_between()
                 .gap_3()
-                .child(ai_memory_entry_badges(&entry, language))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(ai_memory_badge(
+                            memory_kind_title(&entry.kind, language),
+                            memory_kind_color(&entry.kind),
+                        ))
+                        .child(ai_memory_status_pill(&entry.status, language, cx)),
+                )
                 .child(
                     div()
                         .flex_shrink_0()
@@ -1592,9 +2107,9 @@ fn ai_memory_manager_entry_row(
                         .child(
                             div()
                                 .mr(px(4.0))
-                                .text_size(rems(0.75))
+                                .text_size(rems(0.6875))
                                 .line_height(rems(1.0))
-                                .text_color(color(theme::TEXT_DIM))
+                                .text_color(cx.theme().muted_foreground)
                                 .child(memory_date_label(entry.updated_at)),
                         )
                         .when(can_archive, |this| {
@@ -1623,26 +2138,27 @@ fn ai_memory_manager_entry_row(
         )
         .child(
             div()
-                .mt(px(10.0))
+                .mt(px(9.0))
                 .w_full()
                 .text_size(rems(0.875))
-                .line_height(rems(1.3125))
-                .text_color(color(theme::TEXT))
+                .line_height(rems(1.375))
+                .text_color(cx.theme().foreground)
                 .child(entry.content.clone()),
         )
+        .child(ai_memory_entry_meta(&entry, language, cx))
         .when_some(entry.rationale.clone(), |this, rationale| {
             this.child(
                 div()
-                    .mt(px(7.0))
+                    .mt(px(6.0))
                     .w_full()
                     .text_size(rems(0.75))
-                    .line_height(rems(1.125))
-                    .text_color(color(theme::TEXT_MUTED))
+                    .line_height(rems(1.25))
+                    .text_color(cx.theme().muted_foreground)
                     .child(rationale),
             )
         })
         .when_some(entry.last_decision.clone(), |this, decision| {
-            this.child(ai_memory_decision_row(decision, language))
+            this.child(ai_memory_decision_row(decision, language, cx))
         })
 }
 
@@ -1652,6 +2168,7 @@ fn ai_memory_failed_extraction_row(
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let retry_id = task.id.clone();
+    let clear_id = task.id.clone();
     let title = if task.session_id.trim().is_empty() {
         task.tool.clone()
     } else {
@@ -1670,16 +2187,12 @@ fn ai_memory_failed_extraction_row(
             ai_sidebar_text(language, "memory.manager.failed.unknown", "Unknown error")
         });
 
-    div()
+    ai_memory_card(cx)
         .id(SharedString::from(format!(
             "ai-memory-manager-failed-{}",
             task.id
         )))
-        .mb(px(10.0))
-        .rounded(px(8.0))
-        .px(px(14.0))
-        .py(px(12.0))
-        .bg(ai_stats_surface(cx))
+        .mb(px(8.0))
         .child(
             div()
                 .flex()
@@ -1695,7 +2208,7 @@ fn ai_memory_failed_extraction_row(
                                 .truncate()
                                 .text_size(rems(0.875))
                                 .line_height(rems(1.125))
-                                .text_color(color(theme::TEXT))
+                                .text_color(cx.theme().foreground)
                                 .child(title),
                         )
                         .child(
@@ -1704,35 +2217,50 @@ fn ai_memory_failed_extraction_row(
                                 .truncate()
                                 .text_size(rems(0.75))
                                 .line_height(rems(1.0))
-                                .text_color(color(theme::TEXT_MUTED))
+                                .text_color(cx.theme().muted_foreground)
                                 .child(subtitle),
                         ),
                 )
-                .child(ai_memory_row_icon_button(
-                    format!("ai-memory-manager-retry-{retry_id}"),
-                    HeroIconName::ArrowPath,
-                    ai_sidebar_text(language, "memory.manager.failed.retry", "Retry"),
-                    cx,
-                    move |app, _event, window, cx| {
-                        app.retry_failed_memory_extraction(retry_id.clone(), window, cx)
-                    },
-                )),
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(ai_memory_row_icon_button(
+                            format!("ai-memory-manager-retry-{retry_id}"),
+                            HeroIconName::ArrowPath,
+                            ai_sidebar_text(language, "memory.manager.failed.retry", "Retry"),
+                            cx,
+                            move |app, _event, window, cx| {
+                                app.retry_failed_memory_extraction(retry_id.clone(), window, cx)
+                            },
+                        ))
+                        .child(ai_memory_row_icon_button(
+                            format!("ai-memory-manager-clear-failed-{clear_id}"),
+                            HeroIconName::Trash,
+                            ai_sidebar_text(language, "common.delete", "Delete"),
+                            cx,
+                            move |app, _event, window, cx| {
+                                app.clear_failed_memory_extraction(clear_id.clone(), window, cx)
+                            },
+                        )),
+                ),
         )
         .child(
             div()
-                .mt(px(10.0))
+                .mt(px(9.0))
                 .w_full()
                 .text_size(rems(0.75))
-                .line_height(rems(1.125))
-                .text_color(color(0xF47C7C))
+                .line_height(rems(1.25))
+                .text_color(cx.theme().danger)
                 .child(error),
         )
         .child(
             div()
-                .mt(px(7.0))
-                .text_size(rems(0.75))
+                .mt(px(6.0))
+                .text_size(rems(0.6875))
                 .line_height(rems(1.0))
-                .text_color(color(theme::TEXT_DIM))
+                .text_color(cx.theme().muted_foreground)
                 .child(memory_date_label(task.enqueued_at)),
         )
 }
@@ -1740,16 +2268,17 @@ fn ai_memory_failed_extraction_row(
 fn ai_memory_decision_row(
     decision: codux_runtime::memory::MemoryEntryDecisionSummary,
     language: &str,
+    cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     div()
-        .mt(px(10.0))
+        .mt(px(8.0))
         .flex()
         .items_center()
         .gap_2()
         .rounded(px(8.0))
         .px(px(10.0))
-        .py(px(8.0))
-        .bg(color(theme::TEXT).opacity(0.045))
+        .py(px(7.0))
+        .bg(cx.theme().secondary_hover)
         .child(ai_memory_badge(
             memory_decision_title(&decision.kind, language),
             memory_decision_color(&decision.kind),
@@ -1760,36 +2289,57 @@ fn ai_memory_decision_row(
                 .flex_1()
                 .text_size(rems(0.75))
                 .line_height(rems(1.0))
-                .text_color(color(theme::TEXT_MUTED))
+                .text_color(cx.theme().muted_foreground)
                 .child(decision.reason),
         )
 }
 
-fn ai_memory_entry_badges(entry: &MemoryEntrySummary, language: &str) -> impl IntoElement {
+/// Secondary status indicator (dot + muted label) for an entry. Kept low-key so
+/// the kind badge stays the primary identifier.
+fn ai_memory_status_pill(
+    status: &str,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let status_color = memory_status_color(status);
     div()
         .flex()
-        .flex_wrap()
         .items_center()
-        .gap_2()
-        .child(ai_memory_badge(
-            memory_kind_title(&entry.kind, language),
-            memory_kind_color(&entry.kind),
-        ))
-        .child(ai_memory_badge(
-            memory_module_title(&memory_module_key(entry), language),
-            color(theme::ACCENT),
-        ))
-        .child(ai_memory_badge(
-            memory_tier_title(&entry.tier, language),
-            memory_tier_color(&entry.tier),
-        ))
-        .child(ai_memory_badge(
-            memory_status_title(&entry.status, language),
-            memory_status_color(&entry.status),
-        ))
-        .when_some(entry.source_tool.clone(), |this, source_tool| {
-            this.child(ai_memory_badge(source_tool, color(0x7B8190)))
-        })
+        .gap(px(5.0))
+        .child(div().size(px(6.0)).rounded_full().bg(status_color))
+        .child(
+            div()
+                .text_size(rems(0.6875))
+                .line_height(rems(1.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(memory_status_title(status, language)),
+        )
+}
+
+/// Demoted meta line for an entry: module · tier · source rendered as plain
+/// muted text instead of a row of coloured badges.
+fn ai_memory_entry_meta(
+    entry: &MemoryEntrySummary,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let mut parts = vec![
+        memory_module_title(&memory_module_key(entry), language),
+        memory_tier_title(&entry.tier, language),
+    ];
+    if let Some(source_tool) = entry
+        .source_tool
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+    {
+        parts.push(source_tool);
+    }
+    div()
+        .mt(px(7.0))
+        .text_size(rems(0.6875))
+        .line_height(rems(1.0))
+        .text_color(cx.theme().muted_foreground)
+        .child(parts.join(" · "))
 }
 
 fn ai_memory_badge(label: String, badge_color: Hsla) -> impl IntoElement {
@@ -1891,6 +2441,15 @@ fn memory_status_title(status: &str, language: &str) -> String {
     ai_sidebar_text(language, &format!("memory.status.{status}"), fallback)
 }
 
+fn memory_extraction_status_label(status: &str, language: &str) -> String {
+    match status {
+        "running" => ai_sidebar_text(language, "memory.status.short_remembering", "Remembering"),
+        "queued" | "pending" => ai_sidebar_text(language, "memory.status.short_queued", "Queued"),
+        "failed" => ai_sidebar_text(language, "memory.status.short_failed", "Failed"),
+        _ => status.to_string(),
+    }
+}
+
 fn memory_decision_title(decision: &str, language: &str) -> String {
     let fallback = match decision {
         "create" => "Created",
@@ -1910,15 +2469,6 @@ fn memory_kind_color(kind: &str) -> Hsla {
         "decision" => 0xB8781D,
         "fact" => 0x337A6B,
         "bug_lesson" => 0xC25555,
-        _ => 0x7B8190,
-    })
-}
-
-fn memory_tier_color(tier: &str) -> Hsla {
-    color(match tier {
-        "core" => 0x3D80FA,
-        "working" => 0x2E9B5F,
-        "archive" => 0x7B8190,
         _ => 0x7B8190,
     })
 }

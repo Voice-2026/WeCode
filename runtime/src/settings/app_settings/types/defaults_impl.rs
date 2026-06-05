@@ -7,6 +7,8 @@ impl Default for RemoteSettings {
             host_token: String::new(),
             host_private_key: String::new(),
             host_public_key: String::new(),
+            iroh_secret_key: String::new(),
+            iroh_node_id: String::new(),
             cached_devices: Vec::new(),
         }
     }
@@ -30,6 +32,11 @@ impl Default for PetSettings {
             desktop_widget: false,
             static_mode: false,
             reminders: false,
+            sedentary_reminders: false,
+            late_night_reminders: false,
+            hydration_reminder_minutes: default_pet_hydration_reminder_minutes(),
+            sedentary_reminder_minutes: default_pet_sedentary_reminder_minutes(),
+            late_night_reminder_minutes: default_pet_late_night_reminder_minutes(),
             speech_mode: default_pet_speech_mode(),
             speech_frequency: default_pet_speech_frequency(),
         }
@@ -115,7 +122,6 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             language: default_language(),
-            shell: default_shell(),
             shows_dock_badge: default_true(),
             pet: PetSettings::default(),
             ai: AISettings::default(),

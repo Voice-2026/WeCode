@@ -12,8 +12,7 @@ use std::{
 const CACHE_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("cache");
 const CACHE_FILE_NAME: &str = "state-cache.redb";
 
-static CACHE_STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<PersistentCacheStore>>>> =
-    OnceLock::new();
+static CACHE_STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<PersistentCacheStore>>>> = OnceLock::new();
 
 pub struct PersistentCacheStore {
     path: PathBuf,
@@ -75,10 +74,15 @@ impl PersistentCacheStore {
             Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
             Err(error) => return Err(error.to_string()),
         };
-        let Some(value) = table.get(cache_key.as_str()).map_err(|error| error.to_string())? else {
+        let Some(value) = table
+            .get(cache_key.as_str())
+            .map_err(|error| error.to_string())?
+        else {
             return Ok(None);
         };
-        serde_json::from_slice(value.value()).map(Some).map_err(|error| error.to_string())
+        serde_json::from_slice(value.value())
+            .map(Some)
+            .map_err(|error| error.to_string())
     }
 
     pub fn put_json<T: Serialize>(
@@ -145,7 +149,9 @@ impl PersistentCacheStore {
             .begin_write()
             .map_err(|error| error.to_string())?;
         let removed = {
-            let mut table = write.open_table(CACHE_TABLE).map_err(|error| error.to_string())?;
+            let mut table = write
+                .open_table(CACHE_TABLE)
+                .map_err(|error| error.to_string())?;
             table
                 .remove(cache_key.as_str())
                 .map_err(|error| error.to_string())?
@@ -169,7 +175,9 @@ impl PersistentCacheStore {
         {
             let write = database.begin_write().map_err(|error| error.to_string())?;
             {
-                write.open_table(CACHE_TABLE).map_err(|error| error.to_string())?;
+                write
+                    .open_table(CACHE_TABLE)
+                    .map_err(|error| error.to_string())?;
             }
             write.commit().map_err(|error| error.to_string())?;
         }
@@ -212,7 +220,9 @@ impl PersistentCacheStore {
             .begin_write()
             .map_err(|error| error.to_string())?;
         {
-            let mut table = write.open_table(CACHE_TABLE).map_err(|error| error.to_string())?;
+            let mut table = write
+                .open_table(CACHE_TABLE)
+                .map_err(|error| error.to_string())?;
             table
                 .insert(cache_key.as_str(), bytes)
                 .map_err(|error| error.to_string())?;
@@ -261,10 +271,7 @@ fn spawn_debounced_writer(
         .expect("spawn redb cache writer");
 }
 
-fn merge_pending_write(
-    pending: &mut HashMap<(String, String), PendingWrite>,
-    write: QueuedWrite,
-) {
+fn merge_pending_write(pending: &mut HashMap<(String, String), PendingWrite>, write: QueuedWrite) {
     match write {
         QueuedWrite::Put {
             namespace,
@@ -340,8 +347,12 @@ mod tests {
     fn scans_json_entries_by_namespace() {
         let path = temp_cache_path("scan");
         let store = PersistentCacheStore::for_file(path.clone()).expect("cache store");
-        store.put_json("layout", "one", &json!({"active": 1})).unwrap();
-        store.put_json("layout", "two", &json!({"active": 2})).unwrap();
+        store
+            .put_json("layout", "one", &json!({"active": 1}))
+            .unwrap();
+        store
+            .put_json("layout", "two", &json!({"active": 2}))
+            .unwrap();
         store.put_json("git", "one", &json!({"files": 1})).unwrap();
 
         let values = store

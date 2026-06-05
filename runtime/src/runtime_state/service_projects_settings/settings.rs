@@ -59,10 +59,6 @@ impl RuntimeService {
         Ok(settings)
     }
 
-    pub fn set_shell(&self, shell: &str) -> Result<SettingsSummary, String> {
-        self.update_settings_with_side_effects(|settings| settings.set_shell(shell))
-    }
-
     pub fn set_terminal_font_size(&self, size: &str) -> Result<SettingsSummary, String> {
         self.update_settings_with_side_effects(|settings| settings.set_terminal_font_size(size))
     }
@@ -191,6 +187,41 @@ impl RuntimeService {
 
     pub fn toggle_pet_reminders(&self) -> Result<SettingsSummary, String> {
         self.update_settings_with_side_effects(|settings| settings.toggle_pet_reminders())
+    }
+
+    pub fn toggle_pet_sedentary_reminders(&self) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| settings.toggle_pet_sedentary_reminders())
+    }
+
+    pub fn toggle_pet_late_night_reminders(&self) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| settings.toggle_pet_late_night_reminders())
+    }
+
+    pub fn set_pet_hydration_reminder_minutes(
+        &self,
+        minutes: &str,
+    ) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| {
+            settings.set_pet_hydration_reminder_minutes(minutes)
+        })
+    }
+
+    pub fn set_pet_sedentary_reminder_minutes(
+        &self,
+        minutes: &str,
+    ) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| {
+            settings.set_pet_sedentary_reminder_minutes(minutes)
+        })
+    }
+
+    pub fn set_pet_late_night_reminder_minutes(
+        &self,
+        minutes: &str,
+    ) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| {
+            settings.set_pet_late_night_reminder_minutes(minutes)
+        })
     }
 
     pub fn cycle_pet_speech_mode(&self) -> Result<SettingsSummary, String> {

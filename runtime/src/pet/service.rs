@@ -43,6 +43,10 @@ impl PetService {
         pet_catalog(self.support_dir.clone())
     }
 
+    pub fn bundled_catalog(&self) -> PetCatalog {
+        bundled_pet_catalog()
+    }
+
     pub fn hydrate_custom_pet_data_url(&self, pet: PetCustomPet) -> PetCustomPet {
         hydrate_custom_pet_data_url(&self.support_dir, pet)
     }

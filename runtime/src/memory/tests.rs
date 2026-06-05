@@ -644,6 +644,131 @@ fn manager_snapshot_lists_failed_extractions_and_retry_requeues_task() {
 }
 
 #[test]
+fn manager_snapshot_lists_active_extraction_queue() {
+    let support_dir = temp_support_dir();
+    create_memory_db(&support_dir);
+    let service = MemoryService::new(support_dir.clone());
+    let conn = Connection::open(support_dir.join("memory.sqlite3")).unwrap();
+    conn.execute(
+        r#"
+        INSERT INTO memory_extraction_queue (
+            id, project_id, tool, session_id, transcript_path, source_fingerprint,
+            status, attempts, error, enqueued_at, workspace_path
+        )
+        VALUES
+          ('pending-task-a', 'project-a', 'codex', 'session-pending',
+           '/tmp/session-pending.jsonl', 'pending-fingerprint-a',
+           'pending', 0, NULL, 100, '/workspace/project-a'),
+          ('running-task-a', 'project-a', 'claude', 'session-running',
+           '/tmp/session-running.jsonl', 'running-fingerprint-a',
+           'running', 1, NULL, 101, '/workspace/project-a'),
+          ('failed-task-a', 'project-a', 'claude', 'session-failed',
+           '/tmp/session-failed.jsonl', 'failed-fingerprint-a',
+           'failed', 1, 'provider returned malformed memory JSON', 102, '/workspace/project-a');
+        "#,
+        [],
+    )
+    .unwrap();
+    let projects = vec![ProjectInfo {
+        id: "project-a".to_string(),
+        name: "Project A".to_string(),
+        path: "/workspace/project-a".to_string(),
+        exists: true,
+        badge: "PA".to_string(),
+        badge_symbol: None,
+        badge_color_hex: None,
+        git_default_push_remote_name: None,
+    }];
+
+    let queue = service.manager_snapshot(&projects, "project", Some("project-a"), "queue", 50);
+    assert_eq!(queue.queued_extractions.len(), 3);
+    assert_eq!(queue.queued_extractions[0].id, "running-task-a");
+    assert!(
+        queue
+            .queued_extractions
+            .iter()
+            .any(|task| task.id == "pending-task-a")
+    );
+    assert!(
+        !queue
+            .queued_extractions
+            .iter()
+            .any(|task| task.id == "failed-task-a")
+    );
+    assert!(queue.failed_extractions.is_empty());
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn clears_individual_extraction_tasks_by_allowed_status() {
+    let support_dir = temp_support_dir();
+    create_memory_db(&support_dir);
+    let service = MemoryService::new(support_dir.clone());
+    let conn = Connection::open(support_dir.join("memory.sqlite3")).unwrap();
+    conn.execute(
+        r#"
+        INSERT INTO memory_extraction_queue (
+            id, project_id, tool, session_id, transcript_path, source_fingerprint,
+            status, attempts, error, enqueued_at, workspace_path
+        )
+        VALUES
+          ('pending-task-a', 'project-a', 'codex', 'session-pending',
+           '/tmp/session-pending.jsonl', 'pending-fingerprint-a',
+           'pending', 0, NULL, 100, '/workspace/project-a'),
+          ('running-task-a', 'project-a', 'claude', 'session-running',
+           '/tmp/session-running.jsonl', 'running-fingerprint-a',
+           'running', 1, NULL, 101, '/workspace/project-a'),
+          ('failed-task-a', 'project-a', 'claude', 'session-failed',
+           '/tmp/session-failed.jsonl', 'failed-fingerprint-a',
+           'failed', 1, 'provider returned malformed memory JSON', 102, '/workspace/project-a');
+        "#,
+        [],
+    )
+    .unwrap();
+
+    service
+        .clear_extraction_task("pending-task-a", &["queued", "pending"])
+        .unwrap();
+
+    let running_error = service
+        .clear_extraction_task("running-task-a", &["queued", "pending"])
+        .unwrap_err();
+    assert_eq!(running_error, "Memory extraction task not found.");
+
+    service
+        .clear_extraction_task("failed-task-a", &["failed"])
+        .unwrap();
+
+    let pending_status: String = conn
+        .query_row(
+            "SELECT status FROM memory_extraction_queue WHERE id = 'pending-task-a';",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let running_status: String = conn
+        .query_row(
+            "SELECT status FROM memory_extraction_queue WHERE id = 'running-task-a';",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let failed_status: String = conn
+        .query_row(
+            "SELECT status FROM memory_extraction_queue WHERE id = 'failed-task-a';",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending_status, "cleared");
+    assert_eq!(running_status, "running");
+    assert_eq!(failed_status, "cleared");
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
 fn resolves_extraction_task_transcript_from_file() {
     let support_dir = temp_support_dir();
     let transcript_dir = std::env::temp_dir().join(format!("codux-transcript-{}", Uuid::new_v4()));
@@ -853,6 +978,7 @@ fn process_next_memory_extraction_task_returns_idle_without_pending_work() {
                 ..Default::default()
             },
             &[],
+            "en",
         ))
         .unwrap();
     assert_eq!(status.status, MemoryExtractionStatus::Idle);

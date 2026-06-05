@@ -104,7 +104,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codux-event-order-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("200-turn.json"), br#"{"kind":"turnCompleted"}"#).unwrap();
-        fs::write(dir.join("100-prompt.json"), br#"{"kind":"promptSubmitted"}"#).unwrap();
+        fs::write(
+            dir.join("100-prompt.json"),
+            br#"{"kind":"promptSubmitted"}"#,
+        )
+        .unwrap();
 
         let frames = drain_runtime_event_dir(&dir, now_seconds());
 

@@ -1,3 +1,8 @@
 /target/
 .DS_Store
 **/*.rs.bk
+/dist/
+/release-artifacts/
+/release-artifacts-local/
+/runtime/target/
+/runtime/Cargo.lock

@@ -30,17 +30,7 @@ impl CoduxApp {
         if let Some(error) = power_sync_error {
             state.power.error = Some(error);
         }
-        let tool_permissions = runtime_service.sync_tool_permissions();
-        state.tool_permissions = tool_permissions.clone();
-        let ai_runtime_status = match runtime_service.start_ai_runtime_event_processing() {
-            Ok(_) => {
-                let snapshot = runtime_service.ai_runtime_state_snapshot();
-                state.ai_runtime_state =
-                    runtime_service.summarize_ai_runtime_state_snapshot(&snapshot);
-                "AI runtime supervisor started".to_string()
-            }
-            Err(error) => format!("AI runtime supervisor failed: {error}"),
-        };
+        let tool_permissions = state.tool_permissions.clone();
         let ready_snapshot = runtime_service.app_runtime_ready(true, window.is_window_active());
         state.remote = ready_snapshot.remote.clone();
         let (terminal_layout, terminal_runtime) = normalize_terminal_restore_state(
@@ -123,9 +113,9 @@ impl CoduxApp {
             .or_else(|| state.git.branches.first())
             .map(|branch| branch.name.clone());
         let git_review = app_git_review(&state);
-        let project_open_applications = runtime_service.project_open_applications();
-        let pet_catalog = runtime_service.pet_catalog();
-        let pet_snapshot = runtime_service.pet_snapshot().unwrap_or_default();
+        let project_open_applications = Vec::new();
+        let pet_catalog = runtime_service.pet_catalog_without_custom_data();
+        let pet_snapshot = PetSnapshot::default();
         let pet_custom_pets = pet_catalog.custom_pets.clone();
         let pet_sprite_paths =
             pet_sprite_path_cache(&runtime.source_root, &state.support_dir, &pet_catalog);
@@ -149,7 +139,7 @@ impl CoduxApp {
             last_quit_request_at: None,
             pending_terminal_close: None,
             status_message: format!(
-                "runtime ready · {} project{} · restored {} terminal tab{} · {}",
+                "runtime preparing · {} project{} · restored {} terminal tab{}",
                 ready_snapshot.projects.projects.len(),
                 if ready_snapshot.projects.projects.len() == 1 {
                     ""
@@ -161,11 +151,11 @@ impl CoduxApp {
                     ""
                 } else {
                     "s"
-                },
-                ai_runtime_status
+                }
             ),
             toast_message: None,
             toast_revision: 0,
+            pending_restart_language: None,
             desktop_pet_window: None,
             settings_window: None,
             about_window: None,
@@ -185,6 +175,11 @@ impl CoduxApp {
             desktop_pet_active_llm_key: String::new(),
             desktop_pet_requested_llm_key: String::new(),
             desktop_pet_last_llm_requested_at: 0.0,
+            desktop_pet_next_hydration_reminder_at: 0.0,
+            desktop_pet_next_sedentary_reminder_at: 0.0,
+            desktop_pet_next_late_night_reminder_at: 0.0,
+            desktop_pet_next_idle_llm_at: 0.0,
+            desktop_pet_line_visible_until: 0.0,
             pet_sprite_frame: 0,
             pet_sprite_animation_active: false,
             file_preview: "select a file to preview it".to_string(),
@@ -285,6 +280,7 @@ impl CoduxApp {
             selected_notification_channel_id,
             notification_testing_channel_id: None,
             runtime_refresh_in_flight: false,
+            runtime_ready: false,
             pending_runtime_refresh: None,
             ai_runtime_state_save_tick: 0,
             dismissed_worktree_ai_completion_at: HashMap::new(),
@@ -296,6 +292,9 @@ impl CoduxApp {
             scheduled_work_last_started_at: HashMap::new(),
             scheduled_work_last_finished_at: HashMap::new(),
             task_column_refreshing: false,
+            terminal_font_families: Vec::new(),
+            terminal_font_families_loaded: false,
+            terminal_font_families_loading: false,
             memory_progress_visible_until: 0.0,
             memory_progress_generation: 0,
             memory_manager_refreshing: false,
@@ -360,6 +359,7 @@ impl CoduxApp {
             project_editor_path: String::new(),
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
+            project_editor_saving: false,
             worktree_creator_project_id: None,
             worktree_creator_project_name: String::new(),
             worktree_creator_project_path: String::new(),

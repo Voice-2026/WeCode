@@ -74,16 +74,6 @@ impl RuntimeService {
         Ok(snapshot)
     }
 
-    pub fn project_close_all(&self) -> Result<ProjectListSnapshot, String> {
-        let workspace_ids = self.all_project_workspace_ids();
-        let snapshot = ProjectStore::new(self.support_dir.clone()).close_all_projects()?;
-        self.cleanup_project_workspace_data(&workspace_ids);
-        let _ = self.forget_all_pet_project_baselines();
-        self.project_activity.clear();
-        self.stop_active_project_files();
-        Ok(snapshot)
-    }
-
     pub fn project_select_worktree(
         &self,
         request: ProjectSelectWorktreeRequest,
@@ -132,13 +122,7 @@ impl RuntimeService {
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
         self.project_activity.mark_project_active(project.clone());
-        let service = self.clone();
-        let _ = std::thread::Builder::new()
-            .name("codux-project-watch-switch".to_string())
-            .spawn(move || {
-                let _ = service.git_watch(project.path.clone());
-                let _ = service.watch_active_project_files(project.path);
-            });
+        self.watch_project_background(project.path);
         Ok(())
     }
 
@@ -197,14 +181,6 @@ impl RuntimeService {
             .project_workspaces_snapshot()
             .into_iter()
             .filter(|workspace| workspace.root_project_id == project_id)
-            .map(|workspace| workspace.id)
-            .collect()
-    }
-
-    fn all_project_workspace_ids(&self) -> Vec<String> {
-        ProjectStore::new(self.support_dir.clone())
-            .project_workspaces_snapshot()
-            .into_iter()
             .map(|workspace| workspace.id)
             .collect()
     }

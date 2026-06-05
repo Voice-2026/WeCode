@@ -76,23 +76,19 @@ impl TerminalLayoutService {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        let cache =
-            crate::persistent_cache::PersistentCacheStore::for_support_dir(self.support_dir.clone())
-                .ok();
+        let cache = crate::persistent_cache::PersistentCacheStore::for_support_dir(
+            self.support_dir.clone(),
+        )
+        .ok();
         project_ids
             .into_iter()
             .filter_map(|project_id| {
-                let layout = cache
-                    .as_ref()
-                    .and_then(|cache| {
-                        cache
-                            .get_json::<TerminalLayoutSummary>(
-                                TERMINAL_LAYOUT_NAMESPACE,
-                                project_id,
-                            )
-                            .ok()
-                            .flatten()
-                    })?;
+                let layout = cache.as_ref().and_then(|cache| {
+                    cache
+                        .get_json::<TerminalLayoutSummary>(TERMINAL_LAYOUT_NAMESPACE, project_id)
+                        .ok()
+                        .flatten()
+                })?;
                 Some((project_id.to_string(), layout))
             })
             .collect()

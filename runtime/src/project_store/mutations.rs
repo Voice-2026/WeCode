@@ -133,20 +133,6 @@ impl ProjectStore {
         Ok(self.list_snapshot())
     }
 
-    pub fn close_all_projects(&self) -> Result<ProjectListSnapshot, String> {
-        let mut raw = self.raw_snapshot();
-        raw.insert("projects".to_string(), Value::Array(Vec::new()));
-        raw.insert("worktrees".to_string(), Value::Array(Vec::new()));
-        raw.insert("worktreeTasks".to_string(), Value::Array(Vec::new()));
-        raw.remove("selectedProjectId");
-        raw.insert(
-            "selectedWorktreeIdByProject".to_string(),
-            Value::Object(Map::new()),
-        );
-        self.save_raw_snapshot(&raw)?;
-        Ok(self.list_snapshot())
-    }
-
     pub fn select_worktree(&self, request: ProjectSelectWorktreeRequest) -> Result<(), String> {
         let snapshot = self.snapshot();
         if !snapshot
@@ -292,8 +278,7 @@ impl ProjectStore {
             if selected_project_id.as_deref() == Some(project_id) {
                 select_project_after_removal(projects, index)
             } else {
-                selected_project_id
-                    .filter(|selected| project_index(projects, selected).is_some())
+                selected_project_id.filter(|selected| project_index(projects, selected).is_some())
             }
         };
         prune_project_state(&mut raw, project_id);

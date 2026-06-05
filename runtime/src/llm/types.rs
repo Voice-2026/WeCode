@@ -30,7 +30,7 @@ pub struct PetIdleSpeechRequest {
     #[serde(default)]
     pub event: String,
     #[serde(default)]
-    pub fallback_text: String,
+    pub facts: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

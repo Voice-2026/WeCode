@@ -104,9 +104,7 @@ pub fn app_support_candidates() -> Vec<PathBuf> {
         if cfg!(debug_assertions) {
             return vec![home.join("Library/Application Support/Codux Dev")];
         }
-        return vec![
-            home.join("Library/Application Support/Codux"),
-        ];
+        return vec![home.join("Library/Application Support/Codux")];
     }
 
     #[cfg(target_os = "windows")]

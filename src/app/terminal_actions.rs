@@ -41,7 +41,7 @@ impl CoduxApp {
         } else {
             "Ctrl+W"
         };
-        self.status_message = match target {
+        let confirm_message = match target {
             TerminalCloseTarget::Split { .. } => self
                 .text(
                     "terminal.close.confirm_split",
@@ -55,6 +55,7 @@ impl CoduxApp {
                 )
                 .replace("%@", shortcut),
         };
+        self.show_toast(confirm_message, cx);
         self.invalidate_terminal_workspace(cx);
     }
 

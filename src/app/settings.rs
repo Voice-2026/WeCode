@@ -1,5 +1,9 @@
-use super::{CoduxApp, empty_label};
-use crate::app::{AIProviderTestResult, scroll_compat::ScrollableElement};
+use super::{CoduxApp, UiRegion, empty_label};
+use crate::app::{
+    AIProviderTestResult,
+    app_select::{CoduxSelectOption, codux_select},
+    scroll_compat::ScrollableElement,
+};
 use crate::heroicons::HeroIconName;
 use crate::theme::{self, color};
 use codux_runtime::{
@@ -20,44 +24,11 @@ use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
-    select::{Select, SelectEvent, SelectItem, SelectState},
     switch::Switch,
 };
 use qrcode::{QrCode, types::Color as QrColor};
 
-#[derive(Clone)]
-struct SettingsSelectOption {
-    value: String,
-    label: SharedString,
-}
-
-impl SettingsSelectOption {
-    fn new(value: impl Into<String>, label: impl Into<SharedString>) -> Self {
-        Self {
-            value: value.into(),
-            label: label.into(),
-        }
-    }
-}
-
-impl SelectItem for SettingsSelectOption {
-    type Value = String;
-
-    fn title(&self) -> SharedString {
-        self.label.clone()
-    }
-
-    fn value(&self) -> &Self::Value {
-        &self.value
-    }
-}
-
-fn settings_select_options(options: Vec<(String, SharedString)>) -> Vec<SettingsSelectOption> {
-    options
-        .into_iter()
-        .map(|(value, label)| SettingsSelectOption::new(value, label))
-        .collect()
-}
+const CODUX_MOBILE_DOWNLOAD_URL: &str = "https://codux.dux.cn/features/mobile/";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SettingsPane {
@@ -135,17 +106,49 @@ const SETTINGS_PANES: [SettingsPane; 11] = [
     SettingsPane::Developer,
 ];
 
-fn settings_text(language: &str, key: &str, fallback: &str) -> String {
+pub(super) fn settings_text(language: &str, key: &str, fallback: &str) -> String {
     let locale = locale_from_language_setting(language);
     translate(&locale, key, fallback)
 }
 
 impl CoduxApp {
+    fn ensure_terminal_font_families_loaded(&mut self, cx: &mut Context<Self>) {
+        if self.terminal_font_families_loaded || self.terminal_font_families_loading {
+            return;
+        }
+        self.terminal_font_families_loading = true;
+        let service = self.runtime_service.clone();
+        self.runtime_trace("settings", "terminal_font_families load queued");
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let families = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.terminal_font_families()
+            })
+            .await
+            .unwrap_or_default();
+
+            let _ = this.update(cx, |app, cx| {
+                app.terminal_font_families = families;
+                app.terminal_font_families_loaded = true;
+                app.terminal_font_families_loading = false;
+                app.runtime_trace(
+                    "settings",
+                    &format!(
+                        "terminal_font_families loaded count={}",
+                        app.terminal_font_families.len()
+                    ),
+                );
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn settings_workspace(
-        &self,
+        &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        self.ensure_terminal_font_families_loaded(cx);
         let pane = self.active_settings_pane;
         let language = self.state.settings.language.as_str();
 
@@ -314,9 +317,14 @@ fn settings_pane_body(
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     match pane {
-        SettingsPane::General => {
-            settings_general_pane(&app.state.settings, &app.state.update, window, cx)
-        }
+        SettingsPane::General => settings_general_pane(
+            &app.state.settings,
+            app.pending_restart_language.as_deref(),
+            &app.terminal_font_families,
+            &app.state.update,
+            window,
+            cx,
+        ),
         SettingsPane::Appearance => settings_appearance_pane(&app.state.settings, window, cx),
         SettingsPane::Pet => settings_pet_pane(&app.state.settings, window, cx),
         SettingsPane::AI => settings_ai_pane(
@@ -422,16 +430,28 @@ fn settings_card_with_actions(
                 .bg(cx.theme().group_box)
                 .px(px(22.0))
                 .py(px(10.0))
-                .children(children.into_iter().enumerate().map(|(index, child)| {
-                    div()
-                        .when(index > 0, |this| {
-                            this.border_t_1()
-                                .border_color(cx.theme().border.opacity(0.45))
-                        })
-                        .child(child)
-                        .into_any_element()
+                .children(children.into_iter().enumerate().flat_map(|(index, child)| {
+                    let mut elements = Vec::with_capacity(if index == 0 { 1 } else { 2 });
+                    if index > 0 {
+                        elements.push(settings_form_separator(cx));
+                    }
+                    elements.push(div().w_full().child(child).into_any_element());
+                    elements
                 })),
         )
+}
+
+fn settings_form_separator(cx: &mut Context<CoduxApp>) -> AnyElement {
+    div()
+        .w_full()
+        .h(px(1.0))
+        .flex_none()
+        .bg(settings_form_divider(cx))
+        .into_any_element()
+}
+
+fn settings_form_divider(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
+    theme::divider_for_surface(cx.theme().background)
 }
 
 fn settings_row(
@@ -450,6 +470,7 @@ fn settings_row(
         .child(
             div()
                 .min_w_0()
+                .flex_1()
                 .flex()
                 .flex_col()
                 .child(
@@ -470,7 +491,16 @@ fn settings_row(
                         .child(description.unwrap_or_default()),
                 ),
         )
-        .child(control)
+        .child(
+            div()
+                .w(relative(0.3))
+                .min_w(px(180.0))
+                .max_w(relative(0.3))
+                .flex()
+                .items_center()
+                .justify_end()
+                .child(control),
+        )
 }
 
 fn settings_small_button(
@@ -537,18 +567,6 @@ fn settings_text_input(
     settings_text_input_sized(id, value, placeholder, masked, false, window, cx, action)
 }
 
-fn settings_text_input_full(
-    id: impl Into<SharedString>,
-    value: impl Into<String>,
-    placeholder: impl Into<String>,
-    masked: bool,
-    window: &mut Window,
-    cx: &mut Context<CoduxApp>,
-    action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
-) -> AnyElement {
-    settings_text_input_sized(id, value, placeholder, masked, true, window, cx, action)
-}
-
 fn settings_text_input_sized(
     id: impl Into<SharedString>,
     value: impl Into<String>,
@@ -581,10 +599,13 @@ fn settings_text_input_sized(
     .detach();
 
     div()
-        .when(full_width, |this| this.w_full())
-        .when(!full_width, |this| this.w(relative(0.3)))
-        .min_w_0()
-        .child(Input::new(&state).with_size(gpui_component::Size::Medium))
+        .when(full_width, |this| this.w_full().min_w_0())
+        .when(!full_width, |this| this.w_full().min_w_0())
+        .child(
+            Input::new(&state)
+                .with_size(gpui_component::Size::Medium)
+                .w_full(),
+        )
         .into_any_element()
 }
 
@@ -624,6 +645,7 @@ fn settings_textarea(
 
     div()
         .w_full()
+        .min_w_0()
         .child(
             Input::new(&state)
                 .with_size(gpui_component::Size::Medium)
@@ -683,64 +705,23 @@ fn settings_select_state(
     language: &str,
     action: impl Fn(&mut CoduxApp, String, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
-    let id = id.into();
-    let searchable = false;
-    let items = settings_select_options(options.clone());
-    let selected_index = items.iter().position(|item| item.value == value);
-    let current_value = value.to_string();
-    let state_key = format!(
-        "settings-select-{id}-{}",
-        settings_select_options_key(&items)
-    );
-    let state = window.use_keyed_state(SharedString::from(state_key), cx, {
-        let items = items.clone();
-        move |window, cx| {
-            SelectState::new(
-                items,
-                selected_index.map(|row| gpui_component::IndexPath::default().row(row)),
-                window,
-                cx,
-            )
-            .searchable(searchable)
-        }
-    });
-    state.update(cx, |state, cx| {
-        state.set_items(items.clone(), window, cx);
-        state.set_selected_index(
-            selected_index.map(|row| gpui_component::IndexPath::default().row(row)),
-            window,
-            cx,
-        );
-    });
-    cx.subscribe_in(&state, window, move |app, _, event, window, cx| {
-        let SelectEvent::Confirm(selected) = event;
-        if let Some(value) = selected.clone() {
-            if value == current_value {
-                return;
-            }
-            action(app, value, window, cx);
-        }
-    })
-    .detach();
-
-    div()
-        .w(relative(0.3))
-        .child(
-            Select::new(&state)
-                .placeholder(settings_text(&language, "common.choose", "Choose"))
-                .menu_width(if searchable { px(320.0) } else { px(220.0) })
-                .with_size(gpui_component::Size::Medium)
-                .disabled(disabled),
-        )
-        .into_any_element()
-}
-
-fn settings_select_options_key(items: &[SettingsSelectOption]) -> String {
-    items
-        .iter()
-        .map(|item| format!("{}={}", item.value, item.label))
-        .collect::<Vec<_>>()
-        .join("|")
+    let select_id = format!("settings-select-{}", id.into());
+    let options = options
+        .into_iter()
+        .map(|(value, label)| CoduxSelectOption::new(value, label))
+        .collect();
+    codux_select(
+        select_id.as_str(),
+        value,
+        options,
+        settings_text(&language, "common.choose", "Choose"),
+        relative(1.0),
+        px(220.0),
+        disabled,
+        window,
+        cx,
+        action,
+    )
 }
 
 fn settings_status_tag(value: impl Into<String>, accent: u32) -> AnyElement {
@@ -777,7 +758,6 @@ fn settings_checkmark(selected: bool) -> AnyElement {
 
 fn settings_selectable_tile(
     id: impl Into<String>,
-    selected: bool,
     label: impl Into<String>,
     preview: AnyElement,
     cx: &mut Context<CoduxApp>,
@@ -791,11 +771,7 @@ fn settings_selectable_tile(
         .items_center()
         .gap(px(6.0))
         .cursor_pointer()
-        .text_color(color(if selected {
-            theme::TEXT
-        } else {
-            theme::TEXT_MUTED
-        }))
+        .text_color(color(theme::TEXT))
         .on_click(cx.listener(action))
         .child(preview)
         .child(
@@ -957,7 +933,7 @@ fn remote_pairing_detail(
             settings_text(
                 language,
                 "settings.remote.configure_hint",
-                "Configure a relay server URL before pairing mobile devices.",
+                "Enable Remote Host before pairing mobile devices.",
             )
         })
         .into_any_element()
@@ -1008,71 +984,189 @@ fn remote_pending_pairing_overlay(
         .bg(cx.theme().overlay)
         .child(
             div()
-                .w(px(380.0))
-                .rounded(px(12.0))
+                .w(px(400.0))
+                .max_w(relative(1.0))
+                .rounded(px(14.0))
                 .border_1()
                 .border_color(cx.theme().border)
                 .bg(cx.theme().background)
                 .shadow_lg()
-                .p(px(18.0))
+                .p(px(20.0))
+                .flex()
+                .flex_col()
+                .gap(px(18.0))
                 .child(
                     div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .text_color(cx.theme().foreground)
-                        .child(settings_text(
-                            language,
-                            "settings.remote.confirm_pairing_title",
-                            "Confirm Device Pairing",
-                        )),
-                )
-                .child(
-                    div()
-                        .mt(px(8.0))
-                        .text_size(rems(0.75))
-                        .line_height(rems(1.0625))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(empty_label(&pairing.device_name)),
-                )
-                .child(
-                    div()
-                        .mt(px(14.0))
                         .flex()
                         .items_center()
-                        .gap(px(8.0))
-                        .child(settings_status_tag(pairing.code.clone(), theme::ACCENT))
+                        .gap(px(12.0))
                         .child(
                             div()
-                                .text_size(rems(0.75))
-                                .line_height(rems(1.0))
-                                .text_color(cx.theme().muted_foreground)
-                                .child(settings_text(language, "settings.remote.code", "Code")),
+                                .size(px(40.0))
+                                .flex_shrink_0()
+                                .rounded(px(10.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(cx.theme().primary.opacity(0.14))
+                                .child(
+                                    Icon::new(HeroIconName::DevicePhoneMobile)
+                                        .size_5()
+                                        .text_color(cx.theme().primary),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .gap(px(3.0))
+                                .child(
+                                    div()
+                                        .text_size(rems(0.9375))
+                                        .line_height(rems(1.25))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(cx.theme().foreground)
+                                        .child(settings_text(
+                                            language,
+                                            "settings.remote.confirm_pairing_title",
+                                            "Confirm Device Pairing",
+                                        )),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(rems(0.75))
+                                        .line_height(rems(1.0))
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(settings_text(
+                                            language,
+                                            "settings.remote.confirm_pairing_hint",
+                                            "Verify the device and pairing code before confirming.",
+                                        )),
+                                ),
                         ),
                 )
+                .child(remote_pending_pairing_details(&pairing, language, cx))
                 .child(
                     div()
-                        .mt(px(18.0))
                         .flex()
+                        .items_center()
                         .justify_end()
                         .gap(px(8.0))
-                        .child(settings_small_button(
-                            "settings-remote-pending-reject",
-                            settings_text(language, "settings.remote.reject_pairing", "Reject"),
-                            cx,
-                            move |app, _event, window, cx| {
-                                app.reject_remote_pairing(reject_id.clone(), window, cx)
-                            },
-                        ))
-                        .child(settings_small_button(
-                            "settings-remote-pending-confirm",
-                            settings_text(language, "common.confirm", "Confirm"),
-                            cx,
-                            move |app, _event, window, cx| {
-                                app.confirm_remote_pairing(confirm_id.clone(), window, cx)
-                            },
-                        )),
+                        .child(
+                            Button::new("settings-remote-pending-reject")
+                                .ghost()
+                                .text_color(cx.theme().danger)
+                                .on_click(cx.listener(move |app, _event, window, cx| {
+                                    app.reject_remote_pairing(reject_id.clone(), window, cx)
+                                }))
+                                .child(
+                                    div()
+                                        .text_size(rems(0.8125))
+                                        .line_height(rems(1.125))
+                                        .child(settings_text(
+                                            language,
+                                            "settings.remote.reject_pairing",
+                                            "Reject",
+                                        )),
+                                ),
+                        )
+                        .child(
+                            Button::new("settings-remote-pending-confirm")
+                                .primary()
+                                .text_color(cx.theme().primary_foreground)
+                                .on_click(cx.listener(move |app, _event, window, cx| {
+                                    app.confirm_remote_pairing(confirm_id.clone(), window, cx)
+                                }))
+                                .child(
+                                    div()
+                                        .text_size(rems(0.8125))
+                                        .line_height(rems(1.125))
+                                        .child(settings_text(
+                                            language,
+                                            "common.confirm",
+                                            "Confirm",
+                                        )),
+                                ),
+                        ),
                 ),
         )
+        .into_any_element()
+}
+
+fn remote_pending_pairing_details(
+    pairing: &RemotePendingPairing,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    div()
+        .w_full()
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().secondary)
+        .child(remote_pending_pairing_row(
+            HeroIconName::DevicePhoneMobile,
+            settings_text(language, "settings.remote.device", "Device"),
+            div()
+                .min_w_0()
+                .text_size(rems(0.8125))
+                .line_height(rems(1.125))
+                .text_color(cx.theme().foreground)
+                .truncate()
+                .child(empty_label(&pairing.device_name))
+                .into_any_element(),
+            cx,
+        ))
+        .child(div().h(px(1.0)).w_full().bg(cx.theme().border))
+        .child(remote_pending_pairing_row(
+            HeroIconName::LockClosed,
+            settings_text(language, "settings.remote.code", "Code"),
+            div()
+                .px(px(10.0))
+                .py(px(3.0))
+                .rounded(px(6.0))
+                .bg(cx.theme().primary.opacity(0.14))
+                .text_size(rems(1.0))
+                .line_height(rems(1.25))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(cx.theme().primary)
+                .child(pairing.code.clone())
+                .into_any_element(),
+            cx,
+        ))
+        .into_any_element()
+}
+
+fn remote_pending_pairing_row(
+    icon: HeroIconName,
+    label: String,
+    value: AnyElement,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .px(px(12.0))
+        .py(px(11.0))
+        .child(
+            Icon::new(icon)
+                .size_4()
+                .flex_shrink_0()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(rems(0.8125))
+                .line_height(rems(1.125))
+                .text_color(cx.theme().muted_foreground)
+                .child(label),
+        )
+        .child(value)
         .into_any_element()
 }
 
@@ -1170,7 +1264,6 @@ fn theme_preview_button(
     let tile_id = format!("settings-theme-preview-{value}");
     settings_selectable_tile(
         tile_id,
-        selected,
         label,
         div()
             .relative()
@@ -1230,7 +1323,6 @@ fn theme_color_grid(selected: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
             let value = item.label;
             settings_selectable_tile(
                 format!("settings-theme-color-{value}"),
-                selected,
                 value,
                 div()
                     .relative()
@@ -1263,7 +1355,6 @@ fn app_icon_grid(selected: &str, language: &str, cx: &mut Context<CoduxApp>) -> 
             let label = settings_text(language, item.label_key, item.fallback);
             settings_selectable_tile(
                 format!("settings-app-icon-{value}"),
-                selected,
                 label,
                 app_icon_preview(item.value, selected),
                 cx,
@@ -1303,11 +1394,14 @@ fn app_icon_preview(style: &'static str, selected: bool) -> AnyElement {
 
 fn settings_general_pane(
     settings: &SettingsSummary,
+    pending_restart_language: Option<&str>,
+    terminal_font_families: &[String],
     update: &UpdateSummary,
     window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
+    let visible_language = pending_restart_language.unwrap_or(language);
     settings_form(vec![
         settings_card(
             None,
@@ -1322,26 +1416,12 @@ fn settings_general_pane(
                     )),
                     settings_select_impl(
                         "settings-language",
-                        &settings.language,
+                        visible_language,
                         language_options(language),
                         window,
                         cx,
                         language,
                         |app, value, window, cx| app.set_language(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    settings_text(language, "settings.default_shell", "Default Shell"),
-                    None,
-                    settings_select_impl(
-                        "settings-shell",
-                        &settings.shell,
-                        shell_options(language),
-                        window,
-                        cx,
-                        language,
-                        |app, value, window, cx| app.set_shell(value, window, cx),
                     ),
                 )
                 .into_any_element(),
@@ -1438,6 +1518,67 @@ fn settings_general_pane(
                         cx,
                         language,
                         |app, value, window, cx| app.set_statistics_mode(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
+            ],
+            cx,)
+        .into_any_element(),
+        settings_card(
+            Some(settings_text(language, "settings.terminal_text", "Terminal Text")),
+            None,
+            vec![
+                settings_row(
+                    settings_text(language, "settings.terminal_font_family", "Terminal Font"),
+                    Some(settings_text(
+                        language,
+                        "settings.terminal_font_family.help",
+                        "Only monospaced fonts are shown to keep terminal layout accurate.",
+                    )),
+                    settings_select_impl(
+                        "settings-terminal-font-family",
+                        &settings.terminal_font_family,
+                        terminal_font_family_options(
+                            language,
+                            &settings.terminal_font_family,
+                            terminal_font_families,
+                        ),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_terminal_font_family(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.terminal_font_size", "Terminal Font Size"),
+                    None,
+                    settings_select_impl(
+                        "settings-terminal-font-size",
+                        &settings.terminal_font_size,
+                        terminal_font_size_options(),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_terminal_font_size(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.terminal_scrollback", "Terminal Scrollback"),
+                    Some(settings_text(
+                        language,
+                        "settings.terminal_scrollback.help",
+                        "Limit terminal scrollback and restored output to reduce long-session memory usage.",
+                    )),
+                    settings_select_impl(
+                        "settings-terminal-scrollback",
+                        &settings.terminal_scrollback_lines,
+                        terminal_scrollback_options(language),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_terminal_scrollback_lines(value, window, cx),
                     ),
                 )
                 .into_any_element(),
@@ -1548,7 +1689,7 @@ fn update_status_text(update: &UpdateSummary, language: &str) -> String {
 
 fn settings_appearance_pane(
     settings: &SettingsSummary,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let language = settings.language.as_str();
@@ -1598,47 +1739,6 @@ fn settings_appearance_pane(
                 "Used for buttons, selected states, tabs, focus rings, links, and other highlights.",
             )),
             vec![theme_color_grid(&settings.theme_color, cx)],
-            cx,)
-        .into_any_element(),
-        settings_card(
-            Some(settings_text(language, "settings.terminal_text", "Terminal Text")),
-            None,
-            vec![
-                settings_row(
-                    settings_text(language, "settings.terminal_font_size", "Terminal Font Size"),
-                    None,
-                    settings_text_input(
-                        "settings-terminal-font-size",
-                        &settings.terminal_font_size,
-                        "14",
-                        false,
-                        window,
-                        cx,
-                        |app, value, window, cx| app.set_terminal_font_size(value, window, cx),
-                    ),
-                )
-                .into_any_element(),
-                settings_row(
-                    settings_text(language, "settings.terminal_scrollback", "Terminal Scrollback"),
-                    Some(settings_text(
-                        language,
-                        "settings.terminal_scrollback.help",
-                        "Limit terminal scrollback and restored output to reduce long-session memory usage.",
-                    )),
-                    settings_select_impl(
-                        "settings-terminal-scrollback",
-                        &settings.terminal_scrollback_lines,
-                        terminal_scrollback_options(language),
-                        window,
-                        cx,
-                        language,
-                        |app, value, window, cx| {
-                            app.set_terminal_scrollback_lines(value, window, cx)
-                        },
-                    ),
-                )
-                .into_any_element(),
-            ],
             cx,)
         .into_any_element(),
     ];
@@ -1905,6 +2005,99 @@ fn settings_pet_pane(
                         settings.pet_reminders,
                         cx,
                         |app, window, cx| app.toggle_pet_reminders(window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.pet.reminder.hydration_interval",
+                        "Hydration Interval",
+                    ),
+                    None,
+                    settings_select_state(
+                        "settings-pet-hydration-reminder-interval",
+                        &settings.pet_hydration_reminder_minutes,
+                        pet_reminder_interval_options(language),
+                        !settings.pet_reminders,
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| {
+                            app.set_pet_hydration_reminder_minutes(value, window, cx)
+                        },
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.pet.reminder.sedentary",
+                        "Sedentary Reminder",
+                    ),
+                    None,
+                    settings_toggle(
+                        "settings-pet-sedentary-reminders",
+                        settings.pet_sedentary_reminders,
+                        cx,
+                        |app, window, cx| app.toggle_pet_sedentary_reminders(window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.pet.reminder.sedentary_interval",
+                        "Sedentary Interval",
+                    ),
+                    None,
+                    settings_select_state(
+                        "settings-pet-sedentary-reminder-interval",
+                        &settings.pet_sedentary_reminder_minutes,
+                        pet_reminder_interval_options(language),
+                        !settings.pet_sedentary_reminders,
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| {
+                            app.set_pet_sedentary_reminder_minutes(value, window, cx)
+                        },
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.pet.reminder.late_night",
+                        "Late-Night Reminder",
+                    ),
+                    None,
+                    settings_toggle(
+                        "settings-pet-late-night-reminders",
+                        settings.pet_late_night_reminders,
+                        cx,
+                        |app, window, cx| app.toggle_pet_late_night_reminders(window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.pet.reminder.late_night_interval",
+                        "Late-Night Interval",
+                    ),
+                    None,
+                    settings_select_state(
+                        "settings-pet-late-night-reminder-interval",
+                        &settings.pet_late_night_reminder_minutes,
+                        pet_reminder_interval_options(language),
+                        !settings.pet_late_night_reminders,
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| {
+                            app.set_pet_late_night_reminder_minutes(value, window, cx)
+                        },
                     ),
                 )
                 .into_any_element(),
@@ -2450,11 +2643,9 @@ fn settings_remote_pane(
     language: &str,
     remote_reconnecting: bool,
     remote_pairing_creating: bool,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
-    let configured = !remote.relay.trim().is_empty();
-    let relay_help_label = settings_text(language, "settings.remote.get_relay", "Get");
     let device_rows = if remote.device_list.is_empty() {
         vec![
             div()
@@ -2563,38 +2754,13 @@ fn settings_remote_pane(
         .size_full()
         .child(settings_form(vec![
             settings_card(
-                Some(settings_text(language, "settings.remote.server", "Server")),
+                Some(settings_text(
+                    language,
+                    "settings.remote.server",
+                    "Remote Host",
+                )),
                 None,
                 vec![
-                    settings_row(
-                        settings_text(language, "settings.remote.server_url", "Relay Server URL"),
-                        None,
-                        div()
-                            .w(relative(0.52))
-                            .min_w(px(280.0))
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .child(settings_text_input_full(
-                                "settings-remote-server-url",
-                                &remote.relay,
-                                "https://relay.example.com",
-                                false,
-                                window,
-                                cx,
-                                |app, value, window, cx| {
-                                    app.set_remote_server_url(value, window, cx)
-                                },
-                            ))
-                            .child(settings_small_button(
-                                "settings-remote-get-relay",
-                                relay_help_label.clone(),
-                                cx,
-                                |app, _event, _window, cx| app.open_remote_mobile_help(cx),
-                            ))
-                            .into_any_element(),
-                    )
-                    .into_any_element(),
                     settings_row(
                         settings_text(language, "settings.remote.enabled", "Enable Remote Host"),
                         None,
@@ -2631,7 +2797,7 @@ fn settings_remote_pane(
                             "settings-remote-reconnect",
                             settings_text(language, "settings.remote.reconnect", "Reconnect"),
                             remote_reconnecting,
-                            !configured,
+                            !remote.enabled,
                             cx,
                             |app, _event, window, cx| app.reconnect_remote(window, cx),
                         ))
@@ -2640,6 +2806,7 @@ fn settings_remote_pane(
                 cx,
             )
             .into_any_element(),
+            remote_mobile_download_banner(language, cx),
             settings_card_with_actions(
                 Some(settings_text(
                     language,
@@ -2655,14 +2822,14 @@ fn settings_remote_pane(
                         .child(settings_icon_button_state(
                             "settings-remote-create-pairing",
                             HeroIconName::Plus,
-                            remote_pairing_creating || !remote.enabled || !configured,
+                            remote_pairing_creating || !remote.enabled,
                             cx,
                             |app, _event, window, cx| app.create_remote_pairing(window, cx),
                         ))
                         .child(settings_icon_button_state(
                             "settings-remote-refresh",
                             HeroIconName::ArrowPath,
-                            !remote.enabled || !configured,
+                            !remote.enabled,
                             cx,
                             |app, _event, window, cx| app.refresh_remote_devices(window, cx),
                         ))
@@ -2673,6 +2840,105 @@ fn settings_remote_pane(
             )
             .into_any_element(),
         ]))
+        .into_any_element()
+}
+
+fn remote_mobile_download_banner(language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+    let title = settings_text(
+        language,
+        "settings.remote.mobile_download.title",
+        "Codux Mobile",
+    );
+    let description = settings_text(
+        language,
+        "settings.remote.mobile_download.description",
+        "Download the mobile app to connect Codux and keep AI coding from your phone",
+    );
+    let action = settings_text(
+        language,
+        "settings.remote.mobile_download.action",
+        "Get Mobile App",
+    );
+
+    div()
+        .id("settings-remote-mobile-download")
+        .min_h(px(72.0))
+        .rounded(px(12.0))
+        .border_1()
+        .border_color(color(theme::ACCENT).opacity(0.28))
+        .bg(color(theme::ACCENT).opacity(0.08))
+        .px(px(18.0))
+        .py(px(14.0))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(16.0))
+        .cursor_pointer()
+        .hover(|style| style.bg(color(theme::ACCENT).opacity(0.12)))
+        .on_click(cx.listener(|app, _event, _window, _cx| {
+            let _ = app.runtime_service.open_url(CODUX_MOBILE_DOWNLOAD_URL);
+        }))
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .child(
+                    div()
+                        .size(px(36.0))
+                        .flex_none()
+                        .rounded(px(10.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(color(theme::ACCENT).opacity(0.14))
+                        .child(
+                            Icon::new(HeroIconName::DevicePhoneMobile)
+                                .size_4()
+                                .text_color(color(theme::ACCENT)),
+                        ),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(rems(0.875))
+                                .line_height(rems(1.125))
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(color(theme::TEXT))
+                                .child(title),
+                        )
+                        .child(
+                            div()
+                                .mt(px(3.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0625))
+                                .text_color(color(theme::TEXT_DIM))
+                                .child(description),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(color(theme::ACCENT))
+                .child(action)
+                .child(
+                    Icon::new(HeroIconName::ArrowTopRightOnSquare)
+                        .size_3p5()
+                        .text_color(color(theme::ACCENT)),
+                ),
+        )
         .into_any_element()
 }
 
@@ -2922,7 +3188,8 @@ fn shortcut_row(
         settings_text(language, shortcut.label_key, shortcut.fallback),
         None,
         div()
-            .w(relative(0.3))
+            .w_full()
+            .min_w_0()
             .flex()
             .items_center()
             .justify_end()
@@ -3600,24 +3867,6 @@ fn language_options(language: &str) -> Vec<(String, SharedString)> {
     .collect()
 }
 
-fn shell_options(language: &str) -> Vec<(String, SharedString)> {
-    vec![
-        (
-            "system",
-            settings_text(language, "settings.default_shell.system", "Follow System"),
-        ),
-        ("zsh", "zsh".to_string()),
-        ("bash", "bash".to_string()),
-        ("sh", "sh".to_string()),
-        ("fish", "fish".to_string()),
-        ("pwsh.exe", "PowerShell 7".to_string()),
-        ("powershell.exe", "Windows PowerShell".to_string()),
-    ]
-    .into_iter()
-    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
-    .collect()
-}
-
 fn sleep_mode_options(language: &str) -> Vec<(String, SharedString)> {
     vec![
         (
@@ -3900,6 +4149,49 @@ fn terminal_scrollback_options(language: &str) -> Vec<(String, SharedString)> {
         .collect()
 }
 
+fn terminal_font_family_options(
+    language: &str,
+    selected: &str,
+    families: &[String],
+) -> Vec<(String, SharedString)> {
+    let mut options = vec![(
+        String::new(),
+        SharedString::from(settings_text(
+            language,
+            "settings.terminal_font_family.default",
+            "System Default",
+        )),
+    )];
+    let selected = selected.trim();
+    for family in families {
+        let family = family.trim();
+        if family.is_empty() {
+            continue;
+        }
+        options.push((family.to_string(), SharedString::from(family.to_string())));
+    }
+    if !selected.is_empty()
+        && !options
+            .iter()
+            .any(|(value, _)| value.eq_ignore_ascii_case(selected))
+    {
+        options.push((
+            selected.to_string(),
+            SharedString::from(selected.to_string()),
+        ));
+    }
+    options
+}
+
+fn terminal_font_size_options() -> Vec<(String, SharedString)> {
+    (10..=28)
+        .map(|value| {
+            let value = value.to_string();
+            (value.clone(), SharedString::from(value))
+        })
+        .collect()
+}
+
 fn pet_speech_mode_options(language: &str) -> Vec<(String, SharedString)> {
     ["mixed", "off", "encourage", "roast", "flirty", "chuunibyou"]
         .into_iter()
@@ -3970,6 +4262,17 @@ fn pet_speech_cooldown_label(language: &str, seconds: u32) -> String {
         )
         .replace("%d", &seconds.to_string())
     }
+}
+
+fn pet_reminder_interval_options(language: &str) -> Vec<(String, SharedString)> {
+    ["15", "30", "45", "60", "90", "120", "180", "240"]
+        .into_iter()
+        .map(|value| {
+            let label = settings_text(language, "settings.interval.minutes_format", "%@ min")
+                .replace("%@", value);
+            (value.to_string(), SharedString::from(label))
+        })
+        .collect()
 }
 
 fn runtime_tool_permission_options(language: &str) -> Vec<(String, SharedString)> {

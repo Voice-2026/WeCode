@@ -4,13 +4,16 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.language.trim().is_empty() {
         settings.language = default_language();
     }
-    if settings.shell.trim().is_empty() {
-        settings.shell = default_shell();
-    }
     settings.ai = sanitize_ai_settings(settings.ai);
     settings.pet.speech_mode =
         sanitize_pet_speech_mode(&settings.pet.speech_mode, &default_pet_speech_mode());
     settings.pet.speech_frequency = sanitize_pet_speech_frequency(&settings.pet.speech_frequency);
+    settings.pet.hydration_reminder_minutes =
+        sanitize_pet_reminder_minutes(&settings.pet.hydration_reminder_minutes, 60);
+    settings.pet.sedentary_reminder_minutes =
+        sanitize_pet_reminder_minutes(&settings.pet.sedentary_reminder_minutes, 60);
+    settings.pet.late_night_reminder_minutes =
+        sanitize_pet_reminder_minutes(&settings.pet.late_night_reminder_minutes, 60);
     if settings.sleep_mode.trim().is_empty() {
         settings.sleep_mode = default_sleep_mode();
     }
@@ -72,9 +75,7 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
         _ => "stable".to_string(),
     };
     settings.update.endpoint = settings.update.endpoint.trim().to_string();
-    if settings.update.enabled
-        && settings.update.endpoint.is_empty()
-    {
+    if settings.update.enabled && settings.update.endpoint.is_empty() {
         settings.update.endpoint = update_endpoint_for_channel(&settings.update.channel);
     } else if settings.update.enabled && is_managed_update_endpoint(&settings.update.endpoint) {
         settings.update.endpoint = update_endpoint_for_channel(&settings.update.channel);
@@ -294,6 +295,18 @@ fn sanitize_pet_speech_frequency(value: &str) -> String {
         "chatterbox" => "chatterbox".to_string(),
         _ => "normal".to_string(),
     }
+}
+
+fn sanitize_pet_reminder_minutes(value: &str, default: i64) -> String {
+    value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|value| value.is_finite())
+        .map(|value| value.round() as i64)
+        .unwrap_or(default)
+        .clamp(15, 240)
+        .to_string()
 }
 
 fn normalize_hour(hour: Option<i32>) -> Option<i32> {

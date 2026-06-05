@@ -36,6 +36,11 @@ mod tests {
                 "desktopWidget": false,
                 "staticMode": false,
                 "reminders": false,
+                "sedentaryReminders": false,
+                "lateNightReminders": false,
+                "hydrationReminderMinutes": "30",
+                "sedentaryReminderMinutes": "90",
+                "lateNightReminderMinutes": "120",
                 "speechMode": "mixed",
                 "speechFrequency": "normal",
                 "customField": "keep-me"
@@ -123,6 +128,11 @@ mod tests {
         assert!(!summary.pet_desktop_widget);
         assert!(!summary.pet_static_mode);
         assert!(!summary.pet_reminders);
+        assert!(!summary.pet_sedentary_reminders);
+        assert!(!summary.pet_late_night_reminders);
+        assert_eq!(summary.pet_hydration_reminder_minutes, "30");
+        assert_eq!(summary.pet_sedentary_reminder_minutes, "90");
+        assert_eq!(summary.pet_late_night_reminder_minutes, "120");
         assert_eq!(summary.pet_speech_mode, "off");
         assert_eq!(summary.pet_speech_frequency, "quiet");
         assert!(!summary.pet_speech_llm_enabled);
@@ -299,6 +309,30 @@ mod tests {
             .toggle_pet_reminders()
             .expect("toggle pet reminders");
         assert!(pet.pet_reminders);
+        let pet = SettingsService::new(support_dir.clone())
+            .toggle_pet_sedentary_reminders()
+            .expect("toggle sedentary reminders");
+        assert!(pet.pet_sedentary_reminders);
+        let pet = SettingsService::new(support_dir.clone())
+            .toggle_pet_late_night_reminders()
+            .expect("toggle late-night reminders");
+        assert!(pet.pet_late_night_reminders);
+        let pet = SettingsService::new(support_dir.clone())
+            .set_pet_hydration_reminder_minutes("5")
+            .expect("set hydration reminder interval");
+        assert_eq!(pet.pet_hydration_reminder_minutes, "15");
+        let pet = SettingsService::new(support_dir.clone())
+            .set_pet_sedentary_reminder_minutes("180")
+            .expect("set sedentary reminder interval");
+        assert_eq!(pet.pet_sedentary_reminder_minutes, "180");
+        let pet = SettingsService::new(support_dir.clone())
+            .set_pet_late_night_reminder_minutes("999")
+            .expect("set late-night reminder interval");
+        assert_eq!(pet.pet_late_night_reminder_minutes, "240");
+        let summary = SettingsService::new(support_dir.clone()).summary();
+        assert_eq!(summary.pet_hydration_reminder_minutes, "15");
+        assert_eq!(summary.pet_sedentary_reminder_minutes, "180");
+        assert_eq!(summary.pet_late_night_reminder_minutes, "240");
         let updated = fs::read_to_string(support_dir.join("settings.json")).expect("updated");
         assert!(updated.contains("\"speechMode\": \"mixed\""));
         assert!(updated.contains("\"speechFrequency\": \"normal\""));

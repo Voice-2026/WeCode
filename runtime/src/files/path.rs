@@ -30,7 +30,10 @@ pub(super) fn resolve_existing_path(root: &Path, raw_path: &str) -> Result<PathB
     Ok(path)
 }
 
-pub(super) fn resolve_existing_project_entry(root: &Path, raw_path: &str) -> Result<PathBuf, String> {
+pub(super) fn resolve_existing_project_entry(
+    root: &Path,
+    raw_path: &str,
+) -> Result<PathBuf, String> {
     let relative = sanitize_relative_path(raw_path)?;
     let path = root.join(relative);
     ensure_within_root(root, &path)?;

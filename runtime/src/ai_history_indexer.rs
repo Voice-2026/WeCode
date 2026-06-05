@@ -7,8 +7,8 @@ mod types;
 mod worker;
 
 use crate::ai_history_normalized::{
-    AIGlobalHistorySnapshot, AIHistoryProjectRequest, remove_indexed_history_session,
-    rename_indexed_history_session,
+    AIGlobalHistorySnapshot, AIHistoryProjectRequest, project_history_source_fingerprint,
+    remove_indexed_history_session, rename_indexed_history_session,
 };
 use crate::runtime_trace::{runtime_trace, runtime_trace_elapsed};
 use cache::{indexed_global_snapshot, indexed_project_snapshot, receive_reply};
@@ -82,43 +82,24 @@ impl AIHistoryIndexer {
         &self,
         project: AIHistoryProjectRequest,
     ) -> Result<AIHistoryProjectState, String> {
-        let cached_snapshot = indexed_project_snapshot(project.clone())?;
-        let (project_state, should_enqueue) =
-            mark_project_queued(&self.state, &project, cached_snapshot)?;
-        push_history_event(
-            &self.events,
-            AIHistoryEvent::ProjectState {
-                state: project_state.clone(),
-            },
-        );
-
-        if should_enqueue
-            && self
-                .tx
-                .send(AIHistoryJob::RefreshProject {
-                    project: project.clone(),
-                })
-                .is_err()
-        {
-            let failed_state = mark_project_failed(
-                &self.state,
-                &project,
-                "AI history indexer stopped.".to_string(),
-            )?;
-            push_history_event(
-                &self.events,
-                AIHistoryEvent::ProjectState {
-                    state: failed_state,
-                },
-            );
-            return Err("AI history indexer stopped.".to_string());
-        }
-
-        Ok(project_state)
+        self.project_state(project)
     }
 
     pub fn refresh_project(&self, project: AIHistoryProjectRequest) -> Result<(), String> {
         let cached_snapshot = indexed_project_snapshot(project.clone())?;
+        let fingerprint = project_history_source_fingerprint(&project);
+        if cached_snapshot.is_some()
+            && project_source_fingerprint_unchanged(&self.state, &project.id, &fingerprint)
+        {
+            let project_state = seed_project_state(&self.state, &project, cached_snapshot)?;
+            push_history_event(
+                &self.events,
+                AIHistoryEvent::ProjectState {
+                    state: project_state,
+                },
+            );
+            return Ok(());
+        }
         let (project_state, should_enqueue) =
             mark_project_queued(&self.state, &project, cached_snapshot)?;
         push_history_event(

@@ -6,6 +6,19 @@ pub struct AIHistoryProjectRequest {
     pub path: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AIHistorySourceFingerprint {
+    pub files: Vec<AIHistorySourceFileFingerprint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AIHistorySourceFileFingerprint {
+    pub source: String,
+    pub path: String,
+    pub modified_millis: u128,
+    pub size: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIHistorySnapshot {

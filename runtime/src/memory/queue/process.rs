@@ -49,6 +49,7 @@ impl MemoryService {
         &self,
         settings: &AISettings,
         projects: &[ProjectWorkspaceRecord],
+        output_locale: &str,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         if !settings.memory.enabled {
             return self.extraction_status_snapshot();
@@ -59,7 +60,7 @@ impl MemoryService {
         ensure_memory_provider_available(settings)?;
         self.mark_extraction_task_running(&task.id)?;
         let result = self
-            .process_extraction_task(settings, projects, task.clone())
+            .process_extraction_task(settings, projects, task.clone(), output_locale)
             .await;
         match result {
             Ok(()) => self.mark_extraction_task_done(&task.id)?,
@@ -75,10 +76,11 @@ impl MemoryService {
         &self,
         settings: &AISettings,
         projects: &[ProjectWorkspaceRecord],
+        output_locale: &str,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         loop {
             match self
-                .process_next_memory_extraction_task(settings, projects)
+                .process_next_memory_extraction_task(settings, projects, output_locale)
                 .await
             {
                 Ok(status) if status.pending_count > 0 => continue,
@@ -94,13 +96,14 @@ impl MemoryService {
         &self,
         settings: &AISettings,
         projects: &[ProjectWorkspaceRecord],
+        output_locale: &str,
         limit: usize,
     ) -> Result<MemoryExtractionStatusSnapshot, String> {
         let limit = limit.max(1);
         let mut processed = 0_usize;
         loop {
             match self
-                .process_next_memory_extraction_task(settings, projects)
+                .process_next_memory_extraction_task(settings, projects, output_locale)
                 .await
             {
                 Ok(status) => {
@@ -127,6 +130,7 @@ impl MemoryService {
         settings: &AISettings,
         projects: &[ProjectWorkspaceRecord],
         task: MemoryExtractionTask,
+        output_locale: &str,
     ) -> Result<(), String> {
         let project = memory_project_context_for_task(projects, &task)
             .ok_or_else(|| "Project not found for memory extraction.".to_string())?;
@@ -143,6 +147,7 @@ impl MemoryService {
                 &user_memories,
                 &project_memories,
                 &project.project_name,
+                output_locale,
                 &settings.memory,
             );
             llm::complete_with_provider_options(

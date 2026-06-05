@@ -1120,7 +1120,10 @@ pub fn terminal_environment(
         .as_ref()
         .or_else(|| context.map(|context| &context.runtime_root));
     if let Some(runtime_root) = runtime_root {
-        let wrapper_bin = runtime_root.join("scripts/wrappers/bin").display().to_string();
+        let wrapper_bin = runtime_root
+            .join("scripts/wrappers/bin")
+            .display()
+            .to_string();
         path = prepend_path_component(&wrapper_bin, &path);
         values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
         if matches!(shell_name(shell).as_deref(), Some("zsh")) {
@@ -1228,10 +1231,7 @@ pub fn terminal_environment(
             .session_instance_id
             .clone()
             .filter(|value| !value.trim().is_empty())
-            .or_else(|| {
-                context
-            .and_then(|context| context.session_instance_id.clone())
-            })
+            .or_else(|| context.and_then(|context| context.session_instance_id.clone()))
             .unwrap_or_else(|| Uuid::new_v4().to_string().to_lowercase()),
     );
     values.insert(

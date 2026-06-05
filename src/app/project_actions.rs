@@ -1381,9 +1381,39 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.project_open_applications = self.runtime_service.project_open_applications();
-        self.status_message = "project application list refreshed".to_string();
+        self.status_message = "refreshing project application list".to_string();
+        self.reload_project_open_applications_async(cx);
         self.invalidate_project_management(cx);
+    }
+
+    pub(super) fn reload_project_open_applications_async(&mut self, cx: &mut Context<Self>) {
+        let service = self.runtime_service.clone();
+        self.runtime_trace("project-open", "applications_refresh queued");
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend("project-open", "applications_refresh start");
+                let applications = service.project_open_applications();
+                service.runtime_trace_frontend("project-open", "applications_refresh ok");
+                applications
+            })
+            .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(applications) => {
+                        app.project_open_applications = applications;
+                    }
+                    Err(error) => {
+                        app.runtime_trace(
+                            "project-open",
+                            &format!("applications_refresh failed join_error={error}"),
+                        );
+                    }
+                }
+                app.invalidate_project_management(cx);
+            });
+        })
+        .detach();
     }
 
     pub(super) fn reveal_selected_project_in_file_manager(
@@ -1462,7 +1492,7 @@ impl CoduxApp {
                     "failed to open {} in {application_label}: {error}",
                     project.name
                 );
-                self.project_open_applications = self.runtime_service.project_open_applications();
+                self.reload_project_open_applications_async(cx);
             }
         }
         self.invalidate_project_management(cx);
@@ -1631,61 +1661,64 @@ impl CoduxApp {
     }
 
     fn remove_project(&mut self, project: ProjectInfo, cx: &mut Context<Self>) {
-        match self.runtime_service.close_project(&project.id) {
-            Ok(next_project_id) => {
-                self.state = self.runtime_service.reload_state();
-                self.normalize_selected_ai_session();
-                self.normalize_selected_runtime_session();
-                self.normalize_selected_ssh_profile();
-                self.sync_project_list_state(cx);
-                self.status_message = match next_project_id {
-                    Some(next_project_id) => {
-                        format!("closed {}, selected {next_project_id}", project.name)
-                    }
-                    None => format!("closed {}, no projects left", project.name),
-                };
-            }
-            Err(error) => self.status_message = format!("failed to close project: {error}"),
-        }
+        let runtime_service = self.runtime_service.clone();
+        let project_id = project.id.clone();
+        self.runtime_trace(
+            "project",
+            &format!("remove_project queued project_id={project_id}"),
+        );
+        self.status_message = format!("closing project: {}", project.name);
         self.invalidate_project_management(cx);
         self.invalidate_status_bar(cx);
-    }
 
-    pub(super) fn close_all_projects(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.projects.is_empty() {
-            self.status_message = "no projects to close".to_string();
-            self.invalidate_project_management(cx);
-            return;
-        }
-        let closed = self.state.projects.len();
-        match self.runtime_service.project_close_all() {
-            Ok(_snapshot) => {
-                self.state = self.runtime_service.reload_state();
-                self.clear_file_selection();
-                self.file_tree_expanded_dirs.clear();
-                self.file_tree_children.clear();
-                self.record_ui_state_clear("file_tree");
-                self.file_preview = "select a file to preview it".to_string();
-                self.file_editable = false;
-                self.file_dirty = false;
-                self.selected_git_file = None;
-                self.git_tree_children.clear();
-                self.git_expanded_dirs.clear();
-                self.record_ui_state_clear("git_tree");
-                self.git_diff_preview = "select a changed file to preview its diff".to_string();
-                self.clear_git_review_derived_content();
-                self.normalize_selected_ai_session();
-                self.normalize_selected_runtime_session();
-                self.normalize_selected_ssh_profile();
-                self.sync_project_list_state(cx);
-                self.status_message = format!(
-                    "closed {closed} project{}",
-                    if closed == 1 { "" } else { "s" }
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                runtime_service.runtime_trace_frontend(
+                    "project",
+                    &format!("remove_project start project_id={project_id}"),
                 );
-            }
-            Err(error) => self.status_message = format!("failed to close projects: {error}"),
-        }
-        self.invalidate_project_management(cx);
+                let result = runtime_service
+                    .close_project(&project_id)
+                    .map(|next_project_id| (runtime_service.reload_state(), next_project_id));
+                match &result {
+                    Ok(_) => runtime_service.runtime_trace_frontend(
+                        "project",
+                        &format!("remove_project ok project_id={project_id}"),
+                    ),
+                    Err(error) => runtime_service.runtime_trace_frontend(
+                        "project",
+                        &format!("remove_project failed project_id={project_id} error={error}"),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join project removal: {error}")));
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok((state, next_project_id)) => {
+                        app.state = state;
+                        app.normalize_selected_ai_session();
+                        app.normalize_selected_runtime_session();
+                        app.normalize_selected_ssh_profile();
+                        app.sync_project_list_state(cx);
+                        app.status_message = match next_project_id {
+                            Some(next_project_id) => {
+                                format!("closed {}, selected {next_project_id}", project.name)
+                            }
+                            None => format!("closed {}, no projects left", project.name),
+                        };
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to close project: {error}");
+                    }
+                }
+                app.invalidate_project_management(cx);
+                app.invalidate_status_bar(cx);
+            });
+        })
+        .detach();
     }
 
     pub(super) fn rename_selected_project(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -1898,6 +1931,9 @@ impl CoduxApp {
     }
 
     pub(super) fn save_project_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.project_editor_saving {
+            return;
+        }
         let name = self.project_editor_name.trim().to_string();
         let path = clean_dialog_path(&self.project_editor_path);
         if name.is_empty() || path.is_empty() {
@@ -1906,43 +1942,73 @@ impl CoduxApp {
             return;
         }
 
-        if let Some(project_id) = self.project_editor_project_id.clone() {
-            match self.runtime_service.project_update(ProjectUpdateRequest {
-                project_id,
-                name: name.clone(),
-                path,
-                badge_text: project_badge_text_from_name(&name),
-                badge_symbol: self.project_editor_badge_symbol.clone(),
-                badge_color_hex: Some(self.project_editor_badge_color_hex.clone()),
-            }) {
-                Ok(_snapshot) => {
-                    self.state = self.runtime_service.reload_state();
-                    self.sync_project_list_state(cx);
-                    self.status_message = format!("project saved: {name}");
-                    publish_child_window_update(ChildWindowUpdateKind::Project);
-                    window.remove_window();
-                }
-                Err(error) => self.status_message = format!("failed to save project: {error}"),
-            }
+        let project_id = self.project_editor_project_id.clone();
+        let badge_symbol = self.project_editor_badge_symbol.clone();
+        let badge_color_hex = self.project_editor_badge_color_hex.clone();
+        let runtime_service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.project_editor_saving = true;
+        self.status_message = if project_id.is_some() {
+            format!("saving project: {name}")
         } else {
-            match self.runtime_service.project_create(ProjectCreateRequest {
-                name: name.clone(),
-                path,
-                badge_text: project_badge_text_from_name(&name),
-                badge_symbol: self.project_editor_badge_symbol.clone(),
-                badge_color_hex: Some(self.project_editor_badge_color_hex.clone()),
-            }) {
-                Ok(_snapshot) => {
-                    self.state = self.runtime_service.reload_state();
-                    self.sync_project_list_state(cx);
-                    self.status_message = format!("project created: {name}");
-                    publish_child_window_update(ChildWindowUpdateKind::Project);
-                    window.remove_window();
-                }
-                Err(error) => self.status_message = format!("failed to create project: {error}"),
-            }
-        }
+            format!("creating project: {name}")
+        };
         self.invalidate_project_management(cx);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                let save_result = if let Some(project_id) = project_id {
+                    runtime_service.project_update(ProjectUpdateRequest {
+                        project_id,
+                        name: name.clone(),
+                        path,
+                        badge_text: project_badge_text_from_name(&name),
+                        badge_symbol,
+                        badge_color_hex: Some(badge_color_hex),
+                    })
+                } else {
+                    runtime_service.project_create(ProjectCreateRequest {
+                        name: name.clone(),
+                        path,
+                        badge_text: project_badge_text_from_name(&name),
+                        badge_symbol,
+                        badge_color_hex: Some(badge_color_hex),
+                    })
+                };
+                save_result.map(|_| (runtime_service.reload_state(), name))
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join project save: {error}")));
+
+            let _ = window_handle.update(cx, |_root, window, cx| {
+                let _ = this.update(cx, |app, cx| {
+                    app.project_editor_saving = false;
+                    match result {
+                        Ok((state, name)) => {
+                            let was_editing = app.project_editor_project_id.is_some();
+                            app.state = state;
+                            app.sync_project_list_state(cx);
+                            app.status_message = if was_editing {
+                                format!("project saved: {name}")
+                            } else {
+                                format!("project created: {name}")
+                            };
+                            publish_child_window_update(ChildWindowUpdateKind::Project);
+                            window.remove_window();
+                        }
+                        Err(error) => {
+                            app.status_message = if app.project_editor_project_id.is_some() {
+                                format!("failed to save project: {error}")
+                            } else {
+                                format!("failed to create project: {error}")
+                            };
+                        }
+                    }
+                    app.invalidate_project_management(cx);
+                });
+            });
+        })
+        .detach();
     }
 
     pub(super) fn move_selected_project_up(
@@ -1955,17 +2021,7 @@ impl CoduxApp {
             self.invalidate_project_management(cx);
             return;
         };
-        match self.runtime_service.move_project_up(&project.id) {
-            Ok(()) => {
-                self.state = self.runtime_service.reload_state();
-                self.normalize_selected_ai_session();
-                self.normalize_selected_runtime_session();
-                self.normalize_selected_ssh_profile();
-                self.sync_project_list_state(cx);
-                self.status_message = format!("moved project up: {}", project.name);
-            }
-            Err(error) => self.status_message = format!("failed to move project: {error}"),
-        }
+        self.move_project_async(project, true, cx);
         self.invalidate_project_management(cx);
     }
 
@@ -1979,18 +2035,67 @@ impl CoduxApp {
             self.invalidate_project_management(cx);
             return;
         };
-        match self.runtime_service.move_project_down(&project.id) {
-            Ok(()) => {
-                self.state = self.runtime_service.reload_state();
-                self.normalize_selected_ai_session();
-                self.normalize_selected_runtime_session();
-                self.normalize_selected_ssh_profile();
-                self.sync_project_list_state(cx);
-                self.status_message = format!("moved project down: {}", project.name);
-            }
-            Err(error) => self.status_message = format!("failed to move project: {error}"),
-        }
+        self.move_project_async(project, false, cx);
         self.invalidate_project_management(cx);
+    }
+
+    fn move_project_async(&mut self, project: ProjectInfo, up: bool, cx: &mut Context<Self>) {
+        let runtime_service = self.runtime_service.clone();
+        let project_id = project.id.clone();
+        let direction = if up { "up" } else { "down" };
+        self.runtime_trace(
+            "project",
+            &format!("move_project queued project_id={project_id} direction={direction}"),
+        );
+        self.status_message = format!("moving project {direction}: {}", project.name);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                runtime_service.runtime_trace_frontend(
+                    "project",
+                    &format!("move_project start project_id={project_id} direction={direction}"),
+                );
+                let result = if up {
+                    runtime_service.move_project_up(&project_id)
+                } else {
+                    runtime_service.move_project_down(&project_id)
+                }
+                .map(|_| runtime_service.reload_state());
+                match &result {
+                    Ok(_) => runtime_service.runtime_trace_frontend(
+                        "project",
+                        &format!("move_project ok project_id={project_id} direction={direction}"),
+                    ),
+                    Err(error) => runtime_service.runtime_trace_frontend(
+                        "project",
+                        &format!(
+                            "move_project failed project_id={project_id} direction={direction} error={error}"
+                        ),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join project move: {error}")));
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(state) => {
+                        app.state = state;
+                        app.normalize_selected_ai_session();
+                        app.normalize_selected_runtime_session();
+                        app.normalize_selected_ssh_profile();
+                        app.sync_project_list_state(cx);
+                        app.status_message = format!("moved project {direction}: {}", project.name);
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to move project: {error}");
+                    }
+                }
+                app.invalidate_project_management(cx);
+            });
+        })
+        .detach();
     }
 }
 

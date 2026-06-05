@@ -70,24 +70,24 @@ impl CoduxApp {
                     Ok(status) => {
                         let pending = status.pending_count.max(0);
                         let running = status.running_count.max(0);
-                        let active = pending > 0 || running > 0;
+                        let is_running = running > 0;
                         let _ = this.update(cx, |app, cx| {
                             let extraction = &mut app.state.memory_manager.extraction;
                             let changed = extraction.queued != pending
                                 || extraction.running != running
                                 || extraction.last_error != status.last_error
-                                || app.memory_processing != active;
+                                || app.memory_processing != is_running;
                             extraction.queued = pending;
                             extraction.running = running;
                             extraction.last_error = status.last_error.clone();
-                            app.memory_processing = active;
-                            app.memory_extraction_status_refreshing = active;
+                            app.memory_processing = is_running;
+                            app.memory_extraction_status_refreshing = is_running;
                             if changed {
                                 app.invalidate_status_bar(cx);
                                 app.invalidate_memory_panel(cx);
                             }
                         });
-                        active
+                        is_running
                     }
                     Err(error) => {
                         let _ = this.update(cx, |app, cx| {
@@ -149,9 +149,16 @@ impl CoduxApp {
     }
 
     pub(super) fn enqueue_automatic_memory_extraction_async(&mut self, cx: &mut Context<Self>) {
+        if self.memory_processing {
+            return;
+        }
+        if !self.runtime_service.automatic_memory_extraction_available() {
+            return;
+        }
+
         let pending = self.state.memory_manager.extraction.queued.max(0);
         let running = self.state.memory_manager.extraction.running.max(0);
-        if pending > 0 || running > 0 || self.memory_processing {
+        if pending > 0 || running > 0 {
             self.process_queued_memory_extraction_async(cx);
             return;
         }
@@ -668,6 +675,92 @@ impl CoduxApp {
         self.invalidate_memory_panel(cx);
     }
 
+    pub(super) fn clear_memory_extraction_failures(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.clear_memory_extraction_failures() {
+            Ok(status) => {
+                self.state.memory_manager.extraction.queued = status.pending_count.max(0);
+                self.state.memory_manager.extraction.running = status.running_count.max(0);
+                self.state.memory_manager.extraction.last_error = status.last_error.clone();
+                self.reload_memory_manager_snapshot();
+                publish_memory_update();
+                publish_child_window_update(ChildWindowUpdateKind::Memory);
+                self.runtime_trace(
+                    "memory",
+                    &format!(
+                        "clear_failures ok pending={} running={} last_error={}",
+                        status.pending_count,
+                        status.running_count,
+                        status.last_error.as_deref().unwrap_or("none")
+                    ),
+                );
+            }
+            Err(error) => {
+                self.state.memory_manager.extraction.last_error = Some(error.clone());
+                self.runtime_trace("memory", &format!("clear_failures failed error={error}"));
+            }
+        }
+        self.invalidate_memory_panel(cx);
+    }
+
+    pub(super) fn clear_failed_memory_extraction(
+        &mut self,
+        task_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .clear_failed_memory_extraction(&task_id)
+        {
+            Ok(status) => {
+                self.state.memory_manager.extraction.queued = status.pending_count.max(0);
+                self.state.memory_manager.extraction.running = status.running_count.max(0);
+                self.state.memory_manager.extraction.last_error = status.last_error.clone();
+                self.reload_memory_manager_snapshot();
+                publish_memory_update();
+                publish_child_window_update(ChildWindowUpdateKind::Memory);
+            }
+            Err(error) => {
+                self.state.memory_manager.extraction.last_error = Some(error.clone());
+                self.runtime_trace("memory", &format!("clear_failed_task failed error={error}"));
+            }
+        }
+        self.invalidate_memory_panel(cx);
+    }
+
+    pub(super) fn clear_pending_memory_extraction(
+        &mut self,
+        task_id: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .clear_pending_memory_extraction(&task_id)
+        {
+            Ok(status) => {
+                self.state.memory_manager.extraction.queued = status.pending_count.max(0);
+                self.state.memory_manager.extraction.running = status.running_count.max(0);
+                self.state.memory_manager.extraction.last_error = status.last_error.clone();
+                self.reload_memory_manager_snapshot();
+                publish_memory_update();
+                publish_child_window_update(ChildWindowUpdateKind::Memory);
+            }
+            Err(error) => {
+                self.state.memory_manager.extraction.last_error = Some(error.clone());
+                self.runtime_trace(
+                    "memory",
+                    &format!("clear_pending_task failed error={error}"),
+                );
+            }
+        }
+        self.invalidate_memory_panel(cx);
+    }
+
     pub(super) fn select_memory_entry(
         &mut self,
         entry_id: String,
@@ -1005,6 +1098,26 @@ impl CoduxApp {
         self.reload_memory_manager_snapshot_async(cx);
     }
 
+    pub(super) fn select_memory_manager_queue(&mut self, cx: &mut Context<Self>) {
+        self.memory_manager_scope = "user".to_string();
+        self.memory_manager_project_id = None;
+        self.memory_manager_tab = MemoryManagerTab::Queue;
+        self.selected_memory_entry_id = None;
+        self.selected_memory_summary_id = None;
+        self.status_message = "memory manager tab: queue".to_string();
+        self.reload_memory_manager_snapshot_async(cx);
+    }
+
+    pub(super) fn select_memory_manager_failed_records(&mut self, cx: &mut Context<Self>) {
+        self.memory_manager_scope = "user".to_string();
+        self.memory_manager_project_id = None;
+        self.memory_manager_tab = MemoryManagerTab::Failed;
+        self.selected_memory_entry_id = None;
+        self.selected_memory_summary_id = None;
+        self.status_message = "memory manager tab: failed".to_string();
+        self.reload_memory_manager_snapshot_async(cx);
+    }
+
     pub(super) fn select_memory_manager_target(
         &mut self,
         scope: String,
@@ -1023,6 +1136,11 @@ impl CoduxApp {
         };
         self.selected_memory_entry_id = None;
         self.selected_memory_summary_id = None;
+        if self.memory_manager_tab == MemoryManagerTab::Queue
+            || self.memory_manager_tab == MemoryManagerTab::Failed
+        {
+            self.memory_manager_tab = MemoryManagerTab::Summary;
+        }
         self.reload_memory_manager_snapshot_async(cx);
     }
 
@@ -1177,10 +1295,9 @@ impl CoduxApp {
                         app.normalize_memory_status_seen_failures();
                         app.normalize_selected_memory_entry();
                         app.normalize_selected_memory_summary();
-                        let active = app.state.memory_manager.extraction.queued > 0
-                            || app.state.memory_manager.extraction.running > 0;
-                        app.memory_processing = active;
-                        if active {
+                        let is_running = app.state.memory_manager.extraction.running > 0;
+                        app.memory_processing = is_running;
+                        if is_running {
                             app.start_memory_extraction_status_refresh(cx);
                         }
                         app.status_message = "memory summary reloaded".to_string();

@@ -340,6 +340,56 @@ resolved_hook_model() {
   fi
 }
 
+configured_permission_mode() {
+  [[ -n "${DMUX_TOOL_PERMISSION_SETTINGS_FILE:-}" && -f "${DMUX_TOOL_PERMISSION_SETTINGS_FILE}" ]] || return 0
+
+  local config_key=""
+  case "${tool_name}" in
+    codex)
+      config_key="codex"
+      ;;
+    claude|claude-code)
+      config_key="claudeCode"
+      ;;
+    gemini|agy)
+      config_key="gemini"
+      ;;
+    opencode)
+      config_key="opencode"
+      ;;
+    kiro)
+      config_key="kiro"
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  CONFIG_PATH="${DMUX_TOOL_PERMISSION_SETTINGS_FILE}" CONFIG_KEY="${config_key}" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+path = os.environ.get("CONFIG_PATH", "")
+key = os.environ.get("CONFIG_KEY", "")
+if not path or not key:
+    raise SystemExit(0)
+
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+
+value = payload.get(key)
+if isinstance(value, str) and value:
+    print(value)
+PY
+}
+
+has_full_access_permission() {
+  [[ "$(configured_permission_mode)" == "fullAccess" ]]
+}
+
 write_claude_session_map() {
   local external_session_id
   external_session_id="$(resolved_claude_external_session_id)"
@@ -591,18 +641,29 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
           "" \
           "user-input"
       elif [[ "${action}" == "permission-request" ]]; then
-        write_ai_hook_event \
-          "needsInput" \
-          "$(resolved_claude_external_session_id)" \
-          "$(resolved_hook_model)" \
-          "null" \
-          "" \
-          "permission-request" \
-          "" \
-          "permission-request" \
-          "" \
-          "$(extract_first_hook_field tool_name toolName tool)" \
-          "$(extract_first_hook_field message prompt)"
+        if has_full_access_permission; then
+          write_ai_hook_event \
+            "promptSubmitted" \
+            "$(resolved_claude_external_session_id)" \
+            "$(resolved_hook_model)" \
+            "null" \
+            "" \
+            "" \
+            "permission-auto-allowed"
+        else
+          write_ai_hook_event \
+            "needsInput" \
+            "$(resolved_claude_external_session_id)" \
+            "$(resolved_hook_model)" \
+            "null" \
+            "" \
+            "permission-request" \
+            "" \
+            "permission-request" \
+            "" \
+            "$(extract_first_hook_field tool_name toolName tool)" \
+            "$(extract_first_hook_field message prompt)"
+        fi
       elif [[ "${action}" == "permission-denied" ]]; then
         write_ai_hook_event \
           "needsInput" \

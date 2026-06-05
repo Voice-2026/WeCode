@@ -15,6 +15,44 @@ impl SettingsService {
         self.toggle_pet_bool("reminders", false)
     }
 
+    pub fn toggle_pet_sedentary_reminders(&self) -> Result<SettingsSummary, String> {
+        self.toggle_pet_bool("sedentaryReminders", false)
+    }
+
+    pub fn toggle_pet_late_night_reminders(&self) -> Result<SettingsSummary, String> {
+        self.toggle_pet_bool("lateNightReminders", false)
+    }
+
+    pub fn set_pet_hydration_reminder_minutes(
+        &self,
+        minutes: &str,
+    ) -> Result<SettingsSummary, String> {
+        self.update_pet_string(
+            "hydrationReminderMinutes",
+            sanitize_pet_reminder_minutes(minutes),
+        )
+    }
+
+    pub fn set_pet_sedentary_reminder_minutes(
+        &self,
+        minutes: &str,
+    ) -> Result<SettingsSummary, String> {
+        self.update_pet_string(
+            "sedentaryReminderMinutes",
+            sanitize_pet_reminder_minutes(minutes),
+        )
+    }
+
+    pub fn set_pet_late_night_reminder_minutes(
+        &self,
+        minutes: &str,
+    ) -> Result<SettingsSummary, String> {
+        self.update_pet_string(
+            "lateNightReminderMinutes",
+            sanitize_pet_reminder_minutes(minutes),
+        )
+    }
+
     pub fn cycle_pet_speech_mode(&self) -> Result<SettingsSummary, String> {
         let current = self.summary().pet_speech_mode;
         let next = match current.as_str() {

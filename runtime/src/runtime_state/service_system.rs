@@ -1,4 +1,8 @@
 impl RuntimeService {
+    pub fn terminal_font_families(&self) -> Vec<String> {
+        crate::system_fonts::terminal_font_families()
+    }
+
     pub fn reload_update(&self, repo_root: PathBuf) -> UpdateSummary {
         load_update(&self.support_dir, repo_root)
     }
@@ -244,12 +248,6 @@ impl RuntimeService {
         }
     }
 
-    pub fn set_remote_server_url(&self, server_url: &str) -> Result<RemoteSummary, String> {
-        let service = RemoteService::new(self.support_dir.clone());
-        service.set_server_url(server_url)?;
-        Ok(self.remote_host.start())
-    }
-
     pub fn revoke_remote_device(&self, device_id: &str) -> Result<RemoteSummary, String> {
         let summary = RemoteService::new(self.support_dir.clone()).revoke_device(device_id)?;
         Ok(self.remote_host.apply_snapshot(summary))
@@ -270,39 +268,30 @@ impl RuntimeService {
     }
 
     pub fn create_remote_pairing(&self) -> Result<RemoteSummary, String> {
-        let summary = RemoteService::new(self.support_dir.clone()).create_pairing()?;
-        Ok(self.remote_host.apply_snapshot(summary))
+        self.remote_host.create_pairing()
     }
 
     pub async fn create_remote_pairing_async(&self) -> Result<RemoteSummary, String> {
-        let summary = RemoteService::new(self.support_dir.clone())
-            .create_pairing_async()
-            .await?;
-        Ok(self.remote_host.apply_snapshot(summary))
+        self.remote_host.create_pairing_async().await
     }
 
     pub fn poll_remote_pairing_status(
         &self,
         pairing: &RemotePairingInfo,
     ) -> Result<RemotePairingPollResult, String> {
-        let mut result = RemoteService::new(self.support_dir.clone()).poll_pairing_status(pairing)?;
-        result.summary = self.remote_host.apply_snapshot(result.summary);
-        Ok(result)
+        self.remote_host.poll_pairing_status(pairing)
     }
 
     pub fn cancel_remote_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
-        let summary = RemoteService::new(self.support_dir.clone()).cancel_pairing(pairing_id)?;
-        Ok(self.remote_host.apply_snapshot(summary))
+        self.remote_host.cancel_pairing(pairing_id)
     }
 
     pub fn confirm_remote_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
-        let summary = RemoteService::new(self.support_dir.clone()).confirm_pairing(pairing_id)?;
-        Ok(self.remote_host.apply_snapshot(summary))
+        self.remote_host.confirm_pairing(pairing_id)
     }
 
     pub fn reject_remote_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
-        let summary = RemoteService::new(self.support_dir.clone()).reject_pairing(pairing_id)?;
-        Ok(self.remote_host.apply_snapshot(summary))
+        self.remote_host.reject_pairing(pairing_id)
     }
 
     pub fn reload_pet(&self) -> PetSummary {
@@ -311,6 +300,10 @@ impl RuntimeService {
 
     pub fn pet_catalog(&self) -> PetCatalog {
         PetService::new(self.support_dir.clone()).catalog()
+    }
+
+    pub fn pet_catalog_without_custom_data(&self) -> PetCatalog {
+        PetService::new(self.support_dir.clone()).bundled_catalog()
     }
 
     pub fn hydrate_custom_pet_data_url(&self, pet: PetCustomPet) -> PetCustomPet {
@@ -354,7 +347,10 @@ impl RuntimeService {
         let cutoff = claimed_at.map(|value| value as f64);
         let active_project_ids = self.active_project_workspace_ids();
         let project_totals = self.active_indexed_project_totals(cutoff, &active_project_ids)?;
-        let all_time_total_tokens = project_totals.iter().map(|project| project.total_tokens).sum();
+        let all_time_total_tokens = project_totals
+            .iter()
+            .map(|project| project.total_tokens)
+            .sum();
         let mut sessions = indexed_sessions_since(cutoff).map_err(|error| error.to_string())?;
         sessions.retain(|session| active_project_ids.contains(&session.project_id));
         let input = refresh_input_from_indexed_history(
@@ -375,9 +371,7 @@ impl RuntimeService {
         let settings = service.ai_settings();
         let language = service.summary().language;
         crate::async_runtime::block_on(llm::pet_idle_speech_with_settings(
-            &settings,
-            &language,
-            request,
+            &settings, &language, request,
         ))
     }
 
@@ -391,7 +385,10 @@ impl RuntimeService {
     ) -> Result<PetSnapshot, String> {
         let active_project_ids = self.active_project_workspace_ids();
         let project_totals = self.active_indexed_project_totals(None, &active_project_ids)?;
-        let all_time_total_tokens = project_totals.iter().map(|project| project.total_tokens).sum();
+        let all_time_total_tokens = project_totals
+            .iter()
+            .map(|project| project.total_tokens)
+            .sum();
         let input = PetClaimInput {
             species: request.species,
             custom_name: request.custom_name,

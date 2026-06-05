@@ -6,14 +6,6 @@ impl SettingsService {
         )
     }
 
-    pub fn set_shell(&self, shell: &str) -> Result<SettingsSummary, String> {
-        let shell = shell.trim();
-        if shell.is_empty() {
-            return Err("Shell is empty.".to_string());
-        }
-        self.update_string("shell", shell.chars().take(240).collect())
-    }
-
     pub fn set_terminal_font_size(&self, size: &str) -> Result<SettingsSummary, String> {
         let size = numeric_string(size, 14, 10, 28).to_string();
         self.update_string("terminalFontSize", size)

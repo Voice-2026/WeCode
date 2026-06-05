@@ -19,8 +19,6 @@ pub struct NotificationChannelSettings {
 pub struct AppSettings {
     #[serde(default = "default_language")]
     pub language: String,
-    #[serde(default = "default_shell")]
-    pub shell: String,
     #[serde(default = "default_true")]
     pub shows_dock_badge: bool,
     #[serde(default)]
@@ -83,6 +81,16 @@ pub struct PetSettings {
     pub static_mode: bool,
     #[serde(default)]
     pub reminders: bool,
+    #[serde(default)]
+    pub sedentary_reminders: bool,
+    #[serde(default)]
+    pub late_night_reminders: bool,
+    #[serde(default = "default_pet_hydration_reminder_minutes")]
+    pub hydration_reminder_minutes: String,
+    #[serde(default = "default_pet_sedentary_reminder_minutes")]
+    pub sedentary_reminder_minutes: String,
+    #[serde(default = "default_pet_late_night_reminder_minutes")]
+    pub late_night_reminder_minutes: String,
     #[serde(default = "default_pet_speech_mode")]
     pub speech_mode: String,
     #[serde(default = "default_pet_speech_frequency")]
@@ -234,6 +242,10 @@ pub struct RemoteSettings {
     pub host_private_key: String,
     #[serde(default)]
     pub host_public_key: String,
+    #[serde(default)]
+    pub iroh_secret_key: String,
+    #[serde(default)]
+    pub iroh_node_id: String,
     #[serde(default)]
     pub cached_devices: Vec<RemoteHostDeviceSettings>,
 }

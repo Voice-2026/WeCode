@@ -1,7 +1,16 @@
 use super::*;
 
-fn defer_remove_current_window(window: &mut Window, cx: &mut Context<CoduxApp>) {
-    window.defer(cx, |window, _cx| window.remove_window());
+fn desktop_pet_action_status(action_id: &str) -> &'static str {
+    match action_id {
+        DESKTOP_PET_MUTE_30_MINUTES => "desktop pet muted for 30 minutes",
+        DESKTOP_PET_MUTE_1_HOUR => "desktop pet muted for 1 hour",
+        DESKTOP_PET_MUTE_TODAY => "desktop pet muted until tomorrow",
+        DESKTOP_PET_SKIP_LINE => "desktop pet line skipped",
+        DESKTOP_PET_SPEAK_MORE => "desktop pet speech frequency increased",
+        DESKTOP_PET_SPEAK_LESS => "desktop pet speech frequency lowered",
+        DESKTOP_PET_HIDE => "desktop pet hidden",
+        _ => "desktop pet action applied",
+    }
 }
 
 impl CoduxApp {
@@ -349,8 +358,41 @@ impl CoduxApp {
             &self.state.ai_runtime_state,
             &self.state.settings.language,
         );
-        self.set_desktop_pet_activity_line(line.text, line.tone, cx);
-        self.request_desktop_pet_llm_line(cx);
+        if !line.text.trim().is_empty() {
+            self.set_desktop_pet_activity_line(line.text, line.tone, cx);
+            self.request_desktop_pet_llm_line(cx);
+            return;
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        if let Some(context) = desktop_pet_reminder_line(
+            &self.state.settings,
+            &self.pet_snapshot,
+            &self.state.settings.language,
+            now,
+            &mut self.desktop_pet_next_hydration_reminder_at,
+            &mut self.desktop_pet_next_sedentary_reminder_at,
+            &mut self.desktop_pet_next_late_night_reminder_at,
+        ) {
+            let fallback = context.fallback_text.clone();
+            let tone = context.tone;
+            self.set_desktop_pet_activity_line(fallback, tone, cx);
+            self.request_desktop_pet_llm_context(context, cx);
+            return;
+        }
+
+        if self.desktop_pet_line.trim().is_empty() {
+            self.request_desktop_pet_idle_llm_line(now, cx);
+        } else if self.desktop_pet_line_visible_until > 0.0
+            && now < self.desktop_pet_line_visible_until
+        {
+            self.request_desktop_pet_idle_llm_line(now, cx);
+        } else {
+            self.set_desktop_pet_activity_line(String::new(), DesktopPetActivityTone::Normal, cx);
+        }
     }
 
     pub(super) fn set_desktop_pet_activity_line(
@@ -360,8 +402,17 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         if self.desktop_pet_line != line || self.desktop_pet_tone != tone {
+            let has_line = !line.trim().is_empty();
             self.desktop_pet_line = line;
             self.desktop_pet_tone = tone;
+            self.desktop_pet_line_visible_until = if has_line {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_secs_f64() + 10.0)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
             self.runtime_service
                 .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
             self.invalidate_ui_region(cx, UiRegion::Root);
@@ -375,6 +426,45 @@ impl CoduxApp {
             self.desktop_pet_active_llm_key.clear();
             return;
         };
+        self.request_desktop_pet_llm_context(context, cx);
+    }
+
+    pub(super) fn request_desktop_pet_idle_llm_line(&mut self, now: f64, cx: &mut Context<Self>) {
+        if !self.state.settings.pet_speech_llm_enabled
+            || self.state.settings.pet_speech_mode == "off"
+            || self.state.settings.pet_speech_temporary_muted
+        {
+            self.desktop_pet_active_llm_key.clear();
+            self.desktop_pet_next_idle_llm_at = 0.0;
+            return;
+        }
+        let cooldown = desktop_pet_llm_cooldown_seconds(&self.state.settings.pet_speech_frequency);
+        if self.desktop_pet_next_idle_llm_at <= 0.0 {
+            self.desktop_pet_next_idle_llm_at = now + cooldown;
+            return;
+        }
+        if now < self.desktop_pet_next_idle_llm_at {
+            return;
+        }
+        self.desktop_pet_next_idle_llm_at = now + cooldown;
+        self.request_desktop_pet_llm_context(
+            DesktopPetLlmContext {
+                event: "idle.monologue",
+                fallback_text: "The user is idle or between AI tasks.".to_string(),
+                facts: "The user is idle or between AI tasks.".to_string(),
+                tone: DesktopPetActivityTone::Normal,
+                tool: "idle".to_string(),
+                updated_at: now,
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn request_desktop_pet_llm_context(
+        &mut self,
+        context: DesktopPetLlmContext,
+        cx: &mut Context<Self>,
+    ) {
         if !self.state.settings.pet_speech_llm_enabled
             || self.state.settings.pet_speech_mode == "off"
             || self.state.settings.pet_speech_temporary_muted
@@ -385,7 +475,7 @@ impl CoduxApp {
 
         let key = format!(
             "{}:{}:{}:{}",
-            context.event, context.tool, context.updated_at, context.fallback_text
+            context.event, context.tool, context.updated_at, context.facts
         );
         self.desktop_pet_active_llm_key = key.clone();
         if self.desktop_pet_requested_llm_key == key {
@@ -405,13 +495,10 @@ impl CoduxApp {
         self.desktop_pet_last_llm_requested_at = now;
         let service = self.runtime_service.clone();
         let event = context.event.to_string();
-        let fallback_text = context.fallback_text.clone();
+        let facts = context.facts.clone();
         let tone = context.tone;
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let request = codux_runtime::llm::PetIdleSpeechRequest {
-                event,
-                fallback_text,
-            };
+            let request = codux_runtime::llm::PetIdleSpeechRequest { event, facts };
             let result = codux_runtime::async_runtime::spawn_blocking(move || {
                 service.pet_idle_speech(request)
             })
@@ -445,17 +532,93 @@ impl CoduxApp {
     }
 
     pub(super) fn refresh_pet(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.refresh_pet_from_indexed_history() {
-            Ok(_) => {
-                self.refresh_pet_cache();
-                if self.window_mode == AppWindowMode::Main {
-                    self.sync_desktop_pet_window(false, cx);
+        let service = self.runtime_service.clone();
+        self.runtime_trace("pet", "refresh_pet queued");
+        self.status_message = "refreshing pet data".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend("pet", "refresh_pet start");
+                let result = service.refresh_pet_from_indexed_history();
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend("pet", "refresh_pet ok"),
+                    Err(error) => service.runtime_trace_frontend(
+                        "pet",
+                        &format!("refresh_pet failed error={error}"),
+                    ),
                 }
-                self.status_message = "pet data refreshed".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to refresh pet: {error}"),
-        }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join pet refresh: {error}")));
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(_) => {
+                        app.refresh_pet_cache_async(cx);
+                        if app.window_mode == AppWindowMode::Main {
+                            app.sync_desktop_pet_window(false, cx);
+                        }
+                        app.status_message = "pet data refreshed".to_string();
+                    }
+                    Err(error) => app.status_message = format!("failed to refresh pet: {error}"),
+                }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            });
+        })
+        .detach();
         self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(in crate::app) fn run_pet_change_async(
+        &mut self,
+        action: &'static str,
+        status: String,
+        task: impl FnOnce(RuntimeService) -> Result<(), String> + Send + 'static,
+        after_success: impl FnOnce(&mut CoduxApp, &mut Context<CoduxApp>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let service = self.runtime_service.clone();
+        self.runtime_trace("pet", &format!("{action} queued"));
+        self.status_message = status;
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend("pet", &format!("{action} start"));
+                let result = task(service.clone());
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend("pet", &format!("{action} ok")),
+                    Err(error) => {
+                        service.runtime_trace_frontend(
+                            "pet",
+                            &format!("{action} failed error={error}"),
+                        );
+                    }
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join pet action: {error}")));
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(_) => {
+                        app.refresh_pet_cache_async(cx);
+                        let revision = publish_pet_update();
+                        if revision > 0 {
+                            app.pet_update_seen_revision = revision;
+                        }
+                        if app.window_mode == AppWindowMode::Main {
+                            app.sync_desktop_pet_window(false, cx);
+                        }
+                        after_success(app, cx);
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to update pet: {error}");
+                    }
+                }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            });
+        })
+        .detach();
     }
 
     pub(super) fn save_desktop_pet_window_origin(
@@ -480,34 +643,68 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self
-            .runtime_service
-            .apply_desktop_pet_menu_action(action_id)
-        {
-            Ok(_) => {
-                let state = self.runtime_service.reload_state();
+        let service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.runtime_trace(
+            "desktop-pet",
+            &format!("menu_action queued action={action_id}"),
+        );
+        self.status_message = "desktop pet action queued".to_string();
+        self.invalidate_ui_region(cx, UiRegion::Root);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend(
+                    "desktop-pet",
+                    &format!("menu_action start action={action_id}"),
+                );
+                let result = service.apply_desktop_pet_menu_action(action_id).map(|_| {
+                    if matches!(action_id, DESKTOP_PET_SKIP_LINE | DESKTOP_PET_HIDE) {
+                        service.desktop_pet_set_bubble_visible(false);
+                    }
+                    service.reload_state()
+                });
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend(
+                        "desktop-pet",
+                        &format!("menu_action ok action={action_id}"),
+                    ),
+                    Err(error) => service.runtime_trace_frontend(
+                        "desktop-pet",
+                        &format!("menu_action failed action={action_id} error={error}"),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join desktop pet action: {error}")));
+
+            let should_close = result.is_ok() && action_id == DESKTOP_PET_HIDE;
+            let _ = this.update(cx, |app, cx| {
+                app.apply_desktop_pet_action_result(action_id, result, cx);
+            });
+            if should_close {
+                let _ = window_handle.update(cx, |_root, window, _cx| window.remove_window());
+            }
+        })
+        .detach();
+    }
+
+    fn apply_desktop_pet_action_result(
+        &mut self,
+        action_id: &'static str,
+        result: Result<RuntimeState, String>,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(state) => {
                 self.state.settings = state.settings;
                 self.state.pet = state.pet;
                 if action_id == DESKTOP_PET_SKIP_LINE {
                     self.desktop_pet_line.clear();
                     self.desktop_pet_tone = DesktopPetActivityTone::Normal;
-                    self.runtime_service.desktop_pet_set_bubble_visible(false);
-                } else if action_id == DESKTOP_PET_HIDE {
-                    self.runtime_service.desktop_pet_set_bubble_visible(false);
                 }
-                self.status_message = match action_id {
-                    DESKTOP_PET_MUTE_30_MINUTES => "desktop pet muted for 30 minutes".to_string(),
-                    DESKTOP_PET_MUTE_1_HOUR => "desktop pet muted for 1 hour".to_string(),
-                    DESKTOP_PET_MUTE_TODAY => "desktop pet muted until tomorrow".to_string(),
-                    DESKTOP_PET_SKIP_LINE => "desktop pet line skipped".to_string(),
-                    DESKTOP_PET_SPEAK_MORE => "desktop pet speech frequency increased".to_string(),
-                    DESKTOP_PET_SPEAK_LESS => "desktop pet speech frequency lowered".to_string(),
-                    DESKTOP_PET_HIDE => {
-                        window.remove_window();
-                        "desktop pet hidden".to_string()
-                    }
-                    _ => "desktop pet action applied".to_string(),
-                };
+                self.status_message = desktop_pet_action_status(action_id).to_string();
             }
             Err(error) => {
                 self.status_message = format!("failed to apply desktop pet action: {error}");
@@ -786,6 +983,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let trimmed_species = species.trim();
+        let window_handle = window.window_handle();
         if let Some(custom_id) = trimmed_species.strip_prefix("custom:") {
             if let Some(custom_pet) = self
                 .pet_custom_pets
@@ -793,39 +991,40 @@ impl CoduxApp {
                 .find(|pet| pet.id == custom_id)
                 .cloned()
             {
-                let custom_pet = self.runtime_service.hydrate_custom_pet_data_url(custom_pet);
+                let display_name = custom_pet.display_name.clone();
                 let request = PetClaimRequest {
-                    species: format!("custom:{}", custom_pet.id),
+                    species: format!("custom:{}", custom_pet.id.clone()),
                     custom_name: custom_name.trim().to_string(),
-                    custom_pet: Some(custom_pet.clone()),
+                    custom_pet: Some(custom_pet),
                     _projects: Vec::new(),
                 };
-                match self.runtime_service.claim_pet_from_indexed_history(request) {
-                    Ok(_) => {
-                        self.refresh_pet_cache();
-                        let revision = publish_pet_update();
-                        if revision > 0 {
-                            self.pet_update_seen_revision = revision;
-                        }
-                        if self.window_mode == AppWindowMode::Main {
-                            self.sync_desktop_pet_window(false, cx);
-                        }
-                        self.status_message =
-                            format!("custom pet claimed: {}", custom_pet.display_name);
-                        defer_remove_current_window(window, cx);
-                    }
-                    Err(error) => {
-                        self.status_message = format!("failed to claim custom pet: {error}");
-                    }
-                }
+                self.run_pet_change_async(
+                    "claim_custom_pet",
+                    format!("claiming custom pet: {display_name}"),
+                    move |service| {
+                        let request = PetClaimRequest {
+                            custom_pet: request
+                                .custom_pet
+                                .map(|pet| service.hydrate_custom_pet_data_url(pet)),
+                            ..request
+                        };
+                        service.claim_pet_from_indexed_history(request).map(|_| ())
+                    },
+                    move |app, cx| {
+                        app.status_message = format!("custom pet claimed: {display_name}");
+                        let _ = window_handle.update(cx, |_root, window, _cx| {
+                            window.remove_window();
+                        });
+                    },
+                    cx,
+                );
                 self.invalidate_ui_region(cx, UiRegion::Root);
                 return;
             }
         }
 
         let species = if trimmed_species.is_empty() {
-            self.runtime_service
-                .pet_catalog()
+            self.pet_catalog
                 .species
                 .first()
                 .map(|item| item.species.clone())
@@ -840,21 +1039,18 @@ impl CoduxApp {
             _projects: Vec::new(),
         };
 
-        match self.runtime_service.claim_pet_from_indexed_history(request) {
-            Ok(_) => {
-                self.refresh_pet_cache();
-                let revision = publish_pet_update();
-                if revision > 0 {
-                    self.pet_update_seen_revision = revision;
-                }
-                if self.window_mode == AppWindowMode::Main {
-                    self.sync_desktop_pet_window(false, cx);
-                }
-                self.status_message = "pet claimed".to_string();
-                defer_remove_current_window(window, cx);
-            }
-            Err(error) => self.status_message = format!("failed to claim pet: {error}"),
-        }
+        self.run_pet_change_async(
+            "claim_pet",
+            "claiming pet".to_string(),
+            move |service| service.claim_pet_from_indexed_history(request).map(|_| ()),
+            move |app, cx| {
+                app.status_message = "pet claimed".to_string();
+                let _ = window_handle.update(cx, |_root, window, _cx| {
+                    window.remove_window();
+                });
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -870,23 +1066,19 @@ impl CoduxApp {
             return;
         }
 
-        match self.runtime_service.rename_pet(PetRenameRequest {
+        let request = PetRenameRequest {
             custom_name: custom_name.trim().to_string(),
-        }) {
-            Ok(_) => {
-                self.refresh_pet_cache();
-                let revision = publish_pet_update();
-                if revision > 0 {
-                    self.pet_update_seen_revision = revision;
-                }
-                if self.window_mode == AppWindowMode::Main {
-                    self.sync_desktop_pet_window(false, cx);
-                }
-                self.pet_name_editing = false;
-                self.status_message = "pet renamed".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to rename pet: {error}"),
-        }
+        };
+        self.run_pet_change_async(
+            "rename_pet",
+            "renaming pet".to_string(),
+            move |service| service.rename_pet(request).map(|_| ()),
+            |app, _cx| {
+                app.pet_name_editing = false;
+                app.status_message = "pet renamed".to_string();
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -940,21 +1132,16 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.archive_current_pet() {
-            Ok(_) => {
-                self.refresh_pet_cache();
-                self.pet_dex_spotlight = None;
-                let revision = publish_pet_update();
-                if revision > 0 {
-                    self.pet_update_seen_revision = revision;
-                }
-                if self.window_mode == AppWindowMode::Main {
-                    self.sync_desktop_pet_window(false, cx);
-                }
-                self.status_message = "pet archived".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to archive pet: {error}"),
-        }
+        self.run_pet_change_async(
+            "archive_pet",
+            "archiving pet".to_string(),
+            |service| service.archive_current_pet().map(|_| ()),
+            |app, _cx| {
+                app.pet_dex_spotlight = None;
+                app.status_message = "pet archived".to_string();
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1139,6 +1326,7 @@ impl CoduxApp {
                                 MouseButton::Right,
                                 cx.listener(
                                     move |_app, event: &gpui::MouseDownEvent, window, cx| {
+                                        _app.runtime_trace("desktop-pet", "native_menu open");
                                         macos_window::spawn_desktop_pet_native_menu(
                                             window,
                                             event.position,

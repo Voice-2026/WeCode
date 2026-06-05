@@ -1,23 +1,50 @@
 use super::*;
 
 impl CoduxApp {
+    pub(super) fn set_terminal_font_family(
+        &mut self,
+        family: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.settings.terminal_font_family == family {
+            return;
+        }
+        self.save_settings_async(
+            "set_terminal_font_family",
+            "saving terminal font family",
+            move |service| service.set_terminal_font_family(&family),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.apply_terminal_text_settings(cx);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
     pub(super) fn set_terminal_font_size(
         &mut self,
         size: String,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_terminal_font_size(&size) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.apply_terminal_text_settings(cx);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_terminal_font_size",
+            "saving terminal font size",
+            move |service| service.set_terminal_font_size(&size),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.apply_terminal_text_settings(cx);
+                app.status_message = format!(
                     "terminal font size saved: {}",
-                    self.state.settings.terminal_font_size
+                    app.state.settings.terminal_font_size
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save font size: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -30,16 +57,20 @@ impl CoduxApp {
         if self.state.settings.terminal_scrollback_lines == lines {
             return;
         }
-        match self.runtime_service.set_terminal_scrollback_value(&lines) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_terminal_scrollback_lines",
+            "saving terminal scrollback",
+            move |service| service.set_terminal_scrollback_value(&lines),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "terminal scrollback saved: {}",
-                    self.state.settings.terminal_scrollback_lines
+                    app.state.settings.terminal_scrollback_lines
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save scrollback: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -126,10 +157,131 @@ impl CoduxApp {
         }
     }
 
+    pub(super) fn apply_async_settings_summary(&mut self, settings: SettingsSummary) {
+        self.apply_settings_summary_local(settings);
+        let revision = publish_settings_update();
+        publish_child_window_update(ChildWindowUpdateKind::Settings);
+        if revision > 0 {
+            self.settings_seen_revision = revision;
+        }
+    }
+
+    fn save_settings_async(
+        &mut self,
+        action: &'static str,
+        status: &'static str,
+        save: impl FnOnce(RuntimeService) -> Result<SettingsSummary, String> + Send + 'static,
+        apply: impl FnOnce(&mut CoduxApp, SettingsSummary, &mut Context<CoduxApp>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let service = self.runtime_service.clone();
+        self.runtime_trace("settings", &format!("{action} queued"));
+        self.status_message = status.to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend("settings", &format!("{action} start"));
+                let result = save(service.clone());
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend("settings", &format!("{action} ok")),
+                    Err(error) => service.runtime_trace_frontend(
+                        "settings",
+                        &format!("{action} failed error={error}"),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join settings save: {error}")));
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(settings) => apply(app, settings, cx),
+                Err(error) => {
+                    app.status_message = format!("failed to save settings: {error}");
+                    app.invalidate_ui_region(cx, UiRegion::Root);
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn run_settings_task_async<T: Send + 'static>(
+        &mut self,
+        action: &'static str,
+        status: &'static str,
+        task: impl FnOnce(RuntimeService) -> Result<T, String> + Send + 'static,
+        apply: impl FnOnce(&mut CoduxApp, T, &mut Context<CoduxApp>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let service = self.runtime_service.clone();
+        self.runtime_trace("settings", &format!("{action} queued"));
+        self.status_message = status.to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend("settings", &format!("{action} start"));
+                let result = task(service.clone());
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend("settings", &format!("{action} ok")),
+                    Err(error) => service.runtime_trace_frontend(
+                        "settings",
+                        &format!("{action} failed error={error}"),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join settings task: {error}")));
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(value) => apply(app, value, cx),
+                Err(error) => {
+                    app.status_message = format!("failed to update settings: {error}");
+                    app.invalidate_ui_region(cx, UiRegion::Root);
+                }
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn set_theme(&mut self, theme: String, window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.set_theme(&theme) {
+        let service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.runtime_trace("settings", &format!("set_theme queued value={theme}"));
+        self.status_message = "saving theme".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service
+                    .runtime_trace_frontend("settings", &format!("set_theme start value={theme}"));
+                let result = service.set_theme(&theme);
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend("settings", "set_theme ok"),
+                    Err(error) => service.runtime_trace_frontend(
+                        "settings",
+                        &format!("set_theme failed error={error}"),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join theme save: {error}")));
+            let _ = window_handle.update(cx, |_root, window, cx| {
+                let _ = this.update(cx, |app, cx| {
+                    app.apply_theme_save_result(result, window, cx);
+                });
+            });
+        })
+        .detach();
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    fn apply_theme_save_result(
+        &mut self,
+        result: Result<SettingsSummary, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
             Ok(settings) => {
-                self.apply_settings_summary(settings);
+                self.apply_async_settings_summary(settings);
                 theme::apply_component_theme(
                     &self.state.settings.theme,
                     &self.state.settings.theme_color,
@@ -150,9 +302,50 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_theme_color(&theme_color) {
+        let service = self.runtime_service.clone();
+        let window_handle = window.window_handle();
+        self.runtime_trace(
+            "settings",
+            &format!("set_theme_color queued value={theme_color}"),
+        );
+        self.status_message = "saving theme color".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service.runtime_trace_frontend(
+                    "settings",
+                    &format!("set_theme_color start value={theme_color}"),
+                );
+                let result = service.set_theme_color(&theme_color);
+                match &result {
+                    Ok(_) => service.runtime_trace_frontend("settings", "set_theme_color ok"),
+                    Err(error) => service.runtime_trace_frontend(
+                        "settings",
+                        &format!("set_theme_color failed error={error}"),
+                    ),
+                }
+                result
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join theme color save: {error}")));
+            let _ = window_handle.update(cx, |_root, window, cx| {
+                let _ = this.update(cx, |app, cx| {
+                    app.apply_theme_color_save_result(result, window, cx);
+                });
+            });
+        })
+        .detach();
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    fn apply_theme_color_save_result(
+        &mut self,
+        result: Result<SettingsSummary, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
             Ok(settings) => {
-                self.apply_settings_summary(settings);
+                self.apply_async_settings_summary(settings);
                 theme::apply_component_theme(
                     &self.state.settings.theme,
                     &self.state.settings.theme_color,
@@ -174,33 +367,40 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_icon_style(&icon_style) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                let _ = codux_runtime::app_icon::apply_app_icon(&self.state.settings.icon_style);
-                self.status_message =
-                    format!("icon style saved: {}", self.state.settings.icon_style);
-            }
-            Err(error) => self.status_message = format!("failed to save icon style: {error}"),
-        }
+        self.save_settings_async(
+            "set_icon_style",
+            "saving icon style",
+            move |service| service.set_icon_style(&icon_style),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                let _ = codux_runtime::app_icon::apply_app_icon(&app.state.settings.icon_style);
+                app.status_message = format!("icon style saved: {}", app.state.settings.icon_style);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_dock_badge(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.toggle_dock_badge() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "toggle_dock_badge",
+            "saving dock badge",
+            |service| service.toggle_dock_badge(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "dock badge saved: {}",
-                    if self.state.settings.shows_dock_badge {
+                    if app.state.settings.shows_dock_badge {
                         "on"
                     } else {
                         "off"
                     }
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save dock badge: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -210,44 +410,57 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_language(&language) {
-            Ok(settings) => {
-                self.state.settings = settings_with_active_restart_locked_values(&settings);
-                self.status_message = "language saved. Restart Codux to apply it.".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to save language: {error}"),
-        }
-        self.invalidate_ui_region(cx, UiRegion::Root);
-    }
-
-    pub(super) fn set_shell(
-        &mut self,
-        shell: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match self.runtime_service.set_shell(&shell) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!("shell saved: {}", self.state.settings.shell);
-            }
-            Err(error) => self.status_message = format!("failed to save shell: {error}"),
-        }
+        self.pending_restart_language = active_settings_snapshot()
+            .filter(|active| active.language == language)
+            .map(|_| None)
+            .unwrap_or_else(|| Some(language.clone()));
+        self.save_settings_async(
+            "set_language",
+            "saving language",
+            move |service| service.set_language(&language),
+            |app, settings, cx| {
+                let saved_language = settings.language.clone();
+                app.apply_async_settings_summary(settings);
+                app.pending_restart_language = active_settings_snapshot()
+                    .filter(|active| active.language == saved_language)
+                    .map(|_| None)
+                    .unwrap_or(Some(saved_language));
+                let message = super::settings::settings_text(
+                    &app.state.settings.language,
+                    "settings.language.restart_required",
+                    "Restart the app to apply the selected language.",
+                );
+                app.status_message = message.clone();
+                app.show_toast(message, cx);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_developer_hud(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.toggle_developer_hud() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                if self.state.settings.developer_hud {
-                    self.state.performance = self.runtime_service.reload_performance();
+        self.run_settings_task_async(
+            "toggle_developer_hud",
+            "saving developer HUD",
+            |service| {
+                let settings = service.toggle_developer_hud()?;
+                let performance = settings
+                    .developer_hud
+                    .then(codux_runtime::performance::PerformanceService::summary);
+                Ok((settings, performance))
+            },
+            |app, (settings, performance), cx| {
+                app.apply_async_settings_summary(settings);
+                if let Some(performance) = performance {
+                    app.state.performance = performance;
                 }
-                self.normalize_selected_ai_provider();
-                self.status_message = "developer HUD setting saved".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to save developer HUD: {error}"),
-        }
+                app.normalize_selected_ai_provider();
+                app.status_message = "developer HUD setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -257,39 +470,48 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_developer_refresh(&seconds) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_developer_refresh",
+            "saving developer refresh",
+            move |service| service.set_developer_refresh(&seconds),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "developer refresh saved: {}",
-                    self.state.settings.developer_refresh
+                    app.state.settings.developer_refresh
                 );
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save developer refresh: {error}")
-            }
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_update_enabled(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.toggle_update_enabled() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.state.update = self
-                    .runtime_service
-                    .reload_update_settings(std::env::current_dir().unwrap_or_default());
-                self.status_message = format!(
+        let repo_root = std::env::current_dir().unwrap_or_default();
+        self.run_settings_task_async(
+            "toggle_update_enabled",
+            "saving update setting",
+            move |service| {
+                let settings = service.toggle_update_enabled()?;
+                let update = service.reload_update_settings(repo_root);
+                Ok((settings, update))
+            },
+            |app, (settings, update), cx| {
+                app.apply_async_settings_summary(settings);
+                app.state.update = update;
+                app.status_message = format!(
                     "update setting saved: {}",
-                    if self.state.settings.update_enabled {
+                    if app.state.settings.update_enabled {
                         "on"
                     } else {
                         "off"
                     }
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save update setting: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -299,35 +521,37 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_statistics_mode(&mode) {
-            Ok(settings) => {
-                self.apply_settings_summary_local(settings);
+        self.save_settings_async(
+            "set_statistics_mode",
+            "saving AI statistics mode",
+            move |service| service.set_statistics_mode(&mode),
+            |app, settings, cx| {
+                app.apply_settings_summary_local(settings);
                 let revision = publish_statistics_settings_update();
                 publish_child_window_update(ChildWindowUpdateKind::Settings);
                 if revision > 0 {
-                    self.settings_seen_revision = revision;
+                    app.settings_seen_revision = revision;
                 }
-                self.status_message = format!(
+                app.status_message = format!(
                     "AI statistics mode saved: {}",
-                    self.state.settings.statistics_mode
+                    app.state.settings.statistics_mode
                 );
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save AI statistics mode: {error}")
-            }
-        }
-        if self.window_mode == AppWindowMode::Main {
-            self.invalidate_ui(
-                cx,
-                [
-                    UiRegion::WorkspaceAssistant,
-                    UiRegion::AIStatsSidebar,
-                    UiRegion::StatusBar,
-                ],
-            );
-        } else {
-            self.invalidate_ui_region(cx, UiRegion::Root);
-        }
+                if app.window_mode == AppWindowMode::Main {
+                    app.invalidate_ui(
+                        cx,
+                        [
+                            UiRegion::WorkspaceAssistant,
+                            UiRegion::AIStatsSidebar,
+                            UiRegion::StatusBar,
+                        ],
+                    );
+                } else {
+                    app.invalidate_ui_region(cx, UiRegion::Root);
+                }
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_git_refresh(
@@ -336,14 +560,18 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_git_refresh(&seconds) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message =
-                    format!("Git refresh saved: {}", self.state.settings.git_refresh);
-            }
-            Err(error) => self.status_message = format!("failed to save Git refresh: {error}"),
-        }
+        self.save_settings_async(
+            "set_git_refresh",
+            "saving Git refresh",
+            move |service| service.set_git_refresh(&seconds),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message =
+                    format!("Git refresh saved: {}", app.state.settings.git_refresh);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -353,14 +581,17 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_ai_refresh(&seconds) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message =
-                    format!("AI refresh saved: {}", self.state.settings.ai_refresh);
-            }
-            Err(error) => self.status_message = format!("failed to save AI refresh: {error}"),
-        }
+        self.save_settings_async(
+            "set_ai_refresh",
+            "saving AI refresh",
+            move |service| service.set_ai_refresh(&seconds),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!("AI refresh saved: {}", app.state.settings.ai_refresh);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -370,37 +601,43 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_ai_background_refresh(&seconds) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_ai_background_refresh",
+            "saving AI background refresh",
+            move |service| service.set_ai_background_refresh(&seconds),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "AI background refresh saved: {}",
-                    self.state.settings.ai_background_refresh
+                    app.state.settings.ai_background_refresh
                 );
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save AI background refresh: {error}")
-            }
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_enabled(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.toggle_pet_enabled() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.sync_desktop_pet_window(false, cx);
-                self.status_message = format!(
+        self.save_settings_async(
+            "toggle_pet_enabled",
+            "saving pet setting",
+            |service| service.toggle_pet_enabled(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.sync_desktop_pet_window(false, cx);
+                app.status_message = format!(
                     "pet setting saved: {}",
-                    if self.state.settings.pet_enabled {
+                    if app.state.settings.pet_enabled {
                         "on"
                     } else {
                         "off"
                     }
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save pet setting: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -409,58 +646,161 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.toggle_pet_desktop_widget() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                let enabled = self.state.settings.pet_desktop_widget;
-                self.status_message = format!(
+        self.save_settings_async(
+            "toggle_pet_desktop_widget",
+            "saving desktop pet setting",
+            |service| service.toggle_pet_desktop_widget(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                let enabled = app.state.settings.pet_desktop_widget;
+                app.status_message = format!(
                     "desktop pet setting saved: {}",
                     if enabled { "on" } else { "off" }
                 );
-                if self.window_mode == AppWindowMode::Main {
-                    self.sync_desktop_pet_window(false, cx);
+                if app.window_mode == AppWindowMode::Main {
+                    app.sync_desktop_pet_window(false, cx);
                 }
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save desktop pet setting: {error}")
-            }
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_static_mode(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.toggle_pet_static_mode() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "toggle_pet_static_mode",
+            "saving pet static mode",
+            |service| service.toggle_pet_static_mode(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "pet static mode saved: {}",
-                    if self.state.settings.pet_static_mode {
+                    if app.state.settings.pet_static_mode {
                         "on"
                     } else {
                         "off"
                     }
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save pet static mode: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn toggle_pet_reminders(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        match self.runtime_service.toggle_pet_reminders() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "toggle_pet_reminders",
+            "saving pet reminders",
+            |service| service.toggle_pet_reminders(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "pet reminders saved: {}",
-                    if self.state.settings.pet_reminders {
+                    if app.state.settings.pet_reminders {
                         "on"
                     } else {
                         "off"
                     }
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save pet reminders: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn toggle_pet_sedentary_reminders(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "toggle_pet_sedentary_reminders",
+            "saving pet sedentary reminders",
+            |service| service.toggle_pet_sedentary_reminders(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn toggle_pet_late_night_reminders(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "toggle_pet_late_night_reminders",
+            "saving pet late-night reminders",
+            |service| service.toggle_pet_late_night_reminders(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn set_pet_hydration_reminder_minutes(
+        &mut self,
+        minutes: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "set_pet_hydration_reminder_minutes",
+            "saving pet hydration reminder interval",
+            move |service| service.set_pet_hydration_reminder_minutes(&minutes),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn set_pet_sedentary_reminder_minutes(
+        &mut self,
+        minutes: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "set_pet_sedentary_reminder_minutes",
+            "saving pet sedentary reminder interval",
+            move |service| service.set_pet_sedentary_reminder_minutes(&minutes),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn set_pet_late_night_reminder_minutes(
+        &mut self,
+        minutes: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "set_pet_late_night_reminder_minutes",
+            "saving pet late-night reminder interval",
+            move |service| service.set_pet_late_night_reminder_minutes(&minutes),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -470,16 +810,20 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_pet_speech_mode(&mode) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_pet_speech_mode",
+            "saving pet speech mode",
+            move |service| service.set_pet_speech_mode(&mode),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "pet speech mode saved: {}",
-                    self.state.settings.pet_speech_mode
+                    app.state.settings.pet_speech_mode
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save pet speech mode: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -489,18 +833,20 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_pet_speech_frequency(&frequency) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_pet_speech_frequency",
+            "saving pet speech frequency",
+            move |service| service.set_pet_speech_frequency(&frequency),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "pet speech frequency saved: {}",
-                    self.state.settings.pet_speech_frequency
+                    app.state.settings.pet_speech_frequency
                 );
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save pet speech frequency: {error}")
-            }
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -509,20 +855,24 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.toggle_pet_speech_llm_enabled() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "toggle_pet_speech_llm_enabled",
+            "saving pet speech LLM",
+            |service| service.toggle_pet_speech_llm_enabled(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "pet speech LLM saved: {}",
-                    if self.state.settings.pet_speech_llm_enabled {
+                    if app.state.settings.pet_speech_llm_enabled {
                         "on"
                     } else {
                         "off"
                     }
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save pet speech LLM: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -531,16 +881,17 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.toggle_pet_speech_quiet_during_work() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "pet speech work-hours setting saved".to_string();
-            }
-            Err(error) => {
-                self.status_message =
-                    format!("failed to save pet speech work-hours setting: {error}")
-            }
-        }
+        self.save_settings_async(
+            "toggle_pet_speech_quiet_during_work",
+            "saving pet speech work-hours setting",
+            |service| service.toggle_pet_speech_quiet_during_work(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "pet speech work-hours setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -549,15 +900,17 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.toggle_pet_speech_louder_at_night() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "pet speech night setting saved".to_string();
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save pet speech night setting: {error}")
-            }
-        }
+        self.save_settings_async(
+            "toggle_pet_speech_louder_at_night",
+            "saving pet speech night setting",
+            |service| service.toggle_pet_speech_louder_at_night(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "pet speech night setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -566,16 +919,17 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.toggle_pet_speech_mute_on_fullscreen() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "pet speech fullscreen setting saved".to_string();
-            }
-            Err(error) => {
-                self.status_message =
-                    format!("failed to save pet speech fullscreen setting: {error}")
-            }
-        }
+        self.save_settings_async(
+            "toggle_pet_speech_mute_on_fullscreen",
+            "saving pet speech fullscreen setting",
+            |service| service.toggle_pet_speech_mute_on_fullscreen(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "pet speech fullscreen setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -584,30 +938,32 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.toggle_pet_speech_quiet_hours() {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "pet speech quiet-hours setting saved".to_string();
-            }
-            Err(error) => {
-                self.status_message =
-                    format!("failed to save pet speech quiet-hours setting: {error}")
-            }
-        }
+        self.save_settings_async(
+            "toggle_pet_speech_quiet_hours",
+            "saving pet speech quiet-hours setting",
+            |service| service.toggle_pet_speech_quiet_hours(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "pet speech quiet-hours setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
     pub(super) fn set_pet_speech_temporary_mute(&mut self, muted: bool, cx: &mut Context<Self>) {
-        match self.runtime_service.set_pet_speech_temporary_mute(muted) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "pet speech temporary mute setting saved".to_string();
-            }
-            Err(error) => {
-                self.status_message =
-                    format!("failed to save pet speech temporary mute setting: {error}")
-            }
-        }
+        self.save_settings_async(
+            "set_pet_speech_temporary_mute",
+            "saving pet speech temporary mute setting",
+            move |service| service.set_pet_speech_temporary_mute(muted),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "pet speech temporary mute setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -751,19 +1107,20 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_update_channel(&channel) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.state.update = self
-                    .runtime_service
-                    .reload_update_settings(std::env::current_dir().unwrap_or_default());
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_update_channel",
+            "saving update channel",
+            move |service| service.set_update_channel(&channel),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "update channel saved: {}",
-                    self.state.settings.update_channel
+                    app.state.settings.update_channel
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save update channel: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1051,14 +1408,18 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_ai_memory_bool(key, value) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "memory setting saved".to_string();
-                prepare_memory_launch_artifacts(&self.state);
-            }
-            Err(error) => self.status_message = format!("failed to save memory setting: {error}"),
-        }
+        self.save_settings_async(
+            "set_ai_memory_bool",
+            "saving memory setting",
+            move |service| service.set_ai_memory_bool(key, value),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "memory setting saved".to_string();
+                prepare_memory_launch_artifacts(&app.state);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1069,13 +1430,17 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_ai_memory_number(key, &value) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "memory setting saved".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to save memory setting: {error}"),
-        }
+        self.save_settings_async(
+            "set_ai_memory_number",
+            "saving memory setting",
+            move |service| service.set_ai_memory_number(key, &value),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "memory setting saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1085,13 +1450,17 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_ai_memory_provider(&provider_id) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = "memory extraction provider saved".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to save memory provider: {error}"),
-        }
+        self.save_settings_async(
+            "set_ai_memory_provider",
+            "saving memory provider",
+            move |service| service.set_ai_memory_provider(&provider_id),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = "memory extraction provider saved".to_string();
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1140,16 +1509,20 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_git_commit_tone(&tone) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_git_commit_tone",
+            "saving Git commit style",
+            move |service| service.set_git_commit_tone(&tone),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "Git commit style saved: {}",
-                    self.state.settings.git_commit_tone
+                    app.state.settings.git_commit_tone
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save Git commit style: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1159,18 +1532,20 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_git_commit_language(&language) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.status_message = format!(
+        self.save_settings_async(
+            "set_git_commit_language",
+            "saving Git commit language",
+            move |service| service.set_git_commit_language(&language),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
                     "Git commit language saved: {}",
-                    self.state.settings.git_commit_language
+                    app.state.settings.git_commit_language
                 );
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save Git commit language: {error}")
-            }
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1181,19 +1556,22 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self
-            .runtime_service
-            .set_runtime_tool_permission(tool_key, &permission)
-        {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
-                self.status_message = format!("{tool_key} permission saved");
-            }
-            Err(error) => {
-                self.status_message = format!("failed to save {tool_key} permission: {error}")
-            }
-        }
+        self.run_settings_task_async(
+            "set_runtime_tool_permission",
+            "saving runtime tool permission",
+            move |service| {
+                let settings = service.set_runtime_tool_permission(tool_key, &permission)?;
+                let permissions = service.sync_tool_permissions();
+                Ok((settings, permissions))
+            },
+            move |app, (settings, permissions), cx| {
+                app.apply_async_settings_summary(settings);
+                app.state.tool_permissions = permissions;
+                app.status_message = format!("{tool_key} permission saved");
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1204,17 +1582,22 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self
-            .runtime_service
-            .set_runtime_tool_model(model_key, &model)
-        {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
-                self.status_message = format!("{model_key} saved");
-            }
-            Err(error) => self.status_message = format!("failed to save {model_key}: {error}"),
-        }
+        self.run_settings_task_async(
+            "set_runtime_tool_model",
+            "saving runtime tool model",
+            move |service| {
+                let settings = service.set_runtime_tool_model(model_key, &model)?;
+                let permissions = service.sync_tool_permissions();
+                Ok((settings, permissions))
+            },
+            move |app, (settings, permissions), cx| {
+                app.apply_async_settings_summary(settings);
+                app.state.tool_permissions = permissions;
+                app.status_message = format!("{model_key} saved");
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
@@ -1224,17 +1607,25 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_codex_effort(&effort) {
-            Ok(settings) => {
-                self.apply_settings_summary(settings);
-                self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
-                self.status_message = format!(
+        self.run_settings_task_async(
+            "set_codex_effort",
+            "saving Codex effort",
+            move |service| {
+                let settings = service.set_codex_effort(&effort)?;
+                let permissions = service.sync_tool_permissions();
+                Ok((settings, permissions))
+            },
+            |app, (settings, permissions), cx| {
+                app.apply_async_settings_summary(settings);
+                app.state.tool_permissions = permissions;
+                app.status_message = format!(
                     "Codex effort saved: {}",
-                    self.state.tool_permissions.codex_effort
+                    app.state.tool_permissions.codex_effort
                 );
-            }
-            Err(error) => self.status_message = format!("failed to save Codex effort: {error}"),
-        }
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
