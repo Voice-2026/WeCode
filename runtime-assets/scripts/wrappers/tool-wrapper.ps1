@@ -93,6 +93,22 @@ function Read-Tool-Settings {
   }
 }
 
+function Tool-Memory-Injection-Strategy([string]$Name) {
+  $path = Join-Path $wrapperDir "tool-drivers.json"
+  if (-not (Test-Path -LiteralPath $path)) { return "" }
+  try {
+    $payload = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    foreach ($driver in @($payload.tools)) {
+      $aliases = @($driver.aliases | ForEach-Object { [string]$_ })
+      if ($aliases -contains $Name.ToLowerInvariant()) {
+        return [string]$driver.memoryInjection
+      }
+    }
+  } catch {
+  }
+  return ""
+}
+
 function Tool-Config-Key([string]$Name) {
   switch ($Name) {
     "codex" { "codex" }
@@ -299,6 +315,7 @@ if ([string]::IsNullOrWhiteSpace($realBin)) {
 }
 
 $settings = Read-Tool-Settings
+$memoryInjectionStrategy = Tool-Memory-Injection-Strategy $Tool
 $permissionKey = Tool-Config-Key $Tool
 $modelKey = Tool-Model-Key $Tool
 $permissionMode = if ($settings -and $permissionKey) { [string]$settings.$permissionKey } else { "" }
@@ -318,7 +335,7 @@ if ($Tool -eq "codex" -and -not [string]::IsNullOrWhiteSpace($codexEffort) -and 
   $launchArgs = @("-c", "model_reasoning_effort=`"$codexEffort`"") + $launchArgs
 }
 
-if ($Tool -eq "codex" -and
+if ($memoryInjectionStrategy -eq "codexDeveloperInstructions" -and
     $permissionMode -ne "fullAccess" -and
     -not [string]::IsNullOrWhiteSpace($env:DMUX_AI_MEMORY_WORKSPACE_ROOT) -and
     (Test-Path -LiteralPath $env:DMUX_AI_MEMORY_WORKSPACE_ROOT) -and
@@ -328,7 +345,7 @@ if ($Tool -eq "codex" -and
   $launchArgs = @("--sandbox", "workspace-write") + $launchArgs
 }
 
-if ($Tool -eq "codex" -and
+if ($memoryInjectionStrategy -eq "codexDeveloperInstructions" -and
     -not [string]::IsNullOrWhiteSpace($env:DMUX_AI_MEMORY_WORKSPACE_ROOT) -and
     (Test-Path -LiteralPath $env:DMUX_AI_MEMORY_WORKSPACE_ROOT) -and
     -not [string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_PATH) -and
@@ -338,7 +355,7 @@ if ($Tool -eq "codex" -and
   $launchArgs = @("-C", $env:DMUX_PROJECT_PATH, "--add-dir", $env:DMUX_AI_MEMORY_WORKSPACE_ROOT) + $launchArgs
 }
 
-if ($Tool -eq "codex" -and
+if ($memoryInjectionStrategy -eq "codexDeveloperInstructions" -and
     -not [string]::IsNullOrWhiteSpace($env:DMUX_AI_MEMORY_WORKSPACE_ROOT) -and
     (Test-Path -LiteralPath $env:DMUX_AI_MEMORY_WORKSPACE_ROOT) -and
     -not (Has-Config-Key $launchArgs "developer_instructions")) {
@@ -397,7 +414,7 @@ if ($permissionMode -eq "fullAccess") {
   }
 }
 
-if (($Tool -eq "claude" -or $Tool -eq "claude-code") -and
+if ($memoryInjectionStrategy -eq "claudeAppendSystemPrompt" -and
     -not (Has-Option-Value $launchArgs @("--append-system-prompt"))) {
   $promptFile = $env:DMUX_AI_MEMORY_PROMPT_FILE
   if (-not [string]::IsNullOrWhiteSpace($promptFile) -and (Test-Path -LiteralPath $promptFile)) {

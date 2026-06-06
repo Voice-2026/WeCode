@@ -147,6 +147,38 @@ memory_prompt_file() {
   print -r -- "${DMUX_AI_MEMORY_PROMPT_FILE}"
 }
 
+tool_memory_injection_strategy() {
+  local config_path="${wrapper_dir}/tool-drivers.json"
+  [[ -f "${config_path}" ]] || return 0
+  TOOL_NAME="${tool_name}" CONFIG_PATH="${config_path}" /usr/bin/python3 - <<'PY'
+import json
+import os
+
+tool = os.environ.get("TOOL_NAME", "").strip().lower()
+path = os.environ.get("CONFIG_PATH", "")
+if not tool or not path:
+    raise SystemExit(0)
+
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception:
+    raise SystemExit(0)
+
+for driver in payload.get("tools", []):
+    aliases = driver.get("aliases")
+    if isinstance(aliases, list) and tool in aliases:
+        strategy = driver.get("memoryInjection")
+        if isinstance(strategy, str):
+            print(strategy)
+        break
+PY
+}
+
+tool_uses_memory_injection() {
+  [[ "${memory_injection_strategy:-}" == "${1:-}" ]]
+}
+
 tool_permission_settings_path() {
   [[ -n "${DMUX_TOOL_PERMISSION_SETTINGS_FILE:-}" ]] || return 0
   print -r -- "${DMUX_TOOL_PERMISSION_SETTINGS_FILE}"
@@ -365,7 +397,7 @@ codex_has_sandbox_mode_arg() {
 }
 
 apply_default_codex_memory_sandbox_arg() {
-  [[ "${tool_name}" == "codex" ]] || return 0
+  tool_uses_memory_injection "codexDeveloperInstructions" || return 0
   [[ -n "${DMUX_AI_MEMORY_WORKSPACE_ROOT:-}" && -d "${DMUX_AI_MEMORY_WORKSPACE_ROOT}" ]] || return 0
   [[ -n "${DMUX_PROJECT_PATH:-}" && -d "${DMUX_PROJECT_PATH}" ]] || return 0
   codex_has_sandbox_mode_arg "${launch_args[@]}" && return 0
@@ -373,7 +405,7 @@ apply_default_codex_memory_sandbox_arg() {
 }
 
 apply_codex_memory_workspace_args() {
-  [[ "${tool_name}" == "codex" ]] || return 0
+  tool_uses_memory_injection "codexDeveloperInstructions" || return 0
   [[ -n "${DMUX_AI_MEMORY_WORKSPACE_ROOT:-}" && -d "${DMUX_AI_MEMORY_WORKSPACE_ROOT}" ]] || return 0
   [[ -n "${DMUX_PROJECT_PATH:-}" && -d "${DMUX_PROJECT_PATH}" ]] || return 0
   codex_allows_additional_writable_roots "${launch_args[@]}" || return 0
@@ -396,7 +428,7 @@ PY
 }
 
 apply_codex_memory_developer_instructions() {
-  [[ "${tool_name}" == "codex" ]] || return 0
+  tool_uses_memory_injection "codexDeveloperInstructions" || return 0
   [[ -n "${DMUX_AI_MEMORY_WORKSPACE_ROOT:-}" && -d "${DMUX_AI_MEMORY_WORKSPACE_ROOT}" ]] || return 0
   local memory_agents="${DMUX_AI_MEMORY_WORKSPACE_ROOT}/AGENTS.md"
   [[ -f "${memory_agents}" ]] || return 0
@@ -553,6 +585,8 @@ write_claude_session_map() {
   /bin/mv -f -- "${tmp}" "${path}"
 }
 
+memory_injection_strategy="$(tool_memory_injection_strategy || true)"
+
 if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
   helper_script="${wrapper_dir}/dmux-ai-state.sh"
   if [[ -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_EVENT_DIR:-}" ]]; then
@@ -570,7 +604,8 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
       && ! has_prefix_arg "--permission-mode=" "${launch_args[@]}"; then
       launch_args=(--dangerously-skip-permissions "${launch_args[@]}")
     fi
-    if [[ -n "${claude_memory_prompt_file}" ]] \
+    if tool_uses_memory_injection "claudeAppendSystemPrompt" \
+      && [[ -n "${claude_memory_prompt_file}" ]] \
       && ! has_exact_arg "--append-system-prompt" "${launch_args[@]}" \
       && ! has_prefix_arg "--append-system-prompt=" "${launch_args[@]}"; then
       claude_memory_prompt="$(<"${claude_memory_prompt_file}")"

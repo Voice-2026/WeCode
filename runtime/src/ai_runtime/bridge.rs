@@ -7,7 +7,7 @@ use super::{
     payload::AIHookEventPayload,
     registry::{AIRuntimeRegistry, AIRuntimeTerminalState},
     supervisor::{AIRuntimeSupervisor, AIRuntimeSupervisorEvent},
-    tool_driver::ai_runtime_tool_drivers,
+    tool_driver::{ai_runtime_tool_drivers, ai_runtime_tool_launch_driver_config},
 };
 use crate::runtime_paths::{
     claude_session_map_dir_in, home_dir, opencode_session_map_dir_in, runtime_event_dir_in,
@@ -217,6 +217,7 @@ impl AIRuntimeBridge {
             &wrapper_dir.join("tool-wrapper.sh"),
             true,
         )?;
+        self.stage_tool_launch_driver_config(&wrapper_dir)?;
         #[cfg(not(windows))]
         stage_runtime_asset(
             "scripts/wrappers/codux-ssh-expect.exp",
@@ -267,6 +268,13 @@ impl AIRuntimeBridge {
         }
 
         Ok(())
+    }
+
+    fn stage_tool_launch_driver_config(&self, wrapper_dir: &Path) -> Result<(), String> {
+        let path = wrapper_dir.join("tool-drivers.json");
+        let bytes = serde_json::to_vec_pretty(&ai_runtime_tool_launch_driver_config())
+            .map_err(|error| error.to_string())?;
+        fs::write(path, bytes).map_err(|error| error.to_string())
     }
 
     pub fn wrapper_bin_dir(&self) -> &Path {
@@ -387,6 +395,19 @@ mod tests {
             dir.join("root")
                 .join("scripts/wrappers/opencode-config/package.json")
                 .is_file()
+        );
+        let launch_config: serde_json::Value = serde_json::from_slice(
+            &fs::read(dir.join("root").join("scripts/wrappers/tool-drivers.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(launch_config["tools"][0]["id"].as_str(), Some("codex"));
+        assert!(
+            launch_config["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["id"] == "claude"
+                    && tool["memoryInjection"] == "claudeAppendSystemPrompt")
         );
         fs::remove_dir_all(dir).unwrap();
     }
@@ -629,6 +650,51 @@ mod tests {
             args.lines()
                 .any(|arg| arg.starts_with("developer_instructions="))
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn claude_wrapper_applies_driver_memory_prompt_injection() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let dir =
+            std::env::temp_dir().join(format!("codux-claude-wrapper-memory-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+
+        let real_bin = dir.join("real-bin");
+        fs::create_dir_all(&real_bin).unwrap();
+        let fake_claude = real_bin.join("claude");
+        fs::write(&fake_claude, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+        let mut permissions = fs::metadata(&fake_claude).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_claude, permissions).unwrap();
+
+        let prompt_file = dir.join("memory-prompt.txt");
+        fs::write(&prompt_file, "Use Claude memory.").unwrap();
+
+        let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
+        let output = Command::new(bridge.wrapper_bin_dir().join("claude"))
+            .env("PATH", &search_path)
+            .env("DMUX_ORIGINAL_PATH", &search_path)
+            .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_RUNTIME_EVENT_DIR", dir.join("events"))
+            .env("DMUX_AI_MEMORY_PROMPT_FILE", &prompt_file)
+            .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wrapper should execute fake claude, stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let args = String::from_utf8_lossy(&output.stdout);
+        assert!(args.lines().any(|arg| arg == "--append-system-prompt"));
+        assert!(args.lines().any(|arg| arg == "Use Claude memory."));
         fs::remove_dir_all(dir).unwrap();
     }
 

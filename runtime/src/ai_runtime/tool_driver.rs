@@ -1,4 +1,5 @@
 use crate::ai_runtime::snapshot::{AIRuntimeContextSnapshot, AIRuntimeProbeRequest};
+use serde::Serialize;
 
 pub type AIRuntimeProbeFn = fn(&AIRuntimeProbeRequest) -> Option<AIRuntimeContextSnapshot>;
 
@@ -9,6 +10,7 @@ pub struct AIRuntimeToolDriver {
     pub wrapper_bins: &'static [&'static str],
     pub hook: AIRuntimeToolHookDriver,
     pub probe: Option<AIRuntimeProbeFn>,
+    pub memory_injection: AIRuntimeMemoryInjectionDriver,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -41,6 +43,28 @@ pub struct AIRuntimeHookDefinition {
     pub is_async: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AIRuntimeMemoryInjectionDriver {
+    None,
+    CodexDeveloperInstructions,
+    ClaudeAppendSystemPrompt,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeToolLaunchDriverConfig {
+    pub id: &'static str,
+    pub aliases: &'static [&'static str],
+    pub memory_injection: AIRuntimeMemoryInjectionDriver,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIRuntimeToolLaunchDriverConfigFile {
+    pub tools: Vec<AIRuntimeToolLaunchDriverConfig>,
+}
+
 pub const fn hook(
     event_key: &'static str,
     action: &'static str,
@@ -57,6 +81,19 @@ pub const fn hook(
 
 pub fn ai_runtime_tool_drivers() -> &'static [AIRuntimeToolDriver] {
     crate::ai_runtime::tool_drivers::AI_RUNTIME_TOOL_DRIVERS
+}
+
+pub fn ai_runtime_tool_launch_driver_config() -> AIRuntimeToolLaunchDriverConfigFile {
+    AIRuntimeToolLaunchDriverConfigFile {
+        tools: ai_runtime_tool_drivers()
+            .iter()
+            .map(|driver| AIRuntimeToolLaunchDriverConfig {
+                id: driver.id,
+                aliases: driver.aliases,
+                memory_injection: driver.memory_injection,
+            })
+            .collect(),
+    }
 }
 
 pub fn canonical_tool_name(tool: &str) -> Option<&'static str> {
@@ -106,5 +143,27 @@ mod tests {
         let driver = runtime_tool_driver("agy").expect("agy driver");
         assert_eq!(driver.id, "agy");
         assert!(driver.probe.is_some());
+    }
+
+    #[test]
+    fn launch_driver_config_keeps_memory_injection_per_driver() {
+        let config = ai_runtime_tool_launch_driver_config();
+        let codex = config.tools.iter().find(|tool| tool.id == "codex").unwrap();
+        let claude = config.tools.iter().find(|tool| tool.id == "claude").unwrap();
+        let codewhale = config
+            .tools
+            .iter()
+            .find(|tool| tool.id == "codewhale")
+            .unwrap();
+
+        assert_eq!(
+            codex.memory_injection,
+            AIRuntimeMemoryInjectionDriver::CodexDeveloperInstructions
+        );
+        assert_eq!(
+            claude.memory_injection,
+            AIRuntimeMemoryInjectionDriver::ClaudeAppendSystemPrompt
+        );
+        assert_eq!(codewhale.memory_injection, AIRuntimeMemoryInjectionDriver::None);
     }
 }

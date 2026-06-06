@@ -1,6 +1,8 @@
 use crate::ai_runtime::{
     probe::codewhale::probe_codewhale_runtime,
-    tool_driver::{AIRuntimeToolDriver, AIRuntimeToolHookDriver},
+    tool_driver::{
+        AIRuntimeMemoryInjectionDriver, AIRuntimeToolDriver, AIRuntimeToolHookDriver,
+    },
 };
 
 pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
@@ -9,4 +11,5 @@ pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
     wrapper_bins: &["codewhale", "codewhale-tui", "deepseek", "deepseek-tui"],
     hook: AIRuntimeToolHookDriver::CodeWhaleToml,
     probe: Some(probe_codewhale_runtime),
+    memory_injection: AIRuntimeMemoryInjectionDriver::None,
 };

@@ -1,7 +1,8 @@
 use crate::ai_runtime::{
     probe::claude::probe_claude_runtime,
     tool_driver::{
-        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeToolDriver,
+        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeMemoryInjectionDriver,
+        AIRuntimeToolDriver,
         AIRuntimeToolHookDriver, hook,
     },
 };
@@ -29,4 +30,5 @@ pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
         ],
     }),
     probe: Some(probe_claude_runtime),
+    memory_injection: AIRuntimeMemoryInjectionDriver::ClaudeAppendSystemPrompt,
 };

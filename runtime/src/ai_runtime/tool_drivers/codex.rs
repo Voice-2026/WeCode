@@ -1,7 +1,8 @@
 use crate::ai_runtime::{
     probe::codex::probe_codex_runtime,
     tool_driver::{
-        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeToolDriver,
+        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeMemoryInjectionDriver,
+        AIRuntimeToolDriver,
         AIRuntimeToolHookDriver, hook,
     },
 };
@@ -22,4 +23,5 @@ pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
         ],
     }),
     probe: Some(probe_codex_runtime),
+    memory_injection: AIRuntimeMemoryInjectionDriver::CodexDeveloperInstructions,
 };
