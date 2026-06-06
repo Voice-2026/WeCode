@@ -371,7 +371,7 @@ Function EnsureCoduxCanBeUpdated
     FileClose $0
     Goto done
   locked:
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${escapeNsis(appName)} is still running or the executable is locked.$\\\\r$\\\\n$\\\\r$\\\\nClose ${escapeNsis(appName)} and click Retry to continue." IDRETRY retry
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "${escapeNsis(appName)} is still running or the executable is locked.$\\r$\\n$\\r$\\nClose ${escapeNsis(appName)} and click Retry to continue." IDRETRY retry
     Abort
   retry:
     Call EnsureCoduxCanBeUpdated
