@@ -289,6 +289,7 @@ impl CoduxApp {
                 .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
                 .cloned()
             {
+                refresh_terminal_pane_config(&pane, &config, cx);
                 slot.pane = Some(pane);
                 continue;
             }
@@ -1160,10 +1161,7 @@ impl CoduxApp {
                         }
                         app.runtime_trace(
                             "worktree",
-                            &format!(
-                                "merge ok project={} worktree={}",
-                                project_id, worktree_id
-                            ),
+                            &format!("merge ok project={} worktree={}", project_id, worktree_id),
                         );
                         app.status_message = app.text("worktree.merge.success", "Merged worktree.");
                         app.refresh_git_panel_state_async(cx);

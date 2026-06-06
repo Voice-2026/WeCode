@@ -1248,5 +1248,4 @@ impl CoduxApp {
                 .map(|session| session.terminal_id.clone());
         }
     }
-
 }

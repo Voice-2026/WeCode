@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-06-06
+
+### Added
+
+- Added terminal URL interactions with OSC-8 links, web-link detection, hover underline, and Cmd/Ctrl-click opening.
+- Added xterm-style terminal color scheme query and update reporting so supporting TUIs can react to light/dark theme changes.
+
+### Changed
+
+- Refreshed reused terminal pane renderer settings after project and worktree switches so restored panes use the current terminal theme configuration.
+
+### Fixed
+
+- Fixed stale default terminal foreground, background, and cursor colors after switching between light and dark themes.
+- Fixed terminal panes keeping an old color palette after project or worktree restoration.
+
 ## [1.6.2] - 2026-06-06
 
 ### Added

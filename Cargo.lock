@@ -1118,6 +1118,7 @@ dependencies = [
  "portable-pty",
  "qrcode",
  "raw-window-handle",
+ "regex",
  "rust-embed",
  "rustls",
  "serde",

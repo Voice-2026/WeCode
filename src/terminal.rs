@@ -15,22 +15,23 @@ use codux_runtime::terminal_pty::{
     TerminalPtyConfig, TerminalPtySession,
 };
 use gpui::{
-    App, AppContext, Bounds, ClipboardItem, Context, Edges, Element, ElementId, Entity,
-    FocusHandle, Font, FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla, InputHandler,
-    InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent, Keystroke, LayoutId,
-    Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
-    ParentElement, Pixels, Point, Render, ScrollWheelEvent, SharedString, Size, Style, Styled,
-    Subscription, Task, TextAlign, TextRun, TouchPhase, UTF16Selection, UnderlineStyle, WeakEntity,
-    Window, div, px, quad, rgb, transparent_black,
+    App, AppContext, Bounds, ClipboardItem, Context, CursorStyle, Edges, Element, ElementId,
+    Entity, FocusHandle, Font, FontFeatures, FontStyle, FontWeight, GlobalElementId, Hsla,
+    InputHandler, InspectorElementId, InteractiveElement, IntoElement, KeyDownEvent, Keystroke,
+    LayoutId, Modifiers, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, NavigationDirection, ParentElement, Pixels, Point, Render, ScrollWheelEvent,
+    SharedString, Size, Style, Styled, Subscription, Task, TextAlign, TextRun, TouchPhase,
+    UTF16Selection, UnderlineStyle, WeakEntity, Window, div, px, quad, rgb, transparent_black,
 };
 use parking_lot::Mutex;
+use regex::Regex;
 use std::{
     collections::{HashMap, VecDeque, hash_map::DefaultHasher},
     env,
     hash::{Hash, Hasher},
     io::Write,
     ops::Range,
-    sync::{Arc, OnceLock, mpsc},
+    sync::{Arc, LazyLock, OnceLock, mpsc},
     time::{Duration, Instant},
 };
 
@@ -503,6 +504,7 @@ pub struct TerminalView {
     layout: Arc<Mutex<TerminalLayoutMetrics>>,
     selection: Arc<Mutex<SelectionState>>,
     marked_text: Option<String>,
+    hover_link: Option<TerminalLink>,
     scroll_input: TerminalScrollInputState,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
@@ -583,6 +585,7 @@ impl TerminalView {
             layout: Arc::new(Mutex::new(TerminalLayoutMetrics::default())),
             selection: Arc::new(Mutex::new(SelectionState::default())),
             marked_text: None,
+            hover_link: None,
             scroll_input: TerminalScrollInputState::default(),
             focus_in_subscription: None,
             focus_out_subscription: None,
@@ -611,6 +614,8 @@ impl TerminalView {
         self.renderer.palette = config.colors.clone();
         self.renderer.fonts = TerminalFonts::new(&config.font_family);
         self.renderer.clear_cache();
+        self.model
+            .update(cx, |model, _| model.update_colors(config.colors.clone()));
         self.config = config;
         cx.notify();
     }
@@ -665,6 +670,19 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle, cx);
         let point = self.layout.lock().cell_at(event.position);
+        if event.button == MouseButton::Left
+            && event.modifiers.secondary()
+            && let Some(link) = point.and_then(|point| self.link_at_cell(point, cx))
+        {
+            if let Err(error) = codux_runtime::app_commands::app_open_url(link.url.clone()) {
+                eprintln!("failed to open terminal link {}: {error}", link.url);
+            }
+            self.hover_link = Some(link);
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+
         if event.button == MouseButton::Left && event.modifiers.shift {
             if let Some(point) = point {
                 self.selection
@@ -748,6 +766,12 @@ impl TerminalView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !event.dragging() {
+            self.update_hover_link(event.position, event.modifiers, cx);
+        } else if self.hover_link.take().is_some() {
+            cx.notify();
+        }
+
         if self.should_report_mouse(event.modifiers.shift, cx) {
             let Some(point) = self.layout.lock().cell_at(event.position) else {
                 return;
@@ -780,6 +804,15 @@ impl TerminalView {
             cx.stop_propagation();
             cx.notify();
         }
+    }
+
+    fn on_modifiers_changed(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.update_hover_link(window.mouse_position(), event.modifiers, cx);
     }
 
     fn on_scroll(
@@ -958,6 +991,30 @@ impl TerminalView {
         self.write_bytes(&sequence, cx);
     }
 
+    fn update_hover_link(
+        &mut self,
+        position: Point<Pixels>,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        let next = self
+            .layout
+            .lock()
+            .cell_at(position)
+            .and_then(|point| self.link_at_cell(point, cx));
+        if modifiers.secondary() && self.hover_link != next {
+            self.hover_link = next;
+            cx.notify();
+        } else if !modifiers.secondary() && self.hover_link.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn link_at_cell(&self, point: TerminalCellPoint, cx: &App) -> Option<TerminalLink> {
+        let content = self.model.read(cx).snapshot();
+        terminal_link_at_cell(&content, point)
+    }
+
     fn selected_text(&self, cx: &App) -> Option<String> {
         let selection = self.selection.lock().range()?;
         let text = self.model.read(cx).selected_text(selection);
@@ -1094,6 +1151,19 @@ struct SyncOutputUpdate {
     should_notify: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct TerminalColorSchemeUpdate {
+    enabled: bool,
+    disabled: bool,
+    query_count: usize,
+}
+
+#[derive(Debug, Default)]
+struct TerminalColorSchemeState {
+    updates_enabled: bool,
+    scan_tail: Vec<u8>,
+}
+
 fn update_synchronized_output_state(
     bytes: &[u8],
     depth: &mut usize,
@@ -1140,6 +1210,66 @@ fn update_synchronized_output_state(
     update
 }
 
+fn update_terminal_color_scheme_state(
+    bytes: &[u8],
+    state: &mut TerminalColorSchemeState,
+) -> TerminalColorSchemeUpdate {
+    const ENABLE: &[u8] = b"\x1b[?2031h";
+    const DISABLE: &[u8] = b"\x1b[?2031l";
+    const QUERY: &[u8] = b"\x1b[?996n";
+    const MAX_PATTERN_LEN: usize = ENABLE.len();
+
+    let mut update = TerminalColorSchemeUpdate::default();
+    let old_tail_len = state.scan_tail.len();
+    let mut scan = Vec::with_capacity(state.scan_tail.len() + bytes.len());
+    scan.extend_from_slice(&state.scan_tail);
+    scan.extend_from_slice(bytes);
+
+    let mut index = 0;
+    while index < scan.len() {
+        if scan[index..].starts_with(ENABLE) {
+            if index + ENABLE.len() > old_tail_len {
+                state.updates_enabled = true;
+                update.enabled = true;
+            }
+            index += ENABLE.len();
+            continue;
+        }
+        if scan[index..].starts_with(DISABLE) {
+            if index + DISABLE.len() > old_tail_len {
+                state.updates_enabled = false;
+                update.disabled = true;
+            }
+            index += DISABLE.len();
+            continue;
+        }
+        if scan[index..].starts_with(QUERY) {
+            if index + QUERY.len() > old_tail_len {
+                update.query_count += 1;
+            }
+            index += QUERY.len();
+            continue;
+        }
+        index += 1;
+    }
+
+    let tail_len = scan.len().min(MAX_PATTERN_LEN.saturating_sub(1));
+    state.scan_tail.clear();
+    state
+        .scan_tail
+        .extend_from_slice(&scan[scan.len().saturating_sub(tail_len)..]);
+
+    update
+}
+
+fn terminal_color_scheme_report(colors: &ColorPalette) -> &'static [u8] {
+    if colors.is_dark() {
+        b"\x1b[?997;1n"
+    } else {
+        b"\x1b[?997;2n"
+    }
+}
+
 fn terminal_trace_enabled() -> bool {
     *TERMINAL_TRACE_ENABLED.get_or_init(|| {
         env::var("CODUX_TERMINAL_TRACE")
@@ -1157,7 +1287,13 @@ fn terminal_trace(message: &str) {
     }
 }
 
-fn trace_terminal_protocol_bytes(bytes: &[u8], sync_update: SyncOutputUpdate, sync_depth: usize) {
+fn trace_terminal_protocol_bytes(
+    bytes: &[u8],
+    sync_update: SyncOutputUpdate,
+    sync_depth: usize,
+    color_scheme_update: TerminalColorSchemeUpdate,
+    color_scheme_updates_enabled: bool,
+) {
     if !terminal_trace_enabled() {
         return;
     }
@@ -1168,9 +1304,10 @@ fn trace_terminal_protocol_bytes(bytes: &[u8], sync_update: SyncOutputUpdate, sy
         || flags.hide_cursor
         || flags.osc_10_request
         || flags.osc_11_request
+        || color_scheme_update != TerminalColorSchemeUpdate::default()
     {
         terminal_trace(&format!(
-            "protocol bytes={} sync_depth={} sync_enter={} sync_exit={} notify={} show_cursor={} hide_cursor={} osc10_request={} osc11_request={}",
+            "protocol bytes={} sync_depth={} sync_enter={} sync_exit={} notify={} show_cursor={} hide_cursor={} osc10_request={} osc11_request={} color_scheme_enabled={} color_scheme_enable={} color_scheme_disable={} color_scheme_queries={}",
             bytes.len(),
             sync_depth,
             sync_update.entered_from_idle,
@@ -1180,6 +1317,10 @@ fn trace_terminal_protocol_bytes(bytes: &[u8], sync_update: SyncOutputUpdate, sy
             flags.hide_cursor,
             flags.osc_10_request,
             flags.osc_11_request,
+            color_scheme_updates_enabled,
+            color_scheme_update.enabled,
+            color_scheme_update.disabled,
+            color_scheme_update.query_count,
         ));
     }
 }
@@ -1248,11 +1389,12 @@ impl Render for TerminalView {
             terminal_view: cx.weak_entity(),
             padding: self.config.padding,
             marked_text: self.marked_text.clone(),
+            hover_link: self.hover_link.clone(),
             cursor_visible,
             cursor_focused: terminal_focused,
         };
 
-        div()
+        let terminal = div()
             .size_full()
             .bg(self.config.colors.background())
             .track_focus(&self.focus_handle)
@@ -1264,8 +1406,13 @@ impl Render for TerminalView {
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::on_mouse_up))
             .on_mouse_up(MouseButton::Right, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .on_scroll_wheel(cx.listener(Self::on_scroll))
-            .child(element)
+            .on_modifiers_changed(cx.listener(Self::on_modifiers_changed))
+            .on_scroll_wheel(cx.listener(Self::on_scroll));
+        if self.hover_link.is_some() {
+            terminal.cursor(CursorStyle::PointingHand).child(element)
+        } else {
+            terminal.child(element)
+        }
     }
 }
 
@@ -1282,12 +1429,15 @@ struct TerminalModel {
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
+    color_scheme_state: TerminalColorSchemeState,
     title: Option<String>,
     bell_count: usize,
     exited: bool,
     focused: bool,
     colors: ColorPalette,
     window_size: WindowSize,
+    #[cfg(test)]
+    written_bytes: Option<Arc<Mutex<Vec<u8>>>>,
     _reader_task: Task<()>,
 }
 
@@ -1352,6 +1502,7 @@ impl TerminalModel {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            color_scheme_state: TerminalColorSchemeState::default(),
             title: None,
             bell_count: 0,
             exited: false,
@@ -1363,6 +1514,8 @@ impl TerminalModel {
                 cell_width: 1,
                 cell_height: 1,
             },
+            #[cfg(test)]
+            written_bytes: None,
             _reader_task: reader_task,
         }
     }
@@ -1403,8 +1556,18 @@ impl TerminalModel {
     }
 
     fn process_output_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
-        let sync_update = self.update_synchronized_output_state(&bytes);
+        let sync_update = self.update_synchronized_output_state(bytes);
+        let color_scheme_update =
+            update_terminal_color_scheme_state(bytes, &mut self.color_scheme_state);
+        self.respond_to_color_scheme_queries(color_scheme_update.query_count);
         self.process_bytes(&bytes);
+        trace_terminal_protocol_bytes(
+            bytes,
+            sync_update,
+            self.sync_output_depth,
+            color_scheme_update,
+            self.color_scheme_state.updates_enabled,
+        );
         self.trace_terminal_state_after_output(bytes.len());
         let event_should_notify = self.process_pending_events(cx);
 
@@ -1420,13 +1583,11 @@ impl TerminalModel {
     }
 
     fn update_synchronized_output_state(&mut self, bytes: &[u8]) -> SyncOutputUpdate {
-        let update = update_synchronized_output_state(
+        update_synchronized_output_state(
             bytes,
             &mut self.sync_output_depth,
             &mut self.sync_output_scan_tail,
-        );
-        trace_terminal_protocol_bytes(bytes, update, self.sync_output_depth);
-        update
+        )
     }
 
     fn trace_terminal_state_after_output(&self, bytes_len: usize) {
@@ -1489,9 +1650,7 @@ impl TerminalModel {
                 }
             }
             TerminalUiEvent::ColorRequest(index, format) => {
-                let color = self
-                    .color(index)
-                    .unwrap_or_else(|| self.colors.color_request(index));
+                let color = self.color_request(index);
                 terminal_trace(&format!(
                     "color_response index={} rgb=#{:02x}{:02x}{:02x}",
                     index, color.r, color.g, color.b
@@ -1516,6 +1675,25 @@ impl TerminalModel {
         let mut term = self.handle.term.lock();
         self.parser.advance(&mut *term, bytes);
         self.snapshot_dirty = true;
+    }
+
+    fn update_colors(&mut self, colors: ColorPalette) {
+        let was_dark = self.colors.is_dark();
+        let is_dark = colors.is_dark();
+        self.colors = colors;
+        if self.color_scheme_state.updates_enabled && was_dark != is_dark {
+            self.write_color_scheme_report();
+        }
+    }
+
+    fn respond_to_color_scheme_queries(&self, query_count: usize) {
+        for _ in 0..query_count {
+            self.write_color_scheme_report();
+        }
+    }
+
+    fn write_color_scheme_report(&self) {
+        self.write_bytes(terminal_color_scheme_report(&self.colors));
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) -> TerminalContent {
@@ -1591,6 +1769,10 @@ impl TerminalModel {
         self.handle.display_offset()
     }
 
+    fn snapshot(&self) -> TerminalContent {
+        self.handle.snapshot()
+    }
+
     fn current_ime_cursor_bounds(&self, layout: &TerminalLayoutMetrics) -> Option<Bounds<Pixels>> {
         let content = self.handle.snapshot();
         ime_cursor_bounds_from_content(&content, layout)
@@ -1600,8 +1782,11 @@ impl TerminalModel {
         self.handle.dimensions()
     }
 
-    fn color(&self, index: usize) -> Option<Rgb> {
-        self.handle.term.lock().colors()[index]
+    fn color_request(&self, index: usize) -> Rgb {
+        if matches!(index, 256 | 257 | 258 | 267 | 268) {
+            return self.colors.color_request(index);
+        }
+        self.handle.term.lock().colors()[index].unwrap_or_else(|| self.colors.color_request(index))
     }
 
     fn scroll_display(&mut self, lines: i32) -> bool {
@@ -1636,6 +1821,14 @@ impl TerminalModel {
         let _ = writer.flush();
     }
 
+    #[cfg(test)]
+    fn written_bytes_for_test(&self) -> Vec<u8> {
+        self.written_bytes
+            .as_ref()
+            .map(|bytes| bytes.lock().clone())
+            .unwrap_or_default()
+    }
+
     fn paste_text(&self, text: &str) {
         if self.mode().contains(TermMode::BRACKETED_PASTE) {
             self.write_bytes(b"\x1b[200~");
@@ -1661,6 +1854,7 @@ impl TerminalModel {
     fn new_for_test(cols: usize, rows: usize, scrollback: usize) -> Self {
         let (event_tx, event_rx) = mpsc::channel();
         let (_session_event_tx, session_event_rx) = mpsc::channel();
+        let written_bytes = Arc::new(Mutex::new(Vec::new()));
         let config = AlacrittyConfig {
             scrolling_history: scrollback,
             ..Default::default()
@@ -1677,9 +1871,9 @@ impl TerminalModel {
                 snapshot: Arc::new(Mutex::new(snapshot)),
             },
             parser: Processor::new(),
-            stdin_writer: Arc::new(Mutex::new(
-                Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>
-            )),
+            stdin_writer: Arc::new(Mutex::new(Box::new(TestTerminalWriter {
+                bytes: written_bytes.clone(),
+            }) as Box<dyn Write + Send>)),
             event_rx,
             session_event_rx,
             events: VecDeque::new(),
@@ -1689,6 +1883,7 @@ impl TerminalModel {
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            color_scheme_state: TerminalColorSchemeState::default(),
             title: None,
             bell_count: 0,
             exited: false,
@@ -1700,8 +1895,26 @@ impl TerminalModel {
                 cell_width: 1,
                 cell_height: 1,
             },
+            written_bytes: Some(written_bytes),
             _reader_task: Task::ready(()),
         }
+    }
+}
+
+#[cfg(test)]
+struct TestTerminalWriter {
+    bytes: Arc<Mutex<Vec<u8>>>,
+}
+
+#[cfg(test)]
+impl Write for TestTerminalWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.bytes.lock().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -1848,6 +2061,138 @@ struct TerminalIndexedCell {
     cell: Cell,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TerminalLink {
+    url: String,
+    line: i32,
+    range: Range<usize>,
+}
+
+fn terminal_link_at_cell(
+    content: &TerminalContent,
+    point: TerminalCellPoint,
+) -> Option<TerminalLink> {
+    let line = point.row as i32 - content.display_offset as i32;
+    let row_cells: Vec<&TerminalIndexedCell> = content
+        .cells
+        .iter()
+        .filter(|indexed| indexed.point.line.0 == line)
+        .collect();
+    if row_cells.is_empty() {
+        return None;
+    }
+
+    if let Some(cell) = row_cells
+        .iter()
+        .find(|indexed| indexed.point.column.0 == point.col)
+        && let Some(hyperlink) = cell.hyperlink()
+    {
+        let url = hyperlink.uri().to_string();
+        if is_openable_terminal_url(&url) {
+            let range = terminal_hyperlink_range(&row_cells, point.col, hyperlink.uri());
+            return Some(TerminalLink { url, line, range });
+        }
+    }
+
+    let row_text = terminal_row_text(&row_cells);
+    terminal_plain_url_at(&row_text, point.col).map(|(url, range)| TerminalLink {
+        url,
+        line,
+        range,
+    })
+}
+
+fn terminal_hyperlink_range(
+    row_cells: &[&TerminalIndexedCell],
+    col: usize,
+    uri: &str,
+) -> Range<usize> {
+    let mut start = col;
+    let mut end = col.saturating_add(1);
+    for indexed in row_cells {
+        if indexed
+            .hyperlink()
+            .is_some_and(|hyperlink| hyperlink.uri() == uri)
+        {
+            let cell_col = indexed.point.column.0;
+            let width = terminal_cell_width(&indexed.cell);
+            start = start.min(cell_col);
+            end = end.max(cell_col.saturating_add(width));
+        }
+    }
+    start..end
+}
+
+fn terminal_row_text(row_cells: &[&TerminalIndexedCell]) -> Vec<(usize, char)> {
+    let mut text: Vec<(usize, char)> = Vec::new();
+    for indexed in row_cells {
+        let col = indexed.point.column.0;
+        if indexed
+            .flags
+            .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+            || indexed.c == '\0'
+        {
+            continue;
+        }
+        let next_col = text
+            .last()
+            .map(|(last_col, last_ch)| last_col.saturating_add(terminal_char_width(*last_ch)))
+            .unwrap_or(0);
+        for spacer_col in next_col..col {
+            text.push((spacer_col, ' '));
+        }
+        text.push((col, indexed.c));
+    }
+    text
+}
+
+fn terminal_plain_url_at(row_text: &[(usize, char)], col: usize) -> Option<(String, Range<usize>)> {
+    static STRICT_URL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"(?i)https?://[^\s"'!*(){}|\\^<>`]*[^\s"':,.!?{}|\\^~\[\]`()<>]"#)
+            .expect("valid terminal URL regex")
+    });
+
+    let text: String = row_text.iter().map(|(_, ch)| *ch).collect();
+    for candidate in STRICT_URL_REGEX.find_iter(&text) {
+        let start = candidate.start();
+        let end = candidate.end();
+        let start_index = text[..start].chars().count();
+        let end_index = text[..end].chars().count();
+        let Some(start_col) = row_text.get(start_index).map(|(col, _)| *col) else {
+            continue;
+        };
+        let end_col = row_text
+            .get(end_index.saturating_sub(1))
+            .map(|(col, ch)| col.saturating_add(terminal_char_width(*ch)))
+            .unwrap_or(start_col);
+        if start_col <= col && col < end_col {
+            let url = candidate.as_str().to_string();
+            if is_openable_terminal_url(&url) {
+                return Some((url, start_col..end_col));
+            }
+        }
+    }
+    None
+}
+
+fn is_openable_terminal_url(url: &str) -> bool {
+    url::Url::parse(url)
+        .map(|url| matches!(url.scheme(), "http" | "https"))
+        .unwrap_or(false)
+}
+
+fn terminal_cell_width(cell: &Cell) -> usize {
+    if cell.flags.contains(Flags::WIDE_CHAR) {
+        2
+    } else {
+        1
+    }
+}
+
+fn terminal_char_width(ch: char) -> usize {
+    if ch.is_ascii() { 1 } else { 2 }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct DisplayCursor {
     row: i32,
@@ -1955,6 +2300,7 @@ struct TerminalElement {
     terminal_view: WeakEntity<TerminalView>,
     padding: Edges<Pixels>,
     marked_text: Option<String>,
+    hover_link: Option<TerminalLink>,
     cursor_visible: bool,
     cursor_focused: bool,
 }
@@ -2036,6 +2382,7 @@ impl Element for TerminalElement {
             self.padding,
             &snapshot,
             selection,
+            self.hover_link.as_ref(),
             self.cursor_visible,
             self.cursor_focused,
             window,
@@ -3290,6 +3637,7 @@ impl TerminalRenderer {
         padding: Edges<Pixels>,
         content: &TerminalContent,
         selection: Option<SelectionRange>,
+        hover_link: Option<&TerminalLink>,
         cursor_visible: bool,
         cursor_focused: bool,
         window: &mut Window,
@@ -3336,8 +3684,21 @@ impl TerminalRenderer {
                 default_bg,
                 cache_key,
             );
-            background_rects.extend(prepared.background_rects);
-            text_runs.extend(prepared.text_runs);
+            if let Some(hover_link) = hover_link
+                && hover_link.line == line.0
+            {
+                self.prepare_row_text(
+                    row,
+                    cells,
+                    colors,
+                    &mut text_runs,
+                    Some(hover_link.range.clone()),
+                );
+                background_rects.extend(prepared.background_rects);
+            } else {
+                background_rects.extend(prepared.background_rects);
+                text_runs.extend(prepared.text_runs);
+            }
             if cursor_row + display_offset == row as i32 {
                 cursor_cell = cells
                     .iter()
@@ -3541,7 +3902,7 @@ impl TerminalRenderer {
         let mut background_rects = Vec::new();
         let mut text_runs = Vec::new();
         self.prepare_row_backgrounds(0, cells, colors, default_bg, &mut background_rects);
-        self.prepare_row_text(0, cells, colors, &mut text_runs);
+        self.prepare_row_text(0, cells, colors, &mut text_runs, None);
         let prepared = TerminalPreparedRow {
             background_rects,
             text_runs,
@@ -3615,6 +3976,7 @@ impl TerminalRenderer {
         cells: &[TerminalIndexedCell],
         colors: &Colors,
         text_runs: &mut Vec<TerminalTextRun>,
+        underline_range: Option<Range<usize>>,
     ) {
         let mut current_run: Option<TerminalTextRun> = None;
         let mut pending_spaces = 0usize;
@@ -3644,19 +4006,20 @@ impl TerminalRenderer {
                 cell.flags.contains(Flags::ITALIC),
             );
             let text = cell.c.to_string();
+            let link_underline = underline_range
+                .as_ref()
+                .is_some_and(|range| range.contains(&col));
+            let underline = cell.flags.contains(Flags::UNDERLINE) || link_underline;
             let run = TextRun {
                 len: text.len(),
                 font,
                 color: fg,
                 background_color: None,
-                underline: cell
-                    .flags
-                    .contains(Flags::UNDERLINE)
-                    .then_some(UnderlineStyle {
-                        thickness: px(1.0),
-                        color: Some(fg),
-                        wavy: false,
-                    }),
+                underline: underline.then_some(UnderlineStyle {
+                    thickness: px(1.0),
+                    color: Some(fg),
+                    wavy: link_underline,
+                }),
                 strikethrough: None,
             };
             let cell_width = if cell.flags.contains(Flags::WIDE_CHAR) {
@@ -4074,6 +4437,11 @@ impl ColorPalette {
         self.background
     }
 
+    fn is_dark(&self) -> bool {
+        relative_luminance(hsla_to_rgb(self.background))
+            < relative_luminance(hsla_to_rgb(self.foreground))
+    }
+
     fn color_request(&self, index: usize) -> Rgb {
         match index {
             0..=255 => hsla_to_rgb(self.extended_colors[index]),
@@ -4097,6 +4465,14 @@ impl ColorPalette {
     fn resolve(&self, color: Color, colors: &Colors) -> Hsla {
         match color {
             Color::Named(named) => {
+                match named {
+                    NamedColor::Foreground => return self.foreground,
+                    NamedColor::Background => return self.background,
+                    NamedColor::Cursor => return self.cursor,
+                    NamedColor::DimForeground => return dim_color(self.foreground),
+                    NamedColor::BrightForeground => return brighten_color(self.foreground),
+                    _ => {}
+                }
                 if let Some(rgb) = colors[named] {
                     return rgb_to_hsla(rgb);
                 }
@@ -4105,11 +4481,6 @@ impl ColorPalette {
                     self.ansi_colors[index]
                 } else {
                     match named {
-                        NamedColor::Foreground => self.foreground,
-                        NamedColor::Background => self.background,
-                        NamedColor::Cursor => self.cursor,
-                        NamedColor::DimForeground => dim_color(self.foreground),
-                        NamedColor::BrightForeground => brighten_color(self.foreground),
                         NamedColor::DimBlack => dim_color(self.ansi_colors[0]),
                         NamedColor::DimRed => dim_color(self.ansi_colors[1]),
                         NamedColor::DimGreen => dim_color(self.ansi_colors[2]),
@@ -4233,6 +4604,18 @@ fn hsla_to_rgb(color: Hsla) -> Rgb {
         g: channel(rgba.g),
         b: channel(rgba.b),
     }
+}
+
+fn relative_luminance(rgb: Rgb) -> f32 {
+    let channel = |value: u8| {
+        let value = value as f32 / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b)
 }
 
 fn gpui_rgb(r: u8, g: u8, b: u8) -> Hsla {
@@ -4517,6 +4900,89 @@ mod tests {
                 osc_11_request: true,
             }
         );
+    }
+
+    #[test]
+    fn color_scheme_protocol_tracks_subscription_and_queries_across_chunks() {
+        let mut state = TerminalColorSchemeState::default();
+
+        assert_eq!(
+            update_terminal_color_scheme_state(b"\x1b[?203", &mut state),
+            TerminalColorSchemeUpdate::default()
+        );
+        assert!(!state.updates_enabled);
+
+        assert_eq!(
+            update_terminal_color_scheme_state(b"1h\x1b[?996n", &mut state),
+            TerminalColorSchemeUpdate {
+                enabled: true,
+                disabled: false,
+                query_count: 1,
+            }
+        );
+        assert!(state.updates_enabled);
+
+        assert_eq!(
+            update_terminal_color_scheme_state(b"\x1b[?2031l", &mut state),
+            TerminalColorSchemeUpdate {
+                enabled: false,
+                disabled: true,
+                query_count: 0,
+            }
+        );
+        assert!(!state.updates_enabled);
+    }
+
+    #[test]
+    fn color_scheme_report_matches_xterm_codes() {
+        assert_eq!(
+            terminal_color_scheme_report(&ColorPalette::default()),
+            b"\x1b[?997;1n"
+        );
+
+        let light = ColorPalette::builder()
+            .background(0xee, 0xee, 0xee)
+            .foreground(0x11, 0x11, 0x11)
+            .build();
+        assert_eq!(terminal_color_scheme_report(&light), b"\x1b[?997;2n");
+    }
+
+    #[test]
+    fn color_scheme_queries_write_current_scheme() {
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+        state.colors = ColorPalette::builder()
+            .background(0xee, 0xee, 0xee)
+            .foreground(0x11, 0x11, 0x11)
+            .build();
+
+        state.respond_to_color_scheme_queries(2);
+
+        assert_eq!(state.written_bytes_for_test(), b"\x1b[?997;2n\x1b[?997;2n");
+    }
+
+    #[test]
+    fn color_scheme_update_reports_theme_change_when_subscribed() {
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+        state.color_scheme_state.updates_enabled = true;
+
+        state.update_colors(
+            ColorPalette::builder()
+                .background(0xee, 0xee, 0xee)
+                .foreground(0x11, 0x11, 0x11)
+                .build(),
+        );
+        assert_eq!(state.written_bytes_for_test(), b"\x1b[?997;2n");
+
+        state.update_colors(
+            ColorPalette::builder()
+                .background(0xdd, 0xdd, 0xdd)
+                .foreground(0x22, 0x22, 0x22)
+                .build(),
+        );
+        assert_eq!(state.written_bytes_for_test(), b"\x1b[?997;2n");
+
+        state.update_colors(ColorPalette::default());
+        assert_eq!(state.written_bytes_for_test(), b"\x1b[?997;2n\x1b[?997;1n");
     }
 
     #[test]
@@ -5146,6 +5612,63 @@ mod tests {
     }
 
     #[test]
+    fn detects_plain_terminal_urls_at_cell() {
+        let mut state = TerminalModel::new_for_test(80, 4, 100);
+        state.process_bytes(b"open https://example.com/path?x=1.\r\n");
+        state.handle.publish_snapshot();
+        let snapshot = state.handle.snapshot();
+
+        let link = terminal_link_at_cell(&snapshot, TerminalCellPoint { row: 0, col: 12 })
+            .expect("url under cursor");
+
+        assert_eq!(link.url, "https://example.com/path?x=1");
+        assert_eq!(link.line, 0);
+        assert_eq!(link.range, 5..33);
+        assert!(terminal_link_at_cell(&snapshot, TerminalCellPoint { row: 0, col: 2 }).is_none());
+    }
+
+    #[test]
+    fn plain_url_detection_uses_terminal_columns() {
+        let row_text = vec![
+            (0, '中'),
+            (2, ' '),
+            (3, 'h'),
+            (4, 't'),
+            (5, 't'),
+            (6, 'p'),
+            (7, 's'),
+            (8, ':'),
+            (9, '/'),
+            (10, '/'),
+            (11, 'e'),
+            (12, 'x'),
+            (13, '.'),
+            (14, 'c'),
+            (15, 'o'),
+            (16, 'm'),
+            (17, ')'),
+        ];
+
+        let (url, range) = terminal_plain_url_at(&row_text, 12).expect("url under cursor");
+
+        assert_eq!(url, "https://ex.com");
+        assert_eq!(range, 3..17);
+    }
+
+    #[test]
+    fn plain_url_detection_matches_xterm_style_boundaries() {
+        let row_text: Vec<(usize, char)> =
+            "(HTTPS://example.com/a?q=1),".chars().enumerate().collect();
+
+        let (url, range) = terminal_plain_url_at(&row_text, 4).expect("url under cursor");
+
+        assert_eq!(url, "HTTPS://example.com/a?q=1");
+        assert_eq!(range, 1..26);
+        assert!(terminal_plain_url_at(&row_text, 0).is_none());
+        assert!(terminal_plain_url_at(&row_text, 26).is_none());
+    }
+
+    #[test]
     fn inverse_cells_swap_foreground_and_background_colors() {
         let renderer = TerminalRenderer::new(
             default_terminal_font_family().to_string(),
@@ -5206,6 +5729,54 @@ mod tests {
             renderer
                 .palette
                 .resolve(Color::Named(NamedColor::BrightBlue), &colors)
+        );
+    }
+
+    #[test]
+    fn default_named_colors_ignore_stale_dynamic_terminal_colors() {
+        let palette = ColorPalette::builder()
+            .background(0xee, 0xee, 0xee)
+            .foreground(0x11, 0x11, 0x11)
+            .cursor(0x22, 0x22, 0x22)
+            .build();
+        let mut colors = Colors::default();
+        colors[NamedColor::Background] = Some(Rgb {
+            r: 0x11,
+            g: 0x14,
+            b: 0x1a,
+        });
+        colors[NamedColor::Foreground] = Some(Rgb {
+            r: 0xd6,
+            g: 0xda,
+            b: 0xe2,
+        });
+
+        assert_eq!(
+            palette.resolve(Color::Named(NamedColor::Background), &colors),
+            palette.background
+        );
+        assert_eq!(
+            palette.resolve(Color::Named(NamedColor::Foreground), &colors),
+            palette.foreground
+        );
+    }
+
+    #[test]
+    fn color_requests_use_current_palette_for_default_colors() {
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+        state.colors = ColorPalette::builder()
+            .background(0xee, 0xee, 0xee)
+            .foreground(0x11, 0x11, 0x11)
+            .cursor(0x22, 0x22, 0x22)
+            .build();
+
+        assert_eq!(
+            state.color_request(NamedColor::Background as usize),
+            Rgb {
+                r: 0xee,
+                g: 0xee,
+                b: 0xee
+            }
         );
     }
 

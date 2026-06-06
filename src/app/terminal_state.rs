@@ -439,6 +439,7 @@ where
             .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
             .cloned()
         {
+            refresh_terminal_pane_config(&pane, terminal_config, cx);
             slot.pane = Some(pane);
             continue;
         }
@@ -455,6 +456,19 @@ where
         )?);
     }
     Ok(())
+}
+
+pub(in crate::app) fn refresh_terminal_pane_config<C>(
+    pane: &TerminalPane,
+    terminal_config: &TerminalConfig,
+    cx: &mut C,
+) where
+    C: gpui::AppContext,
+{
+    let config = terminal_config.clone();
+    pane.view.update(cx, |terminal, cx| {
+        terminal.update_config(config, cx);
+    });
 }
 
 pub(in crate::app) fn terminal_pty_config_for_terminal_id(

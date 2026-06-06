@@ -1248,6 +1248,7 @@ impl CoduxApp {
                     .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
                     .cloned()
                 {
+                    refresh_terminal_pane_config(&pane, &terminal_config, cx);
                     slot.pane = Some(pane);
                     continue;
                 }
@@ -1989,7 +1990,6 @@ impl CoduxApp {
         })
         .detach();
     }
-
 }
 
 fn clean_dialog_path(path: &str) -> String {

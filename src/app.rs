@@ -162,14 +162,14 @@ use self::{
     app_events::{
         ChildWindowUpdateKind, PetCustomInstallEvent, current_child_window_update_event,
         current_pet_custom_install_event, current_pet_update_event, current_settings_update_event,
-        publish_child_window_update, publish_pet_custom_install,
-        publish_pet_update, publish_settings_update, publish_ssh_update,
-        publish_statistics_settings_update,
+        publish_child_window_update, publish_pet_custom_install, publish_pet_update,
+        publish_settings_update, publish_ssh_update, publish_statistics_settings_update,
     },
     app_helpers::{
         PROJECT_BADGE_COLORS, defer_codux_app_update, generated_git_branch_name,
         generated_git_commit_message, generated_project_child_name, git_remote_action_label,
-        join_relative_child_path, normalized_git_action_paths, plural, project_badge_text_from_name,
+        join_relative_child_path, normalized_git_action_paths, plural,
+        project_badge_text_from_name,
     },
     app_state::{
         AIProviderTestResult, GIT_CREDENTIALS_COMPACT_HEIGHT, GIT_CREDENTIALS_WINDOW_WIDTH,
@@ -205,11 +205,11 @@ use self::{
     terminal_float::terminal_float_window,
     terminal_state::{
         bottom_terminal_id, clamp_terminal_bottom_ratio, normalize_terminal_restore_state,
-        prepare_memory_launch_artifacts, restore_terminal_tabs_skeleton, spawn_terminal_tabs,
-        terminal_config_for_settings, terminal_launch_context, terminal_pane_summary,
-        terminal_pane_terminal_id, terminal_pty_config_for_terminal_id,
-        terminal_restore_plan_for_language, terminal_tab_summary, terminal_top_ratios_for_panes,
-        top_terminal_id,
+        prepare_memory_launch_artifacts, refresh_terminal_pane_config,
+        restore_terminal_tabs_skeleton, spawn_terminal_tabs, terminal_config_for_settings,
+        terminal_launch_context, terminal_pane_summary, terminal_pane_terminal_id,
+        terminal_pty_config_for_terminal_id, terminal_restore_plan_for_language,
+        terminal_tab_summary, terminal_top_ratios_for_panes, top_terminal_id,
     },
     types::*,
     ui_helpers::{
