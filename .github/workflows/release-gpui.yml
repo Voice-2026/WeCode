@@ -106,10 +106,17 @@ jobs:
         with:
           targets: ${{ matrix.targets || matrix.target }}
 
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+      - name: Restore Rust cache
+        uses: actions/cache/restore@v4
         with:
-          shared-key: release-${{ matrix.id }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-release-${{ runner.os }}-${{ matrix.id }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-release-${{ runner.os }}-${{ matrix.id }}-
+            rust-release-${{ runner.os }}-
 
       - name: Apply release version
         shell: bash
