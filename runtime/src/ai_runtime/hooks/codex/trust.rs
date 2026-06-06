@@ -78,10 +78,6 @@ pub(super) fn managed_codex_hook_trust_states(
                 let status_message = hook_object
                     .get("statusMessage")
                     .and_then(|value| value.as_str());
-                let is_async = hook_object
-                    .get("async")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(false);
                 states.push(CodexHookTrustState {
                     key: format!(
                         "{}:{}:{}:{}",
@@ -96,7 +92,6 @@ pub(super) fn managed_codex_hook_trust_states(
                         command,
                         timeout,
                         status_message,
-                        is_async,
                     ),
                 });
             }
@@ -132,23 +127,20 @@ fn codex_command_hook_trust_hash(
     command: &str,
     timeout: i64,
     status_message: Option<&str>,
-    is_async: bool,
 ) -> String {
     let status_json = status_message
         .map(json_string_literal)
         .unwrap_or_else(|| "null".to_string());
     let hook_json = format!(
-        "\"hooks\":[{{\"async\":{},\"command\":{},\"statusMessage\":{},\"timeout\":{},\"type\":\"command\"}}]",
-        is_async,
+        "\"hooks\":[{{\"async\":false,\"command\":{},\"statusMessage\":{},\"timeout\":{},\"type\":\"command\"}}]",
         json_string_literal(command),
         status_json,
         timeout
     );
     let canonical_json = if let Some(matcher) = matcher {
         format!(
-            "{{\"event_name\":{},\"hooks\":[{{\"async\":{},\"command\":{},\"statusMessage\":{},\"timeout\":{},\"type\":\"command\"}}],\"matcher\":{}}}",
+            "{{\"event_name\":{},\"hooks\":[{{\"async\":false,\"command\":{},\"statusMessage\":{},\"timeout\":{},\"type\":\"command\"}}],\"matcher\":{}}}",
             json_string_literal(event_label),
-            is_async,
             json_string_literal(command),
             status_message
                 .map(json_string_literal)
@@ -179,7 +171,6 @@ mod tests {
             "'/tmp/dmux-ai-state.sh' 'codex-stop' 'codux-tauri' 'codex'",
             1000,
             Some("codux codex live"),
-            false,
         );
 
         assert!(hash.starts_with("sha256:"));
