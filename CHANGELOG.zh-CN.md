@@ -4,6 +4,32 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-06
+
+### 新增
+
+- 新增 CodeWhale 支持，覆盖 AI runtime 识别、hook 事件、历史索引、模型 / 会话探测、wrapper 脚本和权限设置。
+- 新增各 AI 工具的 runtime 驱动，Codex、Claude、Gemini、Kiro、Agy、OpenCode 和 CodeWhale 的 hook、探测、历史来源和记忆注入走统一扩展链路。
+- 新增 AI 工具的 SSH 启动上下文注入，托管 CLI 会话可以直接使用 `codux-ssh`，同时不暴露已保存凭证。
+
+### 调整
+
+- 重构 normalized AI 历史索引，改为按来源驱动处理，并接入 CodeWhale 会话解析。
+- 将 AI 记忆注入行为收敛到工具驱动，不再在各 wrapper 中重复拼装逻辑。
+- 优化 runtime hook 安装流程，避免创建终端时被 hook 初始化阻塞。
+- 优化远程 host info 和 Iroh 地址处理，支持 Node ID 配对后升级 direct address 连接。
+- 优化终端 PTY 恢复、视口 / 屏幕模型状态、焦点恢复，以及跨平台程序化命令输入。
+- 调整 Windows 打包，发布版启动时不再额外弹出控制台窗口。
+- 扩展发布打包测试，覆盖 Windows 安装包产物和 Release 资产过滤。
+
+### 修复
+
+- 修复 Windows 下程序化发送终端命令时使用 `\n` 导致恢复会话进入续行提示的问题。
+- 修复 `codux-ssh` 非交互命令，长时间命令或密码认证命令会正常退出。
+- 修复 SSH 连接右键菜单，编辑项改为使用统一的多语言“编辑”文案，不再显示较长的 SSH 专用文案。
+- 修复 SSH 连接测试反馈，测试结果会在编辑窗口底部以红 / 绿状态点和简短文字显示。
+- 修复不支持 async hook 配置导致的 Codex 警告，runtime hook 保持在受支持的同步链路。
+
 ## [1.6.1] - 2026-06-06
 
 ### 新增

@@ -15,7 +15,7 @@ pub(in crate::app) fn ssh_section(
     let empty_label = translate(&locale, "ssh.panel.empty.title", "No SSH Connections");
     let connect_label = translate(&locale, "ssh.profile.connect", "Connect");
     let open_label = translate(&locale, "common.open", "Open");
-    let edit_label = translate(&locale, "ssh.profile.edit", "Edit SSH Connection");
+    let edit_label = translate(&locale, "common.edit", "Edit");
     let remove_label = translate(&locale, "common.remove", "Remove");
     let profiles = Rc::new(ssh.profiles.clone());
     let selected_profile_id = selected_profile_id.map(str::to_string);
@@ -234,7 +234,7 @@ fn ssh_profile_row(
             )
             .item(
                 PopupMenuItem::new(edit_label.clone())
-                    .icon(HeroIconName::Language)
+                    .icon(HeroIconName::Pencil)
                     .on_click(move |_, window, cx| {
                         cx.update_entity(&edit_entity, |app, cx| {
                             app.select_ssh_profile(edit_profile_id.clone(), window, cx);

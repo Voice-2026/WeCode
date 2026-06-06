@@ -318,6 +318,7 @@ impl CoduxApp {
             selected_ssh_profile_id,
             ssh_draft_open: false,
             ssh_testing: false,
+            ssh_test_result: None,
             ssh_draft_id: None,
             ssh_draft_name: String::new(),
             ssh_draft_host: String::new(),

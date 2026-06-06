@@ -199,6 +199,7 @@ pub struct CoduxApp {
     pub(in crate::app) selected_ssh_profile_id: Option<String>,
     pub(in crate::app) ssh_draft_open: bool,
     pub(in crate::app) ssh_testing: bool,
+    pub(in crate::app) ssh_test_result: Option<SSHProfileTestDisplay>,
     pub(in crate::app) ssh_draft_id: Option<String>,
     pub(in crate::app) ssh_draft_name: String,
     pub(in crate::app) ssh_draft_host: String,
@@ -350,6 +351,12 @@ pub(in crate::app) struct RuntimeScheduledRefresh {
 #[derive(Clone, Debug)]
 pub(in crate::app) struct AIProviderTestResult {
     pub(in crate::app) provider_id: String,
+    pub(in crate::app) message: String,
+    pub(in crate::app) ok: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::app) struct SSHProfileTestDisplay {
     pub(in crate::app) message: String,
     pub(in crate::app) ok: bool,
 }

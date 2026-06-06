@@ -292,6 +292,7 @@ impl CoduxApp {
             selected_ssh_profile_id: None,
             ssh_draft_open: false,
             ssh_testing: false,
+            ssh_test_result: None,
             ssh_draft_id: None,
             ssh_draft_name: String::new(),
             ssh_draft_host: String::new(),
@@ -490,6 +491,7 @@ impl CoduxApp {
         let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
         app.window_mode = AppWindowMode::SshProfileEditor;
         app.ssh_draft_open = true;
+        app.ssh_test_result = None;
         app.ssh_draft_id = None;
         app.ssh_draft_name.clear();
         app.ssh_draft_host.clear();

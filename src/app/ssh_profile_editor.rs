@@ -76,6 +76,57 @@ pub(in crate::app) fn ssh_profile_editor_workspace(
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let labels = SshProfileEditorLabels::load(&app.state.settings.language);
+    let test_result = app.ssh_test_result.clone();
+    let footer = div()
+        .w_full()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(12.0))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .children(test_result.map(|result| {
+                    ssh_test_result_message(result.message, result.ok).into_any_element()
+                })),
+        )
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .child(dialog_cancel_button(
+                    "ssh-editor-cancel",
+                    labels.cancel.clone(),
+                    cx,
+                    |_app, _event, window, _cx| {
+                        window.remove_window();
+                    },
+                ))
+                .child(
+                    dialog_secondary_button(
+                        "ssh-editor-test",
+                        if ssh_testing {
+                            labels.testing.clone()
+                        } else {
+                            labels.test.clone()
+                        },
+                        cx,
+                        |app, _event, window, cx| app.test_ssh_profile_draft(window, cx),
+                    )
+                    .loading(ssh_testing)
+                    .disabled(ssh_testing),
+                )
+                .child(dialog_primary_button(
+                    "ssh-editor-save",
+                    labels.save.clone(),
+                    cx,
+                    |app, _event, window, cx| app.save_ssh_profile_draft(window, cx),
+                )),
+        );
     child_window_shell(
         if app.ssh_draft_id.is_some() {
             labels.edit.clone()
@@ -176,42 +227,21 @@ pub(in crate::app) fn ssh_profile_editor_workspace(
                 ))
             }),
     )
-    .child(dialog_footer_bar(
-        div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(px(8.0))
-            .child(dialog_cancel_button(
-                "ssh-editor-cancel",
-                labels.cancel.clone(),
-                cx,
-                |_app, _event, window, _cx| {
-                    window.remove_window();
-                },
-            ))
-            .child(
-                dialog_secondary_button(
-                    "ssh-editor-test",
-                    if ssh_testing {
-                        labels.testing.clone()
-                    } else {
-                        labels.test.clone()
-                    },
-                    cx,
-                    |app, _event, window, cx| app.test_ssh_profile_draft(window, cx),
-                )
-                .loading(ssh_testing)
-                .disabled(ssh_testing),
-            )
-            .child(dialog_primary_button(
-                "ssh-editor-save",
-                labels.save.clone(),
-                cx,
-                |app, _event, window, cx| app.save_ssh_profile_draft(window, cx),
-            )),
-        cx,
-    ))
+    .child(dialog_footer_bar(footer, cx))
+}
+
+fn ssh_test_result_message(message: String, ok: bool) -> impl IntoElement {
+    let tone = if ok { theme::GREEN } else { 0xFF5C68 };
+    div()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .text_size(rems(0.75))
+        .line_height(rems(1.0))
+        .text_color(color(theme::TEXT_MUTED))
+        .child(div().size(px(7.0)).rounded_full().bg(color(tone)))
+        .child(div().min_w_0().truncate().child(message))
 }
 
 fn ssh_dialog_input(

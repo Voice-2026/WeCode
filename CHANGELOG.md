@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-06-06
+
+### Added
+
+- Added CodeWhale support across AI runtime detection, hook ingestion, history indexing, model/session probing, wrapper scripts, and permission settings.
+- Added per-tool AI runtime drivers for Codex, Claude, Gemini, Kiro, Agy, OpenCode, and CodeWhale so hooks, probes, history sources, and memory injection share one extension path.
+- Added SSH launch context injection for AI tools so `codux-ssh` is available in managed CLI sessions without exposing saved credentials.
+
+### Changed
+
+- Reworked normalized AI history indexing around source drivers and added CodeWhale transcript parsing.
+- Centralized AI memory injection behavior into tool drivers instead of duplicating wrapper-specific logic.
+- Improved runtime hook installation so terminal creation is not blocked by hook setup.
+- Improved remote host info and Iroh address handling for Node ID pairing and direct-address upgrades.
+- Refined terminal PTY restoration, viewport/model state handling, focus recovery, and programmatic command injection across platforms.
+- Updated Windows packaging so release builds no longer open with an extra console window.
+- Expanded release packaging tests for Windows installer assets and release artifact filtering.
+
+### Fixed
+
+- Fixed programmatic terminal commands on Windows by sending the platform enter sequence instead of `\n`.
+- Fixed `codux-ssh` non-interactive commands so long-running or password-based commands exit cleanly.
+- Fixed SSH profile context menus to use the shared localized Edit label instead of the longer SSH-specific label.
+- Fixed SSH profile testing feedback so the editor footer shows an inline status indicator with the connection test result.
+- Fixed unsupported async hook config warnings by keeping runtime hooks on supported synchronous paths.
+
 ## [1.6.1] - 2026-06-06
 
 ### Added

@@ -178,6 +178,19 @@ impl CoduxApp {
         self.ssh_draft_key_passphrase = profile.key_passphrase.unwrap_or_default();
     }
 
+    fn clear_ssh_test_result(&mut self) {
+        self.ssh_test_result = None;
+    }
+
+    fn set_ssh_test_result(&mut self, message: String, ok: bool) {
+        self.ssh_test_result = Some(SSHProfileTestDisplay { message, ok });
+    }
+
+    fn ssh_test_testing_message(&self) -> String {
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        translate(&locale, "ssh.profile.test.testing", "Testing...")
+    }
+
     pub(super) fn set_ssh_draft_name(
         &mut self,
         value: String,
@@ -185,6 +198,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_name = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -195,6 +209,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_host = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -205,6 +220,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_port = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -215,6 +231,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_username = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -225,6 +242,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_credential_kind = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -235,6 +253,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_private_key_path = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -271,6 +290,7 @@ impl CoduxApp {
             Ok(Some(paths)) => {
                 if let Some(path) = paths.first() {
                     self.ssh_draft_private_key_path = path.clone();
+                    self.clear_ssh_test_result();
                     self.status_message = "SSH private key selected".to_string();
                 } else {
                     self.status_message = "SSH private key selection canceled".to_string();
@@ -293,6 +313,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_password = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -303,6 +324,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.ssh_draft_key_passphrase = value;
+        self.clear_ssh_test_result();
         self.invalidate_remote_panel(cx);
     }
 
@@ -388,12 +410,14 @@ impl CoduxApp {
     pub(super) fn test_ssh_profile_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.ssh_testing {
             self.status_message = "SSH test is already running".to_string();
+            self.set_ssh_test_result(self.ssh_test_testing_message(), true);
             self.invalidate_remote_panel(cx);
             return;
         }
         let request = match self.ssh_draft_request() {
             Ok(request) => request,
             Err(error) => {
+                self.set_ssh_test_result(error.clone(), false);
                 self.status_message = format!("SSH test failed: {error}");
                 self.invalidate_remote_panel(cx);
                 return;
@@ -402,6 +426,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         let runtime_root = self.runtime.root.clone();
         self.ssh_testing = true;
+        self.set_ssh_test_result(self.ssh_test_testing_message(), true);
         self.status_message = "SSH test started".to_string();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::spawn_blocking(move || {
@@ -426,8 +451,14 @@ impl CoduxApp {
     ) {
         self.ssh_testing = false;
         match result {
-            Ok(result) => self.status_message = result.message,
-            Err(error) => self.status_message = format!("SSH test failed: {error}"),
+            Ok(result) => {
+                self.set_ssh_test_result(result.message.clone(), result.ok);
+                self.status_message = result.message;
+            }
+            Err(error) => {
+                self.set_ssh_test_result(error.clone(), false);
+                self.status_message = format!("SSH test failed: {error}");
+            }
         }
         self.invalidate_remote_panel(cx);
     }
