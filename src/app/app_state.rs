@@ -29,6 +29,9 @@ pub struct CoduxApp {
     pub(in crate::app) terminal_manager: Arc<TerminalManager>,
     pub(in crate::app) terminal_layout_loading: bool,
     pub(in crate::app) active_terminal_id: usize,
+    pub(in crate::app) active_terminal_runtime_ids: HashMap<WorktreeScopeKey, String>,
+    pub(in crate::app) active_bottom_terminal_ids: HashMap<WorktreeScopeKey, String>,
+    pub(in crate::app) terminal_layout_cache: HashMap<WorktreeScopeKey, TerminalLayoutCacheEntry>,
     pub(in crate::app) next_terminal_index: usize,
     pub(in crate::app) runtime: RuntimeInventory,
     pub(in crate::app) state: RuntimeState,
@@ -265,6 +268,12 @@ pub struct CoduxApp {
     pub(in crate::app) tooltip_state: CoduxTooltipState,
     pub(in crate::app) ui_performance_counts: HashMap<String, u64>,
     pub(in crate::app) ui_performance_last_report_at: f64,
+}
+
+#[derive(Clone)]
+pub(in crate::app) struct TerminalLayoutCacheEntry {
+    pub(in crate::app) layout: TerminalLayoutSummary,
+    pub(in crate::app) runtime: TerminalRuntimeSummary,
 }
 
 #[derive(Clone, Debug, Default)]

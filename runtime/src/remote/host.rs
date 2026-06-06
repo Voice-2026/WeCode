@@ -2097,16 +2097,6 @@ impl RemoteHostRuntime {
 
     fn saved_remote_terminal_id(&self, layout_key: &str) -> Option<String> {
         let layout = TerminalLayoutService::new(self.support_dir.clone()).load(Some(layout_key));
-        let active = layout.active_terminal_id.trim();
-        if !active.is_empty()
-            && (layout
-                .top_panes
-                .iter()
-                .any(|pane| pane.terminal_id == active)
-                || layout.tabs.iter().any(|tab| tab.terminal_id == active))
-        {
-            return Some(active.to_string());
-        }
         layout
             .top_panes
             .first()
@@ -2152,7 +2142,6 @@ impl RemoteHostRuntime {
                 terminal_id: terminal_id.to_string(),
             });
         }
-        layout.active_terminal_id = terminal_id.to_string();
         let _ = service.save_summary(layout_key, layout);
     }
 
@@ -2850,7 +2839,7 @@ mod tests {
         runtime.persist_remote_terminal_layout(&layout_key, "terminal-mobile-b", "Mobile", "split");
 
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
-        assert_eq!(layout.active_terminal_id, "terminal-mobile-b");
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].terminal_id, "terminal-mobile-b");
 

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 pub struct TerminalLayoutRecord {
     #[serde(default)]
     pub tabs: Vec<TerminalBottomTabRecord>,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub active_terminal_id: String,
     #[serde(default)]
     pub top_panes: Vec<TerminalTopPaneRecord>,
@@ -45,19 +45,9 @@ pub(super) fn sanitize_terminal_layout(
     if tabs.is_empty() && top_panes.is_empty() {
         return None;
     }
-    let active_terminal_id = if terminal_exists(&top_panes, &tabs, &layout.active_terminal_id) {
-        layout.active_terminal_id
-    } else {
-        top_panes
-            .first()
-            .map(|pane| pane.terminal_id.clone())
-            .or_else(|| tabs.first().map(|tab| tab.terminal_id.clone()))
-            .unwrap_or_default()
-    };
-
     Some(TerminalLayoutRecord {
         tabs,
-        active_terminal_id,
+        active_terminal_id: String::new(),
         top_panes,
         top_ratios,
         bottom_ratio: clamp_ratio(layout.bottom_ratio, 0.18, 0.72, default_bottom_ratio()),
@@ -111,17 +101,6 @@ fn sanitize_top_pane_ratio_entries(
         top_panes.len(),
     );
     (top_panes, top_ratios)
-}
-
-fn terminal_exists(
-    top_panes: &[TerminalTopPaneRecord],
-    tabs: &[TerminalBottomTabRecord],
-    terminal_id: &str,
-) -> bool {
-    let terminal_id = terminal_id.trim();
-    !terminal_id.is_empty()
-        && (top_panes.iter().any(|pane| pane.terminal_id == terminal_id)
-            || tabs.iter().any(|tab| tab.terminal_id == terminal_id))
 }
 
 fn normalize_ratios(ratios: Vec<f64>, count: usize) -> Vec<f64> {
@@ -199,7 +178,7 @@ mod tests {
         assert_eq!(layout.tabs.len(), 2);
         assert_eq!(layout.tabs[0].terminal_id, "term-2");
         assert_eq!(layout.tabs[1].label, "Tab");
-        assert_eq!(layout.active_terminal_id, "term-3");
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes[0].title, "Split");
         assert_eq!(layout.top_ratios, vec![1.0]);
         assert_eq!(layout.bottom_ratio, 0.72);
@@ -220,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_layout_record_serialization_omits_resizable_dimensions() {
+    fn terminal_layout_record_serialization_omits_runtime_ui_state() {
         let layout = TerminalLayoutRecord {
             tabs: Vec::new(),
             active_terminal_id: "terminal-1".to_string(),
@@ -233,6 +212,7 @@ mod tests {
         };
 
         let value = serde_json::to_value(&layout).expect("serialize layout");
+        assert!(value.get("activeTerminalId").is_none());
         assert!(value.get("topRatios").is_none());
         assert!(value.get("bottomRatio").is_none());
     }

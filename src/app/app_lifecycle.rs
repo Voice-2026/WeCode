@@ -45,6 +45,8 @@ impl CoduxApp {
             &state.terminal_layout,
             &state.terminal_runtime,
             &state.settings.language,
+            None,
+            None,
         );
         prepare_memory_launch_artifacts(&runtime_service, &state);
         let launch_context = terminal_launch_context(&state, &runtime, &tool_permissions);
@@ -129,6 +131,9 @@ impl CoduxApp {
             terminal_manager,
             terminal_layout_loading: false,
             active_terminal_id,
+            active_terminal_runtime_ids: HashMap::new(),
+            active_bottom_terminal_ids: HashMap::new(),
+            terminal_layout_cache: HashMap::new(),
             next_terminal_index,
             runtime,
             state,
@@ -381,7 +386,7 @@ impl CoduxApp {
             ui_performance_counts: HashMap::new(),
             ui_performance_last_report_at: 0.0,
         };
-        app.register_terminal_panes();
+        app.register_terminal_panes_without_observers();
         Ok(app)
     }
 
@@ -423,6 +428,7 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.register_terminal_panes(cx);
         self.focus_active_terminal(window, cx);
     }
 

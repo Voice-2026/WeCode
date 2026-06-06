@@ -62,6 +62,8 @@ pub(in crate::app) struct TerminalPanePlan {
 pub(in crate::app) struct TerminalRestorePlan {
     pub(in crate::app) tabs: Vec<TerminalTabPlan>,
     pub(in crate::app) active_index: usize,
+    pub(in crate::app) active_terminal_id: Option<String>,
+    pub(in crate::app) active_bottom_terminal_id: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

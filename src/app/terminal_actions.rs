@@ -146,7 +146,7 @@ impl CoduxApp {
         ) {
             Ok(pane) => {
                 self.refresh_terminal_slot_snapshots();
-                self.register_terminal_pane(pane_terminal_id.as_deref(), &pane);
+                self.register_terminal_pane(pane_terminal_id.as_deref(), &pane, cx);
                 self.next_terminal_index += 1;
                 let active_runtime_id = pane_terminal_id.clone();
                 self.terminals.push(TerminalTab {
@@ -163,7 +163,7 @@ impl CoduxApp {
                     }],
                 });
                 self.active_terminal_id = id;
-                self.set_active_terminal_runtime_id(active_runtime_id.as_deref());
+                self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
                 self.detach_inactive_terminal_views();
                 self.focus_active_terminal(window, cx);
                 self.status_message = format!("terminal tab added: {title}");
@@ -220,7 +220,7 @@ impl CoduxApp {
             self.terminal_config_from_settings(),
         ) {
             Ok(terminal) => {
-                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal);
+                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal, cx);
                 let active_runtime_id = pane_terminal_id.clone();
                 terminal.view.read(cx).focus_handle().focus(window, cx);
                 if let Some(tab) = self.main_terminal_mut() {
@@ -232,7 +232,7 @@ impl CoduxApp {
                         restored_output_tail: String::new(),
                     });
                 }
-                self.set_active_terminal_runtime_id(active_runtime_id.as_deref());
+                self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
                 self.focus_active_terminal(window, cx);
                 self.status_message = "terminal split added".to_string();
                 self.sync_terminal_state_after_layout_change(cx);
@@ -289,7 +289,7 @@ impl CoduxApp {
                 self.terminal_config_from_settings(),
             ) {
                 Ok(pane) => {
-                    self.register_terminal_pane(slot.terminal_id.as_deref(), &pane);
+                    self.register_terminal_pane(slot.terminal_id.as_deref(), &pane, cx);
                     slot.pane = Some(pane);
                 }
                 Err(error) => {
@@ -449,7 +449,7 @@ impl CoduxApp {
             .get(pane_index.saturating_sub(1))
             .or_else(|| self.terminals[tab_index].panes.first())
             .and_then(|slot| slot.terminal_id.clone());
-        self.set_active_terminal_runtime_id(next_active_terminal_id.as_deref());
+        self.select_active_terminal_runtime_id(next_active_terminal_id.as_deref());
         self.focus_active_terminal(window, cx);
         self.sync_terminal_state_after_layout_change(cx);
         if let Err(error) = kill_result {
@@ -496,7 +496,7 @@ impl CoduxApp {
             .restored_output_tail
             .clear();
         let kill_result = self.kill_terminal_session_if_present(&terminal_id);
-        self.set_active_terminal_runtime_id(Some(&terminal_id));
+        self.select_active_terminal_runtime_id(Some(&terminal_id));
         let mount_result = self.ensure_active_terminal_mounted(cx);
         self.detach_inactive_terminal_views();
         self.focus_active_terminal(window, cx);
@@ -549,6 +549,25 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.restore_ai_session_in_main_split_internal(title, command, Some(window), cx);
+    }
+
+    pub(in crate::app) fn restore_ai_session_in_main_split_without_focus(
+        &mut self,
+        title: String,
+        command: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.restore_ai_session_in_main_split_internal(title, command, None, cx);
+    }
+
+    fn restore_ai_session_in_main_split_internal(
+        &mut self,
+        title: String,
+        command: String,
+        mut window: Option<&mut Window>,
+        cx: &mut Context<Self>,
+    ) {
         prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
         let launch_context = self.current_terminal_launch_context();
         let base_pty_config = launch_context
@@ -594,10 +613,12 @@ impl CoduxApp {
             self.terminal_config_from_settings(),
         ) {
             Ok(terminal) => {
-                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal);
+                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal, cx);
                 let active_runtime_id = pane_terminal_id.clone();
                 let send_result = terminal.send_text(&terminal_command_text(&command));
-                terminal.view.read(cx).focus_handle().focus(window, cx);
+                if let Some(window) = window.as_deref_mut() {
+                    terminal.view.read(cx).focus_handle().focus(window, cx);
+                }
                 if let Some(tab) = self.main_terminal_mut() {
                     tab.panes.push(TerminalPaneSlot {
                         title,
@@ -607,8 +628,10 @@ impl CoduxApp {
                         restored_output_tail: String::new(),
                     });
                 }
-                self.set_active_terminal_runtime_id(active_runtime_id.as_deref());
-                self.focus_active_terminal(window, cx);
+                self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
+                if let Some(window) = window {
+                    self.focus_active_terminal(window, cx);
+                }
                 if let Err(error) = send_result {
                     self.status_message =
                         format!("AI session split created; restore send failed: {error}");
@@ -664,7 +687,7 @@ impl CoduxApp {
                     .and_then(|tab| tab.panes.first())
                     .and_then(|slot| slot.terminal_id.clone())
             });
-        self.set_active_terminal_runtime_id(active_runtime_id.as_deref());
+        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
         let mount_result = self.ensure_active_terminal_mounted(cx);
         self.detach_inactive_terminal_views();
         self.focus_active_terminal(window, cx);
@@ -685,13 +708,14 @@ impl CoduxApp {
     ) {
         self.refresh_terminal_slot_snapshots();
         self.active_terminal_id = terminal_id;
+        self.remember_active_bottom_terminal_for_current_scope();
         let active_runtime_id = self
             .terminals
             .iter()
             .find(|tab| tab.id == terminal_id)
             .and_then(|tab| tab.panes.first())
             .and_then(|slot| slot.terminal_id.clone());
-        self.set_active_terminal_runtime_id(active_runtime_id.as_deref());
+        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
         if let Err(error) = self.ensure_active_terminal_mounted(cx) {
             self.status_message = format!("failed to select terminal: {error}");
             self.invalidate_terminal_workspace(cx);

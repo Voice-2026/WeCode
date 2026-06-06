@@ -83,6 +83,7 @@ struct TaskColumnLabels {
     create: String,
     refresh: String,
     open: String,
+    new_session: String,
     open_folder: String,
     merge: String,
     delete: String,
@@ -100,6 +101,7 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         create: tr("worktree.create.title", "New Worktree"),
         refresh: tr("common.refresh", "Refresh"),
         open: tr("common.open", "Open"),
+        new_session: tr("ai.sessions.new_session", "New Session"),
         open_folder: tr("worktree.menu.open_folder", "Open Folder"),
         merge: tr("worktree.menu.merge", "Merge to Mainline"),
         delete: tr("common.delete", "Delete"),
@@ -908,6 +910,9 @@ fn ai_session_compact_row(
         .context_menu(move |menu, _window, _cx| {
             let open_entity = app_entity.clone();
             let open_session_id = menu_session_id.clone();
+            let fork_entity = app_entity.clone();
+            let fork_session_id = menu_session_id.clone();
+            let fork_label = labels.new_session.clone();
             let remove_entity = app_entity.clone();
             let remove_session_id = menu_session_id.clone();
 
@@ -920,6 +925,35 @@ fn ai_session_compact_row(
                             app.restore_selected_ai_session(window, cx);
                         });
                     }),
+            )
+            .submenu_with_icon(
+                Some(Icon::new(HeroIconName::Plus)),
+                fork_label,
+                _window,
+                _cx,
+                move |menu, _window, _cx| {
+                    AI_SESSION_FORK_TARGETS
+                        .iter()
+                        .copied()
+                        .fold(menu, |menu, target| {
+                            let target_entity = fork_entity.clone();
+                            let target_session_id = fork_session_id.clone();
+                            menu.item(
+                                PopupMenuItem::new(target.display_name().to_string())
+                                    .icon(HeroIconName::CommandLine)
+                                    .on_click(move |_, window, cx| {
+                                        cx.update_entity(&target_entity, |app, cx| {
+                                            app.fork_ai_session_to_tool(
+                                                target_session_id.clone(),
+                                                target,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                            )
+                        })
+                },
             )
             .item(
                 PopupMenuItem::new(labels.delete.clone())

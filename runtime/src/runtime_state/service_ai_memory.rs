@@ -28,6 +28,13 @@ impl RuntimeService {
             })
     }
 
+    pub fn fork_ai_session(
+        &self,
+        request: AISessionForkRequest,
+    ) -> Result<AISessionForkResult, String> {
+        AIHistoryService::new(self.support_dir.clone()).fork_project_session(request)
+    }
+
     pub fn rename_ai_session(
         &self,
         project_path: &str,

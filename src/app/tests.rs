@@ -2,7 +2,9 @@
 mod tests {
     use crate::{
         app::{
-            ai_history_mapping::ai_session_restore_command,
+            ai_history_mapping::{
+                AI_SESSION_FORK_TARGETS, ai_session_fork_command, ai_session_restore_command,
+            },
             app_helpers::{
                 file_search_status_message, generated_git_commit_message, git_remote_action_label,
                 project_badge_text_from_name, ssh_connect_command,
@@ -11,6 +13,7 @@ mod tests {
             terminal_state::{
                 normalize_terminal_restore_state, restore_terminal_tabs_skeleton,
                 structural_terminal_layout, terminal_pane_terminal_id, terminal_restore_plan,
+                terminal_restore_plan_for_language,
             },
             terminal_worktree_actions::active_terminal_slot_indices,
             types::{TerminalPanePlan, TerminalRestorePlan, TerminalTabPlacement, TerminalTabPlan},
@@ -19,7 +22,7 @@ mod tests {
         terminal::TerminalLaunchContext,
     };
     use codux_runtime::{
-        ai_history::AISessionSummary,
+        ai_history::{AISessionForkTarget, AISessionSummary},
         git::GitSummary,
         ssh::SSHProfileSummary,
         terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
@@ -78,7 +81,13 @@ mod tests {
             }],
             ..Default::default()
         };
-        let plan = terminal_restore_plan(&layout, &runtime);
+        let plan = terminal_restore_plan_for_language(
+            &layout,
+            &runtime,
+            "simplifiedChinese",
+            Some("term-d".to_string()),
+            None,
+        );
 
         assert_eq!(plan.tabs.len(), 3);
         assert_eq!(plan.tabs[0].placement, TerminalTabPlacement::Top);
@@ -147,9 +156,15 @@ mod tests {
             runtime,
             "simplifiedChinese",
         );
-        let plan = terminal_restore_plan(&layout, &runtime);
+        let plan = terminal_restore_plan_for_language(
+            &layout,
+            &runtime,
+            "simplifiedChinese",
+            Some("gpui-term-worktree-1-bottom-1".to_string()),
+            None,
+        );
 
-        assert_eq!(layout.active_terminal_id, "gpui-term-worktree-1-bottom-1");
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(
             layout.top_panes[0].terminal_id,
             "gpui-term-worktree-1-top-1"
@@ -157,6 +172,10 @@ mod tests {
         assert_eq!(layout.tabs[0].terminal_id, "gpui-term-worktree-1-bottom-1");
         assert_eq!(runtime.sessions.len(), 1);
         assert_eq!(plan.active_index, 1);
+        assert_eq!(
+            plan.active_terminal_id.as_deref(),
+            Some("gpui-term-worktree-1-bottom-1")
+        );
         assert_eq!(
             plan.tabs[0].panes[0].restored_output_tail,
             "worktree top output"
@@ -187,12 +206,7 @@ mod tests {
         assert_eq!(layout.top_panes.len(), 1);
         assert!(layout.tabs.is_empty());
         assert_eq!(layout.top_panes[0].title, "终端 1");
-        assert_eq!(layout.active_terminal_id, layout.top_panes[0].terminal_id);
-        assert!(
-            layout
-                .active_terminal_id
-                .starts_with("gpui-term-worktree-1-")
-        );
+        assert_eq!(layout.active_terminal_id, "");
     }
 
     #[test]
@@ -295,7 +309,7 @@ mod tests {
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].title, "kept");
         assert!(layout.tabs.is_empty());
-        assert_eq!(layout.active_terminal_id, "term-2");
+        assert_eq!(layout.active_terminal_id, "");
     }
 
     #[test]
@@ -365,6 +379,8 @@ mod tests {
     fn restored_terminal_ui_active_id_stays_on_bottom_tab_when_runtime_active_is_top() {
         let plan = TerminalRestorePlan {
             active_index: 0,
+            active_terminal_id: Some("top-1".to_string()),
+            active_bottom_terminal_id: Some("bottom-1".to_string()),
             tabs: vec![
                 TerminalTabPlan {
                     placement: TerminalTabPlacement::Top,
@@ -399,6 +415,41 @@ mod tests {
             active_tab_id, tabs[1].id,
             "bottom tab UI active id must not be replaced by a top pane runtime focus id"
         );
+    }
+
+    #[test]
+    fn restored_terminal_ui_active_id_uses_session_bottom_tab_memory() {
+        let layout = TerminalLayoutSummary {
+            active_terminal_id: "top-1".to_string(),
+            top_panes: vec![TerminalPaneSummary {
+                title: "Split".to_string(),
+                terminal_id: "top-1".to_string(),
+            }],
+            tabs: vec![
+                TerminalTabSummary {
+                    label: "Tab 1".to_string(),
+                    terminal_id: "bottom-1".to_string(),
+                },
+                TerminalTabSummary {
+                    label: "Tab 2".to_string(),
+                    terminal_id: "bottom-2".to_string(),
+                },
+            ],
+            top_ratios: vec![1.0],
+            bottom_ratio: 0.32,
+            error: None,
+        };
+        let plan = terminal_restore_plan_for_language(
+            &layout,
+            &TerminalRuntimeSummary::default(),
+            "simplifiedChinese",
+            None,
+            Some("bottom-2".to_string()),
+        );
+        let (tabs, active_tab_id, _) = restore_terminal_tabs_skeleton(&plan, None);
+
+        assert_eq!(plan.active_index, 0);
+        assert_eq!(active_tab_id, tabs[2].id);
     }
 
     #[test]
@@ -445,6 +496,39 @@ mod tests {
         assert_eq!(
             ai_session_restore_command(&session),
             "codewhale resume external-2"
+        );
+    }
+
+    #[test]
+    fn ai_session_fork_command_reads_prompt_file_for_all_targets() {
+        let path = "/tmp/codux session handoff.md";
+        for target in AI_SESSION_FORK_TARGETS {
+            let command = ai_session_fork_command(target, path);
+            if cfg!(windows) {
+                assert!(
+                    command
+                        .contains("Get-Content -Raw -LiteralPath '/tmp/codux session handoff.md'"),
+                    "{command}"
+                );
+            } else {
+                assert!(
+                    command.contains("$(cat '/tmp/codux session handoff.md')"),
+                    "{command}"
+                );
+            }
+            assert!(!command.contains("Continue Cleaned AI Session"));
+        }
+        assert!(ai_session_fork_command(AISessionForkTarget::Codex, path).starts_with("codex "));
+        assert!(ai_session_fork_command(AISessionForkTarget::Claude, path).starts_with("claude "));
+        assert!(ai_session_fork_command(AISessionForkTarget::Gemini, path).starts_with("gemini "));
+        assert!(ai_session_fork_command(AISessionForkTarget::Agy, path).starts_with("agy "));
+        assert!(
+            ai_session_fork_command(AISessionForkTarget::OpenCode, path)
+                .starts_with("opencode run ")
+        );
+        assert!(ai_session_fork_command(AISessionForkTarget::Kiro, path).starts_with("kiro "));
+        assert!(
+            ai_session_fork_command(AISessionForkTarget::CodeWhale, path).starts_with("codewhale ")
         );
     }
 

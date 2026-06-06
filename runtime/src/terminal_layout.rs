@@ -11,7 +11,7 @@ pub fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> Strin
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalLayoutSummary {
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub active_terminal_id: String,
     pub top_panes: Vec<TerminalPaneSummary>,
     pub tabs: Vec<TerminalTabSummary>,
@@ -99,7 +99,7 @@ impl TerminalLayoutService {
         &self,
         project_id: &str,
         tabs: Vec<TerminalTabSummary>,
-        active_terminal_id: String,
+        _active_terminal_id: String,
         top_panes: Vec<TerminalPaneSummary>,
         top_ratios: Vec<f64>,
         bottom_ratio: f64,
@@ -109,7 +109,7 @@ impl TerminalLayoutService {
         }
         let layout = TerminalLayoutSummary {
             tabs,
-            active_terminal_id,
+            active_terminal_id: String::new(),
             top_panes,
             top_ratios,
             bottom_ratio,
@@ -204,6 +204,7 @@ mod tests {
         };
 
         let value = serde_json::to_value(&layout).expect("serialize layout");
+        assert!(value.get("activeTerminalId").is_none());
         assert_eq!(value["topRatios"][0].as_f64(), Some(1.0));
         assert_eq!(value["bottomRatio"].as_f64(), Some(0.72));
     }
@@ -244,7 +245,7 @@ mod tests {
         assert_eq!(error, "Terminal layout is empty.");
 
         let layout = service.load(Some("project-1::worktree-1"));
-        assert_eq!(layout.active_terminal_id, "terminal-kept");
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].terminal_id, "terminal-kept");
 

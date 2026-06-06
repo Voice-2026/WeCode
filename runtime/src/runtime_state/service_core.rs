@@ -1059,7 +1059,7 @@ mod app_runtime_ready_tests {
             state.worktrees.selected_worktree_id.as_deref(),
             Some("worktree-a")
         );
-        assert_eq!(state.terminal_layout.active_terminal_id, "terminal-a");
+        assert_eq!(state.terminal_layout.active_terminal_id, "");
         assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-a");
         assert_eq!(state.terminal_layout.bottom_ratio, 0.18);
 
@@ -1074,7 +1074,7 @@ mod app_runtime_ready_tests {
             state.worktrees.selected_worktree_id.as_deref(),
             Some("worktree-b")
         );
-        assert_eq!(state.terminal_layout.active_terminal_id, "terminal-b");
+        assert_eq!(state.terminal_layout.active_terminal_id, "");
         assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-b");
         assert_eq!(state.terminal_layout.bottom_ratio, 0.52);
 
@@ -1089,7 +1089,7 @@ mod app_runtime_ready_tests {
             state.worktrees.selected_worktree_id.as_deref(),
             Some("worktree-a")
         );
-        assert_eq!(state.terminal_layout.active_terminal_id, "terminal-a");
+        assert_eq!(state.terminal_layout.active_terminal_id, "");
         assert_eq!(state.terminal_layout.top_panes[0].terminal_id, "terminal-a");
         assert_eq!(state.terminal_layout.bottom_ratio, 0.18);
 
@@ -1253,7 +1253,7 @@ mod app_runtime_ready_tests {
             &worktree_a_dir.to_string_lossy(),
         );
         let layout = service.reload_terminal_layout(Some(&layout_a_key));
-        assert_eq!(layout.active_terminal_id, terminal_a_top);
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes[0].terminal_id, terminal_a_top);
         assert_eq!(layout.tabs[0].terminal_id, terminal_a_tab);
 
@@ -1264,7 +1264,7 @@ mod app_runtime_ready_tests {
             project_path: worktree_a_dir.clone(),
             support_dir: support_dir.clone(),
             runtime_root: support_dir.join("runtime-root"),
-            terminal_id: Some(layout.active_terminal_id.clone()),
+            terminal_id: Some(terminal_a_top.clone()),
             slot_id: None,
             session_key: None,
             session_title: Some("Task A Top".to_string()),
@@ -1316,7 +1316,7 @@ mod app_runtime_ready_tests {
             &worktree_b_dir.to_string_lossy(),
         );
         let layout = service.reload_terminal_layout(Some(&layout_b_key));
-        assert_eq!(layout.active_terminal_id, terminal_b_top);
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes[0].terminal_id, terminal_b_top);
 
         service.select_project("project-b").expect("select project b");
@@ -1334,7 +1334,7 @@ mod app_runtime_ready_tests {
             "project-b",
             "project-b",
         )));
-        assert_eq!(layout.active_terminal_id, terminal_project_b);
+        assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes[0].terminal_id, terminal_project_b);
 
         let _ = terminal_manager.kill(&terminal_a_top);

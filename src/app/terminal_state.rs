@@ -30,13 +30,15 @@ pub(in crate::app) fn terminal_restore_plan(
     layout: &TerminalLayoutSummary,
     runtime: &TerminalRuntimeSummary,
 ) -> TerminalRestorePlan {
-    terminal_restore_plan_for_language(layout, runtime, "simplifiedChinese")
+    terminal_restore_plan_for_language(layout, runtime, "simplifiedChinese", None, None)
 }
 
 pub(in crate::app) fn terminal_restore_plan_for_language(
     layout: &TerminalLayoutSummary,
     runtime: &TerminalRuntimeSummary,
     language: &str,
+    active_terminal_id: Option<String>,
+    active_bottom_terminal_id: Option<String>,
 ) -> TerminalRestorePlan {
     let locale = locale_from_language_setting(language);
     let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
@@ -145,11 +147,29 @@ pub(in crate::app) fn terminal_restore_plan_for_language(
         }
     }
 
-    let active_index = active_terminal_layout_index(layout)
+    let active_terminal_id = active_terminal_id
+        .and_then(|terminal_id| normalized_terminal_id(&terminal_id))
+        .filter(|terminal_id| restore_plan_has_terminal(&tabs, terminal_id));
+    let active_index = active_terminal_id
+        .as_deref()
+        .and_then(|terminal_id| active_terminal_plan_index(&tabs, terminal_id))
         .unwrap_or(0)
         .min(tabs.len().saturating_sub(1));
+    let active_bottom_terminal_id = active_bottom_terminal_id
+        .and_then(|terminal_id| normalized_terminal_id(&terminal_id))
+        .filter(|terminal_id| {
+            tabs.iter().any(|tab| {
+                tab.placement == TerminalTabPlacement::Bottom
+                    && tab.terminal_id.as_deref() == Some(terminal_id.as_str())
+            })
+        });
 
-    TerminalRestorePlan { tabs, active_index }
+    TerminalRestorePlan {
+        tabs,
+        active_index,
+        active_terminal_id,
+        active_bottom_terminal_id,
+    }
 }
 
 pub(in crate::app) fn normalize_terminal_restore_state(
@@ -166,14 +186,7 @@ pub(in crate::app) fn normalize_terminal_restore_state(
     if layout.top_panes.is_empty() && layout.tabs.is_empty() {
         layout = default_terminal_layout_for_owner(Some(owner_id), language);
     }
-    if !layout_has_terminal(&layout, &layout.active_terminal_id) {
-        layout.active_terminal_id = layout
-            .top_panes
-            .first()
-            .map(|pane| pane.terminal_id.clone())
-            .or_else(|| layout.tabs.first().map(|tab| tab.terminal_id.clone()))
-            .unwrap_or_default();
-    }
+    layout.active_terminal_id.clear();
 
     let mut runtime = runtime_for_owner(runtime, owner_id);
     if !runtime
@@ -203,14 +216,7 @@ pub(in crate::app) fn structural_terminal_layout(
         .top_panes
         .retain(|pane| !pane.terminal_id.trim().is_empty());
     layout.tabs.retain(|tab| !tab.terminal_id.trim().is_empty());
-    if !layout_has_terminal(&layout, &layout.active_terminal_id) {
-        layout.active_terminal_id = layout
-            .top_panes
-            .first()
-            .map(|pane| pane.terminal_id.clone())
-            .or_else(|| layout.tabs.first().map(|tab| tab.terminal_id.clone()))
-            .unwrap_or_default();
-    }
+    layout.active_terminal_id.clear();
     layout
 }
 
@@ -271,39 +277,30 @@ pub(in crate::app) fn terminal_top_ratios_for_panes(
     values.into_iter().map(|value| value / total).collect()
 }
 
-fn layout_has_terminal(layout: &TerminalLayoutSummary, terminal_id: &str) -> bool {
+fn restore_plan_has_terminal(tabs: &[TerminalTabPlan], terminal_id: &str) -> bool {
     let terminal_id = terminal_id.trim();
     !terminal_id.is_empty()
-        && (layout
-            .top_panes
-            .iter()
-            .any(|pane| pane.terminal_id == terminal_id)
-            || layout.tabs.iter().any(|tab| tab.terminal_id == terminal_id))
+        && tabs.iter().any(|tab| {
+            tab.terminal_id.as_deref() == Some(terminal_id)
+                || tab
+                    .panes
+                    .iter()
+                    .any(|pane| pane.terminal_id.as_deref() == Some(terminal_id))
+        })
 }
 
-fn active_terminal_layout_index(layout: &TerminalLayoutSummary) -> Option<usize> {
-    let active_terminal_id = layout.active_terminal_id.trim();
-    if active_terminal_id.is_empty() {
+fn active_terminal_plan_index(tabs: &[TerminalTabPlan], terminal_id: &str) -> Option<usize> {
+    let terminal_id = terminal_id.trim();
+    if terminal_id.is_empty() {
         return None;
     }
-    if layout
-        .top_panes
-        .iter()
-        .any(|pane| pane.terminal_id == active_terminal_id)
-    {
-        return Some(0);
-    }
-    layout
-        .tabs
-        .iter()
-        .position(|tab| tab.terminal_id == active_terminal_id)
-        .map(|index| {
-            if layout.top_panes.is_empty() {
-                index
-            } else {
-                index + 1
-            }
-        })
+    tabs.iter().position(|tab| {
+        tab.terminal_id.as_deref() == Some(terminal_id)
+            || tab
+                .panes
+                .iter()
+                .any(|pane| pane.terminal_id.as_deref() == Some(terminal_id))
+    })
 }
 
 fn unique_terminal_id(owner_id: &str) -> String {
@@ -542,9 +539,19 @@ pub(in crate::app) fn restore_terminal_tabs_skeleton(
             panes,
         });
     }
-    let active_terminal_id = tabs
-        .get(plan.active_index)
-        .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
+    let active_terminal_id = plan
+        .active_bottom_terminal_id
+        .as_deref()
+        .and_then(|terminal_id| {
+            tabs.iter().find(|tab| {
+                tab.placement == TerminalTabPlacement::Bottom
+                    && tab.terminal_id.as_deref() == Some(terminal_id)
+            })
+        })
+        .or_else(|| {
+            tabs.get(plan.active_index)
+                .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
+        })
         .or_else(|| {
             tabs.iter()
                 .find(|tab| tab.placement == TerminalTabPlacement::Bottom)

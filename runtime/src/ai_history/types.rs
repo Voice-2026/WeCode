@@ -81,6 +81,50 @@ pub struct AISessionDetail {
     pub error: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AISessionForkTarget {
+    Codex,
+    Claude,
+    Gemini,
+    Agy,
+    OpenCode,
+    Kiro,
+    CodeWhale,
+}
+
+impl AISessionForkTarget {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::Claude => "Claude",
+            Self::Gemini => "Gemini",
+            Self::Agy => "Agy",
+            Self::OpenCode => "OpenCode",
+            Self::Kiro => "Kiro",
+            Self::CodeWhale => "CodeWhale",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct AISessionForkRequest {
+    pub project_id: String,
+    pub project_name: String,
+    pub project_path: String,
+    pub session_id: String,
+    pub target_tool: AISessionForkTarget,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AISessionForkResult {
+    pub title: String,
+    pub prompt_path: String,
+    pub prompt_chars: usize,
+    pub omitted_items: usize,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AISessionFileSummary {

@@ -1,11 +1,11 @@
 use codux_runtime::{
-    ai_history::{AIGlobalHistorySummary, AIHistorySummary, AISessionSummary},
+    ai_history::{AIGlobalHistorySummary, AIHistorySummary, AISessionForkTarget, AISessionSummary},
     ai_history_indexer::AIHistoryProjectState,
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot},
     runtime_state::ProjectInfo,
 };
 
-use super::shell_quote;
+use super::shell_utils::{shell_quote, shell_read_file_arg};
 
 pub(in crate::app) fn ai_session_restore_command(session: &AISessionSummary) -> String {
     let tool = session.source.to_lowercase();
@@ -29,6 +29,32 @@ pub(in crate::app) fn ai_session_restore_command(session: &AISessionSummary) -> 
         format!("codewhale resume {quoted_id}")
     } else {
         format!("codex resume {quoted_id}")
+    }
+}
+
+pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 7] = [
+    AISessionForkTarget::Codex,
+    AISessionForkTarget::Claude,
+    AISessionForkTarget::Gemini,
+    AISessionForkTarget::Agy,
+    AISessionForkTarget::OpenCode,
+    AISessionForkTarget::Kiro,
+    AISessionForkTarget::CodeWhale,
+];
+
+pub(in crate::app) fn ai_session_fork_command(
+    target: AISessionForkTarget,
+    prompt_path: &str,
+) -> String {
+    let prompt = shell_read_file_arg(prompt_path);
+    match target {
+        AISessionForkTarget::Codex => format!("codex {prompt}"),
+        AISessionForkTarget::Claude => format!("claude {prompt}"),
+        AISessionForkTarget::Gemini => format!("gemini {prompt}"),
+        AISessionForkTarget::Agy => format!("agy {prompt}"),
+        AISessionForkTarget::OpenCode => format!("opencode run {prompt}"),
+        AISessionForkTarget::Kiro => format!("kiro {prompt}"),
+        AISessionForkTarget::CodeWhale => format!("codewhale {prompt}"),
     }
 }
 

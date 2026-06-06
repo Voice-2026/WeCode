@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::app_events::{ChildWindowUpdateKind, publish_child_window_update};
+use crate::app::terminal_worktree_actions::TerminalLayoutSnapshot;
 use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
 
 impl CoduxApp {
@@ -274,6 +275,8 @@ impl CoduxApp {
     ) {
         self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
         let switch_generation = self.project_switch_generation;
+        self.remember_focused_terminal_for_current_scope(window, cx);
+        self.remember_active_bottom_terminal_for_current_scope();
         self.apply_selected_project_shell(&project_id, window, cx);
         self.memory_manager_scope = "project".to_string();
         self.memory_manager_project_id = Some(project_id.clone());
@@ -616,19 +619,12 @@ impl CoduxApp {
     pub(super) fn spawn_persist_terminal_layout_snapshot(
         &self,
         owner_id: Option<String>,
-        layout_snapshot: (
-            Vec<TerminalTabSummary>,
-            String,
-            Vec<TerminalPaneSummary>,
-            Vec<f64>,
-            f64,
-        ),
+        layout_snapshot: TerminalLayoutSnapshot,
     ) {
         let Some(owner_id) = owner_id else {
             return;
         };
-        let (tabs, active_terminal_id, top_panes, top_ratios, bottom_ratio) = layout_snapshot;
-        if tabs.is_empty() && top_panes.is_empty() {
+        if layout_snapshot.tabs.is_empty() && layout_snapshot.top_panes.is_empty() {
             self.runtime_trace(
                 "terminal-layout",
                 &format!("skip empty layout persist owner={owner_id}"),
@@ -639,11 +635,11 @@ impl CoduxApp {
         codux_runtime::async_runtime::spawn_blocking(move || {
             if let Err(error) = runtime_service.save_terminal_layout(
                 &owner_id,
-                tabs,
-                active_terminal_id,
-                top_panes,
-                top_ratios,
-                bottom_ratio,
+                layout_snapshot.tabs,
+                String::new(),
+                layout_snapshot.top_panes,
+                layout_snapshot.top_ratios,
+                layout_snapshot.bottom_ratio,
             ) {
                 codux_runtime::runtime_trace::runtime_trace(
                     "terminal-layout",
@@ -1092,12 +1088,28 @@ impl CoduxApp {
 
     pub(super) fn schedule_terminal_layout_restore(
         &mut self,
-        terminal_layout: TerminalLayoutSummary,
-        terminal_runtime: TerminalRuntimeSummary,
+        mut terminal_layout: TerminalLayoutSummary,
+        mut terminal_runtime: TerminalRuntimeSummary,
         generation: u64,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(key) = current_worktree_scope_key(&self.state)
+            && let Some((cached_layout, cached_runtime)) = self.cached_terminal_layout_state(&key)
+        {
+            self.runtime_trace(
+                "terminal-restore",
+                &format!(
+                    "use runtime layout cache project={} worktree={} tabs={} top={}",
+                    key.project_id,
+                    key.worktree_id,
+                    cached_layout.tabs.len(),
+                    cached_layout.top_panes.len()
+                ),
+            );
+            terminal_layout = cached_layout;
+            terminal_runtime = cached_runtime;
+        }
         self.state.terminal_layout = terminal_layout.clone();
         self.state.terminal_runtime = terminal_runtime.clone();
         self.terminal_layout_loading = true;
@@ -1153,15 +1165,24 @@ impl CoduxApp {
             &self.state.terminal_layout,
             &self.state.terminal_runtime,
             &self.state.settings.language,
+            self.remembered_active_terminal_runtime_id(),
+            self.remembered_active_bottom_terminal_id(),
         );
+        self.state.terminal_layout.active_terminal_id =
+            restore_plan.active_terminal_id.clone().unwrap_or_default();
         self.runtime_trace(
             "terminal-restore",
             &format!(
-                "plan elapsed_ms={} owner={} tabs={} active_index={}",
+                "plan elapsed_ms={} owner={} tabs={} active_index={} active_runtime={} active_bottom={}",
                 plan_started_at.elapsed().as_millis(),
                 owner_id.as_deref().unwrap_or("none"),
                 restore_plan.tabs.len(),
-                restore_plan.active_index
+                restore_plan.active_index,
+                restore_plan.active_terminal_id.as_deref().unwrap_or("none"),
+                restore_plan
+                    .active_bottom_terminal_id
+                    .as_deref()
+                    .unwrap_or("none")
             ),
         );
         let artifacts_started_at = Instant::now();
@@ -1185,7 +1206,6 @@ impl CoduxApp {
         self.terminals = terminals;
         self.active_terminal_id = active_terminal_id;
         self.next_terminal_index = next_terminal_index;
-        self.activate_first_terminal();
         let pending_terminals =
             self.mount_visible_terminal_views_for_restore(&restore_plan, &base_pty_config, cx);
         self.status_message = format!(
@@ -1265,7 +1285,7 @@ impl CoduxApp {
             }
         }
         for (terminal_id, pane) in registrations {
-            self.register_terminal_pane(Some(&terminal_id), &pane);
+            self.register_terminal_pane(Some(&terminal_id), &pane, cx);
         }
         pending
     }

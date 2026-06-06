@@ -1,7 +1,7 @@
 use crate::{
     ai_history::{
         AIGlobalHistorySummary, AIHistoryDailyLevelView, AIHistoryService, AIHistoryStatsView,
-        AIHistorySummary, AISessionDetail,
+        AIHistorySummary, AISessionDetail, AISessionForkRequest, AISessionForkResult,
     },
     ai_history_indexer::{AIHistoryEvent, AIHistoryIndexer, AIHistoryProjectState},
     ai_history_normalized::{

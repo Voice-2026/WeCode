@@ -508,6 +508,7 @@ pub struct TerminalView {
     scroll_input: TerminalScrollInputState,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
+    focus_observer: Option<Arc<dyn Fn(&mut Window, &mut Context<TerminalView>)>>,
     selection_autoscroll: Option<SelectionAutoScroll>,
     _observe_model: Subscription,
     _observe_blink_manager: Subscription,
@@ -589,6 +590,7 @@ impl TerminalView {
             scroll_input: TerminalScrollInputState::default(),
             focus_in_subscription: None,
             focus_out_subscription: None,
+            focus_observer: None,
             selection_autoscroll: None,
             _observe_model: observe_model,
             _observe_blink_manager: observe_blink_manager,
@@ -618,6 +620,13 @@ impl TerminalView {
             .update(cx, |model, _| model.update_colors(config.colors.clone()));
         self.config = config;
         cx.notify();
+    }
+
+    pub fn set_focus_observer<F>(&mut self, observer: F)
+    where
+        F: Fn(&mut Window, &mut Context<TerminalView>) + 'static,
+    {
+        self.focus_observer = Some(Arc::new(observer));
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
@@ -938,12 +947,18 @@ impl TerminalView {
     fn ensure_focus_report_subscriptions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.focus_in_subscription.is_none() {
             let focus_handle = self.focus_handle.clone();
-            self.focus_in_subscription = Some(cx.on_focus(&focus_handle, window, |view, _, cx| {
-                view.model.update(cx, |model, _| model.set_focused(true));
-                view.blink_manager.update(cx, TerminalBlinkManager::enable);
-                view.report_focus_change(true, cx);
-                cx.notify();
-            }));
+            self.focus_in_subscription =
+                Some(cx.on_focus(&focus_handle, window, |view, window, cx| {
+                    view.model.update(cx, |model, _| model.set_focused(true));
+                    view.blink_manager.update(cx, TerminalBlinkManager::enable);
+                    view.report_focus_change(true, cx);
+                    if let Some(observer) = view.focus_observer.clone() {
+                        cx.defer_in(window, move |_, window, cx| {
+                            observer(window, cx);
+                        });
+                    }
+                    cx.notify();
+                }));
         }
         if self.focus_out_subscription.is_none() {
             let focus_handle = self.focus_handle.clone();
