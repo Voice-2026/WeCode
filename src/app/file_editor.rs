@@ -8,6 +8,31 @@ const FILE_EDITOR_TOOLBAR_HEIGHT: f32 = 56.0;
 const FILE_EDITOR_CHROME_HEIGHT: f32 = FILE_EDITOR_TAB_BAR_HEIGHT + FILE_EDITOR_TOOLBAR_HEIGHT;
 
 #[derive(Clone)]
+struct FileEditorTabDrag {
+    path: String,
+    tab: FileEditorTab,
+    active: bool,
+}
+
+impl Render for FileEditorTabDrag {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let text_color = if self.tab.dirty {
+            color(theme::TEXT)
+        } else {
+            cx.theme().secondary_foreground
+        };
+        file_editor_tab_base(text_color)
+            .when(self.active, |this| {
+                this.bg(color(theme::TEXT).opacity(0.07))
+            })
+            .child(file_editor_tab_content(
+                self.tab.clone(),
+                cx.theme().secondary_foreground,
+            ))
+    }
+}
+
+#[derive(Clone)]
 pub(in crate::app) struct FileEditorWorkspaceSnapshot {
     tabs: Vec<FileEditorTab>,
     active_path: Option<String>,
@@ -464,6 +489,46 @@ impl CoduxApp {
         self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
     }
 
+    pub(super) fn reorder_file_editor_tabs(
+        &mut self,
+        next_paths: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if next_paths.len() != self.file_editor_tabs.len() {
+            return;
+        }
+
+        let current_paths = self
+            .file_editor_tabs
+            .iter()
+            .map(|tab| tab.relative_path.clone())
+            .collect::<Vec<_>>();
+        if current_paths == next_paths {
+            return;
+        }
+
+        let mut remaining = std::mem::take(&mut self.file_editor_tabs);
+        let mut reordered = Vec::with_capacity(remaining.len());
+        for path in next_paths {
+            let Some(index) = remaining.iter().position(|tab| tab.relative_path == path) else {
+                self.file_editor_tabs = remaining;
+                return;
+            };
+            reordered.push(remaining.remove(index));
+        }
+        if !remaining.is_empty() {
+            self.file_editor_tabs = remaining;
+            return;
+        }
+
+        self.file_editor_tabs = reordered;
+        self.persist_file_editor_layout_async(cx);
+        if !self.update_file_editor_workspace_view(cx) {
+            self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+        }
+        self.invalidate_ui_region(cx, UiRegion::WorkspaceChrome);
+    }
+
     pub(super) fn mark_file_editor_dirty(
         &mut self,
         relative_path: &str,
@@ -870,6 +935,10 @@ fn file_editor_tab_bar(
     tab_scroll_handle: ScrollHandle,
     cx: &mut Context<FileEditorTabBarView>,
 ) -> impl IntoElement {
+    let tab_order = tabs
+        .iter()
+        .map(|tab| tab.relative_path.clone())
+        .collect::<Vec<_>>();
     div()
         .h(px(FILE_EDITOR_TAB_BAR_HEIGHT))
         .w_full()
@@ -902,7 +971,13 @@ fn file_editor_tab_bar(
                         .track_scroll(&tab_scroll_handle)
                         .children(tabs.into_iter().map(|tab| {
                             let active = active_path.as_deref() == Some(tab.relative_path.as_str());
-                            file_editor_tab_button(app_entity.clone(), tab, active, cx)
+                            file_editor_tab_button(
+                                app_entity.clone(),
+                                tab,
+                                active,
+                                tab_order.clone(),
+                                cx,
+                            )
                         })),
                 ),
         )
@@ -912,72 +987,74 @@ fn file_editor_tab_button(
     app_entity: gpui::Entity<CoduxApp>,
     tab: FileEditorTab,
     active: bool,
+    tab_order: Vec<String>,
     cx: &mut Context<FileEditorTabBarView>,
 ) -> AnyElement {
     let select_path = tab.relative_path.clone();
     let close_path = tab.relative_path.clone();
+    let target_path = tab.relative_path.clone();
+    let drag_tab = tab.clone();
     let tab_button_id = SharedString::from(format!("file-editor-tab-{close_path}"));
     let close_button_id = SharedString::from(format!("file-editor-close-{close_path}"));
     let active_bg = color(theme::TEXT).opacity(0.07);
     let hover_bg = cx.theme().secondary_hover;
 
-    div()
+    let text_color = if tab.dirty {
+        color(theme::TEXT)
+    } else {
+        cx.theme().secondary_foreground
+    };
+
+    file_editor_tab_base(text_color)
         .id(tab_button_id)
-        .h(px(28.0))
-        .min_w(px(96.0))
-        .max_w(px(220.0))
-        .flex_none()
-        .flex()
-        .items_center()
-        .rounded(px(6.0))
-        .text_size(rems(0.78125))
-        .line_height(rems(1.0))
-        .text_color(if tab.dirty {
-            color(theme::TEXT)
-        } else {
-            cx.theme().secondary_foreground
-        })
         .when(active, |this| this.bg(active_bg))
         .cursor_pointer()
         .hover(move |style| style.bg(hover_bg))
-        .on_click(cx.listener(move |_app, _event, window, cx| {
-            cx.update_entity(&app_entity, |app, cx| {
-                app.select_file_editor_tab(select_path.clone(), window, cx);
-            });
-        }))
-        .child(
-            div()
-                .flex()
-                .flex_1()
-                .min_w_0()
-                .h_full()
-                .items_center()
-                .gap_2()
-                .pl(px(10.0))
-                .pr(px(4.0))
-                .child(
-                    div()
-                        .size(px(6.0))
-                        .flex_none()
-                        .rounded_full()
-                        .when(tab.dirty, |this| this.bg(color(theme::ORANGE)))
-                        .when(!tab.dirty, |this| {
-                            this.bg(color(theme::TEXT_DIM).opacity(0.0))
-                        }),
-                )
-                .child(
-                    Icon::new(HeroIconName::DocumentText)
-                        .size_3()
-                        .text_color(cx.theme().secondary_foreground),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .child(tab.label),
-                ),
+        .on_drag(
+            FileEditorTabDrag {
+                path: drag_tab.relative_path.clone(),
+                tab: drag_tab,
+                active,
+            },
+            move |drag, _, _, cx| {
+                cx.new(|_| FileEditorTabDrag {
+                    path: drag.path.clone(),
+                    tab: drag.tab.clone(),
+                    active: drag.active,
+                })
+            },
         )
+        .drag_over::<FileEditorTabDrag>(move |this, _drag, _window, _cx| this)
+        .on_drop(cx.listener({
+            let app_entity = app_entity.clone();
+            let target_path = target_path.clone();
+            move |_view, drag: &FileEditorTabDrag, window, cx| {
+                let Some(next_paths) =
+                    reordered_ids(&tab_order, drag.path.as_str(), target_path.as_str())
+                else {
+                    return;
+                };
+                defer_codux_app_update(app_entity.clone(), window, cx, move |app, _, app_cx| {
+                    app.reorder_file_editor_tabs(next_paths, app_cx);
+                });
+                cx.stop_propagation();
+            }
+        }))
+        .on_click(cx.listener(move |_app, _event, window, cx| {
+            let select_path = select_path.clone();
+            defer_codux_app_update(
+                app_entity.clone(),
+                window,
+                cx,
+                move |app, window, app_cx| {
+                    app.select_file_editor_tab(select_path, window, app_cx);
+                },
+            );
+        }))
+        .child(file_editor_tab_content(
+            tab,
+            cx.theme().secondary_foreground,
+        ))
         .child(
             div()
                 .id(close_button_id)
@@ -997,13 +1074,62 @@ fn file_editor_tab_button(
                 )
                 .on_click(cx.listener(move |view, _event, window, cx| {
                     let app_entity = view.app_entity.clone();
-                    cx.update_entity(&app_entity, |app, cx| {
-                        app.close_file_editor_tab(close_path.clone(), window, cx);
+                    let close_path = close_path.clone();
+                    defer_codux_app_update(app_entity, window, cx, move |app, window, app_cx| {
+                        app.close_file_editor_tab(close_path, window, app_cx);
                     });
                     cx.stop_propagation();
                 })),
         )
         .into_any_element()
+}
+
+fn file_editor_tab_base(text_color: gpui::Hsla) -> gpui::Div {
+    div()
+        .h(px(28.0))
+        .min_w(px(96.0))
+        .max_w(px(220.0))
+        .flex_none()
+        .flex()
+        .items_center()
+        .rounded(px(6.0))
+        .text_size(rems(0.78125))
+        .line_height(rems(1.0))
+        .text_color(text_color)
+}
+
+fn file_editor_tab_content(tab: FileEditorTab, icon_color: gpui::Hsla) -> gpui::Div {
+    div()
+        .flex()
+        .flex_1()
+        .min_w_0()
+        .h_full()
+        .items_center()
+        .gap_2()
+        .pl(px(10.0))
+        .pr(px(4.0))
+        .child(
+            div()
+                .size(px(6.0))
+                .flex_none()
+                .rounded_full()
+                .when(tab.dirty, |this| this.bg(color(theme::ORANGE)))
+                .when(!tab.dirty, |this| {
+                    this.bg(color(theme::TEXT_DIM).opacity(0.0))
+                }),
+        )
+        .child(
+            Icon::new(HeroIconName::DocumentText)
+                .size_3()
+                .text_color(icon_color),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(tab.label),
+        )
 }
 
 fn file_editor_toolbar(

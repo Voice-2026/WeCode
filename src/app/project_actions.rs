@@ -1705,6 +1705,68 @@ impl CoduxApp {
         .detach();
     }
 
+    pub(super) fn reorder_projects_by_ids(
+        &mut self,
+        project_ids: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if project_ids.len() != self.state.projects.len()
+            || self
+                .state
+                .projects
+                .iter()
+                .zip(project_ids.iter())
+                .all(|(project, project_id)| project.id == *project_id)
+        {
+            return;
+        }
+
+        let runtime_service = self.runtime_service.clone();
+        self.runtime_trace(
+            "project",
+            &format!("reorder_projects queued count={}", project_ids.len()),
+        );
+        self.invalidate_project_management(cx);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                runtime_service.runtime_trace_frontend(
+                    "project",
+                    &format!("reorder_projects start count={}", project_ids.len()),
+                );
+                let result = runtime_service.project_reorder(ProjectReorderRequest { project_ids });
+                match &result {
+                    Ok(snapshot) => runtime_service.runtime_trace_frontend(
+                        "project",
+                        &format!("reorder_projects ok count={}", snapshot.projects.len()),
+                    ),
+                    Err(error) => runtime_service.runtime_trace_frontend(
+                        "project",
+                        &format!("reorder_projects failed error={error}"),
+                    ),
+                }
+                result.map(|_| runtime_service.reload_state())
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join project reorder: {error}")));
+
+            let _ = this.update(cx, |app, cx| {
+                match result {
+                    Ok(state) => {
+                        app.state = state;
+                        app.sync_project_list_state(cx);
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to reorder projects: {error}");
+                    }
+                }
+                app.invalidate_project_management(cx);
+                app.invalidate_status_bar(cx);
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn edit_project_by_id(
         &mut self,
         project_id: String,

@@ -1,4 +1,6 @@
 use super::*;
+use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
+use gpui_component::input::{Input, InputEvent, InputState};
 
 impl CoduxApp {
     pub(in crate::app) fn confirm_or_close_active_terminal_target(
@@ -699,5 +701,271 @@ impl CoduxApp {
         self.detach_inactive_terminal_views();
         self.sync_terminal_state_after_layout_change(cx);
         self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn reorder_bottom_terminal_tabs(
+        &mut self,
+        next_terminal_ids: Vec<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let current_bottom_ids = self
+            .terminals
+            .iter()
+            .filter(|tab| tab.placement == TerminalTabPlacement::Bottom)
+            .map(|tab| tab.id)
+            .collect::<Vec<_>>();
+        if current_bottom_ids == next_terminal_ids
+            || current_bottom_ids.len() != next_terminal_ids.len()
+        {
+            return;
+        }
+
+        let terminals = std::mem::take(&mut self.terminals);
+        let (mut bottom_tabs, mut other_tabs): (Vec<_>, Vec<_>) = terminals
+            .into_iter()
+            .partition(|tab| tab.placement == TerminalTabPlacement::Bottom);
+        let mut reordered = Vec::with_capacity(bottom_tabs.len());
+        for terminal_id in next_terminal_ids {
+            let Some(index) = bottom_tabs.iter().position(|tab| tab.id == terminal_id) else {
+                other_tabs.extend(bottom_tabs);
+                self.terminals = other_tabs;
+                return;
+            };
+            reordered.push(bottom_tabs.remove(index));
+        }
+        if !bottom_tabs.is_empty() {
+            other_tabs.extend(bottom_tabs);
+            self.terminals = other_tabs;
+            return;
+        }
+
+        other_tabs.extend(reordered);
+        self.terminals = other_tabs;
+        self.sync_terminal_state_after_layout_change(cx);
+        self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn rename_bottom_terminal_tab(
+        &mut self,
+        terminal_id: usize,
+        label: String,
+        cx: &mut Context<Self>,
+    ) {
+        let label = normalized_terminal_tab_label(&label);
+        let Some(tab) = self
+            .terminals
+            .iter_mut()
+            .find(|tab| tab.id == terminal_id && tab.placement == TerminalTabPlacement::Bottom)
+        else {
+            return;
+        };
+        if tab.label == label {
+            return;
+        }
+        tab.label = label;
+        self.sync_terminal_state_after_layout_change(cx);
+        self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn open_terminal_tab_editor_window(
+        &mut self,
+        terminal_id: usize,
+        label: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let title = self.text("terminal.tab.rename.title", "Rename Tab");
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::TerminalTabEditor,
+                title: SharedString::from(title.clone()),
+                size: gpui::size(px(360.0), px(190.0)),
+                min_size: gpui::size(px(360.0), px(190.0)),
+                already_open_message: "terminal tab editor already opened",
+                opened_message: "terminal tab editor opened",
+                failed_prefix: "failed to open terminal tab editor",
+            },
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                app.window_mode = AppWindowMode::TerminalTabEditor;
+                app.terminal_tab_editor_id = Some(terminal_id);
+                app.terminal_tab_editor_label = label;
+                app.status_message = title;
+                app
+            },
+            {
+                let parent = cx.entity().downgrade();
+                move |view, _window, cx| {
+                    view.update(cx, |app, _cx| {
+                        app.parent_main_window = Some(parent);
+                    });
+                }
+            },
+        );
+        self.invalidate_status_bar(cx);
+    }
+
+    pub(in crate::app) fn set_terminal_tab_editor_label(
+        &mut self,
+        label: String,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        self.terminal_tab_editor_label = label;
+    }
+
+    pub(in crate::app) fn save_terminal_tab_editor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(terminal_id) = self.terminal_tab_editor_id else {
+            window.remove_window();
+            return;
+        };
+        let label = self.terminal_tab_editor_label.clone();
+        if let Some(parent) = self
+            .parent_main_window
+            .as_ref()
+            .and_then(|parent| parent.upgrade())
+        {
+            let _ = parent.update(cx, |app, cx| {
+                app.rename_bottom_terminal_tab(terminal_id, label, cx);
+                app.terminal_tab_editor_window = None;
+                app.invalidate_status_bar(cx);
+            });
+        }
+        window.remove_window();
+    }
+
+    pub(in crate::app) fn terminal_tab_editor_workspace(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let can_submit = !self.terminal_tab_editor_label.trim().is_empty();
+        let title = self.text("terminal.tab.rename.title", "Rename Tab");
+        let field_label = self.text("terminal.tab.rename.field", "Tab Title");
+        let placeholder = self.text("terminal.tab.rename.placeholder", "Tab Name");
+        let cancel_label = self.text("common.cancel", "Cancel");
+        let save_label = self.text("common.save", "Save");
+        child_window_shell(title, cx)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .p(px(18.0))
+                    .child(terminal_tab_editor_input(
+                        &self.terminal_tab_editor_label,
+                        field_label,
+                        placeholder,
+                        window,
+                        cx,
+                    )),
+            )
+            .child(dialog_footer_bar(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(dialog_cancel_button(
+                        "terminal-tab-editor-cancel",
+                        cancel_label,
+                        cx,
+                        |_app, _event, window, _cx| window.remove_window(),
+                    ))
+                    .child(
+                        dialog_primary_button(
+                            "terminal-tab-editor-save",
+                            save_label,
+                            cx,
+                            |app, _event, window, cx| app.save_terminal_tab_editor(window, cx),
+                        )
+                        .disabled(!can_submit),
+                    ),
+                cx,
+            ))
+    }
+}
+
+fn normalized_terminal_tab_label(label: &str) -> String {
+    let label = label.trim();
+    if label.is_empty() {
+        "Tab".to_string()
+    } else {
+        label.chars().take(48).collect()
+    }
+}
+
+fn terminal_tab_editor_input(
+    value: &str,
+    field_label: String,
+    placeholder: String,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let value = value.to_string();
+    let input = window.use_keyed_state("terminal-tab-editor-label", cx, {
+        let value = value.clone();
+        move |window, cx| {
+            InputState::new(window, cx)
+                .default_value(value.clone())
+                .placeholder(placeholder.clone())
+        }
+    });
+    input.update(cx, |state, cx| {
+        if state.value().as_ref() != value.as_str() {
+            state.set_value(value.clone(), window, cx);
+        }
+        state.focus(window, cx);
+    });
+    cx.subscribe_in(
+        &input,
+        window,
+        |app, state, event, window, cx| match event {
+            InputEvent::Change => {
+                app.set_terminal_tab_editor_label(state.read(cx).value().to_string(), window, cx);
+            }
+            InputEvent::PressEnter { .. } => {
+                cx.stop_propagation();
+                window.prevent_default();
+                app.save_terminal_tab_editor(window, cx);
+            }
+            InputEvent::Focus | InputEvent::Blur => {}
+        },
+    )
+    .detach();
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .child(
+            div()
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
+                .text_color(color(theme::TEXT))
+                .child(field_label),
+        )
+        .child(Input::new(&input).with_size(gpui_component::Size::Medium))
+        .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_terminal_tab_label;
+
+    #[test]
+    fn normalizes_terminal_tab_label() {
+        assert_eq!(normalized_terminal_tab_label("  dev  "), "dev");
+        assert_eq!(normalized_terminal_tab_label("   "), "Tab");
+        assert_eq!(
+            normalized_terminal_tab_label("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"),
+            "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuv"
+        );
     }
 }

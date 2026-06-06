@@ -104,9 +104,9 @@ fn summary_resets_daily_xp_after_local_day_changes() {
 }
 
 #[test]
-fn state_version_upgrade_rebuilds_pet_baseline_without_resetting_xp() {
+fn sanitize_state_keeps_pet_xp_and_baseline_without_version_bump() {
     let mut snapshot = PetSnapshot {
-        state_version: STATE_VERSION - 1,
+        state_version: STATE_VERSION,
         claimed_at: Some(10),
         current_experience_tokens: 42_000,
         daily_experience_tokens: 120,
@@ -122,8 +122,11 @@ fn state_version_upgrade_rebuilds_pet_baseline_without_resetting_xp() {
     assert_eq!(sanitized.state_version, STATE_VERSION);
     assert_eq!(sanitized.current_experience_tokens, 42_000);
     assert_eq!(sanitized.daily_experience_tokens, 120);
-    assert_eq!(sanitized.global_normalized_total_watermark, None);
-    assert!(sanitized.project_normalized_token_watermarks.is_empty());
+    assert_eq!(sanitized.global_normalized_total_watermark, Some(99_000));
+    assert_eq!(
+        sanitized.project_normalized_token_watermarks.get("project-a"),
+        Some(&99_000)
+    );
 }
 
 #[test]
@@ -201,6 +204,42 @@ fn bundled_catalog_skips_custom_pet_io() {
     assert_eq!(catalog.species.len(), PET_SPECIES.len());
     assert_eq!(catalog.atlas.columns, 8);
     assert!(catalog.custom_pets.is_empty());
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn local_pet_state_reads_legacy_hatch_tokens_as_xp() {
+    let support_dir = temp_support_dir();
+    fs::write(
+        support_dir.join("pet-state.json"),
+        r#"{
+          "stateVersion": 8,
+          "statsModelVersion": 3,
+          "claimedAt": 10,
+          "species": "dragon",
+          "customName": "Spark",
+          "currentHatchTokens": 42000000,
+          "currentStats": {"wisdom": 1, "chaos": 2, "night": 3, "stamina": 4, "empathy": 5},
+          "globalNormalizedTotalWatermark": 99000000,
+          "projectNormalizedTokenWatermarks": {"project-a": 99000000},
+          "totalNormalizedTokens": 99000000,
+          "updatedAt": 10
+        }"#,
+    )
+    .unwrap();
+
+    let (snapshot, _) = PetService::new(support_dir.clone()).load_snapshot().unwrap();
+    let snapshot = sanitize_state(snapshot);
+
+    assert_eq!(snapshot.current_experience_tokens, 42_000_000);
+    assert_eq!(snapshot.progress.total_xp, 42_000_000);
+    assert!(snapshot.progress.level > 1);
+    assert_eq!(snapshot.global_normalized_total_watermark, Some(99_000_000));
+    assert_eq!(
+        snapshot.project_normalized_token_watermarks.get("project-a"),
+        Some(&99_000_000)
+    );
 
     fs::remove_dir_all(support_dir).unwrap();
 }

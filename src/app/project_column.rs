@@ -4,6 +4,27 @@ use super::ui_helpers::{codux_tooltip_container_with_placement, titlebar_drag_ar
 use super::*;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
+#[derive(Clone)]
+struct ProjectRowDrag {
+    project_id: String,
+    project: ProjectInfo,
+    active: bool,
+    collapsed: bool,
+}
+
+impl Render for ProjectRowDrag {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .w(px(44.0))
+            .h(px(44.0))
+            .rounded(px(8.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(project_icon(&self.project, self.active, self.collapsed))
+    }
+}
+
 pub(in crate::app) struct ProjectColumnView {
     pub(in crate::app) app_entity: gpui::Entity<CoduxApp>,
     pub(in crate::app) project_list_state: gpui::Entity<ProjectListState>,
@@ -94,6 +115,10 @@ impl Render for ProjectColumnView {
         let scroll_handle = self.scroll_handle.clone();
         let language = self.language.clone();
         let row_menu_labels = project_row_menu_labels(language.as_str());
+        let project_order = projects
+            .iter()
+            .map(|project| project.id.clone())
+            .collect::<Vec<_>>();
 
         div()
             .flex()
@@ -122,7 +147,7 @@ impl Render for ProjectColumnView {
                     .overflow_hidden()
                     .child(codux_uniform_list(
                         "project-list",
-                        projects,
+                        projects.clone(),
                         scroll_handle,
                         None,
                         cx,
@@ -144,6 +169,7 @@ impl Render for ProjectColumnView {
                                     active,
                                     app_entity.clone(),
                                     project_id,
+                                    project_order.clone(),
                                     activity_state,
                                     collapsed,
                                     row_menu_labels.clone(),
@@ -619,6 +645,7 @@ fn project_row(
     active: bool,
     app_entity: gpui::Entity<CoduxApp>,
     project_id: String,
+    project_order: Vec<String>,
     activity_state: AIActivityState,
     collapsed: bool,
     labels: ProjectRowMenuLabels,
@@ -629,8 +656,48 @@ fn project_row(
     let menu_project_name = project.name.clone();
     let menu_project_path = project.path.clone();
     if collapsed {
+        let target_project_id = project.id.clone();
+        let drag_project = project.clone();
+        let drop_app_entity = app_entity.clone();
+        let drop_project_order = project_order.clone();
         return div()
             .id(SharedString::from(format!("project-{}", project.id)))
+            .on_drag(
+                ProjectRowDrag {
+                    project_id: drag_project.id.clone(),
+                    project: drag_project,
+                    active,
+                    collapsed: true,
+                },
+                move |drag, _, _, cx| {
+                    cx.new(|_| ProjectRowDrag {
+                        project_id: drag.project_id.clone(),
+                        project: drag.project.clone(),
+                        active: drag.active,
+                        collapsed: drag.collapsed,
+                    })
+                },
+            )
+            .drag_over::<ProjectRowDrag>(move |this, _drag, _window, _cx| this)
+            .on_drop(cx.listener({
+                let target_project_id = target_project_id.clone();
+                move |_view, drag: &ProjectRowDrag, window, cx| {
+                    let Some(next_project_ids) =
+                        reordered_ids(&drop_project_order, &drag.project_id, &target_project_id)
+                    else {
+                        return;
+                    };
+                    defer_codux_app_update(
+                        drop_app_entity.clone(),
+                        window,
+                        cx,
+                        move |app, _, cx| {
+                            app.reorder_projects_by_ids(next_project_ids, cx);
+                        },
+                    );
+                    cx.stop_propagation();
+                }
+            }))
             .w_full()
             .h(px(44.0))
             .flex()
@@ -691,8 +758,42 @@ fn project_row(
             .into_any_element();
     }
 
+    let target_project_id = project.id.clone();
+    let drag_project = project.clone();
+    let drop_app_entity = app_entity.clone();
     div()
         .id(SharedString::from(format!("project-{}", project.id)))
+        .on_drag(
+            ProjectRowDrag {
+                project_id: drag_project.id.clone(),
+                project: drag_project,
+                active,
+                collapsed: false,
+            },
+            move |drag, _, _, cx| {
+                cx.new(|_| ProjectRowDrag {
+                    project_id: drag.project_id.clone(),
+                    project: drag.project.clone(),
+                    active: drag.active,
+                    collapsed: drag.collapsed,
+                })
+            },
+        )
+        .drag_over::<ProjectRowDrag>(move |this, _drag, _window, _cx| this)
+        .on_drop(cx.listener({
+            let target_project_id = target_project_id.clone();
+            move |_view, drag: &ProjectRowDrag, window, cx| {
+                let Some(next_project_ids) =
+                    reordered_ids(&project_order, &drag.project_id, &target_project_id)
+                else {
+                    return;
+                };
+                defer_codux_app_update(drop_app_entity.clone(), window, cx, move |app, _, cx| {
+                    app.reorder_projects_by_ids(next_project_ids, cx);
+                });
+                cx.stop_propagation();
+            }
+        }))
         .w_full()
         .min_w_0()
         .h(px(52.0))

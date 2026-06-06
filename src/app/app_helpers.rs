@@ -23,6 +23,22 @@ pub(in crate::app) fn defer_codux_app_update<View: 'static>(
     });
 }
 
+pub(in crate::app) fn reordered_ids(
+    current_order: &[String],
+    dragged_id: &str,
+    target_id: &str,
+) -> Option<Vec<String>> {
+    if dragged_id == target_id {
+        return None;
+    }
+    let from_index = current_order.iter().position(|id| id == dragged_id)?;
+    let target_index = current_order.iter().position(|id| id == target_id)?;
+    let mut next = current_order.to_vec();
+    let dragged = next.remove(from_index);
+    next.insert(target_index, dragged);
+    (next != current_order).then_some(next)
+}
+
 pub(in crate::app) fn git_remote_action_label(action: &str) -> String {
     if let Some(remote) = action.strip_prefix("push:") {
         return format!("push to {remote}");
@@ -135,6 +151,38 @@ fn project_badge_text_from_segments(segments: &[String]) -> String {
     };
 
     chars.into_iter().collect::<String>().to_uppercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn reordered_ids_moves_item_down_to_target_position() {
+        assert_eq!(
+            reordered_ids(&ids(&["a", "b", "c", "d"]), "a", "c"),
+            Some(ids(&["b", "c", "a", "d"]))
+        );
+    }
+
+    #[test]
+    fn reordered_ids_moves_item_up_to_target_position() {
+        assert_eq!(
+            reordered_ids(&ids(&["a", "b", "c", "d"]), "d", "b"),
+            Some(ids(&["a", "d", "b", "c"]))
+        );
+    }
+
+    #[test]
+    fn reordered_ids_ignores_same_or_missing_ids() {
+        assert_eq!(reordered_ids(&ids(&["a", "b"]), "a", "a"), None);
+        assert_eq!(reordered_ids(&ids(&["a", "b"]), "x", "a"), None);
+        assert_eq!(reordered_ids(&ids(&["a", "b"]), "a", "x"), None);
+    }
 }
 
 fn project_badge_segments(name: &str) -> Option<Vec<String>> {

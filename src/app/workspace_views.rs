@@ -1,5 +1,31 @@
 use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
+use gpui_component::InteractiveElementExt as _;
+
+#[derive(Clone)]
+struct TerminalBottomTabDrag {
+    terminal_id: usize,
+    label: String,
+    active: bool,
+}
+
+impl Render for TerminalBottomTabDrag {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        terminal_bottom_tab_container(
+            if self.active {
+                cx.theme().foreground
+            } else {
+                cx.theme().secondary_foreground
+            },
+            if self.active {
+                cx.theme().secondary_hover
+            } else {
+                cx.theme().transparent
+            },
+        )
+        .child(terminal_bottom_tab_label(self.label.clone()))
+    }
+}
 
 pub(in crate::app) struct WorkspaceColumnView {
     toolbar_view: gpui::Entity<WorkspaceToolbarView>,
@@ -1081,6 +1107,10 @@ fn terminal_bottom_tabs_area(
     cx: &mut Context<TerminalWorkspaceView>,
 ) -> AnyElement {
     let has_bottom_tabs = active.is_some();
+    let tab_order = tabs
+        .iter()
+        .map(|tab| tab.id.to_string())
+        .collect::<Vec<_>>();
 
     div()
         .flex()
@@ -1129,8 +1159,13 @@ fn terminal_bottom_tabs_area(
                                 .overflow_x_scroll()
                                 .track_scroll(&tab_scroll_handle)
                                 .children(tabs.into_iter().map(|tab| {
-                                    terminal_bottom_tab_button(app_entity.clone(), tab, cx)
-                                        .into_any_element()
+                                    terminal_bottom_tab_button(
+                                        app_entity.clone(),
+                                        tab,
+                                        tab_order.clone(),
+                                        cx,
+                                    )
+                                    .into_any_element()
                                 })),
                         ),
                 )
@@ -1217,33 +1252,91 @@ fn terminal_pane_control_button(
 fn terminal_bottom_tab_button(
     app_entity: gpui::Entity<CoduxApp>,
     tab: TerminalBottomTabViewSnapshot,
+    tab_order: Vec<String>,
     cx: &mut Context<TerminalWorkspaceView>,
 ) -> impl IntoElement {
     let terminal_id = tab.id;
-    div()
+    let target_terminal_id = terminal_id;
+    let drag_label = tab.label.clone();
+    let drag_active = tab.active;
+    let text_color = if tab.active {
+        cx.theme().foreground
+    } else {
+        cx.theme().secondary_foreground
+    };
+    let background = if tab.active {
+        cx.theme().secondary_hover
+    } else {
+        cx.theme().transparent
+    };
+    terminal_bottom_tab_container(text_color, background)
         .id(SharedString::from(format!(
             "terminal-bottom-tab-{terminal_id}"
         )))
-        .h(px(32.0))
-        .px_3()
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap_2()
-        .rounded_md()
         .cursor_pointer()
-        .text_color(if tab.active {
-            cx.theme().foreground
-        } else {
-            cx.theme().secondary_foreground
-        })
-        .bg(if tab.active {
-            cx.theme().secondary_hover
-        } else {
-            cx.theme().transparent
-        })
         .hover(|style| style.bg(cx.theme().secondary_hover))
+        .on_double_click(cx.listener({
+            let app_entity = app_entity.clone();
+            let label = tab.label.clone();
+            move |_view, _event, window, cx| {
+                cx.stop_propagation();
+                window.prevent_default();
+                let label = label.clone();
+                defer_terminal_workspace_app_update(
+                    app_entity.clone(),
+                    window,
+                    cx,
+                    move |app, window, app_cx| {
+                        app.open_terminal_tab_editor_window(
+                            terminal_id,
+                            label.clone(),
+                            window,
+                            app_cx,
+                        );
+                    },
+                );
+            }
+        }))
+        .on_drag(
+            TerminalBottomTabDrag {
+                terminal_id,
+                label: drag_label,
+                active: drag_active,
+            },
+            move |drag, _, _, cx| {
+                cx.new(|_| TerminalBottomTabDrag {
+                    terminal_id: drag.terminal_id,
+                    label: drag.label.clone(),
+                    active: drag.active,
+                })
+            },
+        )
+        .drag_over::<TerminalBottomTabDrag>(move |this, _drag, _window, _cx| this)
+        .on_drop(cx.listener({
+            let app_entity = app_entity.clone();
+            move |_view, drag: &TerminalBottomTabDrag, window, cx| {
+                let Some(next_ids) = reordered_ids(
+                    &tab_order,
+                    drag.terminal_id.to_string().as_str(),
+                    target_terminal_id.to_string().as_str(),
+                ) else {
+                    return;
+                };
+                let next_terminal_ids = next_ids
+                    .into_iter()
+                    .filter_map(|id| id.parse::<usize>().ok())
+                    .collect::<Vec<_>>();
+                defer_terminal_workspace_app_update(
+                    app_entity.clone(),
+                    window,
+                    cx,
+                    move |app, _window, app_cx| {
+                        app.reorder_bottom_terminal_tabs(next_terminal_ids, app_cx);
+                    },
+                );
+                cx.stop_propagation();
+            }
+        }))
         .on_click(cx.listener({
             let app_entity = app_entity.clone();
             move |_view, _event, window, cx| {
@@ -1255,12 +1348,7 @@ fn terminal_bottom_tab_button(
                 );
             }
         }))
-        .child(
-            div()
-                .text_size(rems(0.75))
-                .line_height(rems(0.875))
-                .child(tab.label),
-        )
+        .child(terminal_bottom_tab_label(tab.label))
         .child(
             div()
                 .id(SharedString::from(format!(
@@ -1287,6 +1375,28 @@ fn terminal_bottom_tab_button(
                 }))
                 .child(Icon::new(HeroIconName::XMark).size_3()),
         )
+}
+
+fn terminal_bottom_tab_container(text_color: gpui::Hsla, background: gpui::Hsla) -> gpui::Div {
+    div()
+        .h(px(32.0))
+        .px_3()
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .rounded_md()
+        .text_color(text_color)
+        .bg(background)
+}
+
+fn terminal_bottom_tab_label(label: String) -> AnyElement {
+    div()
+        .text_size(rems(0.75))
+        .line_height(rems(0.875))
+        .child(label)
+        .into_any_element()
 }
 
 fn terminal_bottom_add_button(

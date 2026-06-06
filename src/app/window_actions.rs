@@ -21,6 +21,7 @@ pub(in crate::app) enum AuxiliaryWindowSlot {
     GitCredentials,
     MemoryManager,
     ProjectEditor,
+    TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
 }
@@ -144,6 +145,7 @@ impl CoduxApp {
             pet_dex_window: None,
             ssh_profile_editor_window: None,
             project_editor_window: None,
+            terminal_tab_editor_window: None,
             worktree_creator_window: None,
             parent_main_window: None,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
@@ -336,6 +338,8 @@ impl CoduxApp {
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
             project_editor_saving: false,
+            terminal_tab_editor_id: None,
+            terminal_tab_editor_label: String::new(),
             worktree_creator_project_id: None,
             worktree_creator_project_name: String::new(),
             worktree_creator_project_path: String::new(),
@@ -442,6 +446,7 @@ impl CoduxApp {
             AuxiliaryWindowSlot::GitCredentials => &mut self.git_credentials_window,
             AuxiliaryWindowSlot::MemoryManager => &mut self.memory_manager_window,
             AuxiliaryWindowSlot::ProjectEditor => &mut self.project_editor_window,
+            AuxiliaryWindowSlot::TerminalTabEditor => &mut self.terminal_tab_editor_window,
             AuxiliaryWindowSlot::WorktreeCreator => &mut self.worktree_creator_window,
             AuxiliaryWindowSlot::SshProfileEditor => &mut self.ssh_profile_editor_window,
         }
@@ -592,6 +597,7 @@ impl CoduxApp {
             &mut self.pet_dex_window,
             &mut self.ssh_profile_editor_window,
             &mut self.project_editor_window,
+            &mut self.terminal_tab_editor_window,
             &mut self.worktree_creator_window,
         ];
 

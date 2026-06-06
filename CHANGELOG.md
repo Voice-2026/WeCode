@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-06-06
+
+### Added
+
+- Added drag reordering for projects, file tabs, and bottom terminal tabs.
+- Added a terminal tab rename child window with localized labels across all supported languages.
+
+### Changed
+
+- Preserved existing pet progress and token watermarks when loading older pet state files.
+
+### Fixed
+
+- Fixed AI history titles so injected Codux memory, global prompts, and launch context are not used as session titles.
+- Fixed pet state compatibility for older custom pet progress fields.
+- Fixed terminal tab rename copy so it uses the shared 10-language localization bundle.
+
 ## [1.6.3] - 2026-06-06
 
 ### Added

@@ -148,6 +148,7 @@ pub struct PetSnapshot {
     pub species: String,
     pub custom_pet: Option<PetCustomPet>,
     pub custom_name: String,
+    #[serde(alias = "currentHatchTokens")]
     pub current_experience_tokens: i64,
     pub current_stats: PetStats,
     #[serde(default = "super::default_persona_id")]

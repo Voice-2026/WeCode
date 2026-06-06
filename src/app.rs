@@ -36,7 +36,10 @@ use codux_runtime::{
     },
     project_activity::ProjectActivityEvent,
     project_open::ProjectOpenApplicationSummary,
-    project_store::{ProjectCreateRequest, ProjectDefaultPushRemoteRequest, ProjectUpdateRequest},
+    project_store::{
+        ProjectCreateRequest, ProjectDefaultPushRemoteRequest, ProjectReorderRequest,
+        ProjectUpdateRequest,
+    },
     remote::{RemoteDeviceSummary, RemotePairingInfo, RemotePairingPollResult, RemoteSummary},
     runtime_activity::RuntimeActivitySummary,
     runtime_bridge::RuntimeInventory,
@@ -169,7 +172,7 @@ use self::{
         PROJECT_BADGE_COLORS, defer_codux_app_update, generated_git_branch_name,
         generated_git_commit_message, generated_project_child_name, git_remote_action_label,
         join_relative_child_path, normalized_git_action_paths, plural,
-        project_badge_text_from_name,
+        project_badge_text_from_name, reordered_ids,
     },
     app_state::{
         AIProviderTestResult, GIT_CREDENTIALS_COMPACT_HEIGHT, GIT_CREDENTIALS_WINDOW_WIDTH,

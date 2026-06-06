@@ -183,6 +183,19 @@ impl Render for CoduxApp {
                 .into_any_element();
         }
 
+        if self.window_mode == AppWindowMode::TerminalTabEditor {
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(self.terminal_tab_editor_workspace(window, cx))
+                .child(self.codux_tooltip_layer(cx));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
         if self.window_mode == AppWindowMode::WorktreeCreator {
             let root = div()
                 .size_full()

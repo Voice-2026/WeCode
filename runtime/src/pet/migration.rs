@@ -323,7 +323,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mac_state_migrates_to_current_snapshot_and_rebuilds_baseline() {
+    fn mac_state_migrates_to_current_snapshot_without_resetting_progress() {
         let mac_json = r#"{
           "stateVersion": 8,
           "statsModelVersion": 3,
@@ -343,7 +343,10 @@ mod tests {
         assert_eq!(snapshot.custom_name, "Spark");
         assert_eq!(snapshot.current_experience_tokens, 1200);
         assert_eq!(snapshot.current_stats.chaos, 2);
-        assert_eq!(snapshot.global_normalized_total_watermark, None);
-        assert!(snapshot.project_normalized_token_watermarks.is_empty());
+        assert_eq!(snapshot.global_normalized_total_watermark, Some(5000));
+        assert_eq!(
+            snapshot.project_normalized_token_watermarks.get("project-a"),
+            Some(&5000)
+        );
     }
 }

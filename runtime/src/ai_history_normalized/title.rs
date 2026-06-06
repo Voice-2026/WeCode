@@ -58,7 +58,7 @@ fn claude_title(row: &Value) -> Option<String> {
     if let Some(content) = message
         .get("content")
         .and_then(|value| value.as_str())
-        .and_then(normalized_string)
+        .and_then(normalized_history_title_candidate)
     {
         return Some(truncate_title(&content));
     }
@@ -67,7 +67,7 @@ fn claude_title(row: &Value) -> Option<String> {
             if let Some(text) = item
                 .get("text")
                 .and_then(|value| value.as_str())
-                .and_then(normalized_string)
+                .and_then(normalized_history_title_candidate)
             {
                 return Some(truncate_title(&text));
             }
@@ -89,13 +89,11 @@ fn codex_response_title(payload: &Value) -> Option<String> {
         let Some(text) = item
             .get("text")
             .and_then(|value| value.as_str())
-            .and_then(normalized_string)
+            .and_then(normalized_history_title_candidate)
         else {
             continue;
         };
-        if !text.contains("<environment_context>") {
-            return Some(truncate_title(&text));
-        }
+        return Some(truncate_title(&text));
     }
     None
 }
@@ -106,12 +104,60 @@ fn parse_gemini_title(content: Option<&Value>) -> Option<String> {
         Value::Array(items) => items.iter().find_map(|item| {
             item.get("text")
                 .and_then(|value| value.as_str())
-                .and_then(normalized_string)
+                .and_then(normalized_history_title_candidate)
                 .map(|text| truncate_title(&text))
                 .or_else(|| parse_gemini_title(item.get("content")))
         }),
         _ => None,
     }
+}
+
+fn normalized_history_title_candidate(value: &str) -> Option<String> {
+    strip_codux_launch_context(value).and_then(|value| normalized_string(&value))
+}
+
+fn strip_codux_launch_context(value: &str) -> Option<String> {
+    if let Some(index) = value.rfind("</environment_context>") {
+        return normalized_string(&value[index + "</environment_context>".len()..]);
+    }
+    if value.contains("<environment_context>") {
+        return None;
+    }
+
+    if let Some(index) = last_codux_context_close_index(value) {
+        return normalized_string(&value[index..]);
+    }
+
+    let trimmed = value.trim_start();
+    if is_codux_injected_title_prefix(trimmed) {
+        return None;
+    }
+
+    normalized_string(value)
+}
+
+fn last_codux_context_close_index(value: &str) -> Option<usize> {
+    [
+        "</plugins_instructions>",
+        "</skills_instructions>",
+        "</collaboration_mode>",
+    ]
+    .iter()
+    .filter_map(|marker| {
+        value
+            .rfind(marker)
+            .map(|index| index + marker.len())
+    })
+    .max()
+}
+
+fn is_codux_injected_title_prefix(value: &str) -> bool {
+    value.starts_with("# AGENTS.md")
+        || value.starts_with("# Codux Memory")
+        || value.starts_with("<collaboration_mode>")
+        || value.starts_with("<skills_instructions>")
+        || value.starts_with("<plugins_instructions>")
+        || value.starts_with("<environment_context>")
 }
 
 fn truncate_title(value: &str) -> String {
