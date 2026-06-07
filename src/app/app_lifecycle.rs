@@ -140,6 +140,7 @@ impl CoduxApp {
             runtime_service,
             window_appearance: window.appearance(),
             main_window_fullscreen: window.is_fullscreen(),
+            main_window_lost_to_external_app: false,
             _observe_window_appearance: None,
             _observe_window_activation: None,
             is_exiting: false,
@@ -427,11 +428,22 @@ impl CoduxApp {
             window,
             move |app, window, cx| {
                 if !window.is_window_active() {
+                    app.main_window_lost_to_external_app = true;
+                    cx.defer_in(window, move |app, _window, cx| {
+                        if app.has_active_child_window(cx) {
+                            app.main_window_lost_to_external_app = false;
+                            app.runtime_trace("window", "main_window_deactivated to_child_window");
+                        }
+                    });
                     return;
                 }
+                if !app.main_window_lost_to_external_app {
+                    return;
+                }
+                app.main_window_lost_to_external_app = false;
                 app.runtime_trace(
                     "window",
-                    "main_window_activated bring_children_to_front queued",
+                    "main_window_reactivated bring_children_to_front queued",
                 );
                 cx.defer_in(window, move |app, _window, cx| {
                     app.bring_child_windows_to_front(cx);

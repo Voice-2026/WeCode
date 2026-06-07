@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-06-07
+
+### Fixed
+
+- Fixed Codux child windows being forced back above the main window during normal in-app focus changes, while still restoring them when returning from another app.
+
 ## [1.6.5] - 2026-06-07
 
 ### Added

@@ -127,6 +127,7 @@ impl CoduxApp {
             runtime_service,
             window_appearance: WindowAppearance::Dark,
             main_window_fullscreen: false,
+            main_window_lost_to_external_app: false,
             _observe_window_appearance: None,
             _observe_window_activation: None,
             is_exiting: false,
@@ -769,6 +770,25 @@ impl CoduxApp {
         self.child_windows
             .retain(|existing| existing.window_id() != handle.window_id());
         self.child_windows.push(handle);
+    }
+
+    pub(super) fn has_active_child_window(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.child_windows.is_empty() {
+            return false;
+        }
+
+        let mut has_active = false;
+        self.child_windows.retain(|handle| {
+            match handle.update(cx, |_view, window, _cx| window.is_window_active()) {
+                Ok(active) => {
+                    has_active |= active;
+                    true
+                }
+                Err(_) => false,
+            }
+        });
+        self.clear_dead_child_window_slots();
+        has_active
     }
 
     pub(super) fn bring_child_windows_to_front(&mut self, cx: &mut Context<Self>) {

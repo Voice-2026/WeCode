@@ -38,6 +38,7 @@ pub struct CoduxApp {
     pub(in crate::app) runtime_service: RuntimeService,
     pub(in crate::app) window_appearance: WindowAppearance,
     pub(in crate::app) main_window_fullscreen: bool,
+    pub(in crate::app) main_window_lost_to_external_app: bool,
     pub(in crate::app) _observe_window_appearance: Option<Subscription>,
     pub(in crate::app) _observe_window_activation: Option<Subscription>,
     pub(in crate::app) is_exiting: bool,
