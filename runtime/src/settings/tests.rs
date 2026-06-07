@@ -523,7 +523,7 @@ mod tests {
             {
               "remote": {
                 "isEnabled": true,
-                "irohRelayURL": "   "
+                "serverUrl": "   "
               }
             }
             "#,
@@ -539,28 +539,6 @@ mod tests {
             .expect("update remote server");
         assert_eq!(updated.remote_server_url, "");
         assert_eq!(remote.relay, "");
-
-        fs::remove_dir_all(support_dir).ok();
-    }
-
-    #[test]
-    fn remote_server_url_summary_ignores_legacy_server_url() {
-        let support_dir = temp_dir("settings-remote-legacy-url");
-        fs::write(
-            support_dir.join("settings.json"),
-            r#"
-            {
-              "remote": {
-                "isEnabled": true,
-                "serverURL": "http://legacy-relay.example"
-              }
-            }
-            "#,
-        )
-        .expect("settings");
-
-        let summary = SettingsService::new(support_dir.clone()).summary();
-        assert_eq!(summary.remote_server_url, "");
 
         fs::remove_dir_all(support_dir).ok();
     }

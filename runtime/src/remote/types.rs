@@ -1,5 +1,33 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemoteTransportCandidate {
+    pub(crate) kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "iceServers")]
+    pub(crate) ice_servers: Vec<RemoteIceServer>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemoteIceServer {
+    pub(crate) urls: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RemoteTransportPairingRequest {
+    pub(crate) device_id: String,
+    pub(crate) device_name: String,
+    pub(crate) device_public_key: String,
+    pub(crate) pairing_id: Option<String>,
+    pub(crate) pairing_code: Option<String>,
+    pub(crate) pairing_secret: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSummary {
@@ -98,7 +126,7 @@ pub struct RemotePendingPairing {
 pub(crate) struct RemoteSettings {
     #[serde(default, rename = "isEnabled")]
     pub(crate) is_enabled: bool,
-    #[serde(default, rename = "irohRelayURL")]
+    #[serde(default)]
     pub(crate) server_url: String,
     #[serde(default, alias = "hostId", rename = "hostID")]
     pub(crate) host_id: String,
@@ -108,10 +136,6 @@ pub(crate) struct RemoteSettings {
     pub(crate) host_private_key: String,
     #[serde(default)]
     pub(crate) host_public_key: String,
-    #[serde(default)]
-    pub(crate) iroh_secret_key: String,
-    #[serde(default)]
-    pub(crate) iroh_node_id: String,
     #[serde(default)]
     pub(crate) cached_devices: Vec<RemoteDeviceSettings>,
 }

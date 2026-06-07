@@ -2,13 +2,17 @@ mod crypto;
 mod devices;
 mod envelope;
 mod host;
-mod iroh_transport;
 mod pairing;
+mod relay;
 mod registration;
 mod settings;
 mod summary;
 mod sync;
+mod transport;
+mod transport_factory;
 mod types;
+mod webrtc_transport;
+mod websocket_transport;
 
 use std::path::PathBuf;
 

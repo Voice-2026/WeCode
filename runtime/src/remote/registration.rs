@@ -1,8 +1,10 @@
 use super::crypto::{ensure_remote_host_identity, remote_random_token};
+use super::relay::{remote_post, remote_server_url};
 use super::summary::remote_summary_from_settings;
 use super::types::{RemoteSettings, RemoteSummary};
 use super::{RemoteService, remote_settings_from_raw, remote_settings_mut};
 use crate::runtime_trace::{runtime_trace, runtime_trace_elapsed};
+use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::time::Instant;
 
@@ -49,14 +51,35 @@ impl RemoteService {
         }
         ensure_remote_host_identity(&mut settings);
 
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RegisterResponse {
+            host_id: String,
+            token: String,
+        }
+        let relay = remote_server_url(&settings.server_url);
         runtime_trace(
             "remote",
             &format!(
-                "register_host local_iroh has_host={} has_token={}",
+                "register_host relay={} has_host={} has_token={}",
+                relay,
                 !settings.host_id.trim().is_empty(),
                 !settings.host_token.trim().is_empty()
             ),
         );
+        let response = remote_post::<RegisterResponse>(
+            &relay,
+            "/api/hosts/register",
+            serde_json::json!({
+                "hostId": settings.host_id,
+                "name": super::crypto::remote_host_name(),
+                "token": settings.host_token,
+                "publicKey": settings.host_public_key,
+            }),
+        )
+        .await?;
+        settings.host_id = response.host_id;
+        settings.host_token = response.token;
         raw.insert(
             "remote".to_string(),
             serde_json::to_value(&settings).map_err(|error| error.to_string())?,

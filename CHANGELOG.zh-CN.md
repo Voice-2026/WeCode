@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [1.7.0-beta.1] - 2026-06-07
+
+### 调整
+
+- 将远程传输栈切换到 v3 Relay / WebRTC 协议，直连优先使用 WebRTC DataChannel，失败后回落 WebSocket 中继。
+- 统一远程配对和 host info 的传输候选模型，桌面端和移动端共享同一套协议数据结构。
+- 移除桌面端远程 Host 链路中的 Iroh runtime transport，将 Relay / WebRTC 差异收敛到传输工厂和驱动层。
+
+### 修复
+
+- 将 WebRTC 信令处理内聚到传输驱动中，业务 runtime 消息不再感知当前使用的传输路径。
+- 为 WebRTC ICE 增加公共 STUN 候选，优先使用小米 STUN，并以 Google STUN 作为备用。
+
 ## [1.6.7] - 2026-06-07
 
 ### 修复

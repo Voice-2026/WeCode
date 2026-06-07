@@ -7,8 +7,6 @@ impl Default for RemoteSettings {
             host_token: String::new(),
             host_private_key: String::new(),
             host_public_key: String::new(),
-            iroh_secret_key: String::new(),
-            iroh_node_id: String::new(),
             cached_devices: Vec::new(),
         }
     }

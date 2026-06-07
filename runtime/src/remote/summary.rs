@@ -49,7 +49,7 @@ pub(crate) fn remote_summary_from_settings(mut settings: RemoteSettings) -> Remo
         },
         status: if enabled { "connecting" } else { "stopped" }.to_string(),
         message: if enabled {
-            "Starting Iroh Remote Host...".to_string()
+            "Connecting relay...".to_string()
         } else {
             "Remote Host stopped.".to_string()
         },

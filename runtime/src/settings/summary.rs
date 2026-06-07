@@ -203,7 +203,7 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         remote_server_url: remote
-            .and_then(|remote| remote.get("irohRelayURL"))
+            .and_then(|remote| remote.get("serverUrl"))
             .and_then(Value::as_str)
             .map(str::trim)
             .unwrap_or(&defaults.remote_server_url)

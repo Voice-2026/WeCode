@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0-beta.1] - 2026-06-07
+
+### Changed
+
+- Replaced the remote transport stack with the v3 relay/WebRTC protocol, using WebRTC DataChannel for direct paths and WebSocket relay as the fallback path.
+- Standardized remote pairing and host info payloads around transport candidates so desktop and mobile share the same protocol model.
+- Removed the Iroh runtime transport from the desktop remote host path and moved relay/WebRTC differences behind the transport factory.
+
+### Fixed
+
+- Added WebRTC signaling handling inside the transport driver so business runtime messages stay independent from the active transport path.
+- Added public STUN candidates for WebRTC ICE using Xiaomi first and Google as backup.
+
 ## [1.6.7] - 2026-06-07
 
 ### Fixed

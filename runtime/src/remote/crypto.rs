@@ -1,5 +1,4 @@
-use super::iroh_transport::RemoteIrohNodeAddr;
-use super::types::{RemotePairingInfo, RemoteSettings};
+use super::types::{RemotePairingInfo, RemoteSettings, RemoteTransportCandidate};
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{Engine as _, engine::general_purpose};
@@ -104,10 +103,9 @@ pub(crate) fn ensure_remote_host_identity(settings: &mut RemoteSettings) {
 pub(crate) fn remote_pairing_qr_payload(
     settings: &RemoteSettings,
     pairing: &RemotePairingInfo,
-    iroh_addr: RemoteIrohNodeAddr,
+    transports: Vec<RemoteTransportCandidate>,
 ) -> String {
     let payload = json!({
-        "transport": "iroh",
         "code": pairing.code,
         "secret": pairing.secret,
         "pairingId": pairing.pairing_id,
@@ -115,7 +113,7 @@ pub(crate) fn remote_pairing_qr_payload(
         "hostPublicKey": settings.host_public_key,
         "cryptoVersion": 1,
         "protocolVersion": super::host::REMOTE_PROTOCOL_VERSION,
-        "iroh": iroh_addr,
+        "transports": transports,
     });
     serde_json::to_vec(&payload)
         .ok()

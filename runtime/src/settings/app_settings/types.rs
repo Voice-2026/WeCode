@@ -240,7 +240,7 @@ pub struct AIProviderSettings {
 pub struct RemoteSettings {
     #[serde(default, rename = "isEnabled")]
     pub is_enabled: bool,
-    #[serde(default, rename = "irohRelayURL")]
+    #[serde(default)]
     pub server_url: String,
     #[serde(default, rename = "hostID")]
     pub host_id: String,
@@ -250,10 +250,6 @@ pub struct RemoteSettings {
     pub host_private_key: String,
     #[serde(default)]
     pub host_public_key: String,
-    #[serde(default)]
-    pub iroh_secret_key: String,
-    #[serde(default)]
-    pub iroh_node_id: String,
     #[serde(default)]
     pub cached_devices: Vec<RemoteHostDeviceSettings>,
 }

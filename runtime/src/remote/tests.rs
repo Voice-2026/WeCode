@@ -8,15 +8,13 @@ use super::host::{
     remote_terminal_upload_kind, sanitized_remote_upload_name, terminal_upload_path_input,
     unique_remote_upload_path,
 };
-use super::iroh_transport::{
-    RemoteIrohNodeAddr, iroh_client_send, iroh_client_send_with_hold, iroh_pairing_request_payload,
-};
 use super::pairing::remote_summary_show_pending_pairing;
 use super::summary::remote_summary_from_settings;
 use super::types::{
     RemoteDeviceSettings, RemoteOutgoingEnvelope, RemotePairingInfo, RemoteSettings,
+    RemoteTransportCandidate,
 };
-use super::{RemoteHostRuntime, RemoteService, remote_settings_from_raw};
+use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::config::flush_all_config_writes;
 use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
@@ -24,7 +22,6 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
-use std::time::Duration;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 #[test]
@@ -83,23 +80,6 @@ fn disabled_remote_keeps_empty_relay_and_disabled_encryption() {
 }
 
 #[test]
-fn remote_settings_ignore_legacy_server_url() {
-    let settings = remote_settings_from_raw(
-        &serde_json::json!({
-            "remote": {
-                "isEnabled": true,
-                "serverURL": "http://legacy-relay.example"
-            }
-        })
-        .as_object()
-        .expect("raw settings")
-        .clone(),
-    );
-
-    assert_eq!(settings.server_url, "");
-}
-
-#[test]
 fn remote_identity_and_pairing_payload_match_tauri_shape() {
     let mut settings = RemoteSettings {
         is_enabled: true,
@@ -123,18 +103,19 @@ fn remote_identity_and_pairing_payload_match_tauri_shape() {
     let payload = remote_pairing_qr_payload(
         &settings,
         &pairing,
-        RemoteIrohNodeAddr {
-            node_id: "node-1".to_string(),
-            relay_url: Some("https://relay.iroh.network".to_string()),
-            direct_addresses: vec!["127.0.0.1:12345".to_string()],
-        },
+        vec![RemoteTransportCandidate {
+            kind: "websocketRelay".to_string(),
+            role: Some("host".to_string()),
+            url: Some("https://relay.example".to_string()),
+            ice_servers: Vec::new(),
+        }],
     );
     assert!(!payload.is_empty());
     assert!(remote_pairing_match_code(&settings, "123456", "secret", "device-public").is_some());
 }
 
 #[test]
-fn iroh_pairing_payload_contains_protocol_transport_and_node_addr() {
+fn pairing_payload_contains_v3_transport_candidates() {
     let settings = RemoteSettings {
         is_enabled: true,
         server_url: "http://relay.example".to_string(),
@@ -142,8 +123,6 @@ fn iroh_pairing_payload_contains_protocol_transport_and_node_addr() {
         host_token: "token".to_string(),
         host_private_key: "host-private".to_string(),
         host_public_key: "host-public".to_string(),
-        iroh_secret_key: String::new(),
-        iroh_node_id: "node-1".to_string(),
         cached_devices: Vec::new(),
     };
     let pairing = RemotePairingInfo {
@@ -158,16 +137,29 @@ fn iroh_pairing_payload_contains_protocol_transport_and_node_addr() {
     let payload = remote_pairing_qr_payload(
         &settings,
         &pairing,
-        RemoteIrohNodeAddr {
-            node_id: "node-1".to_string(),
-            relay_url: Some("https://relay.iroh.network".to_string()),
-            direct_addresses: vec!["127.0.0.1:12345".to_string()],
-        },
+        vec![
+            RemoteTransportCandidate {
+                kind: "websocketRelay".to_string(),
+                role: Some("host".to_string()),
+                url: Some("https://relay.example".to_string()),
+                ice_servers: Vec::new(),
+            },
+            RemoteTransportCandidate {
+                kind: "webRtc".to_string(),
+                role: Some("host".to_string()),
+                url: Some("https://relay.example".to_string()),
+                ice_servers: vec![super::types::RemoteIceServer {
+                    urls: vec![
+                        "stun:stun.miwifi.com:3478".to_string(),
+                        "stun:stun.l.google.com:19302".to_string(),
+                    ],
+                }],
+            },
+        ],
     );
     let decoded = String::from_utf8(super::crypto::remote_base64_url_decode(&payload).unwrap())
         .expect("utf8");
     let value: Value = serde_json::from_str(&decoded).expect("json");
-    assert_eq!(value["transport"], "iroh");
     assert_eq!(value["code"], "123456");
     assert_eq!(value["secret"], "secret");
     assert_eq!(value["pairingId"], "pair-1");
@@ -177,143 +169,21 @@ fn iroh_pairing_payload_contains_protocol_transport_and_node_addr() {
         value["protocolVersion"],
         super::host::REMOTE_PROTOCOL_VERSION
     );
-    assert_eq!(value["iroh"]["nodeId"], "node-1");
-    assert_eq!(value["iroh"]["directAddresses"][0], "127.0.0.1:12345");
-}
-
-#[test]
-fn iroh_host_runtime_pairs_and_serves_host_info() {
-    crate::async_runtime::block_on(async {
-        let dir = std::env::temp_dir().join(format!(
-            "codux-gpui-iroh-pairing-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&dir).expect("create temp support");
-        fs::write(
-            dir.join("settings.json"),
-            serde_json::to_string_pretty(&json!({
-                "remote": {
-                    "isEnabled": true,
-                    "irohRelayURL": "iroh://default"
-                }
-            }))
-            .unwrap(),
-        )
-        .expect("write settings");
-
-        let runtime = Arc::new(RemoteHostRuntime::new(dir.clone()));
-        runtime.start();
-        let pairing = runtime
-            .create_pairing_async()
-            .await
-            .expect("create pairing")
-            .pairing
-            .expect("pairing");
-        let decoded = String::from_utf8(
-            super::crypto::remote_base64_url_decode(&pairing.qr_payload).expect("decode qr"),
-        )
-        .expect("utf8");
-        let payload: Value = serde_json::from_str(&decoded).expect("qr json");
-        let iroh_addr: RemoteIrohNodeAddr =
-            serde_json::from_value(payload["iroh"].clone()).expect("iroh addr");
-
-        let device_id = uuid::Uuid::new_v4().to_string();
-        let device_secret = StaticSecret::from([9_u8; 32]);
-        let device_public = X25519PublicKey::from(&device_secret);
-        let device_private_key = remote_base64_url_encode(&device_secret.to_bytes());
-        let device_public_key = remote_base64_url_encode(device_public.as_bytes());
-        let request_payload = iroh_pairing_request_payload(
-            &pairing.pairing_id,
-            &pairing.code,
-            &pairing.secret,
-            "iPhone",
-            &device_public_key,
-        );
-        assert_eq!(request_payload["deviceName"], "iPhone");
-        assert_eq!(request_payload["devicePublicKey"], device_public_key);
-        assert!(request_payload.get("deviceId").is_none());
-        assert!(request_payload.get("name").is_none());
-        assert!(request_payload.get("publicKey").is_none());
-        let request = serde_json::to_vec(&super::types::RemoteOutgoingEnvelope {
-            kind: "pairing.request".to_string(),
-            device_id: Some(device_id.clone()),
-            session_id: None,
-            seq: None,
-            payload: request_payload,
-        })
-        .expect("pairing request json");
-        iroh_client_send(iroh_addr.clone(), request)
-            .await
-            .expect("send pairing request");
-
-        let mut saw_pending = false;
-        for _ in 0..20 {
-            let poll = runtime.poll_pairing_status(&pairing).expect("poll pairing");
-            if poll.summary.pending_pairings == 1 {
-                saw_pending = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(saw_pending, "host should receive iroh pairing request");
-        runtime
-            .confirm_pairing(&pairing.pairing_id)
-            .expect("confirm pairing");
-
-        let info = super::types::RemoteOutgoingEnvelope {
-            kind: "host.info".to_string(),
-            device_id: Some(device_id.clone()),
-            session_id: None,
-            seq: None,
-            payload: json!({}),
-        };
-        let settings =
-            super::remote_settings_from_raw(&RemoteService::new(dir.clone()).raw_settings());
-        let key = super::crypto::remote_e2e_symmetric_key(
-            &device_private_key,
-            &settings.host_public_key,
-            &settings.host_id,
-            &device_id,
-        )
-        .expect("mobile e2e key");
-        let payload = serde_json::to_vec(&info).expect("host info json");
-        let encrypted =
-            super::crypto::remote_e2e_encrypt(&payload, &key, &settings.host_id, &device_id)
-                .expect("encrypt host info");
-        let secure_info = serde_json::to_vec(&super::types::RemoteOutgoingEnvelope {
-            kind: "secure.message".to_string(),
-            device_id: Some(device_id.clone()),
-            session_id: None,
-            seq: None,
-            payload: encrypted,
-        })
-        .expect("secure host info json");
-        let send_task = tokio::spawn(iroh_client_send_with_hold(
-            iroh_addr,
-            secure_info,
-            Some(Duration::from_millis(500)),
-        ));
-
-        let mut saw_online = false;
-        for _ in 0..20 {
-            let snapshot = runtime.snapshot();
-            if snapshot
-                .device_list
-                .iter()
-                .any(|device| device.id == device_id && device.online == Some(true))
-            {
-                saw_online = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        send_task
-            .await
-            .expect("join host info send")
-            .expect("send host info");
-        assert!(saw_online, "confirmed device should be online");
-        runtime.shutdown();
-    });
+    assert!(value.get("transport").is_none());
+    assert!(value.get("iroh").is_none());
+    assert_eq!(value["transports"][0]["kind"], "websocketRelay");
+    assert_eq!(value["transports"][0]["role"], "host");
+    assert_eq!(value["transports"][0]["url"], "https://relay.example");
+    assert_eq!(value["transports"][1]["kind"], "webRtc");
+    assert_eq!(value["transports"][1]["url"], "https://relay.example");
+    assert_eq!(
+        value["transports"][1]["iceServers"][0]["urls"][0],
+        "stun:stun.miwifi.com:3478"
+    );
+    assert_eq!(
+        value["transports"][1]["iceServers"][0]["urls"][1],
+        "stun:stun.l.google.com:19302"
+    );
 }
 
 #[test]
@@ -444,7 +314,7 @@ fn remote_service_encrypts_and_decrypts_cached_device_payloads() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "irohRelayURL": "http://relay.example",
+                "serverUrl": "http://relay.example",
                 "hostID": "host-1",
                 "hostPrivateKey": host_private_key,
                 "hostPublicKey": host_public_key,
@@ -496,7 +366,7 @@ fn remote_service_wraps_and_unwraps_secure_envelopes_with_sequence_guard() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "irohRelayURL": "http://relay.example",
+                "serverUrl": "http://relay.example",
                 "hostID": "host-1",
                 "hostPrivateKey": host_private_key,
                 "hostPublicKey": host_public_key,
@@ -571,7 +441,7 @@ fn remote_host_runtime_stops_without_enabled_remote_settings() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "irohRelayURL": "http://relay.example"
+                "serverUrl": "http://relay.example"
             }
         }))
         .unwrap(),
@@ -914,7 +784,7 @@ fn refresh_devices_disabled_remote_is_noop() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "irohRelayURL": "http://relay.example",
+                "serverUrl": "http://relay.example",
                 "hostID": "",
                 "hostToken": "secret-token"
             }
@@ -943,7 +813,7 @@ fn register_host_disabled_is_noop() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "irohRelayURL": "http://relay.example"
+                "serverUrl": "http://relay.example"
             }
         }))
         .unwrap(),
@@ -970,7 +840,7 @@ fn sync_settings_background_is_noop_when_disabled() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "irohRelayURL": "http://relay.example",
+                "serverUrl": "http://relay.example",
                 "hostID": "host-1",
                 "hostToken": "secret-token"
             }
@@ -997,7 +867,7 @@ fn reads_settings_json_without_exposing_tokens() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "irohRelayURL": "http://127.0.0.1:8088",
+                "serverUrl": "http://127.0.0.1:8088",
                 "hostID": "host-1",
                 "hostToken": "secret-token",
                 "hostPublicKey": "",
@@ -1032,7 +902,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "irohRelayURL": "iroh://default",
+                "serverUrl": "",
                 "hostID": "host-1",
                 "hostToken": "secret-token",
                 "cachedDevices": [
@@ -1048,7 +918,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
     let service = RemoteService::new(dir.clone());
     let enabled = service.set_enabled(true).expect("enable remote");
     assert!(enabled.enabled);
-    assert_eq!(enabled.relay, "iroh://default");
+    assert_eq!(enabled.relay, "");
 
     let revoked = service
         .revoke_device("device-1")
@@ -1067,7 +937,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
 }
 
 #[test]
-fn refresh_devices_returns_local_cached_devices_without_marking_host_connected() {
+fn refresh_devices_without_host_token_returns_local_cached_devices() {
     let dir = std::env::temp_dir().join(format!(
         "codux-gpui-remote-refresh-test-{}",
         uuid::Uuid::new_v4()
@@ -1078,9 +948,8 @@ fn refresh_devices_returns_local_cached_devices_without_marking_host_connected()
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "irohRelayURL": "iroh://default",
+                "serverUrl": "",
                 "hostID": "host-1",
-                "hostToken": "registered-token",
                 "cachedDevices": [
                     {"id":"device-1","hostId":"host-1","name":"Phone","online":true}
                 ]
@@ -1102,7 +971,6 @@ fn refresh_devices_returns_local_cached_devices_without_marking_host_connected()
     flush_all_config_writes();
     let raw = fs::read_to_string(dir.join("settings.json")).expect("settings");
     assert!(raw.contains("host-1"));
-    assert!(raw.contains("registered-token"));
     assert!(raw.contains("device-1"));
 
     fs::remove_dir_all(dir).ok();
