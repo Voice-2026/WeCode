@@ -1,6 +1,6 @@
 use super::crypto::{
     ensure_remote_host_identity, remote_base64_url_encode, remote_e2e_decrypt, remote_e2e_encrypt,
-    remote_e2e_symmetric_key, remote_pairing_match_code, remote_pairing_qr_payload,
+    remote_e2e_symmetric_key, remote_pairing_match_code, remote_pairing_payload,
 };
 use super::host::{
     quote_terminal_path, remote_ai_stats_payload, remote_file_list, remote_file_read,
@@ -18,7 +18,7 @@ use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::config::flush_all_config_writes;
 use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
@@ -28,6 +28,7 @@ use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 fn summary_matches_tauri_remote_status_shape_from_settings() {
     let summary = remote_summary_from_settings(RemoteSettings {
         is_enabled: true,
+        relay_preset: "custom".to_string(),
         server_url: " http://relay.example ".to_string(),
         host_id: "host-1".to_string(),
         host_public_key: "pub".to_string(),
@@ -69,12 +70,13 @@ fn summary_matches_tauri_remote_status_shape_from_settings() {
 fn disabled_remote_keeps_empty_relay_and_disabled_encryption() {
     let summary = remote_summary_from_settings(RemoteSettings {
         is_enabled: false,
+        relay_preset: String::new(),
         server_url: String::new(),
         ..Default::default()
     });
 
     assert!(!summary.enabled);
-    assert_eq!(summary.relay, "");
+    assert_eq!(summary.relay, super::relay::GLOBAL_RELAY_SERVER_URL);
     assert_eq!(summary.status, "stopped");
     assert_eq!(summary.encryption, "disabled");
 }
@@ -83,6 +85,7 @@ fn disabled_remote_keeps_empty_relay_and_disabled_encryption() {
 fn remote_identity_and_pairing_payload_match_tauri_shape() {
     let mut settings = RemoteSettings {
         is_enabled: true,
+        relay_preset: "custom".to_string(),
         server_url: "http://relay.example".to_string(),
         host_id: "host-1".to_string(),
         ..Default::default()
@@ -91,33 +94,14 @@ fn remote_identity_and_pairing_payload_match_tauri_shape() {
     assert!(!settings.host_private_key.is_empty());
     assert!(!settings.host_public_key.is_empty());
 
-    let pairing = RemotePairingInfo {
-        pairing_id: "pair-1".to_string(),
-        code: "123456".to_string(),
-        secret: "secret".to_string(),
-        host_public_key: Some(settings.host_public_key.clone()),
-        crypto_version: Some(1),
-        expires_at: "2026-01-01T00:00:00Z".to_string(),
-        qr_payload: String::new(),
-    };
-    let payload = remote_pairing_qr_payload(
-        &settings,
-        &pairing,
-        vec![RemoteTransportCandidate {
-            kind: "websocketRelay".to_string(),
-            role: Some("host".to_string()),
-            url: Some("https://relay.example".to_string()),
-            ice_servers: Vec::new(),
-        }],
-    );
-    assert!(!payload.is_empty());
     assert!(remote_pairing_match_code(&settings, "123456", "secret", "device-public").is_some());
 }
 
 #[test]
-fn pairing_payload_contains_v3_transport_candidates() {
+fn remote_pairing_payload_contains_v3_transport_candidates() {
     let settings = RemoteSettings {
         is_enabled: true,
+        relay_preset: "custom".to_string(),
         server_url: "http://relay.example".to_string(),
         host_id: "host-1".to_string(),
         host_token: "token".to_string(),
@@ -134,7 +118,7 @@ fn pairing_payload_contains_v3_transport_candidates() {
         expires_at: "later".to_string(),
         qr_payload: String::new(),
     };
-    let payload = remote_pairing_qr_payload(
+    let value = remote_pairing_payload(
         &settings,
         &pairing,
         vec![
@@ -157,9 +141,6 @@ fn pairing_payload_contains_v3_transport_candidates() {
             },
         ],
     );
-    let decoded = String::from_utf8(super::crypto::remote_base64_url_decode(&payload).unwrap())
-        .expect("utf8");
-    let value: Value = serde_json::from_str(&decoded).expect("json");
     assert_eq!(value["code"], "123456");
     assert_eq!(value["secret"], "secret");
     assert_eq!(value["pairingId"], "pair-1");
@@ -176,13 +157,56 @@ fn pairing_payload_contains_v3_transport_candidates() {
     assert_eq!(value["transports"][0]["url"], "https://relay.example");
     assert_eq!(value["transports"][1]["kind"], "webRtc");
     assert_eq!(value["transports"][1]["url"], "https://relay.example");
+}
+
+#[test]
+fn remote_pairing_ticket_payload_is_the_only_qr_shape() {
+    let payload =
+        super::relay::remote_pairing_ticket_payload("https://relay.example/v3", "ticket-1")
+            .expect("ticket payload");
     assert_eq!(
-        value["transports"][1]["iceServers"][0]["urls"][0],
-        "stun:stun.miwifi.com:3478"
+        payload,
+        "codux://pair?server=https%3A%2F%2Frelay.example%2Fv3&ticket=ticket-1"
+    );
+}
+
+#[test]
+fn remote_relay_urls_use_v3_prefix_for_plain_domains() {
+    let relay = super::relay::remote_server_url("https://codux-service.dux.plus");
+    assert_eq!(relay, "https://codux-service.dux.plus/v3");
+    assert_eq!(
+        super::relay::remote_url(&relay, "/api/hosts/register", &[], false).unwrap(),
+        "https://codux-service.dux.plus/v3/api/hosts/register"
     );
     assert_eq!(
-        value["transports"][1]["iceServers"][0]["urls"][1],
-        "stun:stun.l.google.com:19302"
+        super::relay::remote_url(
+            &relay,
+            "/ws/host",
+            &[("hostId", "host-1"), ("token", "token-1")],
+            true,
+        )
+        .unwrap(),
+        "wss://codux-service.dux.plus/v3/ws/host?hostId=host-1&token=token-1"
+    );
+    assert_eq!(
+        super::relay::remote_server_url("https://codux-service.dux.plus/v3"),
+        "https://codux-service.dux.plus/v3"
+    );
+    assert_eq!(
+        super::relay::remote_relay_preset_for_url(""),
+        "global"
+    );
+    assert_eq!(
+        super::relay::remote_relay_preset_for_url("https://codux-service.dux.plus"),
+        "china"
+    );
+    assert_eq!(
+        super::relay::remote_relay_preset_for_url("https://codux-node.dux.plus"),
+        "global"
+    );
+    assert_eq!(
+        super::relay::remote_relay_preset_for_url("https://relay.example"),
+        "custom"
     );
 }
 
@@ -190,6 +214,7 @@ fn pairing_payload_contains_v3_transport_candidates() {
 fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
     let settings = RemoteSettings {
         is_enabled: true,
+        relay_preset: "custom".to_string(),
         server_url: "http://relay.example".to_string(),
         host_id: "host-1".to_string(),
         host_token: "host-token".to_string(),
@@ -918,7 +943,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
     let service = RemoteService::new(dir.clone());
     let enabled = service.set_enabled(true).expect("enable remote");
     assert!(enabled.enabled);
-    assert_eq!(enabled.relay, "");
+    assert_eq!(enabled.relay, super::relay::GLOBAL_RELAY_SERVER_URL);
 
     let revoked = service
         .revoke_device("device-1")
@@ -967,7 +992,7 @@ fn refresh_devices_without_host_token_returns_local_cached_devices() {
     assert_eq!(summary.status, "connecting");
     assert_eq!(summary.devices, 1);
     assert_eq!(summary.device_list[0].id, "device-1");
-    assert_eq!(summary.device_list[0].online, Some(true));
+    assert_eq!(summary.device_list[0].online, Some(false));
     flush_all_config_writes();
     let raw = fs::read_to_string(dir.join("settings.json")).expect("settings");
     assert!(raw.contains("host-1"));
@@ -983,6 +1008,7 @@ fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
     let runtime = RemoteHostRuntime::new(dir.clone());
     let summary = remote_summary_from_settings(RemoteSettings {
         is_enabled: true,
+        relay_preset: "custom".to_string(),
         server_url: "http://relay.example".to_string(),
         host_id: "host-1".to_string(),
         host_public_key: "host-public".to_string(),

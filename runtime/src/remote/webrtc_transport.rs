@@ -142,7 +142,10 @@ impl RemoteWebRtcHostTransport {
             .get("candidate")
             .cloned()
             .ok_or_else(|| "Missing WebRTC ICE candidate.".to_string())
-            .and_then(|value| serde_json::from_value::<RTCIceCandidateInit>(value).map_err(|error| error.to_string()))?;
+            .and_then(|value| {
+                serde_json::from_value::<RTCIceCandidateInit>(value)
+                    .map_err(|error| error.to_string())
+            })?;
         let peer = self
             .peers
             .lock()
@@ -244,9 +247,7 @@ impl RemoteWebRtcHostTransport {
 
     fn send_relay(&self, data: Vec<u8>) -> bool {
         let relay = self.relay.lock().ok().and_then(|value| value.clone());
-        relay
-            .map(|relay| relay.send(data, None))
-            .unwrap_or(false)
+        relay.map(|relay| relay.send(data, None)).unwrap_or(false)
     }
 }
 

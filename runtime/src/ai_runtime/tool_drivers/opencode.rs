@@ -1,8 +1,6 @@
 use crate::ai_runtime::{
     probe::opencode::probe_opencode_runtime,
-    tool_driver::{
-        AIRuntimeMemoryInjectionDriver, AIRuntimeToolDriver, AIRuntimeToolHookDriver,
-    },
+    tool_driver::{AIRuntimeMemoryInjectionDriver, AIRuntimeToolDriver, AIRuntimeToolHookDriver},
 };
 
 pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {

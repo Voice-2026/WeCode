@@ -345,7 +345,9 @@ mod tests {
         assert_eq!(snapshot.current_stats.chaos, 2);
         assert_eq!(snapshot.global_normalized_total_watermark, Some(5000));
         assert_eq!(
-            snapshot.project_normalized_token_watermarks.get("project-a"),
+            snapshot
+                .project_normalized_token_watermarks
+                .get("project-a"),
             Some(&5000)
         );
     }

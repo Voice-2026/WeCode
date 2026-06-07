@@ -58,7 +58,10 @@ pub(crate) fn gemini_session_paths(project_path: &str) -> Vec<PathBuf> {
 }
 
 pub(crate) fn agy_session_paths(project_path: &str) -> Vec<PathBuf> {
-    agy_session_paths_for_roots(project_path, &[home_dir().join(".gemini").join("antigravity-cli")])
+    agy_session_paths_for_roots(
+        project_path,
+        &[home_dir().join(".gemini").join("antigravity-cli")],
+    )
 }
 
 fn gemini_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<PathBuf> {

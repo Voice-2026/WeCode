@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-08
+
+### Added
+
+- Added the official v3 remote stack for Codux Desktop and Codux Mobile, with WebRTC DataChannel as the preferred direct path and WebSocket relay as the fallback path.
+- Added stateless relay ticket pairing so QR codes stay small while the relay only exchanges short-lived pairing payloads.
+- Added global, China, and custom relay presets backed by `https://codux-node.dux.plus` and `https://codux-service.dux.plus`.
+- Added CodeWhale to the unified AI runtime driver architecture, including runtime status, hooks, history indexing, model/session probes, and memory injection.
+- Added child-window file editing and preview flows, Markdown source/preview layout, media preview, clipboard image paste, terminal URL interactions, project/tab drag ordering, and terminal tab rename dialogs.
+
+### Changed
+
+- Replaced the Iroh desktop remote host path with the v3 relay/WebRTC transport factory so protocol differences stay behind transport drivers.
+- Standardized remote pairing, host info, status probes, latency reporting, project selection, and terminal synchronization around one desktop/mobile protocol model.
+- Reworked AI runtime integration so Codex, Claude, Gemini, Kiro, Agy, OpenCode, and CodeWhale provide hooks, probes, history sources, and memory behavior through per-tool drivers.
+- Updated Windows packaging to use the current installer flow without an extra console window and reduced public release assets to the installer/updater files users actually need.
+- Preserved pet progress and token watermarks across older state files and project removal/re-addition.
+
+### Fixed
+
+- Fixed mobile project selection so the desktop host creates or restores the project terminal before sending terminal snapshots.
+- Fixed mobile first-load terminal blank states by making host info, project list, terminal list, buffer replay, and native terminal controller replay part of the standard startup path.
+- Fixed remote status, reconnect, latency, device removal, relay preset switching, and re-pairing flows around the new v3 protocol.
+- Fixed settings, child-window, Markdown preview, Git review, clipboard paste, file tree restore, split/tab drag, terminal color/link, and bottom-pane restore regressions found during the 1.7.0 validation cycle.
+
+### Notes
+
+- Existing mobile pairings should be paired again after upgrading to 1.7.0 because the remote protocol and relay ticket payload are now v3.
+
 ## [1.7.0-beta.1] - 2026-06-07
 
 ### Changed

@@ -85,7 +85,11 @@ pub fn opencode_session_map_dir_in(runtime_temp_dir: &Path) -> PathBuf {
 }
 
 pub fn app_display_name() -> &'static str {
-    "Codux"
+    if cfg!(debug_assertions) {
+        "Codux Dev"
+    } else {
+        "Codux"
+    }
 }
 
 pub fn app_slug() -> &'static str {

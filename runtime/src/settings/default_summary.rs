@@ -43,6 +43,7 @@ impl Default for SettingsSummary {
             memory_allow_cross_project_user_recall: true,
             memory_default_extractor_provider_id: "automatic".to_string(),
             remote_enabled: false,
+            remote_relay_preset: "global".to_string(),
             remote_server_url: String::new(),
             remote_cached_devices: 0,
             update_enabled: true,

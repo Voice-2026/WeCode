@@ -252,9 +252,63 @@ impl RuntimeService {
         &self,
         server_url: &str,
     ) -> Result<(SettingsSummary, RemoteSummary), String> {
+        self.set_remote_server_url_with_device_reset(server_url, false)
+    }
+
+    pub fn set_remote_server_url_with_device_reset(
+        &self,
+        server_url: &str,
+        reset_devices: bool,
+    ) -> Result<(SettingsSummary, RemoteSummary), String> {
+        self.update_remote_relay_settings(
+            crate::remote::remote_relay_preset_for_url(server_url),
+            server_url.trim().to_string(),
+            reset_devices,
+        )
+    }
+
+    pub fn set_remote_relay_preset(
+        &self,
+        relay_preset: &str,
+    ) -> Result<(SettingsSummary, RemoteSummary), String> {
+        self.set_remote_relay_preset_with_device_reset(relay_preset, false)
+    }
+
+    pub fn set_remote_relay_preset_with_device_reset(
+        &self,
+        relay_preset: &str,
+        reset_devices: bool,
+    ) -> Result<(SettingsSummary, RemoteSummary), String> {
+        let relay_preset = match relay_preset.trim() {
+            "global" => "global",
+            "custom" => "custom",
+            "china" => "china",
+            _ => "global",
+        };
+        let current = self.reload_settings();
+        let server_url = crate::remote::remote_relay_url_for_preset(
+            relay_preset,
+            &current.remote_server_url,
+        );
+        self.update_remote_relay_settings(relay_preset.to_string(), server_url, reset_devices)
+    }
+
+    fn update_remote_relay_settings(
+        &self,
+        relay_preset: String,
+        server_url: String,
+        reset_devices: bool,
+    ) -> Result<(SettingsSummary, RemoteSummary), String> {
         let app_settings = self.update_app_settings(|settings| {
-            settings.remote.server_url = server_url.trim().to_string();
+            settings.remote.relay_preset = relay_preset;
+            settings.remote.server_url = server_url;
+            if reset_devices {
+                settings.remote.cached_devices.clear();
+            }
         })?;
+        if reset_devices {
+            self.remote_host.clear_pairing_state();
+        }
         let remote = if app_settings.remote.is_enabled {
             self.remote_host.reconnect()
         } else {

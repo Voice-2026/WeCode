@@ -151,8 +151,14 @@ impl ForkPromptBuilder {
             ),
         );
         push_limited(&mut text, "## Project\n");
-        push_limited(&mut text, &format!("- Name: {}\n", self.request.project_name));
-        push_limited(&mut text, &format!("- Path: {}\n\n", self.request.project_path));
+        push_limited(
+            &mut text,
+            &format!("- Name: {}\n", self.request.project_name),
+        );
+        push_limited(
+            &mut text,
+            &format!("- Path: {}\n\n", self.request.project_path),
+        );
         push_limited(&mut text, "## Original Session\n");
         push_limited(&mut text, &format!("- Title: {}\n", self.detail.title));
         push_limited(&mut text, &format!("- Source: {}\n", self.detail.source));
@@ -168,7 +174,9 @@ impl ForkPromptBuilder {
             &mut text,
             &format!(
                 "- Requests: {}\n- Tokens: {}\n- Cached input tokens: {}\n\n",
-                self.detail.request_count, self.detail.total_tokens, self.detail.cached_input_tokens
+                self.detail.request_count,
+                self.detail.total_tokens,
+                self.detail.cached_input_tokens
             ),
         );
         push_limited(&mut text, "## Handoff Instructions\n");
@@ -224,7 +232,9 @@ fn read_recent_lines(path: &Path, max_bytes: u64, max_lines: usize) -> Vec<Strin
     if file.read_to_string(&mut data).is_err() {
         return Vec::new();
     }
-    if start > 0 && let Some(index) = data.find('\n') {
+    if start > 0
+        && let Some(index) = data.find('\n')
+    {
         data = data[index + 1..].to_string();
     }
     let mut lines = VecDeque::new();
@@ -252,7 +262,10 @@ fn cleaned_snippet_from_json(value: &Value, omitted_items: &mut usize) -> Option
     if is_claude_row(value) {
         return cleaned_claude_row_snippet(value, omitted_items);
     }
-    let row_type = value.get("type").and_then(Value::as_str).unwrap_or_default();
+    let row_type = value
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if !row_type.is_empty()
         && !matches!(row_type, "response_item" | "message" | "user" | "assistant")
     {
@@ -290,7 +303,13 @@ fn cleaned_snippet_from_json(value: &Value, omitted_items: &mut usize) -> Option
 fn cleaned_json_document_snippets(value: &Value, omitted_items: &mut usize) -> Vec<String> {
     let mut snippets = Vec::new();
     if let Some(messages) = value.get("messages").and_then(Value::as_array) {
-        for message in messages.iter().rev().take(MAX_SNIPPETS).collect::<Vec<_>>().into_iter().rev()
+        for message in messages
+            .iter()
+            .rev()
+            .take(MAX_SNIPPETS)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
         {
             if let Some(snippet) = cleaned_message_object_snippet(message, omitted_items) {
                 snippets.push(snippet);
@@ -394,7 +413,10 @@ fn cleaned_function_output_snippet(payload: &Value, omitted_items: &mut usize) -
 }
 
 fn cleaned_generic_message_snippet(payload: &Value, omitted_items: &mut usize) -> Option<String> {
-    let role = payload.get("role").and_then(Value::as_str).unwrap_or_default();
+    let role = payload
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if !role.is_empty() && !matches!(role, "user" | "assistant") {
         *omitted_items += 1;
         return None;
@@ -661,7 +683,10 @@ fn safe_path_component(value: &str) -> String {
 
 fn last_snippets(snippets: Vec<String>, max: usize) -> Vec<String> {
     let count = snippets.len();
-    snippets.into_iter().skip(count.saturating_sub(max)).collect()
+    snippets
+        .into_iter()
+        .skip(count.saturating_sub(max))
+        .collect()
 }
 
 #[cfg(test)]
@@ -1030,10 +1055,8 @@ mod tests {
     }
 
     fn temp_support_dir(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "codux-ai-session-fork-{name}-{}",
-            Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("codux-ai-session-fork-{name}-{}", Uuid::new_v4()));
         fs::create_dir_all(&path).unwrap();
         path
     }

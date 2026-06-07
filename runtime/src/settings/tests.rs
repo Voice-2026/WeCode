@@ -515,7 +515,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_server_url_summary_keeps_empty_value() {
+    fn empty_remote_server_url_uses_global_relay_preset() {
         let support_dir = temp_dir("settings-remote-empty-url");
         fs::write(
             support_dir.join("settings.json"),
@@ -532,13 +532,73 @@ mod tests {
 
         let service = SettingsService::new(support_dir.clone());
         let summary = service.summary();
-        assert_eq!(summary.remote_server_url, "");
+        assert_eq!(summary.remote_relay_preset, "global");
+        assert_eq!(
+            summary.remote_server_url,
+            crate::remote::GLOBAL_RELAY_SERVER_URL
+        );
 
         let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
             .set_remote_server_url("")
             .expect("update remote server");
-        assert_eq!(updated.remote_server_url, "");
-        assert_eq!(remote.relay, "");
+        assert_eq!(updated.remote_relay_preset, "global");
+        assert_eq!(
+            updated.remote_server_url,
+            crate::remote::GLOBAL_RELAY_SERVER_URL
+        );
+        assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
+
+        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+            .set_remote_relay_preset("global")
+            .expect("set global relay");
+        assert_eq!(updated.remote_relay_preset, "global");
+        assert_eq!(
+            updated.remote_server_url,
+            crate::remote::GLOBAL_RELAY_SERVER_URL
+        );
+        assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
+
+        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+            .set_remote_server_url("https://relay.example")
+            .expect("set custom relay");
+        assert_eq!(updated.remote_relay_preset, "custom");
+        assert_eq!(updated.remote_server_url, "https://relay.example");
+        assert_eq!(remote.relay, "https://relay.example");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn missing_remote_server_url_uses_global_relay_preset() {
+        let support_dir = temp_dir("settings-remote-missing-url");
+        fs::write(
+            support_dir.join("settings.json"),
+            r#"
+            {
+              "remote": {
+                "isEnabled": true
+              }
+            }
+            "#,
+        )
+        .expect("settings");
+
+        let summary = SettingsService::new(support_dir.clone()).summary();
+        assert_eq!(summary.remote_relay_preset, "global");
+        assert_eq!(
+            summary.remote_server_url,
+            crate::remote::GLOBAL_RELAY_SERVER_URL
+        );
+
+        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+            .set_remote_relay_preset("invalid")
+            .expect("set relay preset");
+        assert_eq!(updated.remote_relay_preset, "global");
+        assert_eq!(
+            updated.remote_server_url,
+            crate::remote::GLOBAL_RELAY_SERVER_URL
+        );
+        assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
 
         fs::remove_dir_all(support_dir).ok();
     }

@@ -226,6 +226,7 @@ pub struct CoduxApp {
     pub(in crate::app) remote_reconnecting: bool,
     pub(in crate::app) remote_pairing_sheet_open: bool,
     pub(in crate::app) remote_pairing_creating: bool,
+    pub(in crate::app) remote_pairing_error: Option<String>,
     pub(in crate::app) remote_pairing_poll_generation: u64,
     pub(in crate::app) recording_shortcut_id: Option<String>,
     pub(in crate::app) workspace_view: WorkspaceView,

@@ -42,7 +42,11 @@ impl RemoteWebSocketHostTransport {
         let writer = Arc::clone(&transport);
         crate::async_runtime::spawn(async move {
             while let Some(message) = rx.recv().await {
-                if write.send(WebSocketMessage::Text(message.into())).await.is_err() {
+                if write
+                    .send(WebSocketMessage::Text(message.into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -133,7 +137,9 @@ impl RemoteTransport for RemoteWebSocketHostTransport {
     }
 }
 
-fn pairing_handshake_from_envelope(envelope: &RemoteEnvelope) -> Option<RemoteTransportPairingRequest> {
+fn pairing_handshake_from_envelope(
+    envelope: &RemoteEnvelope,
+) -> Option<RemoteTransportPairingRequest> {
     let device_id = envelope
         .device_id
         .clone()

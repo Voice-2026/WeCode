@@ -1,7 +1,7 @@
 use super::RemoteService;
 use super::crypto::{remote_base64_url_decode, remote_host_name};
 use super::pairing::remote_summary_show_pending_pairing;
-use super::relay::{remote_server_url, remote_stun_urls};
+use super::relay::{remote_pairing_ticket_payload, remote_server_url, remote_stun_urls};
 use super::transport::RemoteTransport;
 use super::transport_factory::RemoteTransportFactory;
 use super::types::{
@@ -68,6 +68,7 @@ pub struct RemoteHostRuntime {
     events: Mutex<VecDeque<RemoteSummary>>,
     snapshot: Mutex<RemoteSummary>,
     connection_generation: AtomicU64,
+    resolved_relay: Mutex<Option<String>>,
     send_seq_by_device: Mutex<HashMap<String, i64>>,
     receive_seq_by_device: Mutex<HashMap<String, i64>>,
 }
@@ -108,6 +109,7 @@ impl RemoteHostRuntime {
             events: Mutex::new(VecDeque::new()),
             snapshot: Mutex::new(snapshot),
             connection_generation: AtomicU64::new(0),
+            resolved_relay: Mutex::new(None),
             send_seq_by_device: Mutex::new(HashMap::new()),
             receive_seq_by_device: Mutex::new(HashMap::new()),
         }
@@ -124,6 +126,24 @@ impl RemoteHostRuntime {
         let summary = self.summary_from_settings_preserving_connection();
         self.update_snapshot(summary.clone());
         summary
+    }
+
+    pub fn clear_pairing_state(&self) {
+        if let Ok(mut active) = self.active_pairing.lock() {
+            *active = None;
+        }
+        if let Ok(mut pending) = self.pending_pairings.lock() {
+            pending.clear();
+        }
+        if let Ok(mut scopes) = self.remote_project_scope_by_device.lock() {
+            scopes.clear();
+        }
+        if let Ok(mut send_seq) = self.send_seq_by_device.lock() {
+            send_seq.clear();
+        }
+        if let Ok(mut receive_seq) = self.receive_seq_by_device.lock() {
+            receive_seq.clear();
+        }
     }
 
     pub fn drain_events(&self) -> Vec<RemoteSummary> {
@@ -162,8 +182,9 @@ impl RemoteHostRuntime {
         if is_starting || is_connected {
             return current;
         }
+        let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.update_snapshot(summary);
-        self.spawn_transport_start();
+        self.spawn_transport_start(generation);
         self.snapshot()
     }
 
@@ -196,14 +217,14 @@ impl RemoteHostRuntime {
 
     pub fn reconnect(self: &Arc<Self>) -> RemoteSummary {
         crate::runtime_trace::runtime_trace("remote", "host_reconnect requested");
-        self.connection_generation.fetch_add(1, Ordering::SeqCst);
+        let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let transport = self.take_transport();
         let mut summary = self.service().summary();
         summary.status = "connecting".to_string();
         summary.message = "Connecting relay...".to_string();
         summary.pairing = self.snapshot().pairing;
         self.update_snapshot(summary);
-        self.spawn_transport_restart(transport);
+        self.spawn_transport_restart(transport, generation);
         self.snapshot()
     }
 
@@ -224,10 +245,13 @@ impl RemoteHostRuntime {
         transport.send(data.into_bytes(), device_id)
     }
 
-    fn spawn_transport_start(self: &Arc<Self>) {
+    fn spawn_transport_start(self: &Arc<Self>, generation: u64) {
         let runtime = Arc::clone(self);
         crate::async_runtime::spawn(async move {
-            if let Err(error) = runtime.ensure_transport_ready().await {
+            if let Err(error) = runtime.ensure_transport_ready(generation).await {
+                if generation != runtime.connection_generation.load(Ordering::SeqCst) {
+                    return;
+                }
                 let mut status = runtime.service().summary();
                 status.status = "failed".to_string();
                 status.message = error;
@@ -240,13 +264,17 @@ impl RemoteHostRuntime {
     fn spawn_transport_restart(
         self: &Arc<Self>,
         transport: Option<Arc<dyn RemoteTransport>>,
+        generation: u64,
     ) {
         let runtime = Arc::clone(self);
         crate::async_runtime::spawn(async move {
             if let Some(transport) = transport {
                 transport.shutdown().await;
             }
-            if let Err(error) = runtime.ensure_transport_ready().await {
+            if let Err(error) = runtime.ensure_transport_ready(generation).await {
+                if generation != runtime.connection_generation.load(Ordering::SeqCst) {
+                    return;
+                }
                 let mut status = runtime.service().summary();
                 status.status = "failed".to_string();
                 status.message = error;
@@ -263,13 +291,25 @@ impl RemoteHostRuntime {
             .and_then(|mut value| value.take())
     }
 
-    async fn ensure_transport_ready(self: &Arc<Self>) -> Result<(), String> {
-        if self.transport.lock().ok().and_then(|value| value.clone()).is_some() {
+    async fn ensure_transport_ready(self: &Arc<Self>, generation: u64) -> Result<(), String> {
+        if self
+            .transport
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .is_some()
+        {
             return Ok(());
         }
 
         let _guard = self.transport_start_lock.lock().await;
-        if self.transport.lock().ok().and_then(|value| value.clone()).is_some() {
+        if self
+            .transport
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .is_some()
+        {
             return Ok(());
         }
 
@@ -282,32 +322,36 @@ impl RemoteHostRuntime {
         summary.pairing = self.snapshot().pairing;
         self.update_snapshot(summary);
 
-        let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.start_remote_transport(generation).await
     }
 
     async fn transport_candidates(&self) -> Vec<RemoteTransportCandidate> {
         let settings = super::remote_settings_from_raw(&self.service().raw_settings());
-        let relay = remote_server_url(&settings.server_url);
-        vec![RemoteTransportCandidate {
-            kind: "websocketRelay".to_string(),
-            role: Some("host".to_string()),
-            url: Some(relay),
-            ice_servers: Vec::new(),
-        }, RemoteTransportCandidate {
-            kind: "webRtc".to_string(),
-            role: Some("host".to_string()),
-            url: Some(remote_server_url(&settings.server_url)),
-            ice_servers: vec![RemoteIceServer {
-                urls: remote_stun_urls(),
-            }],
-        }]
+        let relay = self
+            .resolved_relay
+            .lock()
+            .ok()
+            .and_then(|value| value.clone())
+            .unwrap_or_else(|| remote_server_url(&settings.server_url));
+        vec![
+            RemoteTransportCandidate {
+                kind: "websocketRelay".to_string(),
+                role: Some("host".to_string()),
+                url: Some(relay.clone()),
+                ice_servers: Vec::new(),
+            },
+            RemoteTransportCandidate {
+                kind: "webRtc".to_string(),
+                role: Some("host".to_string()),
+                url: Some(relay),
+                ice_servers: vec![RemoteIceServer {
+                    urls: remote_stun_urls(),
+                }],
+            },
+        ]
     }
 
-    async fn start_remote_transport(
-        self: &Arc<Self>,
-        generation: u64,
-    ) -> Result<(), String> {
+    async fn start_remote_transport(self: &Arc<Self>, generation: u64) -> Result<(), String> {
         crate::runtime_trace::runtime_trace(
             "remote",
             &format!("transport_start kind=webRtc generation={generation}"),
@@ -315,6 +359,9 @@ impl RemoteHostRuntime {
         let mut raw = self.service().raw_settings();
         let settings = self.service().register_host_in_raw_async(&mut raw).await?;
         self.service().save_raw_settings(&raw)?;
+        if let Ok(mut resolved) = self.resolved_relay.lock() {
+            *resolved = Some(settings.server_url.clone());
+        }
         let _ = self.service().refresh_devices_async().await;
         if generation != self.connection_generation.load(Ordering::SeqCst) {
             return Ok(());
@@ -322,6 +369,7 @@ impl RemoteHostRuntime {
         let weak_for_message = Arc::downgrade(self);
         let weak_for_state = Arc::downgrade(self);
         let weak_for_pairing = Arc::downgrade(self);
+        let state_generation = generation;
         let transport = RemoteTransportFactory::connect_host(
             &settings,
             Arc::new(move |device_id, data| {
@@ -333,6 +381,9 @@ impl RemoteHostRuntime {
             }),
             Arc::new(move |device_id, state| {
                 if let Some(runtime) = weak_for_state.upgrade() {
+                    if state_generation != runtime.connection_generation.load(Ordering::SeqCst) {
+                        return;
+                    }
                     if !device_id.trim().is_empty() {
                         if state == "connected" {
                             runtime.update_device_online(Some(&device_id), true);
@@ -393,6 +444,16 @@ impl RemoteHostRuntime {
         let Some(envelope) = envelope else {
             return;
         };
+        if !self.is_authorized_device(envelope.device_id.as_deref()) {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!(
+                    "drop unauthorized device={}",
+                    envelope.device_id.as_deref().unwrap_or("")
+                ),
+            );
+            return;
+        }
         self.update_device_online(envelope.device_id.as_deref(), true);
         self.handle_remote_envelope(envelope.with_device_id(device_id));
     }
@@ -573,7 +634,11 @@ impl RemoteHostRuntime {
         if !self.snapshot().enabled {
             return Err("Remote Host is disabled.".to_string());
         }
-        self.ensure_transport_ready().await?;
+        let generation = match self.connection_generation.load(Ordering::SeqCst) {
+            0 => self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1,
+            generation => generation,
+        };
+        self.ensure_transport_ready(generation).await?;
         let raw = self.service().raw_settings();
         let settings = super::remote_settings_from_raw(&raw);
         if settings.host_public_key.trim().is_empty() {
@@ -590,8 +655,10 @@ impl RemoteHostRuntime {
             qr_payload: String::new(),
         };
         let transports = self.transport_candidates().await;
-        pairing.qr_payload =
-            super::crypto::remote_pairing_qr_payload(&settings, &pairing, transports.clone());
+        let payload = super::crypto::remote_pairing_payload(&settings, &pairing, transports.clone());
+        pairing.qr_payload = self
+            .create_pairing_ticket_payload(&settings.server_url, payload)
+            .await?;
         crate::runtime_trace::runtime_trace(
             "remote",
             &format!("pairing_qr transports={}", transports.len()),
@@ -614,6 +681,34 @@ impl RemoteHostRuntime {
             &format!("pairing_id={}", pairing.pairing_id),
         );
         Ok(summary)
+    }
+
+    async fn create_pairing_ticket_payload(
+        &self,
+        relay: &str,
+        payload: Value,
+    ) -> Result<String, String> {
+        let relay = remote_server_url(relay);
+        let url = super::relay::remote_url(&relay, "/api/tickets", &[], false)?;
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("ticket request failed status={}", response.status()));
+        }
+        let value = response
+            .json::<Value>()
+            .await
+            .map_err(|error| error.to_string())?;
+        let ticket = value
+            .get("ticket")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "ticket response missing ticket".to_string())?;
+        remote_pairing_ticket_payload(&relay, ticket)
     }
 
     pub fn poll_pairing_status(
@@ -745,7 +840,7 @@ impl RemoteHostRuntime {
             json!({
                 "hostId": settings.host_id,
                 "deviceId": device_id,
-                "token": settings.host_token,
+                "token": "",
                 "hostName": remote_host_name(),
             }),
         );
@@ -913,7 +1008,7 @@ impl RemoteHostRuntime {
         }
     }
 
-    fn handle_project_select(&self, envelope: &RemoteEnvelope) {
+    fn handle_project_select(self: &Arc<Self>, envelope: &RemoteEnvelope) {
         let Some(project_id) = envelope.payload.get("projectId").and_then(Value::as_str) else {
             self.send_error(envelope, "Project id is required.");
             return;
@@ -921,6 +1016,12 @@ impl RemoteHostRuntime {
         match self.remote_project_scope(project_id) {
             Ok(scope) => {
                 self.set_remote_project_scope(envelope.device_id.as_deref(), &scope.project_id);
+                if let Err(error) =
+                    self.ensure_remote_project_terminal(&scope, envelope.device_id.as_deref())
+                {
+                    self.send_error(envelope, &error);
+                    return;
+                }
                 self.send(
                     "project.selected",
                     envelope.device_id.as_deref(),
@@ -1825,6 +1926,24 @@ impl RemoteHostRuntime {
         self.update_snapshot(status);
     }
 
+    fn is_authorized_device(&self, device_id: Option<&str>) -> bool {
+        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return false;
+        };
+        super::remote_settings_from_raw(&self.service().raw_settings())
+            .cached_devices
+            .iter()
+            .any(|device| {
+                device.id == device_id
+                    && device
+                        .revoked_at
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or("")
+                        .is_empty()
+            })
+    }
+
     fn update_snapshot(&self, summary: RemoteSummary) {
         if let Ok(mut current) = self.snapshot.lock() {
             *current = summary;
@@ -2031,6 +2150,53 @@ impl RemoteHostRuntime {
         self.mark_terminal_event_subscription(session_id);
         self.send_terminal_list(envelope.device_id.as_deref());
         Ok(())
+    }
+
+    fn ensure_remote_project_terminal(
+        self: &Arc<Self>,
+        scope: &RemoteProjectScope,
+        device_id: Option<&str>,
+    ) -> Result<String, String> {
+        let existing = self
+            .remote_terminals()
+            .into_iter()
+            .find(|terminal| {
+                terminal.get("projectId").and_then(Value::as_str) == Some(scope.project_id.as_str())
+            })
+            .and_then(|terminal| {
+                terminal
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.trim().is_empty())
+                    .map(str::to_string)
+            });
+        if let Some(session_id) = existing {
+            self.ensure_terminal_event_subscription(&session_id);
+            return Ok(session_id);
+        }
+
+        let terminal_id = self.saved_remote_terminal_id(&scope.layout_key);
+        let title = "Terminal".to_string();
+        let config = TerminalPtyConfig {
+            cwd: Some(scope.project_path.clone()),
+            project_id: Some(scope.project_id.clone()),
+            project_name: Some(scope.project_name.clone()),
+            terminal_id: terminal_id.clone(),
+            title: Some(title.clone()),
+            ..Default::default()
+        };
+        let runtime = Arc::clone(self);
+        let emit = move |event| {
+            runtime.handle_terminal_event(event);
+        };
+        let session_id = self
+            .terminals
+            .create(config, emit)
+            .map_err(|error| error.to_string())?;
+        self.persist_remote_terminal_layout(&scope.layout_key, &session_id, &title, "split");
+        self.mark_terminal_event_subscription(&session_id);
+        self.register_terminal_viewer(&session_id, device_id);
+        Ok(session_id)
     }
 
     fn saved_remote_terminal_id(&self, layout_key: &str) -> Option<String> {
@@ -2704,7 +2870,7 @@ mod tests {
     fn remote_project_select_keeps_desktop_selected_project() {
         let support_dir = temp_support_dir("codux-remote-scope-select");
         write_two_project_state(&support_dir);
-        let runtime = RemoteHostRuntime::new(support_dir.clone());
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
 
         runtime.handle_project_select(&RemoteEnvelope {
             kind: "project.select".to_string(),
@@ -2721,6 +2887,39 @@ mod tests {
             runtime.remote_project_scope_id(Some("device-1")).as_deref(),
             Some("project-b")
         );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_project_select_starts_project_terminal_on_host() {
+        let support_dir = temp_support_dir("codux-remote-project-terminal");
+        write_two_project_state(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+
+        runtime.handle_project_select(&RemoteEnvelope {
+            kind: "project.select".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({ "projectId": "project-b" }),
+        });
+
+        let terminals = runtime.remote_terminals();
+        let project_terminal = terminals
+            .iter()
+            .find(|terminal| terminal.get("projectId").and_then(Value::as_str) == Some("project-b"))
+            .expect("project terminal");
+        let session_id = project_terminal
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("session id");
+        assert!(!session_id.trim().is_empty());
+
+        let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
+        let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
+        assert_eq!(layout.top_panes.len(), 1);
+        assert_eq!(layout.top_panes[0].terminal_id, session_id);
 
         fs::remove_dir_all(support_dir).ok();
     }

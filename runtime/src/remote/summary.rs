@@ -9,7 +9,11 @@ impl RemoteService {
 }
 
 pub(crate) fn remote_summary_from_settings(mut settings: RemoteSettings) -> RemoteSummary {
-    settings.server_url = settings.server_url.trim().to_string();
+    settings.server_url = if settings.server_url.trim().is_empty() {
+        super::relay::remote_relay_url_for_preset("", "")
+    } else {
+        settings.server_url.trim().to_string()
+    };
     settings.cached_devices.retain(|device| {
         !device.id.trim().is_empty()
             && device

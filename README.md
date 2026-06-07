@@ -37,7 +37,7 @@ AI coding CLIs are powerful, but serious work quickly spreads across projects, G
 | Token usage is vague | Usage by tool, model, project, worktree, and day, without maintaining spreadsheets. |
 | Project context gets lost | Local memory for user habits, project profiles, module notes, and app-managed context injection. |
 | Server access is fragile | Saved SSH profiles, connection testing, and a `codux-ssh` command that AI tools can use without seeing credentials. |
-| You leave the desk mid-run | Codux Mobile pairs with the desktop host through Iroh so you can continue sessions remotely. |
+| You leave the desk mid-run | Codux Mobile pairs with the desktop host through the v3 relay/WebRTC path so you can continue sessions remotely. |
 
 Codux AI is not an editor replacement. It is a control plane for developers who already use AI coding CLIs heavily and need a stable way to manage multi-project, long-running AI work.
 
@@ -105,13 +105,13 @@ Codux keeps the terminal next to the project surfaces you need during AI work:
 
 Database and other secure connection profiles are planned. Today, database access should be handled through your existing CLI tools, SSH tunnels, or remote shell workflow.
 
-## Mobile Handoff with Iroh
+## Mobile Handoff
 
-Codux Mobile connects to the desktop host through the Iroh-based remote path.
+Codux Mobile connects to the desktop host through the v3 remote path.
 
-- Pair mobile with the desktop using the host Node ID.
-- Use Iroh's public network by leaving the relay field empty, or configure a custom relay when needed.
-- Let the desktop host provide host info and direct addresses so mobile clients can upgrade from relay to direct/P2P paths when available.
+- Pair mobile with the desktop using a short-lived QR ticket.
+- Use the global public relay by leaving the relay setting empty, choose the China node when needed, or configure a custom relay endpoint.
+- Prefer WebRTC DataChannel when a direct path is available and fall back to WebSocket relay when P2P cannot connect.
 - Keep projects, terminals, files, and AI sessions running on the desktop host while mobile controls the session remotely.
 
 Terminal input, output, file payloads, project lists, and AI stats are encrypted between Codux Desktop and Codux Mobile.

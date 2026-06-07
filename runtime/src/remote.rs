@@ -3,8 +3,8 @@ mod devices;
 mod envelope;
 mod host;
 mod pairing;
-mod relay;
 mod registration;
+mod relay;
 mod settings;
 mod summary;
 mod sync;
@@ -17,6 +17,10 @@ mod websocket_transport;
 use std::path::PathBuf;
 
 pub use host::RemoteHostRuntime;
+pub use relay::{
+    CHINA_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, remote_relay_preset_for_url,
+    remote_relay_url_for_preset,
+};
 pub(crate) use settings::{remote_settings_from_raw, remote_settings_mut};
 pub use types::{
     RemoteDeviceSummary, RemoteEnvelope, RemoteOutgoingEnvelope, RemotePairingInfo,

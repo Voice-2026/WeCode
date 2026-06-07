@@ -202,12 +202,31 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(|remote| remote.get("isEnabled"))
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        remote_relay_preset: remote
+            .and_then(|remote| remote.get("relayPreset"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let server_url = remote
+                    .and_then(|remote| remote.get("serverUrl"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                crate::remote::remote_relay_preset_for_url(server_url)
+            }),
         remote_server_url: remote
             .and_then(|remote| remote.get("serverUrl"))
             .and_then(Value::as_str)
             .map(str::trim)
-            .unwrap_or(&defaults.remote_server_url)
-            .to_string(),
+            .map(|value| {
+                if value.is_empty() {
+                    crate::remote::remote_relay_url_for_preset("", "")
+                } else {
+                    value.to_string()
+                }
+            })
+            .unwrap_or_else(|| crate::remote::remote_relay_url_for_preset("", "")),
         remote_cached_devices: remote
             .and_then(|remote| remote.get("cachedDevices"))
             .and_then(Value::as_array)

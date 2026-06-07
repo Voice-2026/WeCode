@@ -255,6 +255,7 @@ impl CoduxApp {
                     this.child(remote_pairing_overlay(
                         self.state.remote.pairing.clone(),
                         self.remote_pairing_creating,
+                        self.remote_pairing_error.as_deref(),
                         language,
                         cx,
                     ))
@@ -600,6 +601,50 @@ fn settings_text_input_sized(
         .into_any_element()
 }
 
+fn settings_remote_relay_url_editor(
+    value: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+    _language: &str,
+) -> AnyElement {
+    let value = value.to_string();
+    let state_key = SharedString::from(format!("settings-remote-relay-url-draft-{value}"));
+    let state = window.use_keyed_state(state_key, cx, |window, cx| {
+        InputState::new(window, cx).default_value(value.clone())
+    });
+    cx.subscribe_in(&state, window, |app, _state, event, _window, cx| {
+        if matches!(event, InputEvent::Change) {
+            app.invalidate_remote_panel(cx);
+        }
+    })
+    .detach();
+    let has_changes = state.read(cx).value().as_ref() != value.as_str();
+    let input_state = state.clone();
+    div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(
+            Input::new(&state)
+                .with_size(gpui_component::Size::Medium)
+                .w_full(),
+        )
+        .when(has_changes, |this| {
+            this.child(settings_icon_button_state(
+                "settings-remote-relay-url-apply",
+                HeroIconName::Check,
+                false,
+                cx,
+                move |app, _event, window, cx| {
+                    app.set_remote_server_url(input_state.read(cx).value().to_string(), window, cx)
+                },
+            ))
+        })
+        .into_any_element()
+}
+
 fn settings_textarea(
     id: &'static str,
     value: &str,
@@ -780,6 +825,7 @@ fn settings_selectable_tile(
 fn remote_pairing_overlay(
     pairing: Option<RemotePairingInfo>,
     loading: bool,
+    error: Option<&str>,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -826,6 +872,7 @@ fn remote_pairing_overlay(
                         .child(remote_pairing_detail(
                             pairing.as_ref(),
                             loading,
+                            error,
                             language,
                             cx,
                         )),
@@ -865,9 +912,22 @@ fn remote_pairing_placeholder(language: &str, cx: &mut Context<CoduxApp>) -> Any
 fn remote_pairing_detail(
     pairing: Option<&RemotePairingInfo>,
     loading: bool,
+    error: Option<&str>,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
+    if let Some(error) = error.filter(|value| !value.trim().is_empty()) {
+        return div()
+            .mt(px(18.0))
+            .max_w(px(320.0))
+            .text_align(gpui::TextAlign::Center)
+            .text_size(rems(0.8125))
+            .line_height(rems(1.125))
+            .text_color(color(0xFF5C68))
+            .child(error.to_string())
+            .into_any_element();
+    }
+
     if let Some(pairing) = pairing {
         return div()
             .mt(px(16.0))
@@ -1197,7 +1257,7 @@ fn remote_pairing_qr(payload: &str) -> AnyElement {
                             .absolute()
                             .left(px(11.0 + x as f32 * module_size))
                             .top(px(11.0 + y as f32 * module_size))
-                            .size(px(module_size.ceil()))
+                            .size(px(module_size))
                             .bg(color(0x111827))
                             .into_any_element(),
                     )
@@ -2820,23 +2880,64 @@ fn settings_remote_pane(
                     )
                     .into_any_element(),
                     settings_row(
-                        settings_text(language, "settings.remote.server_url", "Relay Server URL"),
+                        settings_text(language, "settings.remote.relay_mode", "Relay Network"),
                         Some(settings_text(
                             language,
-                            "settings.remote.server_url.help",
-                            "Leave empty to use the public network. Pair again after changing it",
+                            "settings.remote.relay_mode.help",
+                            "Changing the relay requires pairing again.",
                         )),
-                        settings_text_input(
-                            "settings-remote-relay-url",
-                            settings.remote_server_url.as_str(),
-                            "",
-                            false,
+                        settings_select_impl(
+                            "settings-remote-relay-preset",
+                            settings.remote_relay_preset.as_str(),
+                            remote_relay_preset_options(language),
                             _window,
                             cx,
-                            |app, value, window, cx| app.set_remote_server_url(value, window, cx),
+                            language,
+                            |app, value, window, cx| {
+                                app.set_remote_relay_preset(value, window, cx)
+                            },
                         ),
                     )
                     .into_any_element(),
+                    if settings.remote_relay_preset == "custom" {
+                        settings_row(
+                            settings_text(
+                                language,
+                                "settings.remote.server_url",
+                                "Custom Relay URL",
+                            ),
+                            Some(settings_text(
+                                language,
+                                "settings.remote.server_url.help",
+                                "Leave empty to use the public network. Pair again after changing it",
+                            )),
+                            settings_remote_relay_url_editor(
+                                settings.remote_server_url.as_str(),
+                                _window,
+                                cx,
+                                language,
+                            ),
+                        )
+                        .into_any_element()
+                    } else {
+                        settings_row(
+                            settings_text(language, "settings.remote.server_url", "Relay Server"),
+                            None,
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .text_align(gpui::TextAlign::Right)
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .truncate()
+                                .child(remote_relay_display_url(
+                                    settings.remote_relay_preset.as_str(),
+                                ))
+                                .into_any_element(),
+                        )
+                        .into_any_element()
+                    },
                     div()
                         .py(px(10.0))
                         .flex()
@@ -4336,6 +4437,46 @@ fn runtime_tool_permission_options(language: &str) -> Vec<(String, SharedString)
     .collect()
 }
 
+fn remote_relay_preset_options(language: &str) -> Vec<(String, SharedString)> {
+    vec![
+        (
+            "global",
+            settings_text(
+                language,
+                "settings.remote.relay_preset.global",
+                "Global Public",
+            ),
+        ),
+        (
+            "china",
+            settings_text(
+                language,
+                "settings.remote.relay_preset.china",
+                "China Service",
+            ),
+        ),
+        (
+            "custom",
+            settings_text(
+                language,
+                "settings.remote.relay_preset.custom",
+                "Custom Relay",
+            ),
+        ),
+    ]
+    .into_iter()
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
+    .collect()
+}
+
+fn remote_relay_display_url(preset: &str) -> String {
+    match preset {
+        "global" => codux_runtime::remote::GLOBAL_RELAY_SERVER_URL.to_string(),
+        "china" => codux_runtime::remote::CHINA_RELAY_SERVER_URL.to_string(),
+        _ => codux_runtime::remote::GLOBAL_RELAY_SERVER_URL.to_string(),
+    }
+}
+
 fn codex_effort_options() -> Vec<(String, SharedString)> {
     vec![
         ("none", "None"),
@@ -4556,6 +4697,7 @@ fn remote_status_label(remote: &RemoteSummary, language: &str) -> String {
     match remote.status.as_str() {
         "connected" => settings_text(language, "remote.status.connected_label", "Connected"),
         "connecting" => settings_text(language, "remote.status.connecting_label", "Connecting"),
+        "failed" => settings_text(language, "settings.ai.local_model.status.failed", "Failed"),
         _ => settings_text(language, "remote.status.disconnected_label", "Disconnected"),
     }
 }
@@ -4564,6 +4706,7 @@ fn remote_status_color(remote: &RemoteSummary) -> u32 {
     match remote.status.as_str() {
         "connected" => theme::GREEN,
         "connecting" => theme::ORANGE,
+        "failed" => 0xFF5C68,
         _ => theme::TEXT_DIM,
     }
 }

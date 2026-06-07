@@ -43,6 +43,7 @@ pub struct SettingsSummary {
     pub memory_allow_cross_project_user_recall: bool,
     pub memory_default_extractor_provider_id: String,
     pub remote_enabled: bool,
+    pub remote_relay_preset: String,
     pub remote_server_url: String,
     pub remote_cached_devices: usize,
     pub update_enabled: bool,

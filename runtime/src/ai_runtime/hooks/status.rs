@@ -299,8 +299,19 @@ mod tests {
 
         let status = hook_config_status_in(&home, &home.join("opencode-config"));
 
-        assert!(!status.gemini.missing.iter().any(|item| item.starts_with("agy:")));
-        assert!(status.agy.config_path.ends_with(".gemini/antigravity-cli/settings.json"));
+        assert!(
+            !status
+                .gemini
+                .missing
+                .iter()
+                .any(|item| item.starts_with("agy:"))
+        );
+        assert!(
+            status
+                .agy
+                .config_path
+                .ends_with(".gemini/antigravity-cli/settings.json")
+        );
         assert!(!status.agy.missing.is_empty());
         fs::remove_dir_all(home).unwrap();
     }

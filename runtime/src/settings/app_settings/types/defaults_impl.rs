@@ -2,6 +2,7 @@ impl Default for RemoteSettings {
     fn default() -> Self {
         Self {
             is_enabled: false,
+            relay_preset: String::new(),
             server_url: String::new(),
             host_id: String::new(),
             host_token: String::new(),

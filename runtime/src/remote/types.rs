@@ -28,7 +28,7 @@ pub(crate) struct RemoteTransportPairingRequest {
     pub(crate) pairing_secret: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSummary {
     pub enabled: bool,
@@ -46,7 +46,7 @@ pub struct RemoteSummary {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemotePairingPollResult {
     pub summary: RemoteSummary,
@@ -74,7 +74,7 @@ impl RemoteEnvelope {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RemoteOutgoingEnvelope {
     #[serde(rename = "type")]
     pub kind: String,
@@ -87,7 +87,7 @@ pub struct RemoteOutgoingEnvelope {
     pub payload: serde_json::Value,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteDeviceSummary {
     pub id: String,
@@ -100,7 +100,7 @@ pub struct RemoteDeviceSummary {
     pub online: Option<bool>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemotePairingInfo {
     pub pairing_id: String,
@@ -112,7 +112,7 @@ pub struct RemotePairingInfo {
     pub qr_payload: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemotePendingPairing {
     pub id: String,
@@ -126,6 +126,8 @@ pub struct RemotePendingPairing {
 pub(crate) struct RemoteSettings {
     #[serde(default, rename = "isEnabled")]
     pub(crate) is_enabled: bool,
+    #[serde(default)]
+    pub(crate) relay_preset: String,
     #[serde(default)]
     pub(crate) server_url: String,
     #[serde(default, alias = "hostId", rename = "hostID")]

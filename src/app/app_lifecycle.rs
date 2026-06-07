@@ -346,6 +346,7 @@ impl CoduxApp {
             remote_reconnecting: false,
             remote_pairing_sheet_open: false,
             remote_pairing_creating: false,
+            remote_pairing_error: None,
             remote_pairing_poll_generation: 0,
             recording_shortcut_id: None,
             workspace_view: WorkspaceView::Terminal,

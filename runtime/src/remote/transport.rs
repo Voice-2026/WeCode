@@ -16,7 +16,8 @@ impl RemoteTransportKind {
     }
 }
 
-pub(crate) type RemoteTransportMessageHandler = Arc<dyn Fn(String, Vec<u8>) + Send + Sync + 'static>;
+pub(crate) type RemoteTransportMessageHandler =
+    Arc<dyn Fn(String, Vec<u8>) + Send + Sync + 'static>;
 pub(crate) type RemoteTransportStateHandler = Arc<dyn Fn(String, String) + Send + Sync + 'static>;
 pub(crate) type RemoteTransportPairingHandler =
     Arc<dyn Fn(super::types::RemoteTransportPairingRequest) + Send + Sync + 'static>;

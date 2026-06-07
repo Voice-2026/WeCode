@@ -124,7 +124,9 @@ fn sanitize_state_keeps_pet_xp_and_baseline_without_version_bump() {
     assert_eq!(sanitized.daily_experience_tokens, 120);
     assert_eq!(sanitized.global_normalized_total_watermark, Some(99_000));
     assert_eq!(
-        sanitized.project_normalized_token_watermarks.get("project-a"),
+        sanitized
+            .project_normalized_token_watermarks
+            .get("project-a"),
         Some(&99_000)
     );
 }
@@ -229,7 +231,9 @@ fn local_pet_state_reads_legacy_hatch_tokens_as_xp() {
     )
     .unwrap();
 
-    let (snapshot, _) = PetService::new(support_dir.clone()).load_snapshot().unwrap();
+    let (snapshot, _) = PetService::new(support_dir.clone())
+        .load_snapshot()
+        .unwrap();
     let snapshot = sanitize_state(snapshot);
 
     assert_eq!(snapshot.current_experience_tokens, 42_000_000);
@@ -237,7 +241,9 @@ fn local_pet_state_reads_legacy_hatch_tokens_as_xp() {
     assert!(snapshot.progress.level > 1);
     assert_eq!(snapshot.global_normalized_total_watermark, Some(99_000_000));
     assert_eq!(
-        snapshot.project_normalized_token_watermarks.get("project-a"),
+        snapshot
+            .project_normalized_token_watermarks
+            .get("project-a"),
         Some(&99_000_000)
     );
 

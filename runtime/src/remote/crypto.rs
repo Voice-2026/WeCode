@@ -100,25 +100,22 @@ pub(crate) fn ensure_remote_host_identity(settings: &mut RemoteSettings) {
     settings.host_public_key = remote_base64_url_encode(public_key.as_bytes());
 }
 
-pub(crate) fn remote_pairing_qr_payload(
+pub(crate) fn remote_pairing_payload(
     settings: &RemoteSettings,
     pairing: &RemotePairingInfo,
     transports: Vec<RemoteTransportCandidate>,
-) -> String {
-    let payload = json!({
+) -> Value {
+    json!({
         "code": pairing.code,
         "secret": pairing.secret,
         "pairingId": pairing.pairing_id,
+        "hostId": settings.host_id,
         "hostName": remote_host_name(),
         "hostPublicKey": settings.host_public_key,
         "cryptoVersion": 1,
         "protocolVersion": super::host::REMOTE_PROTOCOL_VERSION,
         "transports": transports,
-    });
-    serde_json::to_vec(&payload)
-        .ok()
-        .map(|data| remote_base64_url_encode(&data))
-        .unwrap_or_default()
+    })
 }
 
 pub(crate) fn remote_pairing_match_code(

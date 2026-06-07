@@ -3,6 +3,11 @@ use crate::app::app_events::{
     ChildWindowUpdateEvent, current_memory_update_event, publish_pet_update,
 };
 
+enum RemoteRelayChange {
+    Preset(String),
+    ServerUrl(String),
+}
+
 impl CoduxApp {
     pub(super) fn apply_child_window_update_event(
         &mut self,
@@ -491,7 +496,26 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match self.runtime_service.set_remote_server_url(&server_url) {
+        if self.state.settings.remote_server_url.trim() == server_url.trim() {
+            return;
+        }
+        if self.remote_relay_change_requires_confirmation() {
+            self.confirm_remote_relay_change(RemoteRelayChange::ServerUrl(server_url), cx);
+            return;
+        }
+        self.apply_remote_server_url_change(server_url, false, cx);
+    }
+
+    fn apply_remote_server_url_change(
+        &mut self,
+        server_url: String,
+        reset_devices: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .set_remote_server_url_with_device_reset(&server_url, reset_devices)
+        {
             Ok((settings, remote)) => {
                 self.apply_settings_summary(settings);
                 self.state.remote = remote;
@@ -503,6 +527,97 @@ impl CoduxApp {
                 self.status_message = format!("failed to save remote relay setting: {error}");
             }
         }
+        self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn set_remote_relay_preset(
+        &mut self,
+        relay_preset: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.settings.remote_relay_preset == relay_preset {
+            return;
+        }
+        if self.remote_relay_change_requires_confirmation() {
+            self.confirm_remote_relay_change(RemoteRelayChange::Preset(relay_preset), cx);
+            return;
+        }
+        self.apply_remote_relay_preset_change(relay_preset, false, cx);
+    }
+
+    fn apply_remote_relay_preset_change(
+        &mut self,
+        relay_preset: String,
+        reset_devices: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .set_remote_relay_preset_with_device_reset(&relay_preset, reset_devices)
+        {
+            Ok((settings, remote)) => {
+                self.apply_settings_summary(settings);
+                self.state.remote = remote;
+                self.remote_reconnecting = self.state.remote.status == "connecting";
+                self.normalize_selected_remote_device();
+                self.status_message = "remote relay setting saved".to_string();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to save remote relay setting: {error}");
+            }
+        }
+        self.invalidate_remote_panel(cx);
+    }
+
+    fn remote_relay_change_requires_confirmation(&self) -> bool {
+        self.state.remote.devices > 0 || self.state.remote.pending_pairings > 0
+    }
+
+    fn confirm_remote_relay_change(&mut self, change: RemoteRelayChange, cx: &mut Context<Self>) {
+        let service = self.runtime_service.clone();
+        let title = self.text("settings.remote.relay_change.title", "Change Relay Network");
+        let message = self.text(
+            "settings.remote.relay_change.message",
+            "Changing the relay will clear paired devices. Pair mobile devices again after the change.",
+        );
+        let confirm_label = self.text("common.confirm", "Confirm");
+        let cancel_label = self.text("common.cancel", "Cancel");
+        self.status_message = "waiting for remote relay change confirmation".to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                    title,
+                    message,
+                    confirm_label,
+                    cancel_label,
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| match result {
+                Ok(true) => match change {
+                    RemoteRelayChange::Preset(relay_preset) => {
+                        app.apply_remote_relay_preset_change(relay_preset, true, cx)
+                    }
+                    RemoteRelayChange::ServerUrl(server_url) => {
+                        app.apply_remote_server_url_change(server_url, true, cx)
+                    }
+                },
+                Ok(false) => {
+                    app.status_message = "remote relay change canceled".to_string();
+                    app.invalidate_remote_panel(cx);
+                }
+                Err(error) => {
+                    app.status_message =
+                        format!("failed to show remote relay confirmation: {error}");
+                    app.invalidate_remote_panel(cx);
+                }
+            });
+        })
+        .detach();
         self.invalidate_remote_panel(cx);
     }
 
@@ -573,6 +688,7 @@ impl CoduxApp {
         let service = self.runtime_service.clone();
         self.remote_pairing_sheet_open = true;
         self.remote_pairing_creating = true;
+        self.remote_pairing_error = None;
         self.status_message = "remote pairing request started".to_string();
         self.runtime_trace("remote", "pairing_create start");
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
@@ -605,6 +721,7 @@ impl CoduxApp {
                     .unwrap_or_default();
                 let pairing = remote.pairing.clone();
                 self.state.remote = remote;
+                self.remote_pairing_error = None;
                 self.remote_pairing_sheet_open = self.state.remote.pairing.is_some();
                 self.normalize_selected_remote_device();
                 self.status_message = if code.is_empty() {
@@ -618,7 +735,8 @@ impl CoduxApp {
                 self.runtime_trace("remote", "pairing_create ok");
             }
             Err(error) => {
-                self.remote_pairing_sheet_open = false;
+                self.remote_pairing_sheet_open = true;
+                self.remote_pairing_error = Some(error.clone());
                 self.runtime_trace("remote", &format!("pairing_create failed error={error}"));
                 self.status_message = format!("failed to create remote pairing: {error}");
             }
@@ -681,6 +799,7 @@ impl CoduxApp {
     pub(super) fn close_remote_pairing_sheet(&mut self, cx: &mut Context<Self>) {
         self.remote_pairing_sheet_open = false;
         self.remote_pairing_creating = false;
+        self.remote_pairing_error = None;
         self.invalidate_remote_panel(cx);
     }
 
@@ -707,6 +826,7 @@ impl CoduxApp {
             Ok(result) => {
                 let finished = result.finished;
                 self.state.remote = result.summary;
+                self.remote_pairing_error = None;
                 self.remote_pairing_sheet_open = self.state.remote.pairing.is_some();
                 self.normalize_selected_remote_device();
                 self.status_message = self.state.remote.message.clone();
@@ -716,6 +836,7 @@ impl CoduxApp {
             Err(error) => {
                 self.state.remote.pairing = None;
                 self.remote_pairing_sheet_open = false;
+                self.remote_pairing_error = Some(error.clone());
                 self.status_message = format!("remote pairing poll failed: {error}");
                 self.invalidate_remote_panel(cx);
                 true
@@ -731,6 +852,7 @@ impl CoduxApp {
     ) {
         self.remote_pairing_poll_generation = self.remote_pairing_poll_generation.wrapping_add(1);
         self.remote_pairing_sheet_open = false;
+        self.remote_pairing_error = None;
         self.state.remote.pairing = None;
         self.status_message = "remote pairing cancelled".to_string();
 
@@ -820,6 +942,7 @@ impl CoduxApp {
         self.state.remote.pending_pairings = self.state.remote.pending_pairing_list.len();
         self.remote_pairing_sheet_open = false;
         self.remote_pairing_creating = false;
+        self.remote_pairing_error = None;
     }
 
     pub(super) fn selected_remote_device(&self) -> Option<&RemoteDeviceSummary> {

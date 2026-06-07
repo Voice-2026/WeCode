@@ -1,7 +1,7 @@
 use super::*;
 
-mod claude;
 mod agy;
+mod claude;
 mod codewhale;
 mod codex;
 mod gemini;

@@ -241,6 +241,8 @@ pub struct RemoteSettings {
     #[serde(default, rename = "isEnabled")]
     pub is_enabled: bool,
     #[serde(default)]
+    pub relay_preset: String,
+    #[serde(default)]
     pub server_url: String,
     #[serde(default, rename = "hostID")]
     pub host_id: String,

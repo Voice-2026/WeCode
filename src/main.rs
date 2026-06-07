@@ -91,7 +91,9 @@ fn open_main_window(
     );
     let result = cx.open_window(
         WindowOptions {
-            titlebar: Some(theme::codux_main_titlebar("Codux")),
+            titlebar: Some(theme::codux_main_titlebar(
+                codux_runtime::runtime_paths::app_display_name(),
+            )),
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(MAIN_WINDOW_MIN_WIDTH), px(MAIN_WINDOW_MIN_HEIGHT))),
             icon: Some(std::sync::Arc::new(window_icon_image(settings))),

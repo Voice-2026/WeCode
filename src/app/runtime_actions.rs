@@ -30,13 +30,7 @@ impl CoduxApp {
                         if app.window_mode != AppWindowMode::Settings {
                             return;
                         }
-                        if app.state.remote.status != remote.status
-                            || app.state.remote.message != remote.message
-                            || app.state.remote.devices != remote.devices
-                            || app.state.remote.online_devices != remote.online_devices
-                            || app.state.remote.pending_pairings != remote.pending_pairings
-                            || app.state.remote.pairing.is_some() != remote.pairing.is_some()
-                        {
+                        if app.state.remote != remote {
                             app.state.remote = remote;
                             app.normalize_selected_remote_device();
                             if app.remote_reconnecting && app.state.remote.status != "connecting" {

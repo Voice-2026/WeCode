@@ -149,7 +149,11 @@ mod tests {
     fn launch_driver_config_keeps_memory_injection_per_driver() {
         let config = ai_runtime_tool_launch_driver_config();
         let codex = config.tools.iter().find(|tool| tool.id == "codex").unwrap();
-        let claude = config.tools.iter().find(|tool| tool.id == "claude").unwrap();
+        let claude = config
+            .tools
+            .iter()
+            .find(|tool| tool.id == "claude")
+            .unwrap();
         let codewhale = config
             .tools
             .iter()
@@ -164,6 +168,9 @@ mod tests {
             claude.memory_injection,
             AIRuntimeMemoryInjectionDriver::ClaudeAppendSystemPrompt
         );
-        assert_eq!(codewhale.memory_injection, AIRuntimeMemoryInjectionDriver::None);
+        assert_eq!(
+            codewhale.memory_injection,
+            AIRuntimeMemoryInjectionDriver::None
+        );
     }
 }

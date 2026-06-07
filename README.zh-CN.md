@@ -37,7 +37,7 @@ AI 编程 CLI 很强，但真正干活时，项目、Git worktree、终端、历
 | Token 用量不透明 | 按工具、模型、项目、worktree 和日期统计用量，不需要手动记账。 |
 | 项目上下文容易丢 | 本地记忆保存用户习惯、项目画像、模块笔记，并为支持的 CLI 注入上下文。 |
 | 服务器连接难复用或不安全 | 保存 SSH 配置、测试连接，并提供 AI 工具可用但不暴露凭证的 `codux-ssh`。 |
-| 离开电脑就中断 | Codux Mobile 通过 Iroh 配对桌面端，可以远程继续控制会话。 |
+| 离开电脑就中断 | Codux Mobile 通过 v3 Relay / WebRTC 链路配对桌面端，可以远程继续控制会话。 |
 
 Codux AI 不是要替代编辑器。它面向已经重度使用 AI 编程 CLI 的开发者，解决多项目、长会话、并行任务、上下文沉淀、Token 可视化和远程接力这些真实问题。
 
@@ -105,13 +105,13 @@ Codux 把 AI 工作中常用的项目界面放在终端旁边：
 
 数据库和其他安全连接配置在规划中。当前版本请通过已有 CLI 工具、SSH 隧道或远程 shell 工作流访问数据库。
 
-## 基于 Iroh 的移动端接力
+## 移动端接力
 
-Codux Mobile 通过 Iroh 远程链路连接桌面端。
+Codux Mobile 通过 v3 远程链路连接桌面端。
 
-- 使用桌面端 Node ID 与移动端配对。
-- 中继地址留空即可使用 Iroh 公共网络，也可以按需配置自定义 relay。
-- 桌面端会提供 host info 和 direct addresses，移动端可在可用时从 relay 升级到 direct / P2P 连接。
+- 使用短期二维码 ticket 与桌面端配对。
+- Relay 设置留空使用全球公共节点，也可以选择 China 节点或配置自定义 Relay 地址。
+- 可直连时优先使用 WebRTC DataChannel，P2P 不可用时回落 WebSocket 中继。
 - 项目、终端、文件和 AI 会话始终运行在桌面端，移动端只负责远程控制。
 
 终端输入输出、文件内容、项目列表和 AI 统计都会在 Codux Desktop 与 Codux Mobile 之间加密传输。
