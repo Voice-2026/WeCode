@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.7] - 2026-06-07
+
+### Fixed
+
+- Fixed file sidebar expanded folders being overwritten by empty async load state after switching projects, tasks, or worktrees.
+- Fixed Git clone refresh clearing the file tree expansion state instead of preserving expanded folders that still exist.
+
 ## [1.6.6] - 2026-06-07
 
 ### Fixed

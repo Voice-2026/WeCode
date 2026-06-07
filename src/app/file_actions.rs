@@ -1,6 +1,86 @@
 use super::*;
 
 impl CoduxApp {
+    pub(super) fn current_file_panel_state_snapshot(&self) -> super::app_state::FilePanelState {
+        super::app_state::FilePanelState {
+            files: self.state.files.clone(),
+            file_directory: self.file_directory.clone(),
+            selected_file_entry: self.selected_file_entry.clone(),
+            selected_file_entries: self.selected_file_entries.clone(),
+            file_selection_anchor: self.file_selection_anchor.clone(),
+            file_tree_expanded_dirs: self.file_tree_expanded_dirs.clone(),
+            file_tree_children: self.file_tree_children.clone(),
+            file_editor_tabs: self.file_editor_tabs.clone(),
+            active_file_editor_tab: self.active_file_editor_tab.clone(),
+        }
+    }
+
+    pub(super) fn remember_current_file_panel_state(&mut self) {
+        let Some(scope_key) = super::app_state::current_worktree_scope_key(&self.state) else {
+            return;
+        };
+        if self.state.files.is_empty()
+            && self.file_tree_expanded_dirs.is_empty()
+            && self.file_tree_children.is_empty()
+        {
+            self.runtime_trace(
+                "files",
+                &format!(
+                    "cache_save skipped_empty project={} worktree={}",
+                    scope_key.project_id, scope_key.worktree_id
+                ),
+            );
+            return;
+        }
+        let expanded_count = self.file_tree_expanded_dirs.len();
+        self.file_panel_cache
+            .insert(scope_key.clone(), self.current_file_panel_state_snapshot());
+        self.runtime_trace(
+            "files",
+            &format!(
+                "cache_save project={} worktree={} expanded_dirs={expanded_count}",
+                scope_key.project_id, scope_key.worktree_id
+            ),
+        );
+    }
+
+    pub(super) fn restore_cached_file_panel_state(&mut self) -> bool {
+        let Some(scope_key) = super::app_state::current_worktree_scope_key(&self.state) else {
+            return false;
+        };
+        let Some(cached) = self.file_panel_cache.get(&scope_key).cloned() else {
+            self.runtime_trace(
+                "files",
+                &format!(
+                    "cache_restore miss project={} worktree={}",
+                    scope_key.project_id, scope_key.worktree_id
+                ),
+            );
+            return false;
+        };
+        let expanded_count = cached.file_tree_expanded_dirs.len();
+        self.file_directory = cached.file_directory;
+        self.selected_file_entry = cached.selected_file_entry;
+        self.selected_file_entries = cached.selected_file_entries;
+        self.file_selection_anchor = cached.file_selection_anchor;
+        self.file_tree_expanded_dirs = cached.file_tree_expanded_dirs;
+        self.file_tree_children = cached.file_tree_children;
+        self.file_editor_tabs = cached.file_editor_tabs;
+        self.active_file_editor_tab = cached.active_file_editor_tab;
+        self.file_name_draft_kind = None;
+        self.file_name_draft_target = None;
+        self.file_name_draft_value.clear();
+        self.file_name_draft_select_all = false;
+        self.runtime_trace(
+            "files",
+            &format!(
+                "cache_restore hit project={} worktree={} expanded_dirs={expanded_count}",
+                scope_key.project_id, scope_key.worktree_id
+            ),
+        );
+        true
+    }
+
     pub(super) fn reload_project_files_async(&mut self, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to refresh".to_string();
@@ -93,6 +173,7 @@ impl CoduxApp {
         self.state.files = load.files;
         self.file_tree_children = load.file_tree_children;
         self.prune_missing_file_tree_directories();
+        self.remember_current_file_panel_state();
         self.normalize_selected_file_entry();
         self.status_message = format!(
             "file list reloaded for {}{}",
@@ -231,6 +312,7 @@ impl CoduxApp {
             self.reload_file_tree_directory(&relative_path);
             self.status_message = format!("directory expanded: {relative_path}");
         }
+        self.remember_current_file_panel_state();
         self.invalidate_file_panel(cx);
     }
 

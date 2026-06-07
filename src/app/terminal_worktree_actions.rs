@@ -1395,6 +1395,7 @@ impl CoduxApp {
             &previous_worktree_id,
             &format!("target_worktree={worktree_id}"),
         );
+        self.remember_current_file_panel_state();
         self.remember_focused_terminal_for_current_scope(window, cx);
         self.remember_active_bottom_terminal_for_current_scope();
         self.sync_terminal_state_for_project_switch();
@@ -1554,6 +1555,8 @@ impl CoduxApp {
         self.state.ai_history = load.ai_history;
         self.state.refresh_ai_history_stats();
         self.normalize_selected_ai_session();
+        self.restore_cached_file_panel_state();
+        self.invalidate_file_panel(cx);
         self.spawn_worktree_sidebar_load(load.generation, cx);
         self.schedule_terminal_layout_restore(
             load.terminal_layout,

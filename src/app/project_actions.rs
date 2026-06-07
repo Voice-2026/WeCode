@@ -293,6 +293,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let started_at = Instant::now();
+        self.remember_current_file_panel_state();
         let Some(project) = self
             .state
             .projects
@@ -377,6 +378,7 @@ impl CoduxApp {
         self.file_name_draft_target = None;
         self.file_name_draft_value.clear();
         self.file_name_draft_select_all = false;
+        self.prune_missing_file_tree_directories();
         self.normalize_selected_file_entry();
         self.file_dirty = self
             .active_file_editor_tab
@@ -492,12 +494,33 @@ impl CoduxApp {
         let Some(worktree_path) = self.selected_worktree_path() else {
             return;
         };
+        let expanded_dirs = self
+            .file_panel_cache
+            .get(&scope_key)
+            .map(|state| {
+                state
+                    .file_tree_expanded_dirs
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let runtime_service = self.runtime_service.clone();
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let load = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                 codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
                 move || {
                     let files = runtime_service.reload_project_files(&worktree_path, None);
+                    let file_tree_children = expanded_dirs
+                        .into_iter()
+                        .map(|directory_path| {
+                            let children = runtime_service.reload_project_files(
+                                &worktree_path,
+                                Some(directory_path.as_str()),
+                            );
+                            (directory_path, children)
+                        })
+                        .collect::<HashMap<_, _>>();
                     let file_editor_layout =
                         runtime_service.reload_file_editor_layout(Some(&scope_key.worktree_id));
                     let (git, mut git_review) =
@@ -507,6 +530,7 @@ impl CoduxApp {
                         generation,
                         scope_key,
                         files,
+                        file_tree_children,
                         file_editor_layout,
                         git,
                         git_review,
@@ -538,16 +562,30 @@ impl CoduxApp {
         }
         let (file_editor_tabs, active_file_editor_tab) =
             super::app_state::file_editor_tabs_from_layout(load.file_editor_layout);
-        let file_state = super::app_state::FilePanelState {
-            files: load.files.clone(),
-            file_directory: String::new(),
-            selected_file_entry: None,
-            selected_file_entries: HashSet::new(),
-            file_selection_anchor: None,
-            file_tree_expanded_dirs: HashSet::new(),
-            file_tree_children: HashMap::new(),
-            file_editor_tabs,
-            active_file_editor_tab,
+        let file_state = if let Some(cached) = self.file_panel_cache.get(&load.scope_key) {
+            super::app_state::FilePanelState {
+                files: load.files.clone(),
+                file_directory: cached.file_directory.clone(),
+                selected_file_entry: cached.selected_file_entry.clone(),
+                selected_file_entries: cached.selected_file_entries.clone(),
+                file_selection_anchor: cached.file_selection_anchor.clone(),
+                file_tree_expanded_dirs: cached.file_tree_expanded_dirs.clone(),
+                file_tree_children: load.file_tree_children,
+                file_editor_tabs: cached.file_editor_tabs.clone(),
+                active_file_editor_tab: cached.active_file_editor_tab.clone(),
+            }
+        } else {
+            super::app_state::FilePanelState {
+                files: load.files.clone(),
+                file_directory: String::new(),
+                selected_file_entry: None,
+                selected_file_entries: HashSet::new(),
+                file_selection_anchor: None,
+                file_tree_expanded_dirs: HashSet::new(),
+                file_tree_children: HashMap::new(),
+                file_editor_tabs,
+                active_file_editor_tab,
+            }
         };
         let git_state = super::app_state::GitPanelState {
             git: load.git.clone(),

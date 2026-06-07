@@ -540,7 +540,7 @@ impl CoduxApp {
                             &project_path,
                             file_directory_option(&self.file_directory),
                         );
-                        self.reset_file_tree_state();
+                        self.refresh_file_tree_state();
                         self.normalize_selected_file_entry();
                         self.git_clone_remote_url.clear();
                     }

@@ -134,6 +134,7 @@ impl CoduxApp {
             active_terminal_runtime_ids: HashMap::new(),
             active_bottom_terminal_ids: HashMap::new(),
             terminal_layout_cache: HashMap::new(),
+            file_panel_cache: HashMap::new(),
             next_terminal_index,
             runtime,
             state,
