@@ -126,6 +126,10 @@ pub(super) fn default_statistics_mode() -> String {
     "normalized".to_string()
 }
 
+pub(super) fn default_file_open_default() -> String {
+    "edit".to_string()
+}
+
 pub(super) fn default_theme() -> String {
     "Auto".to_string()
 }
@@ -140,6 +144,10 @@ pub(super) fn default_terminal_font_size() -> String {
 
 pub(super) fn default_terminal_scrollback_lines() -> String {
     "2000".to_string()
+}
+
+pub(super) fn default_terminal_paste_images_as_paths() -> bool {
+    true
 }
 
 pub(super) fn default_icon_style() -> String {

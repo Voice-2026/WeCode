@@ -111,7 +111,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "Datei doppelklicken zum Öffnen"
+      "files.editor.empty": "Datei doppelklicken zum Öffnen",
+      "files.preview.open_external": "Extern öffnen",
+      "files.preview.loading": "Vorschau wird geladen..."
     },
     "en": {
       "files.panel.title": "Files",
@@ -224,7 +226,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "Double-click a file to open it"
+      "files.editor.empty": "Double-click a file to open it",
+      "files.preview.open_external": "Open Externally",
+      "files.preview.loading": "Loading preview..."
     },
     "es": {
       "files.panel.title": "Archivos",
@@ -337,7 +341,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "Haz doble clic en un archivo para abrirlo"
+      "files.editor.empty": "Haz doble clic en un archivo para abrirlo",
+      "files.preview.open_external": "Abrir externamente",
+      "files.preview.loading": "Cargando vista previa..."
     },
     "fr": {
       "files.panel.title": "Fichiers",
@@ -450,7 +456,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "Double-cliquez sur un fichier pour l’ouvrir"
+      "files.editor.empty": "Double-cliquez sur un fichier pour l’ouvrir",
+      "files.preview.open_external": "Ouvrir en externe",
+      "files.preview.loading": "Chargement de l’aperçu..."
     },
     "ja": {
       "files.panel.title": "ファイル",
@@ -563,7 +571,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "ファイルをダブルクリックして開く"
+      "files.editor.empty": "ファイルをダブルクリックして開く",
+      "files.preview.open_external": "外部で開く",
+      "files.preview.loading": "プレビューを読み込み中..."
     },
     "ko": {
       "files.panel.title": "파일",
@@ -676,7 +686,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "파일을 두 번 클릭해 열기"
+      "files.editor.empty": "파일을 두 번 클릭해 열기",
+      "files.preview.open_external": "외부에서 열기",
+      "files.preview.loading": "미리보기를 불러오는 중..."
     },
     "pt-BR": {
       "files.panel.title": "Arquivos",
@@ -789,7 +801,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "Clique duas vezes em um arquivo para abrir"
+      "files.editor.empty": "Clique duas vezes em um arquivo para abrir",
+      "files.preview.open_external": "Abrir externamente",
+      "files.preview.loading": "Carregando prévia..."
     },
     "ru": {
       "files.panel.title": "Файлы",
@@ -902,7 +916,9 @@
       "files.delete.confirm_many_format": "Delete %d file items?",
       "files.delete.confirm.message": "Deleted file items will be moved to Trash.",
       "files.panel.items_count_format": "%d file items",
-      "files.editor.empty": "Дважды щелкните файл, чтобы открыть"
+      "files.editor.empty": "Дважды щелкните файл, чтобы открыть",
+      "files.preview.open_external": "Открыть во внешнем приложении",
+      "files.preview.loading": "Загрузка предпросмотра..."
     },
     "zh-Hans": {
       "files.panel.title": "文件",
@@ -1015,7 +1031,9 @@
       "files.delete.confirm_many_format": "删除 %d 个文件项？",
       "files.delete.confirm.message": "删除后会移动到废纸篓。",
       "files.panel.items_count_format": "%d 个文件项",
-      "files.editor.empty": "双击文件打开"
+      "files.editor.empty": "双击文件打开",
+      "files.preview.open_external": "外部打开",
+      "files.preview.loading": "正在加载预览..."
     },
     "zh-Hant": {
       "files.panel.title": "檔案",
@@ -1128,7 +1146,9 @@
       "files.delete.confirm_many_format": "刪除 %d 個檔案項目？",
       "files.delete.confirm.message": "刪除後會移到垃圾桶。",
       "files.panel.items_count_format": "%d 個檔案項目",
-      "files.editor.empty": "雙擊檔案開啟"
+      "files.editor.empty": "雙擊檔案開啟",
+      "files.preview.open_external": "外部打開",
+      "files.preview.loading": "正在載入預覽..."
     }
   }
 }

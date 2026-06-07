@@ -103,4 +103,26 @@ impl ProjectStore {
             .find(|project| project.id == worktree.project_id)
             .map(project_summary)
     }
+
+    pub fn active_workspace_path_for_project(&self, project_id: &str) -> Option<String> {
+        let snapshot = self.snapshot();
+        let project = snapshot
+            .projects
+            .iter()
+            .find(|project| project.id == project_id)?;
+        let selected_worktree_id = snapshot
+            .selected_worktree_id_by_project
+            .get(project_id)
+            .map(String::as_str)
+            .unwrap_or(project_id);
+        if selected_worktree_id != project_id
+            && let Some(worktree) = snapshot
+                .worktrees
+                .iter()
+                .find(|worktree| worktree.id == selected_worktree_id)
+        {
+            return Some(worktree.path.clone());
+        }
+        Some(project.path.clone())
+    }
 }

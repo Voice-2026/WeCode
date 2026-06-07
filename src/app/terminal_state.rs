@@ -649,6 +649,7 @@ pub(in crate::app) fn terminal_config_for_settings(
         .parse::<usize>()
         .unwrap_or(config.scrollback)
         .clamp(200, 10_000);
+    config.paste_images_as_paths = settings.terminal_paste_images_as_paths;
     config.colors = terminal_color_palette(&settings.theme, &settings.theme_color, appearance);
     config
 }

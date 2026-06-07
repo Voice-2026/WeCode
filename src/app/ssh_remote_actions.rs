@@ -939,7 +939,7 @@ impl CoduxApp {
             self.apply_runtime_pet_refresh_result(&ai_history_result, cx);
         let applied_ai_history_events = self.apply_ai_history_events(ai_history_result.events, cx);
         let file_events = self.runtime_service.drain_file_change_events();
-        let applied_file_events = self.apply_file_change_events(file_events);
+        let applied_file_events = self.apply_file_change_events(file_events, cx);
         let remote_events = self.runtime_service.drain_remote_events();
         if let Some(remote) = remote_events.last().cloned() {
             self.state.remote = remote;
@@ -1471,7 +1471,11 @@ impl CoduxApp {
         applied
     }
 
-    pub(super) fn apply_file_change_events(&mut self, events: Vec<FileChangeEvent>) -> usize {
+    pub(super) fn apply_file_change_events(
+        &mut self,
+        events: Vec<FileChangeEvent>,
+        cx: &mut Context<Self>,
+    ) -> usize {
         let selected_path = self
             .state
             .selected_project
@@ -1487,7 +1491,9 @@ impl CoduxApp {
             self.normalize_selected_file_entry();
         }
 
-        applied
+        let reloaded_tabs = self.reload_clean_file_editor_tabs_for_file_events(&events, cx);
+
+        applied + reloaded_tabs
     }
 
     pub(super) fn dismiss_worktree_ai_completion(

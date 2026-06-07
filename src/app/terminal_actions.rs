@@ -347,11 +347,14 @@ impl CoduxApp {
                 cx.new(|cx| Root::new(root_view.clone(), window, cx))
             },
         );
-        if let Err(error) = result {
-            restore_view.update(cx, |view, cx| view.restore_to_parent(cx));
-            self.status_message = format!("failed to float terminal pane: {error}");
-            self.invalidate_terminal_workspace(cx);
-            return;
+        match result {
+            Ok(handle) => self.register_child_window_handle(handle.into()),
+            Err(error) => {
+                restore_view.update(cx, |view, cx| view.restore_to_parent(cx));
+                self.status_message = format!("failed to float terminal pane: {error}");
+                self.invalidate_terminal_workspace(cx);
+                return;
+            }
         }
         self.invalidate_terminal_workspace(cx);
     }

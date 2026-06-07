@@ -44,9 +44,50 @@ impl Render for CoduxApp {
                     self.git_diff_window_path.as_deref(),
                     &self.git_diff_window_content,
                     self.git_diff_window_error.as_deref(),
+                    self.git_review_derived_rows.as_ref(),
+                    self.git_review_code_scroll_handle.clone(),
                     &self.state.settings.language,
                     cx,
                 ))
+                .child(self.codux_tooltip_layer(cx));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::FileEditor {
+            let app_entity = cx.entity();
+            let snapshot = self.file_editor_workspace_snapshot();
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(cx.new(|_| file_editor::FileEditorWorkspaceView::new(app_entity, snapshot)))
+                .child(self.codux_tooltip_layer(cx));
+            return self
+                .register_child_window_actions(root, cx)
+                .into_any_element();
+        }
+
+        if self.window_mode == AppWindowMode::FilePreview {
+            let app_entity = cx.entity();
+            let snapshot = self.file_preview_window_snapshot();
+            let preview_view = if let Some(view) = &self.file_preview_window_view {
+                view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+                view.clone()
+            } else {
+                let view =
+                    cx.new(|_| file_editor::FilePreviewWindowView::new(app_entity, snapshot));
+                self.file_preview_window_view = Some(view.clone());
+                view
+            };
+            let root = div()
+                .size_full()
+                .text_color(cx.theme().foreground)
+                .bg(cx.theme().background)
+                .on_key_down(cx.listener(Self::on_key_down))
+                .child(preview_view)
                 .child(self.codux_tooltip_layer(cx));
             return self
                 .register_child_window_actions(root, cx)

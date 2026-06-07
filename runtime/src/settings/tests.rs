@@ -147,6 +147,7 @@ mod tests {
         assert_eq!(summary.terminal_font_family, "");
         assert_eq!(summary.terminal_font_size, "14");
         assert_eq!(summary.terminal_scrollback_lines, "500");
+        assert!(summary.terminal_paste_images_as_paths);
         assert_eq!(summary.git_refresh, "60");
         assert_eq!(summary.ai_refresh, "180");
         assert_eq!(summary.ai_background_refresh, "600");
@@ -251,6 +252,10 @@ mod tests {
             .cycle_terminal_scrollback_lines()
             .expect("cycle scrollback");
         assert_eq!(scrollback.terminal_scrollback_lines, "1000");
+        let paste_images = SettingsService::new(support_dir.clone())
+            .toggle_terminal_paste_images_as_paths()
+            .expect("toggle terminal image paste");
+        assert!(!paste_images.terminal_paste_images_as_paths);
         let git_refresh = SettingsService::new(support_dir.clone())
             .cycle_git_refresh()
             .expect("cycle git refresh");

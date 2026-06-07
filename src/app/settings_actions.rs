@@ -74,6 +74,25 @@ impl CoduxApp {
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
+    pub(super) fn toggle_terminal_paste_images_as_paths(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "toggle_terminal_paste_images_as_paths",
+            "saving terminal paste setting",
+            move |service| service.toggle_terminal_paste_images_as_paths(),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.apply_terminal_text_settings(cx);
+                app.invalidate_ui_region(cx, UiRegion::Root);
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
     pub(super) fn terminal_config_from_settings(&self) -> TerminalConfig {
         terminal_config_for_settings(&self.state.settings, self.window_appearance)
     }
@@ -550,6 +569,29 @@ impl CoduxApp {
                 } else {
                     app.invalidate_ui_region(cx, UiRegion::Root);
                 }
+            },
+            cx,
+        );
+        self.invalidate_ui_region(cx, UiRegion::Root);
+    }
+
+    pub(super) fn set_file_open_default(
+        &mut self,
+        mode: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save_settings_async(
+            "set_file_open_default",
+            "saving file open default",
+            move |service| service.set_file_open_default(&mode),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.status_message = format!(
+                    "file open default saved: {}",
+                    app.state.settings.file_open_default
+                );
+                app.invalidate_ui_region(cx, UiRegion::Root);
             },
             cx,
         );

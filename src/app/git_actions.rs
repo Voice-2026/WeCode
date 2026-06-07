@@ -629,10 +629,73 @@ impl CoduxApp {
         let tree_key = git_status_tree_key("review", &directory_path);
         if self.git_expanded_dirs.contains(&tree_key) {
             self.git_expanded_dirs.remove(&tree_key);
-        } else {
-            self.git_expanded_dirs.insert(tree_key);
+            self.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
+            return;
         }
-        self.invalidate_git_panel(cx);
+
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for Git review tree".to_string();
+            self.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
+            return;
+        };
+
+        if !self.git_tree_children.contains_key(&tree_key) {
+            match self
+                .runtime_service
+                .read_project_git_path_status(&project.path, &directory_path)
+            {
+                Ok(files) => {
+                    self.merge_git_review_path_status_files(&files);
+                    self.git_tree_children.insert(tree_key.clone(), files);
+                }
+                Err(error) => {
+                    self.status_message = format!("failed to load Git review tree: {error}");
+                    self.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
+                    return;
+                }
+            }
+        } else {
+            let files = self
+                .git_tree_children
+                .get(&tree_key)
+                .cloned()
+                .unwrap_or_default();
+            self.merge_git_review_path_status_files(&files);
+        }
+        self.git_expanded_dirs.insert(tree_key);
+        self.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
+    }
+
+    fn merge_git_review_path_status_files(&mut self, files: &[GitFileStatus]) {
+        let mut seen = self
+            .git_review
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<HashSet<_>>();
+        for file in files {
+            if file.path.trim().is_empty()
+                || file.path.ends_with('/')
+                || !seen.insert(file.path.clone())
+            {
+                continue;
+            }
+            let status = if file.index_status.trim() == "?" {
+                "added"
+            } else if !file.index_status.trim().is_empty() && file.index_status.trim() != "?" {
+                "staged"
+            } else if !file.worktree_status.trim().is_empty() {
+                "modified"
+            } else {
+                continue;
+            };
+            self.git_review.files.push(GitReviewFile {
+                path: file.path.clone(),
+                status: status.to_string(),
+                additions: 0,
+                deletions: 0,
+            });
+        }
     }
 
     pub(super) fn select_git_file_only(&mut self, file_path: String, cx: &mut Context<Self>) {
@@ -713,7 +776,7 @@ impl CoduxApp {
         self.selected_git_files.insert(file_path.clone());
         self.clear_git_review_derived_content();
         self.git_diff_preview = "loading diff...".to_string();
-        self.invalidate_git_panel(cx);
+        self.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
                 codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
@@ -756,7 +819,7 @@ impl CoduxApp {
                         app.status_message = format!("failed to load diff: {error}");
                     }
                 }
-                app.invalidate_git_panel(cx);
+                app.invalidate_ui(cx, [UiRegion::GitSidebar, UiRegion::WorkspaceBody]);
             });
         })
         .detach();
@@ -771,11 +834,14 @@ impl CoduxApp {
         {
             return;
         }
-        if self
-            .selected_git_file
-            .as_deref()
-            .is_some_and(|path| !self.git_review.files.iter().any(|file| file.path == path))
-        {
+        if self.selected_git_file.as_deref().is_some_and(|path| {
+            !self.git_review.files.iter().any(|file| file.path == path)
+                && self
+                    .git_review_content
+                    .as_ref()
+                    .map(|content| content.path.as_str())
+                    != Some(path)
+        }) {
             self.selected_git_file = None;
             self.selected_git_files.clear();
             self.clear_git_review_derived_content();
@@ -800,7 +866,11 @@ impl CoduxApp {
             return;
         }
 
-        let project_path = project.path.clone();
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = "no selected project for Git diff".to_string();
+            self.invalidate_git_panel(cx);
+            return;
+        };
         let selected_project_id = project.id.clone();
         let selected_project_name = project.name.clone();
         let selected_file = file_path.clone();
@@ -815,17 +885,17 @@ impl CoduxApp {
                 ))),
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(720.0), px(520.0))),
-                is_minimizable: false,
                 ..Default::default()
             },
             move |window, cx| {
-                macos_window::configure_child_window_controls(window);
+                macos_window::configure_document_child_window_controls(window);
                 let mut app =
                     CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::GitDiff;
                 app.git_diff_window_path = Some(selected_file.clone());
                 app.git_diff_window_content = "Loading diff...".to_string();
                 app.git_diff_window_error = None;
+                app.clear_git_review_derived_content();
                 app.state.selected_project = Some(ProjectInfo {
                     id: selected_project_id.clone(),
                     name: selected_project_name.clone(),
@@ -850,24 +920,32 @@ impl CoduxApp {
                 view.update(cx, |_app, cx| {
                     cx.spawn(async move |this: gpui::WeakEntity<CoduxApp>, cx| {
                         let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                            service.read_project_git_review_diff(
+                            let diff = service.read_project_git_review_diff(
                                 &diff_project_path,
                                 &diff_selected_file,
                                 base_branch.as_deref(),
-                            )
+                            )?;
+                            let content = service.read_project_git_review_file_content(
+                                &diff_project_path,
+                                &diff_selected_file,
+                                base_branch.as_deref(),
+                            );
+                            Ok::<_, String>((diff, content))
                         })
                         .await
                         .map_err(|error| error.to_string())
                         .and_then(|result| result);
                         let _ = this.update(cx, |app, cx| {
                             match result {
-                                Ok(diff) => {
+                                Ok((diff, content)) => {
                                     app.git_diff_window_content = diff;
                                     app.git_diff_window_error = None;
+                                    app.set_git_review_derived_content(content);
                                 }
                                 Err(error) => {
                                     app.git_diff_window_content.clear();
                                     app.git_diff_window_error = Some(error);
+                                    app.clear_git_review_derived_content();
                                 }
                             }
                             app.invalidate_git_panel(cx);
@@ -881,25 +959,12 @@ impl CoduxApp {
         );
 
         self.status_message = match result {
-            Ok(_) => format!("Git diff window opened: {file_path}"),
+            Ok(handle) => {
+                self.register_child_window_handle(handle.into());
+                format!("Git diff window opened: {file_path}")
+            }
             Err(error) => format!("failed to open Git diff window: {error}"),
         };
-        self.invalidate_git_panel(cx);
-    }
-
-    pub(super) fn open_git_diff_window_file(&mut self, file_path: String, cx: &mut Context<Self>) {
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project for opening diff file".to_string();
-            self.invalidate_git_panel(cx);
-            return;
-        };
-        match self
-            .runtime_service
-            .open_project_file_entry(&project.path, &file_path)
-        {
-            Ok(()) => self.status_message = format!("file open requested: {file_path}"),
-            Err(error) => self.status_message = format!("failed to open diff file: {error}"),
-        }
         self.invalidate_git_panel(cx);
     }
 

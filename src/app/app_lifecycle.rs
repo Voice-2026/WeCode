@@ -141,6 +141,7 @@ impl CoduxApp {
             window_appearance: window.appearance(),
             main_window_fullscreen: window.is_fullscreen(),
             _observe_window_appearance: None,
+            _observe_window_activation: None,
             is_exiting: false,
             main_window_close_handler_registered: false,
             last_quit_request_at: None,
@@ -177,6 +178,7 @@ impl CoduxApp {
             project_editor_window: None,
             terminal_tab_editor_window: None,
             worktree_creator_window: None,
+            child_windows: Vec::new(),
             parent_main_window: None,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
             desktop_pet_tone: DesktopPetActivityTone::Normal,
@@ -192,6 +194,10 @@ impl CoduxApp {
             pet_sprite_frame: 0,
             pet_sprite_animation_active: false,
             file_preview: "select a file to preview it".to_string(),
+            file_preview_window_path: None,
+            file_preview_window_content: String::new(),
+            file_preview_window_error: None,
+            file_preview_window_view: None,
             file_editable: false,
             file_dirty: false,
             file_editor_tabs: Vec::new(),
@@ -410,6 +416,28 @@ impl CoduxApp {
                     app.invalidate_ui_region(cx, UiRegion::Root);
                 });
             }));
+    }
+
+    pub(crate) fn observe_main_window_activation(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self._observe_window_activation = Some(cx.observe_window_activation(
+            window,
+            move |app, window, cx| {
+                if !window.is_window_active() {
+                    return;
+                }
+                app.runtime_trace(
+                    "window",
+                    "main_window_activated bring_children_to_front queued",
+                );
+                cx.defer_in(window, move |app, _window, cx| {
+                    app.bring_child_windows_to_front(cx);
+                });
+            },
+        ));
     }
 
     pub(crate) fn observe_main_window_bounds(

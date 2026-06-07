@@ -1445,6 +1445,24 @@ fn settings_general_pane(
                     ),
                 )
                 .into_any_element(),
+                settings_row(
+                    settings_text(language, "settings.file_open_default", "File Open Default"),
+                    Some(settings_text(
+                        language,
+                        "settings.file_open_default.help",
+                        "Used when opening files outside the Files view.",
+                    )),
+                    settings_select_impl(
+                        "settings-file-open-default",
+                        &settings.file_open_default,
+                        file_open_default_options(language),
+                        window,
+                        cx,
+                        language,
+                        |app, value, window, cx| app.set_file_open_default(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
             ],
             cx,)
         .into_any_element(),
@@ -2410,6 +2428,25 @@ fn settings_git_pane(
                         window,
                         cx,
                         |app, value, window, cx| app.set_git_commit_style_rules(value, window, cx),
+                    ),
+                )
+                .into_any_element(),
+                settings_row(
+                    settings_text(
+                        language,
+                        "settings.terminal_paste_images_as_paths",
+                        "Paste Images as Paths",
+                    ),
+                    Some(settings_text(
+                        language,
+                        "settings.terminal_paste_images_as_paths.help",
+                        "When pasting an image into a terminal, save it to a temporary file and paste the local path instead of image data.",
+                    )),
+                    settings_toggle(
+                        "settings-terminal-paste-images-as-paths",
+                        settings.terminal_paste_images_as_paths,
+                        cx,
+                        |app, window, cx| app.toggle_terminal_paste_images_as_paths(window, cx),
                     ),
                 )
                 .into_any_element(),
@@ -3942,6 +3979,22 @@ fn statistics_mode_options(language: &str) -> Vec<(String, SharedString)> {
                 "settings.ai_statistics_mode.including_cache",
                 "Include Cache",
             ),
+        ),
+    ]
+    .into_iter()
+    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
+    .collect()
+}
+
+fn file_open_default_options(language: &str) -> Vec<(String, SharedString)> {
+    vec![
+        (
+            "edit",
+            settings_text(language, "settings.file_open_default.edit", "Editor"),
+        ),
+        (
+            "preview",
+            settings_text(language, "settings.file_open_default.preview", "Preview"),
         ),
     ]
     .into_iter()

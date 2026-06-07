@@ -15,6 +15,20 @@ impl SettingsService {
         self.update_string("terminalFontFamily", sanitize_terminal_font_family(family))
     }
 
+    pub fn toggle_terminal_paste_images_as_paths(&self) -> Result<SettingsSummary, String> {
+        let mut raw = self.raw_settings();
+        let current = raw
+            .get("terminalPasteImagesAsPaths")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        raw.insert(
+            "terminalPasteImagesAsPaths".to_string(),
+            Value::Bool(!current),
+        );
+        self.save_raw_settings(&raw)?;
+        Ok(summary_from_raw(&raw))
+    }
+
     pub fn set_terminal_scrollback_value(&self, lines: &str) -> Result<SettingsSummary, String> {
         let lines = numeric_string(lines, 2000, 200, 10_000).to_string();
         self.update_string("terminalScrollbackLines", lines)

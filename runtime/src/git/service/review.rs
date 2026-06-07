@@ -86,7 +86,10 @@ impl GitService {
         let base_content = base.map(|reference| git2_blob_or_empty(&repo, reference, &file_path));
         let index_content = git2_index_blob(&repo, &file_path).ok();
         let worktree_content = read_worktree_file(repo_root(&repo), &file_path).unwrap_or_default();
-        let diff = if let Some(base) = base {
+        let is_untracked = base.is_none() && is_untracked_path_git2(&repo, &file_path);
+        let diff = if is_untracked {
+            String::new()
+        } else if let Some(base) = base {
             git2_commit_diff_to_string(&repo, base, Some(&file_path), 0).unwrap_or_default()
         } else {
             let unstaged = git2_diff_to_string(&repo, DiffTarget::Worktree, Some(&file_path), 0)
@@ -99,7 +102,14 @@ impl GitService {
                 _ => format!("{staged}\n{unstaged}"),
             }
         };
-        let (deleted_lines, added_lines) = parse_diff_line_numbers(&diff);
+        let (deleted_lines, added_lines) = if is_untracked {
+            (
+                Vec::new(),
+                (1..=worktree_content.lines().count()).collect::<Vec<_>>(),
+            )
+        } else {
+            parse_diff_line_numbers(&diff)
+        };
 
         GitReviewContentSummary {
             path: file_path,

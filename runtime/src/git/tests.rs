@@ -187,6 +187,27 @@ mod tests {
     }
 
     #[test]
+    fn review_file_content_marks_untracked_file_lines_as_added() {
+        let repo = temp_dir("git-review-untracked-content");
+        GitService::init(repo.to_str().expect("repo")).expect("init repo");
+        fs::write(repo.join("new.txt"), "one\ntwo\n").expect("new file");
+
+        let content = GitService::review_file_content(
+            repo.to_str().expect("repo"),
+            "new.txt",
+            None,
+        );
+
+        assert_eq!(content.path, "new.txt");
+        assert_eq!(content.head_content, "");
+        assert_eq!(content.index_content, None);
+        assert_eq!(content.worktree_content, "one\ntwo\n");
+        assert_eq!(content.deleted_lines, Vec::<usize>::new());
+        assert_eq!(content.added_lines, vec![1, 2]);
+        assert_eq!(content.error, None);
+    }
+
+    #[test]
     fn git_watch_filter_allows_worktree_and_known_metadata() {
         let repository = "/repo/app";
         let git_dirs = vec!["/repo/app/.git".to_string()];

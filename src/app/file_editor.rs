@@ -1,7 +1,11 @@
 use super::*;
 use crate::app::app_state::FileEditorTab;
 use crate::app::ui_helpers::codux_tooltip_container;
-use gpui_component::input::{Redo, Search, TabSize, Undo};
+use gpui_component::{
+    input::{Redo, Search, TabSize, Undo},
+    text::{TextView, TextViewState},
+};
+use std::collections::HashSet;
 
 const FILE_EDITOR_TAB_BAR_HEIGHT: f32 = 38.0;
 const FILE_EDITOR_TOOLBAR_HEIGHT: f32 = 56.0;
@@ -36,6 +40,8 @@ impl Render for FileEditorTabDrag {
 pub(in crate::app) struct FileEditorWorkspaceSnapshot {
     tabs: Vec<FileEditorTab>,
     active_path: Option<String>,
+    active_preview_path: Option<String>,
+    single_window: bool,
     active_tab: Option<FileEditorTab>,
     active_editor: Option<gpui::Entity<InputState>>,
     active_loading: bool,
@@ -45,6 +51,8 @@ impl PartialEq for FileEditorWorkspaceSnapshot {
     fn eq(&self, other: &Self) -> bool {
         self.tabs == other.tabs
             && self.active_path == other.active_path
+            && self.active_preview_path == other.active_preview_path
+            && self.single_window == other.single_window
             && self.active_tab == other.active_tab
             && self.active_editor.as_ref().map(|editor| editor.entity_id())
                 == other
@@ -95,15 +103,16 @@ impl FileEditorWorkspaceView {
         &mut self,
         tab_bar_view: gpui::Entity<FileEditorTabBarView>,
         toolbar_view: gpui::Entity<FileEditorToolbarView>,
+        show_tab_bar: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<FileEditorChromeView> {
         if let Some(view) = &self.chrome_view {
             view.update(cx, |view, cx| {
-                view.set_children(tab_bar_view, toolbar_view, cx)
+                view.set_children(tab_bar_view, toolbar_view, show_tab_bar, cx)
             });
             return view.clone();
         }
-        let view = cx.new(|_| FileEditorChromeView::new(tab_bar_view, toolbar_view));
+        let view = cx.new(|_| FileEditorChromeView::new(tab_bar_view, toolbar_view, show_tab_bar));
         self.chrome_view = Some(view.clone());
         view
     }
@@ -138,15 +147,18 @@ impl FileEditorWorkspaceView {
 
     fn content_view(
         &mut self,
+        active_path: Option<String>,
         editor: Option<gpui::Entity<InputState>>,
         loading: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Entity<FileEditorContentView> {
         if let Some(view) = &self.content_view {
-            view.update(cx, |view, cx| view.set_editor(editor, loading, cx));
+            view.update(cx, |view, cx| {
+                view.set_editor(active_path, editor, loading, cx)
+            });
             return view.clone();
         }
-        let view = cx.new(|_| FileEditorContentView::new(editor, loading));
+        let view = cx.new(|_| FileEditorContentView::new(active_path, editor, loading));
         self.content_view = Some(view.clone());
         view
     }
@@ -165,12 +177,17 @@ impl Render for FileEditorWorkspaceView {
         let toolbar_view = self.toolbar_view(
             FileEditorToolbarSnapshot {
                 active_tab: snapshot.active_tab.clone(),
+                window_header: snapshot.single_window,
             },
             cx,
         );
-        let chrome_view = self.chrome_view(tab_bar_view, toolbar_view, cx);
-        let content_view =
-            self.content_view(snapshot.active_editor.clone(), snapshot.active_loading, cx);
+        let chrome_view = self.chrome_view(tab_bar_view, toolbar_view, !snapshot.single_window, cx);
+        let content_view = self.content_view(
+            snapshot.active_preview_path.clone(),
+            snapshot.active_editor.clone(),
+            snapshot.active_loading,
+            cx,
+        );
         file_editor_workspace(
             self.app_entity.clone(),
             snapshot,
@@ -185,16 +202,19 @@ impl Render for FileEditorWorkspaceView {
 pub(in crate::app) struct FileEditorChromeView {
     tab_bar_view: gpui::Entity<FileEditorTabBarView>,
     toolbar_view: gpui::Entity<FileEditorToolbarView>,
+    show_tab_bar: bool,
 }
 
 impl FileEditorChromeView {
     fn new(
         tab_bar_view: gpui::Entity<FileEditorTabBarView>,
         toolbar_view: gpui::Entity<FileEditorToolbarView>,
+        show_tab_bar: bool,
     ) -> Self {
         Self {
             tab_bar_view,
             toolbar_view,
+            show_tab_bar,
         }
     }
 
@@ -202,15 +222,18 @@ impl FileEditorChromeView {
         &mut self,
         tab_bar_view: gpui::Entity<FileEditorTabBarView>,
         toolbar_view: gpui::Entity<FileEditorToolbarView>,
+        show_tab_bar: bool,
         cx: &mut Context<Self>,
     ) {
         if self.tab_bar_view.entity_id() == tab_bar_view.entity_id()
             && self.toolbar_view.entity_id() == toolbar_view.entity_id()
+            && self.show_tab_bar == show_tab_bar
         {
             return;
         }
         self.tab_bar_view = tab_bar_view;
         self.toolbar_view = toolbar_view;
+        self.show_tab_bar = show_tab_bar;
         cx.notify();
     }
 }
@@ -220,7 +243,9 @@ impl Render for FileEditorChromeView {
         div()
             .flex_none()
             .w_full()
-            .child(gpui::AnyView::from(self.tab_bar_view.clone()))
+            .when(self.show_tab_bar, |this| {
+                this.child(gpui::AnyView::from(self.tab_bar_view.clone()))
+            })
             .child(gpui::AnyView::from(self.toolbar_view.clone()))
     }
 }
@@ -278,6 +303,7 @@ impl Render for FileEditorTabBarView {
 #[derive(Clone, PartialEq)]
 struct FileEditorToolbarSnapshot {
     active_tab: Option<FileEditorTab>,
+    window_header: bool,
 }
 
 pub(in crate::app) struct FileEditorToolbarView {
@@ -322,33 +348,46 @@ impl Render for FileEditorToolbarView {
         file_editor_toolbar(
             self.app_entity.clone(),
             self.snapshot.active_tab.clone(),
+            self.snapshot.window_header,
             cx,
         )
     }
 }
 
 pub(in crate::app) struct FileEditorContentView {
+    active_path: Option<String>,
     editor: Option<gpui::Entity<InputState>>,
     loading: bool,
 }
 
 impl FileEditorContentView {
-    fn new(editor: Option<gpui::Entity<InputState>>, loading: bool) -> Self {
-        Self { editor, loading }
+    fn new(
+        active_path: Option<String>,
+        editor: Option<gpui::Entity<InputState>>,
+        loading: bool,
+    ) -> Self {
+        Self {
+            active_path,
+            editor,
+            loading,
+        }
     }
 
     fn set_editor(
         &mut self,
+        active_path: Option<String>,
         editor: Option<gpui::Entity<InputState>>,
         loading: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.editor.as_ref().map(|editor| editor.entity_id())
-            == editor.as_ref().map(|editor| editor.entity_id())
+        if self.active_path == active_path
+            && self.editor.as_ref().map(|editor| editor.entity_id())
+                == editor.as_ref().map(|editor| editor.entity_id())
             && self.loading == loading
         {
             return;
         }
+        self.active_path = active_path;
         self.editor = editor;
         self.loading = loading;
         cx.notify();
@@ -357,32 +396,221 @@ impl FileEditorContentView {
 
 impl Render for FileEditorContentView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let preview_kind = self
+            .active_path
+            .as_deref()
+            .map(file_preview_kind_for_path)
+            .unwrap_or(FilePreviewKind::Text);
+        let preview_kind = if preview_kind == FilePreviewKind::Markdown {
+            FilePreviewKind::Text
+        } else {
+            preview_kind
+        };
         div()
             .flex_1()
             .min_w_0()
             .min_h_0()
             .size_full()
-            .when_some(self.editor.clone(), |this, editor| {
-                this.child(
-                    Input::new(&editor)
-                        .appearance(false)
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .text_size(cx.theme().mono_font_size)
-                        .size_full(),
-                )
-            })
-            .when(self.editor.is_none() && self.loading, |this| {
-                this.flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(rems(0.8125))
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Loading file...")
-            })
+            .when_some(
+                self.active_path
+                    .clone()
+                    .filter(|_| preview_kind == FilePreviewKind::Image),
+                |this, path| {
+                    this.flex()
+                        .items_center()
+                        .justify_center()
+                        .p(px(18.0))
+                        .child(
+                            img(PathBuf::from(path))
+                                .max_w_full()
+                                .max_h_full()
+                                .object_fit(ObjectFit::Contain),
+                        )
+                },
+            )
+            .when_some(
+                self.editor
+                    .clone()
+                    .filter(|_| preview_kind == FilePreviewKind::Text),
+                |this, editor| {
+                    this.child(
+                        Input::new(&editor)
+                            .appearance(false)
+                            .font_family(cx.theme().mono_font_family.clone())
+                            .text_size(cx.theme().mono_font_size)
+                            .size_full(),
+                    )
+                },
+            )
+            .when(
+                preview_kind == FilePreviewKind::Text && self.editor.is_none() && self.loading,
+                |this| {
+                    this.flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(rems(0.8125))
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Loading file...")
+                },
+            )
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub(in crate::app) struct FilePreviewWindowSnapshot {
+    relative_path: Option<String>,
+    full_path: Option<String>,
+    kind: FilePreviewKind,
+    content: String,
+    error: Option<String>,
+    language: String,
+}
+
+pub(in crate::app) struct FilePreviewWindowView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: FilePreviewWindowSnapshot,
+    markdown_state: Option<gpui::Entity<TextViewState>>,
+    markdown_path: Option<String>,
+    text_editor: Option<gpui::Entity<InputState>>,
+    text_editor_path: Option<String>,
+}
+
+impl FilePreviewWindowView {
+    pub(in crate::app) fn new(
+        app_entity: gpui::Entity<CoduxApp>,
+        snapshot: FilePreviewWindowSnapshot,
+    ) -> Self {
+        Self {
+            app_entity,
+            snapshot,
+            markdown_state: None,
+            markdown_path: None,
+            text_editor: None,
+            text_editor_path: None,
+        }
+    }
+
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: FilePreviewWindowSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+
+    fn markdown_state(
+        &mut self,
+        path: Option<String>,
+        content: &str,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<TextViewState> {
+        if self.markdown_path != path {
+            self.markdown_state = None;
+            self.markdown_path = path;
+        }
+        if let Some(state) = &self.markdown_state {
+            state.update(cx, |state, cx| state.set_text(content, cx));
+            return state.clone();
+        }
+        let state = cx.new(|cx| TextViewState::markdown(content, cx));
+        self.markdown_state = Some(state.clone());
+        state
+    }
+
+    fn text_editor(
+        &mut self,
+        path: Option<String>,
+        content: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Entity<InputState> {
+        let language = path
+            .as_deref()
+            .map(file_language_for_path)
+            .unwrap_or("text")
+            .to_string();
+        if self.text_editor_path != path {
+            self.text_editor = None;
+            self.text_editor_path = path;
+        }
+        if let Some(editor) = &self.text_editor {
+            editor.update(cx, |editor, cx| {
+                if editor.value().as_ref() != content.as_str() {
+                    editor.set_value(content, window, cx);
+                }
+            });
+            return editor.clone();
+        }
+        let editor = cx.new(|cx| {
+            InputState::new(window, cx)
+                .code_editor(language)
+                .folding(false)
+                .multi_line(true)
+                .tab_size(TabSize {
+                    tab_size: 4,
+                    ..Default::default()
+                })
+                .default_value(content)
+        });
+        self.text_editor = Some(editor.clone());
+        editor
+    }
+}
+
+impl Render for FilePreviewWindowView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.clone();
+        let markdown_state =
+            if snapshot.kind == FilePreviewKind::Markdown && snapshot.error.is_none() {
+                Some(self.markdown_state(snapshot.relative_path.clone(), &snapshot.content, cx))
+            } else {
+                None
+            };
+        let text_editor = if matches!(
+            snapshot.kind,
+            FilePreviewKind::Markdown | FilePreviewKind::Text
+        ) && snapshot.error.is_none()
+        {
+            Some(self.text_editor(
+                snapshot.relative_path.clone(),
+                snapshot.content.clone(),
+                window,
+                cx,
+            ))
+        } else {
+            None
+        };
+        file_preview_window_workspace(
+            self.app_entity.clone(),
+            snapshot,
+            markdown_state,
+            text_editor,
+            cx,
+        )
     }
 }
 
 impl CoduxApp {
+    pub(super) fn add_file_editor_window_tab(&mut self, relative_path: String) {
+        if self.selected_worktree_path().is_none() {
+            self.status_message = "no selected project to open file".to_string();
+            return;
+        }
+        self.file_editor_tabs.push(FileEditorTab {
+            label: file_editor_label(&relative_path),
+            relative_path: relative_path.clone(),
+            editable: file_preview_kind_for_path(&relative_path) == FilePreviewKind::Text,
+            dirty: false,
+            language: file_language_for_path(&relative_path).to_string(),
+        });
+        self.active_file_editor_tab = Some(relative_path.clone());
+        self.set_single_file_selection(relative_path);
+    }
+
     pub(super) fn open_file_editor_tab(
         &mut self,
         relative_path: String,
@@ -592,6 +820,9 @@ impl CoduxApp {
         if let Some(state) = self.file_editor_states.get(&key) {
             return Some(state.clone());
         }
+        if file_preview_kind_for_path(&relative_path) == FilePreviewKind::Image {
+            return None;
+        }
         self.spawn_file_editor_state_load(key, relative_path, cx);
         None
     }
@@ -693,6 +924,149 @@ impl CoduxApp {
         if is_current_file_context {
             self.invalidate_ui_region(cx, UiRegion::FileSidebar);
         }
+    }
+
+    pub(super) fn reload_clean_file_editor_tabs_for_file_events(
+        &mut self,
+        events: &[FileChangeEvent],
+        cx: &mut Context<Self>,
+    ) -> usize {
+        let Some(worktree_path) = self.selected_worktree_path() else {
+            return 0;
+        };
+        let changed_paths = changed_file_event_relative_paths(events, &worktree_path);
+        if changed_paths.is_empty() {
+            return 0;
+        }
+        let reload_paths = self
+            .file_editor_tabs
+            .iter()
+            .filter(|tab| {
+                !tab.dirty
+                    && changed_paths.contains(tab.relative_path.as_str())
+                    && file_preview_kind_for_path(&tab.relative_path) != FilePreviewKind::Image
+            })
+            .map(|tab| tab.relative_path.clone())
+            .collect::<Vec<_>>();
+        if reload_paths.is_empty() {
+            return 0;
+        }
+
+        let runtime_service = self.runtime_service.clone();
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
+        let generation = self.project_switch_generation;
+        self.runtime_trace(
+            "files",
+            &format!("external_reload queued count={}", reload_paths.len()),
+        );
+        let reload_count = reload_paths.len();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                {
+                    let worktree_path = worktree_path.clone();
+                    let reload_paths = reload_paths.clone();
+                    move || {
+                        reload_paths
+                            .into_iter()
+                            .map(|relative_path| {
+                                let result = runtime_service
+                                    .read_project_file_edit_buffer(&worktree_path, &relative_path);
+                                (relative_path, result)
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                },
+            )
+            .await
+            .ok();
+            let _ = this.update_in(cx, |app, window, cx| {
+                if app.project_switch_generation != generation
+                    || super::app_state::current_worktree_scope_key(&app.state) != scope_key
+                {
+                    return;
+                }
+                app.apply_clean_file_editor_tab_reload(result, window, cx);
+            });
+        })
+        .detach();
+
+        reload_count
+    }
+
+    fn apply_clean_file_editor_tab_reload(
+        &mut self,
+        result: Option<Vec<(String, std::result::Result<(String, bool), String>)>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(result) = result else {
+            self.runtime_trace("files", "external_reload failed result=missing");
+            return;
+        };
+        let mut changed = false;
+        let mut applied = 0usize;
+        for (relative_path, result) in result {
+            let Some(tab) = self
+                .file_editor_tabs
+                .iter()
+                .find(|tab| tab.relative_path == relative_path)
+            else {
+                continue;
+            };
+            if tab.dirty {
+                continue;
+            }
+            let Ok((content, editable)) = result else {
+                self.runtime_trace(
+                    "files",
+                    &format!("external_reload skipped path={relative_path} reason=read_failed"),
+                );
+                continue;
+            };
+            let language = file_language_for_path(&relative_path).to_string();
+
+            let key = self.file_editor_state_key(&relative_path);
+            if let Some(editor) = self.file_editor_states.get(&key) {
+                editor.update(cx, |state, cx| state.set_value(content.clone(), window, cx));
+            } else {
+                self.ensure_file_editor_state(
+                    key,
+                    relative_path.clone(),
+                    language.clone(),
+                    content.clone(),
+                    window,
+                    cx,
+                );
+            }
+            if let Some(tab) = self
+                .file_editor_tabs
+                .iter_mut()
+                .find(|tab| tab.relative_path == relative_path)
+            {
+                tab.editable = editable;
+                tab.language = language;
+                tab.dirty = false;
+            }
+            if self.active_file_editor_tab.as_deref() == Some(relative_path.as_str()) {
+                self.file_preview = content;
+                self.file_editable = editable;
+                self.file_dirty = false;
+            }
+            changed = true;
+            applied += 1;
+        }
+        if !changed {
+            return;
+        }
+        self.runtime_trace("files", &format!("external_reload applied count={applied}"));
+        if self.workspace_view == WorkspaceView::Files {
+            if !self.update_file_editor_workspace_view(cx) {
+                self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+            }
+            self.invalidate_ui_region(cx, UiRegion::WorkspaceChrome);
+        }
+        self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
     }
 
     pub(super) fn ensure_file_editor_state(
@@ -824,6 +1198,16 @@ impl CoduxApp {
         }
     }
 
+    fn file_editor_preview_path(&self, relative_path: &str) -> Option<String> {
+        let worktree_path = self.selected_worktree_path()?;
+        Some(
+            Path::new(&worktree_path)
+                .join(relative_path)
+                .to_string_lossy()
+                .to_string(),
+        )
+    }
+
     pub(in crate::app) fn file_editor_workspace_snapshot(&self) -> FileEditorWorkspaceSnapshot {
         let tabs = self.file_editor_tabs.clone();
         let active_path = self.active_file_editor_tab.clone();
@@ -844,11 +1228,484 @@ impl CoduxApp {
         FileEditorWorkspaceSnapshot {
             tabs,
             active_path,
+            active_preview_path: self.active_file_editor_tab.as_deref().and_then(|path| {
+                matches!(
+                    file_preview_kind_for_path(path),
+                    FilePreviewKind::Image | FilePreviewKind::Markdown
+                )
+                .then(|| self.file_editor_preview_path(path))
+                .flatten()
+            }),
+            single_window: self.window_mode == AppWindowMode::FileEditor,
             active_tab,
             active_editor,
             active_loading,
         }
     }
+
+    pub(in crate::app) fn file_preview_window_snapshot(&self) -> FilePreviewWindowSnapshot {
+        let relative_path = self.file_preview_window_path.clone();
+        let full_path = relative_path
+            .as_deref()
+            .and_then(|path| self.file_editor_preview_path(path));
+        let kind = relative_path
+            .as_deref()
+            .map(file_preview_kind_for_path)
+            .unwrap_or(FilePreviewKind::Text);
+        FilePreviewWindowSnapshot {
+            relative_path,
+            full_path,
+            kind,
+            content: self.file_preview_window_content.clone(),
+            error: self.file_preview_window_error.clone(),
+            language: self.state.settings.language.clone(),
+        }
+    }
+
+    pub(super) fn load_file_preview_window_content_async(&mut self, cx: &mut Context<Self>) {
+        let Some(relative_path) = self.file_preview_window_path.clone() else {
+            self.file_preview_window_error = Some("No file selected.".to_string());
+            self.invalidate_ui_region(cx, UiRegion::Root);
+            return;
+        };
+        match file_preview_kind_for_path(&relative_path) {
+            FilePreviewKind::Image => {
+                self.file_preview_window_content.clear();
+                self.file_preview_window_error = None;
+                self.invalidate_ui_region(cx, UiRegion::Root);
+            }
+            FilePreviewKind::External => {
+                self.file_preview_window_error = Some("Unsupported preview format.".to_string());
+                self.invalidate_ui_region(cx, UiRegion::Root);
+            }
+            FilePreviewKind::Markdown | FilePreviewKind::Text => {
+                let Some(worktree_path) = self.selected_worktree_path() else {
+                    self.file_preview_window_error = Some("No selected project.".to_string());
+                    self.invalidate_ui_region(cx, UiRegion::Root);
+                    return;
+                };
+                self.file_preview_window_content.clear();
+                self.file_preview_window_error = None;
+                let runtime_service = self.runtime_service.clone();
+                cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                    let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                        codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND,
+                        {
+                            let worktree_path = worktree_path.clone();
+                            let relative_path = relative_path.clone();
+                            move || {
+                                runtime_service
+                                    .read_project_file_edit_buffer(&worktree_path, &relative_path)
+                            }
+                        },
+                    )
+                    .await
+                    .unwrap_or_else(|error| {
+                        Err(format!("failed to join file preview load: {error}"))
+                    });
+                    let _ = this.update(cx, |app, cx| {
+                        match result {
+                            Ok((content, _editable)) => {
+                                app.file_preview_window_content = content;
+                                app.file_preview_window_error = None;
+                            }
+                            Err(error) => {
+                                app.file_preview_window_content.clear();
+                                app.file_preview_window_error = Some(error);
+                            }
+                        }
+                        app.invalidate_ui_region(cx, UiRegion::Root);
+                    });
+                })
+                .detach();
+            }
+        }
+    }
+}
+
+pub(in crate::app) fn file_preview_window_workspace(
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: FilePreviewWindowSnapshot,
+    markdown_state: Option<gpui::Entity<TextViewState>>,
+    text_editor: Option<gpui::Entity<InputState>>,
+    cx: &mut Context<FilePreviewWindowView>,
+) -> impl IntoElement {
+    let FilePreviewWindowSnapshot {
+        relative_path,
+        full_path,
+        kind,
+        content: _,
+        error,
+        language: _,
+    } = snapshot;
+    let title = relative_path
+        .as_deref()
+        .map(file_editor_label)
+        .unwrap_or_else(|| {
+            file_editor_i18n(app_entity.clone(), cx, "files.preview.title", "Preview")
+        });
+    let parent = relative_path
+        .as_deref()
+        .map(|path| file_editor_parent_label(path, &title))
+        .unwrap_or_default();
+    let markdown_source_editor = text_editor.clone();
+    let markdown_preview_state = markdown_state.clone();
+    let text_preview_editor = text_editor.clone();
+
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .bg(color(theme::BG_TERMINAL))
+        .text_color(cx.theme().foreground)
+        .child(
+            file_preview_window_header(
+                app_entity.clone(),
+                title,
+                parent,
+                relative_path.clone(),
+                cx,
+            )
+            .flex_none(),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .size_full()
+                .when_some(error, |this, error| {
+                    this.child(file_preview_error(error, cx))
+                })
+                .when(
+                    kind == FilePreviewKind::Image && full_path.is_some(),
+                    |this| {
+                        let path = full_path.clone().unwrap_or_default();
+                        this.child(file_preview_image(
+                            path,
+                            file_editor_i18n(
+                                app_entity.clone(),
+                                cx,
+                                "files.preview.loading",
+                                "Loading preview...",
+                            ),
+                            file_editor_i18n(
+                                app_entity.clone(),
+                                cx,
+                                "files.preview.read_error",
+                                "Could not read this file.",
+                            ),
+                        ))
+                    },
+                )
+                .when(kind == FilePreviewKind::Markdown, |this| {
+                    if let (Some(editor), Some(markdown_state)) =
+                        (markdown_source_editor, markdown_preview_state)
+                    {
+                        this.child(file_preview_markdown_split(editor, markdown_state, cx))
+                    } else {
+                        this
+                    }
+                })
+                .when(kind == FilePreviewKind::Text, |this| {
+                    this.when_some(text_preview_editor, |this, editor| {
+                        this.child(file_preview_text(editor, true, cx))
+                    })
+                }),
+        )
+}
+
+fn file_preview_window_header(
+    app_entity: gpui::Entity<CoduxApp>,
+    title: String,
+    parent: String,
+    relative_path: Option<String>,
+    cx: &mut Context<FilePreviewWindowView>,
+) -> gpui::Div {
+    let copy_path_text =
+        file_editor_i18n(app_entity.clone(), cx, "files.panel.copy_path", "Copy Path");
+    let open_external_text = file_editor_i18n(
+        app_entity.clone(),
+        cx,
+        "files.preview.open_external",
+        "Open Externally",
+    );
+    let reveal_text = file_editor_i18n(
+        app_entity.clone(),
+        cx,
+        "files.preview.reveal_finder",
+        "Show in File Manager",
+    );
+    let path_for_copy = relative_path.clone();
+    let path_for_open = relative_path.clone();
+    let path_for_reveal = relative_path;
+
+    div()
+        .h(px(FILE_EDITOR_TOOLBAR_HEIGHT))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_4()
+        .pr(px(12.0))
+        .when(cfg!(target_os = "macos"), |this| this.pl(px(86.0)))
+        .when(!cfg!(target_os = "macos"), |this| this.pl(px(18.0)))
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().title_bar)
+        .window_control_area(WindowControlArea::Drag)
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .child(
+                    div()
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
+                        .text_color(color(theme::TEXT))
+                        .truncate()
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(color(theme::TEXT_DIM))
+                        .truncate()
+                        .child(parent),
+                ),
+        )
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(file_preview_toolbar_button(
+                    app_entity.clone(),
+                    "file-preview-copy-path",
+                    HeroIconName::ClipboardDocument,
+                    copy_path_text,
+                    path_for_copy.is_none(),
+                    cx,
+                    move |view, _event, _window, cx| {
+                        let Some(path) = path_for_copy.clone() else {
+                            return;
+                        };
+                        let app_entity = view.app_entity.clone();
+                        cx.update_entity(&app_entity, |app, cx| {
+                            app.copy_file_path_to_clipboard(path, cx);
+                        });
+                    },
+                ))
+                .child(file_preview_toolbar_button(
+                    app_entity.clone(),
+                    "file-preview-open-external",
+                    HeroIconName::ArrowTopRightOnSquare,
+                    open_external_text,
+                    path_for_open.is_none(),
+                    cx,
+                    move |view, _event, _window, cx| {
+                        let Some(path) = path_for_open.clone() else {
+                            return;
+                        };
+                        let app_entity = view.app_entity.clone();
+                        cx.update_entity(&app_entity, |app, cx| {
+                            app.open_file_entry_external(path, cx);
+                        });
+                    },
+                ))
+                .child(file_preview_toolbar_button(
+                    app_entity.clone(),
+                    "file-preview-reveal",
+                    HeroIconName::Folder,
+                    reveal_text,
+                    path_for_reveal.is_none(),
+                    cx,
+                    move |view, _event, _window, cx| {
+                        let Some(path) = path_for_reveal.clone() else {
+                            return;
+                        };
+                        let app_entity = view.app_entity.clone();
+                        cx.update_entity(&app_entity, |app, cx| {
+                            app.run_file_entry_system_action("reveal", path, cx);
+                        });
+                    },
+                ))
+                .when(!cfg!(target_os = "macos"), |this| {
+                    this.child(
+                        Button::new("file-preview-window-close")
+                            .compact()
+                            .ghost()
+                            .h(px(28.0))
+                            .w(px(28.0))
+                            .text_color(cx.theme().muted_foreground)
+                            .window_control_area(WindowControlArea::Close)
+                            .on_click(|_, window, _| window.remove_window())
+                            .child(Icon::new(HeroIconName::XMark).size_3()),
+                    )
+                }),
+        )
+}
+
+fn file_preview_toolbar_button(
+    app_entity: gpui::Entity<CoduxApp>,
+    id: &'static str,
+    icon: HeroIconName,
+    tooltip: String,
+    disabled: bool,
+    cx: &mut Context<FilePreviewWindowView>,
+    on_click: impl Fn(
+        &mut FilePreviewWindowView,
+        &gpui::ClickEvent,
+        &mut Window,
+        &mut Context<FilePreviewWindowView>,
+    ) + 'static,
+) -> impl IntoElement {
+    codux_tooltip_container(app_entity, id, tooltip).child(
+        Button::new(id)
+            .compact()
+            .ghost()
+            .disabled(disabled)
+            .icon(Icon::new(icon).with_size(Size::XSmall))
+            .on_click(cx.listener(on_click)),
+    )
+}
+
+fn file_preview_image(path: String, loading_text: String, error_text: String) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(18.0))
+        .child(
+            img(PathBuf::from(path))
+                .max_w_full()
+                .max_h_full()
+                .object_fit(ObjectFit::Contain)
+                .with_loading(move || file_preview_media_loading(loading_text.clone()))
+                .with_fallback(move || file_preview_media_error(error_text.clone())),
+        )
+        .into_any_element()
+}
+
+fn file_preview_media_loading(message: String) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .text_size(rems(0.8125))
+        .text_color(color(theme::TEXT_DIM))
+        .child(Spinner::new().small().color(color(theme::TEXT_DIM)))
+        .child(message)
+        .into_any_element()
+}
+
+fn file_preview_media_error(message: String) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_5()
+        .text_size(rems(0.8125))
+        .line_height(rems(1.25))
+        .text_color(color(theme::TEXT_DIM))
+        .child(message)
+        .into_any_element()
+}
+
+fn file_preview_markdown(markdown_state: gpui::Entity<TextViewState>) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .overflow_hidden()
+        .child(
+            TextView::new(&markdown_state)
+                .size_full()
+                .p_5()
+                .selectable(true)
+                .scrollable(true),
+        )
+        .into_any_element()
+}
+
+fn file_preview_markdown_split(
+    editor: gpui::Entity<InputState>,
+    markdown_state: gpui::Entity<TextViewState>,
+    cx: &mut Context<FilePreviewWindowView>,
+) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .child(
+            div()
+                .flex_1()
+                .w(relative(0.5))
+                .min_w_0()
+                .min_h_0()
+                .border_r_1()
+                .border_color(cx.theme().border)
+                .child(file_preview_text(editor, true, cx)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .w(relative(0.5))
+                .min_w_0()
+                .min_h_0()
+                .child(file_preview_markdown(markdown_state)),
+        )
+        .into_any_element()
+}
+
+fn file_preview_text(
+    editor: gpui::Entity<InputState>,
+    read_only: bool,
+    cx: &mut Context<FilePreviewWindowView>,
+) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .child(
+            Input::new(&editor)
+                .appearance(false)
+                .disabled(read_only)
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(cx.theme().mono_font_size)
+                .size_full(),
+        )
+        .into_any_element()
+}
+
+fn file_preview_error(error: String, cx: &mut Context<FilePreviewWindowView>) -> AnyElement {
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_5()
+        .text_size(rems(0.8125))
+        .line_height(rems(1.25))
+        .text_color(cx.theme().danger)
+        .child(error)
+        .into_any_element()
 }
 
 pub(in crate::app) fn file_editor_workspace(
@@ -862,6 +1719,8 @@ pub(in crate::app) fn file_editor_workspace(
     let FileEditorWorkspaceSnapshot {
         tabs,
         active_path: _,
+        active_preview_path: _,
+        single_window,
         active_tab: _,
         active_editor: _,
         active_loading: _,
@@ -912,7 +1771,11 @@ pub(in crate::app) fn file_editor_workspace(
                     gpui::StyleRefinement::default()
                         .flex_none()
                         .w_full()
-                        .h(px(FILE_EDITOR_CHROME_HEIGHT)),
+                        .h(px(if single_window {
+                            FILE_EDITOR_TOOLBAR_HEIGHT
+                        } else {
+                            FILE_EDITOR_CHROME_HEIGHT
+                        })),
                 ),
             )
             .child(
@@ -1135,6 +1998,7 @@ fn file_editor_tab_content(tab: FileEditorTab, icon_color: gpui::Hsla) -> gpui::
 fn file_editor_toolbar(
     app_entity: gpui::Entity<CoduxApp>,
     active_tab: Option<FileEditorTab>,
+    window_header: bool,
     cx: &mut Context<FileEditorToolbarView>,
 ) -> impl IntoElement {
     let active_dirty = active_tab.as_ref().is_some_and(|tab| tab.dirty);
@@ -1155,13 +2019,23 @@ fn file_editor_toolbar(
         .items_center()
         .justify_between()
         .gap_4()
-        .px(px(18.0))
+        .pr(px(12.0))
+        .when(window_header && cfg!(target_os = "macos"), |this| {
+            this.pl(px(86.0))
+        })
+        .when(!(window_header && cfg!(target_os = "macos")), |this| {
+            this.pl(px(18.0))
+        })
         .border_b_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().title_bar)
+        .when(window_header, |this| {
+            this.window_control_area(WindowControlArea::Drag)
+        })
         .child(
             div()
                 .min_w_0()
+                .flex_1()
                 .child(
                     div()
                         .text_size(rems(0.875))
@@ -1256,7 +2130,7 @@ fn file_editor_toolbar(
                     |view, _event, _window, cx| {
                         let app_entity = view.app_entity.clone();
                         cx.update_entity(&app_entity, |app, cx| {
-                            app.copy_selected_file_paths_to_clipboard(cx);
+                            app.copy_active_file_editor_path_to_clipboard(cx);
                         });
                     },
                 ))
@@ -1288,13 +2162,26 @@ fn file_editor_toolbar(
                     cx.theme().secondary_foreground,
                     false,
                     cx,
-                    |view, _event, window, cx| {
+                    |view, _event, _window, cx| {
                         let app_entity = view.app_entity.clone();
                         cx.update_entity(&app_entity, |app, cx| {
-                            app.reveal_selected_file_entry(window, cx);
+                            app.run_active_file_editor_file_system_action("reveal", cx);
                         });
                     },
-                )),
+                ))
+                .when(window_header && !cfg!(target_os = "macos"), |this| {
+                    this.child(
+                        Button::new("file-editor-window-close")
+                            .compact()
+                            .ghost()
+                            .h(px(28.0))
+                            .w(px(28.0))
+                            .text_color(cx.theme().muted_foreground)
+                            .window_control_area(WindowControlArea::Close)
+                            .on_click(|_, window, _| window.remove_window())
+                            .child(Icon::new(HeroIconName::XMark).size_3()),
+                    )
+                }),
         )
 }
 
@@ -1359,8 +2246,50 @@ fn file_editor_label(relative_path: &str) -> String {
         .to_string()
 }
 
-fn file_language_for_path(relative_path: &str) -> &'static str {
+pub(in crate::app) fn file_editor_window_title(relative_path: &str) -> String {
+    file_editor_label(relative_path)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum FilePreviewKind {
+    Text,
+    Markdown,
+    Image,
+    External,
+}
+
+pub(in crate::app) fn file_preview_kind_for_path(relative_path: &str) -> FilePreviewKind {
     let extension = Path::new(relative_path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "apng" | "avif" | "bmp" | "gif" | "heic" | "heif" | "ico" | "jpeg" | "jpg" | "jxl"
+        | "png" | "svg" | "svgz" | "tif" | "tiff" | "webp" => FilePreviewKind::Image,
+        "md" | "markdown" => FilePreviewKind::Markdown,
+        "3gp" | "7z" | "aac" | "aif" | "aiff" | "avi" | "dmg" | "doc" | "docx" | "eot" | "exe"
+        | "flac" | "gz" | "jar" | "m4a" | "m4v" | "mkv" | "mov" | "mp3" | "mp4" | "mpeg"
+        | "mpg" | "ogg" | "otf" | "pdf" | "pkg" | "ppt" | "pptx" | "rar" | "tar" | "ttf"
+        | "wav" | "webm" | "woff" | "woff2" | "xls" | "xlsx" | "zip" => FilePreviewKind::External,
+        _ => FilePreviewKind::Text,
+    }
+}
+
+fn file_language_for_path(relative_path: &str) -> &'static str {
+    let path = Path::new(relative_path);
+    let file_name = path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match file_name.as_str() {
+        "makefile" => return "make",
+        "cmakelists.txt" => return "cmake",
+        _ => {}
+    }
+
+    let extension = path
         .extension()
         .and_then(|extension| extension.to_str())
         .unwrap_or_default()
@@ -1368,13 +2297,14 @@ fn file_language_for_path(relative_path: &str) -> &'static str {
     match extension.as_str() {
         "rs" => "rust",
         "js" | "mjs" | "cjs" => "javascript",
-        "ts" | "tsx" => "typescript",
+        "ts" => "typescript",
+        "tsx" => "tsx",
         "jsx" => "javascript",
-        "json" => "json",
-        "md" | "markdown" => "markdown",
+        "json" | "jsonc" => "json",
+        "md" | "markdown" | "mdx" => "markdown",
         "toml" => "toml",
         "yaml" | "yml" => "yaml",
-        "html" | "htm" => "html",
+        "html" | "htm" | "vue" | "xml" | "xhtml" => "html",
         "css" | "scss" | "sass" | "less" => "css",
         "sh" | "bash" | "zsh" => "bash",
         "py" => "python",
@@ -1382,10 +2312,141 @@ fn file_language_for_path(relative_path: &str) -> &'static str {
         "java" => "java",
         "c" | "h" => "c",
         "cc" | "cpp" | "cxx" | "hpp" => "cpp",
+        "cs" => "csharp",
+        "ex" | "exs" => "elixir",
+        "graphql" | "gql" => "graphql",
+        "kt" | "kts" | "ktm" => "kotlin",
+        "php" | "php3" | "php4" | "php5" | "phtml" => "php",
+        "proto" => "proto",
+        "rb" => "ruby",
+        "scala" => "scala",
+        "svelte" => "svelte",
         "swift" => "swift",
         "lua" => "lua",
+        "zig" => "zig",
         "sql" => "sql",
-        "xml" => "xml",
+        "diff" | "patch" => "diff",
+        "cmake" => "cmake",
+        "make" | "mk" => "make",
+        "ejs" => "ejs",
+        "erb" => "erb",
+        "astro" => "astro",
         _ => "text",
+    }
+}
+
+fn changed_file_event_relative_paths(
+    events: &[FileChangeEvent],
+    worktree_path: &str,
+) -> HashSet<String> {
+    let worktree = normalize_file_watch_path(worktree_path);
+    events
+        .iter()
+        .flat_map(|event| event.changed_paths.iter())
+        .filter_map(|path| relative_file_watch_path(&worktree, path))
+        .collect()
+}
+
+fn relative_file_watch_path(worktree: &str, changed_path: &str) -> Option<String> {
+    let changed = normalize_file_watch_path(changed_path);
+    if changed == worktree || changed.is_empty() {
+        return None;
+    }
+    let prefix = format!("{worktree}/");
+    changed
+        .strip_prefix(&prefix)
+        .filter(|relative| !relative.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_file_watch_path(path: &str) -> String {
+    path.trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        FilePreviewKind, changed_file_event_relative_paths, file_language_for_path,
+        file_preview_kind_for_path, relative_file_watch_path,
+    };
+    use codux_runtime::files::FileChangeEvent;
+
+    #[test]
+    fn file_preview_kind_detects_images_without_treating_markdown_as_image() {
+        assert_eq!(
+            file_preview_kind_for_path("assets/logo.png"),
+            FilePreviewKind::Image
+        );
+        assert_eq!(
+            file_preview_kind_for_path("README.md"),
+            FilePreviewKind::Markdown
+        );
+        assert_eq!(
+            file_preview_kind_for_path("src/main.rs"),
+            FilePreviewKind::Text
+        );
+        assert_eq!(
+            file_preview_kind_for_path("demo.mp4"),
+            FilePreviewKind::External
+        );
+        assert_eq!(
+            file_preview_kind_for_path("report.pdf"),
+            FilePreviewKind::External
+        );
+    }
+
+    #[test]
+    fn file_language_for_path_maps_supported_highlight_languages() {
+        let cases = [
+            ("src/main.rs", "rust"),
+            ("src/app.ts", "typescript"),
+            ("src/app.tsx", "tsx"),
+            ("src/App.svelte", "svelte"),
+            ("src/App.vue", "html"),
+            ("src/page.astro", "astro"),
+            ("src/main.kt", "kotlin"),
+            ("src/index.php", "php"),
+            ("src/schema.graphql", "graphql"),
+            ("src/view.erb", "erb"),
+            ("src/view.ejs", "ejs"),
+            ("src/lib.rb", "ruby"),
+            ("src/query.sql", "sql"),
+            ("src/change.patch", "diff"),
+            ("src/layout.xml", "html"),
+            ("Makefile", "make"),
+            ("CMakeLists.txt", "cmake"),
+        ];
+
+        for (path, language) in cases {
+            assert_eq!(file_language_for_path(path), language, "{path}");
+        }
+    }
+
+    #[test]
+    fn file_watch_paths_match_current_worktree_only() {
+        let events = vec![FileChangeEvent {
+            project_path: "/tmp/project".to_string(),
+            changed_paths: vec![
+                "/tmp/project/src/main.rs".to_string(),
+                "/tmp/project-b/src/main.rs".to_string(),
+                "/tmp/project".to_string(),
+            ],
+        }];
+        let paths = changed_file_event_relative_paths(&events, "/tmp/project");
+
+        assert!(paths.contains("src/main.rs"));
+        assert!(!paths.contains("../project-b/src/main.rs"));
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn file_watch_paths_normalize_windows_separators() {
+        assert_eq!(
+            relative_file_watch_path("C:/work/app", "C:\\work\\app\\README.md"),
+            Some("README.md".to_string())
+        );
     }
 }

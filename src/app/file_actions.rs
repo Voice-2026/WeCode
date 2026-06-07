@@ -243,7 +243,15 @@ impl CoduxApp {
         self.set_single_file_selection(entry.relative_path.clone());
         match entry.kind {
             FileKind::Directory => self.toggle_file_tree_directory(entry.relative_path, window, cx),
-            FileKind::File => self.open_file_editor_tab(entry.relative_path, window, cx),
+            FileKind::File => {
+                if self.workspace_view == WorkspaceView::Files {
+                    self.open_file_editor_tab(entry.relative_path, window, cx);
+                } else if self.state.settings.file_open_default == "preview" {
+                    self.open_file_preview_window(entry.relative_path, cx);
+                } else {
+                    self.open_file_editor_window(entry.relative_path, cx);
+                }
+            }
         }
     }
 
@@ -1197,7 +1205,7 @@ impl CoduxApp {
     }
 
     pub(super) fn copy_selected_file_paths_to_clipboard(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(project) = &self.state.selected_project else {
+        let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = "no selected project for file copy".to_string();
             self.invalidate_file_panel(cx);
             return true;
@@ -1211,7 +1219,7 @@ impl CoduxApp {
         let full_paths = paths
             .iter()
             .map(|path| {
-                Path::new(&project.path)
+                Path::new(&project_path)
                     .join(path)
                     .to_string_lossy()
                     .to_string()
@@ -1229,26 +1237,51 @@ impl CoduxApp {
         true
     }
 
-    pub(super) fn paste_clipboard_file_entries(
+    pub(super) fn copy_active_file_editor_path_to_clipboard(
         &mut self,
-        paths: Vec<String>,
-        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project for file paste".to_string();
+        let Some(path) = self.active_file_editor_tab.clone() else {
+            self.status_message = "no active file to copy".to_string();
             self.invalidate_file_panel(cx);
             return true;
         };
-        let paths = paths
-            .into_iter()
-            .filter(|path| Path::new(path).exists())
-            .collect::<Vec<_>>();
-        if paths.is_empty() {
-            self.status_message = "clipboard has no file paths to paste".to_string();
+        self.copy_file_path_to_clipboard(path, cx)
+    }
+
+    pub(super) fn copy_file_path_to_clipboard(
+        &mut self,
+        path: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = "no selected project for file copy".to_string();
             self.invalidate_file_panel(cx);
             return true;
-        }
+        };
+        let full_path = Path::new(&project_path)
+            .join(&path)
+            .to_string_lossy()
+            .to_string();
+        cx.write_to_clipboard(ClipboardItem {
+            entries: vec![
+                gpui::ClipboardEntry::ExternalPaths(gpui::ExternalPaths(
+                    vec![PathBuf::from(&full_path)].into(),
+                )),
+                gpui::ClipboardEntry::String(gpui::ClipboardString::new(full_path)),
+            ],
+        });
+        self.status_message = format!("copied file path: {path}");
+        self.invalidate_file_panel(cx);
+        true
+    }
+
+    pub(super) fn paste_clipboard_file_entries(
+        &mut self,
+        payload: ClipboardFilePayload,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let target_directory = self
             .selected_file_entry()
             .map(|entry| {
@@ -1259,41 +1292,7 @@ impl CoduxApp {
                 }
             })
             .unwrap_or_else(|| self.file_directory.clone());
-        let directory = file_directory_option(&target_directory).map(str::to_string);
-        let project_path = project.path.clone();
-        match self.runtime_service.import_external_project_files(
-            &project_path,
-            paths,
-            directory.as_deref(),
-        ) {
-            Ok((files, selected)) => {
-                self.state.files = files;
-                self.refresh_file_tree_state();
-                if let Some(path) = selected.clone() {
-                    self.set_single_file_selection(path.clone());
-                    match self
-                        .runtime_service
-                        .read_project_file_edit_buffer(&project_path, &path)
-                    {
-                        Ok((content, editable)) => {
-                            self.file_preview = content;
-                            self.file_editable = editable;
-                        }
-                        Err(_) => {
-                            self.file_preview = "clipboard file pasted".to_string();
-                            self.file_editable = false;
-                        }
-                    }
-                }
-                self.file_dirty = false;
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.status_message = "clipboard file pasted".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to paste clipboard file: {error}"),
-        }
-        self.invalidate_file_panel(cx);
+        self.paste_file_payload_into_directory(payload, target_directory, cx);
         true
     }
 
@@ -1361,65 +1360,126 @@ impl CoduxApp {
 
     pub(super) fn paste_external_file_entries(
         &mut self,
-        paths: Vec<String>,
+        payload: ClipboardFilePayload,
         target_entry: FileEntry,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project for file paste".to_string();
-            self.invalidate_file_panel(cx);
-            return;
-        };
-        let paths = paths
-            .into_iter()
-            .filter(|path| Path::new(path).exists())
-            .collect::<Vec<_>>();
-        if paths.is_empty() {
-            self.status_message = "clipboard has no file paths to paste".to_string();
-            self.invalidate_file_panel(cx);
-            return;
-        }
         let target_directory = if matches!(target_entry.kind, FileKind::Directory) {
             target_entry.relative_path.clone()
         } else {
             parent_relative_directory(&target_entry.relative_path)
         };
-        let directory = file_directory_option(&target_directory).map(str::to_string);
-        let project_path = project.path.clone();
-        match self.runtime_service.import_external_project_files(
-            &project_path,
-            paths,
-            directory.as_deref(),
-        ) {
-            Ok((files, selected)) => {
-                self.state.files = files;
-                self.refresh_file_tree_state();
-                if let Some(path) = selected.clone() {
-                    self.set_single_file_selection(path.clone());
-                    match self
-                        .runtime_service
-                        .read_project_file_edit_buffer(&project_path, &path)
-                    {
-                        Ok((content, editable)) => {
-                            self.file_preview = content;
-                            self.file_editable = editable;
-                        }
-                        Err(_) => {
-                            self.file_preview = "clipboard file pasted".to_string();
-                            self.file_editable = false;
-                        }
-                    }
-                }
-                self.file_dirty = false;
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.status_message = "clipboard file pasted".to_string();
-            }
-            Err(error) => self.status_message = format!("failed to paste clipboard file: {error}"),
+        self.paste_file_payload_into_directory(payload, target_directory, cx);
+    }
+
+    fn paste_file_payload_into_directory(
+        &mut self,
+        payload: ClipboardFilePayload,
+        target_directory: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = "no selected project for file paste".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        let paths = payload
+            .paths
+            .into_iter()
+            .filter(|path| Path::new(path).exists())
+            .collect::<Vec<_>>();
+        if paths.is_empty() && payload.images.is_empty() {
+            self.status_message = "clipboard has no files or images to paste".to_string();
+            self.invalidate_file_panel(cx);
+            return;
         }
+        let directory = file_directory_option(&target_directory).map(str::to_string);
+
+        let mut selected = None;
+        let mut latest_files = None;
+        if !paths.is_empty() {
+            match self.runtime_service.import_external_project_files(
+                &project_path,
+                paths,
+                directory.as_deref(),
+            ) {
+                Ok((files, pasted)) => {
+                    latest_files = Some(files);
+                    selected = pasted;
+                }
+                Err(error) => {
+                    self.status_message = format!("failed to paste clipboard file: {error}");
+                    self.invalidate_file_panel(cx);
+                    return;
+                }
+            }
+        }
+
+        let mut pasted_image_count = 0usize;
+        for image in payload.images {
+            match self.runtime_service.write_project_file_bytes(
+                &project_path,
+                directory.as_deref(),
+                &image.file_name,
+                image.bytes,
+            ) {
+                Ok((files, path)) => {
+                    latest_files = Some(files);
+                    selected = Some(path);
+                    pasted_image_count += 1;
+                }
+                Err(error) => {
+                    self.status_message = format!("failed to paste clipboard image: {error}");
+                    self.invalidate_file_panel(cx);
+                    return;
+                }
+            }
+        }
+
+        if let Some(files) = latest_files {
+            self.state.files = files;
+        }
+        self.refresh_file_tree_state();
+        if let Some(path) = selected.clone() {
+            self.set_single_file_selection(path.clone());
+            self.load_file_preview_after_file_paste(&project_path, &path);
+        }
+        self.file_dirty = false;
+        self.state.git = self.runtime_service.reload_project_git(&project_path);
+        self.normalize_selected_git_file();
+        self.normalize_selected_git_branch();
+        self.status_message = if pasted_image_count > 0 {
+            format!("clipboard image{} pasted", plural(pasted_image_count))
+        } else {
+            "clipboard file pasted".to_string()
+        };
         self.invalidate_file_panel(cx);
+    }
+
+    fn load_file_preview_after_file_paste(&mut self, project_path: &str, path: &str) {
+        if matches!(
+            crate::app::file_editor::file_preview_kind_for_path(path),
+            crate::app::file_editor::FilePreviewKind::Image
+                | crate::app::file_editor::FilePreviewKind::External
+        ) {
+            self.file_preview = "clipboard file pasted".to_string();
+            self.file_editable = false;
+            return;
+        }
+        match self
+            .runtime_service
+            .read_project_file_edit_buffer(project_path, path)
+        {
+            Ok((content, editable)) => {
+                self.file_preview = content;
+                self.file_editable = editable;
+            }
+            Err(_) => {
+                self.file_preview = "clipboard file pasted".to_string();
+                self.file_editable = false;
+            }
+        }
     }
 
     pub(super) fn reveal_selected_file_entry(
@@ -1436,6 +1496,24 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         self.run_selected_file_system_action("open", cx);
+    }
+
+    pub(super) fn open_selected_file_preview(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = self.selected_file_entry() else {
+            self.status_message = "no selected file entry to preview".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        if matches!(entry.kind, FileKind::Directory) {
+            self.status_message = "directories are previewed in the file sidebar".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        }
+        self.open_file_preview_window(entry.relative_path, cx);
     }
 
     pub(super) fn send_file_path_to_active_terminal(
@@ -1455,23 +1533,53 @@ impl CoduxApp {
     }
 
     pub(super) fn run_selected_file_system_action(&mut self, action: &str, cx: &mut Context<Self>) {
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = format!("no selected project for file {action}");
+        let Some(entry_path) = self.selected_file_entry.clone() else {
+            self.status_message = format!("no selected file entry to {action}");
             self.invalidate_file_panel(cx);
             return;
         };
-        let Some(entry_path) = self.selected_file_entry.clone() else {
-            self.status_message = format!("no selected file entry to {action}");
+        self.run_file_system_action(action, entry_path, cx);
+    }
+
+    pub(super) fn run_active_file_editor_file_system_action(
+        &mut self,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry_path) = self.active_file_editor_tab.clone() else {
+            self.status_message = format!("no active file to {action}");
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        self.run_file_system_action(action, entry_path, cx);
+    }
+
+    pub(super) fn run_file_entry_system_action(
+        &mut self,
+        action: &str,
+        entry_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_file_system_action(action, entry_path, cx);
+    }
+
+    pub(super) fn open_file_entry_external(&mut self, entry_path: String, cx: &mut Context<Self>) {
+        self.run_file_system_action("open", entry_path, cx);
+    }
+
+    fn run_file_system_action(&mut self, action: &str, entry_path: String, cx: &mut Context<Self>) {
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = format!("no selected project for file {action}");
             self.invalidate_file_panel(cx);
             return;
         };
         let result = match action {
             "reveal" => self
                 .runtime_service
-                .reveal_project_file_entry(&project.path, &entry_path),
+                .reveal_project_file_entry(&project_path, &entry_path),
             "open" => self
                 .runtime_service
-                .open_project_file_entry(&project.path, &entry_path),
+                .open_project_file_entry(&project_path, &entry_path),
             _ => Err(format!("unknown file action: {action}")),
         };
         match result {

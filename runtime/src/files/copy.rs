@@ -49,6 +49,22 @@ pub(super) fn copy_external_entry_to_directory(
     file_entry(root, destination)
 }
 
+pub(super) fn write_bytes_to_directory(
+    root: &Path,
+    target_directory: &Path,
+    file_name: &str,
+    bytes: &[u8],
+) -> Result<FileEntry, String> {
+    ensure_within_root(root, target_directory)?;
+    if !target_directory.is_dir() {
+        return Err("Target path is not a directory.".to_string());
+    }
+    let destination = next_available_child_path(target_directory, file_name);
+    ensure_within_root(root, &destination)?;
+    fs::write(&destination, bytes).map_err(|error| error.to_string())?;
+    file_entry(root, destination)
+}
+
 fn copy_entry(source: &Path, destination: &Path) -> Result<(), String> {
     if source.is_dir() {
         copy_directory_recursive(source, destination)

@@ -92,6 +92,20 @@ pub fn file_import_external(request: FileExternalCopyRequest) -> Result<Vec<File
         .collect()
 }
 
+pub fn file_write_bytes(request: FileBytesWriteRequest) -> Result<FileEntry, String> {
+    let root = canonical_root(&request.root_path)?;
+    let target_directory = match request.target_directory_path.as_deref().and_then(non_empty) {
+        Some(path) => resolve_existing_path(&root, path)?,
+        None => root.clone(),
+    };
+    write_bytes_to_directory(
+        &root,
+        &target_directory,
+        &clean_child_name(&request.file_name)?,
+        &request.bytes,
+    )
+}
+
 pub fn file_reveal(request: FilePathRequest) -> Result<(), String> {
     FilesService::reveal(&request.root_path, &request.path)
 }
@@ -318,6 +332,20 @@ impl FilesService {
                 .unwrap_or_else(|| root.clone()),
         };
         copy_entry_to_directory(&root, &source, &target_directory)
+    }
+
+    pub fn write_bytes_to_directory(
+        root_path: &str,
+        target_directory_path: Option<&str>,
+        file_name: &str,
+        bytes: &[u8],
+    ) -> Result<FileEntry, String> {
+        file_write_bytes(FileBytesWriteRequest {
+            root_path: root_path.to_string(),
+            target_directory_path: target_directory_path.map(str::to_string),
+            file_name: file_name.to_string(),
+            bytes: bytes.to_vec(),
+        })
     }
 
     pub fn reveal(root_path: &str, path: &str) -> Result<(), String> {

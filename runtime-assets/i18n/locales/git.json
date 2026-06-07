@@ -61,7 +61,6 @@
       "git.diff.missing_params": "Diff-Parameter fehlen.",
       "git.diff.new_file": "Neue Datei",
       "git.diff.old_file": "Alte Datei",
-      "git.diff.open_file": "Datei öffnen",
       "git.diff.select_file": "Wählen Sie eine Datei aus, um den Diff anzuzeigen.",
       "git.diff.staged_changes": "Gestagte Änderungen",
       "git.diff.too_large": "Diese Datei ist zu groß für einen sicheren Vergleich.",
@@ -239,7 +238,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Diff öffnen",
       "git.files.tree_limit_format": "Die ersten %@ Elemente werden angezeigt. Öffne einen Ordner, um seine Unterelemente zu sehen.",
-      "git.branch.none": "Kein Branch"
+      "git.branch.none": "Kein Branch",
+      "git.diff.column.current": "Aktuelle Datei"
     },
     "en": {
       "git.auth.cancelled": "Git authentication was cancelled.",
@@ -458,7 +458,6 @@
       "git.unstage.file.success_format": "Unstaged %@.",
       "git.unstage.section.success": "Unstaged files in this section.",
       "git.unstage.selected.success": "Unstaged selected files.",
-      "git.diff.open_file": "Open File",
       "git.error.action_failed": "Git Operation Failed",
       "git.action.running": "Running Git Operation...",
       "git.branch.checkout.loading": "Switching Branch...",
@@ -480,7 +479,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Open Diff",
       "git.files.tree_limit_format": "Showing the first %@ items. Expand a directory to view its children.",
-      "git.branch.none": "No Branch"
+      "git.branch.none": "No Branch",
+      "git.diff.column.current": "Current File"
     },
     "es": {
       "git.auth.cancelled": "Se canceló la autenticación Git.",
@@ -543,7 +543,6 @@
       "git.diff.missing_params": "Faltan parámetros de diff.",
       "git.diff.new_file": "Archivo nuevo",
       "git.diff.old_file": "Archivo anterior",
-      "git.diff.open_file": "Abrir archivo",
       "git.diff.select_file": "Selecciona un archivo para ver su diff.",
       "git.diff.staged_changes": "Cambios preparados",
       "git.diff.too_large": "Este archivo es demasiado grande para compararlo con seguridad.",
@@ -721,7 +720,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Abrir diff",
       "git.files.tree_limit_format": "Se muestran los primeros %@ elementos. Expande un directorio para ver sus elementos secundarios.",
-      "git.branch.none": "Sin rama"
+      "git.branch.none": "Sin rama",
+      "git.diff.column.current": "Archivo actual"
     },
     "fr": {
       "git.auth.cancelled": "L'authentification Git a été annulée.",
@@ -784,7 +784,6 @@
       "git.diff.missing_params": "Paramètres diff manquants.",
       "git.diff.new_file": "Nouveau fichier",
       "git.diff.old_file": "Ancien fichier",
-      "git.diff.open_file": "Ouvrir le fichier",
       "git.diff.select_file": "Sélectionnez un fichier pour afficher son diff.",
       "git.diff.staged_changes": "Modifications indexées",
       "git.diff.too_large": "Ce fichier est trop volumineux pour être comparé en sécurité.",
@@ -962,7 +961,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Ouvrir le diff",
       "git.files.tree_limit_format": "Affichage des %@ premiers éléments. Développez un dossier pour voir ses éléments enfants.",
-      "git.branch.none": "Aucune branche"
+      "git.branch.none": "Aucune branche",
+      "git.diff.column.current": "Fichier actuel"
     },
     "ja": {
       "git.auth.cancelled": "Git 認証がキャンセルされました。",
@@ -1025,7 +1025,6 @@
       "git.diff.missing_params": "diff パラメータが不足しています。",
       "git.diff.new_file": "新しいファイル",
       "git.diff.old_file": "古いファイル",
-      "git.diff.open_file": "ファイルを開く",
       "git.diff.select_file": "差分を表示するファイルを選択してください。",
       "git.diff.staged_changes": "ステージ済みの変更",
       "git.diff.too_large": "このファイルは安全に比較するには大きすぎます。",
@@ -1203,7 +1202,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "差分を開く",
       "git.files.tree_limit_format": "先頭の %@ 件を表示しています。ディレクトリを展開すると子項目を確認できます。",
-      "git.branch.none": "ブランチなし"
+      "git.branch.none": "ブランチなし",
+      "git.diff.column.current": "現在のファイル"
     },
     "ko": {
       "git.auth.cancelled": "Git 인증이 취소되었습니다.",
@@ -1266,7 +1266,6 @@
       "git.diff.missing_params": "diff 매개변수가 없습니다.",
       "git.diff.new_file": "새 파일",
       "git.diff.old_file": "이전 파일",
-      "git.diff.open_file": "파일 열기",
       "git.diff.select_file": "diff를 보려면 파일을 선택하세요.",
       "git.diff.staged_changes": "스테이지된 변경 사항",
       "git.diff.too_large": "이 파일은 안전하게 비교하기에는 너무 큽니다.",
@@ -1444,7 +1443,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Diff 열기",
       "git.files.tree_limit_format": "처음 %@개 항목을 표시합니다. 하위 항목을 보려면 디렉터리를 펼치세요.",
-      "git.branch.none": "브랜치 없음"
+      "git.branch.none": "브랜치 없음",
+      "git.diff.column.current": "현재 파일"
     },
     "pt-BR": {
       "git.auth.cancelled": "A autenticação Git foi cancelada.",
@@ -1507,7 +1507,6 @@
       "git.diff.missing_params": "Parâmetros de diff ausentes.",
       "git.diff.new_file": "Arquivo novo",
       "git.diff.old_file": "Arquivo antigo",
-      "git.diff.open_file": "Abrir arquivo",
       "git.diff.select_file": "Selecione um arquivo para ver o diff.",
       "git.diff.staged_changes": "Alterações preparadas",
       "git.diff.too_large": "Este arquivo é grande demais para comparar com segurança.",
@@ -1685,7 +1684,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Abrir diff",
       "git.files.tree_limit_format": "Mostrando os primeiros %@ itens. Expanda um diretório para ver seus itens filhos.",
-      "git.branch.none": "Sem branch"
+      "git.branch.none": "Sem branch",
+      "git.diff.column.current": "Arquivo atual"
     },
     "ru": {
       "git.auth.cancelled": "Аутентификация Git отменена.",
@@ -1748,7 +1748,6 @@
       "git.diff.missing_params": "Отсутствуют параметры diff.",
       "git.diff.new_file": "Новый файл",
       "git.diff.old_file": "Старый файл",
-      "git.diff.open_file": "Открыть файл",
       "git.diff.select_file": "Выберите файл для просмотра diff.",
       "git.diff.staged_changes": "Индексированные изменения",
       "git.diff.too_large": "Этот файл слишком велик для безопасного сравнения.",
@@ -1926,7 +1925,8 @@
       "git.unstage.loading": "Unstaging Changes...",
       "git.diff.open": "Открыть diff",
       "git.files.tree_limit_format": "Показаны первые %@ элементов. Разверните каталог, чтобы увидеть дочерние элементы.",
-      "git.branch.none": "Нет ветки"
+      "git.branch.none": "Нет ветки",
+      "git.diff.column.current": "Текущий файл"
     },
     "zh-Hans": {
       "git.auth.cancelled": "已取消 Git 鉴权。",
@@ -1989,7 +1989,6 @@
       "git.diff.missing_params": "缺少 diff 参数。",
       "git.diff.new_file": "新文件",
       "git.diff.old_file": "旧文件",
-      "git.diff.open_file": "打开文件",
       "git.diff.select_file": "选择文件以查看差异。",
       "git.diff.staged_changes": "已暂存变更",
       "git.diff.too_large": "该文件过大，无法安全对比。",
@@ -2167,7 +2166,8 @@
       "git.unstage.loading": "正在取消暂存...",
       "git.diff.open": "打开 Diff",
       "git.files.tree_limit_format": "已显示前 %@ 项，继续展开目录查看子级。",
-      "git.branch.none": "暂无分支"
+      "git.branch.none": "暂无分支",
+      "git.diff.column.current": "当前文件"
     },
     "zh-Hant": {
       "git.auth.cancelled": "Git 驗證已取消。",
@@ -2230,7 +2230,6 @@
       "git.diff.missing_params": "缺少 diff 參數。",
       "git.diff.new_file": "新檔案",
       "git.diff.old_file": "舊檔案",
-      "git.diff.open_file": "開啟檔案",
       "git.diff.select_file": "選擇檔案以查看差異。",
       "git.diff.staged_changes": "已暫存變更",
       "git.diff.too_large": "此檔案過大，無法安全對比。",
@@ -2408,7 +2407,8 @@
       "git.unstage.loading": "正在取消暫存...",
       "git.diff.open": "開啟 Diff",
       "git.files.tree_limit_format": "已顯示前 %@ 項，繼續展開目錄查看子項目。",
-      "git.branch.none": "暫無分支"
+      "git.branch.none": "暫無分支",
+      "git.diff.column.current": "目前檔案"
     }
   }
 }

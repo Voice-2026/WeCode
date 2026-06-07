@@ -128,6 +128,7 @@ impl CoduxApp {
             window_appearance: WindowAppearance::Dark,
             main_window_fullscreen: false,
             _observe_window_appearance: None,
+            _observe_window_activation: None,
             is_exiting: false,
             main_window_close_handler_registered: false,
             last_quit_request_at: None,
@@ -150,6 +151,7 @@ impl CoduxApp {
             project_editor_window: None,
             terminal_tab_editor_window: None,
             worktree_creator_window: None,
+            child_windows: Vec::new(),
             parent_main_window: None,
             desktop_pet_line: desktop_pet_fallback_line().to_string(),
             desktop_pet_tone: DesktopPetActivityTone::Normal,
@@ -165,6 +167,10 @@ impl CoduxApp {
             pet_sprite_frame: 0,
             pet_sprite_animation_active: false,
             file_preview: "select a file to preview it".to_string(),
+            file_preview_window_path: None,
+            file_preview_window_content: String::new(),
+            file_preview_window_error: None,
+            file_preview_window_view: None,
             file_editable: false,
             file_dirty: false,
             file_editor_tabs: Vec::new(),
@@ -417,7 +423,9 @@ impl CoduxApp {
 
         match result {
             Ok(handle) => {
-                *self.auxiliary_window_slot_mut(spec.slot) = Some(handle.into());
+                let handle: AnyWindowHandle = handle.into();
+                *self.auxiliary_window_slot_mut(spec.slot) = Some(handle);
+                self.register_child_window_handle(handle);
                 self.status_message = spec.opened_message.to_string();
                 true
             }
@@ -433,8 +441,17 @@ impl CoduxApp {
         slot: AuxiliaryWindowSlot,
         cx: &mut Context<Self>,
     ) -> bool {
-        let handle_slot = self.auxiliary_window_slot_mut(slot);
-        Self::activate_child_window(handle_slot, cx)
+        let activated = {
+            let handle_slot = self.auxiliary_window_slot_mut(slot);
+            Self::activate_child_window(handle_slot, cx)
+        };
+        if activated {
+            let handle = *self.auxiliary_window_slot_mut(slot);
+            if let Some(handle) = handle {
+                self.register_child_window_handle(handle);
+            }
+        }
+        activated
     }
 
     fn auxiliary_window_slot_mut(
@@ -518,6 +535,167 @@ impl CoduxApp {
         app
     }
 
+    pub(super) fn new_file_editor_window_from_state(
+        relative_path: String,
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
+        app.window_mode = AppWindowMode::FileEditor;
+        app.status_message = format!("file editor opened: {relative_path}");
+        app.file_editor_tabs.clear();
+        app.file_editor_states.clear();
+        app.file_editor_loading_states.clear();
+        app.active_file_editor_tab = None;
+        app.add_file_editor_window_tab(relative_path);
+        app
+    }
+
+    pub(super) fn new_file_preview_window_from_state(
+        relative_path: String,
+        state: RuntimeState,
+        runtime: RuntimeInventory,
+        runtime_service: RuntimeService,
+    ) -> Self {
+        let mut app = Self::new_settings_window_from_state(state, runtime, runtime_service);
+        app.window_mode = AppWindowMode::FilePreview;
+        app.status_message = format!("file preview opened: {relative_path}");
+        app.file_preview_window_path = Some(relative_path);
+        app.file_preview_window_content.clear();
+        app.file_preview_window_error = None;
+        app
+    }
+
+    pub(super) fn open_file_editor_window(
+        &mut self,
+        relative_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project to open file editor".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        let title = format!(
+            "{} - {}",
+            file_editor::file_editor_window_title(&relative_path),
+            project.name
+        );
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
+        let window_appearance = self.window_appearance;
+        let bounds = Bounds::centered(None, size(px(900.0), px(640.0)), cx);
+        let opened_path = relative_path.clone();
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(theme::codux_child_titlebar(SharedString::from(title))),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(520.0), px(360.0))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                macos_window::configure_document_child_window_controls(window);
+                let mut app = CoduxApp::new_file_editor_window_from_state(
+                    relative_path,
+                    state,
+                    runtime,
+                    runtime_service,
+                );
+                app.window_appearance = window_appearance;
+                theme::apply_component_theme_for_appearance(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    window_appearance,
+                    Some(window),
+                    cx,
+                );
+                let view = cx.new(|_| app);
+                view.update(cx, |app, cx| {
+                    app.ensure_active_file_editor_state(window, cx);
+                    app.refresh_window_runtime_data(cx);
+                });
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+        self.status_message = match result {
+            Ok(handle) => {
+                self.register_child_window_handle(handle.into());
+                format!("file editor window opened: {opened_path}")
+            }
+            Err(error) => format!("failed to open file editor window: {error}"),
+        };
+        self.invalidate_file_panel(cx);
+    }
+
+    pub(super) fn open_file_preview_window(
+        &mut self,
+        relative_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project to open file preview".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        let preview_kind = file_editor::file_preview_kind_for_path(&relative_path);
+        if preview_kind == file_editor::FilePreviewKind::External {
+            self.open_file_entry_external(relative_path, cx);
+            return;
+        }
+        let title = format!(
+            "{} - {}",
+            file_editor::file_editor_window_title(&relative_path),
+            project.name
+        );
+        let state = self.state.clone();
+        let runtime = self.runtime.clone();
+        let runtime_service = self.runtime_service.clone();
+        let window_appearance = self.window_appearance;
+        let bounds = Bounds::centered(None, size(px(880.0), px(640.0)), cx);
+        let opened_path = relative_path.clone();
+        let result = cx.open_window(
+            WindowOptions {
+                titlebar: Some(theme::codux_child_titlebar(SharedString::from(title))),
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(520.0), px(360.0))),
+                ..Default::default()
+            },
+            move |window, cx| {
+                macos_window::configure_document_child_window_controls(window);
+                let mut app = CoduxApp::new_file_preview_window_from_state(
+                    relative_path,
+                    state,
+                    runtime,
+                    runtime_service,
+                );
+                app.window_appearance = window_appearance;
+                theme::apply_component_theme_for_appearance(
+                    &app.state.settings.theme,
+                    &app.state.settings.theme_color,
+                    window_appearance,
+                    Some(window),
+                    cx,
+                );
+                let view = cx.new(|_| app);
+                view.update(cx, |app, cx| {
+                    app.load_file_preview_window_content_async(cx);
+                    app.refresh_window_runtime_data(cx);
+                });
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        );
+        self.status_message = match result {
+            Ok(handle) => {
+                self.register_child_window_handle(handle.into());
+                format!("file preview window opened: {opened_path}")
+            }
+            Err(error) => format!("failed to open file preview window: {error}"),
+        };
+        self.invalidate_file_panel(cx);
+    }
+
     pub(super) fn refresh_window_runtime_data(&mut self, cx: &mut Context<Self>) {
         let refresh_pet = matches!(
             self.window_mode,
@@ -587,6 +765,65 @@ impl CoduxApp {
         false
     }
 
+    pub(super) fn register_child_window_handle(&mut self, handle: AnyWindowHandle) {
+        self.child_windows
+            .retain(|existing| existing.window_id() != handle.window_id());
+        self.child_windows.push(handle);
+    }
+
+    pub(super) fn bring_child_windows_to_front(&mut self, cx: &mut Context<Self>) {
+        if self.child_windows.is_empty() {
+            return;
+        }
+
+        let mut live_windows = Vec::with_capacity(self.child_windows.len());
+        let mut activated = 0usize;
+        for handle in self.child_windows.iter().copied() {
+            if handle
+                .update(cx, |_view, window, _cx| window.activate_window())
+                .is_ok()
+            {
+                live_windows.push(handle);
+                activated += 1;
+            }
+        }
+        let removed = self.child_windows.len().saturating_sub(live_windows.len());
+        self.child_windows = live_windows;
+        self.clear_dead_child_window_slots();
+        self.runtime_trace(
+            "window",
+            &format!("bring_children_to_front activated={activated} removed={removed}"),
+        );
+    }
+
+    fn clear_dead_child_window_slots(&mut self) {
+        let live = self.child_windows.clone();
+        for handle in [
+            &mut self.settings_window,
+            &mut self.about_window,
+            &mut self.update_dialog_window,
+            &mut self.git_clone_window,
+            &mut self.git_credentials_window,
+            &mut self.memory_manager_window,
+            &mut self.pet_claim_window,
+            &mut self.pet_custom_install_window,
+            &mut self.pet_dex_window,
+            &mut self.ssh_profile_editor_window,
+            &mut self.project_editor_window,
+            &mut self.terminal_tab_editor_window,
+            &mut self.worktree_creator_window,
+        ] {
+            if let Some(handle_value) = *handle {
+                let still_live = live
+                    .iter()
+                    .any(|live_handle| live_handle.window_id() == handle_value.window_id());
+                if !still_live {
+                    *handle = None;
+                }
+            }
+        }
+    }
+
     pub(super) fn close_auxiliary_windows(&mut self, cx: &mut Context<Self>) {
         let handles = [
             &mut self.settings_window,
@@ -608,6 +845,9 @@ impl CoduxApp {
             if let Some(window_handle) = handle.take() {
                 let _ = window_handle.update(cx, |_view, window, _cx| window.remove_window());
             }
+        }
+        for handle in self.child_windows.drain(..) {
+            let _ = handle.update(cx, |_view, window, _cx| window.remove_window());
         }
     }
 
@@ -918,8 +1158,14 @@ impl CoduxApp {
             return self.copy_selected_file_paths_to_clipboard(cx);
         }
         if keystroke.key.eq_ignore_ascii_case("v") {
-            let paths = clipboard_external_paths(cx);
-            return self.paste_clipboard_file_entries(paths, window, cx);
+            let app_entity = cx.entity();
+            window.defer(cx, move |window, cx| {
+                let payload = clipboard_file_payload(cx);
+                cx.update_entity(&app_entity, |app, cx| {
+                    app.paste_clipboard_file_entries(payload, window, cx);
+                });
+            });
+            return true;
         }
         false
     }

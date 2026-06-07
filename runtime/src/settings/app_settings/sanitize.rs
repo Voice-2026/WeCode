@@ -27,6 +27,7 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
         settings.ai_background_refresh = default_ai_background_refresh();
     }
     settings.statistics_mode = sanitize_statistics_mode(&settings.statistics_mode);
+    settings.file_open_default = sanitize_file_open_default(&settings.file_open_default);
     if settings.theme.trim().is_empty() {
         settings.theme = default_theme();
     }
@@ -341,6 +342,13 @@ fn sanitize_statistics_mode(value: &str) -> String {
     match value.trim() {
         "includingCache" => "includingCache".to_string(),
         _ => default_statistics_mode(),
+    }
+}
+
+fn sanitize_file_open_default(value: &str) -> String {
+    match value.trim() {
+        "preview" => "preview".to_string(),
+        _ => default_file_open_default(),
     }
 }
 

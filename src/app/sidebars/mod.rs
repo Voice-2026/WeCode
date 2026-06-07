@@ -7,8 +7,8 @@ mod ssh;
 
 use ai::ai_stats_sidebar;
 pub(in crate::app) use ai::memory_manager_window_workspace;
+pub(in crate::app) use files::{ClipboardFilePayload, clipboard_file_payload, file_tree_rows};
 pub(in crate::app) use files::{FileTreeRow, file_section};
-pub(in crate::app) use files::{clipboard_external_paths, file_tree_rows};
 pub(in crate::app) use git::git_section;
 pub(in crate::app) use ssh::ssh_section;
 

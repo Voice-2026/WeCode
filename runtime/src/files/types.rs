@@ -62,6 +62,15 @@ pub struct FileExternalCopyRequest {
     pub target_directory_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileBytesWriteRequest {
+    pub root_path: String,
+    pub target_directory_path: Option<String>,
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileEntry {

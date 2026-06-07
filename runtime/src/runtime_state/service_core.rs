@@ -109,9 +109,12 @@ impl RuntimeService {
             .and_then(|id| projects.projects.iter().find(|project| &project.id == id))
             .cloned()
         {
+            let active_workspace_path = project_store
+                .active_workspace_path_for_project(&project.id)
+                .unwrap_or_else(|| project.path.clone());
             self.project_activity.mark_project_active(project.clone());
-            let _ = self.mark_active_project_file_path(&project.path);
-            self.watch_project_background(project.path);
+            let _ = self.mark_active_project_file_path(&active_workspace_path);
+            self.watch_project_background(active_workspace_path, project.path);
             self.refresh_active_ai_history_background();
         }
 
@@ -341,15 +344,19 @@ impl RuntimeService {
         &self,
         project_id: &str,
     ) -> Result<ProjectActivitySnapshot, String> {
-        let project = ProjectStore::new(self.support_dir.clone())
+        let store = ProjectStore::new(self.support_dir.clone());
+        let project = store
             .project_summaries()
             .into_iter()
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
+        let active_workspace_path = store
+            .active_workspace_path_for_project(project_id)
+            .unwrap_or_else(|| project.path.clone());
         self.project_activity.mark_project_active(project.clone());
-        let _ = self.mark_active_project_file_path(&project.path);
+        let _ = self.mark_active_project_file_path(&active_workspace_path);
 
-        self.watch_project_background(project.path);
+        self.watch_project_background(active_workspace_path, project.path);
         self.refresh_active_ai_history_background();
 
         Ok(self.project_activity.snapshot())
@@ -408,13 +415,13 @@ impl RuntimeService {
         })
     }
 
-    pub fn watch_project_background(&self, project_path: String) {
+    pub fn watch_project_background(&self, file_watch_path: String, git_watch_path: String) {
         let service = self.clone();
         let _ = std::thread::Builder::new()
             .name("codux-project-watch-switch".to_string())
             .spawn(move || {
-                let _ = service.watch_active_project_files(project_path.clone());
-                let _ = service.git_watch(project_path);
+                let _ = service.watch_active_project_files(file_watch_path);
+                let _ = service.git_watch(git_watch_path);
             });
     }
 
@@ -876,7 +883,7 @@ mod app_runtime_ready_tests {
     }
 
     #[test]
-    fn project_select_worktree_marks_root_project_active_and_keeps_file_watch() {
+    fn project_select_worktree_marks_root_project_active_and_watches_worktree_files() {
         let support_dir = std::env::temp_dir().join(format!(
             "codux-project-select-worktree-{}",
             uuid::Uuid::new_v4()
@@ -922,7 +929,7 @@ mod app_runtime_ready_tests {
             })
             .expect("select worktree");
 
-        let expected_watch_path = project_dir
+        let expected_watch_path = worktree_dir
             .canonicalize()
             .unwrap()
             .to_string_lossy()

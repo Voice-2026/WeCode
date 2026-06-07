@@ -139,8 +139,20 @@ impl RemoteIrohHostTransport {
     }
 
     pub(crate) async fn node_addr(&self) -> Result<RemoteIrohNodeAddr, String> {
-        let _ = timeout(Duration::from_secs(3), self.endpoint.online()).await;
+        let online = timeout(Duration::from_secs(3), self.endpoint.online())
+            .await
+            .is_ok();
         let addr = RemoteIrohNodeAddr::from_endpoint_addr(self.endpoint.addr());
+        crate::runtime_trace::runtime_trace(
+            "remote",
+            &format!(
+                "iroh_node_addr online={} relay={} direct={} addrs={}",
+                online,
+                addr.relay_url.as_deref().unwrap_or(""),
+                addr.direct_addresses.len(),
+                addr.direct_addresses.join(",")
+            ),
+        );
         if addr.relay_url.is_none() && addr.direct_addresses.is_empty() {
             return Err("Iroh Remote Host address has no relay or direct addresses.".to_string());
         }

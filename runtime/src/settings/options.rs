@@ -7,6 +7,15 @@ fn sanitize_statistics_mode(value: &str) -> String {
     .to_string()
 }
 
+fn sanitize_file_open_default(value: &str) -> String {
+    if value.trim() == "preview" {
+        "preview"
+    } else {
+        "edit"
+    }
+    .to_string()
+}
+
 fn sanitize_terminal_theme(value: &str) -> String {
     let normalized = normalize_appearance_name(value);
     terminal_theme_options()

@@ -169,18 +169,11 @@ impl RemoteHostRuntime {
 
     pub fn stop_with_message(&self, message: &str) {
         self.connection_generation.fetch_add(1, Ordering::SeqCst);
-        let transport = self
-            .transport
-            .lock()
-            .ok()
-            .and_then(|mut value| value.take());
+        let transport = self.take_iroh_transport();
         if let Some(transport) = transport {
             crate::async_runtime::spawn(async move {
                 transport.shutdown().await;
             });
-        }
-        if let Ok(mut addr) = self.iroh_node_addr.lock() {
-            *addr = None;
         }
         let mut summary = self.service().summary();
         summary.status = "stopped".to_string();
@@ -203,13 +196,14 @@ impl RemoteHostRuntime {
 
     pub fn reconnect(self: &Arc<Self>) -> RemoteSummary {
         crate::runtime_trace::runtime_trace("remote", "host_reconnect requested");
-        self.stop_with_message("Remote Host reconnecting.");
+        self.connection_generation.fetch_add(1, Ordering::SeqCst);
+        let transport = self.take_iroh_transport();
         let mut summary = self.service().summary();
         summary.status = "connecting".to_string();
         summary.message = "Starting Iroh remote host...".to_string();
         summary.pairing = self.snapshot().pairing;
         self.update_snapshot(summary);
-        self.spawn_iroh_start();
+        self.spawn_iroh_restart(transport);
         self.snapshot()
     }
 
@@ -241,6 +235,37 @@ impl RemoteHostRuntime {
                 runtime.update_snapshot(status);
             }
         });
+    }
+
+    fn spawn_iroh_restart(
+        self: &Arc<Self>,
+        transport: Option<Arc<RemoteIrohHostTransport>>,
+    ) {
+        let runtime = Arc::clone(self);
+        crate::async_runtime::spawn(async move {
+            if let Some(transport) = transport {
+                transport.shutdown().await;
+            }
+            if let Err(error) = runtime.ensure_iroh_transport_ready().await {
+                let mut status = runtime.service().summary();
+                status.status = "failed".to_string();
+                status.message = error;
+                status.pairing = runtime.snapshot().pairing;
+                runtime.update_snapshot(status);
+            }
+        });
+    }
+
+    fn take_iroh_transport(&self) -> Option<Arc<RemoteIrohHostTransport>> {
+        let transport = self
+            .transport
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take());
+        if let Ok(mut addr) = self.iroh_node_addr.lock() {
+            *addr = None;
+        }
+        transport
     }
 
     async fn ensure_iroh_transport_ready(self: &Arc<Self>) -> Result<RemoteIrohNodeAddr, String> {
@@ -496,6 +521,21 @@ impl RemoteHostRuntime {
         let runtime = Arc::clone(self);
         crate::async_runtime::spawn(async move {
             let iroh_addr = runtime.current_iroh_node_addr().await;
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!(
+                    "host_info iroh_present={} relay={} direct={}",
+                    iroh_addr.is_some(),
+                    iroh_addr
+                        .as_ref()
+                        .and_then(|addr| addr.relay_url.as_deref())
+                        .unwrap_or(""),
+                    iroh_addr
+                        .as_ref()
+                        .map(|addr| addr.direct_addresses.len())
+                        .unwrap_or_default()
+                ),
+            );
             runtime.send(
                 "host.info",
                 device_id.as_deref(),

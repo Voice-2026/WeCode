@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-06-07
+
+### Added
+
+- Added child-window file editing and preview flows for non-file views, including Markdown source/preview layout and media previews.
+- Added clipboard image paste support for the file sidebar and optional terminal clipboard image path insertion.
+- Added foreground restoration for Codux child windows when the app is reactivated.
+
+### Changed
+
+- Improved AI session clone cleanup so oversized tool output, screenshots, injected memory, and cloned-session boilerplate are filtered from restored context.
+- Improved remote relay configuration copy and default handling for Iroh pairing.
+- Refined file preview/editor sizing, localization, and unsupported-file fallback behavior.
+
+### Fixed
+
+- Fixed Markdown preview visibility, scrolling, and selectable text behavior in preview windows.
+- Fixed Git review file opening for added files and simplified Git diff preview actions.
+- Fixed file sidebar clipboard paste crashes and added runtime coverage for copied image payloads.
+- Fixed child file windows staying behind the main window after switching away from Codux and back.
+
 ## [1.6.4] - 2026-06-06
 
 ### Added

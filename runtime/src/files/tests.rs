@@ -221,6 +221,47 @@ fn copies_files_and_directories_with_available_names() {
 }
 
 #[test]
+fn writes_clipboard_image_bytes_with_available_name() {
+    let root = temp_dir("files-clipboard-image");
+    fs::create_dir_all(root.join("assets")).expect("assets dir");
+    fs::write(root.join("assets").join("pasted-image.png"), [1, 2, 3]).expect("existing image");
+
+    let pasted = FilesService::write_bytes_to_directory(
+        root.to_str().expect("root"),
+        Some("assets"),
+        "pasted-image.png",
+        &[4, 5, 6],
+    )
+    .expect("write image");
+
+    assert_eq!(pasted.relative_path, "assets/pasted-image copy 1.png");
+    assert_eq!(
+        fs::read(root.join("assets").join("pasted-image copy 1.png")).expect("read pasted"),
+        vec![4, 5, 6]
+    );
+    assert!(
+        FilesService::write_bytes_to_directory(
+            root.to_str().expect("root"),
+            Some("../"),
+            "bad.png",
+            &[1]
+        )
+        .is_err()
+    );
+    assert!(
+        FilesService::write_bytes_to_directory(
+            root.to_str().expect("root"),
+            Some("assets"),
+            "../bad.png",
+            &[1]
+        )
+        .is_err()
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn resolve_existing_paths_for_system_actions_stay_inside_root() {
     let root = temp_dir("files-system-actions");
     fs::create_dir_all(root.join("src")).expect("src dir");

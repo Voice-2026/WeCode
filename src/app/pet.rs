@@ -152,13 +152,16 @@ impl CoduxApp {
 
         self.status_message = match result {
             Ok(handle) => {
-                let handle = Some(handle.into());
+                let handle: AnyWindowHandle = handle.into();
                 match mode {
-                    AppWindowMode::PetClaim => self.pet_claim_window = handle,
-                    AppWindowMode::PetCustomInstall => self.pet_custom_install_window = handle,
-                    AppWindowMode::PetDex => self.pet_dex_window = handle,
+                    AppWindowMode::PetClaim => self.pet_claim_window = Some(handle),
+                    AppWindowMode::PetCustomInstall => {
+                        self.pet_custom_install_window = Some(handle)
+                    }
+                    AppWindowMode::PetDex => self.pet_dex_window = Some(handle),
                     _ => {}
                 }
+                self.register_child_window_handle(handle);
                 format!("{title} window opened")
             }
             Err(error) => format!("failed to open {title} window: {error}"),

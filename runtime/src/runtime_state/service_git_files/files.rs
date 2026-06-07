@@ -110,6 +110,21 @@ impl RuntimeService {
         Ok((load_file_entries(project_path, directory_path), selected))
     }
 
+    pub fn write_project_file_bytes(
+        &self,
+        project_path: &str,
+        directory_path: Option<&str>,
+        file_name: &str,
+        bytes: Vec<u8>,
+    ) -> Result<(Vec<FileEntry>, String), String> {
+        let entry =
+            FilesService::write_bytes_to_directory(project_path, directory_path, file_name, &bytes)?;
+        Ok((
+            load_file_entries(project_path, directory_path),
+            entry.relative_path,
+        ))
+    }
+
     pub fn reveal_project_file_entry(
         &self,
         project_path: &str,

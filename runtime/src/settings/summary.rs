@@ -41,6 +41,15 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_str)
             .map(|value| numeric_string(value, 2000, 200, 10_000).to_string())
             .unwrap_or(defaults.terminal_scrollback_lines),
+        terminal_paste_images_as_paths: raw
+            .get("terminalPasteImagesAsPaths")
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.terminal_paste_images_as_paths),
+        file_open_default: raw
+            .get("fileOpenDefault")
+            .and_then(Value::as_str)
+            .map(sanitize_file_open_default)
+            .unwrap_or(defaults.file_open_default),
         git_refresh: raw
             .get("gitRefresh")
             .and_then(Value::as_str)

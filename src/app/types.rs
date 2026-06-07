@@ -8,6 +8,8 @@ pub(in crate::app) enum AppWindowMode {
     GitClone,
     GitCredentials,
     GitDiff,
+    FileEditor,
+    FilePreview,
     MemoryManager,
     PetClaim,
     PetCustomInstall,

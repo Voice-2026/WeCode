@@ -132,6 +132,15 @@ pub(in crate::app) fn configure_child_window_controls(_window: &mut Window) {}
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
+pub(in crate::app) fn configure_document_child_window_controls(window: &mut Window) {
+    configure_native_window_buttons(window, false);
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(in crate::app) fn configure_document_child_window_controls(_window: &mut Window) {}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
 fn configure_native_window_buttons(window: &mut Window, close_only: bool) {
     let Some(ns_window) = appkit_window(window) else {
         return;

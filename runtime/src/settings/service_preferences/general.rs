@@ -80,6 +80,10 @@ impl SettingsService {
         self.update_string("statisticsMode", sanitize_statistics_mode(mode))
     }
 
+    pub fn set_file_open_default(&self, mode: &str) -> Result<SettingsSummary, String> {
+        self.update_string("fileOpenDefault", sanitize_file_open_default(mode))
+    }
+
     pub fn cycle_statistics_mode(&self) -> Result<SettingsSummary, String> {
         let current = self.summary().statistics_mode;
         let next = match current.as_str() {

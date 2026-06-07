@@ -50,11 +50,7 @@ impl CoduxApp {
         };
         let changed_files_count = tr("worktree.review.changed_files_count_format", "%@ files")
             .replace("%@", &self.git_review.files.len().to_string());
-        let selected_path = self
-            .selected_git_file
-            .as_deref()
-            .filter(|path| self.git_review.files.iter().any(|file| file.path == *path))
-            .map(str::to_string);
+        let selected_path = self.selected_git_file.clone();
         let selected_content_matches = self
             .git_review_content
             .as_ref()

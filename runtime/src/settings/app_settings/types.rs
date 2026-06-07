@@ -35,6 +35,8 @@ pub struct AppSettings {
     pub ai_background_refresh: String,
     #[serde(default = "default_statistics_mode")]
     pub statistics_mode: String,
+    #[serde(default = "default_file_open_default")]
+    pub file_open_default: String,
     #[serde(default = "default_theme")]
     pub theme: String,
     #[serde(default = "default_theme_color")]
@@ -43,6 +45,8 @@ pub struct AppSettings {
     pub terminal_font_size: String,
     #[serde(default = "default_terminal_scrollback_lines")]
     pub terminal_scrollback_lines: String,
+    #[serde(default = "default_terminal_paste_images_as_paths")]
+    pub terminal_paste_images_as_paths: bool,
     #[serde(default = "default_icon_style")]
     pub icon_style: String,
     #[serde(default)]

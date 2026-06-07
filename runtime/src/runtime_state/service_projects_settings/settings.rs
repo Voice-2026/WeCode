@@ -73,6 +73,12 @@ impl RuntimeService {
         })
     }
 
+    pub fn toggle_terminal_paste_images_as_paths(&self) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| {
+            settings.toggle_terminal_paste_images_as_paths()
+        })
+    }
+
     pub fn cycle_terminal_font_size(&self) -> Result<SettingsSummary, String> {
         self.update_settings_with_side_effects(|settings| settings.cycle_terminal_font_size())
     }
@@ -145,6 +151,10 @@ impl RuntimeService {
 
     pub fn set_statistics_mode(&self, mode: &str) -> Result<SettingsSummary, String> {
         SettingsService::new(self.support_dir.clone()).set_statistics_mode(mode)
+    }
+
+    pub fn set_file_open_default(&self, mode: &str) -> Result<SettingsSummary, String> {
+        SettingsService::new(self.support_dir.clone()).set_file_open_default(mode)
     }
 
     pub fn cycle_git_refresh(&self) -> Result<SettingsSummary, String> {

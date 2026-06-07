@@ -1,8 +1,8 @@
 use super::*;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
-use gpui::{ClickEvent, ClipboardEntry, Point, ScrollWheelEvent};
+use gpui::{ClickEvent, ClipboardEntry, ImageFormat, Point, ScrollWheelEvent};
 use gpui_component::input::{Input, InputEvent, InputState, SelectAll};
-use std::ops::Neg;
+use std::{ops::Neg, path::Path};
 
 const FILE_TREE_DRAG_AND_DROP: bool = true;
 
@@ -11,6 +11,7 @@ struct FileSidebarLabels {
     title: String,
     empty: String,
     open: String,
+    preview: String,
     reveal: String,
     copy_path: String,
     copy: String,
@@ -28,6 +29,7 @@ fn file_sidebar_labels(language: &str) -> FileSidebarLabels {
         title: tr("files.panel.title", "Files"),
         empty: tr("files.panel.empty", "No files"),
         open: tr("files.panel.open", "Open"),
+        preview: tr("files.panel.open_preview", "Preview"),
         reveal: tr("files.panel.reveal_finder", "Show in File Manager"),
         copy_path: tr("files.panel.copy_path", "Copy Path"),
         copy: tr("common.copy", "Copy"),
@@ -111,11 +113,13 @@ pub(in crate::app) fn file_section(
                     && !keystroke.modifiers.shift
                     && keystroke.key.eq_ignore_ascii_case("v")
                 {
-                    let paths = clipboard_external_paths(cx);
-                    cx.update_entity(&app_entity, |app, cx| {
-                        if app.paste_clipboard_file_entries(paths, window, cx) {
-                            cx.stop_propagation();
-                        }
+                    cx.stop_propagation();
+                    let app_entity = app_entity.clone();
+                    window.defer(cx, move |window, cx| {
+                        let payload = clipboard_file_payload(cx);
+                        cx.update_entity(&app_entity, |app, cx| {
+                            app.paste_clipboard_file_entries(payload, window, cx);
+                        });
                     });
                     return;
                 }
@@ -210,24 +214,40 @@ pub(in crate::app) fn file_section(
                                         .flex()
                                         .flex_col()
                                         .context_menu(move |menu, _window, cx| {
-                                            let (has_selected, multiple, copy_paths) = cx
-                                                .update_entity(&menu_app_entity, |app, _cx| {
-                                                    let mut paths =
-                                                        if app.selected_file_entries.is_empty() {
-                                                            app.selected_file_entry
-                                                                .clone()
-                                                                .into_iter()
-                                                                .collect::<Vec<_>>()
-                                                        } else {
-                                                            app.selected_file_entries
-                                                                .iter()
-                                                                .cloned()
-                                                                .collect::<Vec<_>>()
-                                                        };
-                                                    paths.sort();
-                                                    (!paths.is_empty(), paths.len() > 1, paths)
-                                                });
+                                            let (
+                                                has_selected,
+                                                multiple,
+                                                selected_is_directory,
+                                                copy_paths,
+                                            ) = cx.update_entity(&menu_app_entity, |app, _cx| {
+                                                let mut paths =
+                                                    if app.selected_file_entries.is_empty() {
+                                                        app.selected_file_entry
+                                                            .clone()
+                                                            .into_iter()
+                                                            .collect::<Vec<_>>()
+                                                    } else {
+                                                        app.selected_file_entries
+                                                            .iter()
+                                                            .cloned()
+                                                            .collect::<Vec<_>>()
+                                                    };
+                                                paths.sort();
+                                                let selected_is_directory = paths
+                                                    .first()
+                                                    .and_then(|path| app.file_tree_entry(path))
+                                                    .is_some_and(|entry| {
+                                                        matches!(entry.kind, FileKind::Directory)
+                                                    });
+                                                (
+                                                    !paths.is_empty(),
+                                                    paths.len() > 1,
+                                                    selected_is_directory,
+                                                    paths,
+                                                )
+                                            });
                                             let open_entity = menu_app_entity.clone();
+                                            let preview_entity = menu_app_entity.clone();
                                             let reveal_entity = menu_app_entity.clone();
                                             let copy_entity = menu_app_entity.clone();
                                             let paste_entity = menu_app_entity.clone();
@@ -243,6 +263,20 @@ pub(in crate::app) fn file_section(
                                                 .on_click(move |_, window, cx| {
                                                     cx.update_entity(&open_entity, |app, cx| {
                                                         app.open_selected_file_entry(window, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(labels.preview.clone())
+                                                .icon(HeroIconName::Eye)
+                                                .disabled(
+                                                    !has_selected
+                                                        || multiple
+                                                        || selected_is_directory,
+                                                )
+                                                .on_click(move |_, window, cx| {
+                                                    cx.update_entity(&preview_entity, |app, cx| {
+                                                        app.open_selected_file_preview(window, cx);
                                                     });
                                                 }),
                                         )
@@ -283,13 +317,13 @@ pub(in crate::app) fn file_section(
                                             PopupMenuItem::new(labels.paste.clone())
                                                 .icon(HeroIconName::DocumentDuplicate)
                                                 .on_click(move |_, window, cx| {
-                                                    let paths = clipboard_external_paths(cx);
+                                                    let payload = clipboard_file_payload(cx);
                                                     cx.update_entity(&paste_entity, |app, cx| {
                                                         if let Some(entry) =
                                                             app.selected_file_entry()
                                                         {
                                                             app.paste_external_file_entries(
-                                                                paths, entry, window, cx,
+                                                                payload, entry, window, cx,
                                                             );
                                                         }
                                                     });
@@ -821,30 +855,103 @@ fn file_tree_entry_row(
         })
 }
 
-pub(in crate::app) fn clipboard_external_paths(cx: &mut App) -> Vec<String> {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(in crate::app) struct ClipboardFilePayload {
+    pub paths: Vec<String>,
+    pub images: Vec<ClipboardImageFile>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::app) struct ClipboardImageFile {
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+}
+
+pub(in crate::app) fn clipboard_file_payload(cx: &mut App) -> ClipboardFilePayload {
     let Some(item) = cx.read_from_clipboard() else {
-        return Vec::new();
+        return ClipboardFilePayload::default();
     };
-    let mut paths = item
-        .entries()
-        .iter()
-        .flat_map(|entry| match entry {
-            ClipboardEntry::ExternalPaths(paths) => paths
+    let mut paths = Vec::new();
+    let mut images = Vec::new();
+    for entry in item.entries() {
+        match entry {
+            ClipboardEntry::ExternalPaths(external_paths) => external_paths
                 .paths()
                 .iter()
                 .map(|path| path.to_string_lossy().to_string())
-                .collect::<Vec<_>>(),
+                .for_each(|path| paths.push(path)),
             ClipboardEntry::String(text) => text
                 .text()
                 .lines()
                 .map(str::trim)
-                .filter(|line| !line.is_empty())
+                .filter(|line| clipboard_text_line_may_be_file_path(line))
                 .map(str::to_string)
-                .collect::<Vec<_>>(),
-            ClipboardEntry::Image(_) => Vec::new(),
-        })
-        .collect::<Vec<_>>();
+                .for_each(|path| paths.push(path)),
+            ClipboardEntry::Image(image) if !image.bytes.is_empty() => {
+                images.push(ClipboardImageFile {
+                    file_name: clipboard_image_file_name(image.format),
+                    bytes: image.bytes.clone(),
+                });
+            }
+            ClipboardEntry::Image(_) => {}
+        }
+    }
     paths.sort();
     paths.dedup();
-    paths
+    ClipboardFilePayload { paths, images }
+}
+
+fn clipboard_image_file_name(format: ImageFormat) -> String {
+    format!("pasted-image.{}", clipboard_image_extension(format))
+}
+
+fn clipboard_image_extension(format: ImageFormat) -> &'static str {
+    match format {
+        ImageFormat::Png => "png",
+        ImageFormat::Jpeg => "jpg",
+        ImageFormat::Webp => "webp",
+        ImageFormat::Gif => "gif",
+        ImageFormat::Svg => "svg",
+        ImageFormat::Bmp => "bmp",
+        ImageFormat::Tiff => "tiff",
+        ImageFormat::Ico => "ico",
+        ImageFormat::Pnm => "pnm",
+    }
+}
+
+fn clipboard_text_line_may_be_file_path(line: &str) -> bool {
+    if line.is_empty()
+        || line.len() > 4096
+        || line.starts_with("data:")
+        || line.starts_with("http://")
+        || line.starts_with("https://")
+        || line.starts_with('<')
+    {
+        return false;
+    }
+    Path::new(line).exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clipboard_image_extension, clipboard_text_line_may_be_file_path};
+    use gpui::ImageFormat;
+
+    #[test]
+    fn clipboard_text_line_filter_rejects_browser_image_payloads() {
+        assert!(!clipboard_text_line_may_be_file_path(
+            "data:image/png;base64,abc"
+        ));
+        assert!(!clipboard_text_line_may_be_file_path(
+            "https://example.com/image.png"
+        ));
+        assert!(!clipboard_text_line_may_be_file_path("<img src=\"x\">"));
+    }
+
+    #[test]
+    fn clipboard_image_extensions_match_gpui_formats() {
+        assert_eq!(clipboard_image_extension(ImageFormat::Png), "png");
+        assert_eq!(clipboard_image_extension(ImageFormat::Jpeg), "jpg");
+        assert_eq!(clipboard_image_extension(ImageFormat::Webp), "webp");
+    }
 }

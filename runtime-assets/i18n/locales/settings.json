@@ -245,6 +245,8 @@
       "settings.terminal_scrollback": "Terminalverlauf",
       "settings.terminal_scrollback.help": "Begrenzt Terminal-Scrollback und wiederhergestellte Ausgabe, um den Speicherverbrauch in langen Sitzungen zu reduzieren.",
       "settings.terminal_scrollback.option_format": "%@ Zeilen",
+      "settings.terminal_paste_images_as_paths": "Bilder als Pfade einfügen",
+      "settings.terminal_paste_images_as_paths.help": "Beim Einfügen eines Bildes ins Terminal wird es temporär gespeichert und stattdessen der lokale Pfad eingefügt.",
       "settings.terminal_text": "Terminaltext",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -335,7 +337,11 @@
       "settings.terminal_font_family": "Terminal-Schriftart",
       "settings.terminal_font_family.help": "Es werden nur Monospace-Schriftarten angezeigt, damit das Terminal-Layout korrekt bleibt.",
       "settings.terminal_font_family.default": "Systemstandard",
-      "settings.remote.server_url.help": "Leer lassen, um das öffentliche Netzwerk zu nutzen. Nach Änderungen erneut koppeln"
+      "settings.remote.server_url.help": "Leer lassen, um das öffentliche Netzwerk zu nutzen. Nach Änderungen erneut koppeln",
+      "settings.file_open_default": "Datei öffnen",
+      "settings.file_open_default.help": "Wird beim Öffnen von Dateien außerhalb der Dateiansicht verwendet.",
+      "settings.file_open_default.edit": "Editor",
+      "settings.file_open_default.preview": "Vorschau"
     },
     "en": {
       "settings.ai_auto_refresh": "AI Auto Refresh",
@@ -582,6 +588,8 @@
       "settings.terminal_scrollback": "Terminal History",
       "settings.terminal_scrollback.help": "Limits terminal scrollback and restored output to reduce memory use in long sessions.",
       "settings.terminal_scrollback.option_format": "%@ lines",
+      "settings.terminal_paste_images_as_paths": "Paste Images as Paths",
+      "settings.terminal_paste_images_as_paths.help": "When pasting an image into a terminal, save it to a temporary file and paste the local path instead of image data.",
       "settings.terminal_text": "Terminal Text",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -672,7 +680,11 @@
       "settings.terminal_font_family": "Terminal Font",
       "settings.terminal_font_family.help": "Only monospaced fonts are shown to keep terminal layout accurate.",
       "settings.terminal_font_family.default": "System Default",
-      "settings.remote.server_url.help": "Leave empty to use the public network. Pair again after changing it"
+      "settings.remote.server_url.help": "Leave empty to use the public network. Pair again after changing it",
+      "settings.file_open_default": "File Open Default",
+      "settings.file_open_default.help": "Used when opening files outside the Files view.",
+      "settings.file_open_default.edit": "Editor",
+      "settings.file_open_default.preview": "Preview"
     },
     "es": {
       "settings.ai_auto_refresh": "Actualización automática de IA",
@@ -919,6 +931,8 @@
       "settings.terminal_scrollback": "Historial del terminal",
       "settings.terminal_scrollback.help": "Limita el historial de desplazamiento del terminal y la salida restaurada para reducir el uso de memoria en sesiones largas.",
       "settings.terminal_scrollback.option_format": "%@ líneas",
+      "settings.terminal_paste_images_as_paths": "Pegar imágenes como rutas",
+      "settings.terminal_paste_images_as_paths.help": "Al pegar una imagen en el terminal, se guarda en un archivo temporal y se pega la ruta local.",
       "settings.terminal_text": "Texto del terminal",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -1009,7 +1023,11 @@
       "settings.terminal_font_family": "Fuente del terminal",
       "settings.terminal_font_family.help": "Solo se muestran fuentes monoespaciadas para mantener correcto el diseño del terminal.",
       "settings.terminal_font_family.default": "Predeterminado del sistema",
-      "settings.remote.server_url.help": "Déjalo vacío para usar la red pública. Vuelve a emparejar después de cambiarlo"
+      "settings.remote.server_url.help": "Déjalo vacío para usar la red pública. Vuelve a emparejar después de cambiarlo",
+      "settings.file_open_default": "Apertura de archivos",
+      "settings.file_open_default.help": "Se usa al abrir archivos fuera de la vista Archivos.",
+      "settings.file_open_default.edit": "Editor",
+      "settings.file_open_default.preview": "Vista previa"
     },
     "fr": {
       "settings.ai_auto_refresh": "Actualisation auto IA",
@@ -1256,6 +1274,8 @@
       "settings.terminal_scrollback": "Historique du terminal",
       "settings.terminal_scrollback.help": "Limite l'historique de défilement du terminal et la sortie restaurée afin de réduire l'utilisation de la mémoire pendant les longues sessions.",
       "settings.terminal_scrollback.option_format": "%@ lignes",
+      "settings.terminal_paste_images_as_paths": "Coller les images comme chemins",
+      "settings.terminal_paste_images_as_paths.help": "Lors du collage d'une image dans le terminal, elle est enregistrée temporairement et son chemin local est collé.",
       "settings.terminal_text": "Texte du terminal",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -1346,7 +1366,11 @@
       "settings.terminal_font_family": "Police du terminal",
       "settings.terminal_font_family.help": "Seules les polices à chasse fixe sont affichées afin de conserver une mise en page correcte du terminal.",
       "settings.terminal_font_family.default": "Valeur système par défaut",
-      "settings.remote.server_url.help": "Laissez vide pour utiliser le réseau public. Associez à nouveau après modification"
+      "settings.remote.server_url.help": "Laissez vide pour utiliser le réseau public. Associez à nouveau après modification",
+      "settings.file_open_default": "Ouverture des fichiers",
+      "settings.file_open_default.help": "Utilisé pour ouvrir les fichiers hors de la vue Fichiers.",
+      "settings.file_open_default.edit": "Editeur",
+      "settings.file_open_default.preview": "Apercu"
     },
     "ja": {
       "settings.ai_auto_refresh": "AI 自動更新",
@@ -1593,6 +1617,8 @@
       "settings.terminal_scrollback": "ターミナル履歴",
       "settings.terminal_scrollback.help": "長いセッションでのメモリ使用量を抑えるため、ターミナルのスクロールバックと復元出力を制限します。",
       "settings.terminal_scrollback.option_format": "%@ 行",
+      "settings.terminal_paste_images_as_paths": "画像をパスとして貼り付け",
+      "settings.terminal_paste_images_as_paths.help": "ターミナルに画像を貼り付けると、一時ファイルとして保存し、画像データの代わりにローカルパスを貼り付けます。",
       "settings.terminal_text": "ターミナル文字",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -1683,7 +1709,11 @@
       "settings.terminal_font_family": "ターミナルフォント",
       "settings.terminal_font_family.help": "ターミナルのレイアウトを正確に保つため、等幅フォントのみ表示します。",
       "settings.terminal_font_family.default": "システム標準",
-      "settings.remote.server_url.help": "空のままにすると公共ネットワークを使用します。変更後は再度ペアリングしてください"
+      "settings.remote.server_url.help": "空のままにすると公共ネットワークを使用します。変更後は再度ペアリングしてください",
+      "settings.file_open_default": "ファイルを開く動作",
+      "settings.file_open_default.help": "ファイルビュー以外でファイルを開くときに使用します。",
+      "settings.file_open_default.edit": "エディタ",
+      "settings.file_open_default.preview": "プレビュー"
     },
     "ko": {
       "settings.ai_auto_refresh": "AI 자동 새로고침",
@@ -1930,6 +1960,8 @@
       "settings.terminal_scrollback": "터미널 기록",
       "settings.terminal_scrollback.help": "긴 세션에서 메모리 사용량을 줄이기 위해 터미널 스크롤백과 복원된 출력을 제한합니다.",
       "settings.terminal_scrollback.option_format": "%@줄",
+      "settings.terminal_paste_images_as_paths": "이미지를 경로로 붙여넣기",
+      "settings.terminal_paste_images_as_paths.help": "터미널에 이미지를 붙여넣으면 임시 파일로 저장하고 로컬 경로를 붙여넣습니다.",
       "settings.terminal_text": "터미널 텍스트",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -2020,7 +2052,11 @@
       "settings.terminal_font_family": "터미널 글꼴",
       "settings.terminal_font_family.help": "터미널 레이아웃을 정확하게 유지하기 위해 고정폭 글꼴만 표시합니다.",
       "settings.terminal_font_family.default": "시스템 기본값",
-      "settings.remote.server_url.help": "비워 두면 공용 네트워크를 사용합니다. 변경 후 다시 페어링하세요"
+      "settings.remote.server_url.help": "비워 두면 공용 네트워크를 사용합니다. 변경 후 다시 페어링하세요",
+      "settings.file_open_default": "파일 열기 기본값",
+      "settings.file_open_default.help": "파일 보기 밖에서 파일을 열 때 사용합니다.",
+      "settings.file_open_default.edit": "편집기",
+      "settings.file_open_default.preview": "미리보기"
     },
     "pt-BR": {
       "settings.ai_auto_refresh": "Atualização automática de IA",
@@ -2267,6 +2303,8 @@
       "settings.terminal_scrollback": "Histórico do terminal",
       "settings.terminal_scrollback.help": "Limita o scrollback do terminal e a saída restaurada para reduzir o uso de memória em sessões longas.",
       "settings.terminal_scrollback.option_format": "%@ linhas",
+      "settings.terminal_paste_images_as_paths": "Colar imagens como caminhos",
+      "settings.terminal_paste_images_as_paths.help": "Ao colar uma imagem no terminal, ela é salva temporariamente e o caminho local é colado.",
       "settings.terminal_text": "Texto do terminal",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -2357,7 +2395,11 @@
       "settings.terminal_font_family": "Fonte do terminal",
       "settings.terminal_font_family.help": "Apenas fontes monoespaçadas são mostradas para manter o layout do terminal correto.",
       "settings.terminal_font_family.default": "Padrão do sistema",
-      "settings.remote.server_url.help": "Deixe vazio para usar a rede pública. Emparelhe novamente após alterar"
+      "settings.remote.server_url.help": "Deixe vazio para usar a rede pública. Emparelhe novamente após alterar",
+      "settings.file_open_default": "Abertura de arquivos",
+      "settings.file_open_default.help": "Usado ao abrir arquivos fora da visualizacao Arquivos.",
+      "settings.file_open_default.edit": "Editor",
+      "settings.file_open_default.preview": "Previa"
     },
     "ru": {
       "settings.ai_auto_refresh": "Автообновление ИИ",
@@ -2604,6 +2646,8 @@
       "settings.terminal_scrollback": "История терминала",
       "settings.terminal_scrollback.help": "Ограничивает прокрутку терминала и восстановленный вывод, чтобы снизить использование памяти в длинных сеансах.",
       "settings.terminal_scrollback.option_format": "%@ строк",
+      "settings.terminal_paste_images_as_paths": "Вставлять изображения как пути",
+      "settings.terminal_paste_images_as_paths.help": "При вставке изображения в терминал оно сохраняется во временный файл, а вставляется локальный путь.",
       "settings.terminal_text": "Текст терминала",
       "settings.terminal_theme": "Terminal Theme",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -2694,7 +2738,11 @@
       "settings.terminal_font_family": "Шрифт терминала",
       "settings.terminal_font_family.help": "Показываются только моноширинные шрифты, чтобы сохранить корректную разметку терминала.",
       "settings.terminal_font_family.default": "Системный по умолчанию",
-      "settings.remote.server_url.help": "Оставьте пустым, чтобы использовать публичную сеть. После изменения выполните сопряжение заново"
+      "settings.remote.server_url.help": "Оставьте пустым, чтобы использовать публичную сеть. После изменения выполните сопряжение заново",
+      "settings.file_open_default": "Открытие файлов",
+      "settings.file_open_default.help": "Используется при открытии файлов вне представления файлов.",
+      "settings.file_open_default.edit": "Редактор",
+      "settings.file_open_default.preview": "Просмотр"
     },
     "zh-Hans": {
       "settings.ai_auto_refresh": "AI 自动刷新",
@@ -2941,6 +2989,8 @@
       "settings.terminal_scrollback": "终端历史",
       "settings.terminal_scrollback.help": "限制终端回滚行数和恢复输出，降低长会话的内存占用。",
       "settings.terminal_scrollback.option_format": "%@ 行",
+      "settings.terminal_paste_images_as_paths": "图片粘贴为路径",
+      "settings.terminal_paste_images_as_paths.help": "向终端粘贴图片时，先保存为临时文件，再粘贴本地路径，避免图片数据进入上下文。",
       "settings.terminal_text": "终端文字",
       "settings.terminal_theme": "终端主题",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -3031,7 +3081,11 @@
       "settings.terminal_font_family": "终端字体",
       "settings.terminal_font_family.help": "仅显示等宽字体，避免终端布局错位",
       "settings.terminal_font_family.default": "系统默认",
-      "settings.remote.server_url.help": "留空使用公共网络，修改后需要重新配对"
+      "settings.remote.server_url.help": "留空使用公共网络，修改后需要重新配对",
+      "settings.file_open_default": "文件打开方式",
+      "settings.file_open_default.help": "用于在非文件视图中打开文件。",
+      "settings.file_open_default.edit": "编辑器",
+      "settings.file_open_default.preview": "预览"
     },
     "zh-Hant": {
       "settings.ai_auto_refresh": "AI 自動重新整理",
@@ -3278,6 +3332,8 @@
       "settings.terminal_scrollback": "終端歷史",
       "settings.terminal_scrollback.help": "限制終端回滾行數和恢復輸出，降低長會話的記憶體佔用。",
       "settings.terminal_scrollback.option_format": "%@ 行",
+      "settings.terminal_paste_images_as_paths": "圖片貼上為路徑",
+      "settings.terminal_paste_images_as_paths.help": "向終端貼上圖片時，先儲存為暫存檔，再貼上本機路徑，避免圖片資料進入上下文。",
       "settings.terminal_text": "終端文字",
       "settings.terminal_theme": "終端主題",
       "settings.terminal_theme.preset.atom_one_light": "Atom One Light",
@@ -3368,7 +3424,11 @@
       "settings.terminal_font_family": "終端字體",
       "settings.terminal_font_family.help": "僅顯示等寬字體，避免終端版面錯位",
       "settings.terminal_font_family.default": "系統預設",
-      "settings.remote.server_url.help": "留空使用公共網路，修改後需要重新配對"
+      "settings.remote.server_url.help": "留空使用公共網路，修改後需要重新配對",
+      "settings.file_open_default": "檔案開啟方式",
+      "settings.file_open_default.help": "用於在非檔案檢視中開啟檔案。",
+      "settings.file_open_default.edit": "編輯器",
+      "settings.file_open_default.preview": "預覽"
     }
   }
 }

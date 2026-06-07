@@ -46,8 +46,8 @@ pub(in crate::app) struct GitSidebarLabels {
     discard_changes: String,
     add_gitignore: String,
     no_selected_file: String,
-    open_file: String,
     empty_diff: String,
+    diff_current: String,
     checkout_commit: String,
     revert_commit: String,
     restore_commit: String,
@@ -355,8 +355,8 @@ impl GitSidebarLabels {
             discard_changes: tr("git.files.discard_changes", "Discard Changes"),
             add_gitignore: tr("git.ignore.add", "Add to .gitignore"),
             no_selected_file: tr("git.diff.select_file", "Select a file to view its diff."),
-            open_file: tr("git.diff.open_file", "Open File"),
             empty_diff: tr("git.diff.empty", "No Diff to Display"),
+            diff_current: tr("git.diff.column.current", "Current File"),
             checkout_commit: tr("git.history.checkout_commit", "Checkout This Commit"),
             revert_commit: tr("git.history.revert_commit", "Revert This Commit"),
             restore_commit: tr("git.history.restore_local", "Restore to This Commit"),
@@ -2374,6 +2374,61 @@ mod tests {
     }
 
     #[test]
+    fn review_tree_treats_added_directory_marker_as_directory() {
+        let files = vec![
+            GitReviewFile {
+                path: "plan_test/".to_string(),
+                status: "added".to_string(),
+                additions: 0,
+                deletions: 0,
+            },
+            GitReviewFile {
+                path: "plan_test/readme.md".to_string(),
+                status: "added".to_string(),
+                additions: 2,
+                deletions: 0,
+            },
+        ];
+
+        let (root_dirs, root_files) = collect_immediate_git_review_entries("", &files);
+        assert_eq!(
+            root_dirs.keys().cloned().collect::<Vec<_>>(),
+            vec!["plan_test"]
+        );
+        assert!(root_files.is_empty());
+
+        let (_child_dirs, child_files) = collect_immediate_git_review_entries("plan_test", &files);
+        assert_eq!(
+            child_files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["plan_test/readme.md"]
+        );
+    }
+
+    #[test]
+    fn review_tree_splits_nested_added_directory_marker_by_depth() {
+        let files = vec![GitReviewFile {
+            path: "assets/art/generated/sliced/characters/skeleton_test/".to_string(),
+            status: "added".to_string(),
+            additions: 0,
+            deletions: 0,
+        }];
+
+        let (root_dirs, root_files) = collect_immediate_git_review_entries("", &files);
+        assert_eq!(
+            root_dirs.keys().cloned().collect::<Vec<_>>(),
+            vec!["assets"]
+        );
+        assert!(root_files.is_empty());
+
+        let (asset_dirs, asset_files) = collect_immediate_git_review_entries("assets", &files);
+        assert_eq!(asset_dirs.keys().cloned().collect::<Vec<_>>(), vec!["art"]);
+        assert!(asset_files.is_empty());
+    }
+
+    #[test]
     fn git_tree_keys_scope_same_directory_by_section() {
         assert_eq!(git_status_tree_key("changed", "src"), "changed:src");
         assert_eq!(git_status_tree_key("untracked", "src"), "untracked:src");
@@ -2492,9 +2547,9 @@ fn git_status_file_row(
         })
         .cursor_pointer()
         .hover(|style| style.bg(cx.theme().list_hover))
-        .on_click(cx.listener(move |app, event: &ClickEvent, _window, cx| {
+        .on_click(cx.listener(move |app, event: &ClickEvent, window, cx| {
             if event.click_count() >= 2 && !is_dir_status {
-                app.load_git_file_diff_async(file_path.clone(), cx);
+                app.open_git_diff_window(file_path.clone(), window, cx);
             } else if event.modifiers().shift {
                 app.toggle_git_file_selection(file_path.clone(), cx);
             } else {
@@ -2682,6 +2737,8 @@ pub(in crate::app) fn git_diff_window_workspace(
     selected_path: Option<&str>,
     diff: &str,
     error: Option<&str>,
+    derived_rows: Option<&GitReviewDerivedRows>,
+    code_scroll_handle: ScrollHandle,
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
@@ -2689,7 +2746,6 @@ pub(in crate::app) fn git_diff_window_workspace(
     let file_path = selected_path
         .unwrap_or(labels.no_selected_file.as_str())
         .to_string();
-    let open_path = file_path.clone();
 
     div()
         .flex()
@@ -2699,10 +2755,13 @@ pub(in crate::app) fn git_diff_window_workspace(
         .child(
             div()
                 .h(px(52.0))
-                .px_4()
+                .pr(px(24.0))
+                .when(cfg!(target_os = "macos"), |this| this.pl(px(86.0)))
+                .when(!cfg!(target_os = "macos"), |this| this.pl(px(24.0)))
                 .flex()
                 .items_center()
                 .justify_between()
+                .gap_3()
                 .border_b_1()
                 .border_color(color(theme::BORDER_SOFT))
                 .child(
@@ -2726,27 +2785,6 @@ pub(in crate::app) fn git_diff_window_workspace(
                                 .text_color(color(theme::TEXT_DIM))
                                 .child(file_path),
                         ),
-                )
-                .child(
-                    Button::new("git-diff-window-open-file")
-                        .secondary()
-                        .compact()
-                        .text_color(cx.theme().secondary_foreground)
-                        .disabled(selected_path.is_none())
-                        .on_click(cx.listener(move |app, _event, _window, cx| {
-                            app.open_git_diff_window_file(open_path.clone(), cx);
-                        }))
-                        .child(
-                            div()
-                                .h(px(22.0))
-                                .flex()
-                                .items_center()
-                                .gap(px(6.0))
-                                .text_size(rems(0.75))
-                                .line_height(rems(1.0))
-                                .child(Icon::new(HeroIconName::ArrowTopRightOnSquare).size_3())
-                                .child(labels.open_file.clone()),
-                        ),
                 ),
         )
         .when_some(error.map(str::to_string), |this, error| {
@@ -2766,33 +2804,198 @@ pub(in crate::app) fn git_diff_window_workspace(
                     .child(error),
             )
         })
+        .child(git_diff_window_body(
+            diff,
+            derived_rows,
+            code_scroll_handle,
+            labels.empty_diff.clone(),
+            labels.review_original.clone(),
+            labels.diff_current.clone(),
+            cx,
+        ))
+}
+
+fn git_diff_window_body(
+    diff: &str,
+    derived_rows: Option<&GitReviewDerivedRows>,
+    code_scroll_handle: ScrollHandle,
+    empty_label: String,
+    original_label: String,
+    current_label: String,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    if let Some(rows) = derived_rows {
+        return div()
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(git_diff_window_content_panel(
+                "git-diff-window-original-code",
+                &original_label,
+                rows.original.clone(),
+                VirtualListScrollHandle::from(code_scroll_handle.clone()),
+                cx,
+            ))
+            .child(git_diff_window_content_panel(
+                "git-diff-window-current-code",
+                &current_label,
+                rows.final_file.clone(),
+                VirtualListScrollHandle::from(code_scroll_handle),
+                cx,
+            ))
+            .into_any_element();
+    }
+
+    div()
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scrollbar()
+        .bg(color(theme::BG_TERMINAL))
+        .px_4()
+        .py_3()
+        .children(if diff.trim().is_empty() {
+            vec![
+                div()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(rems(0.875))
+                    .line_height(rems(1.125))
+                    .text_color(color(theme::TEXT_DIM))
+                    .child(empty_label)
+                    .into_any_element(),
+            ]
+        } else {
+            diff.lines()
+                .map(|line| git_diff_line_row(line).into_any_element())
+                .collect::<Vec<_>>()
+        })
+        .into_any_element()
+}
+
+fn git_diff_window_content_panel(
+    list_id: &'static str,
+    title: &str,
+    cells: Rc<Vec<GitReviewAlignedCell>>,
+    scroll_handle: VirtualListScrollHandle,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let item_sizes = Rc::new(vec![size(px(1.0), px(18.0)); cells.len()]);
+    let list_cells = cells.clone();
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .flex_basis(px(0.0))
+        .min_w_0()
+        .overflow_hidden()
+        .border_r_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .child(
+            div()
+                .h(px(30.0))
+                .px_3()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .border_b_1()
+                .border_color(color(theme::BORDER_SOFT))
+                .text_size(rems(0.75))
+                .line_height(rems(1.0))
+                .text_color(color(theme::TEXT_MUTED))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title.to_string()),
+                ),
+        )
         .child(
             div()
                 .flex_1()
                 .min_h_0()
-                .overflow_y_scrollbar()
+                .relative()
+                .overflow_hidden()
                 .bg(color(theme::BG_TERMINAL))
-                .px_4()
-                .py_3()
-                .children(if diff.trim().is_empty() {
-                    vec![
-                        div()
-                            .h_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(rems(0.875))
-                            .line_height(rems(1.125))
-                            .text_color(color(theme::TEXT_DIM))
-                            .child(labels.empty_diff.clone())
-                            .into_any_element(),
-                    ]
-                } else {
-                    diff.lines()
-                        .map(|line| git_diff_line_row(line).into_any_element())
-                        .collect::<Vec<_>>()
-                }),
+                .p_2()
+                .text_size(rems(0.75))
+                .line_height(rems(1.125))
+                .text_color(color(theme::TEXT))
+                .font_family("SF Mono")
+                .child(
+                    v_virtual_list(
+                        cx.entity().clone(),
+                        list_id,
+                        item_sizes,
+                        move |_app, visible_range: Range<usize>, _window, _cx| {
+                            visible_range
+                                .filter_map(|index| {
+                                    let cell = list_cells.get(index)?;
+                                    Some(git_diff_window_code_line(cell.clone()))
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                    )
+                    .track_scroll(&scroll_handle)
+                    .with_sizing_behavior(ListSizingBehavior::Auto),
+                )
+                .vertical_scrollbar(&scroll_handle),
         )
+}
+
+fn git_diff_window_code_line(cell: GitReviewAlignedCell) -> AnyElement {
+    let (line_bg, gutter_bg, marker_color) = match cell.tone {
+        Some(GitReviewLineTone::Addition) => (
+            Some(color(theme::GREEN).opacity(0.10)),
+            color(theme::GREEN).opacity(0.16),
+            color(theme::GREEN),
+        ),
+        Some(GitReviewLineTone::Deletion) => (
+            Some(color(0xF87171).opacity(0.11)),
+            color(0xF87171).opacity(0.16),
+            color(0xF87171),
+        ),
+        None => (
+            None,
+            color(theme::BG_PANEL).opacity(0.72),
+            color(theme::TEXT_DIM),
+        ),
+    };
+    div()
+        .h(px(18.0))
+        .flex()
+        .w_full()
+        .min_w_0()
+        .when_some(line_bg, |this, bg| this.bg(bg))
+        .child(
+            div()
+                .w(px(46.0))
+                .h_full()
+                .flex_none()
+                .pr_2()
+                .border_r_1()
+                .border_color(color(theme::BORDER_SOFT).opacity(0.55))
+                .bg(gutter_bg)
+                .text_align(gpui::TextAlign::Right)
+                .text_color(marker_color)
+                .child(
+                    cell.line_number
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_x_hidden()
+                .pl_2()
+                .child(cell.text),
+        )
+        .into_any_element()
 }
 
 fn git_diff_line_row(line: &str) -> impl IntoElement {
@@ -3665,16 +3868,10 @@ fn git_review_file_row(
             color(theme::TEXT_MUTED)
         })
         .when(selected, |this| this.bg(color(theme::ACCENT).opacity(0.13)))
-        .on_click(cx.listener(move |_view, event: &ClickEvent, _window, cx| {
-            if event.click_count() >= 2 {
-                app_entity.update(cx, |app, app_cx| {
-                    app.load_git_file_diff_async(path.clone(), app_cx);
-                });
-            } else {
-                app_entity.update(cx, |app, app_cx| {
-                    app.select_git_file_only(path.clone(), app_cx);
-                });
-            }
+        .on_click(cx.listener(move |_view, _event: &ClickEvent, _window, cx| {
+            app_entity.update(cx, |app, app_cx| {
+                app.load_git_file_diff_async(path.clone(), app_cx);
+            });
         }))
         .child(
             div()
@@ -3884,6 +4081,20 @@ fn collect_immediate_git_review_entries(
         if let Some((dir_name, _rest)) = relative_path.split_once('/') {
             let dir_path = join_git_path(base_path, dir_name);
             dirs.entry(dir_name.to_string())
+                .and_modify(|dir| {
+                    dir.count += 1;
+                    dir.additions += file.additions.max(0);
+                    dir.deletions += file.deletions.max(0);
+                })
+                .or_insert(GitReviewDirSummary {
+                    path: dir_path,
+                    count: 1,
+                    additions: file.additions.max(0),
+                    deletions: file.deletions.max(0),
+                });
+        } else if file.path.ends_with('/') {
+            let dir_path = join_git_path(base_path, relative_path);
+            dirs.entry(relative_path.to_string())
                 .and_modify(|dir| {
                     dir.count += 1;
                     dir.additions += file.additions.max(0);

@@ -2,18 +2,19 @@ use super::{AIHistoryService, AISessionDetail, AISessionForkRequest, AISessionFo
 use crate::runtime_paths::runtime_temp_dir;
 use serde_json::Value;
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs::{self, File},
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 use uuid::Uuid;
 
-const MAX_TAIL_BYTES: u64 = 512 * 1024;
-const MAX_LINES_PER_FILE: usize = 1600;
-const MAX_SNIPPETS: usize = 24;
+const MAX_TAIL_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_LINES_PER_FILE: usize = 100_000;
+const MAX_TRANSCRIPT_FILES: usize = 32;
+const MAX_SNIPPETS: usize = 240;
 const MAX_SNIPPET_CHARS: usize = 2400;
-const MAX_PROMPT_CHARS: usize = 42_000;
+const MAX_PROMPT_CHARS: usize = 120_000;
 const MAX_JSON_DEPTH: usize = 10;
 const LARGE_STRING_LIMIT: usize = 20_000;
 const LARGE_BASE64_LIMIT: usize = 2048;
@@ -49,58 +50,69 @@ impl ForkPromptBuilder {
 
     fn collect_snippets(&mut self) {
         let files = self.detail.files.clone();
-        for file in files.iter().take(6) {
-            if self.snippets.len() >= MAX_SNIPPETS {
-                break;
-            }
+        let mut seen_paths = HashSet::new();
+        let mut paths = Vec::new();
+        for file in files.iter() {
             let path = PathBuf::from(&file.file_path);
-            if !path.is_file() {
+            if !path.is_file() || !seen_paths.insert(path.clone()) {
                 continue;
             }
-            if path
+            paths.push(path);
+            if paths.len() >= MAX_TRANSCRIPT_FILES {
+                break;
+            }
+        }
+
+        for path in paths.into_iter().rev() {
+            let mut snippets = if path
                 .extension()
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
             {
-                self.collect_json_file_snippets(&path);
+                self.collect_json_file_snippets(&path)
+            } else {
+                self.collect_line_file_snippets(&path)
+            };
+            if snippets.is_empty() {
                 continue;
             }
-            let lines = read_recent_lines(&path, MAX_TAIL_BYTES, MAX_LINES_PER_FILE);
-            for line in lines {
-                if self.snippets.len() >= MAX_SNIPPETS {
-                    break;
-                }
-                if let Some(snippet) = cleaned_snippet_from_line(&line, &mut self.omitted_items) {
-                    self.snippets.push(snippet);
-                }
-            }
+            self.snippets.append(&mut snippets);
+            self.snippets = last_snippets(std::mem::take(&mut self.snippets), MAX_SNIPPETS);
         }
     }
 
-    fn collect_json_file_snippets(&mut self, path: &Path) {
+    fn collect_line_file_snippets(&mut self, path: &Path) -> Vec<String> {
+        let mut snippets = Vec::new();
+        for line in read_recent_lines(path, MAX_TAIL_BYTES, MAX_LINES_PER_FILE) {
+            if let Some(snippet) = cleaned_snippet_from_line(&line, &mut self.omitted_items) {
+                snippets.push(snippet);
+            }
+        }
+        last_snippets(snippets, MAX_SNIPPETS)
+    }
+
+    fn collect_json_file_snippets(&mut self, path: &Path) -> Vec<String> {
         let Ok(mut file) = File::open(path) else {
-            return;
+            return Vec::new();
         };
         let Ok(metadata) = file.metadata() else {
-            return;
+            return Vec::new();
         };
         if metadata.len() > MAX_TAIL_BYTES {
             self.omitted_items += 1;
-            return;
+            return Vec::new();
         }
         let mut data = String::new();
         if file.read_to_string(&mut data).is_err() {
-            return;
+            return Vec::new();
         }
         let Ok(value) = serde_json::from_str::<Value>(&data) else {
-            return;
+            return Vec::new();
         };
-        for snippet in cleaned_json_document_snippets(&value, &mut self.omitted_items) {
-            if self.snippets.len() >= MAX_SNIPPETS {
-                break;
-            }
-            self.snippets.push(snippet);
-        }
+        last_snippets(
+            cleaned_json_document_snippets(&value, &mut self.omitted_items),
+            MAX_SNIPPETS,
+        )
     }
 
     fn write_prompt(&mut self) -> Result<AISessionForkResult, String> {
@@ -494,6 +506,7 @@ fn is_runtime_context_text(text: &str) -> bool {
     normalized.starts_with("<environment_context>")
         || normalized.starts_with("<permissions instructions>")
         || normalized.starts_with("<turn_meta>")
+        || normalized.starts_with("<turn_aborted>")
         || normalized.starts_with("<collaboration_mode>")
         || normalized.starts_with("<skills_instructions>")
         || normalized.starts_with("<plugins_instructions>")
@@ -501,6 +514,7 @@ fn is_runtime_context_text(text: &str) -> bool {
         || text.contains("<environment_context>")
         || text.contains("<permissions instructions>")
         || text.contains("<turn_meta>")
+        || text.contains("<turn_aborted>")
         || text.contains("<collaboration_mode>")
         || text.contains("<skills_instructions>")
         || text.contains("<plugins_instructions>")
@@ -643,6 +657,11 @@ fn safe_path_component(value: &str) -> String {
         })
         .collect::<String>();
     sanitized.trim_matches('-').chars().take(80).collect()
+}
+
+fn last_snippets(snippets: Vec<String>, max: usize) -> Vec<String> {
+    let count = snippets.len();
+    snippets.into_iter().skip(count.saturating_sub(max)).collect()
 }
 
 #[cfg(test)]
@@ -813,6 +832,119 @@ mod tests {
     }
 
     #[test]
+    fn fork_prompt_reads_later_files_when_recent_files_are_noise() {
+        let support_dir = temp_support_dir("fork-later-files");
+        let transcript_dir = support_dir.join("transcripts");
+        fs::create_dir_all(&transcript_dir).unwrap();
+
+        let mut transcripts = Vec::new();
+        for index in 0..8 {
+            let transcript = transcript_dir.join(format!("session-{index}.jsonl"));
+            if index < 6 {
+                fs::write(
+                    &transcript,
+                    [
+                        serde_json::json!({"type": "session_meta", "payload": {"text": "noise"}})
+                            .to_string(),
+                        serde_json::json!({
+                            "type": "response_item",
+                            "payload": {"type": "reasoning", "text": "hidden reasoning"}
+                        })
+                        .to_string(),
+                    ]
+                    .join("\n"),
+                )
+                .unwrap();
+            } else {
+                fs::write(
+                    &transcript,
+                    [
+                        serde_json::json!({
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "user",
+                                "content": [{"type": "input_text", "text": format!("useful user turn {index}")}]
+                            }
+                        })
+                        .to_string(),
+                        serde_json::json!({
+                            "type": "response_item",
+                            "payload": {
+                                "type": "message",
+                                "role": "assistant",
+                                "content": [{"type": "output_text", "text": format!("useful assistant turn {index}")}]
+                            }
+                        })
+                        .to_string(),
+                    ]
+                    .join("\n"),
+                )
+                .unwrap();
+            }
+            transcripts.push((transcript, 100.0 - index as f64));
+        }
+        create_fork_history_db_with_files(&support_dir, &transcripts);
+
+        let result = AIHistoryService::new(support_dir.clone())
+            .fork_project_session(AISessionForkRequest {
+                project_id: "project-1".to_string(),
+                project_name: "Project One".to_string(),
+                project_path: "/tmp/project-one".to_string(),
+                session_id: "session-1".to_string(),
+                target_tool: AISessionForkTarget::Codex,
+            })
+            .expect("fork");
+        let prompt = fs::read_to_string(result.prompt_path).unwrap();
+
+        assert!(prompt.contains("useful user turn 6"));
+        assert!(prompt.contains("useful assistant turn 7"));
+        assert!(!prompt.contains("hidden reasoning"));
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn fork_prompt_keeps_enough_recent_transcript_turns() {
+        let support_dir = temp_support_dir("fork-rich");
+        let transcript_dir = support_dir.join("transcripts");
+        fs::create_dir_all(&transcript_dir).unwrap();
+        let transcript = transcript_dir.join("session.jsonl");
+        let lines = (0..300)
+            .map(|index| {
+                serde_json::json!({
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": if index % 2 == 0 { "user" } else { "assistant" },
+                        "content": [{"type": "input_text", "text": format!("rich transcript turn {index:03}")}]
+                    }
+                })
+                .to_string()
+            })
+            .collect::<Vec<_>>();
+        fs::write(&transcript, lines.join("\n")).unwrap();
+        create_fork_history_db(&support_dir, &transcript);
+
+        let result = AIHistoryService::new(support_dir.clone())
+            .fork_project_session(AISessionForkRequest {
+                project_id: "project-1".to_string(),
+                project_name: "Project One".to_string(),
+                project_path: "/tmp/project-one".to_string(),
+                session_id: "session-1".to_string(),
+                target_tool: AISessionForkTarget::Codex,
+            })
+            .expect("fork");
+        let prompt = fs::read_to_string(result.prompt_path).unwrap();
+        let excerpt_count = prompt.matches("### Excerpt ").count();
+
+        assert_eq!(excerpt_count, MAX_SNIPPETS);
+        assert!(!prompt.contains("rich transcript turn 00"));
+        assert!(prompt.contains("rich transcript turn 060"));
+        assert!(prompt.contains("rich transcript turn 299"));
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     #[ignore]
     fn audit_local_existing_session_forks() {
         let home = std::env::var("HOME").expect("HOME");
@@ -907,6 +1039,10 @@ mod tests {
     }
 
     fn create_fork_history_db(support_dir: &Path, transcript: &Path) {
+        create_fork_history_db_with_files(support_dir, &[(transcript.to_path_buf(), 2.0)]);
+    }
+
+    fn create_fork_history_db_with_files(support_dir: &Path, transcripts: &[(PathBuf, f64)]) {
         let db_path = support_dir.join("ai-usage.sqlite3");
         let conn = rusqlite::Connection::open(db_path).unwrap();
         conn.execute_batch(
@@ -936,43 +1072,45 @@ mod tests {
             "#,
         )
         .unwrap();
-        conn.execute(
-            r#"
-            INSERT INTO ai_history_file_session_link
-            (source, file_path, project_path, session_key, external_session_id, session_title, last_model, first_seen_at, last_seen_at, active_duration_seconds)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-            params![
-                "codex",
-                transcript.display().to_string(),
-                "/tmp/project-one",
-                "session-1",
-                "external-1",
-                "Original title",
-                "gpt-5",
-                1.0,
-                2.0,
-                1
-            ],
-        )
-        .unwrap();
-        conn.execute(
-            r#"
-            INSERT INTO ai_history_file_usage_bucket
-            (project_path, source, file_path, session_key, bucket_start, total_tokens, cached_input_tokens, request_count)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-            "#,
-            params![
-                "/tmp/project-one",
-                "codex",
-                transcript.display().to_string(),
-                "session-1",
-                1.0,
-                100,
-                10,
-                1
-            ],
-        )
-        .unwrap();
+        for (index, (transcript, last_seen_at)) in transcripts.iter().enumerate() {
+            conn.execute(
+                r#"
+                INSERT INTO ai_history_file_session_link
+                (source, file_path, project_path, session_key, external_session_id, session_title, last_model, first_seen_at, last_seen_at, active_duration_seconds)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "#,
+                params![
+                    "codex",
+                    transcript.display().to_string(),
+                    "/tmp/project-one",
+                    "session-1",
+                    "external-1",
+                    "Original title",
+                    "gpt-5",
+                    1.0 + index as f64,
+                    last_seen_at,
+                    1
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO ai_history_file_usage_bucket
+                (project_path, source, file_path, session_key, bucket_start, total_tokens, cached_input_tokens, request_count)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+                params![
+                    "/tmp/project-one",
+                    "codex",
+                    transcript.display().to_string(),
+                    "session-1",
+                    1.0 + index as f64,
+                    100,
+                    10,
+                    1
+                ],
+            )
+            .unwrap();
+        }
     }
 }

@@ -9,6 +9,8 @@ pub struct SettingsSummary {
     pub terminal_font_family: String,
     pub terminal_font_size: String,
     pub terminal_scrollback_lines: String,
+    pub terminal_paste_images_as_paths: bool,
+    pub file_open_default: String,
     pub git_refresh: String,
     pub ai_refresh: String,
     pub ai_background_refresh: String,

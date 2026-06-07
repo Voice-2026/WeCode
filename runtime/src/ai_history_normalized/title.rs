@@ -153,6 +153,7 @@ fn last_codux_context_close_index(value: &str) -> Option<usize> {
 
 fn is_codux_injected_title_prefix(value: &str) -> bool {
     value.starts_with("# AGENTS.md")
+        || value.starts_with("# Continue Cleaned AI Session")
         || value.starts_with("# Codux Memory")
         || value.starts_with("<collaboration_mode>")
         || value.starts_with("<skills_instructions>")

@@ -203,6 +203,81 @@ runtime launch context
     }
 
     #[test]
+    fn codex_history_title_skips_fork_handoff_prompt() {
+        let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
+        let project_path = root.join("project-a").to_string_lossy().to_string();
+        let codex_dir = root.join(".codex/sessions");
+        fs::create_dir_all(&codex_dir).unwrap();
+        let rollout_path = codex_dir.join("rollout.jsonl");
+        fs::write(
+            &rollout_path,
+            format!(
+                "{}\n{}\n{}\n{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:00:00Z",
+                    "type": "session_meta",
+                    "payload": { "cwd": project_path, "id": "s1" }
+                }),
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:00:01Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{
+                            "type": "input_text",
+                            "text": "# Continue Cleaned AI Session\n\nYou are continuing an AI coding session in Codux."
+                        }]
+                    }
+                }),
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:00:02Z",
+                    "type": "response_item",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{
+                            "type": "input_text",
+                            "text": "继续修复会话标题过滤"
+                        }]
+                    }
+                }),
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:01:00Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "last_token_usage": {
+                                "input_tokens": 10,
+                                "output_tokens": 5,
+                                "cached_input_tokens": 0,
+                                "reasoning_output_tokens": 0,
+                                "total_tokens": 15
+                            }
+                        }
+                    }
+                }),
+            ),
+        )
+        .unwrap();
+
+        let snapshot = load_project_history_without_store(
+            AIHistoryProjectRequest {
+                id: "project-1".to_string(),
+                name: "Project".to_string(),
+                path: project_path,
+            },
+            &root,
+            &mut |_, _| {},
+        );
+
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].session_title, "继续修复会话标题过滤");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn matches_windows_extended_paths_without_matching_project_children() {
         assert!(paths_equivalent(
             Some(r"\\?\F:\codux-tauri"),
