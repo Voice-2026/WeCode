@@ -1,23 +1,23 @@
 {
   "version": "1.6.7",
   "notes": "## 中文\n\n## [1.6.7] - 2026-06-07\n\n### 修复\n\n- 修复切换项目、任务或 worktree 后，文件侧栏展开目录状态被异步加载流程覆盖为空的问题。\n- 修复 Git 克隆后刷新文件树时会清空已展开目录的问题，刷新后会保留仍然存在的展开状态。\n\n---\n\n## English\n\n## [1.6.7] - 2026-06-07\n\n### Fixed\n\n- Fixed file sidebar expanded folders being overwritten by empty async load state after switching projects, tasks, or worktrees.\n- Fixed Git clone refresh clearing the file tree expansion state instead of preserving expanded folders that still exist.",
-  "pub_date": "2026-06-07T06:37:23.053Z",
+  "pub_date": "2026-06-07T06:47:49.924Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWtFdjZCRTg4S2tENmdWYlZlbG1oM1plOUc3QUYwWU1UOEtYN0ZPc3NxYy95YkFYd0xoM0tZSm94RUdrbVliSEZDd3pkM09HQWsxMWUzcXpPdkJEblFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0MTc3CWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWFkaG9jLXVwZGF0ZXIuYXBwLnRhci5negoydjV2OG9Gb1ZtdUY0RktFQUsrWm9ueXcwTy81TGx3U0E3cFljWEZQWGxMakRsTDNqRHJzc0UyYXE3b1lNbXcvSnQvZFRpRDdwV2VKcUhRY0s5NURBdz09Cg==",
-      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-adhoc-updater.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQW9XRGZuOXBzN2VjaDRmK1ZHcXRFaG9xai9GT25pYkJLUW5sQjFrd2xPTi91L1A5Y0pRSzR1TDRLQVV5SWdHOExiSWpPZkU0OUFKbEZjTlVVZTc5WVFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0NzYzCWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWZvcm1hbC11cGRhdGVyLmFwcC50YXIuZ3oKbnFYbGM2TlJjdWRZL1VMMlZWK3JDWXJpNEJHRGxIdTNsSnJDNmF6bXdtTll2Y04wbkh5bXR0cE5IMUc3YmJQa2ZJUmJsQjJYZzBRclFhQVMrOUE0QkE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-formal-updater.app.tar.gz"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWtFdjZCRTg4S2tENmdWYlZlbG1oM1plOUc3QUYwWU1UOEtYN0ZPc3NxYy95YkFYd0xoM0tZSm94RUdrbVliSEZDd3pkM09HQWsxMWUzcXpPdkJEblFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0MTc3CWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWFkaG9jLXVwZGF0ZXIuYXBwLnRhci5negoydjV2OG9Gb1ZtdUY0RktFQUsrWm9ueXcwTy81TGx3U0E3cFljWEZQWGxMakRsTDNqRHJzc0UyYXE3b1lNbXcvSnQvZFRpRDdwV2VKcUhRY0s5NURBdz09Cg==",
-      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-adhoc-updater.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQW9XRGZuOXBzN2VjaDRmK1ZHcXRFaG9xai9GT25pYkJLUW5sQjFrd2xPTi91L1A5Y0pRSzR1TDRLQVV5SWdHOExiSWpPZkU0OUFKbEZjTlVVZTc5WVFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0NzYzCWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWZvcm1hbC11cGRhdGVyLmFwcC50YXIuZ3oKbnFYbGM2TlJjdWRZL1VMMlZWK3JDWXJpNEJHRGxIdTNsSnJDNmF6bXdtTll2Y04wbkh5bXR0cE5IMUc3YmJQa2ZJUmJsQjJYZzBRclFhQVMrOUE0QkE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-formal-updater.app.tar.gz"
     },
     "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWtFdjZCRTg4S2tENmdWYlZlbG1oM1plOUc3QUYwWU1UOEtYN0ZPc3NxYy95YkFYd0xoM0tZSm94RUdrbVliSEZDd3pkM09HQWsxMWUzcXpPdkJEblFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0MTc3CWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWFkaG9jLXVwZGF0ZXIuYXBwLnRhci5negoydjV2OG9Gb1ZtdUY0RktFQUsrWm9ueXcwTy81TGx3U0E3cFljWEZQWGxMakRsTDNqRHJzc0UyYXE3b1lNbXcvSnQvZFRpRDdwV2VKcUhRY0s5NURBdz09Cg==",
-      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-adhoc-updater.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQW9XRGZuOXBzN2VjaDRmK1ZHcXRFaG9xai9GT25pYkJLUW5sQjFrd2xPTi91L1A5Y0pRSzR1TDRLQVV5SWdHOExiSWpPZkU0OUFKbEZjTlVVZTc5WVFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0NzYzCWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWZvcm1hbC11cGRhdGVyLmFwcC50YXIuZ3oKbnFYbGM2TlJjdWRZL1VMMlZWK3JDWXJpNEJHRGxIdTNsSnJDNmF6bXdtTll2Y04wbkh5bXR0cE5IMUc3YmJQa2ZJUmJsQjJYZzBRclFhQVMrOUE0QkE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-formal-updater.app.tar.gz"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQWtFdjZCRTg4S2tENmdWYlZlbG1oM1plOUc3QUYwWU1UOEtYN0ZPc3NxYy95YkFYd0xoM0tZSm94RUdrbVliSEZDd3pkM09HQWsxMWUzcXpPdkJEblFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0MTc3CWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWFkaG9jLXVwZGF0ZXIuYXBwLnRhci5negoydjV2OG9Gb1ZtdUY0RktFQUsrWm9ueXcwTy81TGx3U0E3cFljWEZQWGxMakRsTDNqRHJzc0UyYXE3b1lNbXcvSnQvZFRpRDdwV2VKcUhRY0s5NURBdz09Cg==",
-      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-adhoc-updater.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQW9XRGZuOXBzN2VjaDRmK1ZHcXRFaG9xai9GT25pYkJLUW5sQjFrd2xPTi91L1A5Y0pRSzR1TDRLQVV5SWdHOExiSWpPZkU0OUFKbEZjTlVVZTc5WVFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0NzYzCWZpbGU6Y29kdXgtMS42LjctbWFjb3MtdW5pdmVyc2FsLWZvcm1hbC11cGRhdGVyLmFwcC50YXIuZ3oKbnFYbGM2TlJjdWRZL1VMMlZWK3JDWXJpNEJHRGxIdTNsSnJDNmF6bXdtTll2Y04wbkh5bXR0cE5IMUc3YmJQa2ZJUmJsQjJYZzBRclFhQVMrOUE0QkE9PQo=",
+      "url": "https://github.com/duxweb/codux/releases/download/v1.6.7/codux-1.6.7-macos-universal-formal-updater.app.tar.gz"
     },
     "windows-x86_64": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUSURHR3NLNGdlQXZveXp4NnE4dG5GM2ZWbWNPLzBJNEt3aTFYRVpFRHRBNXdkbVpZNDZ0WXJPYVFBUE1PaTFIc0dEa3YxTmw4WUFQR2F2UkVBUEx3UGFDbzcxb2QzR3drPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwODE0MjIyCWZpbGU6Y29kdXgtMS42Ljctd2luZG93cy14ODZfNjQtc2V0dXAuZXhlClBjcnBYWmhKd2lzTCtDRGIzTmRHZFhwdWNHOWhKS00zNnVmTlRTU2oxWGtCU1oycm9yRDVrRXpxTW5uNDZYY1EvZDdLbGlFblArOXB2dFgrZ2JFTUFBPT0K",
