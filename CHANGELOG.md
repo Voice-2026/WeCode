@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-06-09
+
+### Added
+
+- Added the v3.1 remote protocol layer with shared protocol constants, host capabilities, terminal-buffer chunk payloads, and protocol documentation for future cross-device runtimes.
+- Added host-side terminal subscriptions so remote clients only receive terminal streams they are subscribed to, keeping project switching and multi-pane sessions bounded.
+- Added terminal-buffer chunking for remote history recovery, including bounded payload windows for large Codex resume histories.
+- Added an overlay scrollbar to the desktop terminal while keeping mouse wheel scrolling behavior unchanged.
+
+### Changed
+
+- Reworked the desktop remote host path so project, terminal, and terminal-buffer messages are produced through the v3.1 runtime protocol instead of ad hoc payload construction.
+- Improved remote PTY snapshot and viewport handling so desktop and mobile clients can mount terminal state without fighting over active UI resize.
+- Improved the desktop terminal selection model so drag selection is tracked by the terminal grid and remains stable while new output rotates scrollback.
+- Standardized memory extraction transcript boundaries so extraction uses the configured recent transcript window, compacts low-signal logs, and avoids sending oversized noisy prompts.
+
+### Fixed
+
+- Fixed remote terminal history recovery for oversized output by chunking buffers and keeping output assembly compatible with weak network ordering.
+- Fixed remote protocol replay handling around channel sequence checks so valid cross-channel project, terminal, and host messages are not dropped during rapid switching.
+- Fixed remote terminal subscription cleanup so stale sessions do not keep receiving unnecessary output after project or pane changes.
+- Fixed terminal drag selection being displaced when new output arrives during selection.
+- Reduced terminal drag-selection repaint churn by coalescing selection updates and skipping unchanged cell updates.
+- Fixed high memory extraction failure rates caused by hard-coded transcript limits and provider empty-response bursts; transient provider failures are retried before the task is marked failed.
+
 ## [1.7.1] - 2026-06-08
 
 ### Changed
