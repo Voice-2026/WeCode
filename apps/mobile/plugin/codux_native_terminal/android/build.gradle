@@ -1,0 +1,49 @@
+group = "com.codux.native_terminal"
+version = "0.1.0"
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://jitpack.io" }
+    }
+
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.11.1"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://jitpack.io" }
+    }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+
+android {
+    namespace = "com.codux.native_terminal"
+    compileSdk = 36
+
+    defaultConfig {
+        minSdk = 26
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    implementation "com.github.termux.termux-app:terminal-view:v0.118.0"
+    implementation "com.github.termux.termux-app:terminal-emulator:v0.118.0"
+}

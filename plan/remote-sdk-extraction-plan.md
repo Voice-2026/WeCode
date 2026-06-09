@@ -67,33 +67,42 @@ Mac、Windows、Linux headless、Flutter 都按 peer 处理。任意 peer 可以
 5. 只有无缓存、host runtime 重启、seq gap、显式 resync 时才触发 full hydrate。
 6. 后续将 `terminal.subscribe + terminal.buffer` 平滑升级为通用 `resource.subscribe + resource.baseline`。
 
-## Monorepo 迁移计划
+## Monorepo 迁移状态
 
-目标目录：
+当前目录：
 
 ```text
 codux/
   apps/
-    desktop/
     mobile/
-    web/
     relay-server/
   crates/
     codux-protocol/
     codux-terminal-core/
-    codux-remote-transport/
-    codux-remote-runtime/
   docs/
   plan/
   scripts/
+  runtime/
+  src/
 ```
 
-迁移原则：
+已完成：
+
+- `apps/mobile`：Flutter mobile controller。
+- `apps/relay-server`：Go relay service。
+- `crates/codux-protocol`：共享协议边界。
+- `crates/codux-terminal-core`：共享终端模型边界。
+
+原则：
 
 - 顶层仓库统一版本、文档、计划、发布脚本和 CI。
 - Cargo workspace 只包含 Rust app/crates，不把 Flutter、web、Go 服务端加入 Cargo workspace。
 - Flutter、web、Go 服务端作为 `apps/*` 子项目保留各自原生构建系统。
-- 先提交当前稳定链路，再迁移目录，避免把协议改动和仓库搬迁混在一个不可回滚的 diff 里。
+
+待迁移：
+
+- `apps/web`：官网/文档站点，等当前桌面、移动端、服务端迁移提交稳定后再导入。
+- `codux-remote-transport` 和 `codux-remote-runtime`：等协议/终端核心 API 稳定后再继续拆。
 
 ## Platform bindings
 

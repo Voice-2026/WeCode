@@ -41,6 +41,18 @@ AI coding CLIs are powerful, but serious work quickly spreads across projects, G
 
 Codux AI is not an editor replacement. It is a control plane for developers who already use AI coding CLIs heavily and need a stable way to manage multi-project, long-running AI work.
 
+## Repository Layout
+
+This repository is the Codux monorepo:
+
+- `src/`, `runtime/`: Rust + GPUI desktop app and runtime.
+- `crates/codux-protocol`: shared remote protocol helpers and capabilities.
+- `crates/codux-terminal-core`: shared terminal session, sequence, snapshot, and remote PTY model primitives.
+- `apps/mobile`: Flutter mobile controller.
+- `apps/relay-server`: Go relay service for pairing, signaling, and WebSocket fallback.
+
+Flutter and Go apps keep their own native build systems. Only Rust packages are Cargo workspace members.
+
 ## Rust + GPUI Native Foundation
 
 Codux AI is a native desktop app built with Rust and GPUI. GPUI comes from the same high-performance UI technology stack used by Zed, giving Codux a fast native foundation for terminal rendering, project switching, Git views, file previews, and long-running runtime updates.

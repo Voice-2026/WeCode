@@ -1,0 +1,719 @@
+import 'package:flutter/material.dart';
+import '../i18n.dart';
+import '../theme/app_theme.dart';
+
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({
+    super.key,
+    required this.nameController,
+    required this.detectedName,
+    required this.topInset,
+    required this.bottomInset,
+    required this.currentAccent,
+    required this.currentLocale,
+    required this.currentLogLevel,
+    required this.onChangeAccent,
+    required this.onChangeLocale,
+    required this.onChangeLogLevel,
+    required this.onUseDetectedName,
+    required this.onSave,
+    required this.onBack,
+  });
+
+  final TextEditingController nameController;
+  final String detectedName;
+  final double topInset;
+  final double bottomInset;
+  final AccentOption currentAccent;
+  final LocaleOption currentLocale;
+  final String currentLogLevel;
+  final ValueChanged<AccentOption> onChangeAccent;
+  final ValueChanged<LocaleOption> onChangeLocale;
+  final ValueChanged<String> onChangeLogLevel;
+  final VoidCallback onUseDetectedName;
+  final VoidCallback onSave;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final prefs = AppPreferences.of(context);
+    return Container(
+      color: AppColors.bgBase,
+      child: Column(
+        children: [
+          _LargeHeader(
+            title: prefs.t('settings.title'),
+            topInset: topInset,
+            onBack: onBack,
+          ),
+          Expanded(
+            child: ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(
+                AppSpacing.l,
+                AppSpacing.s,
+                AppSpacing.l,
+                AppSpacing.xxl + bottomInset,
+              ),
+              children: [
+                _SectionLabel(prefs.t('settings.nameLabel')),
+                _Card(
+                  children: [
+                    _TextFieldTile(
+                      controller: nameController,
+                      hint: prefs.t('settings.nameHint'),
+                      accent: accent,
+                    ),
+                    _Divider(),
+                    _ActionTile(
+                      icon: Icons.phone_android,
+                      label: prefs.t(
+                        'settings.useDeviceName',
+                        params: {'name': detectedName},
+                      ),
+                      accent: accent,
+                      onTap: onUseDetectedName,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.l),
+                _SectionLabel(prefs.t('settings.themeLabel')),
+                _Card(
+                  children: [
+                    _AccentRow(
+                      current: currentAccent,
+                      onSelect: onChangeAccent,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.l),
+                _SectionLabel(prefs.t('settings.localeLabel')),
+                _Card(
+                  children: [
+                    _PickerTile(
+                      label: prefs.t('settings.localeLabel'),
+                      value: currentLocale.label,
+                      onTap: () => _showLocalePicker(
+                        context,
+                        accent: accent,
+                        current: currentLocale,
+                        title: prefs.t('settings.localeLabel'),
+                        cancelLabel: prefs.t('app.cancel'),
+                        onSelect: onChangeLocale,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.l),
+                _SectionLabel(prefs.t('settings.logLevelLabel')),
+                _Card(
+                  children: [
+                    _PickerTile(
+                      label: prefs.t('settings.logLevelLabel'),
+                      value: prefs.t('logLevel.$currentLogLevel'),
+                      onTap: () => _showLogLevelPicker(
+                        context,
+                        accent: accent,
+                        current: currentLogLevel,
+                        title: prefs.t('settings.logLevelLabel'),
+                        cancelLabel: prefs.t('app.cancel'),
+                        onSelect: onChangeLogLevel,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.xl),
+                _PrimaryButton(
+                  label: prefs.t('settings.save'),
+                  accent: accent,
+                  onTap: onSave,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+const _logLevels = ['warn', 'info', 'debug'];
+
+void _showLogLevelPicker(
+  BuildContext context, {
+  required Color accent,
+  required String current,
+  required String title,
+  required String cancelLabel,
+  required ValueChanged<String> onSelect,
+}) {
+  final prefs = AppPreferences.of(context);
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: AppColors.backdrop,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.s),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.bgSurface,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Container(
+                    height: 48,
+                    alignment: Alignment.center,
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: AppTextSize.body,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Divider(
+                    color: AppColors.border,
+                    height: 0.5,
+                    thickness: 0.5,
+                  ),
+                  for (final level in _logLevels) ...[
+                    InkWell(
+                      onTap: () {
+                        onSelect(level);
+                        Navigator.of(ctx).pop();
+                      },
+                      child: Container(
+                        height: 56,
+                        alignment: Alignment.centerLeft,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.l,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                prefs.t('logLevel.$level'),
+                                style: TextStyle(
+                                  color: level == current
+                                      ? accent
+                                      : AppColors.textPrimary,
+                                  fontSize: AppTextSize.title,
+                                  fontWeight: level == current
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            if (level == current)
+                              Icon(Icons.check, color: accent),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (level != _logLevels.last)
+                      const Divider(
+                        color: AppColors.border,
+                        height: 0.5,
+                        thickness: 0.5,
+                      ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.bgSurface,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.pop(ctx),
+                child: Container(
+                  height: 56,
+                  alignment: Alignment.center,
+                  child: Text(
+                    cancelLabel,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: AppTextSize.title,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+void _showLocalePicker(
+  BuildContext context, {
+  required Color accent,
+  required LocaleOption current,
+  required String title,
+  required String cancelLabel,
+  required ValueChanged<LocaleOption> onSelect,
+}) {
+  showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    barrierColor: AppColors.backdrop,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.s),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.bgSurface,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  Container(
+                    height: 48,
+                    alignment: Alignment.center,
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.textMuted,
+                        fontSize: AppTextSize.body,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Divider(
+                    color: AppColors.border,
+                    height: 0.5,
+                    thickness: 0.5,
+                  ),
+                  SizedBox(
+                    height: (LocaleChoices.all.length * 56.0).clamp(
+                      0.0,
+                      MediaQuery.sizeOf(ctx).height * 0.56,
+                    ),
+                    child: ListView.separated(
+                      padding: EdgeInsets.zero,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: LocaleChoices.all.length,
+                      separatorBuilder: (_, _) => const Divider(
+                        color: AppColors.border,
+                        height: 0.5,
+                        thickness: 0.5,
+                      ),
+                      itemBuilder: (_, index) {
+                        final option = LocaleChoices.all[index];
+                        final active = option.id == current.id;
+                        return InkWell(
+                          onTap: () {
+                            onSelect(option);
+                            Navigator.of(ctx).pop();
+                          },
+                          child: Container(
+                            height: 56,
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: AppSpacing.l,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    option.label,
+                                    style: TextStyle(
+                                      color: active
+                                          ? accent
+                                          : AppColors.textPrimary,
+                                      fontSize: AppTextSize.title,
+                                      fontWeight: active
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                if (active) Icon(Icons.check, color: accent),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: AppColors.bgSurface,
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () => Navigator.pop(ctx),
+                child: Container(
+                  height: 56,
+                  alignment: Alignment.center,
+                  child: Text(
+                    cancelLabel,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: AppTextSize.title,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _LargeHeader extends StatelessWidget {
+  const _LargeHeader({
+    required this.title,
+    required this.topInset,
+    required this.onBack,
+  });
+  final String title;
+  final double topInset;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: AppLayout.topBarHeight + topInset,
+    padding: EdgeInsets.only(top: topInset),
+    decoration: const BoxDecoration(
+      color: AppColors.bgBase,
+      border: Border(bottom: BorderSide(color: AppColors.border, width: 0.5)),
+    ),
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.s),
+            child: IconButton(
+              onPressed: onBack,
+              icon: const Icon(
+                Icons.chevron_left,
+                color: AppColors.textPrimary,
+                size: 28,
+              ),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ),
+        Center(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: AppTextSize.title,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.m,
+      AppSpacing.l,
+      AppSpacing.m,
+      AppSpacing.s,
+    ),
+    child: Text(
+      text.toUpperCase(),
+      style: const TextStyle(
+        color: AppColors.textMuted,
+        fontSize: AppTextSize.small,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.8,
+      ),
+    ),
+  );
+}
+
+class _Card extends StatelessWidget {
+  const _Card({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: AppColors.bgSurface,
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      border: Border.all(color: AppColors.border, width: 0.5),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(children: children),
+  );
+}
+
+class _Divider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.only(left: AppSpacing.l),
+    child: Divider(height: 0.5, thickness: 0.5, color: AppColors.border),
+  );
+}
+
+class _TextFieldTile extends StatelessWidget {
+  const _TextFieldTile({
+    required this.controller,
+    required this.hint,
+    required this.accent,
+  });
+  final TextEditingController controller;
+  final String hint;
+  final Color accent;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
+    child: TextField(
+      controller: controller,
+      style: const TextStyle(
+        color: AppColors.textPrimary,
+        fontSize: AppTextSize.body,
+      ),
+      cursorColor: accent,
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: AppColors.textSubtle),
+        border: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        isDense: true,
+      ),
+    ),
+  );
+}
+
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.l,
+        vertical: AppSpacing.m,
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: accent),
+          const SizedBox(width: AppSpacing.s),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(color: accent, fontSize: AppTextSize.body),
+            ),
+          ),
+          const Icon(
+            Icons.chevron_right,
+            size: 18,
+            color: AppColors.textSubtle,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _PickerTile extends StatelessWidget {
+  const _PickerTile({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.l,
+        vertical: AppSpacing.m + 2,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: AppTextSize.body,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppColors.textMuted,
+              fontSize: AppTextSize.body,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          const Icon(
+            Icons.chevron_right,
+            size: 18,
+            color: AppColors.textSubtle,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _AccentRow extends StatelessWidget {
+  const _AccentRow({required this.current, required this.onSelect});
+  final AccentOption current;
+  final ValueChanged<AccentOption> onSelect;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.l,
+      vertical: AppSpacing.m,
+    ),
+    child: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          for (final option in AccentChoices.all) ...[
+            _AccentDot(
+              option: option,
+              active: option.id == current.id,
+              onTap: () => onSelect(option),
+            ),
+            const SizedBox(width: AppSpacing.m),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+class _AccentDot extends StatelessWidget {
+  const _AccentDot({
+    required this.option,
+    required this.active,
+    required this.onTap,
+  });
+  final AccentOption option;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: SizedBox(
+      width: 38,
+      height: 38,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: active
+              ? Border.all(color: AppColors.textPrimary, width: 2)
+              : null,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: option.color,
+            border: Border.all(
+              color: active ? AppColors.bgBase : Colors.transparent,
+              width: 2,
+            ),
+          ),
+          child: active
+              ? const Icon(Icons.check, size: 16, color: AppColors.bgBase)
+              : null,
+        ),
+      ),
+    ),
+  );
+}
+
+class _PrimaryButton extends StatelessWidget {
+  const _PrimaryButton({
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    height: 50,
+    child: FilledButton(
+      onPressed: onTap,
+      style: FilledButton.styleFrom(
+        backgroundColor: accent,
+        foregroundColor: AppColors.bgBase,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+        ),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: AppTextSize.title,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+        ),
+      ),
+    ),
+  );
+}
