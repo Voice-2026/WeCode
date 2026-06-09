@@ -148,7 +148,7 @@ fn remote_pairing_payload_contains_v3_transport_candidates() {
     assert_eq!(value["cryptoVersion"], 1);
     assert_eq!(
         value["protocolVersion"],
-        super::host::REMOTE_PROTOCOL_VERSION
+        super::protocol::REMOTE_PROTOCOL_VERSION
     );
     assert!(value.get("transport").is_none());
     assert!(value.get("iroh").is_none());
@@ -192,10 +192,7 @@ fn remote_relay_urls_use_v3_prefix_for_plain_domains() {
         super::relay::remote_server_url("https://codux-service.dux.plus/v3"),
         "https://codux-service.dux.plus/v3"
     );
-    assert_eq!(
-        super::relay::remote_relay_preset_for_url(""),
-        "global"
-    );
+    assert_eq!(super::relay::remote_relay_preset_for_url(""), "global");
     assert_eq!(
         super::relay::remote_relay_preset_for_url("https://codux-service.dux.plus"),
         "china"
@@ -728,6 +725,61 @@ fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
             .get("updatedAt")
             .and_then(serde_json::Value::as_str)
             .is_some()
+    );
+}
+
+#[test]
+fn remote_git_status_payload_matches_domain_shape() {
+    let payload = super::host::remote_git_status_payload(
+        "project-1".to_string(),
+        "/tmp/project-1".to_string(),
+        crate::git::GitSummary {
+            branch: "main".to_string(),
+            upstream: Some("origin/main".to_string()),
+            ahead: 2,
+            behind: 1,
+            head_pushed: true,
+            staged: 1,
+            unstaged: 2,
+            untracked: 3,
+            is_repository: true,
+            error: None,
+            changed_files: vec![crate::git::GitFileStatus {
+                path: "src/main.rs".to_string(),
+                index_status: "modified".to_string(),
+                worktree_status: "modified".to_string(),
+            }],
+            branches: vec![crate::git::GitBranchSummary {
+                name: "main".to_string(),
+                is_current: true,
+            }],
+            remote_branches: vec!["origin/main".to_string()],
+            remotes: vec![crate::git::GitRemoteSummary {
+                name: "origin".to_string(),
+                url: "https://example.test/repo.git".to_string(),
+            }],
+            commits: vec![],
+        },
+    );
+
+    assert_eq!(
+        payload.get("projectId").and_then(serde_json::Value::as_str),
+        Some("project-1")
+    );
+    assert_eq!(
+        payload.get("branch").and_then(serde_json::Value::as_str),
+        Some("main")
+    );
+    assert_eq!(
+        payload.get("changes").and_then(serde_json::Value::as_u64),
+        Some(6)
+    );
+    assert_eq!(
+        payload
+            .get("changedFiles")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::len),
+        Some(1)
     );
 }
 

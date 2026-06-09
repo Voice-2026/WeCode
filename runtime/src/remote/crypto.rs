@@ -113,7 +113,7 @@ pub(crate) fn remote_pairing_payload(
         "hostName": remote_host_name(),
         "hostPublicKey": settings.host_public_key,
         "cryptoVersion": 1,
-        "protocolVersion": super::host::REMOTE_PROTOCOL_VERSION,
+        "protocolVersion": super::protocol::REMOTE_PROTOCOL_VERSION,
         "transports": transports,
     })
 }

@@ -175,8 +175,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_name_stays_release_named() {
-        assert_eq!(app_display_name(), "Codux");
+    fn display_name_matches_build_profile() {
+        if cfg!(debug_assertions) {
+            assert_eq!(app_display_name(), "Codux Dev");
+        } else {
+            assert_eq!(app_display_name(), "Codux");
+        }
     }
 
     #[test]

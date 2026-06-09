@@ -2,6 +2,12 @@ use crate::ai_runtime::{
     AIHookEventMetadata, AIHookEventPayload, AIRuntimeBridge, AIRuntimeTerminalBinding,
     canonical_tool_name,
 };
+use alacritty_terminal::{
+    event::{Event, EventListener},
+    grid::Dimensions,
+    term::{Config as AlacrittyConfig, Term, TermMode, cell::Flags},
+    vte::ansi::{Color, NamedColor, Processor},
+};
 use anyhow::{Context, Result, anyhow};
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::{Deserialize, Serialize};
@@ -11,7 +17,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 #[cfg(not(windows))]
 use std::{
@@ -34,6 +40,7 @@ const INPUT_CAPTURE_LIMIT: usize = 20;
 const OUTPUT_CAPTURE_LIMIT: usize = 16 * 1024;
 const MIN_HISTORY_BYTES: usize = 128 * 1024;
 const MAX_CONFIGURED_HISTORY_BYTES: usize = 8 * 1024 * 1024;
+const TERMINAL_VIEWPORT_LEASE_TTL: Duration = Duration::from_secs(20);
 const COMMON_PASSTHROUGH_ENV_KEYS: &[&str] = &[
     "LANG",
     "LC_ALL",
@@ -192,6 +199,28 @@ pub enum TerminalEvent {
         session_id: String,
         message: String,
     },
+    Viewport {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        owner: String,
+        cols: u16,
+        rows: u16,
+        generation: u64,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalViewportState {
+    pub owner: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug)]
+struct TerminalViewportLease {
+    state: TerminalViewportState,
+    expires_at: Instant,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -211,6 +240,13 @@ pub struct TerminalCapturedInput {
 pub struct TerminalOutputSnapshot {
     pub bytes: usize,
     pub tail: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TerminalScreenSnapshot {
+    pub data: String,
+    pub cols: usize,
+    pub rows: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -349,6 +385,32 @@ impl TerminalManager {
         self.session(session_id)?.resize(cols, rows)
     }
 
+    pub fn claim_viewport(&self, session_id: &str, owner: &str) -> Result<TerminalViewportState> {
+        self.session(session_id)?.claim_viewport(owner)
+    }
+
+    pub fn release_viewport(
+        &self,
+        session_id: &str,
+        owner: &str,
+    ) -> Result<Option<TerminalViewportState>> {
+        self.session(session_id)?.release_viewport(owner)
+    }
+
+    pub fn resize_viewport(
+        &self,
+        session_id: &str,
+        owner: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Option<TerminalViewportState>> {
+        self.session(session_id)?.resize_viewport(owner, cols, rows)
+    }
+
+    pub fn viewport_state(&self, session_id: &str) -> Result<TerminalViewportState> {
+        Ok(self.session(session_id)?.viewport_state())
+    }
+
     pub fn subscribe_events(&self, session_id: &str, emit: EventSink) -> Result<()> {
         self.session(session_id)?.subscribe_events(emit);
         Ok(())
@@ -368,6 +430,10 @@ impl TerminalManager {
 
     pub fn snapshot_tail(&self, session_id: &str, max_chars: usize) -> Result<(String, usize)> {
         Ok(self.session(session_id)?.snapshot_tail(max_chars))
+    }
+
+    pub fn screen_snapshot(&self, session_id: &str) -> Result<TerminalScreenSnapshot> {
+        Ok(self.session(session_id)?.screen_snapshot())
     }
 
     pub fn input_snapshot(&self, session_id: &str) -> Result<TerminalInputSnapshot> {
@@ -423,6 +489,7 @@ pub struct TerminalPtySession {
     input_capture: Arc<parking_lot::Mutex<TerminalInputCapture>>,
     output_capture: Arc<parking_lot::Mutex<TerminalOutputCapture>>,
     history: Arc<parking_lot::Mutex<RingHistory>>,
+    screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
     output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
     event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
@@ -430,12 +497,16 @@ pub struct TerminalPtySession {
     _child: Arc<parking_lot::Mutex<Box<dyn Child + Send + Sync>>>,
     killer: Arc<parking_lot::Mutex<Box<dyn ChildKiller + Send + Sync>>>,
     pty_master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
+    viewport: Arc<parking_lot::Mutex<TerminalViewportLease>>,
 }
 
 #[derive(Clone)]
 pub struct TerminalPtySessionHandle {
     pty_master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
+    viewport: Arc<parking_lot::Mutex<TerminalViewportLease>>,
+    event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
+    screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
 }
 
 impl TerminalPtySession {
@@ -507,6 +578,11 @@ impl TerminalPtySession {
         let history = Arc::new(parking_lot::Mutex::new(RingHistory::new(
             terminal_history_bytes(config.scrollback_lines, cols),
         )));
+        let screen = Arc::new(parking_lot::Mutex::new(HeadlessTerminalScreen::new(
+            cols as usize,
+            rows as usize,
+            config.scrollback_lines.unwrap_or(1000),
+        )));
         let output_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let event_subscribers = Arc::new(parking_lot::Mutex::new(Vec::new()));
         if let Some(event_sink) = event_sink {
@@ -570,6 +646,15 @@ impl TerminalPtySession {
             buffer_characters: 0,
             has_buffer: false,
         }));
+        let viewport = Arc::new(parking_lot::Mutex::new(TerminalViewportLease {
+            state: TerminalViewportState {
+                owner: terminal_viewport_local_owner().to_string(),
+                cols,
+                rows,
+                generation: 0,
+            },
+            expires_at: Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL,
+        }));
         let ai_runtime_binding = AIRuntimeTerminalBinding {
             terminal_id: id.clone(),
             project_id,
@@ -597,6 +682,7 @@ impl TerminalPtySession {
             reader,
             output_capture.clone(),
             history.clone(),
+            screen.clone(),
             output_subscribers.clone(),
             event_subscribers.clone(),
             info.clone(),
@@ -608,6 +694,7 @@ impl TerminalPtySession {
                 input_capture,
                 output_capture,
                 history,
+                screen,
                 output_subscribers,
                 event_subscribers,
                 info,
@@ -615,6 +702,7 @@ impl TerminalPtySession {
                 _child: child,
                 killer: Arc::new(parking_lot::Mutex::new(killer)),
                 pty_master,
+                viewport,
             },
             Box::new(terminal_writer),
             Box::new(terminal_reader),
@@ -629,11 +717,35 @@ impl TerminalPtySession {
         TerminalPtySessionHandle {
             pty_master: self.pty_master.clone(),
             info: self.info.clone(),
+            viewport: self.viewport.clone(),
+            event_subscribers: self.event_subscribers.clone(),
+            screen: self.screen.clone(),
         }
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         self.clone_handle().resize(cols, rows)
+    }
+
+    pub fn claim_viewport(&self, owner: &str) -> Result<TerminalViewportState> {
+        self.clone_handle().claim_viewport(owner)
+    }
+
+    pub fn release_viewport(&self, owner: &str) -> Result<Option<TerminalViewportState>> {
+        self.clone_handle().release_viewport(owner)
+    }
+
+    pub fn resize_viewport(
+        &self,
+        owner: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Option<TerminalViewportState>> {
+        self.clone_handle().resize_viewport(owner, cols, rows)
+    }
+
+    pub fn viewport_state(&self) -> TerminalViewportState {
+        self.clone_handle().viewport_state()
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
@@ -673,12 +785,17 @@ impl TerminalPtySession {
         self.history.lock().tail_text(max_chars)
     }
 
+    pub fn screen_snapshot(&self) -> TerminalScreenSnapshot {
+        self.screen.lock().snapshot()
+    }
+
     pub fn buffer_characters(&self) -> usize {
         self.history.lock().len_chars()
     }
 
     pub fn clear_history(&self) {
         self.history.lock().clear();
+        self.screen.lock().clear();
         let mut info = self.info.lock();
         info.buffer_characters = 0;
         info.has_buffer = false;
@@ -707,19 +824,415 @@ impl TerminalPtySession {
 
 impl TerminalPtySessionHandle {
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        self.resize_viewport(terminal_viewport_local_owner(), cols, rows)
+            .map(|_| ())
+    }
+
+    pub fn claim_viewport(&self, owner: &str) -> Result<TerminalViewportState> {
+        let owner = terminal_viewport_owner(owner);
+        let mut viewport = self.viewport.lock();
+        let state = &mut viewport.state;
+        let now = Instant::now();
+        let owner_changed = state.owner != owner;
+        if state.owner != owner {
+            state.owner = owner;
+            state.generation = state.generation.saturating_add(1);
+        }
+        viewport.expires_at = now + TERMINAL_VIEWPORT_LEASE_TTL;
+        let state = viewport.state.clone();
+        drop(viewport);
+        if owner_changed {
+            self.emit_viewport_state(&state);
+        }
+        Ok(state)
+    }
+
+    pub fn release_viewport(&self, owner: &str) -> Result<Option<TerminalViewportState>> {
+        let owner = terminal_viewport_owner(owner);
+        let mut viewport = self.viewport.lock();
+        if viewport.state.owner != owner {
+            return Ok(None);
+        }
+        viewport.state.owner = terminal_viewport_local_owner().to_string();
+        viewport.state.generation = viewport.state.generation.saturating_add(1);
+        viewport.expires_at = Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL;
+        let state = viewport.state.clone();
+        drop(viewport);
+        self.emit_viewport_state(&state);
+        Ok(Some(state))
+    }
+
+    pub fn resize_viewport(
+        &self,
+        owner: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Option<TerminalViewportState>> {
+        let owner = terminal_viewport_owner(owner);
         let cols = cols.max(20);
         let rows = rows.max(8);
+        let mut viewport = self.viewport.lock();
+        if viewport.state.owner != owner {
+            return Ok(None);
+        }
+        viewport.expires_at = Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL;
+        if viewport.state.cols == cols && viewport.state.rows == rows {
+            return Ok(Some(viewport.state.clone()));
+        }
         self.pty_master.lock().resize(PtySize {
             cols,
             rows,
             pixel_width: 0,
             pixel_height: 0,
         })?;
-        let mut info = self.info.lock();
-        info.cols = cols;
-        info.rows = rows;
-        info.last_active_at = rfc3339_now();
-        Ok(())
+        {
+            let mut info = self.info.lock();
+            info.cols = cols;
+            info.rows = rows;
+            info.last_active_at = rfc3339_now();
+        }
+        self.screen.lock().resize(cols as usize, rows as usize);
+        viewport.state.cols = cols;
+        viewport.state.rows = rows;
+        viewport.state.generation = viewport.state.generation.saturating_add(1);
+        let state = viewport.state.clone();
+        drop(viewport);
+        self.emit_viewport_state(&state);
+        Ok(Some(state))
+    }
+
+    pub fn viewport_state(&self) -> TerminalViewportState {
+        self.viewport.lock().state.clone()
+    }
+
+    fn emit_viewport_state(&self, state: &TerminalViewportState) {
+        let session_id = self.info.lock().id.clone();
+        emit_terminal_event(
+            &self.event_subscribers,
+            TerminalEvent::Viewport {
+                session_id,
+                owner: state.owner.clone(),
+                cols: state.cols,
+                rows: state.rows,
+                generation: state.generation,
+            },
+        );
+    }
+}
+
+pub fn terminal_viewport_local_owner() -> &'static str {
+    "desktop"
+}
+
+pub fn terminal_viewport_remote_owner(device_id: &str) -> String {
+    format!("remote:{}", device_id.trim())
+}
+
+fn terminal_viewport_owner(owner: &str) -> String {
+    let owner = owner.trim();
+    if owner.is_empty() {
+        terminal_viewport_local_owner().to_string()
+    } else {
+        owner.to_string()
+    }
+}
+
+struct HeadlessTerminalScreen {
+    term: Term<HeadlessEventProxy>,
+    parser: Processor,
+    cols: usize,
+    rows: usize,
+    scrollback: usize,
+}
+
+impl HeadlessTerminalScreen {
+    fn new(cols: usize, rows: usize, scrollback: usize) -> Self {
+        let config = AlacrittyConfig {
+            scrolling_history: scrollback,
+            ..Default::default()
+        };
+        let size = HeadlessTermSize::new(cols, rows);
+        Self {
+            term: Term::new(config, &size, HeadlessEventProxy),
+            parser: Processor::new(),
+            cols,
+            rows,
+            scrollback,
+        }
+    }
+
+    fn process(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.parser.advance(&mut self.term, bytes);
+    }
+
+    fn resize(&mut self, cols: usize, rows: usize) {
+        let cols = cols.max(20);
+        let rows = rows.max(8);
+        if self.cols == cols && self.rows == rows {
+            return;
+        }
+        self.cols = cols;
+        self.rows = rows;
+        self.term.resize(HeadlessTermSize::new(cols, rows));
+    }
+
+    fn clear(&mut self) {
+        *self = Self::new(self.cols, self.rows, self.scrollback);
+    }
+
+    fn snapshot(&self) -> TerminalScreenSnapshot {
+        TerminalScreenSnapshot {
+            data: headless_screen_redraw(&self.term),
+            cols: self.term.columns(),
+            rows: self.term.screen_lines(),
+        }
+    }
+}
+
+struct HeadlessTermSize {
+    cols: usize,
+    rows: usize,
+}
+
+impl HeadlessTermSize {
+    fn new(cols: usize, rows: usize) -> Self {
+        Self { cols, rows }
+    }
+}
+
+impl Dimensions for HeadlessTermSize {
+    fn total_lines(&self) -> usize {
+        self.rows
+    }
+
+    fn screen_lines(&self) -> usize {
+        self.rows
+    }
+
+    fn columns(&self) -> usize {
+        self.cols
+    }
+}
+
+#[derive(Clone)]
+struct HeadlessEventProxy;
+
+impl EventListener for HeadlessEventProxy {
+    fn send_event(&self, _event: Event) {}
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct HeadlessCellStyle {
+    fg: Color,
+    bg: Color,
+    flags: Flags,
+}
+
+impl Default for HeadlessCellStyle {
+    fn default() -> Self {
+        Self {
+            fg: Color::Named(NamedColor::Foreground),
+            bg: Color::Named(NamedColor::Background),
+            flags: Flags::empty(),
+        }
+    }
+}
+
+fn headless_screen_redraw(term: &Term<HeadlessEventProxy>) -> String {
+    let content = term.renderable_content();
+    let cols = term.columns();
+    let rows = term.screen_lines();
+    let mut rows_cells = vec![vec![None; cols]; rows];
+    let display_offset = content.display_offset;
+    let cursor = content.cursor;
+    let cursor_visible = content.mode.contains(TermMode::SHOW_CURSOR);
+
+    for indexed in content.display_iter {
+        let row = indexed.point.line.0 + display_offset as i32;
+        if row < 0 {
+            continue;
+        }
+        let row = row as usize;
+        let col = indexed.point.column.0;
+        if row >= rows || col >= cols {
+            continue;
+        }
+        if indexed
+            .cell
+            .flags
+            .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+            || indexed.cell.c == '\0'
+        {
+            continue;
+        }
+        let mut text = indexed.cell.c.to_string();
+        if let Some(zerowidth) = indexed.cell.zerowidth() {
+            for ch in zerowidth {
+                text.push(*ch);
+            }
+        }
+        rows_cells[row][col] = Some(HeadlessScreenCell {
+            text,
+            width: if indexed.cell.flags.contains(Flags::WIDE_CHAR) {
+                2
+            } else {
+                1
+            },
+            style: HeadlessCellStyle {
+                fg: indexed.cell.fg,
+                bg: indexed.cell.bg,
+                flags: headless_visual_flags(indexed.cell.flags),
+            },
+        });
+    }
+
+    let mut output = String::new();
+    output.push_str("\x1b[?25l\x1b[0m\x1b[H\x1b[2J");
+    let mut current_style = HeadlessCellStyle::default();
+    for (row_index, cells) in rows_cells.iter().enumerate() {
+        let Some(last_col) = cells.iter().rposition(|cell| {
+            cell.as_ref()
+                .map(|cell| {
+                    !cell.text.trim().is_empty() || cell.style != HeadlessCellStyle::default()
+                })
+                .unwrap_or(false)
+        }) else {
+            continue;
+        };
+        output.push_str(&format!("\x1b[{};1H", row_index + 1));
+        let mut col = 0;
+        while col <= last_col {
+            match &cells[col] {
+                Some(cell) => {
+                    if cell.style != current_style {
+                        output.push_str(&headless_style_sgr(cell.style));
+                        current_style = cell.style;
+                    }
+                    output.push_str(&terminal_snapshot_text(&cell.text));
+                    col += cell.width;
+                }
+                None => {
+                    output.push(' ');
+                    col += 1;
+                }
+            }
+        }
+    }
+    if current_style != HeadlessCellStyle::default() {
+        output.push_str("\x1b[0m");
+    }
+
+    let cursor_row = cursor.point.line.0 + display_offset as i32;
+    if cursor_row >= 0 {
+        let cursor_row = (cursor_row as usize).min(rows.saturating_sub(1));
+        let cursor_col = cursor.point.column.0.min(cols.saturating_sub(1));
+        output.push_str(&format!("\x1b[{};{}H", cursor_row + 1, cursor_col + 1));
+    }
+    if cursor_visible {
+        output.push_str("\x1b[?25h");
+    }
+    output
+}
+
+#[derive(Clone)]
+struct HeadlessScreenCell {
+    text: String,
+    width: usize,
+    style: HeadlessCellStyle,
+}
+
+fn terminal_snapshot_text(text: &str) -> String {
+    text.chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
+}
+
+fn headless_style_sgr(style: HeadlessCellStyle) -> String {
+    let mut codes = vec!["0".to_string()];
+    if style.flags.contains(Flags::BOLD) {
+        codes.push("1".to_string());
+    }
+    if style.flags.contains(Flags::DIM) {
+        codes.push("2".to_string());
+    }
+    if style.flags.contains(Flags::ITALIC) {
+        codes.push("3".to_string());
+    }
+    if style.flags.intersects(Flags::ALL_UNDERLINES) {
+        codes.push("4".to_string());
+    }
+    if style.flags.contains(Flags::INVERSE) {
+        codes.push("7".to_string());
+    }
+    if style.flags.contains(Flags::HIDDEN) {
+        codes.push("8".to_string());
+    }
+    if style.flags.contains(Flags::STRIKEOUT) {
+        codes.push("9".to_string());
+    }
+    headless_color_sgr(style.fg, false, &mut codes);
+    headless_color_sgr(style.bg, true, &mut codes);
+    format!("\x1b[{}m", codes.join(";"))
+}
+
+fn headless_visual_flags(flags: Flags) -> Flags {
+    flags
+        & !(Flags::WIDE_CHAR
+            | Flags::WIDE_CHAR_SPACER
+            | Flags::LEADING_WIDE_CHAR_SPACER
+            | Flags::WRAPLINE)
+}
+
+fn headless_color_sgr(color: Color, background: bool, codes: &mut Vec<String>) {
+    match color {
+        Color::Named(named) => {
+            if let Some(code) = headless_named_color_sgr(named, background) {
+                codes.push(code.to_string());
+            }
+        }
+        Color::Spec(rgb) => {
+            codes.push(if background { "48" } else { "38" }.to_string());
+            codes.push("2".to_string());
+            codes.push(rgb.r.to_string());
+            codes.push(rgb.g.to_string());
+            codes.push(rgb.b.to_string());
+        }
+        Color::Indexed(index) => {
+            codes.push(if background { "48" } else { "38" }.to_string());
+            codes.push("5".to_string());
+            codes.push(index.to_string());
+        }
+    }
+}
+
+fn headless_named_color_sgr(named: NamedColor, background: bool) -> Option<u16> {
+    let base = if background { 40 } else { 30 };
+    let bright = if background { 100 } else { 90 };
+    let reset = if background { 49 } else { 39 };
+    match named {
+        NamedColor::Black | NamedColor::DimBlack => Some(base),
+        NamedColor::Red | NamedColor::DimRed => Some(base + 1),
+        NamedColor::Green | NamedColor::DimGreen => Some(base + 2),
+        NamedColor::Yellow | NamedColor::DimYellow => Some(base + 3),
+        NamedColor::Blue | NamedColor::DimBlue => Some(base + 4),
+        NamedColor::Magenta | NamedColor::DimMagenta => Some(base + 5),
+        NamedColor::Cyan | NamedColor::DimCyan => Some(base + 6),
+        NamedColor::White | NamedColor::DimWhite => Some(base + 7),
+        NamedColor::BrightBlack => Some(bright),
+        NamedColor::BrightRed => Some(bright + 1),
+        NamedColor::BrightGreen => Some(bright + 2),
+        NamedColor::BrightYellow => Some(bright + 3),
+        NamedColor::BrightBlue => Some(bright + 4),
+        NamedColor::BrightMagenta => Some(bright + 5),
+        NamedColor::BrightCyan => Some(bright + 6),
+        NamedColor::BrightWhite | NamedColor::BrightForeground => Some(bright + 7),
+        NamedColor::Foreground | NamedColor::DimForeground if !background => Some(reset),
+        NamedColor::Background if background => Some(reset),
+        NamedColor::Foreground | NamedColor::DimForeground | NamedColor::Background => None,
+        NamedColor::Cursor => None,
     }
 }
 
@@ -728,6 +1241,7 @@ struct CaptureReader {
     inner: Box<dyn Read + Send>,
     output_capture: Arc<parking_lot::Mutex<TerminalOutputCapture>>,
     history: Arc<parking_lot::Mutex<RingHistory>>,
+    screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
     output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
     event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
     info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
@@ -740,6 +1254,7 @@ impl CaptureReader {
         inner: Box<dyn Read + Send>,
         output_capture: Arc<parking_lot::Mutex<TerminalOutputCapture>>,
         history: Arc<parking_lot::Mutex<RingHistory>>,
+        screen: Arc<parking_lot::Mutex<HeadlessTerminalScreen>>,
         output_subscribers: Arc<parking_lot::Mutex<Vec<flume::Sender<Vec<u8>>>>>,
         event_subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>>,
         info: Arc<parking_lot::Mutex<TerminalSessionSnapshot>>,
@@ -749,6 +1264,7 @@ impl CaptureReader {
             inner,
             output_capture,
             history,
+            screen,
             output_subscribers,
             event_subscribers,
             info,
@@ -767,6 +1283,7 @@ impl Read for CaptureReader {
         if read > 0 {
             let bytes = &buf[..read];
             self.output_capture.lock().push(bytes);
+            self.screen.lock().process(bytes);
             self.broadcast_output(bytes);
             let text = decode_utf8_output(bytes, &mut self.pending_utf8);
             if !text.is_empty() {
@@ -988,31 +1505,112 @@ impl RingHistory {
         if max_chars == 0 || self.len_chars <= max_chars {
             return (self.to_text(), 0);
         }
-        let mut remaining = max_chars;
-        let mut parts = Vec::new();
-        for chunk in self.chunks.iter().rev() {
-            if remaining == 0 {
-                break;
-            }
-            let chunk_chars = chunk.chars().count();
-            if chunk_chars <= remaining {
-                parts.push(chunk.clone());
-                remaining -= chunk_chars;
-            } else {
-                let tail = chunk
-                    .chars()
-                    .skip(chunk_chars - remaining)
-                    .collect::<String>();
-                parts.push(tail);
-                remaining = 0;
-            }
-        }
-        parts.reverse();
-        (parts.concat(), self.len_chars.saturating_sub(max_chars))
+        let text = self.to_text();
+        let start_chars = self.len_chars.saturating_sub(max_chars);
+        let start_byte = byte_index_for_char_offset(&text, start_chars);
+        let safe_start_byte = ansi_safe_snapshot_start(&text, start_byte);
+        let safe_start_chars = text[..safe_start_byte].chars().count();
+        (text[safe_start_byte..].to_string(), safe_start_chars)
     }
 
     fn len_chars(&self) -> usize {
         self.len_chars
+    }
+}
+
+fn byte_index_for_char_offset(text: &str, char_offset: usize) -> usize {
+    if char_offset == 0 {
+        return 0;
+    }
+    text.char_indices()
+        .nth(char_offset)
+        .map(|(index, _)| index)
+        .unwrap_or(text.len())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AnsiSequenceState {
+    Ground,
+    Escape,
+    Csi,
+    Osc,
+    OscEscape,
+    String,
+    StringEscape,
+}
+
+fn ansi_safe_snapshot_start(text: &str, start_byte: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut state = AnsiSequenceState::Ground;
+    let mut index = 0;
+    while index < start_byte {
+        state = ansi_sequence_next_state(state, bytes[index]);
+        index += 1;
+    }
+    if state == AnsiSequenceState::Ground {
+        return start_byte;
+    }
+    while index < bytes.len() {
+        state = ansi_sequence_next_state(state, bytes[index]);
+        index += 1;
+        if state == AnsiSequenceState::Ground {
+            return index;
+        }
+    }
+    bytes.len()
+}
+
+fn ansi_sequence_next_state(state: AnsiSequenceState, byte: u8) -> AnsiSequenceState {
+    match state {
+        AnsiSequenceState::Ground => match byte {
+            0x1b => AnsiSequenceState::Escape,
+            0x9b => AnsiSequenceState::Csi,
+            0x9d => AnsiSequenceState::Osc,
+            0x90 | 0x98 | 0x9e | 0x9f => AnsiSequenceState::String,
+            _ => AnsiSequenceState::Ground,
+        },
+        AnsiSequenceState::Escape => match byte {
+            b'[' => AnsiSequenceState::Csi,
+            b']' => AnsiSequenceState::Osc,
+            b'P' | b'X' | b'^' | b'_' => AnsiSequenceState::String,
+            0x20..=0x2f => AnsiSequenceState::Escape,
+            _ => AnsiSequenceState::Ground,
+        },
+        AnsiSequenceState::Csi => {
+            if (0x40..=0x7e).contains(&byte) {
+                AnsiSequenceState::Ground
+            } else {
+                AnsiSequenceState::Csi
+            }
+        }
+        AnsiSequenceState::Osc => match byte {
+            0x07 => AnsiSequenceState::Ground,
+            0x1b => AnsiSequenceState::OscEscape,
+            _ => AnsiSequenceState::Osc,
+        },
+        AnsiSequenceState::OscEscape => {
+            if byte == b'\\' {
+                AnsiSequenceState::Ground
+            } else if byte == 0x1b {
+                AnsiSequenceState::OscEscape
+            } else {
+                AnsiSequenceState::Osc
+            }
+        }
+        AnsiSequenceState::String => match byte {
+            0x07 => AnsiSequenceState::Ground,
+            0x1b => AnsiSequenceState::StringEscape,
+            _ => AnsiSequenceState::String,
+        },
+        AnsiSequenceState::StringEscape => {
+            if byte == b'\\' {
+                AnsiSequenceState::Ground
+            } else if byte == 0x1b {
+                AnsiSequenceState::StringEscape
+            } else {
+                AnsiSequenceState::String
+            }
+        }
     }
 }
 
@@ -2248,6 +2846,74 @@ mod tests {
 
         assert_eq!(history.tail_text(5), ("world".to_string(), 6));
         assert_eq!(history.tail_text(20), ("hello world".to_string(), 0));
+    }
+
+    #[test]
+    fn terminal_history_tail_starts_after_partial_csi_sequence() {
+        let mut history = RingHistory::new(1024);
+        history.push_text("line 1\n");
+        history.push_text("\x1b[12;27Hprompt");
+
+        let (tail, offset) = history.tail_text(9);
+
+        assert_eq!(tail, "prompt");
+        assert_eq!(offset, "line 1\n\x1b[12;27H".chars().count());
+    }
+
+    #[test]
+    fn terminal_history_tail_starts_after_partial_osc_sequence() {
+        let mut history = RingHistory::new(1024);
+        history.push_text("line 1\n");
+        history.push_text("\x1b]0;Codux\x07prompt");
+
+        let (tail, offset) = history.tail_text(10);
+
+        assert_eq!(tail, "prompt");
+        assert_eq!(offset, "line 1\n\x1b]0;Codux\x07".chars().count());
+    }
+
+    #[test]
+    fn headless_screen_snapshot_replays_current_screen_not_raw_tail() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"old line\n\x1b[2J\x1b[Htop\x1b[3;5Hbottom");
+
+        let snapshot = screen.snapshot();
+
+        assert!(snapshot.data.contains("\x1b[H\x1b[2J"));
+        assert!(snapshot.data.contains("top"));
+        assert!(snapshot.data.contains("bottom"));
+        assert!(!snapshot.data.contains("old line"));
+        assert_eq!(snapshot.cols, 20);
+        assert_eq!(snapshot.rows, 4);
+    }
+
+    #[test]
+    fn headless_screen_snapshot_tracks_resize() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.resize(30, 10);
+        screen.process(b"ready");
+
+        let snapshot = screen.snapshot();
+
+        assert!(snapshot.data.contains("ready"));
+        assert_eq!(snapshot.cols, 30);
+        assert_eq!(snapshot.rows, 10);
+    }
+
+    #[test]
+    fn headless_screen_snapshot_does_not_insert_spaces_after_wide_chars() {
+        let mut screen = HeadlessTerminalScreen::new(40, 4, 100);
+        screen.process("第 2003行 测 试 文 本".as_bytes());
+
+        let snapshot = screen.snapshot();
+
+        assert!(
+            snapshot.data.contains("第 2003行 测 试 文 本"),
+            "{}",
+            snapshot.data.escape_debug()
+        );
+        assert!(!snapshot.data.contains("第  2003"));
+        assert!(!snapshot.data.contains("测  试"));
     }
 
     #[test]

@@ -113,8 +113,11 @@ Codux Mobile connects to the desktop host through the v3 remote path.
 - Use the global public relay by leaving the relay setting empty, choose the China node when needed, or configure a custom relay endpoint.
 - Prefer WebRTC DataChannel when a direct path is available and fall back to WebSocket relay when P2P cannot connect.
 - Keep projects, terminals, files, and AI sessions running on the desktop host while mobile controls the session remotely.
+- Use one runtime protocol model across transport drivers: local, WebRTC, WebSocket relay, and future transports all feed the same project, terminal, file, Git/worktree, and AI-stat state.
 
 Terminal input, output, file payloads, project lists, and AI stats are encrypted between Codux Desktop and Codux Mobile.
+
+For implementation boundaries and the v3.1 protocol shape, see [Remote Protocol Architecture](docs/remote-protocol-architecture.md).
 
 ## Custom Pets
 

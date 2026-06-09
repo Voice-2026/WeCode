@@ -113,8 +113,11 @@ Codux Mobile 通过 v3 远程链路连接桌面端。
 - Relay 设置留空使用全球公共节点，也可以选择 China 节点或配置自定义 Relay 地址。
 - 可直连时优先使用 WebRTC DataChannel，P2P 不可用时回落 WebSocket 中继。
 - 项目、终端、文件和 AI 会话始终运行在桌面端，移动端只负责远程控制。
+- local、WebRTC、WebSocket Relay 和未来传输驱动都进入同一个 runtime 协议模型，由项目、终端、文件、Git/worktree 和 AI 统计状态统一承接。
 
 终端输入输出、文件内容、项目列表和 AI 统计都会在 Codux Desktop 与 Codux Mobile 之间加密传输。
+
+协议边界和 v3.1 分层说明见 [Remote Protocol Architecture](docs/remote-protocol-architecture.md)。
 
 ## 自定义宠物
 

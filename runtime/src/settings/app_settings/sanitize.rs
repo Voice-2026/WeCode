@@ -43,12 +43,12 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
         settings.icon_style = default_icon_style();
     }
     let remote_server_url = settings.remote.server_url.trim().to_string();
-    settings.remote.relay_preset = sanitize_remote_relay_preset(
+    settings.remote.relay_preset =
+        sanitize_remote_relay_preset(&settings.remote.relay_preset, &remote_server_url);
+    settings.remote.server_url = crate::remote::remote_relay_url_for_preset(
         &settings.remote.relay_preset,
         &remote_server_url,
     );
-    settings.remote.server_url =
-        crate::remote::remote_relay_url_for_preset(&settings.remote.relay_preset, &remote_server_url);
     settings
         .remote
         .cached_devices

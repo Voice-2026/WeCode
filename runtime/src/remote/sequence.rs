@@ -9,7 +9,12 @@ pub(crate) struct RemoteSequenceGuard {
 }
 
 impl RemoteSequenceGuard {
-    pub(crate) fn accept(&mut self, kind: &str, session_id: Option<&str>, seq: Option<i64>) -> bool {
+    pub(crate) fn accept(
+        &mut self,
+        kind: &str,
+        session_id: Option<&str>,
+        seq: Option<i64>,
+    ) -> bool {
         let Some(seq) = seq else {
             return true;
         };

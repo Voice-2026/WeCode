@@ -6,3 +6,4 @@
 /release-artifacts-local/
 /runtime/target/
 /runtime/Cargo.lock
+/plan/

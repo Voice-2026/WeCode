@@ -3,12 +3,14 @@ mod devices;
 mod envelope;
 mod host;
 mod pairing;
+mod protocol;
 mod registration;
 mod relay;
 mod sequence;
 mod settings;
 mod summary;
 mod sync;
+mod terminal_subscriptions;
 mod transport;
 mod transport_factory;
 mod types;
@@ -18,6 +20,7 @@ mod websocket_transport;
 use std::path::PathBuf;
 
 pub use host::RemoteHostRuntime;
+pub use protocol::REMOTE_PROTOCOL_VERSION;
 pub use relay::{
     CHINA_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, remote_relay_preset_for_url,
     remote_relay_url_for_preset,

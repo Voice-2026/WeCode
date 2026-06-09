@@ -12,7 +12,7 @@ use alacritty_terminal::{
 use anyhow::Result;
 use codux_runtime::terminal_pty::{
     TerminalEvent, TerminalInputSnapshot, TerminalManager, TerminalOutputSnapshot,
-    TerminalPtyConfig, TerminalPtySession,
+    TerminalPtyConfig, TerminalPtySession, terminal_viewport_local_owner,
 };
 use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Edges, Element,
@@ -65,6 +65,9 @@ impl TerminalPane {
                 let _ = session_event_tx.send(TerminalUiEvent::Error(message));
             }
             TerminalEvent::Output { .. } => {}
+            TerminalEvent::Viewport { cols, rows, .. } => {
+                let _ = session_event_tx.send(TerminalUiEvent::Viewport { cols, rows });
+            }
         });
         let terminal_id = config.terminal_id.clone();
         let attach_started_at = Instant::now();
@@ -169,6 +172,9 @@ impl TerminalPane {
                 let _ = session_event_tx.send(TerminalUiEvent::Error(message));
             }
             TerminalEvent::Output { .. } => {}
+            TerminalEvent::Viewport { cols, rows, .. } => {
+                let _ = session_event_tx.send(TerminalUiEvent::Viewport { cols, rows });
+            }
         });
         let attach_started_at = Instant::now();
         let (session, output_rx) =
@@ -327,7 +333,9 @@ impl TerminalSessionBinding {
             (std::mem::take(&mut inner.pending_writes), inner.last_resize)
         };
         if let Some((cols, rows)) = last_resize {
-            session.clone_handle().resize(cols, rows)?;
+            session
+                .clone_handle()
+                .resize_viewport(terminal_viewport_local_owner(), cols, rows)?;
         }
         for bytes in pending_writes {
             session.write(&bytes)?;
@@ -359,20 +367,42 @@ impl TerminalSessionBinding {
             let _ = tx.send((cols, rows));
         }
         if let Some(session) = session {
-            session.clone_handle().resize(cols, rows)?;
+            session
+                .clone_handle()
+                .resize_viewport(terminal_viewport_local_owner(), cols, rows)?;
         }
         Ok(())
     }
 
-    fn record_layout(&self, cols: u16, rows: u16) {
+    fn claim_local_viewport(&self) -> Result<()> {
+        if let Some(session) = self.inner.lock().session.clone() {
+            session
+                .clone_handle()
+                .claim_viewport(terminal_viewport_local_owner())?;
+        }
+        Ok(())
+    }
+
+    fn local_viewport_owns(&self) -> bool {
+        self.inner
+            .lock()
+            .session
+            .as_ref()
+            .map(|session| session.viewport_state().owner == terminal_viewport_local_owner())
+            .unwrap_or(true)
+    }
+
+    fn record_layout(&self, cols: u16, rows: u16) -> bool {
         let initial_layout_tx = {
             let mut inner = self.inner.lock();
+            let changed = inner.last_resize != Some((cols, rows));
             inner.last_resize = Some((cols, rows));
-            inner.initial_layout_tx.take()
+            (inner.initial_layout_tx.take(), changed)
         };
-        if let Some(tx) = initial_layout_tx {
+        if let Some(tx) = initial_layout_tx.0 {
             let _ = tx.send((cols, rows));
         }
+        initial_layout_tx.1
     }
 
     fn input_snapshot(&self) -> TerminalInputSnapshot {
@@ -962,6 +992,9 @@ impl TerminalView {
                     view.model.update(cx, |model, _| model.set_focused(true));
                     view.blink_manager.update(cx, TerminalBlinkManager::enable);
                     view.report_focus_change(true, cx);
+                    if let Err(error) = view.session.claim_local_viewport() {
+                        eprintln!("failed to claim terminal viewport: {error}");
+                    }
                     if let Some(observer) = view.focus_observer.clone() {
                         cx.defer_in(window, move |_, window, cx| {
                             observer(window, cx);
@@ -1699,6 +1732,19 @@ impl TerminalModel {
                 self.title = Some(format!("Terminal error: {message}"));
                 *should_notify = true;
             }
+            TerminalUiEvent::Viewport { cols, rows } => {
+                self.resize(
+                    cols as usize,
+                    rows as usize,
+                    WindowSize {
+                        num_lines: rows,
+                        num_cols: cols,
+                        cell_width: self.window_size.cell_width,
+                        cell_height: self.window_size.cell_height,
+                    },
+                );
+                *should_notify = true;
+            }
         }
     }
 
@@ -2401,13 +2447,26 @@ impl Element for TerminalElement {
             cols,
             rows,
         );
-        self.session.record_layout(cols as u16, rows as u16);
+        let layout_changed = self.session.record_layout(cols as u16, rows as u16);
+        if self.cursor_focused && layout_changed {
+            if let Err(error) = self.session.claim_local_viewport() {
+                eprintln!("failed to claim terminal viewport: {error}");
+            }
+        }
 
-        let resized = self.model.read(cx).dimensions() != (cols, rows);
         let window_size = self.layout.lock().window_size();
-        self.model
-            .update(cx, |model, _| model.resize(cols, rows, window_size));
-        if resized && let Err(error) = self.session.resize(cols as u16, rows as u16) {
+        let local_owner = self.session.local_viewport_owns();
+        let (model_cols, model_rows) = self.model.read(cx).dimensions();
+        let next_cols = if local_owner { cols } else { model_cols };
+        let next_rows = if local_owner { rows } else { model_rows };
+        let resized = self.model.read(cx).dimensions() != (next_cols, next_rows);
+        self.model.update(cx, |model, _| {
+            model.resize(next_cols, next_rows, window_size)
+        });
+        if local_owner
+            && resized
+            && let Err(error) = self.session.resize(next_cols as u16, next_rows as u16)
+        {
             eprintln!("failed to resize terminal pty: {error}");
         }
 
@@ -3058,6 +3117,7 @@ enum TerminalUiEvent {
     Bell,
     Title(String),
     Error(String),
+    Viewport { cols: u16, rows: u16 },
     ClipboardStore(String),
     ClipboardLoad,
     PtyWrite(Vec<u8>),

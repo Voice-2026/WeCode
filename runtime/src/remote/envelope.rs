@@ -27,7 +27,9 @@ impl RemoteService {
         let mut inner = serde_json::from_slice::<RemoteEnvelope>(&plaintext)
             .map_err(|error| error.to_string())?;
         if inner.seq.is_some() {
-            let guard = receive_sequence_by_device.entry(device_id.clone()).or_default();
+            let guard = receive_sequence_by_device
+                .entry(device_id.clone())
+                .or_default();
             if !guard.accept(&inner.kind, inner.session_id.as_deref(), inner.seq) {
                 return Ok(None);
             }
