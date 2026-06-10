@@ -242,11 +242,7 @@ fn merge_claude_tasks(
     left
 }
 
-fn parse_claude_task_tool_uses(
-    message: &Value,
-    timestamp: f64,
-    aggregate: &mut ClaudeAggregate,
-) {
+fn parse_claude_task_tool_uses(message: &Value, timestamp: f64, aggregate: &mut ClaudeAggregate) {
     let Some(content) = message.get("content").and_then(|value| value.as_array()) else {
         return;
     };

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../i18n.dart';
 import '../models/remote_models.dart';
+import '../services/remote_protocol.dart';
 import '../theme/app_theme.dart';
 import 'dropdown_overlay.dart';
 
@@ -105,7 +106,10 @@ class _DeviceRow extends StatelessWidget {
     final name = device.hostName?.isNotEmpty == true
         ? device.hostName!
         : device.name;
-    final protocol = _deviceProtocolLabel(context, device.transport);
+    final protocol = _deviceProtocolLabel(
+      context,
+      _deviceTransportKind(device),
+    );
     return InkWell(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -167,4 +171,9 @@ String _deviceProtocolLabel(BuildContext context, String transport) {
     'webrtc' => prefs.t('connection.protocol.webrtc'),
     _ => transport.toUpperCase(),
   };
+}
+
+String _deviceTransportKind(StoredDevice device) {
+  final kind = remotePreferredTransportKind(device.transports, pairing: false);
+  return kind.isEmpty ? RemoteTransportKind.websocketRelay : kind;
 }

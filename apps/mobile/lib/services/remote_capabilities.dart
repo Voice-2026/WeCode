@@ -4,8 +4,6 @@ class TerminalBufferCapability {
     this.maxChars = mobileMaxChars,
     this.chunkChars = 16384,
     this.requestId = false,
-    this.tailSnapshot = false,
-    this.screenSnapshot = false,
   });
 
   static const int mobileMaxChars = 65536;
@@ -14,8 +12,6 @@ class TerminalBufferCapability {
   final int maxChars;
   final int chunkChars;
   final bool requestId;
-  final bool tailSnapshot;
-  final bool screenSnapshot;
 
   static const fallback = TerminalBufferCapability();
 
@@ -44,8 +40,6 @@ class TerminalBufferCapability {
         65536,
       ),
       requestId: terminalBuffer['requestId'] == true,
-      tailSnapshot: terminalBuffer['tailSnapshot'] == true,
-      screenSnapshot: terminalBuffer['screenSnapshot'] == true,
     );
   }
 }

@@ -2,8 +2,14 @@
 members = [
     "apps/desktop",
     "apps/desktop/runtime",
+    "apps/agent",
+    "apps/server",
     "crates/codux-protocol",
+    "crates/codux-protocol-ffi",
+    "crates/codux-remote-transport",
+    "crates/codux-runtime-core",
     "crates/codux-terminal-core",
+    "crates/codux-terminal-pty",
 ]
 default-members = ["apps/desktop"]
 resolver = "2"

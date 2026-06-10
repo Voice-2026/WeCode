@@ -44,6 +44,7 @@ function packageMacos() {
   fs.mkdirSync(resourcesDir, { recursive: true });
   fs.copyFileSync(binaryPath, path.join(macosDir, appName));
   fs.copyFileSync(path.join(desktopAssetsRoot, "icons", "icon.icns"), path.join(resourcesDir, "AppIcon.icns"));
+  stageRuntimeAssets(path.join(resourcesDir, "runtime-root"));
   fs.writeFileSync(path.join(contentsDir, "Info.plist"), macosInfoPlist(), "utf8");
 
   const signingIdentity = macosSigningIdentity();
@@ -153,6 +154,7 @@ function packageWindows() {
     fs.mkdirSync(packageDir, { recursive: true });
     fs.copyFileSync(exePath, path.join(packageDir, `${appName}.exe`));
     fs.copyFileSync(path.join(desktopAssetsRoot, "icons", "icon.ico"), path.join(packageDir, "icon.ico"));
+    stageRuntimeAssets(path.join(packageDir, "runtime-root"));
 
     const installerScriptPath = path.join(tempDir, `${appName}.nsi`);
     const installerPath = path.join(outputDir, `${artifactBaseName("windows")}-setup.exe`);
@@ -168,9 +170,37 @@ function packageGenericUnix() {
   const packageDir = path.join(outputDir, appName);
   fs.mkdirSync(packageDir, { recursive: true });
   fs.copyFileSync(binaryPath, path.join(packageDir, "codux"));
+  stageRuntimeAssets(path.join(packageDir, "runtime-root"));
   const tarPath = path.join(outputDir, `${artifactBaseName("linux")}.tar.gz`);
   run("tar", ["-czf", tarPath, "-C", outputDir, appName]);
   writeSha256(tarPath);
+}
+
+function stageRuntimeAssets(destination) {
+  fs.rmSync(destination, { recursive: true, force: true });
+  fs.cpSync(desktopAssetsRoot, destination, {
+    recursive: true,
+    preserveTimestamps: true,
+    verbatimSymlinks: true,
+  });
+  assertRuntimeBootstrapAssets(destination);
+}
+
+function assertRuntimeBootstrapAssets(runtimeRoot) {
+  const required = [
+    "scripts/shell-hooks/dmux-ai-hook.zsh",
+    "scripts/shell-hooks/zsh/.zlogin",
+    "scripts/shell-hooks/zsh/.zprofile",
+    "scripts/shell-hooks/zsh/.zshenv",
+    "scripts/shell-hooks/zsh/.zshrc",
+    "scripts/wrappers/tool-wrapper.sh",
+    "scripts/wrappers/dmux-ai-state.sh",
+    "scripts/wrappers/bin/codex",
+  ];
+  const missing = required.filter((relativePath) => !fs.existsSync(path.join(runtimeRoot, relativePath)));
+  if (missing.length > 0) {
+    throw new Error(`runtime-root packaging is incomplete: ${missing.join(", ")}`);
+  }
 }
 
 function releaseBinaryPath(extension) {
@@ -445,4 +475,8 @@ function run(command, args, options = {}) {
 
 export function __testWindowsNsisScript(packageDir, installerPath) {
   return windowsNsisScript(packageDir, installerPath);
+}
+
+export function __testStageRuntimeAssets(destination) {
+  stageRuntimeAssets(destination);
 }

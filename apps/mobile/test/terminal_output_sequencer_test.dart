@@ -64,7 +64,7 @@ void main() {
       ..observe(sessionId: 'term-1', isBuffer: false, outputSeq: 1)
       ..observe(sessionId: 'term-1', isBuffer: false, outputSeq: 3);
 
-    final snapshot = sequencer.observe(
+    final baseline = sequencer.observe(
       sessionId: 'term-1',
       isBuffer: true,
       outputSeq: 3,
@@ -76,7 +76,7 @@ void main() {
       outputSeq: 4,
     );
 
-    expect(snapshot.action, TerminalOutputSequenceAction.snapshot);
+    expect(baseline.action, TerminalOutputSequenceAction.baseline);
     expect(sequencer.isResyncing('term-1'), isFalse);
     expect(next.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 4);
@@ -86,7 +86,7 @@ void main() {
     final sequencer = TerminalOutputSequencer()
       ..observe(sessionId: 'term-1', isBuffer: false, outputSeq: 8);
 
-    final snapshot = sequencer.observe(
+    final baseline = sequencer.observe(
       sessionId: 'term-1',
       isBuffer: true,
       outputSeq: 0,
@@ -98,7 +98,7 @@ void main() {
       outputSeq: 1,
     );
 
-    expect(snapshot.action, TerminalOutputSequenceAction.snapshot);
+    expect(baseline.action, TerminalOutputSequenceAction.baseline);
     expect(next.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 1);
   });
@@ -112,7 +112,7 @@ void main() {
       isBuffer: false,
       outputSeq: 900,
     );
-    final tailSnapshot = sequencer.observe(
+    final tailBuffer = sequencer.observe(
       sessionId: 'term-1',
       isBuffer: true,
       outputSeq: 900,
@@ -126,7 +126,7 @@ void main() {
     );
 
     expect(gap.action, TerminalOutputSequenceAction.accept);
-    expect(tailSnapshot.action, TerminalOutputSequenceAction.snapshot);
+    expect(tailBuffer.action, TerminalOutputSequenceAction.baseline);
     expect(sequencer.isResyncing('term-1'), isFalse);
     expect(next.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 901);
@@ -146,7 +146,7 @@ void main() {
       isBuffer: false,
       outputSeq: 940,
     );
-    final snapshot = sequencer.observe(
+    final baseline = sequencer.observe(
       sessionId: 'term-1',
       isBuffer: true,
       outputSeq: 900,
@@ -161,7 +161,7 @@ void main() {
 
     expect(gap.action, TerminalOutputSequenceAction.accept);
     expect(liveWhileResyncing.action, TerminalOutputSequenceAction.accept);
-    expect(snapshot.action, TerminalOutputSequenceAction.snapshot);
+    expect(baseline.action, TerminalOutputSequenceAction.baseline);
     expect(afterSnapshotSeq, 900);
     expect(next.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 941);

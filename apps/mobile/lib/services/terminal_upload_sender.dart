@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../models/remote_models.dart';
+import 'remote_protocol.dart';
 
 typedef TerminalUploadSend = Future<bool> Function(RelayEnvelope message);
 typedef TerminalUploadYield = Future<void> Function();
@@ -39,7 +40,7 @@ class TerminalUploadSender {
     final totalChunks = (bytes.length + chunkSize - 1) ~/ chunkSize;
     await _sendWithAck(
       RelayEnvelope(
-        type: 'terminal.upload.start',
+        type: RemoteMessageType.terminalUploadStart,
         sessionId: sessionId,
         payload: {
           'uploadId': uploadId,
@@ -62,7 +63,7 @@ class TerminalUploadSender {
       final chunk = Uint8List.sublistView(bytes, start, end);
       await _sendWithAck(
         RelayEnvelope(
-          type: 'terminal.upload.chunk',
+          type: RemoteMessageType.terminalUploadChunk,
           sessionId: sessionId,
           payload: {
             'uploadId': uploadId,
@@ -91,7 +92,7 @@ class TerminalUploadSender {
 
     await _sendWithAck(
       RelayEnvelope(
-        type: 'terminal.upload.finish',
+        type: RemoteMessageType.terminalUploadFinish,
         sessionId: sessionId,
         payload: {
           'uploadId': uploadId,

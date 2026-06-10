@@ -271,7 +271,14 @@ mod tests {
         conn.execute(
             "INSERT INTO todo (session_id, content, status, priority, position, time_updated)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            rusqlite::params!["session-a", "Check OpenCode DB", "completed", "high", 0, 1000i64],
+            rusqlite::params![
+                "session-a",
+                "Check OpenCode DB",
+                "completed",
+                "high",
+                0,
+                1000i64
+            ],
         )
         .expect("insert first");
         conn.execute(

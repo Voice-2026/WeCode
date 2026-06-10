@@ -10,7 +10,6 @@ class TerminalOutputPayload {
     this.truncated = false,
     this.requestId,
     this.tail = false,
-    this.screenSnapshot = false,
     this.hasPrevious = false,
   });
 
@@ -21,7 +20,6 @@ class TerminalOutputPayload {
   final bool truncated;
   final String? requestId;
   final bool tail;
-  final bool screenSnapshot;
   final bool hasPrevious;
 }
 
@@ -37,7 +35,6 @@ TerminalOutputPayload decodeTerminalOutputPayload(
     truncated: payload['truncated'] == true,
     requestId: _stringValue(payload['requestId']),
     tail: payload['tail'] == true,
-    screenSnapshot: payload['screenSnapshot'] == true,
     hasPrevious: payload['hasPrevious'] == true,
   );
 }

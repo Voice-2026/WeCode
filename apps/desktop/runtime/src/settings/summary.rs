@@ -203,18 +203,23 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         remote_relay_preset: remote
-            .and_then(|remote| remote.get("relayPreset"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
+            .map(|remote| {
                 let server_url = remote
-                    .and_then(|remote| remote.get("serverUrl"))
+                    .get("serverUrl")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                crate::remote::remote_relay_preset_for_url(server_url)
-            }),
+                if !server_url.trim().is_empty() {
+                    return crate::remote::remote_relay_preset_for_url(server_url);
+                }
+                remote
+                    .get("relayPreset")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| crate::remote::remote_relay_preset_for_url(server_url))
+            })
+            .unwrap_or_else(|| crate::remote::remote_relay_preset_for_url("")),
         remote_server_url: remote
             .and_then(|remote| remote.get("serverUrl"))
             .and_then(Value::as_str)

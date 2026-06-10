@@ -18,10 +18,9 @@ void main() {
     expect(capability.maxChars, 180000);
     expect(capability.chunkChars, 32768);
     expect(capability.requestId, isFalse);
-    expect(capability.tailSnapshot, isFalse);
   });
 
-  test('parses request id and tail snapshot capabilities', () {
+  test('parses request id capability', () {
     final capability = TerminalBufferCapability.fromHostInfo({
       'protocolVersion': 'v3.1',
       'capabilities': {
@@ -30,15 +29,11 @@ void main() {
           'maxChars': 65536,
           'chunkChars': 16384,
           'requestId': true,
-          'tailSnapshot': true,
-          'screenSnapshot': true,
         },
       },
     });
 
     expect(capability.requestId, isTrue);
-    expect(capability.tailSnapshot, isTrue);
-    expect(capability.screenSnapshot, isTrue);
   });
 
   test('limits terminal buffer capability to mobile default', () {

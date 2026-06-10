@@ -27,7 +27,7 @@ void main() {
         onSent: (transport, envelope) {
           final type = '${envelope['type'] ?? ''}';
           sent.add(envelope);
-          if (type == 'host.info') {
+          if (type == 'host.info' || type == 'terminal.list') {
             transport.emitEncrypted(
               const RelayEnvelope(
                 type: 'project.list',
@@ -67,8 +67,8 @@ void main() {
             );
             return;
           }
-          if (type == 'terminal.buffer' || type == 'terminal.subscribe') {
-            final sessionId = type == 'terminal.subscribe'
+          if (type == 'terminal.buffer' || _isTerminalSubscribe(envelope)) {
+            final sessionId = _isTerminalSubscribe(envelope)
                 ? _sessionIdForSubscribe(envelope, {'project-1': 'session-1'})
                 : '${envelope['sessionId'] ?? 'session-1'}';
             transport.emitEncrypted(
@@ -110,7 +110,11 @@ void main() {
       );
       expect(log, contains('bind session=session-1 project=project-1'));
       expect(log, isNot(contains('request terminal.buffer session=session-1')));
-      final subscribePayload = _lastPayloadOf(sent, 'terminal.subscribe');
+      final subscribePayload = _lastPayloadOf(
+        sent,
+        RemoteMessageType.resourceSubscribe,
+      );
+      expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-1');
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
@@ -167,8 +171,8 @@ void main() {
             );
             return;
           }
-          if (type == 'terminal.buffer' || type == 'terminal.subscribe') {
-            final sessionId = type == 'terminal.subscribe'
+          if (type == 'terminal.buffer' || _isTerminalSubscribe(envelope)) {
+            final sessionId = _isTerminalSubscribe(envelope)
                 ? _sessionIdForSubscribe(envelope, {'project-2': 'session-2'})
                 : '${envelope['sessionId'] ?? 'session-2'}';
             transport.emitEncrypted(
@@ -205,7 +209,11 @@ void main() {
       expect(log, contains('bind session=session-2 project=project-2'));
       expect(log, isNot(contains('request terminal.buffer session=session-2')));
       expect(sentTypes.where((type) => type == 'project.select'), isEmpty);
-      final subscribePayload = _lastPayloadOf(sent, 'terminal.subscribe');
+      final subscribePayload = _lastPayloadOf(
+        sent,
+        RemoteMessageType.resourceSubscribe,
+      );
+      expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-2');
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
@@ -216,7 +224,7 @@ void main() {
   );
 
   testWidgets(
-    'switching projects sends one project select and waits for terminal list',
+    'switching projects remounts cached terminal from the local pty pool',
     (WidgetTester tester) async {
       CoduxLog.setLevelName('debug');
       CoduxLog.clear();
@@ -298,23 +306,27 @@ void main() {
             );
             return;
           }
-          if (type == 'terminal.buffer' || type == 'terminal.subscribe') {
-            final sessionId = type == 'terminal.subscribe'
+          if (type == 'terminal.buffer' ||
+              _isTerminalBaselineSubscribe(envelope)) {
+            final sessionId = _isTerminalSubscribe(envelope)
                 ? _sessionIdForSubscribe(envelope, {
                     'project-1': 'session-1',
                     'project-2': 'session-2',
                   })
                 : '${envelope['sessionId'] ?? 'session-2'}';
+            final payload = envelope['payload'];
             transport.emitEncrypted(
               RelayEnvelope(
                 type: 'terminal.output',
                 sessionId: sessionId,
-                payload: const {
+                payload: {
                   'data': 'ready',
                   'buffer': true,
                   'offset': 0,
                   'bufferLength': 5,
                   'outputSeq': 1,
+                  if (payload is Map && payload['requestId'] != null)
+                    'requestId': payload['requestId'],
                 },
               ),
             );
@@ -332,6 +344,21 @@ void main() {
 
       await tester.tap(find.text('Mac'));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      fake.emitEncrypted(
+        const RelayEnvelope(
+          type: 'terminal.output',
+          sessionId: 'session-2',
+          payload: {
+            'data': 'cached-before-switch',
+            'buffer': true,
+            'offset': 0,
+            'bufferLength': 20,
+            'outputSeq': 1,
+          },
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      sent.clear();
       await tester.tap(find.text('Project 2'));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
@@ -355,9 +382,13 @@ void main() {
       );
       expect(log, contains('bind session=session-2 project=project-2'));
       expect(log, isNot(contains('request terminal.buffer session=session-2')));
-      final subscribePayload = _lastPayloadOf(sent, 'terminal.subscribe');
+      final subscribePayload = _lastPayloadOf(
+        sent,
+        RemoteMessageType.resourceSubscribe,
+      );
+      expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-2');
-      expect(subscribePayload?['baseline'], isTrue);
+      expect(subscribePayload?['baseline'], isNot(isTrue));
       expect(sentTypes, contains('terminal.viewport.claim'));
       expect(sentTypes, isNot(contains('terminal.resize')));
     },
@@ -408,8 +439,8 @@ void main() {
             );
             return;
           }
-          if (type == 'terminal.buffer' || type == 'terminal.subscribe') {
-            final sessionId = type == 'terminal.subscribe'
+          if (type == 'terminal.buffer' || _isTerminalSubscribe(envelope)) {
+            final sessionId = _isTerminalSubscribe(envelope)
                 ? _sessionIdForSubscribe(envelope, {'project-1': 'session-1'})
                 : '${envelope['sessionId'] ?? 'session-1'}';
             transport.emitEncrypted(
@@ -449,8 +480,199 @@ void main() {
     },
   );
 
+  testWidgets('foreground recovery resumes cached remote pty incrementally', (
+    WidgetTester tester,
+  ) async {
+    CoduxLog.setLevelName('debug');
+    CoduxLog.clear();
+    final sent = <Map<String, dynamic>>[];
+    final device = await _fakeDevice();
+    var terminalBufferCharacters = 5;
+    void emitLists(_FakeRemoteTransport transport) {
+      transport.emitEncrypted(
+        const RelayEnvelope(
+          type: 'project.list',
+          payload: {
+            'selectedProjectId': 'project-1',
+            'projects': [
+              {'id': 'project-1', 'name': 'Project 1', 'path': '/tmp/p1'},
+            ],
+          },
+        ),
+      );
+      transport.emitEncrypted(
+        RelayEnvelope(
+          type: 'terminal.list',
+          payload: {
+            'terminals': [
+              {
+                'id': 'session-1',
+                'title': 'Terminal',
+                'projectId': 'project-1',
+                'layoutKind': 'split',
+                'bufferCharacters': terminalBufferCharacters,
+              },
+            ],
+          },
+        ),
+      );
+    }
+
+    final fake = _FakeRemoteTransport(
+      device: device,
+      onSent: (transport, envelope) {
+        final type = '${envelope['type'] ?? ''}';
+        sent.add(envelope);
+        if (type == 'host.info') {
+          emitLists(transport);
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+          return;
+        }
+        if (type == 'terminal.list') {
+          emitLists(transport);
+          return;
+        }
+        if (type == 'terminal.buffer' || _isTerminalSubscribe(envelope)) {
+          final sessionId = _isTerminalSubscribe(envelope)
+              ? _sessionIdForSubscribe(envelope, {'project-1': 'session-1'})
+              : '${envelope['sessionId'] ?? 'session-1'}';
+          transport.emitEncrypted(
+            RelayEnvelope(
+              type: 'terminal.output',
+              sessionId: sessionId,
+              payload: {
+                'data': 'ready',
+                'buffer': true,
+                'offset': 0,
+                'bufferLength': 5,
+                'outputSeq': 1,
+                if (envelope['payload'] is Map &&
+                    (envelope['payload'] as Map)['requestId'] != null)
+                  'requestId': (envelope['payload'] as Map)['requestId'],
+              },
+            ),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Mac'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+    sent.clear();
+
+    terminalBufferCharacters = 8;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(_sentTypes(sent), isNot(contains('terminal.buffer')));
+  });
+
+  testWidgets('cached terminal remount does not request a ui buffer', (
+    WidgetTester tester,
+  ) async {
+    CoduxLog.setLevelName('debug');
+    CoduxLog.clear();
+    final sent = <Map<String, dynamic>>[];
+    final device = await _fakeDevice();
+    final fake = _FakeRemoteTransport(
+      device: device,
+      onSent: (transport, envelope) {
+        final type = '${envelope['type'] ?? ''}';
+        sent.add(envelope);
+        if (type == 'host.info') {
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'project.list',
+              payload: {
+                'selectedProjectId': 'project-1',
+                'projects': [
+                  {'id': 'project-1', 'name': 'Project 1', 'path': '/tmp/p1'},
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'terminal.list',
+              payload: {
+                'terminals': [
+                  {
+                    'id': 'session-1',
+                    'title': 'Terminal',
+                    'projectId': 'project-1',
+                    'layoutKind': 'split',
+                    'bufferCharacters': 10,
+                  },
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+          return;
+        }
+        if (type == 'terminal.buffer' || _isTerminalSubscribe(envelope)) {
+          final sessionId = _isTerminalSubscribe(envelope)
+              ? _sessionIdForSubscribe(envelope, {'project-1': 'session-1'})
+              : '${envelope['sessionId'] ?? 'session-1'}';
+          final payload = envelope['payload'];
+          transport.emitEncrypted(
+            RelayEnvelope(
+              type: 'terminal.output',
+              sessionId: sessionId,
+              payload: {
+                'data': 'cached',
+                'buffer': true,
+                'offset': 0,
+                'bufferLength': 6,
+                'outputSeq': 1,
+                if (payload is Map && payload['requestId'] != null)
+                  'requestId': payload['requestId'],
+              },
+            ),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Mac'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+    sent.clear();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(_sentTypes(sent), isNot(contains('terminal.buffer')));
+    expect(
+      CoduxLog.snapshotText(),
+      isNot(
+        contains(
+          'request terminal.buffer session=session-1 full=true tail=true',
+        ),
+      ),
+    );
+    expect(find.text('terminal.loadingHistory'), findsNothing);
+  });
+
   testWidgets(
-    'foreground recovery resumes from cached remote pty session without full history reload',
+    'opening terminal with an empty pool refreshes subscription baseline instead of ui buffer',
     (WidgetTester tester) async {
       CoduxLog.setLevelName('debug');
       CoduxLog.clear();
@@ -491,25 +713,6 @@ void main() {
             transport.emitEncrypted(
               RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
             );
-            return;
-          }
-          if (type == 'terminal.buffer' || type == 'terminal.subscribe') {
-            final sessionId = type == 'terminal.subscribe'
-                ? _sessionIdForSubscribe(envelope, {'project-1': 'session-1'})
-                : '${envelope['sessionId'] ?? 'session-1'}';
-            transport.emitEncrypted(
-              RelayEnvelope(
-                type: 'terminal.output',
-                sessionId: sessionId,
-                payload: const {
-                  'data': 'ready',
-                  'buffer': true,
-                  'offset': 0,
-                  'bufferLength': 5,
-                  'outputSeq': 1,
-                },
-              ),
-            );
           }
         },
       );
@@ -521,20 +724,26 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      sent.clear();
 
       await tester.tap(find.text('Mac'));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
-      sent.clear();
 
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpAndSettle(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
-
-      final bufferPayload = _lastPayloadOf(sent, 'terminal.buffer');
-      expect(bufferPayload?['tail'], isFalse);
-      expect(bufferPayload?['offset'], 5);
-      expect(bufferPayload?['resumeFromSeq'], 1);
+      final sentTypes = _sentTypes(sent);
+      expect(sentTypes, contains(RemoteMessageType.resourceSubscribe));
+      expect(sentTypes, isNot(contains(RemoteMessageType.terminalBuffer)));
+      final subscribePayload = _lastPayloadOf(
+        sent,
+        RemoteMessageType.resourceSubscribe,
+      );
+      expect(subscribePayload?['resource'], RemoteResourceType.terminals);
+      expect(subscribePayload?['projectId'], 'project-1');
+      expect(subscribePayload?['baseline'], isTrue);
+      expect(
+        CoduxLog.snapshotText(),
+        contains('mount session=session-1 reason=open cached=false'),
+      );
     },
   );
 
@@ -607,8 +816,8 @@ void main() {
             emitCurrentLists(transport, 80 + sentTypes.length * 2);
             return;
           }
-          if (type == 'terminal.buffer' || type == 'terminal.subscribe') {
-            final sessionId = type == 'terminal.subscribe'
+          if (type == 'terminal.buffer' || _isTerminalSubscribe(envelope)) {
+            final sessionId = _isTerminalSubscribe(envelope)
                 ? (runtimeId == 'runtime-1' ? 'session-old' : 'session-new')
                 : '${envelope['sessionId'] ?? ''}';
             transport.emitEncrypted(
@@ -658,7 +867,10 @@ void main() {
         ),
       );
       expect(log, contains('bind session=session-new project=project-1'));
-      expect(log, isNot(contains('request terminal.buffer session=session-new')));
+      expect(
+        log,
+        isNot(contains('request terminal.buffer session=session-new')),
+      );
       expect(
         log,
         isNot(
@@ -807,6 +1019,18 @@ String _sessionIdForSubscribe(
   return sessionIdByProject[projectId] ?? sessionIdByProject.values.first;
 }
 
+bool _isTerminalSubscribe(Map<String, dynamic> envelope) {
+  if (envelope['type'] != RemoteMessageType.resourceSubscribe) return false;
+  final payload = envelope['payload'];
+  return payload is Map && payload['resource'] == RemoteResourceType.terminals;
+}
+
+bool _isTerminalBaselineSubscribe(Map<String, dynamic> envelope) {
+  if (!_isTerminalSubscribe(envelope)) return false;
+  final payload = envelope['payload'];
+  return payload is Map && payload['baseline'] == true;
+}
+
 Map<String, Object?> _hostInfoPayload({
   String runtimeInstanceId = 'runtime-1',
 }) => {
@@ -818,7 +1042,6 @@ Map<String, Object?> _hostInfoPayload({
       'maxChars': 200000,
       'chunkChars': 16384,
       'requestId': true,
-      'tailSnapshot': true,
     },
   },
 };

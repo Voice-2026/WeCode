@@ -1,4 +1,7 @@
-enum TerminalBufferRequestMode { historyRestore, liveResume, historyPage }
+enum TerminalBufferRequestMode {
+  historyRestore,
+  liveResume,
+}
 
 Map<String, Object> buildTerminalBufferRequestPayload({
   required String requestId,
@@ -11,7 +14,7 @@ Map<String, Object> buildTerminalBufferRequestPayload({
 }) {
   final payload = <String, Object>{
     'requestId': requestId,
-    'tail': false,
+    'tail': mode == TerminalBufferRequestMode.historyRestore,
     'offset': mode == TerminalBufferRequestMode.historyRestore ? 0 : offset,
     'maxChars': maxChars,
   };

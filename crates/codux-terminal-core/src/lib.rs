@@ -1,4 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use serde::{Deserialize, Serialize};
 
 pub type TerminalSequence = i64;
 
@@ -11,6 +13,124 @@ pub struct TerminalBaselineRequest {
     pub chunk_chars: Option<usize>,
     pub tail: bool,
     pub resume_from_seq: Option<TerminalSequence>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalLaunchConfig {
+    pub cwd: Option<String>,
+    pub shell: Option<String>,
+    pub command: Option<String>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+    pub scrollback_lines: Option<usize>,
+    pub env: Option<HashMap<String, String>>,
+    pub project_id: Option<String>,
+    pub project_name: Option<String>,
+    pub terminal_id: Option<String>,
+    pub slot_id: Option<String>,
+    pub session_key: Option<String>,
+    pub title: Option<String>,
+    pub tool: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TerminalEvent {
+    Output {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(skip_serializing_if = "String::is_empty")]
+        text: String,
+        #[serde(skip)]
+        bytes: Vec<u8>,
+    },
+    Exit {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "exitCode")]
+        exit_code: Option<i32>,
+    },
+    Error {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        message: String,
+    },
+    Viewport {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        owner: String,
+        cols: u16,
+        rows: u16,
+        generation: u64,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalViewportState {
+    pub owner: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSessionSnapshot {
+    pub id: String,
+    pub title: String,
+    pub slot_id: String,
+    pub session_key: Option<String>,
+    pub project_id: String,
+    pub project_name: String,
+    pub cwd: String,
+    pub shell: String,
+    pub command: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub status: String,
+    pub is_running: bool,
+    pub created_at: String,
+    pub last_active_at: String,
+    pub buffer_characters: usize,
+    pub has_buffer: bool,
+}
+
+pub type TerminalEventSink = Box<dyn Fn(TerminalEvent) -> bool + Send + Sync + 'static>;
+
+pub trait TerminalSessionHandle: Send + Sync {
+    fn id(&self) -> &str;
+    fn info(&self) -> TerminalSessionSnapshot;
+    fn write(&self, data: &[u8]) -> Result<(), String>;
+    fn resize(&self, cols: u16, rows: u16) -> Result<(), String>;
+    fn claim_viewport(&self, owner: &str) -> Result<TerminalViewportState, String>;
+    fn release_viewport(&self, owner: &str) -> Result<Option<TerminalViewportState>, String>;
+    fn resize_viewport(
+        &self,
+        owner: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Option<TerminalViewportState>, String>;
+    fn viewport_state(&self) -> TerminalViewportState;
+    fn snapshot(&self) -> String;
+    fn snapshot_tail(&self, max_chars: usize) -> (String, usize);
+    fn buffer_characters(&self) -> usize;
+    fn clear_history(&self);
+    fn kill(&self) -> Result<(), String>;
+}
+
+pub trait TerminalDriver: Send + Sync {
+    type Session: TerminalSessionHandle + Clone + 'static;
+
+    fn list(&self) -> Vec<TerminalSessionSnapshot>;
+    fn create(
+        &self,
+        config: TerminalLaunchConfig,
+        emit: TerminalEventSink,
+    ) -> Result<Self::Session, String>;
+    fn session(&self, session_id: &str) -> Result<Self::Session, String>;
+    fn remove(&self, session_id: &str) -> Result<(), String>;
+    fn subscribe_events(&self, session_id: &str, emit: TerminalEventSink) -> Result<(), String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,7 +148,7 @@ pub struct RemotePtySession<T> {
     content: String,
     buffer_length: usize,
     sequence: TerminalSequence,
-    awaiting_snapshot: bool,
+    awaiting_baseline: bool,
     page_buffer: Option<RemotePtyPageBuffer>,
     held_sequenced_live: BTreeMap<TerminalSequence, T>,
     held_unsequenced_live: Vec<T>,
@@ -42,7 +162,7 @@ impl<T> RemotePtySession<T> {
             content: String::new(),
             buffer_length: 0,
             sequence: 0,
-            awaiting_snapshot: false,
+            awaiting_baseline: false,
             page_buffer: None,
             held_sequenced_live: BTreeMap::new(),
             held_unsequenced_live: Vec::new(),
@@ -65,8 +185,8 @@ impl<T> RemotePtySession<T> {
         self.sequence
     }
 
-    pub fn is_restoring_snapshot(&self) -> bool {
-        self.awaiting_snapshot || self.page_buffer.is_some()
+    pub fn is_restoring_baseline(&self) -> bool {
+        self.awaiting_baseline || self.page_buffer.is_some()
     }
 
     pub fn snapshot(&self) -> RemotePtySnapshot {
@@ -78,15 +198,15 @@ impl<T> RemotePtySession<T> {
         }
     }
 
-    pub fn require_snapshot(&mut self) {
-        self.awaiting_snapshot = true;
+    pub fn require_baseline(&mut self) {
+        self.awaiting_baseline = true;
         self.page_buffer = None;
         self.held_sequenced_live.clear();
         self.held_unsequenced_live.clear();
     }
 
     pub fn reset_transient(&mut self, reset_sequence: bool) {
-        self.awaiting_snapshot = false;
+        self.awaiting_baseline = false;
         self.page_buffer = None;
         self.held_sequenced_live.clear();
         self.held_unsequenced_live.clear();
@@ -100,7 +220,7 @@ impl<T> RemotePtySession<T> {
     }
 
     pub fn hold_live(&mut self, sequence: Option<TerminalSequence>, output: T) -> bool {
-        if !self.awaiting_snapshot {
+        if !self.awaiting_baseline {
             return false;
         }
         if let Some(sequence) = sequence {
@@ -111,13 +231,13 @@ impl<T> RemotePtySession<T> {
         true
     }
 
-    pub fn accept_snapshot_page(
+    pub fn accept_baseline_page(
         &mut self,
         data: &str,
         offset: usize,
         buffer_length: Option<usize>,
         truncated: bool,
-    ) -> RemotePtySnapshotPageResult {
+    ) -> RemotePtyBaselinePageResult {
         let mut page_buffer = if offset == 0 || self.page_buffer.is_none() {
             RemotePtyPageBuffer::new(buffer_length, offset)
         } else {
@@ -137,7 +257,7 @@ impl<T> RemotePtySession<T> {
         accepted
     }
 
-    pub fn replace_from_snapshot(
+    pub fn replace_from_baseline(
         &mut self,
         content: &str,
         buffer_length: Option<usize>,
@@ -149,7 +269,7 @@ impl<T> RemotePtySession<T> {
         }
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
-        self.awaiting_snapshot = false;
+        self.awaiting_baseline = false;
         self.page_buffer = None;
 
         let mut replay = Vec::new();
@@ -190,12 +310,136 @@ impl<T> RemotePtySession<T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RemotePtySnapshotPageResult {
+pub struct RemotePtyBaselinePageResult {
     pub accepted: bool,
+    pub duplicate: bool,
     pub ready: bool,
     pub data: String,
     pub next_offset: usize,
     pub progress: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalOutputSequenceAction {
+    Accept,
+    Duplicate,
+    Baseline,
+}
+
+impl TerminalOutputSequenceAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Accept => "accept",
+            Self::Duplicate => "duplicate",
+            Self::Baseline => "baseline",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalOutputSequenceResult {
+    pub action: TerminalOutputSequenceAction,
+    pub previous_seq: TerminalSequence,
+}
+
+impl TerminalOutputSequenceResult {
+    pub fn should_render(&self) -> bool {
+        matches!(
+            self.action,
+            TerminalOutputSequenceAction::Accept | TerminalOutputSequenceAction::Baseline
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TerminalOutputSequencer {
+    seq_by_session: HashMap<String, TerminalSequence>,
+    allow_next_live_rebase_sessions: HashSet<String>,
+}
+
+impl TerminalOutputSequencer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn sequence_for(&self, session_id: &str) -> TerminalSequence {
+        self.seq_by_session.get(session_id).copied().unwrap_or(0)
+    }
+
+    pub fn is_resyncing(&self, _session_id: &str) -> bool {
+        false
+    }
+
+    pub fn observe(
+        &mut self,
+        session_id: impl AsRef<str>,
+        is_buffer: bool,
+        output_seq: Option<TerminalSequence>,
+        offset: Option<usize>,
+        resets_sequence: bool,
+    ) -> TerminalOutputSequenceResult {
+        let session_id = session_id.as_ref();
+        let previous_seq = self.sequence_for(session_id);
+        if is_buffer {
+            let should_reset = offset.unwrap_or(0) <= 0 || resets_sequence;
+            if should_reset {
+                self.allow_next_live_rebase_sessions
+                    .insert(session_id.to_string());
+                if let Some(output_seq) = output_seq {
+                    self.seq_by_session
+                        .insert(session_id.to_string(), output_seq);
+                }
+            } else if let Some(output_seq) = output_seq {
+                if output_seq >= previous_seq {
+                    self.seq_by_session
+                        .insert(session_id.to_string(), output_seq);
+                }
+            }
+            return TerminalOutputSequenceResult {
+                action: TerminalOutputSequenceAction::Baseline,
+                previous_seq,
+            };
+        }
+
+        let Some(output_seq) = output_seq else {
+            return TerminalOutputSequenceResult {
+                action: TerminalOutputSequenceAction::Accept,
+                previous_seq,
+            };
+        };
+        if output_seq <= previous_seq {
+            return TerminalOutputSequenceResult {
+                action: TerminalOutputSequenceAction::Duplicate,
+                previous_seq,
+            };
+        }
+        let allow_rebase = self.allow_next_live_rebase_sessions.remove(session_id);
+        if (allow_rebase || previous_seq > 0) && output_seq > previous_seq {
+            self.seq_by_session
+                .insert(session_id.to_string(), output_seq);
+            return TerminalOutputSequenceResult {
+                action: TerminalOutputSequenceAction::Accept,
+                previous_seq,
+            };
+        }
+        self.seq_by_session
+            .insert(session_id.to_string(), output_seq);
+        self.allow_next_live_rebase_sessions.remove(session_id);
+        TerminalOutputSequenceResult {
+            action: TerminalOutputSequenceAction::Accept,
+            previous_seq,
+        }
+    }
+
+    pub fn remove(&mut self, session_id: &str) {
+        self.seq_by_session.remove(session_id);
+        self.allow_next_live_rebase_sessions.remove(session_id);
+    }
+
+    pub fn reset(&mut self) {
+        self.seq_by_session.clear();
+        self.allow_next_live_rebase_sessions.clear();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -220,13 +464,16 @@ impl RemotePtyPageBuffer {
         offset: usize,
         buffer_length: Option<usize>,
         truncated: bool,
-    ) -> RemotePtySnapshotPageResult {
+    ) -> RemotePtyBaselinePageResult {
         if self.buffer_length.is_none() {
             self.buffer_length = buffer_length;
         }
         if offset != self.next_offset {
-            return RemotePtySnapshotPageResult {
+            let data_chars = data.chars().count();
+            let duplicate = offset.saturating_add(data_chars) <= self.next_offset;
+            return RemotePtyBaselinePageResult {
                 accepted: false,
+                duplicate,
                 ready: false,
                 data: String::new(),
                 next_offset: self.next_offset,
@@ -241,8 +488,9 @@ impl RemotePtyPageBuffer {
             .map(|length| self.next_offset >= length)
             .unwrap_or(false);
         let ready = !truncated || complete_by_length;
-        RemotePtySnapshotPageResult {
+        RemotePtyBaselinePageResult {
             accepted: true,
+            duplicate: false,
             ready,
             data: if ready {
                 self.buffer.clone()
@@ -270,35 +518,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn restores_snapshot_before_replaying_held_live_output() {
+    fn restores_baseline_before_replaying_held_live_output() {
         let mut session = RemotePtySession::new("session-1", 64);
-        session.require_snapshot();
+        session.require_baseline();
 
         assert!(session.hold_live(Some(11), "stale"));
         assert!(session.hold_live(Some(12), "new"));
 
-        let page = session.accept_snapshot_page("abcd", 0, Some(8), true);
+        let page = session.accept_baseline_page("abcd", 0, Some(8), true);
         assert!(page.accepted);
         assert!(!page.ready);
         assert_eq!(page.next_offset, 4);
 
-        let page = session.accept_snapshot_page("efgh", 4, Some(8), false);
+        let page = session.accept_baseline_page("efgh", 4, Some(8), false);
         assert!(page.ready);
 
-        let replay = session.replace_from_snapshot(&page.data, Some(8), Some(11));
+        let replay = session.replace_from_baseline(&page.data, Some(8), Some(11));
         assert_eq!(session.content(), "abcdefgh");
         assert_eq!(replay, vec!["new"]);
     }
 
     #[test]
-    fn rejects_out_of_order_snapshot_pages() {
+    fn rejects_out_of_order_baseline_pages() {
         let mut session = RemotePtySession::<String>::new("session-1", 64);
-        session.require_snapshot();
+        session.require_baseline();
 
-        let page = session.accept_snapshot_page("abcd", 0, Some(8), true);
+        let page = session.accept_baseline_page("abcd", 0, Some(8), true);
         assert!(page.accepted);
 
-        let page = session.accept_snapshot_page("gh", 6, Some(8), false);
+        let page = session.accept_baseline_page("gh", 6, Some(8), false);
         assert!(!page.accepted);
         assert_eq!(page.next_offset, 4);
     }
@@ -312,5 +560,37 @@ mod tests {
         assert_eq!(session.content(), "好bcd");
         assert_eq!(session.buffer_length(), 7);
         assert_eq!(session.sequence(), 2);
+    }
+
+    #[test]
+    fn output_sequencer_drops_duplicates_and_tracks_buffers() {
+        let mut sequencer = TerminalOutputSequencer::new();
+
+        let first = sequencer.observe("term-1", false, Some(1), None, false);
+        let second = sequencer.observe("term-1", false, Some(2), None, false);
+        let duplicate = sequencer.observe("term-1", false, Some(2), None, false);
+        let baseline = sequencer.observe("term-1", true, Some(2), Some(0), false);
+        let next = sequencer.observe("term-1", false, Some(3), None, false);
+
+        assert_eq!(first.action, TerminalOutputSequenceAction::Accept);
+        assert_eq!(second.action, TerminalOutputSequenceAction::Accept);
+        assert_eq!(duplicate.action, TerminalOutputSequenceAction::Duplicate);
+        assert_eq!(duplicate.previous_seq, 2);
+        assert_eq!(baseline.action, TerminalOutputSequenceAction::Baseline);
+        assert_eq!(next.action, TerminalOutputSequenceAction::Accept);
+        assert_eq!(sequencer.sequence_for("term-1"), 3);
+    }
+
+    #[test]
+    fn output_sequencer_allows_host_restart_sequence_reset() {
+        let mut sequencer = TerminalOutputSequencer::new();
+        sequencer.observe("term-1", false, Some(8), None, false);
+
+        let baseline = sequencer.observe("term-1", true, Some(0), Some(0), false);
+        let next = sequencer.observe("term-1", false, Some(1), None, false);
+
+        assert_eq!(baseline.action, TerminalOutputSequenceAction::Baseline);
+        assert_eq!(next.action, TerminalOutputSequenceAction::Accept);
+        assert_eq!(sequencer.sequence_for("term-1"), 1);
     }
 }

@@ -43,13 +43,11 @@ void main() {
       'buffer': true,
       'requestId': 'request-1',
       'tail': true,
-      'screenSnapshot': true,
       'hasPrevious': true,
     });
 
     expect(payload.requestId, 'request-1');
     expect(payload.tail, isTrue);
-    expect(payload.screenSnapshot, isTrue);
     expect(payload.hasPrevious, isTrue);
   });
 }

@@ -1,4 +1,5 @@
 import '../models/remote_models.dart';
+import 'remote_protocol.dart';
 import 'remote_runtime_payloads.dart';
 
 class RemoteWorktreeState {
@@ -20,7 +21,7 @@ class RemoteWorktreeController {
 
   RelayEnvelope listEnvelope(ProjectInfo project) {
     return RelayEnvelope(
-      type: 'worktree.list',
+      type: RemoteMessageType.worktreeList,
       payload: {
         'projectId': project.id,
         if (project.path != null) 'projectPath': project.path,
@@ -33,7 +34,7 @@ class RemoteWorktreeController {
     RemoteWorktreeInfo worktree,
   ) {
     return RelayEnvelope(
-      type: 'worktree.select',
+      type: RemoteMessageType.worktreeSelect,
       payload: {
         'projectId': project.id,
         'worktreeId': worktree.id,
@@ -48,7 +49,7 @@ class RemoteWorktreeController {
     required String name,
   }) {
     return RelayEnvelope(
-      type: 'worktree.create',
+      type: RemoteMessageType.worktreeCreate,
       payload: {
         'projectId': project.id,
         'projectPath': project.path,
@@ -64,7 +65,7 @@ class RemoteWorktreeController {
     RemoteWorktreeInfo worktree,
   ) {
     return _operationEnvelope(
-      type: 'worktree.merge',
+      type: RemoteMessageType.worktreeMerge,
       project: project,
       worktree: worktree,
       removeBranch: false,
@@ -76,7 +77,7 @@ class RemoteWorktreeController {
     RemoteWorktreeInfo worktree,
   ) {
     return _operationEnvelope(
-      type: 'worktree.delete',
+      type: RemoteMessageType.worktreeDelete,
       project: project,
       worktree: worktree,
       removeBranch: true,

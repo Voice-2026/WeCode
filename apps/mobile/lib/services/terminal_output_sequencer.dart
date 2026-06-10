@@ -1,4 +1,7 @@
-enum TerminalOutputSequenceAction { accept, duplicate, snapshot }
+import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
+    as codux_terminal_core;
+
+enum TerminalOutputSequenceAction { accept, duplicate, baseline }
 
 class TerminalOutputSequenceResult {
   const TerminalOutputSequenceResult({
@@ -10,16 +13,16 @@ class TerminalOutputSequenceResult {
   final int previousSeq;
   bool get shouldRender =>
       action == TerminalOutputSequenceAction.accept ||
-      action == TerminalOutputSequenceAction.snapshot;
+      action == TerminalOutputSequenceAction.baseline;
 }
 
 class TerminalOutputSequencer {
-  final Map<String, int> _seqBySession = {};
-  final Set<String> _allowNextLiveRebaseSessions = {};
+  final codux_terminal_core.TerminalOutputSequencerCore _core =
+      codux_terminal_core.TerminalOutputSequencerCore();
 
-  int sequenceFor(String sessionId) => _seqBySession[sessionId] ?? 0;
+  int sequenceFor(String sessionId) => _core.sequenceFor(sessionId);
 
-  bool isResyncing(String sessionId) => false;
+  bool isResyncing(String sessionId) => _core.isResyncing(sessionId);
 
   TerminalOutputSequenceResult observe({
     required String sessionId,
@@ -28,57 +31,41 @@ class TerminalOutputSequencer {
     int? offset,
     bool resetsSequence = false,
   }) {
-    final previousSeq = sequenceFor(sessionId);
-    if (isBuffer) {
-      final shouldReset = (offset ?? 0) <= 0 || resetsSequence;
-      if (shouldReset) {
-        _allowNextLiveRebaseSessions.add(sessionId);
-        if (outputSeq != null) {
-          _seqBySession[sessionId] = outputSeq;
-        }
-      } else if (outputSeq != null && outputSeq >= previousSeq) {
-        _seqBySession[sessionId] = outputSeq;
-      }
-      return TerminalOutputSequenceResult(
-        action: TerminalOutputSequenceAction.snapshot,
-        previousSeq: previousSeq,
-      );
-    }
-    if (outputSeq == null) {
-      return TerminalOutputSequenceResult(
-        action: TerminalOutputSequenceAction.accept,
-        previousSeq: previousSeq,
-      );
-    }
-    if (outputSeq <= previousSeq) {
-      return TerminalOutputSequenceResult(
-        action: TerminalOutputSequenceAction.duplicate,
-        previousSeq: previousSeq,
-      );
-    }
-    final allowRebase = _allowNextLiveRebaseSessions.remove(sessionId);
-    if ((allowRebase || previousSeq > 0) && outputSeq > previousSeq) {
-      _seqBySession[sessionId] = outputSeq;
-      return TerminalOutputSequenceResult(
-        action: TerminalOutputSequenceAction.accept,
-        previousSeq: previousSeq,
-      );
-    }
-    _seqBySession[sessionId] = outputSeq;
-    _allowNextLiveRebaseSessions.remove(sessionId);
+    final result = _core.observe(
+      sessionId: sessionId,
+      isBuffer: isBuffer,
+      outputSeq: outputSeq,
+      offset: offset,
+      resetsSequence: resetsSequence,
+    );
     return TerminalOutputSequenceResult(
-      action: TerminalOutputSequenceAction.accept,
-      previousSeq: previousSeq,
+      action: _actionFromCore(result.action),
+      previousSeq: result.previousSeq,
     );
   }
 
   void remove(String sessionId) {
-    _seqBySession.remove(sessionId);
-    _allowNextLiveRebaseSessions.remove(sessionId);
+    _core.remove(sessionId);
   }
 
   void reset() {
-    _seqBySession.clear();
-    _allowNextLiveRebaseSessions.clear();
+    _core.reset();
+  }
+
+  void dispose() {
+    _core.dispose();
+  }
+}
+
+TerminalOutputSequenceAction _actionFromCore(String action) {
+  switch (action) {
+    case 'accept':
+      return TerminalOutputSequenceAction.accept;
+    case 'duplicate':
+      return TerminalOutputSequenceAction.duplicate;
+    case 'baseline':
+      return TerminalOutputSequenceAction.baseline;
+    default:
+      throw FormatException('Unknown terminal sequence action: $action');
   }
 }

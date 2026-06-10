@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../i18n.dart';
 import '../models/remote_models.dart';
+import '../services/remote_protocol.dart';
 import '../theme/app_theme.dart';
 
 class PairingOverlay extends StatelessWidget {
@@ -27,7 +28,7 @@ class PairingOverlay extends StatelessWidget {
         ? payload.hostName!.trim()
         : 'Codux Mac';
     final code = payload.matchCode;
-    final transport = payload.transport.kind.toUpperCase();
+    final transport = _pairingTransportKind(payload).toUpperCase();
 
     return Positioned.fill(
       child: GestureDetector(
@@ -197,6 +198,11 @@ class PairingOverlay extends StatelessWidget {
       ),
     );
   }
+}
+
+String _pairingTransportKind(PairingPayload payload) {
+  final kind = remotePreferredTransportKind(payload.transports, pairing: true);
+  return kind.isEmpty ? RemoteTransportKind.websocketRelay : kind;
 }
 
 class _InfoRow extends StatelessWidget {

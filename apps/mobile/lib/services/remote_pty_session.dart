@@ -1,3 +1,6 @@
+import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
+    as codux_terminal_core;
+
 class RemotePtySnapshot {
   const RemotePtySnapshot({
     required this.sessionId,
@@ -13,112 +16,99 @@ class RemotePtySnapshot {
 }
 
 class RemotePtySession<T> {
-  RemotePtySession(this.sessionId, {required this.maxCachedChars});
+  RemotePtySession(this.sessionId, {required this.maxCachedChars})
+    : _core = codux_terminal_core.TerminalCoreSession(
+        sessionId: sessionId,
+        maxCachedChars: maxCachedChars,
+      );
 
   final String sessionId;
   final int maxCachedChars;
-  String _content = '';
-  int _bufferLength = 0;
-  int _sequence = 0;
-  bool awaitingSnapshot = false;
-  _RemotePtyPageBuffer? _pageBuffer;
-  final Map<int, T> _heldSequencedLive = {};
-  final List<T> _heldUnsequencedLive = [];
+  final codux_terminal_core.TerminalCoreSession _core;
+  final Map<int, T> _heldLiveByToken = {};
+  int _nextHeldLiveToken = 1;
 
-  String get content => _content;
-  int get bufferLength => _bufferLength;
-  int get sequence => _sequence;
-  bool get isRestoringSnapshot => awaitingSnapshot || _pageBuffer != null;
+  String get content => _core.content;
+  int get bufferLength => _core.bufferLength;
+  int get sequence => _core.sequence;
+  bool get awaitingBaseline => _core.isRestoringBaseline;
+  bool get isRestoringBaseline => _core.isRestoringBaseline;
 
-  RemotePtySnapshot snapshot() => RemotePtySnapshot(
-    sessionId: sessionId,
-    content: _content,
-    bufferLength: _bufferLength,
-    sequence: _sequence,
-  );
-
-  void resetTransient({bool resetSequence = false}) {
-    awaitingSnapshot = false;
-    _pageBuffer = null;
-    _heldSequencedLive.clear();
-    _heldUnsequencedLive.clear();
-    if (resetSequence) _sequence = 0;
+  RemotePtySnapshot snapshot() {
+    final coreSnapshot = _core.snapshot();
+    return RemotePtySnapshot(
+      sessionId: coreSnapshot.sessionId,
+      content: coreSnapshot.content,
+      bufferLength: coreSnapshot.bufferLength,
+      sequence: coreSnapshot.sequence,
+    );
   }
 
-  void requireSnapshot() {
-    awaitingSnapshot = true;
-    _pageBuffer = null;
-    _heldSequencedLive.clear();
-    _heldUnsequencedLive.clear();
+  void resetTransient({bool resetSequence = false}) {
+    _core.resetTransient(resetSequence: resetSequence);
+    _clearHeldLive();
+  }
+
+  void requireBaseline() {
+    _core.requireBaseline();
+    _clearHeldLive();
   }
 
   void setSequence(int sequence) {
-    _sequence = sequence;
+    _core.setSequence(sequence);
   }
 
   bool holdLive({required int? sequence, required T output}) {
-    if (!awaitingSnapshot) return false;
-    if (sequence == null) {
-      _heldUnsequencedLive.add(output);
-    } else {
-      _heldSequencedLive.putIfAbsent(sequence, () => output);
+    final token = _nextHeldLiveToken++;
+    final held = _core.holdLiveToken(sequence: sequence, token: token);
+    if (held) {
+      _heldLiveByToken[token] = output;
     }
-    return true;
+    return held;
   }
 
-  RemotePtySnapshotPageResult acceptSnapshotPage({
+  RemotePtyBaselinePageResult acceptBaselinePage({
     required String data,
     required int offset,
     required int? bufferLength,
     required bool truncated,
   }) {
-    final pageBuffer = offset == 0 || _pageBuffer == null
-        ? _RemotePtyPageBuffer(bufferLength, nextOffset: offset)
-        : _pageBuffer!;
-    if (offset == 0) {
-      _pageBuffer = pageBuffer;
-    }
-    final accepted = pageBuffer.accept(
+    final corePage = _core.acceptBaselinePage(
       data: data,
       offset: offset,
       bufferLength: bufferLength,
       truncated: truncated,
     );
-    if (!accepted.accepted) {
-      _pageBuffer = null;
-      return accepted;
-    }
-    if (accepted.ready) {
-      _pageBuffer = null;
-    } else {
-      _pageBuffer = pageBuffer;
-      _bufferLength = accepted.nextOffset;
-    }
-    return accepted;
+    final duplicate =
+        corePage.duplicate ||
+        (!corePage.accepted &&
+            offset + data.runes.length <= corePage.nextOffset);
+    return RemotePtyBaselinePageResult(
+      accepted: corePage.accepted,
+      duplicate: duplicate,
+      ready: corePage.ready,
+      data: corePage.data,
+      nextOffset: corePage.nextOffset,
+      progress: corePage.progress,
+    );
   }
 
-  List<T> replaceFromSnapshot({
+  List<T> replaceFromBaseline({
     required String content,
     required int? bufferLength,
     required int? sequence,
   }) {
-    _content = _trimToCacheLimit(content);
-    if (bufferLength != null) _bufferLength = bufferLength;
-    final baseSequence = sequence ?? _sequence;
-    _sequence = baseSequence;
-    awaitingSnapshot = false;
-    _pageBuffer = null;
-    final keys = _heldSequencedLive.keys.toList()..sort();
+    final replayTokens = _core.replaceFromBaseline(
+      content: content,
+      bufferLength: bufferLength,
+      sequence: sequence,
+    );
     final replay = <T>[];
-    for (final key in keys) {
-      if (key > baseSequence) {
-        final output = _heldSequencedLive[key];
-        if (output != null) replay.add(output);
-      }
+    for (final token in replayTokens) {
+      final output = _heldLiveByToken[token];
+      if (output != null) replay.add(output);
     }
-    replay.addAll(_heldUnsequencedLive);
-    _heldSequencedLive.clear();
-    _heldUnsequencedLive.clear();
+    _clearHeldLive();
     return replay;
   }
 
@@ -127,33 +117,33 @@ class RemotePtySession<T> {
     required int? bufferLength,
     required int? sequence,
   }) {
-    if (data.isNotEmpty) {
-      _content = _trimToCacheLimit(_content + data);
-    }
-    if (bufferLength != null) _bufferLength = bufferLength;
-    if (sequence != null) _sequence = sequence;
+    _core.appendLive(
+      data: data,
+      bufferLength: bufferLength,
+      sequence: sequence,
+    );
   }
 
   void clear() {
-    _content = '';
-    _bufferLength = 0;
-    _sequence = 0;
-    awaitingSnapshot = false;
-    _pageBuffer = null;
-    _heldSequencedLive.clear();
-    _heldUnsequencedLive.clear();
+    _core.clear();
+    _clearHeldLive();
   }
 
-  String _trimToCacheLimit(String value) {
-    final runes = value.runes.toList(growable: false);
-    if (runes.length <= maxCachedChars) return value;
-    return String.fromCharCodes(runes.skip(runes.length - maxCachedChars));
+  void dispose() {
+    _core.dispose();
+    _clearHeldLive();
+  }
+
+  void _clearHeldLive() {
+    _heldLiveByToken.clear();
+    _nextHeldLiveToken = 1;
   }
 }
 
-class RemotePtySnapshotPageResult {
-  const RemotePtySnapshotPageResult({
+class RemotePtyBaselinePageResult {
+  const RemotePtyBaselinePageResult({
     required this.accepted,
+    required this.duplicate,
     required this.ready,
     required this.data,
     required this.nextOffset,
@@ -161,51 +151,11 @@ class RemotePtySnapshotPageResult {
   });
 
   final bool accepted;
+  final bool duplicate;
   final bool ready;
   final String data;
   final int nextOffset;
   final double? progress;
-}
-
-class _RemotePtyPageBuffer {
-  _RemotePtyPageBuffer(this.bufferLength, {required this.nextOffset});
-
-  final StringBuffer _buffer = StringBuffer();
-  int nextOffset;
-  int? bufferLength;
-
-  RemotePtySnapshotPageResult accept({
-    required String data,
-    required int offset,
-    required int? bufferLength,
-    required bool truncated,
-  }) {
-    this.bufferLength ??= bufferLength;
-    if (offset != nextOffset) {
-      return RemotePtySnapshotPageResult(
-        accepted: false,
-        ready: false,
-        data: '',
-        nextOffset: nextOffset,
-        progress: null,
-      );
-    }
-    _buffer.write(data);
-    nextOffset += data.runes.length;
-    final expectedLength = bufferLength ?? this.bufferLength;
-    final completeByLength =
-        expectedLength != null && nextOffset >= expectedLength;
-    final ready = !truncated || completeByLength;
-    return RemotePtySnapshotPageResult(
-      accepted: true,
-      ready: ready,
-      data: ready ? _buffer.toString() : '',
-      nextOffset: nextOffset,
-      progress: expectedLength == null || expectedLength <= 0
-          ? null
-          : (nextOffset / expectedLength).clamp(0.0, 1.0),
-    );
-  }
 }
 
 class RemotePtySessionStore<T> {
@@ -231,10 +181,13 @@ class RemotePtySessionStore<T> {
   int sequence(String sessionId) => _sessions[sessionId]?.sequence ?? 0;
 
   void remove(String sessionId) {
-    _sessions.remove(sessionId);
+    _sessions.remove(sessionId)?.dispose();
   }
 
   void clear() {
+    for (final session in _sessions.values) {
+      session.dispose();
+    }
     _sessions.clear();
   }
 }

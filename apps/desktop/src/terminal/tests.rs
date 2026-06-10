@@ -514,6 +514,41 @@ mod tests {
     }
 
     #[test]
+    fn keeps_macos_app_shortcuts_out_of_terminal_input() {
+        for key in ["q", "h", "m", "w", "tab", "`"] {
+            assert!(
+                keystroke_to_bytes(&modified_key(key, false, false, false, true), TermMode::NONE)
+                    .is_none(),
+                "Cmd+{key} should remain an app shortcut"
+            );
+        }
+        assert!(
+            keystroke_to_bytes(&modified_key("h", false, true, false, true), TermMode::NONE)
+                .is_none()
+        );
+        assert!(
+            keystroke_to_bytes(&modified_key("m", false, true, false, true), TermMode::NONE)
+                .is_none()
+        );
+        assert!(
+            keystroke_to_bytes(&modified_key("tab", true, false, false, true), TermMode::NONE)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn preserves_control_q_for_terminal_flow_control() {
+        assert_eq!(
+            bytes(modified_key("q", false, false, true, false), TermMode::NONE),
+            b"\x11"
+        );
+        assert_eq!(
+            bytes(modified_key("Q", true, false, true, false), TermMode::NONE),
+            b"\x11"
+        );
+    }
+
+    #[test]
     fn maps_ctrl_alt_and_shift_enter_sequences() {
         assert_eq!(
             bytes(modified_key("a", false, false, true, false), TermMode::NONE),

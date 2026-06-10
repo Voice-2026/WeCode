@@ -3,21 +3,21 @@ use super::crypto::{
     remote_e2e_symmetric_key, remote_pairing_match_code, remote_pairing_payload,
 };
 use super::host::{
-    quote_terminal_path, remote_ai_stats_payload, remote_file_list, remote_file_read,
-    remote_file_rename, remote_file_write, remote_terminal_upload_directory,
-    remote_terminal_upload_kind, sanitized_remote_upload_name, terminal_upload_path_input,
-    unique_remote_upload_path,
+    remote_ai_stats_payload, remote_file_list, remote_file_read, remote_file_rename,
+    remote_file_write, remote_terminal_upload_directory, remote_terminal_upload_kind,
+    sanitized_remote_upload_name, terminal_upload_path_input, unique_remote_upload_path,
 };
 use super::pairing::remote_summary_show_pending_pairing;
 use super::summary::remote_summary_from_settings;
 use super::types::{
     RemoteDeviceSettings, RemoteOutgoingEnvelope, RemotePairingInfo, RemoteSettings,
-    RemoteTransportCandidate,
 };
 use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::config::flush_all_config_writes;
 use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
+use codux_protocol::{webrtc_transport_candidate, websocket_relay_transport_candidate};
+use codux_runtime_core::upload::quote_terminal_path;
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -122,23 +122,14 @@ fn remote_pairing_payload_contains_v3_transport_candidates() {
         &settings,
         &pairing,
         vec![
-            RemoteTransportCandidate {
-                kind: "websocketRelay".to_string(),
-                role: Some("host".to_string()),
-                url: Some("https://relay.example".to_string()),
-                ice_servers: Vec::new(),
-            },
-            RemoteTransportCandidate {
-                kind: "webRtc".to_string(),
-                role: Some("host".to_string()),
-                url: Some("https://relay.example".to_string()),
-                ice_servers: vec![super::types::RemoteIceServer {
-                    urls: vec![
-                        "stun:stun.miwifi.com:3478".to_string(),
-                        "stun:stun.l.google.com:19302".to_string(),
-                    ],
-                }],
-            },
+            websocket_relay_transport_candidate("https://relay.example"),
+            webrtc_transport_candidate(
+                "https://relay.example",
+                vec![
+                    "stun:stun.miwifi.com:3478".to_string(),
+                    "stun:stun.l.google.com:19302".to_string(),
+                ],
+            ),
         ],
     );
     assert_eq!(value["code"], "123456");

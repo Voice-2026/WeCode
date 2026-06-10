@@ -3,17 +3,17 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'remote pty session restores snapshot before replaying held live output',
+    'remote pty session restores baseline before replaying held live output',
     () {
       final session = RemotePtySession<String>(
         'session-1',
         maxCachedChars: 1000,
       );
 
-      session.requireSnapshot();
+      session.requireBaseline();
       expect(session.holdLive(sequence: 11, output: 'new'), isTrue);
 
-      final first = session.acceptSnapshotPage(
+      final first = session.acceptBaselinePage(
         data: 'old-',
         offset: 0,
         bufferLength: 8,
@@ -23,7 +23,7 @@ void main() {
       expect(session.content, '');
       expect(session.bufferLength, 4);
 
-      final second = session.acceptSnapshotPage(
+      final second = session.acceptBaselinePage(
         data: 'data',
         offset: 4,
         bufferLength: 8,
@@ -31,7 +31,7 @@ void main() {
       );
       expect(second.ready, isTrue);
 
-      final replay = session.replaceFromSnapshot(
+      final replay = session.replaceFromBaseline(
         content: second.data,
         bufferLength: 8,
         sequence: 10,

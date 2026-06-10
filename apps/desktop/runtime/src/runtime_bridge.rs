@@ -3,6 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::ai_runtime::stage_runtime_asset;
+
 #[derive(Clone, Debug)]
 pub struct RuntimeInventory {
     pub source_root: PathBuf,
@@ -50,9 +52,10 @@ impl RuntimeInventory {
 }
 
 pub fn runtime_assets_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("runtime-assets")
+    runtime_assets_candidates()
+        .into_iter()
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| runtime_package_dir().join("../runtime-assets"))
 }
 
 pub fn staged_runtime_root_path() -> PathBuf {
@@ -60,10 +63,53 @@ pub fn staged_runtime_root_path() -> PathBuf {
 }
 
 pub fn runtime_src_path() -> PathBuf {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("runtime")
-        .join("src")
+    runtime_src_candidates()
+        .into_iter()
+        .find(|path| path.is_dir())
+        .unwrap_or_else(|| runtime_package_dir().join("src"))
+}
+
+fn runtime_assets_candidates() -> Vec<PathBuf> {
+    let runtime_package = runtime_package_dir();
+    let desktop_root = runtime_package
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| runtime_package.clone());
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let exe_dir = current_exe_dir();
+    let mut candidates = vec![
+        desktop_root.join("runtime-assets"),
+        current_dir.join("apps/desktop/runtime-assets"),
+        current_dir.join("runtime-assets"),
+    ];
+    if let Some(exe_dir) = exe_dir {
+        candidates.extend([
+            exe_dir.join("runtime-assets"),
+            exe_dir.join("../Resources/runtime-assets"),
+            exe_dir.join("../Resources/runtime-root"),
+        ]);
+    }
+    candidates
+}
+
+fn runtime_src_candidates() -> Vec<PathBuf> {
+    let runtime_package = runtime_package_dir();
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    vec![
+        runtime_package.join("src"),
+        current_dir.join("apps/desktop/runtime/src"),
+        current_dir.join("runtime/src"),
+    ]
+}
+
+fn runtime_package_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn current_exe_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf))
 }
 
 fn stage_runtime_assets(source_root: &Path, staged_root: &Path) -> Result<(), String> {
@@ -73,7 +119,21 @@ fn stage_runtime_assets(source_root: &Path, staged_root: &Path) -> Result<(), St
             source_root.display()
         ));
     }
-    copy_dir_recursive(source_root, staged_root)
+    copy_dir_recursive(source_root, staged_root)?;
+    stage_embedded_runtime_bootstrap_assets(staged_root)
+}
+
+fn stage_embedded_runtime_bootstrap_assets(staged_root: &Path) -> Result<(), String> {
+    for relative_path in [
+        "scripts/shell-hooks/dmux-ai-hook.zsh",
+        "scripts/shell-hooks/zsh/.zlogin",
+        "scripts/shell-hooks/zsh/.zprofile",
+        "scripts/shell-hooks/zsh/.zshenv",
+        "scripts/shell-hooks/zsh/.zshrc",
+    ] {
+        stage_runtime_asset(relative_path, &staged_root.join(relative_path), false)?;
+    }
+    Ok(())
 }
 
 fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -160,8 +220,47 @@ mod tests {
 
         assert!(target.join("scripts/wrappers/bin/codex").is_file());
         assert!(target.join("scripts/shell-hooks/zsh/.zshrc").is_file());
-        assert_eq!(count_files_recursive(&target), 2);
+        assert!(target.join("scripts/shell-hooks/zsh/.zshenv").is_file());
+        assert!(target.join("scripts/shell-hooks/zsh/.zprofile").is_file());
+        assert!(
+            target
+                .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+                .is_file()
+        );
 
         fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn stage_runtime_assets_repairs_embedded_shell_hooks_when_source_omits_dotfiles() {
+        let temp = std::env::temp_dir().join(format!(
+            "codux-gpui-runtime-stage-bootstrap-{}",
+            Uuid::new_v4()
+        ));
+        let source = temp.join("source");
+        let target = temp.join("target");
+        fs::create_dir_all(source.join("scripts/shell-hooks/zsh")).unwrap();
+
+        stage_runtime_assets(&source, &target).unwrap();
+
+        assert!(target.join("scripts/shell-hooks/zsh/.zshenv").is_file());
+        assert!(target.join("scripts/shell-hooks/zsh/.zprofile").is_file());
+        assert!(target.join("scripts/shell-hooks/zsh/.zshrc").is_file());
+        assert!(target.join("scripts/shell-hooks/zsh/.zlogin").is_file());
+        assert!(
+            target
+                .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+                .is_file()
+        );
+
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn runtime_assets_path_resolves_after_desktop_move() {
+        let path = runtime_assets_path();
+
+        assert!(path.ends_with("apps/desktop/runtime-assets"));
+        assert!(path.is_dir());
     }
 }

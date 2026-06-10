@@ -10,12 +10,9 @@ mod sequence;
 mod settings;
 mod summary;
 mod sync;
-mod terminal_subscriptions;
 mod transport;
 mod transport_factory;
 mod types;
-mod webrtc_transport;
-mod websocket_transport;
 
 use std::path::PathBuf;
 

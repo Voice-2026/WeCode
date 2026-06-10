@@ -33,6 +33,10 @@ impl TerminalKeyModifiers {
 }
 
 fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u8>> {
+    if should_keep_platform_keystroke_for_app(keystroke) {
+        return None;
+    }
+
     if keystroke.modifiers.control
         && !keystroke.modifiers.alt
         && !keystroke.modifiers.platform
@@ -175,6 +179,34 @@ fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u8>> 
     }
 
     None
+}
+
+fn should_keep_platform_keystroke_for_app(keystroke: &Keystroke) -> bool {
+    if !keystroke.modifiers.platform {
+        return false;
+    }
+
+    let key = normalize_terminal_key(&keystroke.key);
+    let bare_platform = !keystroke.modifiers.control
+        && !keystroke.modifiers.alt
+        && !keystroke.modifiers.shift;
+    let platform_alt =
+        !keystroke.modifiers.control && keystroke.modifiers.alt && !keystroke.modifiers.shift;
+    let platform_shift =
+        !keystroke.modifiers.control && !keystroke.modifiers.alt && keystroke.modifiers.shift;
+
+    matches!(
+        (key.as_str(), bare_platform, platform_alt, platform_shift),
+        ("h", true, _, _)
+            | ("m", true, _, _)
+            | ("q", true, _, _)
+            | ("w", true, _, _)
+            | ("`", true, _, _)
+            | ("tab", true, _, _)
+            | ("h", _, true, _)
+            | ("m", _, true, _)
+            | ("tab", _, _, true)
+    )
 }
 
 fn normalize_terminal_key(key: &str) -> String {

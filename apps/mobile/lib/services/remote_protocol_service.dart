@@ -4,8 +4,8 @@ import 'dart:io';
 import '../i18n.dart';
 import '../models/remote_models.dart';
 import 'e2e_crypto.dart';
-
-const String remoteProtocolVersion = 'v3.1';
+import 'remote_protocol.dart';
+export 'remote_protocol.dart';
 
 Future<PairingPayload> parsePairingPayload(String input) async {
   final parsed = await _fetchPairingTicketPayload(input);
@@ -81,7 +81,11 @@ Future<Map<String, dynamic>> _fetchPairingTicketPayload(String input) async {
   final server = uri.queryParameters['server']!.trim();
   final ticket = uri.queryParameters['ticket']!.trim();
   final response = await HttpClient()
-      .getUrl(_pairingTicketUri(server, ticket))
+      .getUrl(
+        Uri.parse(
+          remoteTransportPairingTicketUrl(base: server, ticket: ticket),
+        ),
+      )
       .then((request) => request.close())
       .timeout(const Duration(seconds: 12));
   final text = await response.transform(utf8.decoder).join();
@@ -92,14 +96,6 @@ Future<Map<String, dynamic>> _fetchPairingTicketPayload(String input) async {
   if (decoded is Map<String, dynamic>) return decoded;
   if (decoded is Map) return Map<String, dynamic>.from(decoded);
   throw Exception(tr('remote.qrInvalid', LocaleChoices.system.id));
-}
-
-Uri _pairingTicketUri(String base, String ticket) {
-  final baseUri = Uri.parse(base.trim());
-  return baseUri.replace(
-    path: _joinRemotePath(baseUri.path, '/api/tickets/$ticket'),
-    query: '',
-  );
 }
 
 RelayEnvelope pairingRequestEnvelope(PairingPayload payload, String name) {
@@ -126,9 +122,12 @@ Future<StoredDevice> claimPairingOverRelay({
   Duration timeout = const Duration(seconds: 90),
 }) async {
   RemoteTransportCandidate? transport;
+  final preferred = remotePreferredTransportKind(
+    payload.transports,
+    pairing: true,
+  );
   for (final candidate in payload.transports) {
-    if (candidate.kind == RemoteTransportKind.websocketRelay &&
-        candidate.url.trim().isNotEmpty) {
+    if (candidate.kind == preferred && candidate.url.trim().isNotEmpty) {
       transport = candidate;
       break;
     }
@@ -137,7 +136,11 @@ Future<StoredDevice> claimPairingOverRelay({
     throw Exception(tr('remote.qrMissingFields', LocaleChoices.system.id));
   }
   final socket = await WebSocket.connect(
-    _pairingWebSocketUri(transport.url, payload).toString(),
+    remoteTransportPairingWebSocketUrl(
+      base: transport.url,
+      hostId: payload.hostId ?? '',
+      devicePublicKey: payload.devicePublicKey,
+    ),
   ).timeout(const Duration(seconds: 12));
   try {
     socket.add(jsonEncode(pairingRequestEnvelope(payload, name).toJson()));
@@ -170,31 +173,6 @@ Future<StoredDevice> claimPairingOverRelay({
   }
 }
 
-Uri _pairingWebSocketUri(String base, PairingPayload payload) {
-  final baseUri = Uri.parse(base.trim());
-  final scheme = switch (baseUri.scheme) {
-    'https' => 'wss',
-    'http' => 'ws',
-    final other => other,
-  };
-  return baseUri.replace(
-    scheme: scheme,
-    path: _joinRemotePath(baseUri.path, '/ws/client'),
-    queryParameters: {
-      'hostId': payload.hostId ?? '',
-      'deviceId': payload.devicePublicKey,
-    },
-  );
-}
-
-String _joinRemotePath(String basePath, String path) {
-  var base = basePath.trim().replaceAll(RegExp(r'/+$'), '');
-  if (base.isEmpty) base = '/v3';
-  final suffix = path.trim().replaceFirst(RegExp(r'^/+'), '');
-  if (suffix.isEmpty) return base;
-  return '$base/$suffix';
-}
-
 StoredDevice confirmedDevice({
   required PairingPayload payload,
   required String name,
@@ -208,9 +186,12 @@ StoredDevice confirmedDevice({
     throw Exception('Pairing confirmed without device credentials');
   }
   RemoteTransportCandidate? relay;
+  final preferred = remotePreferredTransportKind(
+    payload.transports,
+    pairing: true,
+  );
   for (final candidate in payload.transports) {
-    if (candidate.kind == RemoteTransportKind.websocketRelay &&
-        candidate.url.trim().isNotEmpty) {
+    if (candidate.kind == preferred && candidate.url.trim().isNotEmpty) {
       relay = candidate;
       break;
     }

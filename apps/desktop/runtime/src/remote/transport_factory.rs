@@ -1,10 +1,9 @@
-use super::relay::{remote_server_url, remote_url};
-use super::transport::{
-    RemoteTransport, RemoteTransportMessageHandler, RemoteTransportPairingHandler,
-    RemoteTransportStateHandler,
-};
 use super::types::RemoteSettings;
-use super::webrtc_transport::RemoteWebRtcHostTransport;
+use codux_remote_transport::{
+    RemoteHostTransportConfig, RemoteTransport, RemoteTransportFactory as SharedTransportFactory,
+    RemoteTransportMessageHandler, RemoteTransportPairingHandler, RemoteTransportStateHandler,
+    remote_stun_urls,
+};
 use std::sync::Arc;
 
 pub(crate) struct RemoteTransportFactory;
@@ -16,19 +15,20 @@ impl RemoteTransportFactory {
         on_state: RemoteTransportStateHandler,
         on_pairing: RemoteTransportPairingHandler,
     ) -> Result<Arc<dyn RemoteTransport>, String> {
-        let relay = remote_server_url(&settings.server_url);
-        let ws_url = remote_url(
-            &relay,
-            "/ws/host",
-            &[
-                ("hostId", settings.host_id.as_str()),
-                ("token", settings.host_token.as_str()),
-            ],
-            true,
-        )?;
-        let transport =
-            RemoteWebRtcHostTransport::connect(settings, ws_url, on_message, on_state, on_pairing)
-                .await?;
-        Ok(transport)
+        SharedTransportFactory::connect_host(
+            &RemoteHostTransportConfig {
+                server_url: settings.server_url.clone(),
+                host_id: settings.host_id.clone(),
+                host_token: settings.host_token.clone(),
+                stun_urls: remote_stun_urls(),
+            },
+            on_message,
+            on_state,
+            on_pairing,
+            Some(Arc::new(|message| {
+                crate::runtime_trace::runtime_trace("remote", &message);
+            })),
+        )
+        .await
     }
 }

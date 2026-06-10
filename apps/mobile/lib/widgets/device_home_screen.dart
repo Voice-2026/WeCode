@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../i18n.dart';
 import '../models/remote_models.dart';
+import '../services/remote_protocol.dart';
 import '../theme/app_theme.dart';
 import 'more_menu.dart';
 import 'swipe_list_tile.dart';
@@ -139,7 +140,7 @@ class DeviceHomeScreen extends StatelessWidget {
                           title: title,
                           subtitle: _deviceProtocolLabel(
                             context,
-                            device.transport,
+                            _deviceTransportKind(device),
                           ),
                           leadingIcon: Icons.desktop_mac_outlined,
                           active: isActive,
@@ -272,6 +273,11 @@ String _deviceProtocolLabel(BuildContext context, String transport) {
     'webrtc' => prefs.t('connection.protocol.webrtc'),
     _ => transport.toUpperCase(),
   };
+}
+
+String _deviceTransportKind(StoredDevice device) {
+  final kind = remotePreferredTransportKind(device.transports, pairing: false);
+  return kind.isEmpty ? RemoteTransportKind.websocketRelay : kind;
 }
 
 class _TransportText extends StatelessWidget {

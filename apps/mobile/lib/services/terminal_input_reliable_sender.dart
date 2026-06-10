@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../models/remote_models.dart';
 import 'log_service.dart';
+import 'remote_protocol.dart';
 
 typedef TerminalInputReliableSend = bool Function(RelayEnvelope message);
 typedef TerminalInputActiveSession = String? Function();
@@ -87,7 +88,7 @@ class TerminalInputReliableSender {
     pending.retryTimer?.cancel();
     final sent = _send(
       RelayEnvelope(
-        type: 'terminal.input',
+        type: RemoteMessageType.terminalInput,
         sessionId: pending.sessionId,
         payload: {
           'data': pending.data,

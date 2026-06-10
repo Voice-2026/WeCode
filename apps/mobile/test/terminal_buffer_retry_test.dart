@@ -105,7 +105,7 @@ void main() {
     expect(sent, ['session-1']);
   });
 
-  test('full snapshot request can replace a pending buffer request', () {
+  test('full baseline request can replace a pending buffer request', () {
     final timers = <_FakeTimer>[];
     final sent = <String>[];
     final retry = TerminalBufferRetryCoordinator(

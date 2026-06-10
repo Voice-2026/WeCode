@@ -12,7 +12,7 @@
    - pairing payloads
    - bidirectional resource subscription messages
    - baseline/delta/resync/ack payloads
-   - terminal buffer chunk/snapshot payloads during v3.1 migration
+   - terminal buffer chunk/restore payloads during v3.1 migration
    - project/file/git/worktree/terminal domain message types
 
 2. `codux-remote-transport`
@@ -24,7 +24,7 @@
 
 3. `codux-terminal-core`
    - terminal output sequence guard
-   - snapshot assembler
+   - restore-window assembler
    - remote terminal session/cache
    - viewport ownership model
    - input ack/retry model
@@ -60,12 +60,12 @@ Mac、Windows、Linux headless、Flutter 都按 peer 处理。任意 peer 可以
 
 ## 当前收口任务
 
-1. Mac host 的 `terminal.subscribe` 支持订阅后发送 terminal baseline。
-2. Flutter 订阅项目或 session 时携带 baseline/resume 选项。
+1. Mac host 支持标准 `resource.subscribe(resource=terminals)`，并保留 `terminal.subscribe` 兼容入口。
+2. Flutter 订阅项目或 session 时通过 Rust FFI 构造 `resource.subscribe`，携带 baseline/resume 选项。
 3. Flutter `RemotePtySession` 作为唯一远程终端数据池：baseline、分页、live delta、held buffer、seq、resync 都进入模型。
 4. UI 进入项目、前台恢复、resize 只挂载或 replay 模型；不主动全量拉历史。
 5. 只有无缓存、host runtime 重启、seq gap、显式 resync 时才触发 full hydrate。
-6. 后续将 `terminal.subscribe + terminal.buffer` 平滑升级为通用 `resource.subscribe + resource.baseline`。
+6. `terminal.buffer` 仍作为 v3.1 终端 baseline/hydration 载荷；后续再升级为通用 `resource.baseline`。
 
 ## Monorepo 迁移状态
 
@@ -78,11 +78,17 @@ codux/
       runtime/
       runtime-assets/
       scripts/
+    agent/
     mobile/
+    server/
     relay-server/
   crates/
     codux-protocol/
+    codux-protocol-ffi/
+    codux-remote-transport/
+    codux-runtime-core/
     codux-terminal-core/
+    codux-terminal-pty/
   docs/
   plan/
 ```
@@ -90,27 +96,56 @@ codux/
 已完成：
 
 - `apps/desktop`：Rust + GPUI desktop app，包含桌面端 runtime、assets 和 release scripts。
+- `apps/agent`：Headless controlled agent 薄入口，依赖公共 protocol/terminal core/local PTY driver，不依赖 GPUI 或桌面 runtime。
 - `apps/mobile`：Flutter mobile controller。
-- `apps/relay-server`：Go relay service。
-- `crates/codux-protocol`：共享协议边界。
-- `crates/codux-terminal-core`：共享终端模型边界。
+- `apps/server`：Rust v3 relay service，承接 ticket、signaling 和 WebSocket fallback。
+- `apps/relay-server`：Go relay service，迁移期继续保留老协议兼容。
+- `crates/codux-protocol`：共享协议边界，包含 v3.1 消息名、资源名、secure/relay envelope DTO、transport candidate DTO、订阅消息、通用资源订阅注册表、relay 策略和 terminal buffer payload。
+- `crates/codux-remote-transport`：共享 transport 边界，包含 WebSocket relay host driver、WebRTC DataChannel host driver、controller-side relay factory、local memory transport、URL/STUN 规范化、transport factory 和 path state 回调；不承载 terminal/Git/file/UI 业务状态。
+- `crates/codux-protocol-ffi`：Flutter 协议和终端 core 绑定的 C ABI，直接复用 `codux-protocol` 和 `codux-terminal-core`。
+- `crates/codux-runtime-core`：共享 runtime domain 边界，已承载 host.info、project/file/git/worktree/upload/terminal payload 规则、RuntimeSubscriptionRouter 和 terminal domain 接口；桌面 host 已委托这些协议 shape 与通用资源订阅路由到公共 crate。
+- `crates/codux-terminal-core`：共享终端模型边界，负责远程 session 缓存、buffer-window restore、terminal output sequence guard 和 held-live replay 判定。
+- `crates/codux-terminal-pty`：共享 host/headless local PTY driver，基于 `portable_pty`。
+- Mac host 已接入通用资源订阅注册表：terminal viewer、project/terminal list、Git status、worktree、AI stats 更新都从订阅表计算目标设备；project list 按设备重建 payload，避免不同控制端 selected project 串线。
 
 原则：
 
 - 顶层仓库统一版本、文档、计划和 CI；各 app 的构建/发布脚本跟随各自目录。
-- Cargo workspace 只包含 Rust app/crates，不把 Flutter、web、Go 服务端加入 Cargo workspace。
-- Flutter、web、Go 服务端作为 `apps/*` 子项目保留各自原生构建系统。
+- Cargo workspace 只包含 Rust app/crates，包括 `apps/server`；不把 Flutter、web、Go 兼容服务加入 Cargo workspace。
+- Flutter、web、Go 兼容服务作为 `apps/*` 子项目保留各自原生构建系统。
 
 待迁移：
 
 - `apps/web`：官网/文档站点，等当前桌面、移动端、服务端迁移提交稳定后再导入。
-- `codux-remote-transport` 和 `codux-remote-runtime`：等协议/终端核心 API 稳定后再继续拆。
+- `codux-remote-transport` 已提供 host-side WebSocket/WebRTC driver、controller-side relay factory 和 local memory transport，也通过 FFI 供 Flutter controller 复用 URL/STUN/transport 选择规则；后续增强项是 Flutter async event-stream FFI 桥接、controller-side WebRTC Rust IO，以及 QUIC/WebTransport driver。
+- `codux-runtime-core` 后续继续迁移 project/file/git/worktree/terminal domain controller 的剩余状态机；当前已先接入 host.info、纯 payload/排序/命名/上传规则、通用订阅路由和公共接口。
 
 ## Platform bindings
 
-   - desktop Rust API uses the crates directly
-   - Flutter keeps Dart implementation until cross-end API stabilizes
-   - later evaluate Rust FFI for shared protocol/terminal-core only, not UI
+- Desktop Rust API uses workspace crates directly.
+- Flutter protocol bindings use `apps/mobile/plugin/codux_protocol_ffi`, backed by `crates/codux-protocol-ffi`.
+- Android builds `libcodux_protocol_ffi.so` with NDK/cargo-ndk during Gradle preBuild.
+- iOS/macOS build the Rust static library from the Flutter plugin podspec script phase.
+- Dart keeps compile-time message constants for switch/case matching, Flutter socket/WebRTC handles, and Flutter UI/runtime wiring only. Protocol envelope construction, relay policy, transport URL/STUN/selection rules, and terminal session state now route through Rust FFI without a duplicate Dart implementation.
+- Flutter `RemotePtySession` and terminal output sequencer use `codux-terminal-core` through FFI for content, buffer length, sequence, buffer-window restore, cache trimming, duplicate/gap handling, and held-live replay selection. Dart only keeps token-to-object references for Dart-owned objects that cannot cross the FFI boundary.
+
+## Terminal / PTY 边界
+
+| Layer | Current owner | Shared? | 作用 |
+| --- | --- | --- | --- |
+| `codux-terminal-core` | Rust workspace crate | Yes | 平台无关的远程终端数据模型：缓存、分页恢复、sequence guard、restore window、held-live replay 判定。 |
+| `codux-terminal-pty` | Rust workspace crate | Yes for host/headless | 基于 `portable_pty` 的标准 local PTY driver，实现公共 `TerminalDriver`/`TerminalSessionHandle` 接口，可供 Linux headless 和后续桌面适配复用。 |
+| `codux-protocol` | Rust workspace crate | Yes | v3.1 消息名、资源名、secure/relay envelope DTO、transport candidate DTO、订阅模型、relay 策略、terminal buffer payload 标准。 |
+| `codux-remote-transport` | Rust workspace crate | Yes | 多驱动远程传输层：WebSocket relay、WebRTC host driver、URL/STUN 规则和 transport factory；与 runtime domain 和 PTY 解耦。 |
+| `codux-runtime-core` | Rust workspace crate | Yes | host.info、project/file/Git/worktree/upload/terminal 的 domain payload 规则和公共 runtime 接口。 |
+| `codux-protocol-ffi` | Rust workspace crate + Flutter plugin | Yes for Flutter binding | 把 protocol 和 terminal-core 暴露给 Flutter；不承载 UI 状态。 |
+| `apps/agent` | Headless app | Shared host entry | 无 UI 被控端入口，直接复用 `codux-protocol`、`codux-terminal-core`、`codux-terminal-pty`，后续接入 transport/runtime domains。 |
+| `TerminalManager` | Desktop runtime | Desktop adapter | 桌面端专用适配层：连接 AI runtime、记忆/工具环境和现有桌面 session 生命周期；已对齐公共 `TerminalDriver` trait，后续可逐步委托给 `codux-terminal-pty`。 |
+| Local PTY driver | `codux-terminal-pty` / desktop adapter | Shared driver interface | 真正执行命令并产生终端字节流。 |
+| Remote PTY session | Controller side, backed by `codux-terminal-core` | Yes | 保存从远端协议来的终端状态，让 UI 像挂载本地模型一样读取。 |
+| UI terminal renderer | Desktop GPUI / Flutter native terminal | No | 只渲染 runtime model，并发送输入/resize 等用户意图。 |
+
+结论：Headless 应该是独立 `apps/agent`，不是桌面端的 headless 编译变体。`portable_pty` 不直接塞进 `codux-terminal-core`，而是放在独立 `codux-terminal-pty` host/headless driver crate。`codux-terminal-core` 提供公共 `TerminalDriver`/`TerminalSessionHandle` trait 和平台无关模型；`codux-terminal-pty` 实现 local PTY driver；桌面端 `TerminalManager` 继续承接 AI runtime 和桌面专用环境，并作为公共 trait 的桌面适配器。
 
 ## 不马上拆独立仓库的原因
 
@@ -123,11 +158,12 @@ codux/
 
 1. 固化 v3.1 文档和测试。
 2. 先把 Mac host 和 Flutter terminal 链路对齐到订阅驱动的 RemotePtySession 模型。
-3. 把 protocol payload 从 host/ui 调用点继续下沉到 protocol 模块。
-4. 将 terminal baseline/sequence/remote pty session 抽成平台无关核心。
+3. 把 protocol payload 从 host/ui 调用点继续下沉到 `codux-protocol` 和 `codux-runtime-core`。
+4. 将 project/file/git/worktree/terminal host-side domain controller 状态机继续迁入 `codux-runtime-core`。
 5. 将 transport driver 接口和状态机稳定为可替换工厂。
-6. 跨端互联接入 Linux headless host。
-7. 验证 Mac/Windows/Linux/Flutter 多端互联后再评估独立仓库。
+6. 将桌面端 `TerminalManager` 逐步委托给 `codux-terminal-pty`，保留 AI runtime/记忆/工具环境作为桌面适配层。
+7. 跨端互联接入 Linux headless host。
+8. 验证 Mac/Windows/Linux/Flutter 多端互联后再评估独立仓库。
 
 ## 发布策略
 

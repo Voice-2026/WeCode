@@ -1,0 +1,11 @@
+[package]
+name = "codux-agent"
+version = "1.7.6"
+edition = "2024"
+
+[dependencies]
+codux-protocol = { path = "../../crates/codux-protocol" }
+codux-remote-transport = { path = "../../crates/codux-remote-transport" }
+codux-runtime-core = { path = "../../crates/codux-runtime-core" }
+codux-terminal-core = { path = "../../crates/codux-terminal-core" }
+codux-terminal-pty = { path = "../../crates/codux-terminal-pty" }

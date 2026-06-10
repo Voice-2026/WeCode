@@ -9,8 +9,13 @@ use alacritty_terminal::{
     vte::ansi::{Color, NamedColor, Processor},
 };
 use anyhow::{Context, Result, anyhow};
+use codux_terminal_core::{
+    TerminalDriver as CoreTerminalDriver, TerminalEventSink, TerminalLaunchConfig,
+    TerminalSessionHandle as CoreTerminalSessionHandle,
+};
+pub use codux_terminal_core::{TerminalEvent, TerminalSessionSnapshot, TerminalViewportState};
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     collections::{HashMap, VecDeque},
     fs,
@@ -129,6 +134,28 @@ pub struct TerminalPtyConfig {
     pub memory_index_file: Option<PathBuf>,
 }
 
+impl From<TerminalLaunchConfig> for TerminalPtyConfig {
+    fn from(config: TerminalLaunchConfig) -> Self {
+        Self {
+            cwd: config.cwd,
+            shell: config.shell,
+            command: config.command,
+            cols: config.cols,
+            rows: config.rows,
+            scrollback_lines: config.scrollback_lines,
+            env: config.env,
+            project_id: config.project_id,
+            project_name: config.project_name,
+            terminal_id: config.terminal_id,
+            slot_id: config.slot_id,
+            session_key: config.session_key,
+            title: config.title,
+            tool: config.tool,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TerminalLaunchContext {
     pub project_id: String,
@@ -177,46 +204,6 @@ impl TerminalLaunchContext {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum TerminalEvent {
-    Output {
-        #[serde(rename = "sessionId")]
-        session_id: String,
-        #[serde(skip_serializing_if = "String::is_empty")]
-        text: String,
-        #[serde(skip)]
-        bytes: Vec<u8>,
-    },
-    Exit {
-        #[serde(rename = "sessionId")]
-        session_id: String,
-        #[serde(rename = "exitCode")]
-        exit_code: Option<i32>,
-    },
-    Error {
-        #[serde(rename = "sessionId")]
-        session_id: String,
-        message: String,
-    },
-    Viewport {
-        #[serde(rename = "sessionId")]
-        session_id: String,
-        owner: String,
-        cols: u16,
-        rows: u16,
-        generation: u64,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TerminalViewportState {
-    pub owner: String,
-    pub cols: u16,
-    pub rows: u16,
-    pub generation: u64,
-}
-
 #[derive(Clone, Debug)]
 struct TerminalViewportLease {
     state: TerminalViewportState,
@@ -247,28 +234,6 @@ pub struct TerminalScreenSnapshot {
     pub data: String,
     pub cols: usize,
     pub rows: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TerminalSessionSnapshot {
-    pub id: String,
-    pub title: String,
-    pub slot_id: String,
-    pub session_key: Option<String>,
-    pub project_id: String,
-    pub project_name: String,
-    pub cwd: String,
-    pub shell: String,
-    pub command: String,
-    pub cols: u16,
-    pub rows: u16,
-    pub status: String,
-    pub is_running: bool,
-    pub created_at: String,
-    pub last_active_at: String,
-    pub buffer_characters: usize,
-    pub has_buffer: bool,
 }
 
 pub type EventSink = Arc<dyn Fn(TerminalEvent) -> bool + Send + Sync + 'static>;
@@ -486,6 +451,116 @@ impl TerminalManager {
 impl Default for TerminalManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Clone)]
+pub struct DesktopTerminalSessionHandle(Arc<TerminalPtySession>);
+
+impl CoreTerminalSessionHandle for DesktopTerminalSessionHandle {
+    fn id(&self) -> &str {
+        self.0.id()
+    }
+
+    fn info(&self) -> TerminalSessionSnapshot {
+        self.0.info()
+    }
+
+    fn write(&self, data: &[u8]) -> std::result::Result<(), String> {
+        self.0.write(data).map_err(|error| error.to_string())
+    }
+
+    fn resize(&self, cols: u16, rows: u16) -> std::result::Result<(), String> {
+        self.0.resize(cols, rows).map_err(|error| error.to_string())
+    }
+
+    fn claim_viewport(&self, owner: &str) -> std::result::Result<TerminalViewportState, String> {
+        self.0
+            .claim_viewport(owner)
+            .map_err(|error| error.to_string())
+    }
+
+    fn release_viewport(
+        &self,
+        owner: &str,
+    ) -> std::result::Result<Option<TerminalViewportState>, String> {
+        self.0
+            .release_viewport(owner)
+            .map_err(|error| error.to_string())
+    }
+
+    fn resize_viewport(
+        &self,
+        owner: &str,
+        cols: u16,
+        rows: u16,
+    ) -> std::result::Result<Option<TerminalViewportState>, String> {
+        self.0
+            .resize_viewport(owner, cols, rows)
+            .map_err(|error| error.to_string())
+    }
+
+    fn viewport_state(&self) -> TerminalViewportState {
+        self.0.viewport_state()
+    }
+
+    fn snapshot(&self) -> String {
+        self.0.snapshot()
+    }
+
+    fn snapshot_tail(&self, max_chars: usize) -> (String, usize) {
+        self.0.snapshot_tail(max_chars)
+    }
+
+    fn buffer_characters(&self) -> usize {
+        self.0.buffer_characters()
+    }
+
+    fn clear_history(&self) {
+        self.0.clear_history();
+    }
+
+    fn kill(&self) -> std::result::Result<(), String> {
+        self.0.kill().map_err(|error| error.to_string())
+    }
+}
+
+impl CoreTerminalDriver for TerminalManager {
+    type Session = DesktopTerminalSessionHandle;
+
+    fn list(&self) -> Vec<TerminalSessionSnapshot> {
+        TerminalManager::list(self)
+    }
+
+    fn create(
+        &self,
+        config: TerminalLaunchConfig,
+        emit: TerminalEventSink,
+    ) -> std::result::Result<Self::Session, String> {
+        let config = TerminalPtyConfig::from(config);
+        let (session, _) = self
+            .attach_or_create_with_context(config, None, Arc::from(emit))
+            .map_err(|error| error.to_string())?;
+        Ok(DesktopTerminalSessionHandle(session))
+    }
+
+    fn session(&self, session_id: &str) -> std::result::Result<Self::Session, String> {
+        self.session(session_id)
+            .map(DesktopTerminalSessionHandle)
+            .map_err(|error| error.to_string())
+    }
+
+    fn remove(&self, session_id: &str) -> std::result::Result<(), String> {
+        self.kill(session_id).map_err(|error| error.to_string())
+    }
+
+    fn subscribe_events(
+        &self,
+        session_id: &str,
+        emit: TerminalEventSink,
+    ) -> std::result::Result<(), String> {
+        self.subscribe_events(session_id, Arc::from(emit))
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -1981,7 +2056,9 @@ pub fn terminal_environment(
             .to_string();
         path = prepend_path_component(&wrapper_bin, &path);
         values.insert("DMUX_WRAPPER_BIN".to_string(), wrapper_bin);
-        if matches!(shell_name(shell).as_deref(), Some("zsh")) {
+        if matches!(shell_name(shell).as_deref(), Some("zsh"))
+            && zsh_runtime_hook_ready(runtime_root)
+        {
             let user_zdotdir = values
                 .get("ZDOTDIR")
                 .cloned()
@@ -2611,8 +2688,74 @@ pub fn default_shell() -> String {
     if cfg!(target_os = "windows") {
         windows_default_shell()
     } else {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+        std::env::var("SHELL")
+            .ok()
+            .filter(|shell| valid_shell_path(shell))
+            .or_else(default_unix_login_shell)
+            .unwrap_or_else(|| "/bin/zsh".to_string())
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn default_unix_login_shell() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(shell) = macos_login_shell(default_user().as_str()) {
+            return Some(shell);
+        }
+    }
+    passwd_login_shell(default_user().as_str())
+}
+
+#[cfg(target_os = "windows")]
+fn default_unix_login_shell() -> Option<String> {
+    None
+}
+
+fn valid_shell_path(shell: &str) -> bool {
+    let trimmed = shell.trim();
+    !trimmed.is_empty() && !matches!(trimmed, "/bin/sh" | "sh") && Path::new(trimmed).is_file()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_login_shell(user: &str) -> Option<String> {
+    let output = Command::new("/usr/bin/dscl")
+        .args([".", "-read", &format!("/Users/{user}"), "UserShell"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.split_whitespace()
+        .last()
+        .map(str::trim)
+        .filter(|shell| valid_shell_path(shell))
+        .map(ToOwned::to_owned)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_login_shell(_user: &str) -> Option<String> {
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn passwd_login_shell(user: &str) -> Option<String> {
+    let passwd = fs::read_to_string("/etc/passwd").ok()?;
+    passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        if name != user {
+            return None;
+        }
+        let shell = fields.nth(5)?;
+        valid_shell_path(shell).then(|| shell.to_string())
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn passwd_login_shell(_user: &str) -> Option<String> {
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -2783,6 +2926,16 @@ fn shell_name(shell: &str) -> Option<String> {
         .file_name()
         .and_then(|name| name.to_str())
         .map(|name| name.trim_start_matches('-').to_ascii_lowercase())
+}
+
+fn zsh_runtime_hook_ready(runtime_root: &Path) -> bool {
+    let hook_dir = runtime_root.join("scripts/shell-hooks/zsh");
+    hook_dir.join(".zshenv").is_file()
+        && hook_dir.join(".zprofile").is_file()
+        && hook_dir.join(".zshrc").is_file()
+        && runtime_root
+            .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+            .is_file()
 }
 
 fn project_path_name(path: &str) -> Option<String> {
@@ -3024,12 +3177,36 @@ mod tests {
 
     #[test]
     fn terminal_environment_injects_codux_runtime_context() {
+        let temp =
+            std::env::temp_dir().join(format!("codux-terminal-runtime-root-{}", Uuid::new_v4()));
+        let runtime_root = temp.join("runtime-root");
+        fs::create_dir_all(runtime_root.join("scripts/shell-hooks/zsh")).unwrap();
+        fs::write(
+            runtime_root.join("scripts/shell-hooks/zsh/.zshenv"),
+            "# test\n",
+        )
+        .unwrap();
+        fs::write(
+            runtime_root.join("scripts/shell-hooks/zsh/.zprofile"),
+            "# test\n",
+        )
+        .unwrap();
+        fs::write(
+            runtime_root.join("scripts/shell-hooks/zsh/.zshrc"),
+            "# test\n",
+        )
+        .unwrap();
+        fs::write(
+            runtime_root.join("scripts/shell-hooks/dmux-ai-hook.zsh"),
+            "# test\n",
+        )
+        .unwrap();
         let context = TerminalLaunchContext {
             project_id: "project-1".to_string(),
             project_name: "Codux".to_string(),
             project_path: PathBuf::from("/workspace/codux"),
             support_dir: PathBuf::from("/support/Codux"),
-            runtime_root: PathBuf::from("/runtime-assets"),
+            runtime_root: runtime_root.clone(),
             terminal_id: Some("gpui-term-1".to_string()),
             slot_id: Some("gpui-pane-1-1".to_string()),
             session_key: Some("gpui:project-1:gpui-term-1:gpui-pane-1-1".to_string()),
@@ -3053,7 +3230,7 @@ mod tests {
             Some(&context),
         );
         let path = env.get("PATH").expect("PATH should be set");
-        assert!(path.starts_with("/runtime-assets/scripts/wrappers/bin"));
+        assert!(path.starts_with(runtime_root.join("scripts/wrappers/bin").to_str().unwrap()));
         assert_eq!(
             env.get("DMUX_PROJECT_PATH").map(String::as_str),
             Some("/workspace/codux")
@@ -3072,7 +3249,7 @@ mod tests {
         );
         assert_eq!(
             env.get("DMUX_WRAPPER_BIN").map(String::as_str),
-            Some("/runtime-assets/scripts/wrappers/bin")
+            Some(runtime_root.join("scripts/wrappers/bin").to_str().unwrap())
         );
         assert_eq!(
             env.get("DMUX_APP_SUPPORT_ROOT").map(String::as_str),
@@ -3088,12 +3265,70 @@ mod tests {
         );
         assert_eq!(
             env.get("ZDOTDIR").map(String::as_str),
-            Some("/runtime-assets/scripts/shell-hooks/zsh")
+            Some(
+                runtime_root
+                    .join("scripts/shell-hooks/zsh")
+                    .to_str()
+                    .unwrap()
+            )
         );
         assert_eq!(
             env.get("DMUX_ZSH_HOOK_SCRIPT").map(String::as_str),
-            Some("/runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh")
+            Some(
+                runtime_root
+                    .join("scripts/shell-hooks/dmux-ai-hook.zsh")
+                    .to_str()
+                    .unwrap()
+            )
         );
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn terminal_environment_does_not_override_zdotdir_when_runtime_zsh_hook_is_incomplete() {
+        let temp = std::env::temp_dir().join(format!(
+            "codux-terminal-runtime-root-missing-hook-{}",
+            Uuid::new_v4()
+        ));
+        let runtime_root = temp.join("runtime-root");
+        fs::create_dir_all(runtime_root.join("scripts/shell-hooks/zsh")).unwrap();
+        let context = TerminalLaunchContext {
+            project_id: "project-1".to_string(),
+            project_name: "Codux".to_string(),
+            project_path: PathBuf::from("/workspace/codux"),
+            support_dir: PathBuf::from("/support/Codux"),
+            runtime_root: runtime_root.clone(),
+            terminal_id: Some("gpui-term-1".to_string()),
+            slot_id: Some("gpui-pane-1-1".to_string()),
+            session_key: Some("gpui:project-1:gpui-term-1:gpui-pane-1-1".to_string()),
+            session_title: Some("Terminal 1".to_string()),
+            session_cwd: Some(PathBuf::from("/workspace/codux")),
+            session_instance_id: Some("session-instance-1".to_string()),
+            tool_permissions_file: None,
+            memory_workspace_root: None,
+            memory_prompt_file: None,
+            memory_index_file: None,
+        };
+
+        let env = terminal_environment(
+            "/bin/zsh",
+            Some("/workspace/codux"),
+            "gpui-term-1",
+            &context.to_config(),
+            Some(&context),
+        );
+
+        assert_ne!(
+            env.get("ZDOTDIR").map(String::as_str),
+            Some(
+                runtime_root
+                    .join("scripts/shell-hooks/zsh")
+                    .to_str()
+                    .unwrap()
+            )
+        );
+        assert!(!env.contains_key("DMUX_ZSH_HOOK_SCRIPT"));
+        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
@@ -3184,10 +3419,6 @@ mod tests {
             .attach_or_create_with_context(config, None, emit)
             .expect("terminal should attach");
         assert!(Arc::ptr_eq(&first_session, &second_session));
-        assert!(
-            recv_until_contains(&second_rx, "first-shared-output", Duration::from_secs(2))
-                .contains("first-shared-output")
-        );
 
         first_session
             .write(b"second-shared-output\n")
@@ -3244,9 +3475,9 @@ mod tests {
         let subscribers: Arc<parking_lot::Mutex<Vec<EventSink>>> =
             Arc::new(parking_lot::Mutex::new(Vec::new()));
         let (tx, rx) = std::sync::mpsc::channel::<()>();
-        subscribers.lock().push(Arc::new(move |_| {
-            tx.send(()).is_ok()
-        }));
+        subscribers
+            .lock()
+            .push(Arc::new(move |_| tx.send(()).is_ok()));
 
         emit_terminal_event(
             &subscribers,

@@ -524,7 +524,7 @@ mod tests {
             r#"
             {
               "remote": {
-                "isEnabled": true,
+                "isEnabled": false,
                 "serverUrl": "   "
               }
             }
@@ -540,7 +540,8 @@ mod tests {
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
 
-        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+        let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
+        let (updated, remote) = service
             .set_remote_server_url("")
             .expect("update remote server");
         assert_eq!(updated.remote_relay_preset, "global");
@@ -550,7 +551,7 @@ mod tests {
         );
         assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
 
-        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+        let (updated, remote) = service
             .set_remote_relay_preset("global")
             .expect("set global relay");
         assert_eq!(updated.remote_relay_preset, "global");
@@ -560,7 +561,7 @@ mod tests {
         );
         assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
 
-        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+        let (updated, remote) = service
             .set_remote_server_url("https://relay.example")
             .expect("set custom relay");
         assert_eq!(updated.remote_relay_preset, "custom");
@@ -592,7 +593,8 @@ mod tests {
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
 
-        let (updated, remote) = crate::runtime_state::RuntimeService::new(support_dir.clone())
+        let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
+        let (updated, remote) = service
             .set_remote_relay_preset("invalid")
             .expect("set relay preset");
         assert_eq!(updated.remote_relay_preset, "global");

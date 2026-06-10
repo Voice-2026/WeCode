@@ -1,5 +1,6 @@
 import '../models/remote_models.dart';
 import 'remote_path_utils.dart';
+import 'remote_protocol.dart';
 
 enum ProjectFormMode { add, edit }
 
@@ -78,7 +79,7 @@ class RemoteProjectController {
       return ProjectSavePlan.valid(
         name: cleanName,
         envelope: RelayEnvelope(
-          type: 'project.edit',
+          type: RemoteMessageType.projectEdit,
           payload: {
             'projectId': project.id,
             'path': cleanPath,
@@ -90,7 +91,7 @@ class RemoteProjectController {
     return ProjectSavePlan.valid(
       name: cleanName,
       envelope: RelayEnvelope(
-        type: 'project.add',
+        type: RemoteMessageType.projectAdd,
         payload: {'path': cleanPath, 'name': cleanName},
       ),
     );
@@ -99,25 +100,28 @@ class RemoteProjectController {
   RelayEnvelope filePickerListEnvelope(String? path) {
     final cleanPath = path?.trim() ?? '';
     return RelayEnvelope(
-      type: 'file.list',
+      type: RemoteMessageType.fileList,
       payload: cleanPath.isEmpty ? <String, Object>{} : {'path': cleanPath},
     );
   }
 
   RelayEnvelope removeEnvelope(ProjectInfo project) {
     return RelayEnvelope(
-      type: 'project.remove',
+      type: RemoteMessageType.projectRemove,
       payload: {'projectId': project.id},
     );
   }
 
   RelayEnvelope aiStatsEnvelope(ProjectInfo project) {
-    return RelayEnvelope(type: 'ai.stats', payload: {'projectId': project.id});
+    return RelayEnvelope(
+      type: RemoteMessageType.aiStats,
+      payload: {'projectId': project.id},
+    );
   }
 
   RelayEnvelope gitStatusEnvelope(ProjectInfo project) {
     return RelayEnvelope(
-      type: 'git.status',
+      type: RemoteMessageType.gitStatus,
       payload: {
         'projectId': project.id,
         if (project.path != null) 'projectPath': project.path,

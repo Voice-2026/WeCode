@@ -69,6 +69,36 @@ void main() {
     expect((delete.payload as Map)['removeBranch'], isTrue);
   });
 
+  test('fast worktree switching keeps project and worktree ids explicit', () {
+    const controller = RemoteWorktreeController();
+    final worktrees = [
+      _worktree(id: 'wt-a', branch: 'feature/a', path: '/repo-wt-a'),
+      _worktree(id: 'wt-b', branch: 'feature/b', path: '/repo-wt-b'),
+      _worktree(id: 'wt-c', branch: 'feature/c', path: '/repo-wt-c'),
+    ];
+
+    final payloads = worktrees
+        .map((worktree) => controller.selectEnvelope(project, worktree).payload)
+        .cast<Map>()
+        .toList();
+
+    expect(payloads.map((payload) => payload['projectId']), [
+      'project-1',
+      'project-1',
+      'project-1',
+    ]);
+    expect(payloads.map((payload) => payload['worktreeId']), [
+      'wt-a',
+      'wt-b',
+      'wt-c',
+    ]);
+    expect(payloads.map((payload) => payload['projectPath']), [
+      '/repo',
+      '/repo',
+      '/repo',
+    ]);
+  });
+
   test('parses worktree state payload', () {
     const controller = RemoteWorktreeController();
 
@@ -97,12 +127,13 @@ void main() {
 }
 
 RemoteWorktreeInfo _worktree({
+  String id = 'wt-1',
   String name = '',
   String branch = 'main',
   String path = '/tmp/project',
 }) {
   return RemoteWorktreeInfo(
-    id: 'wt-1',
+    id: id,
     projectId: 'project-1',
     name: name,
     branch: branch,

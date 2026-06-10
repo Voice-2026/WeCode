@@ -37,6 +37,18 @@ class TerminalBufferRetryCoordinator {
     _retryAttempt = 0;
   }
 
+  void resetSession(String sessionId) {
+    if (_pendingSessionId == sessionId) {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      _pendingSessionId = null;
+      _retryAttempt = 0;
+    }
+    if (_lastBufferedSessionId == sessionId) {
+      _lastBufferedSessionId = '';
+    }
+  }
+
   bool requestIfReady({
     required String? sessionId,
     required bool Function(String sessionId) send,

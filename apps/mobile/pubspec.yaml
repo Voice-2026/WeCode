@@ -42,6 +42,8 @@ dependencies:
   path: ^1.9.1
   codux_native_terminal:
     path: plugin/codux_native_terminal
+  codux_protocol_ffi:
+    path: plugin/codux_protocol_ffi
   cryptography: ^2.9.0
   sherpa_onnx: ^1.13.0
   record: ^6.2.0

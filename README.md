@@ -46,12 +46,17 @@ Codux AI is not an editor replacement. It is a control plane for developers who 
 This repository is the Codux monorepo:
 
 - `apps/desktop`: Rust + GPUI desktop app, desktop runtime, desktop assets, and desktop release scripts.
+- `apps/agent`: headless controlled-agent app that links protocol, terminal core, and the shared local PTY driver without GPUI.
 - `apps/mobile`: Flutter mobile controller.
-- `apps/relay-server`: Go relay service for pairing, signaling, and WebSocket fallback.
-- `crates/codux-protocol`: shared remote protocol helpers and capabilities.
-- `crates/codux-terminal-core`: shared terminal session, sequence, snapshot, and remote PTY model primitives.
+- `apps/server`: Rust v3 relay service for ticket pairing, signaling, and WebSocket fallback.
+- `apps/relay-server`: Go relay service kept for legacy protocol compatibility during migration.
+- `crates/codux-protocol`: shared remote protocol helpers, capabilities, envelope DTOs, transport candidates, and relay rules.
+- `crates/codux-protocol-ffi`: Flutter-facing C ABI for shared protocol and terminal core bindings.
+- `crates/codux-runtime-core`: shared runtime domain payload rules for host info, project, file, Git, worktree, upload, and terminal shapes.
+- `crates/codux-terminal-core`: shared terminal session, sequence, baseline restore, and remote PTY model primitives.
+- `crates/codux-terminal-pty`: shared `portable_pty` local PTY driver for host/headless targets.
 
-Flutter and Go apps keep their own native build systems. Only Rust packages are Cargo workspace members.
+Flutter and the legacy Go relay keep their own native build systems. Rust packages, including `apps/server`, are Cargo workspace members.
 
 ## Rust + GPUI Native Foundation
 
@@ -110,7 +115,7 @@ Codux is not just a terminal with tabs. It adds an AI-aware control layer around
 - **A terminal tuned for long AI runs**: Scrollback, selection, ANSI color state, alternate-screen apps, modified key sequences, mouse reporting, and terminal scrollbars are handled in the managed terminal layer.
 - **Prompt-safe clipboard and path handling**: Pasted images can become temporary files with local paths instead of base64 payloads; dragged files insert shell-quoted paths that AI tools can use immediately.
 - **Project surfaces beside the terminal**: Text editing, Markdown preview, image preview, external-open fallbacks, and focused Git diff windows keep review work close to the running CLI.
-- **Remote handoff without losing terminal state**: The v3.1 path uses bounded snapshots, sequence guards, chunking, progress, and subscriptions so mobile can recover large Codex or Claude histories safely.
+- **Remote handoff without losing terminal state**: The v3.1 path uses bounded baselines, sequence guards, chunking, progress, and subscriptions so mobile can recover large Codex or Claude histories safely.
 - **SSH profiles built for agents**: `codux-ssh <profile>` lets AI CLIs run remote commands through saved, tested profiles without exposing passwords, passphrases, or private-key paths.
 - **Local memory that follows the work**: Codux extracts durable user preferences, project profiles, and module notes from local transcripts, filters noisy boundaries, and injects only relevant context for the active project or worktree.
 

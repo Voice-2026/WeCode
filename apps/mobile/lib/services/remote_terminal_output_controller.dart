@@ -11,10 +11,8 @@ enum RemoteTerminalBufferPhase { idle, requesting, receiving, rendering }
 enum RemoteTerminalOutputEffectKind {
   loading,
   ack,
-  requestFullBuffer,
-  requestBufferPage,
   markBufferReceived,
-  renderSnapshot,
+  renderBaseline,
   writeData,
 }
 
@@ -24,7 +22,6 @@ class RemoteTerminalOutputEffect {
     this.sessionId,
     this.outputSeq,
     this.bufferLength,
-    this.offset,
     this.data,
     this.progress,
     this.phase,
@@ -54,32 +51,17 @@ class RemoteTerminalOutputEffect {
     bufferLength: bufferLength,
   );
 
-  factory RemoteTerminalOutputEffect.requestFullBuffer(String sessionId) =>
-      RemoteTerminalOutputEffect._(
-        kind: RemoteTerminalOutputEffectKind.requestFullBuffer,
-        sessionId: sessionId,
-      );
-
-  factory RemoteTerminalOutputEffect.requestBufferPage({
-    required String sessionId,
-    required int offset,
-  }) => RemoteTerminalOutputEffect._(
-    kind: RemoteTerminalOutputEffectKind.requestBufferPage,
-    sessionId: sessionId,
-    offset: offset,
-  );
-
   factory RemoteTerminalOutputEffect.markBufferReceived(String sessionId) =>
       RemoteTerminalOutputEffect._(
         kind: RemoteTerminalOutputEffectKind.markBufferReceived,
         sessionId: sessionId,
       );
 
-  factory RemoteTerminalOutputEffect.renderSnapshot({
+  factory RemoteTerminalOutputEffect.renderBaseline({
     required String sessionId,
     required String data,
   }) => RemoteTerminalOutputEffect._(
-    kind: RemoteTerminalOutputEffectKind.renderSnapshot,
+    kind: RemoteTerminalOutputEffectKind.renderBaseline,
     sessionId: sessionId,
     data: data,
   );
@@ -99,7 +81,6 @@ class RemoteTerminalOutputEffect {
   final String? sessionId;
   final int? outputSeq;
   final int? bufferLength;
-  final int? offset;
   final String? data;
   final double? progress;
   final RemoteTerminalBufferPhase? phase;
@@ -120,6 +101,7 @@ class RemoteTerminalOutputController {
   final TerminalBufferAssembler _assembler;
   final TerminalOutputSequencer _sequencer = TerminalOutputSequencer();
   final Map<String, String> _activeBufferRequestBySession = {};
+  final Set<String> _restoreBufferRequestIds = {};
 
   String? cachedOutput(String sessionId) => _ptySessions.content(sessionId);
 
@@ -133,26 +115,46 @@ class RemoteTerminalOutputController {
   String? activeBufferRequestId(String sessionId) =>
       _activeBufferRequestBySession[sessionId];
 
-  void startBufferRequest(
+  bool hasActiveBufferRequest(String sessionId) =>
+      _activeBufferRequestBySession.containsKey(sessionId);
+
+  bool startBufferRequest(
     String sessionId,
     String requestId, {
-    bool requireSnapshot = false,
+    bool requireBaseline = false,
+    bool resetAssembler = true,
   }) {
-    if (sessionId.trim().isEmpty || requestId.trim().isEmpty) return;
-    _activeBufferRequestBySession[sessionId] = requestId;
-    _assembler.remove(sessionId);
-    if (requireSnapshot) {
-      _ptySessions.session(sessionId).requireSnapshot();
+    if (sessionId.trim().isEmpty || requestId.trim().isEmpty) return false;
+    final activeRequestId = _activeBufferRequestBySession[sessionId];
+    if (activeRequestId != null && activeRequestId != requestId) {
+      CoduxLog.debug(
+        '[codux-flutter-output] keep active buffer request session=$sessionId active=$activeRequestId ignored=$requestId',
+      );
+      return false;
     }
+    _activeBufferRequestBySession[sessionId] = requestId;
+    final requestKey = _bufferRequestKey(sessionId, requestId);
+    if (requireBaseline) {
+      _restoreBufferRequestIds.add(requestKey);
+    } else {
+      _restoreBufferRequestIds.remove(requestKey);
+    }
+    if (resetAssembler) {
+      _assembler.remove(sessionId);
+    }
+    if (requireBaseline) {
+      _ptySessions.session(sessionId).requireBaseline();
+    }
+    return true;
   }
 
-  void bindSession(String sessionId, {required bool requireSnapshot}) {
+  void bindSession(String sessionId, {required bool requireBaseline}) {
     if (sessionId.trim().isEmpty) return;
     _sequencer.remove(sessionId);
     _assembler.remove(sessionId);
     final session = _ptySessions.session(sessionId);
-    if (requireSnapshot) {
-      session.requireSnapshot();
+    if (requireBaseline) {
+      session.requireBaseline();
     } else {
       session.resetTransient();
     }
@@ -161,6 +163,9 @@ class RemoteTerminalOutputController {
   void removeSession(String sessionId) {
     _ptySessions.remove(sessionId);
     _activeBufferRequestBySession.remove(sessionId);
+    _restoreBufferRequestIds.removeWhere(
+      (requestId) => requestId.startsWith('$sessionId:'),
+    );
     _assembler.remove(sessionId);
     _sequencer.remove(sessionId);
   }
@@ -168,6 +173,7 @@ class RemoteTerminalOutputController {
   void resetTransient() {
     _assembler.reset();
     _activeBufferRequestBySession.clear();
+    _restoreBufferRequestIds.clear();
   }
 
   void resetSessionTransient(String sessionId, {bool resetSequence = false}) {
@@ -181,8 +187,17 @@ class RemoteTerminalOutputController {
   void resetAll() {
     _ptySessions.clear();
     _activeBufferRequestBySession.clear();
+    _restoreBufferRequestIds.clear();
     _assembler.reset();
     _sequencer.reset();
+  }
+
+  void dispose() {
+    _ptySessions.clear();
+    _activeBufferRequestBySession.clear();
+    _restoreBufferRequestIds.clear();
+    _assembler.reset();
+    _sequencer.dispose();
   }
 
   List<RemoteTerminalOutputEffect> accept(
@@ -208,6 +223,7 @@ class RemoteTerminalOutputController {
       return const [];
     }
     final isActiveSession = sessionId == activeSessionId;
+    final hadCachedOutputAtStart = hasCachedOutput(sessionId);
     if (!isActiveSession) {
       CoduxLog.debug(
         '[codux-flutter-output] cache inactive session=${message.sessionId ?? ''} active=${activeSessionId ?? ''}',
@@ -217,12 +233,69 @@ class RemoteTerminalOutputController {
     final activeRequestId = _activeBufferRequestBySession[sessionId];
     if (payload['buffer'] == true &&
         activeRequestId != null &&
-        incomingRequestId != null &&
+        (hadCachedOutputAtStart || incomingRequestId != null) &&
         incomingRequestId != activeRequestId) {
       CoduxLog.debug(
         '[codux-flutter-output] skip stale buffer request=$incomingRequestId active=$activeRequestId session=$sessionId',
       );
-      return const [];
+      return [
+        RemoteTerminalOutputEffect.ack(
+          sessionId: sessionId,
+          outputSeq: _intPayloadValue(payload['outputSeq']),
+          bufferLength: _intPayloadValue(payload['bufferLength']),
+        ),
+      ];
+    }
+    if (payload['buffer'] == true &&
+        activeRequestId == null &&
+        incomingRequestId != null &&
+        incomingRequestId.isNotEmpty &&
+        hasCachedOutput(sessionId)) {
+      CoduxLog.debug(
+        '[codux-flutter-output] skip stale untracked buffer request=$incomingRequestId session=$sessionId',
+      );
+      return [
+        RemoteTerminalOutputEffect.ack(
+          sessionId: sessionId,
+          outputSeq: _intPayloadValue(payload['outputSeq']),
+          bufferLength: _intPayloadValue(payload['bufferLength']),
+        ),
+      ];
+    }
+    if (payload['buffer'] == true &&
+        activeRequestId == null &&
+        incomingRequestId != null &&
+        incomingRequestId.isNotEmpty) {
+      _activeBufferRequestBySession[sessionId] = incomingRequestId;
+      if ((_ptySessions.content(sessionId) ?? '').isEmpty) {
+        _restoreBufferRequestIds.add(
+          _bufferRequestKey(sessionId, incomingRequestId),
+        );
+      }
+    }
+    if (payload['buffer'] == true &&
+        hadCachedOutputAtStart &&
+        _activeBufferRequestBySession[sessionId] == null) {
+      final payloadOffset =
+          _intPayloadValue(payload['startOffset']) ??
+          _intPayloadValue(payload['offset']);
+      final payloadBufferLength = _intPayloadValue(payload['bufferLength']);
+      if ((payloadOffset == 0 &&
+              payloadBufferLength != null &&
+              payloadBufferLength > bufferOffset(sessionId)) ||
+          (payloadOffset != null && payloadOffset > 0)) {
+        _assembler.remove(sessionId);
+        CoduxLog.debug(
+          '[codux-flutter-output] skip stale buffer before assembly session=$sessionId offset=${payloadOffset ?? 0} length=${payloadBufferLength ?? 0}',
+        );
+        return [
+          RemoteTerminalOutputEffect.ack(
+            sessionId: sessionId,
+            outputSeq: _intPayloadValue(payload['outputSeq']),
+            bufferLength: payloadBufferLength,
+          ),
+        ];
+      }
     }
 
     final assembly = _assembler.accept(sessionId: sessionId, payload: payload);
@@ -246,6 +319,42 @@ class RemoteTerminalOutputController {
     final raw = decoded.data;
     final isBuffer = decoded.isBuffer;
     final outputSeq = _intPayloadValue(payload['outputSeq']);
+    final activeRequestIdAfterAssembly = _activeBufferRequestBySession[sessionId];
+    if (isBuffer &&
+        hadCachedOutputAtStart &&
+        activeRequestIdAfterAssembly == null &&
+        decoded.offset == 0 &&
+        decoded.bufferLength != null &&
+        decoded.bufferLength! > bufferOffset(sessionId)) {
+      _assembler.remove(sessionId);
+      CoduxLog.debug(
+        '[codux-flutter-output] skip duplicate baseline session=$sessionId offset=0 length=${decoded.bufferLength} local=${bufferOffset(sessionId)}',
+      );
+      return [
+        RemoteTerminalOutputEffect.ack(
+          sessionId: sessionId,
+          outputSeq: outputSeq,
+          bufferLength: decoded.bufferLength,
+        ),
+      ];
+    }
+    if (isBuffer &&
+        hadCachedOutputAtStart &&
+        activeRequestIdAfterAssembly == null &&
+        decoded.offset != null &&
+        decoded.offset! > 0) {
+      _assembler.remove(sessionId);
+      CoduxLog.debug(
+        '[codux-flutter-output] skip stale buffer page session=$sessionId offset=${decoded.offset} length=${decoded.bufferLength ?? 0}',
+      );
+      return [
+        RemoteTerminalOutputEffect.ack(
+          sessionId: sessionId,
+          outputSeq: outputSeq,
+          bufferLength: decoded.bufferLength,
+        ),
+      ];
+    }
     if (isBuffer) {
       CoduxLog.info(
         '[codux-flutter-output] buffer bytes=${raw.codeUnits.length} offset=${decoded.offset ?? 0} length=${decoded.bufferLength ?? 0} truncated=${decoded.truncated} seq=${outputSeq ?? 0} session=$sessionId',
@@ -257,7 +366,7 @@ class RemoteTerminalOutputController {
         !isBuffer &&
         ptySession.holdLive(sequence: outputSeq, output: message)) {
       CoduxLog.debug(
-        '[codux-flutter-output] hold live output before snapshot seq=${outputSeq ?? 0} session=$sessionId',
+        '[codux-flutter-output] hold live output before baseline seq=${outputSeq ?? 0} session=$sessionId',
       );
       return [
         RemoteTerminalOutputEffect.ack(
@@ -293,9 +402,9 @@ class RemoteTerminalOutputController {
       isBuffer: isBuffer,
       outputSeq: outputSeq,
       offset: decoded.offset,
-      resetsSequence: decoded.tail || decoded.screenSnapshot,
+      resetsSequence: decoded.tail,
     );
-    if (!resync.render && !resync.requestFullBuffer) {
+    if (!resync.render) {
       CoduxLog.debug(
         '[codux-flutter-output] drop duplicate seq=${resync.ack} session=$sessionId',
       );
@@ -305,19 +414,6 @@ class RemoteTerminalOutputController {
           outputSeq: resync.ack,
           bufferLength: decoded.bufferLength,
         ),
-      ];
-    }
-    if (resync.requestFullBuffer) {
-      CoduxLog.warn(
-        '[codux-flutter-output] gap seq=${resync.ack} session=$sessionId',
-      );
-      return [
-        RemoteTerminalOutputEffect.ack(
-          sessionId: sessionId,
-          outputSeq: resync.ack,
-          bufferLength: decoded.bufferLength,
-        ),
-        _prepareFullBufferRequest(sessionId),
       ];
     }
 
@@ -330,132 +426,43 @@ class RemoteTerminalOutputController {
     var skipBufferTailWrite = false;
 
     if (isBuffer) {
-      final offset = decoded.offset ?? 0;
-      final isPagedSnapshot =
-          decoded.screenSnapshot ||
-          decoded.tail ||
-          ptySession.awaitingSnapshot ||
-          offset == 0;
-      var renderData = raw;
-      if (isPagedSnapshot) {
-        if (!decoded.tail && !decoded.screenSnapshot) {
-          final page = ptySession.acceptSnapshotPage(
-            data: raw,
-            offset: offset,
-            bufferLength: decoded.bufferLength,
-            truncated: decoded.truncated,
+      final activeRequestId = _activeBufferRequestBySession[sessionId];
+      final localCacheEmpty = (_ptySessions.content(sessionId) ?? '').isEmpty;
+      final isRestoreRequest =
+          activeRequestId != null &&
+          _restoreBufferRequestIds.contains(
+            _bufferRequestKey(sessionId, activeRequestId),
           );
-          if (!page.accepted) {
-            if (!isActiveSession) {
-              _assembler.remove(sessionId);
-              _activeBufferRequestBySession.remove(sessionId);
-              return [
-                RemoteTerminalOutputEffect.ack(
-                  sessionId: sessionId,
-                  outputSeq: resync.ack,
-                  bufferLength: decoded.bufferLength,
-                ),
-              ];
-            }
-            effects.add(
-              RemoteTerminalOutputEffect.ack(
-                sessionId: sessionId,
-                outputSeq: resync.ack,
-                bufferLength: decoded.bufferLength,
-              ),
-            );
-            effects.add(_prepareFullBufferRequest(sessionId));
-            return effects;
-          }
-          if (!page.ready) {
-            _setSessionBufferLength(sessionId, page.nextOffset);
-            if (!isActiveSession) {
-              effects.add(
-                RemoteTerminalOutputEffect.ack(
-                  sessionId: sessionId,
-                  outputSeq: resync.ack,
-                  bufferLength: decoded.bufferLength,
-                ),
-              );
-              return effects;
-            }
-            effects
-              ..add(RemoteTerminalOutputEffect.markBufferReceived(sessionId))
-              ..add(
-                RemoteTerminalOutputEffect.loading(
-                  loading: true,
-                  phase: RemoteTerminalBufferPhase.receiving,
-                  progress: page.progress,
-                ),
-              )
-              ..add(
-                RemoteTerminalOutputEffect.requestBufferPage(
-                  sessionId: sessionId,
-                  offset: page.nextOffset,
-                ),
-              )
-              ..add(
-                RemoteTerminalOutputEffect.ack(
-                  sessionId: sessionId,
-                  outputSeq: resync.ack,
-                  bufferLength: decoded.bufferLength,
-                ),
-              );
-            return effects;
-          }
-          renderData = page.data;
-        }
+      final isBaselineRestore =
+          decoded.tail ||
+          ptySession.awaitingBaseline ||
+          isRestoreRequest ||
+          localCacheEmpty;
+      var renderData = raw;
+      if (isBaselineRestore) {
         skipBufferTailWrite = true;
-        heldLive = _replaceSessionFromSnapshot(
+        heldLive = _replaceSessionFromBaseline(
           sessionId,
           renderData,
-          decoded.screenSnapshot
-              ? renderData.runes.length
-              : decoded.bufferLength,
+          decoded.bufferLength,
           outputSeq,
         );
       }
 
-      final localCacheEmpty = (_ptySessions.content(sessionId) ?? '').isEmpty;
-      if (!isPagedSnapshot && localCacheEmpty) {
-        _setSessionBufferLength(sessionId, 0);
-        if (!isActiveSession) {
-          effects.add(
-            RemoteTerminalOutputEffect.ack(
-              sessionId: sessionId,
-              outputSeq: resync.ack,
-              bufferLength: decoded.bufferLength,
-            ),
-          );
-          return effects;
-        }
-        effects
-          ..add(
-            RemoteTerminalOutputEffect.ack(
-              sessionId: sessionId,
-              outputSeq: resync.ack,
-              bufferLength: decoded.bufferLength,
-            ),
-          )
-          ..add(_prepareFullBufferRequest(sessionId));
-        return effects;
-      }
-
-      if (isPagedSnapshot || _ptySessions.content(sessionId) == null) {
-        if (!isPagedSnapshot) {
-          _replaceSessionFromSnapshot(
+      if (isBaselineRestore || _ptySessions.content(sessionId) == null) {
+        if (!isBaselineRestore) {
+          _replaceSessionFromBaseline(
             sessionId,
             renderData,
-            decoded.screenSnapshot
-                ? renderData.runes.length
-                : decoded.bufferLength,
+            decoded.bufferLength,
             outputSeq,
           );
         }
         _activeBufferRequestBySession.remove(sessionId);
+        _removeRestoreRequest(sessionId);
         if (isActiveSession) {
           effects.add(
-            RemoteTerminalOutputEffect.renderSnapshot(
+            RemoteTerminalOutputEffect.renderBaseline(
               sessionId: sessionId,
               data: renderData,
             ),
@@ -464,6 +471,7 @@ class RemoteTerminalOutputController {
       } else {
         _appendLiveToSession(sessionId, raw, decoded.bufferLength, resync.ack);
         _activeBufferRequestBySession.remove(sessionId);
+        _removeRestoreRequest(sessionId);
         if (isActiveSession) {
           effects.add(RemoteTerminalOutputEffect.markBufferReceived(sessionId));
         }
@@ -484,9 +492,7 @@ class RemoteTerminalOutputController {
             ),
           );
         }
-      } else if (!skipBufferTailWrite &&
-          (decoded.offset ?? 0) > 0 &&
-          !ptySession.awaitingSnapshot) {
+      } else if (!skipBufferTailWrite && !ptySession.awaitingBaseline) {
         if (isActiveSession) {
           effects.add(
             RemoteTerminalOutputEffect.writeData(
@@ -522,14 +528,16 @@ class RemoteTerminalOutputController {
     return effects;
   }
 
-  RemoteTerminalOutputEffect _prepareFullBufferRequest(String sessionId) {
-    _setSessionBufferLength(sessionId, 0);
-    _activeBufferRequestBySession.remove(sessionId);
-    _ptySessions.session(sessionId).requireSnapshot();
-    return RemoteTerminalOutputEffect.requestFullBuffer(sessionId);
+  String _bufferRequestKey(String sessionId, String requestId) =>
+      '$sessionId:$requestId';
+
+  void _removeRestoreRequest(String sessionId) {
+    _restoreBufferRequestIds.removeWhere(
+      (requestId) => requestId.startsWith('$sessionId:'),
+    );
   }
 
-  List<RelayEnvelope> _replaceSessionFromSnapshot(
+  List<RelayEnvelope> _replaceSessionFromBaseline(
     String sessionId,
     String data,
     int? bufferLength,
@@ -537,7 +545,7 @@ class RemoteTerminalOutputController {
   ) {
     return _ptySessions
         .session(sessionId)
-        .replaceFromSnapshot(
+        .replaceFromBaseline(
           content: data,
           bufferLength: bufferLength,
           sequence: outputSeq,
@@ -559,11 +567,6 @@ class RemoteTerminalOutputController {
         );
   }
 
-  void _setSessionBufferLength(String sessionId, int bufferLength) {
-    _ptySessions
-        .session(sessionId)
-        .appendLive(data: '', bufferLength: bufferLength, sequence: null);
-  }
 }
 
 int? _intPayloadValue(Object? value) {

@@ -59,7 +59,7 @@ Terminal sessions are one resource type in this model. A controller subscribes t
 - `capabilities.domains`: supported runtime domains such as `project`, `terminal`, `worktree`, `file`, and `aiStats`.
 - `capabilities.terminalBuffer`: terminal history limits and chunking support.
 
-Terminal history is sent as bounded buffer windows. Large snapshots can be split into `chunked` payloads identified by `snapshotId`, `chunkIndex`, and `chunkCount`. Controllers assemble chunks by session and snapshot before rendering. This keeps large Codex resume histories from becoming one oversized transport message and gives mobile a real progress value.
+Terminal history is sent as bounded buffer windows. Large restore windows can be split into `chunked` payloads identified by `snapshotId`, `chunkIndex`, and `chunkCount`; the `snapshotId` field is a wire-level restore transaction id kept for v3.1 compatibility, not a separate screen snapshot source. Controllers assemble chunks by session and transaction before writing the bytes into `RemotePtySession`. This keeps large Codex resume histories from becoming one oversized transport message and gives mobile a real progress value.
 
 ## Runtime Domains
 
@@ -79,7 +79,8 @@ The current Mac host and Flutter controller are being aligned to the target mode
 
 - Mac host owns the real local PTY session.
 - Flutter owns a `RemotePtySession` model for each subscribed remote session.
-- `terminal.subscribe` is the subscription entry point.
+- `resource.subscribe` with `resource=terminals` is the standard subscription entry point.
+- `terminal.subscribe` remains host-side legacy compatibility only.
 - `terminal.buffer` remains the baseline/hydration payload while the protocol migrates toward generic `resource.baseline`.
 - Live `terminal.output` deltas are written into `RemotePtySession`, not directly into UI.
 - UI/native terminal rendering only replays the model for the active session.
@@ -88,9 +89,51 @@ The current Mac host and Flutter controller are being aligned to the target mode
 
 The desktop repository now starts the shared Rust boundary inside the workspace:
 
-- `crates/codux-protocol`: protocol version, capabilities, envelope-adjacent payload helpers, chunking, and baseline payload construction.
-- `crates/codux-terminal-core`: platform-neutral terminal session semantics such as sequence, snapshot/page hydration, retained live output, and cache limits.
+- `crates/codux-protocol`: protocol version, capabilities, shared secure/relay envelope DTOs, transport candidate DTOs, subscription helpers, a shared resource subscription registry, chunking, and baseline payload construction.
+- `crates/codux-remote-transport`: shared remote transport boundary. It owns host-side WebSocket relay and WebRTC DataChannel drivers, controller-side relay factory wiring, local memory transport for tests/headless paths, URL/STUN normalization, transport path state callbacks, and transport factory rules. It does not know about terminal, Git, file, or UI state.
+- `crates/codux-protocol-ffi`: C ABI for Flutter protocol and terminal-core bindings.
+- `crates/codux-runtime-core`: shared runtime domain boundary. It owns common host.info, project, file, Git, worktree, upload, and terminal payload rules, shared terminal domain interfaces, and `RuntimeSubscriptionRouter`; desktop host already delegates those protocol shapes and subscription routing to this crate.
+- `crates/codux-terminal-core`: platform-neutral terminal session semantics such as sequence, buffer-window restore, retained live output, and cache limits.
+- `crates/codux-terminal-pty`: shared local PTY driver for host/headless targets.
 
-Protocol and terminal core are intentionally separate. Protocol describes what is sent between peers. Terminal core describes how a controller or host stores terminal state after messages are decoded. This keeps future local PTY, remote PTY, Linux headless, and mobile rendering paths aligned without coupling transport schemas to terminal storage internals.
+Protocol, runtime domain, terminal core, and PTY driver crates are intentionally separate. Protocol describes what is sent between peers, including relay envelopes and transport candidates. Runtime core owns domain-level models and payloads such as `host.info` and project/file/Git/worktree shapes. Terminal core owns terminal state semantics. Terminal PTY owns local process execution. This keeps future local PTY, remote PTY, Linux headless, and mobile rendering paths aligned without coupling transport schemas to terminal storage internals.
 
-Flutter keeps its Dart implementation while the API stabilizes. After Mac, Windows, Linux headless, and Flutter agree on the same behavior, the shared Rust crates can be exposed to mobile through FFI if the Android NDK and iOS framework build cost is justified.
+Flutter now uses the Rust-backed `codux_protocol_ffi` plugin for protocol envelope construction, relay policy, controller-side transport URL/STUN/selection rules, and remote terminal session state. Dart still keeps compile-time constants, Flutter socket/WebRTC objects, and UI/runtime model wiring where Flutter requires const switch cases or native widget state. It does not keep duplicate terminal restore/sequence/replay or transport normalization logic; Dart only stores token-to-object references for Dart-owned envelopes that cannot cross the FFI boundary.
+
+The desktop host now uses `codux-runtime-core::RuntimeSubscriptionRouter` for terminal viewers and project-scoped runtime resources such as Git status, worktrees, and AI stats. Project and terminal list refreshes also use the shared subscription route, with project list payloads rebuilt per device so each controller keeps its own selected-project scope.
+
+Desktop and headless targets now consume the shared transport crate instead of keeping WebSocket/WebRTC driver code inside the desktop runtime. Flutter controller code uses the Rust-backed FFI for URL/STUN/transport selection rules and keeps Dart-owned socket/WebRTC handles at the platform boundary. The desktop runtime still owns pairing settings, encryption, authorization, and runtime domain routing; the transport crate only moves protocol envelopes.
+
+## Terminal Driver Boundary
+
+`codux-terminal-core` is not a process launcher. It owns platform-neutral terminal state after bytes or restore windows have been decoded, and defines the shared `TerminalDriver` / `TerminalSessionHandle` interface used by local, remote, desktop, and headless terminal sessions.
+
+`codux-terminal-pty` is the shared local PTY driver crate. It wraps `portable_pty`, spawns shells or commands, captures output history, emits terminal events, and implements the shared terminal driver interface. This is the crate a Linux headless controlled agent should start from.
+
+`apps/agent` is the headless controlled-agent app target. It is intentionally separate from the desktop app: it links protocol, terminal core, and local PTY driver crates, but it does not link GPUI, desktop windows, tray code, or desktop runtime UI policy.
+
+Desktop `TerminalManager` remains a desktop adapter for now because it also binds AI runtime state, memory/tool environment, desktop session metadata, and existing app-specific behavior. It should progressively delegate local PTY execution to `codux-terminal-pty` while keeping desktop-specific policy outside the shared driver.
+
+Current boundary:
+
+```text
+codux-terminal-core
+  TerminalDriver / TerminalSessionHandle trait
+  RemotePtySession / sequence / restore / cache semantics
+
+codux-terminal-pty
+  LocalPtyDriver(portable_pty)
+  suitable for Linux headless and future desktop delegation
+
+apps/agent
+  headless controlled-agent binary
+  no GPUI / no desktop runtime UI
+
+controller side
+  RemotePtySession(protocol model)
+
+UI
+  attaches to runtime models only
+```
+
+This lets desktop local terminals, future Linux headless terminals, and remote controller terminals share the same runtime-facing API without forcing mobile to link local process PTY code.

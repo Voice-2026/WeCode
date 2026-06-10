@@ -24,24 +24,13 @@ class PairingPayload {
   final String? hostId;
   final String? pairingId;
 
-  RemoteTransportCandidate get transport =>
-      preferredTransport ??
-      const RemoteTransportCandidate(kind: RemoteTransportKind.websocketRelay);
-
-  RemoteTransportCandidate? get preferredTransport {
+  RemoteTransportCandidate? transportByKind(String kind) {
     for (final candidate in transports) {
-      if (candidate.kind == RemoteTransportKind.websocketRelay &&
-          candidate.url.trim().isNotEmpty) {
+      if (candidate.kind == kind && candidate.url.trim().isNotEmpty) {
         return candidate;
       }
     }
-    for (final candidate in transports) {
-      if (candidate.kind == RemoteTransportKind.webRtc &&
-          candidate.url.trim().isNotEmpty) {
-        return candidate;
-      }
-    }
-    return transports.isEmpty ? null : transports.first;
+    return null;
   }
 }
 
@@ -156,27 +145,6 @@ class StoredDevice {
   final String? hostName;
   final List<RemoteTransportCandidate> transports;
 
-  String get transport => preferredTransport.kind;
-  RemoteTransportCandidate get preferredTransport {
-    for (final candidate in transports) {
-      if (candidate.kind == RemoteTransportKind.webRtc &&
-          candidate.url.trim().isNotEmpty) {
-        return candidate;
-      }
-    }
-    for (final candidate in transports) {
-      if (candidate.kind == RemoteTransportKind.websocketRelay &&
-          candidate.url.trim().isNotEmpty) {
-        return candidate;
-      }
-    }
-    return transports.isEmpty
-        ? const RemoteTransportCandidate(
-            kind: RemoteTransportKind.websocketRelay,
-          )
-        : transports.first;
-  }
-
   RemoteTransportCandidate? transportByKind(String kind) {
     for (final candidate in transports) {
       if (candidate.kind == kind && candidate.url.trim().isNotEmpty) {
@@ -244,7 +212,6 @@ class StoredDevice {
     if (devicePublicKey.isNotEmpty) 'devicePublicKey': devicePublicKey,
     if (cryptoVersion > 0) 'cryptoVersion': cryptoVersion,
     if (hostName != null) 'hostName': hostName,
-    'transport': transport,
     'transports': transports.map((item) => item.toJson()).toList(),
   };
 }
@@ -347,6 +314,7 @@ class TerminalInfo {
     this.rows,
     this.status,
     this.createdAt,
+    this.bufferCharacters,
   });
   final String id;
   final String title;
@@ -356,6 +324,7 @@ class TerminalInfo {
   final int? rows;
   final String? status;
   final String? createdAt;
+  final int? bufferCharacters;
 
   factory TerminalInfo.fromJson(Map<String, dynamic> json) => TerminalInfo(
     id: '${json['id'] ?? ''}',
@@ -370,6 +339,9 @@ class TerminalInfo {
         : int.tryParse('${json['rows'] ?? ''}'),
     status: json['status']?.toString(),
     createdAt: json['createdAt']?.toString(),
+    bufferCharacters: json['bufferCharacters'] is num
+        ? (json['bufferCharacters'] as num).toInt()
+        : int.tryParse('${json['bufferCharacters'] ?? ''}'),
   );
 }
 

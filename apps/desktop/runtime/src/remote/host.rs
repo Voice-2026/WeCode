@@ -2,18 +2,31 @@ use super::RemoteService;
 use super::crypto::{remote_base64_url_decode, remote_host_name};
 use super::pairing::remote_summary_show_pending_pairing;
 use super::protocol::{
-    REMOTE_PROTOCOL_VERSION, REMOTE_TERMINAL_BUFFER_MAX_CHARS, RemoteTerminalBufferWindow,
-    host_capabilities, terminal_buffer_payloads,
+    REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_FILE_DELETE,
+    REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME, REMOTE_FILE_WRITE, REMOTE_GIT_STATUS,
+    REMOTE_HOST_INFO, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST,
+    REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_RESOURCE_AI_STATS,
+    REMOTE_RESOURCE_GIT_STATUS, REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE,
+    REMOTE_RESOURCE_TERMINALS, REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES,
+    REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSE,
+    REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_LIST,
+    REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_SIGNAL,
+    REMOTE_TERMINAL_SUBSCRIBE, REMOTE_TERMINAL_UNSUBSCRIBE, REMOTE_TERMINAL_UPLOAD,
+    REMOTE_TERMINAL_UPLOAD_CANCEL, REMOTE_TERMINAL_UPLOAD_CHUNK, REMOTE_TERMINAL_UPLOAD_FINISH,
+    REMOTE_TERMINAL_UPLOAD_START, REMOTE_TERMINAL_VIEWPORT_CLAIM, REMOTE_TERMINAL_VIEWPORT_RELEASE,
+    REMOTE_TERMINAL_VIEWPORT_RESIZE, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
+    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE,
+    REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_SELECT, RemoteTerminalBufferWindow,
+    RemoteTerminalSubscriptionTarget, RemoteTerminalSubscriptions, terminal_buffer_payloads,
+    webrtc_transport_candidate, websocket_relay_transport_candidate,
 };
 use super::relay::{remote_pairing_ticket_payload, remote_server_url, remote_stun_urls};
 use super::sequence::RemoteSequenceGuard;
-use super::terminal_subscriptions::RemoteTerminalSubscriptions;
 use super::transport::RemoteTransport;
 use super::transport_factory::RemoteTransportFactory;
 use super::types::{
-    RemoteDeviceSettings, RemoteEnvelope, RemoteIceServer, RemotePairingInfo,
-    RemotePairingPollResult, RemoteSummary, RemoteTransportCandidate,
-    RemoteTransportPairingRequest,
+    RemoteDeviceSettings, RemoteEnvelope, RemotePairingInfo, RemotePairingPollResult,
+    RemoteSummary, RemoteTransportCandidate, RemoteTransportPairingRequest,
 };
 use crate::ai_history_indexer::{AIHistoryIndexer, AIHistoryProjectState};
 use crate::ai_history_normalized::AIHistoryProjectRequest;
@@ -29,6 +42,11 @@ use crate::worktree::{
     WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeService,
 };
 use base64::Engine;
+use codux_runtime_core::{
+    file as runtime_file, git as runtime_git, host as runtime_host, project as runtime_project,
+    subscription::RuntimeSubscriptionRouter, terminal as runtime_terminal,
+    upload as runtime_upload, worktree as runtime_worktree,
+};
 use codux_terminal_core::TerminalSequence;
 use serde_json::{Value, json};
 use std::{
@@ -44,7 +62,7 @@ use std::{
 };
 
 const REMOTE_TERMINAL_OUTPUT_BATCH_MS: u64 = 32;
-const REMOTE_TERMINAL_BUFFER_SNAPSHOT_TTL: Duration = Duration::from_secs(60);
+const REMOTE_TERMINAL_BUFFER_BASELINE_TTL: Duration = Duration::from_secs(60);
 
 struct RemoteProjectScope {
     project_id: String,
@@ -67,7 +85,7 @@ struct RemoteTerminalOutputBatch {
     viewers: HashSet<String>,
 }
 
-struct RemoteTerminalBufferSnapshot {
+struct RemoteTerminalBufferBaseline {
     data: String,
     start_offset: usize,
     total_characters: usize,
@@ -80,10 +98,11 @@ pub struct RemoteHostRuntime {
     support_dir: PathBuf,
     ai_history: AIHistoryIndexer,
     terminals: Arc<TerminalManager>,
+    resource_subscriptions: RuntimeSubscriptionRouter,
     terminal_subscriptions: RemoteTerminalSubscriptions,
     terminal_output_seq_by_session: Mutex<HashMap<String, TerminalSequence>>,
     terminal_output_batches: Mutex<HashMap<String, RemoteTerminalOutputBatch>>,
-    terminal_buffer_snapshots: Mutex<HashMap<String, RemoteTerminalBufferSnapshot>>,
+    terminal_buffer_baselines: Mutex<HashMap<String, RemoteTerminalBufferBaseline>>,
     remote_project_scope_by_device: Mutex<HashMap<String, String>>,
     terminal_event_subscriptions: Mutex<HashSet<String>>,
     terminal_upload_sessions: Mutex<HashMap<String, RemoteTerminalUploadSession>>,
@@ -124,10 +143,11 @@ impl RemoteHostRuntime {
             support_dir,
             ai_history,
             terminals,
+            resource_subscriptions: RuntimeSubscriptionRouter::default(),
             terminal_subscriptions: RemoteTerminalSubscriptions::default(),
             terminal_output_seq_by_session: Mutex::new(HashMap::new()),
             terminal_output_batches: Mutex::new(HashMap::new()),
-            terminal_buffer_snapshots: Mutex::new(HashMap::new()),
+            terminal_buffer_baselines: Mutex::new(HashMap::new()),
             remote_project_scope_by_device: Mutex::new(HashMap::new()),
             terminal_event_subscriptions: Mutex::new(HashSet::new()),
             terminal_upload_sessions: Mutex::new(HashMap::new()),
@@ -233,6 +253,7 @@ impl RemoteHostRuntime {
 
     pub fn shutdown(&self) {
         self.stop_with_message("Remote Host stopped.");
+        self.resource_subscriptions.clear();
         self.terminal_subscriptions.clear();
         if let Ok(mut uploads) = self.terminal_upload_sessions.lock() {
             uploads.clear();
@@ -311,6 +332,71 @@ impl RemoteHostRuntime {
         });
     }
 
+    fn prepare_transport_reconnect_after_disconnect(
+        &self,
+        state_generation: u64,
+    ) -> Option<(Option<Arc<dyn RemoteTransport>>, u64)> {
+        let restart_generation = state_generation.checked_add(1)?;
+        if self
+            .connection_generation
+            .compare_exchange(
+                state_generation,
+                restart_generation,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_err()
+        {
+            return None;
+        }
+
+        let transport = self.take_transport();
+        let mut status = self.service().summary();
+        status.pairing = self.snapshot().pairing;
+        if !status.enabled {
+            status.status = "stopped".to_string();
+            status.message = "Remote Host stopped.".to_string();
+            self.update_snapshot(status);
+            return None;
+        }
+        status.status = "connecting".to_string();
+        status.message = "Relay disconnected. Reconnecting...".to_string();
+        self.update_snapshot(status);
+        Some((transport, restart_generation))
+    }
+
+    fn handle_transport_state(
+        self: &Arc<Self>,
+        state_generation: u64,
+        device_id: String,
+        state: String,
+    ) {
+        if state_generation != self.connection_generation.load(Ordering::SeqCst) {
+            return;
+        }
+        if !device_id.trim().is_empty() {
+            if state == "connected" {
+                self.update_device_online(Some(&device_id), true);
+            } else if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
+                self.update_device_online(Some(&device_id), false);
+                self.clear_remote_project_scope(Some(&device_id));
+                self.remove_terminal_viewer(Some(&device_id));
+            }
+            return;
+        }
+        if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!("host_transport_disconnected state={state} generation={state_generation}"),
+            );
+            if let Some((transport, restart_generation)) =
+                self.prepare_transport_reconnect_after_disconnect(state_generation)
+            {
+                self.spawn_transport_restart(transport, restart_generation);
+            }
+        }
+    }
+
     fn take_transport(&self) -> Option<Arc<dyn RemoteTransport>> {
         self.transport
             .lock()
@@ -361,20 +447,8 @@ impl RemoteHostRuntime {
             .and_then(|value| value.clone())
             .unwrap_or_else(|| remote_server_url(&settings.server_url));
         vec![
-            RemoteTransportCandidate {
-                kind: "websocketRelay".to_string(),
-                role: Some("host".to_string()),
-                url: Some(relay.clone()),
-                ice_servers: Vec::new(),
-            },
-            RemoteTransportCandidate {
-                kind: "webRtc".to_string(),
-                role: Some("host".to_string()),
-                url: Some(relay),
-                ice_servers: vec![RemoteIceServer {
-                    urls: remote_stun_urls(),
-                }],
-            },
+            websocket_relay_transport_candidate(relay.clone()),
+            webrtc_transport_candidate(relay, remote_stun_urls()),
         ]
     }
 
@@ -412,24 +486,7 @@ impl RemoteHostRuntime {
             }),
             Arc::new(move |device_id, state| {
                 if let Some(runtime) = weak_for_state.upgrade() {
-                    if state_generation != runtime.connection_generation.load(Ordering::SeqCst) {
-                        return;
-                    }
-                    if !device_id.trim().is_empty() {
-                        if state == "connected" {
-                            runtime.update_device_online(Some(&device_id), true);
-                        } else if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
-                            runtime.update_device_online(Some(&device_id), false);
-                            runtime.clear_remote_project_scope(Some(&device_id));
-                            runtime.remove_terminal_viewer(Some(&device_id));
-                        }
-                    } else if matches!(state.as_str(), "closed" | "failed" | "disconnected") {
-                        let mut status = runtime.service().summary();
-                        status.status = "failed".to_string();
-                        status.message = "Relay disconnected.".to_string();
-                        status.pairing = runtime.snapshot().pairing;
-                        runtime.update_snapshot(status);
-                    }
+                    runtime.handle_transport_state(state_generation, device_id, state);
                 }
             }),
             Arc::new(move |handshake| {
@@ -491,62 +548,66 @@ impl RemoteHostRuntime {
 
     fn handle_remote_envelope(self: &Arc<Self>, envelope: RemoteEnvelope) {
         match envelope.kind.as_str() {
-            "host.info" => self.send_host_info(envelope.device_id.as_deref()),
-            "device.connected" => {
+            REMOTE_HOST_INFO => self.send_host_info(envelope.device_id.as_deref()),
+            REMOTE_DEVICE_CONNECTED => {
                 self.update_device_online(envelope.device_id.as_deref(), true);
                 self.send_project_and_terminal_lists(envelope.device_id.as_deref());
             }
-            "device.disconnected" => {
+            REMOTE_DEVICE_DISCONNECTED => {
                 self.update_device_online(envelope.device_id.as_deref(), false);
                 self.clear_remote_project_scope(envelope.device_id.as_deref());
                 self.remove_terminal_viewer(envelope.device_id.as_deref());
             }
-            "project.list" => self.send_project_list(envelope.device_id.as_deref()),
-            "project.select" => self.handle_project_select(&envelope),
-            "worktree.list" => self.handle_worktree_list(&envelope),
-            "worktree.select" => self.handle_worktree_select(&envelope),
-            "worktree.create" => self.handle_worktree_create(&envelope),
-            "worktree.merge" => self.handle_worktree_merge(&envelope),
-            "worktree.delete" | "worktree.remove" => self.handle_worktree_remove(&envelope),
-            "terminal.list" => self.send_terminal_list(envelope.device_id.as_deref()),
-            "terminal.subscribe" => self.handle_terminal_subscribe(&envelope),
-            "terminal.unsubscribe" => self.handle_terminal_unsubscribe(&envelope),
-            "terminal.create" => self.handle_terminal_create(&envelope),
-            "terminal.buffer" => self.handle_terminal_buffer(&envelope),
-            "terminal.output.ack" => {}
-            "terminal.input" => self.handle_terminal_input(&envelope),
-            "terminal.viewport.claim" => self.handle_terminal_viewport_claim(&envelope),
-            "terminal.viewport.resize" => self.handle_terminal_viewport_resize(&envelope),
-            "terminal.viewport.release" => self.handle_terminal_viewport_release(&envelope),
-            "terminal.resize" => self.handle_terminal_resize(&envelope),
-            "terminal.close" => self.handle_terminal_close(&envelope),
-            "terminal.signal" => self.handle_terminal_signal(&envelope),
-            "terminal.upload" => self.handle_terminal_upload(&envelope),
-            "terminal.upload.start" => self.handle_terminal_upload_start(&envelope),
-            "terminal.upload.chunk" => self.handle_terminal_upload_chunk(&envelope),
-            "terminal.upload.finish" => self.handle_terminal_upload_finish(&envelope),
-            "terminal.upload.cancel" => self.handle_terminal_upload_cancel(&envelope),
-            "file.list" => {
+            REMOTE_PROJECT_LIST => self.send_project_list(envelope.device_id.as_deref()),
+            REMOTE_PROJECT_SELECT => self.handle_project_select(&envelope),
+            REMOTE_RESOURCE_SUBSCRIBE => self.handle_resource_subscribe(&envelope),
+            REMOTE_RESOURCE_UNSUBSCRIBE => self.handle_resource_unsubscribe(&envelope),
+            REMOTE_WORKTREE_LIST => self.handle_worktree_list(&envelope),
+            REMOTE_WORKTREE_SELECT => self.handle_worktree_select(&envelope),
+            REMOTE_WORKTREE_CREATE => self.handle_worktree_create(&envelope),
+            REMOTE_WORKTREE_MERGE => self.handle_worktree_merge(&envelope),
+            REMOTE_WORKTREE_DELETE | REMOTE_WORKTREE_REMOVE => {
+                self.handle_worktree_remove(&envelope)
+            }
+            REMOTE_TERMINAL_LIST => self.send_terminal_list(envelope.device_id.as_deref()),
+            REMOTE_TERMINAL_SUBSCRIBE => self.handle_terminal_subscribe(&envelope),
+            REMOTE_TERMINAL_UNSUBSCRIBE => self.handle_terminal_unsubscribe(&envelope),
+            REMOTE_TERMINAL_CREATE => self.handle_terminal_create(&envelope),
+            REMOTE_TERMINAL_BUFFER => self.handle_terminal_buffer(&envelope),
+            REMOTE_TERMINAL_OUTPUT_ACK => {}
+            REMOTE_TERMINAL_INPUT => self.handle_terminal_input(&envelope),
+            REMOTE_TERMINAL_VIEWPORT_CLAIM => self.handle_terminal_viewport_claim(&envelope),
+            REMOTE_TERMINAL_VIEWPORT_RESIZE => self.handle_terminal_viewport_resize(&envelope),
+            REMOTE_TERMINAL_VIEWPORT_RELEASE => self.handle_terminal_viewport_release(&envelope),
+            REMOTE_TERMINAL_RESIZE => self.handle_terminal_resize(&envelope),
+            REMOTE_TERMINAL_CLOSE => self.handle_terminal_close(&envelope),
+            REMOTE_TERMINAL_SIGNAL => self.handle_terminal_signal(&envelope),
+            REMOTE_TERMINAL_UPLOAD => self.handle_terminal_upload(&envelope),
+            REMOTE_TERMINAL_UPLOAD_START => self.handle_terminal_upload_start(&envelope),
+            REMOTE_TERMINAL_UPLOAD_CHUNK => self.handle_terminal_upload_chunk(&envelope),
+            REMOTE_TERMINAL_UPLOAD_FINISH => self.handle_terminal_upload_finish(&envelope),
+            REMOTE_TERMINAL_UPLOAD_CANCEL => self.handle_terminal_upload_cancel(&envelope),
+            REMOTE_FILE_LIST => {
                 let path = envelope.payload.get("path").and_then(Value::as_str);
                 let purpose = envelope.payload.get("purpose").and_then(Value::as_str);
                 self.send(
-                    "file.list",
+                    REMOTE_FILE_LIST,
                     envelope.device_id.as_deref(),
                     None,
                     remote_file_list(path, purpose),
                 );
             }
-            "file.read" => self.handle_file_read(&envelope),
-            "file.write" => self.handle_file_write(&envelope),
-            "file.rename" => self.handle_file_rename(&envelope),
-            "file.delete" => self.handle_file_delete(&envelope),
-            "git.status" => self.handle_git_status(&envelope),
-            "project.add" => self.handle_project_add(&envelope),
-            "project.edit" => self.handle_project_edit(&envelope),
-            "project.remove" => self.handle_project_remove(&envelope),
-            "ai.stats" => self.handle_ai_stats(&envelope),
-            "transport.ping" => self.send_terminal_data(
-                "transport.pong",
+            REMOTE_FILE_READ => self.handle_file_read(&envelope),
+            REMOTE_FILE_WRITE => self.handle_file_write(&envelope),
+            REMOTE_FILE_RENAME => self.handle_file_rename(&envelope),
+            REMOTE_FILE_DELETE => self.handle_file_delete(&envelope),
+            REMOTE_GIT_STATUS => self.handle_git_status(&envelope),
+            REMOTE_PROJECT_ADD => self.handle_project_add(&envelope),
+            REMOTE_PROJECT_EDIT => self.handle_project_edit(&envelope),
+            REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
+            REMOTE_AI_STATS => self.handle_ai_stats(&envelope),
+            REMOTE_TRANSPORT_PING => self.send_terminal_data(
+                REMOTE_TRANSPORT_PONG,
                 envelope.device_id.as_deref(),
                 None,
                 envelope.payload,
@@ -561,15 +622,13 @@ impl RemoteHostRuntime {
             "host.info",
             device_id,
             None,
-            json!({
-                "hostId": self.snapshot().host_id,
-                "runtimeInstanceId": self.runtime_instance_id,
-                "name": remote_host_name(),
-                "platform": std::env::consts::OS,
-                "app": "Codux",
-                "protocolVersion": REMOTE_PROTOCOL_VERSION,
-                "capabilities": host_capabilities(),
-                "transports": transports,
+            runtime_host::host_info_payload(runtime_host::HostInfoPayload {
+                host_id: self.snapshot().host_id,
+                runtime_instance_id: self.runtime_instance_id.clone(),
+                name: remote_host_name(),
+                platform: std::env::consts::OS.to_string(),
+                app: "Codux".to_string(),
+                transports,
             }),
         );
     }
@@ -971,8 +1030,8 @@ impl RemoteHostRuntime {
             badge_symbol: None,
             badge_color_hex: None,
         }) {
-            Ok(snapshot) => {
-                let project_id = snapshot.selected_project_id.unwrap_or_default();
+            Ok(baseline) => {
+                let project_id = baseline.selected_project_id.unwrap_or_default();
                 self.send(
                     "project.updated",
                     envelope.device_id.as_deref(),
@@ -1077,53 +1136,24 @@ impl RemoteHostRuntime {
         let Some(device_id) = envelope.device_id.as_deref() else {
             return;
         };
-        let scope = envelope
-            .payload
-            .get("scope")
-            .and_then(Value::as_str)
-            .unwrap_or("session");
-        match scope {
-            "project" => {
-                let Some(project_id) = envelope
-                    .payload
-                    .get("projectId")
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                else {
-                    self.send_error(envelope, "Project id is required.");
-                    return;
-                };
-                self.register_project_terminal_viewers(project_id, Some(device_id));
-                if envelope
-                    .payload
-                    .get("baseline")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    self.send_project_terminal_baselines(project_id, Some(device_id), envelope);
+        match RemoteTerminalSubscriptionTarget::from_payload(
+            envelope.session_id.as_deref(),
+            &envelope.payload,
+        ) {
+            Ok(RemoteTerminalSubscriptionTarget::Project { project_id }) => {
+                self.register_project_terminal_viewers(&project_id, Some(device_id));
+                if RemoteTerminalSubscriptionTarget::baseline_requested(&envelope.payload) {
+                    self.send_project_terminal_baselines(&project_id, Some(device_id), envelope);
                 }
             }
-            "session" => {
-                let session_id = envelope
-                    .session_id
-                    .as_deref()
-                    .or_else(|| envelope.payload.get("sessionId").and_then(Value::as_str));
-                let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) else {
-                    self.send_error(envelope, "Terminal session id is required.");
-                    return;
-                };
-                self.register_terminal_viewer(session_id, Some(device_id));
-                self.send_terminal_viewport_state(session_id, Some(device_id));
-                if envelope
-                    .payload
-                    .get("baseline")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-                {
-                    self.send_terminal_baseline(session_id, Some(device_id), envelope);
+            Ok(RemoteTerminalSubscriptionTarget::Session { session_id }) => {
+                self.register_terminal_viewer(&session_id, Some(device_id));
+                self.send_terminal_viewport_state(&session_id, Some(device_id));
+                if RemoteTerminalSubscriptionTarget::baseline_requested(&envelope.payload) {
+                    self.send_terminal_baseline(&session_id, Some(device_id), envelope);
                 }
             }
-            _ => self.send_error(envelope, "Unsupported terminal subscription scope."),
+            Err(error) => self.send_error(envelope, &error),
         }
     }
 
@@ -1131,34 +1161,76 @@ impl RemoteHostRuntime {
         let Some(device_id) = envelope.device_id.as_deref() else {
             return;
         };
-        let scope = envelope
-            .payload
-            .get("scope")
-            .and_then(Value::as_str)
-            .unwrap_or("session");
-        match scope {
-            "project" => {
-                let Some(project_id) = envelope
-                    .payload
-                    .get("projectId")
-                    .and_then(Value::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                else {
-                    return;
-                };
-                self.remove_project_terminal_viewers(project_id, Some(device_id));
+        match RemoteTerminalSubscriptionTarget::from_payload(
+            envelope.session_id.as_deref(),
+            &envelope.payload,
+        ) {
+            Ok(RemoteTerminalSubscriptionTarget::Project { project_id }) => {
+                self.remove_project_terminal_viewers(&project_id, Some(device_id));
             }
-            "session" => {
-                let session_id = envelope
-                    .session_id
-                    .as_deref()
-                    .or_else(|| envelope.payload.get("sessionId").and_then(Value::as_str));
-                let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) else {
-                    return;
-                };
-                self.remove_terminal_viewer_for_session(session_id, Some(device_id));
+            Ok(RemoteTerminalSubscriptionTarget::Session { session_id }) => {
+                self.remove_terminal_viewer_for_session(&session_id, Some(device_id));
             }
-            _ => {}
+            Err(_) => {}
+        }
+    }
+
+    fn handle_resource_subscribe(self: &Arc<Self>, envelope: &RemoteEnvelope) {
+        let change = match self.resource_subscriptions.subscribe_envelope(envelope) {
+            Ok(change) => change,
+            Err(error) => {
+                self.send_error(envelope, &error);
+                return;
+            }
+        };
+        match change.resource.as_str() {
+            REMOTE_RESOURCE_PROJECTS => self.send_project_list(envelope.device_id.as_deref()),
+            REMOTE_RESOURCE_TERMINALS => {
+                if let Some(project_id) = change.project_id.as_deref() {
+                    self.register_project_terminal_viewers(
+                        project_id,
+                        envelope.device_id.as_deref(),
+                    );
+                    if change.baseline {
+                        self.send_project_terminal_baselines(
+                            project_id,
+                            envelope.device_id.as_deref(),
+                            envelope,
+                        );
+                    }
+                } else if let Some(session_id) = change.session_id.as_deref() {
+                    self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
+                    self.send_terminal_viewport_state(session_id, envelope.device_id.as_deref());
+                    if change.baseline {
+                        self.send_terminal_baseline(
+                            session_id,
+                            envelope.device_id.as_deref(),
+                            envelope,
+                        );
+                    }
+                } else {
+                    self.send_terminal_list(envelope.device_id.as_deref());
+                }
+            }
+            REMOTE_RESOURCE_WORKTREES => self.handle_worktree_list(envelope),
+            REMOTE_RESOURCE_GIT_STATUS => self.handle_git_status(envelope),
+            REMOTE_RESOURCE_AI_STATS => self.handle_ai_stats(envelope),
+            _ => self.send_error(envelope, "Unsupported resource subscription."),
+        }
+    }
+
+    fn handle_resource_unsubscribe(&self, envelope: &RemoteEnvelope) {
+        let Ok(change) = self.resource_subscriptions.unsubscribe_envelope(envelope) else {
+            return;
+        };
+        if change.resource.as_str() != REMOTE_RESOURCE_TERMINALS {
+            return;
+        }
+        if let Some(project_id) = change.project_id.as_deref() {
+            self.remove_project_terminal_viewers(project_id, Some(&change.device_id));
+        }
+        if let Some(session_id) = change.session_id.as_deref() {
+            self.remove_terminal_viewer_for_session(session_id, Some(&change.device_id));
         }
     }
 
@@ -1187,7 +1259,7 @@ impl RemoteHostRuntime {
         let service = WorktreeService::new(self.support_dir.clone());
         match service.select_worktree(&project_id, worktree_id) {
             Ok(()) => {
-                self.send_worktree_summary(
+                self.broadcast_worktree_summary(
                     "worktree.updated",
                     envelope.device_id.as_deref(),
                     &project_id,
@@ -1224,21 +1296,13 @@ impl RemoteHostRuntime {
                 .map(str::to_string),
         };
         match WorktreeService::new(self.support_dir.clone()).create_from_request(request) {
-            Ok(snapshot) => {
+            Ok(baseline) => {
                 let git = crate::git::GitService::status(&project_path);
-                self.send(
+                self.broadcast_worktree_update(
                     "worktree.updated",
                     envelope.device_id.as_deref(),
-                    None,
-                    json!({
-                        "projectId": project_id,
-                        "selectedWorktreeId": snapshot.selected_worktree_id,
-                        "worktrees": snapshot.worktrees,
-                        "tasks": snapshot.tasks,
-                        "baseBranches": remote_worktree_base_branches(&git),
-                        "defaultBaseBranch": remote_default_worktree_base_branch(&git),
-                        "error": snapshot.error,
-                    }),
+                    &project_id,
+                    remote_worktree_update_payload(project_id.clone(), baseline, git),
                 );
                 self.send_project_and_terminal_lists(envelope.device_id.as_deref());
             }
@@ -1271,21 +1335,13 @@ impl RemoteHostRuntime {
                 .and_then(Value::as_bool),
         };
         match WorktreeService::new(self.support_dir.clone()).merge_from_request(request) {
-            Ok(snapshot) => {
+            Ok(baseline) => {
                 let git = crate::git::GitService::status(&project_path);
-                self.send(
+                self.broadcast_worktree_update(
                     "worktree.updated",
                     envelope.device_id.as_deref(),
-                    None,
-                    json!({
-                        "projectId": project_id,
-                        "selectedWorktreeId": snapshot.selected_worktree_id,
-                        "worktrees": snapshot.worktrees,
-                        "tasks": snapshot.tasks,
-                        "baseBranches": remote_worktree_base_branches(&git),
-                        "defaultBaseBranch": remote_default_worktree_base_branch(&git),
-                        "error": snapshot.error,
-                    }),
+                    &project_id,
+                    remote_worktree_update_payload(project_id.clone(), baseline, git),
                 );
                 self.send_project_and_terminal_lists(envelope.device_id.as_deref());
             }
@@ -1314,21 +1370,13 @@ impl RemoteHostRuntime {
                 .unwrap_or(false),
         };
         match WorktreeService::new(self.support_dir.clone()).remove_from_request(request) {
-            Ok(snapshot) => {
+            Ok(baseline) => {
                 let git = crate::git::GitService::status(&project_path);
-                self.send(
+                self.broadcast_worktree_update(
                     "worktree.updated",
                     envelope.device_id.as_deref(),
-                    None,
-                    json!({
-                        "projectId": project_id,
-                        "selectedWorktreeId": snapshot.selected_worktree_id,
-                        "worktrees": snapshot.worktrees,
-                        "tasks": snapshot.tasks,
-                        "baseBranches": remote_worktree_base_branches(&git),
-                        "defaultBaseBranch": remote_default_worktree_base_branch(&git),
-                        "error": snapshot.error,
-                    }),
+                    &project_id,
+                    remote_worktree_update_payload(project_id.clone(), baseline, git),
                 );
                 self.send_project_and_terminal_lists(envelope.device_id.as_deref());
             }
@@ -1359,7 +1407,20 @@ impl RemoteHostRuntime {
         };
         match self.ai_history.project_state(request) {
             Ok(state) => match remote_ai_stats_payload(project.id, project.name, state) {
-                Ok(payload) => self.send("ai.stats", envelope.device_id.as_deref(), None, payload),
+                Ok(payload) => {
+                    let payload_project_id = payload
+                        .get("projectId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    self.broadcast_resource_payload(
+                        "ai.stats",
+                        REMOTE_RESOURCE_AI_STATS,
+                        envelope.device_id.as_deref(),
+                        payload_project_id.as_deref(),
+                        None,
+                        payload,
+                    );
+                }
                 Err(error) => self.send_error(envelope, &error),
             },
             Err(error) => self.send_error(envelope, &error),
@@ -1390,11 +1451,13 @@ impl RemoteHostRuntime {
             return;
         };
         let summary = crate::git::GitService::status(&project_path);
-        self.send(
+        self.broadcast_resource_payload(
             "git.status",
+            REMOTE_RESOURCE_GIT_STATUS,
             envelope.device_id.as_deref(),
+            Some(&project_id),
             None,
-            remote_git_status_payload(project_id, project_path, summary),
+            remote_git_status_payload(project_id.clone(), project_path, summary),
         );
     }
 
@@ -2063,8 +2126,8 @@ impl RemoteHostRuntime {
     }
 
     fn send_project_and_terminal_lists(&self, device_id: Option<&str>) {
-        self.send_project_list(device_id);
-        self.send_terminal_list(device_id);
+        self.broadcast_project_list(device_id);
+        self.broadcast_terminal_list(device_id);
     }
 
     fn send_project_list(&self, device_id: Option<&str>) {
@@ -2073,23 +2136,22 @@ impl RemoteHostRuntime {
     }
 
     fn remote_project_list_payload(&self, device_id: Option<&str>) -> Value {
-        let snapshot = ProjectStore::new(self.support_dir.clone()).list_snapshot();
+        let baseline = ProjectStore::new(self.support_dir.clone()).list_snapshot();
         let selected_project_id = self
             .remote_project_scope_id(device_id)
-            .filter(|id| snapshot.projects.iter().any(|project| &project.id == id))
-            .or(snapshot.selected_project_id);
-        let projects = snapshot
-            .projects
-            .into_iter()
-            .map(|project| {
-                json!({
-                    "id": project.id,
-                    "name": project.name,
-                    "path": project.path,
-                })
-            })
-            .collect::<Vec<_>>();
-        json!({ "projects": projects, "selectedProjectId": selected_project_id })
+            .filter(|id| baseline.projects.iter().any(|project| &project.id == id))
+            .or(baseline.selected_project_id);
+        runtime_project::project_list_payload(
+            baseline
+                .projects
+                .into_iter()
+                .map(|project| runtime_project::ProjectListItem {
+                    id: project.id,
+                    name: project.name,
+                    path: project.path,
+                }),
+            selected_project_id,
+        )
     }
 
     fn send_terminal_list(&self, device_id: Option<&str>) {
@@ -2102,6 +2164,40 @@ impl RemoteHostRuntime {
         );
     }
 
+    fn broadcast_project_list(&self, source_device_id: Option<&str>) {
+        let mut device_ids =
+            self.resource_subscriptions
+                .devices_for(REMOTE_RESOURCE_PROJECTS, None, None);
+        if let Some(source_device_id) = source_device_id.filter(|value| !value.trim().is_empty()) {
+            device_ids.insert(source_device_id.to_string());
+        }
+        if device_ids.is_empty() {
+            self.send_project_list(source_device_id);
+            return;
+        }
+        for device_id in device_ids {
+            let payload = self.remote_project_list_payload(Some(&device_id));
+            self.send("project.list", Some(&device_id), None, payload);
+        }
+    }
+
+    fn broadcast_terminal_list(&self, source_device_id: Option<&str>) {
+        let mut device_ids =
+            self.resource_subscriptions
+                .devices_for(REMOTE_RESOURCE_TERMINALS, None, None);
+        if let Some(source_device_id) = source_device_id.filter(|value| !value.trim().is_empty()) {
+            device_ids.insert(source_device_id.to_string());
+        }
+        if device_ids.is_empty() {
+            self.send_terminal_list(source_device_id);
+            return;
+        }
+        let payload = json!({ "terminals": self.remote_terminals() });
+        for device_id in device_ids {
+            self.send("terminal.list", Some(&device_id), None, payload.clone());
+        }
+    }
+
     fn send_worktree_summary(
         &self,
         kind: &str,
@@ -2111,23 +2207,72 @@ impl RemoteHostRuntime {
     ) {
         let summary = WorktreeService::new(self.support_dir.clone())
             .summary(Some(project_id), Some(project_path));
-        let base_branches = remote_worktree_base_branches(&summary.active_git);
-        let default_base_branch = remote_default_worktree_base_branch(&summary.active_git);
         self.send(
             kind,
             device_id,
             None,
-            json!({
-                "projectId": project_id,
-                "selectedWorktreeId": summary.selected_worktree_id,
-                "worktrees": summary.worktrees,
-                "tasks": summary.tasks,
-                "available": summary.available,
-                "baseBranches": base_branches,
-                "defaultBaseBranch": default_base_branch,
-                "error": summary.error,
-            }),
+            remote_worktree_summary_payload(project_id, summary),
         );
+    }
+
+    fn broadcast_worktree_summary(
+        &self,
+        kind: &str,
+        source_device_id: Option<&str>,
+        project_id: &str,
+        project_path: &str,
+    ) {
+        let summary = WorktreeService::new(self.support_dir.clone())
+            .summary(Some(project_id), Some(project_path));
+        self.broadcast_resource_payload(
+            kind,
+            REMOTE_RESOURCE_WORKTREES,
+            source_device_id,
+            Some(project_id),
+            None,
+            remote_worktree_summary_payload(project_id, summary),
+        );
+    }
+
+    fn broadcast_worktree_update(
+        &self,
+        kind: &str,
+        source_device_id: Option<&str>,
+        project_id: &str,
+        payload: Value,
+    ) {
+        self.broadcast_resource_payload(
+            kind,
+            REMOTE_RESOURCE_WORKTREES,
+            source_device_id,
+            Some(project_id),
+            None,
+            payload,
+        );
+    }
+
+    fn broadcast_resource_payload(
+        &self,
+        kind: &str,
+        resource: &str,
+        source_device_id: Option<&str>,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+        payload: Value,
+    ) {
+        let mut device_ids = self
+            .resource_subscriptions
+            .devices_for(resource, project_id, session_id);
+        if let Some(source_device_id) = source_device_id.filter(|value| !value.trim().is_empty()) {
+            device_ids.insert(source_device_id.to_string());
+        }
+        if device_ids.is_empty() {
+            self.send(kind, source_device_id, session_id, payload);
+            return;
+        }
+        for device_id in device_ids {
+            self.send(kind, Some(&device_id), session_id, payload.clone());
+        }
     }
 
     fn send(&self, kind: &str, device_id: Option<&str>, session_id: Option<&str>, payload: Value) {
@@ -2296,7 +2441,7 @@ impl RemoteHostRuntime {
             Err(error) => {
                 crate::runtime_trace::runtime_trace(
                     "remote",
-                    &format!("terminal_buffer snapshot_failed session={session_id} error={error}"),
+                    &format!("terminal_buffer baseline_failed session={session_id} error={error}"),
                 );
                 self.send(
                     "error",
@@ -2343,18 +2488,20 @@ impl RemoteHostRuntime {
     ) -> Result<RemoteTerminalBufferWindow, anyhow::Error> {
         let max_chars = max_chars.max(1);
         if tail {
-            let snapshot = self.terminals.screen_snapshot(session_id)?;
-            let total_characters = snapshot.data.chars().count();
+            let (data, start_offset) = self.terminals.snapshot_tail(session_id, max_chars)?;
+            let total_characters = self
+                .terminals
+                .buffer_characters(session_id)
+                .unwrap_or_else(|_| start_offset + data.chars().count());
             return Ok(RemoteTerminalBufferWindow {
-                data: snapshot.data,
-                offset: 0,
+                data,
+                offset: start_offset,
                 total_characters,
                 truncated: false,
                 output_seq: None,
                 request_id,
                 tail: true,
-                screen_snapshot: true,
-                has_previous: false,
+                has_previous: start_offset > 0,
             });
         }
 
@@ -2362,16 +2509,16 @@ impl RemoteHostRuntime {
         let frozen = request_id
             .as_deref()
             .and_then(|request_id| {
-                self.terminal_buffer_snapshot(session_id, request_id, offset, max_chars)
+                self.terminal_buffer_baseline(session_id, request_id, offset, max_chars)
                     .transpose()
             })
             .transpose()?;
         let (data, start_offset, total_characters, output_seq) = match frozen {
-            Some(snapshot) => (
-                snapshot.data,
-                snapshot.start_offset,
-                snapshot.total_characters,
-                Some(snapshot.output_seq),
+            Some(baseline) => (
+                baseline.data,
+                baseline.start_offset,
+                baseline.total_characters,
+                Some(baseline.output_seq),
             ),
             None => {
                 let data = self.terminals.snapshot(session_id)?;
@@ -2388,7 +2535,7 @@ impl RemoteHostRuntime {
         let truncated = clamped + chunk.chars().count() < total_characters;
         if !truncated {
             if let Some(request_id) = request_id_for_window.as_deref() {
-                self.remove_terminal_buffer_snapshot(session_id, request_id);
+                self.remove_terminal_buffer_baseline(session_id, request_id);
             }
         }
         Ok(RemoteTerminalBufferWindow {
@@ -2399,31 +2546,30 @@ impl RemoteHostRuntime {
             output_seq,
             request_id: request_id_for_window,
             tail: false,
-            screen_snapshot: false,
             has_previous: clamped > 0,
         })
     }
 
-    fn terminal_buffer_snapshot(
+    fn terminal_buffer_baseline(
         &self,
         session_id: &str,
         request_id: &str,
         offset: usize,
         max_chars: usize,
-    ) -> Result<Option<RemoteTerminalBufferSnapshot>, anyhow::Error> {
-        let key = terminal_buffer_snapshot_key(session_id, request_id);
+    ) -> Result<Option<RemoteTerminalBufferBaseline>, anyhow::Error> {
+        let key = terminal_buffer_baseline_key(session_id, request_id);
         let now = Instant::now();
-        if let Ok(mut snapshots) = self.terminal_buffer_snapshots.lock() {
-            snapshots.retain(|_, snapshot| {
-                now.duration_since(snapshot.created_at) <= REMOTE_TERMINAL_BUFFER_SNAPSHOT_TTL
+        if let Ok(mut baselines) = self.terminal_buffer_baselines.lock() {
+            baselines.retain(|_, baseline| {
+                now.duration_since(baseline.created_at) <= REMOTE_TERMINAL_BUFFER_BASELINE_TTL
             });
-            if let Some(snapshot) = snapshots.get(&key) {
-                return Ok(Some(RemoteTerminalBufferSnapshot {
-                    data: snapshot.data.clone(),
-                    start_offset: snapshot.start_offset,
-                    total_characters: snapshot.total_characters,
-                    output_seq: snapshot.output_seq,
-                    created_at: snapshot.created_at,
+            if let Some(baseline) = baselines.get(&key) {
+                return Ok(Some(RemoteTerminalBufferBaseline {
+                    data: baseline.data.clone(),
+                    start_offset: baseline.start_offset,
+                    total_characters: baseline.total_characters,
+                    output_seq: baseline.output_seq,
+                    created_at: baseline.created_at,
                 }));
             }
         }
@@ -2433,31 +2579,31 @@ impl RemoteHostRuntime {
 
         let data = self.terminals.snapshot(session_id)?;
         let total_characters = data.chars().count();
-        let snapshot = RemoteTerminalBufferSnapshot {
+        let baseline = RemoteTerminalBufferBaseline {
             data,
             start_offset: 0,
             total_characters,
             output_seq: self.current_terminal_output_seq(session_id),
             created_at: now,
         };
-        let returned = RemoteTerminalBufferSnapshot {
-            data: snapshot.data.clone(),
-            start_offset: snapshot.start_offset,
-            total_characters: snapshot.total_characters,
-            output_seq: snapshot.output_seq,
-            created_at: snapshot.created_at,
+        let returned = RemoteTerminalBufferBaseline {
+            data: baseline.data.clone(),
+            start_offset: baseline.start_offset,
+            total_characters: baseline.total_characters,
+            output_seq: baseline.output_seq,
+            created_at: baseline.created_at,
         };
         if max_chars < total_characters {
-            if let Ok(mut snapshots) = self.terminal_buffer_snapshots.lock() {
-                snapshots.insert(key, snapshot);
+            if let Ok(mut baselines) = self.terminal_buffer_baselines.lock() {
+                baselines.insert(key, baseline);
             }
         }
         Ok(Some(returned))
     }
 
-    fn remove_terminal_buffer_snapshot(&self, session_id: &str, request_id: &str) {
-        if let Ok(mut snapshots) = self.terminal_buffer_snapshots.lock() {
-            snapshots.remove(&terminal_buffer_snapshot_key(session_id, request_id));
+    fn remove_terminal_buffer_baseline(&self, session_id: &str, request_id: &str) {
+        if let Ok(mut baselines) = self.terminal_buffer_baselines.lock() {
+            baselines.remove(&terminal_buffer_baseline_key(session_id, request_id));
         }
     }
 
@@ -2487,12 +2633,12 @@ impl RemoteHostRuntime {
 
     fn remote_terminal_layout_kinds(&self) -> HashMap<String, String> {
         let project_store = ProjectStore::new(self.support_dir.clone());
-        let snapshot = project_store.snapshot();
-        let keys = snapshot
+        let baseline = project_store.snapshot();
+        let keys = baseline
             .projects
             .iter()
             .map(|project| {
-                let worktree_id = snapshot
+                let worktree_id = baseline
                     .selected_worktree_id_by_project
                     .get(&project.id)
                     .map(String::as_str)
@@ -2703,13 +2849,13 @@ impl RemoteHostRuntime {
     }
 
     fn remote_project_scope(&self, project_id: &str) -> Result<RemoteProjectScope, String> {
-        let snapshot = ProjectStore::new(self.support_dir.clone()).snapshot();
-        let project = snapshot
+        let baseline = ProjectStore::new(self.support_dir.clone()).snapshot();
+        let project = baseline
             .projects
             .iter()
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
-        let worktree_id = snapshot
+        let worktree_id = baseline
             .selected_worktree_id_by_project
             .get(&project.id)
             .cloned()
@@ -2938,7 +3084,7 @@ impl RemoteHostRuntime {
             max_chars,
             chunk_chars,
             Some(request_id),
-            false,
+            true,
         );
     }
 
@@ -2977,6 +3123,7 @@ impl RemoteHostRuntime {
         let Some(device_id) = device_id else {
             return;
         };
+        self.resource_subscriptions.remove_device(device_id);
         self.terminal_subscriptions.remove_device(device_id);
     }
 
@@ -3131,105 +3278,19 @@ fn default_project_name(path: &str) -> String {
 }
 
 pub(crate) fn remote_file_list(path: Option<&str>, purpose: Option<&str>) -> Value {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
-    let requested = path
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&home);
-    let requested_path = PathBuf::from(requested);
-    let directory = if requested_path.is_dir() {
-        requested_path
-    } else {
-        requested_path
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from(&home))
-    };
-    let mut entries = fs::read_dir(&directory)
-        .ok()
-        .into_iter()
-        .flat_map(|read_dir| read_dir.filter_map(Result::ok))
-        .filter_map(|entry| {
-            let path = entry.path();
-            let name = path.file_name()?.to_str()?.to_string();
-            if name.starts_with('.') {
-                return None;
-            }
-            Some(json!({
-                "name": name,
-                "path": path.to_string_lossy().to_string(),
-                "isDirectory": path.is_dir(),
-            }))
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        let left_dir = left
-            .get("isDirectory")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let right_dir = right
-            .get("isDirectory")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        right_dir.cmp(&left_dir).then_with(|| {
-            left.get("name")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_lowercase()
-                .cmp(
-                    &right
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_lowercase(),
-                )
-        })
-    });
-    let mut payload = json!({
-        "path": directory.to_string_lossy().to_string(),
-        "parent": directory.parent().map(|path| path.to_string_lossy().to_string()).unwrap_or_default(),
-        "entries": entries,
-    });
-    if let Some(purpose) = purpose {
-        payload["purpose"] = Value::String(purpose.to_string());
-    }
-    payload
+    runtime_file::file_list_payload(path, purpose)
 }
 
 pub(crate) fn remote_file_read(path: &str) -> Result<Value, String> {
-    let path = PathBuf::from(path);
-    if path.is_dir() {
-        return Err("Cannot open a directory as a file.".to_string());
-    }
-    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
-    if metadata.len() > 2 * 1024 * 1024 {
-        return Err("File is larger than 2MB and cannot be opened on mobile yet.".to_string());
-    }
-    let content = fs::read_to_string(&path)
-        .map_err(|_| "Only UTF-8 text files can be edited on mobile.".to_string())?;
-    Ok(json!({
-        "path": path.to_string_lossy().to_string(),
-        "name": path.file_name().and_then(|value| value.to_str()).unwrap_or_default(),
-        "content": content,
-        "size": content.len(),
-    }))
+    runtime_file::file_read_payload(path)
 }
 
 pub(crate) fn remote_file_write(path: &str, content: &str) -> Result<(), String> {
-    fs::write(path, content).map_err(|error| error.to_string())
+    runtime_file::file_write(path, content)
 }
 
 pub(crate) fn remote_file_rename(path: &str, new_path: &str) -> Result<(), String> {
-    let source = PathBuf::from(path);
-    let destination = PathBuf::from(new_path);
-    if source.parent() != destination.parent() {
-        return Err("Rename must stay in the same directory.".to_string());
-    }
-    if destination.exists() {
-        return Err("A file with this name already exists.".to_string());
-    }
-    fs::rename(source, destination).map_err(|error| error.to_string())
+    runtime_file::file_rename(path, new_path)
 }
 
 fn remote_upload_decode(data: &str) -> Result<Vec<u8>, String> {
@@ -3246,99 +3307,23 @@ fn remote_pairing_code() -> String {
 }
 
 pub(crate) fn remote_terminal_upload_directory(session_id: &str) -> PathBuf {
-    std::env::temp_dir()
-        .join("CoduxUploads")
-        .join(sanitized_remote_upload_name(session_id))
+    runtime_upload::terminal_upload_directory(session_id)
 }
 
 pub(crate) fn sanitized_remote_upload_name(value: &str) -> String {
-    let name = Path::new(value)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("upload.png");
-    let cleaned = name
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('.')
-        .to_string();
-    if cleaned.is_empty() {
-        "upload.png".to_string()
-    } else {
-        cleaned
-    }
+    runtime_upload::sanitized_upload_name(value)
 }
 
 pub(crate) fn remote_terminal_upload_kind(payload: &Value) -> String {
-    let kind = payload
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or("image")
-        .trim()
-        .to_ascii_lowercase();
-    if kind == "file" {
-        "file".to_string()
-    } else {
-        "image".to_string()
-    }
+    runtime_upload::terminal_upload_kind(payload)
 }
 
 pub(crate) fn terminal_upload_path_input(path: &Path) -> String {
-    quote_terminal_path(&path.to_string_lossy())
-}
-
-#[cfg(windows)]
-pub(crate) fn quote_terminal_path(value: &str) -> String {
-    if value
-        .chars()
-        .any(|ch| ch.is_whitespace() || matches!(ch, '&' | '(' | ')' | '[' | ']' | '{' | '}'))
-    {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_string()
-    }
-}
-
-#[cfg(not(windows))]
-pub(crate) fn quote_terminal_path(value: &str) -> String {
-    if value.chars().any(|ch| {
-        ch.is_whitespace()
-            || matches!(
-                ch,
-                '\'' | '"' | '\\' | '$' | '`' | '!' | '&' | '(' | ')' | ';' | '<' | '>' | '|'
-            )
-    }) {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    } else {
-        value.to_string()
-    }
+    runtime_upload::terminal_upload_path_input(path)
 }
 
 pub(crate) fn unique_remote_upload_path(directory: &Path, file_name: &str) -> PathBuf {
-    let file_name = sanitized_remote_upload_name(file_name);
-    let path = PathBuf::from(&file_name);
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("upload");
-    let extension = path.extension().and_then(|value| value.to_str());
-    let mut candidate = directory.join(&file_name);
-    let mut index = 1;
-    while candidate.exists() {
-        let next = match extension {
-            Some(extension) if !extension.is_empty() => format!("{stem}-{index}.{extension}"),
-            _ => format!("{stem}-{index}"),
-        };
-        candidate = directory.join(next);
-        index += 1;
-    }
-    candidate
+    runtime_upload::unique_upload_path(directory, file_name)
 }
 
 pub(crate) fn remote_ai_stats_payload(
@@ -3347,11 +3332,11 @@ pub(crate) fn remote_ai_stats_payload(
     state: AIHistoryProjectState,
 ) -> Result<Value, String> {
     let mut value = serde_json::to_value(state).map_err(|error| error.to_string())?;
-    let snapshot = value
-        .get_mut("snapshot")
+    let baseline = value
+        .get_mut("baseline")
         .map(Value::take)
         .filter(|value| !value.is_null());
-    let mut payload = snapshot.unwrap_or_else(|| {
+    let mut payload = baseline.unwrap_or_else(|| {
         json!({
             "projectId": project_id,
             "projectName": project_name,
@@ -3377,42 +3362,91 @@ pub(crate) fn remote_git_status_payload(
     project_path: String,
     summary: crate::git::GitSummary,
 ) -> Value {
-    json!({
-        "projectId": project_id,
-        "projectPath": project_path,
-        "branch": summary.branch,
-        "upstream": summary.upstream,
-        "ahead": summary.ahead,
-        "behind": summary.behind,
-        "staged": summary.staged,
-        "unstaged": summary.unstaged,
-        "untracked": summary.untracked,
-        "changes": summary.staged + summary.unstaged + summary.untracked,
-        "isRepository": summary.is_repository,
-        "error": summary.error,
-        "changedFiles": summary.changed_files,
-        "branches": summary.branches,
-        "remoteBranches": summary.remote_branches,
-        "remotes": summary.remotes,
-        "commits": summary.commits,
-    })
+    runtime_git::git_status_payload(project_id, project_path, runtime_git_summary(summary))
+}
+
+fn remote_worktree_summary_payload(
+    project_id: &str,
+    summary: crate::worktree::WorktreeSummary,
+) -> Value {
+    let base_branches = remote_worktree_base_branches(&summary.active_git);
+    let default_base_branch = remote_default_worktree_base_branch(&summary.active_git);
+    runtime_worktree::worktree_summary_payload(
+        project_id,
+        summary.selected_worktree_id,
+        serde_json::to_value(summary.worktrees).unwrap_or_else(|_| json!([])),
+        serde_json::to_value(summary.tasks).unwrap_or_else(|_| json!([])),
+        summary.available,
+        base_branches,
+        default_base_branch,
+        summary.error,
+    )
+}
+
+fn remote_worktree_update_payload(
+    project_id: String,
+    baseline: crate::worktree::WorktreeSnapshot,
+    git: crate::git::GitSummary,
+) -> Value {
+    runtime_worktree::worktree_update_payload(
+        project_id,
+        baseline.selected_worktree_id,
+        serde_json::to_value(baseline.worktrees).unwrap_or_else(|_| json!([])),
+        serde_json::to_value(baseline.tasks).unwrap_or_else(|_| json!([])),
+        remote_worktree_base_branches(&git),
+        remote_default_worktree_base_branch(&git),
+        baseline.error,
+    )
+}
+
+fn runtime_git_summary(summary: crate::git::GitSummary) -> runtime_git::GitStatusSummary {
+    runtime_git::GitStatusSummary {
+        branch: summary.branch,
+        upstream: summary.upstream,
+        ahead: summary.ahead,
+        behind: summary.behind,
+        staged: summary.staged,
+        unstaged: summary.unstaged,
+        untracked: summary.untracked,
+        is_repository: summary.is_repository,
+        error: summary.error,
+        changed_files: summary
+            .changed_files
+            .into_iter()
+            .map(|value| serde_json::to_value(value).unwrap_or(Value::Null))
+            .collect(),
+        branches: runtime_git_branches(&summary.branches),
+        remote_branches: summary.remote_branches,
+        remotes: summary
+            .remotes
+            .into_iter()
+            .map(|value| serde_json::to_value(value).unwrap_or(Value::Null))
+            .collect(),
+        commits: summary
+            .commits
+            .into_iter()
+            .map(|value| serde_json::to_value(value).unwrap_or(Value::Null))
+            .collect(),
+    }
+}
+
+fn runtime_git_branches(
+    branches: &[crate::git::GitBranchSummary],
+) -> Vec<runtime_git::GitBranchSummary> {
+    branches
+        .iter()
+        .map(|branch| runtime_git::GitBranchSummary {
+            name: branch.name.clone(),
+            is_current: branch.is_current,
+        })
+        .collect()
 }
 
 pub(crate) fn remote_terminal_order_key(value: &Value) -> (String, String) {
-    let created_at = value
-        .get("createdAt")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let id = value
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    (created_at, id)
+    runtime_terminal::terminal_order_key(value)
 }
 
-fn terminal_buffer_snapshot_key(session_id: &str, request_id: &str) -> String {
+fn terminal_buffer_baseline_key(session_id: &str, request_id: &str) -> String {
     format!("{session_id}:{request_id}")
 }
 
@@ -3420,30 +3454,7 @@ pub(crate) fn remote_terminal_snapshot_payload(
     terminal: TerminalSessionSnapshot,
     layout_kind: &str,
 ) -> Value {
-    json!({
-        "id": terminal.id,
-        "title": terminal.title,
-        "layoutKind": layout_kind,
-        "displayTitle": if terminal.project_name.trim().is_empty() {
-            terminal.title.clone()
-        } else {
-            format!("{} · {}", terminal.project_name, terminal.title)
-        },
-        "projectId": terminal.project_id,
-        "projectName": terminal.project_name,
-        "projectPath": terminal.cwd,
-        "cwd": terminal.cwd,
-        "shell": terminal.shell,
-        "command": terminal.command,
-        "cols": terminal.cols,
-        "rows": terminal.rows,
-        "status": terminal.status,
-        "isRunning": terminal.is_running,
-        "createdAt": terminal.created_at,
-        "lastActiveAt": terminal.last_active_at,
-        "bufferCharacters": terminal.buffer_characters,
-        "hasBuffer": terminal.has_buffer,
-    })
+    runtime_terminal::terminal_snapshot_payload(terminal, layout_kind)
 }
 
 fn remote_terminal_layout_kind(payload: &Value) -> String {
@@ -3460,39 +3471,24 @@ fn remote_terminal_layout_kind(payload: &Value) -> String {
 }
 
 fn remote_worktree_base_branches(git: &crate::git::GitSummary) -> Vec<String> {
-    let mut values = Vec::new();
-    remote_push_unique_branch(&mut values, git.branch.as_str());
-    for branch in &git.branches {
-        remote_push_unique_branch(&mut values, branch.name.as_str());
-    }
-    values
+    runtime_worktree::worktree_base_branches(&git.branch, &runtime_git_branches(&git.branches))
 }
 
 fn remote_default_worktree_base_branch(git: &crate::git::GitSummary) -> String {
-    git.branches
-        .iter()
-        .find(|branch| branch.is_current)
-        .or_else(|| git.branches.first())
-        .map(|branch| branch.name.clone())
-        .filter(|branch| !branch.trim().is_empty())
-        .unwrap_or_else(|| git.branch.clone())
-}
-
-fn remote_push_unique_branch(values: &mut Vec<String>, value: &str) {
-    let branch = value.trim();
-    if branch.is_empty() || values.iter().any(|item| item == branch) {
-        return;
-    }
-    values.push(branch.to_string());
+    runtime_worktree::default_worktree_base_branch(
+        &git.branch,
+        &runtime_git_branches(&git.branches),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::remote::crypto::remote_base64_url_encode;
-    use crate::remote::transport::{RemoteTransport, RemoteTransportKind};
+    use crate::remote::transport::RemoteTransport;
     use crate::terminal_layout::TerminalPaneSummary;
     use async_trait::async_trait;
+    use codux_remote_transport::RemoteTransportKind;
     use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
     fn temp_support_dir(name: &str) -> PathBuf {
@@ -3529,6 +3525,49 @@ mod tests {
         }
 
         async fn shutdown(&self) {}
+    }
+
+    #[test]
+    fn host_transport_disconnect_clears_stale_transport_and_enters_reconnect() {
+        let support_dir = temp_support_dir("codux-remote-host-reconnect");
+        write_paired_remote_settings(&support_dir);
+        let runtime = RemoteHostRuntime::new(support_dir.clone());
+        runtime.connection_generation.store(7, Ordering::SeqCst);
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(Arc::new(CapturingTransport::default()));
+        }
+
+        let restart = runtime.prepare_transport_reconnect_after_disconnect(7);
+
+        assert!(restart.is_some());
+        let (_, restart_generation) = restart.expect("restart generation");
+        assert_eq!(restart_generation, 8);
+        assert_eq!(runtime.connection_generation.load(Ordering::SeqCst), 8);
+        assert!(runtime.transport.lock().expect("transport lock").is_none());
+        let snapshot = runtime.snapshot();
+        assert_eq!(snapshot.status, "connecting");
+        assert_eq!(snapshot.message, "Relay disconnected. Reconnecting...");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn stale_host_transport_disconnect_does_not_clear_current_transport() {
+        let support_dir = temp_support_dir("codux-remote-host-reconnect-stale");
+        write_paired_remote_settings(&support_dir);
+        let runtime = RemoteHostRuntime::new(support_dir.clone());
+        runtime.connection_generation.store(8, Ordering::SeqCst);
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(Arc::new(CapturingTransport::default()));
+        }
+
+        let restart = runtime.prepare_transport_reconnect_after_disconnect(7);
+
+        assert!(restart.is_none());
+        assert_eq!(runtime.connection_generation.load(Ordering::SeqCst), 8);
+        assert!(runtime.transport.lock().expect("transport lock").is_some());
+
+        fs::remove_dir_all(support_dir).ok();
     }
 
     fn write_paired_remote_settings(support_dir: &Path) {
@@ -3754,7 +3793,99 @@ mod tests {
     }
 
     #[test]
-    fn terminal_project_subscribe_with_baseline_sends_buffer_snapshot() {
+    fn resource_subscriptions_broadcast_project_scoped_git_status() {
+        let support_dir = temp_support_dir("codux-remote-resource-subscriptions");
+        let (project_a, _) = write_two_project_state(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+
+        runtime.handle_resource_subscribe(&RemoteEnvelope {
+            kind: REMOTE_RESOURCE_SUBSCRIBE.to_string(),
+            device_id: Some("phone-a".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "resource": REMOTE_RESOURCE_GIT_STATUS,
+                "projectId": "project-a",
+                "projectPath": project_a.to_string_lossy(),
+            }),
+        });
+        transport.take_messages();
+
+        runtime.handle_git_status(&RemoteEnvelope {
+            kind: REMOTE_GIT_STATUS.to_string(),
+            device_id: Some("phone-b".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "projectId": "project-a",
+                "projectPath": project_a.to_string_lossy(),
+            }),
+        });
+
+        let messages = transport.take_messages();
+        let target_devices = messages
+            .iter()
+            .filter_map(|(device_id, data)| {
+                let value: Value = serde_json::from_slice(data).ok()?;
+                let kind = value.get("type").and_then(Value::as_str);
+                (kind == Some("secure.message") || kind == Some("secure.required"))
+                    .then(|| device_id.clone())
+            })
+            .collect::<Vec<_>>();
+
+        assert!(target_devices.contains(&Some("phone-a".to_string())));
+        assert!(target_devices.contains(&Some("phone-b".to_string())));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn project_list_broadcast_preserves_per_device_project_scope() {
+        let support_dir = temp_support_dir("codux-remote-project-list-subscriptions");
+        write_two_project_state(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+
+        runtime
+            .resource_subscriptions
+            .subscribe_envelope(&RemoteEnvelope {
+                kind: REMOTE_RESOURCE_SUBSCRIBE.to_string(),
+                device_id: Some("phone-a".to_string()),
+                session_id: None,
+                seq: None,
+                payload: json!({ "resource": REMOTE_RESOURCE_PROJECTS }),
+            })
+            .unwrap();
+        runtime
+            .resource_subscriptions
+            .subscribe_envelope(&RemoteEnvelope {
+                kind: REMOTE_RESOURCE_SUBSCRIBE.to_string(),
+                device_id: Some("phone-b".to_string()),
+                session_id: None,
+                seq: None,
+                payload: json!({ "resource": REMOTE_RESOURCE_PROJECTS }),
+            })
+            .unwrap();
+        runtime.set_remote_project_scope(Some("phone-a"), "project-a");
+        runtime.set_remote_project_scope(Some("phone-b"), "project-b");
+
+        assert_eq!(
+            runtime.remote_project_list_payload(Some("phone-a"))["selectedProjectId"],
+            "project-a"
+        );
+        assert_eq!(
+            runtime.remote_project_list_payload(Some("phone-b"))["selectedProjectId"],
+            "project-b"
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_project_subscribe_with_baseline_sends_buffer_baseline() {
         let support_dir = temp_support_dir("codux-remote-terminal-subscribe-baseline");
         let (project_a, _) = write_two_project_state(&support_dir);
         write_paired_remote_settings(&support_dir);
@@ -4038,7 +4169,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_terminal_buffer_window_tail_snapshot_returns_screen_snapshot() {
+    fn remote_terminal_buffer_window_tail_returns_history_tail() {
         let support_dir = temp_support_dir("codux-remote-terminal-buffer-tail-window");
         let terminals = Arc::new(TerminalManager::new());
         let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -4063,7 +4194,7 @@ mod tests {
             let current = runtime
                 .terminal_buffer_window(&session_id, 0, 3, Some("request-1".to_string()), true)
                 .expect("terminal buffer window");
-            if current.data.contains("abcdef") {
+            if current.data.contains("def") {
                 window = Some(current);
                 break;
             }
@@ -4071,14 +4202,13 @@ mod tests {
         }
         let window = window.expect("terminal output");
 
-        assert!(window.data.contains("\x1b[H\x1b[2J"));
-        assert!(window.data.contains("abcdef"));
-        assert_eq!(window.offset, 0);
+        assert!(window.data.contains("def"));
+        assert_eq!(window.offset, 3);
+        assert_eq!(window.total_characters, 6);
         assert!(!window.truncated);
         assert_eq!(window.request_id.as_deref(), Some("request-1"));
         assert!(window.tail);
-        assert!(window.screen_snapshot);
-        assert!(!window.has_previous);
+        assert!(window.has_previous);
 
         fs::remove_dir_all(support_dir).ok();
     }

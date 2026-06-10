@@ -1,32 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemoteTransportCandidate {
-    pub(crate) kind: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) role: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) url: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "iceServers")]
-    pub(crate) ice_servers: Vec<RemoteIceServer>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemoteIceServer {
-    pub(crate) urls: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct RemoteTransportPairingRequest {
-    pub(crate) device_id: String,
-    pub(crate) device_name: String,
-    pub(crate) device_public_key: String,
-    pub(crate) pairing_id: Option<String>,
-    pub(crate) pairing_code: Option<String>,
-    pub(crate) pairing_secret: Option<String>,
-}
+pub use codux_protocol::{RemoteEnvelope, RemoteOutgoingEnvelope};
+pub(crate) use codux_protocol::{RemoteTransportCandidate, RemoteTransportPairingRequest};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,40 +26,6 @@ pub struct RemoteSummary {
 pub struct RemotePairingPollResult {
     pub summary: RemoteSummary,
     pub finished: bool,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct RemoteEnvelope {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(default, rename = "deviceId")]
-    pub device_id: Option<String>,
-    #[serde(default, rename = "sessionId")]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub seq: Option<i64>,
-    #[serde(default)]
-    pub payload: serde_json::Value,
-}
-
-impl RemoteEnvelope {
-    pub fn with_device_id(mut self, device_id: String) -> Self {
-        self.device_id = Some(device_id);
-        self
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct RemoteOutgoingEnvelope {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "deviceId")]
-    pub device_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "sessionId")]
-    pub session_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seq: Option<i64>,
-    pub payload: serde_json::Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

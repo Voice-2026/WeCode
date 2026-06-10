@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
-    'history restore requests retained scrollback instead of screen tail',
+    'history restore requests bounded tail history for mobile first paint',
     () {
       final payload = buildTerminalBufferRequestPayload(
         requestId: 'request-1',
@@ -15,7 +15,7 @@ void main() {
         resumeFromSeq: 42,
       );
 
-      expect(payload['tail'], isFalse);
+      expect(payload['tail'], isTrue);
       expect(payload['offset'], 0);
       expect(payload['maxChars'], 65536);
       expect(payload['chunkChars'], 16384);
@@ -36,21 +36,4 @@ void main() {
     expect(payload['offset'], 4096);
     expect(payload['resumeFromSeq'], 77);
   });
-
-  test(
-    'history page requests an explicit page offset without resume sequence',
-    () {
-      final payload = buildTerminalBufferRequestPayload(
-        requestId: 'request-3',
-        mode: TerminalBufferRequestMode.historyPage,
-        offset: 8192,
-        maxChars: 65536,
-        resumeFromSeq: 88,
-      );
-
-      expect(payload['tail'], isFalse);
-      expect(payload['offset'], 8192);
-      expect(payload.containsKey('resumeFromSeq'), isFalse);
-    },
-  );
 }

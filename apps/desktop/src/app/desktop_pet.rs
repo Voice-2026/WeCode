@@ -850,11 +850,9 @@ pub(in crate::app) fn desktop_pet_bubble(
                             .flex()
                             .flex_col()
                             .gap(px(2.0))
-                            .children(
-                                plan_items.into_iter().map(|item| {
-                                    desktop_pet_plan_row(item, text, 0x35BFE4).into_any_element()
-                                }),
-                            ),
+                            .children(plan_items.into_iter().map(|item| {
+                                desktop_pet_plan_row(item, text, 0x35BFE4).into_any_element()
+                            })),
                     )
                 }),
         )
@@ -882,7 +880,11 @@ fn desktop_pet_bubble_text_metrics(has_plan: bool) -> (Pixels, Pixels) {
 fn desktop_pet_plan_row(item: DesktopPetPlanItem, text: u32, active_text: u32) -> impl IntoElement {
     let active = item.status == "in_progress";
     let row_text = if active { active_text } else { text };
-    let mark = if item.status == "completed" { "✓" } else { "□" };
+    let mark = if item.status == "completed" {
+        "✓"
+    } else {
+        "□"
+    };
     let item_text = desktop_pet_truncate_display_units(&item.text, DESKTOP_PET_PLAN_ITEM_MAX_UNITS);
     div()
         .w_full()
@@ -891,20 +893,8 @@ fn desktop_pet_plan_row(item: DesktopPetPlanItem, text: u32, active_text: u32) -
         .gap(px(4.0))
         .items_center()
         .text_color(color(row_text))
-        .child(
-            div()
-                .w(px(18.0))
-                .flex_none()
-                .text_center()
-                .child(mark),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .child(item_text),
-        )
+        .child(div().w(px(18.0)).flex_none().text_center().child(mark))
+        .child(div().flex_1().min_w_0().truncate().child(item_text))
 }
 
 fn desktop_pet_truncate_display_units(value: &str, max_units: usize) -> String {

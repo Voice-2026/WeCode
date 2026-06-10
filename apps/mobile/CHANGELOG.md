@@ -241,7 +241,7 @@ Important changes to this project are documented here.
 ### Fixed
 
 - Fixed Mac-offline detection so the mobile app moves from connecting to connection failed instead of looping through syncing and relay states.
-- Fixed foreground resume recovery by refreshing host snapshots and replaying cached terminal output after the app returns from the background.
+- Fixed foreground resume recovery by refreshing host baselines and replaying cached terminal output after the app returns from the background.
 - Fixed duplicate terminal input/output handling with input acknowledgements and output sequence acknowledgements.
 
 ## [0.1.5] - 2026-05-05
@@ -278,7 +278,7 @@ Important changes to this project are documented here.
 ### Fixed
 
 - Kept encrypted message sequence numbers monotonic across mobile reconnects so the Mac host no longer drops fresh `project.list` and `terminal.list` requests as replayed messages after app restart or foreground resume.
-- Split relay connection and host snapshot readiness in the UI, showing a syncing state instead of reporting fully connected while project and terminal snapshots are still pending.
+- Split relay connection and host baseline readiness in the UI, showing a syncing state instead of reporting fully connected while project and terminal baselines are still pending.
 - Reconnected when the app returns to the foreground, avoiding stale WebSocket state after Android pauses or resumes the process.
 - Ignored stale native terminal platform-view calls after Android recreates the terminal view, preventing `MissingPluginException` during terminal resize races.
 
@@ -286,7 +286,7 @@ Important changes to this project are documented here.
 
 ### Fixed
 
-- Retried initial `project.list` and `terminal.list` snapshot requests when the host response is not received, so the mobile project list and terminal session lookup recover from transient dropped messages.
+- Retried initial `project.list` and `terminal.list` baseline requests when the host response is not received, so the mobile project list and terminal session lookup recover from transient dropped messages.
 - Restored the cached project list on app startup and refreshed it after the host returns the latest list.
 - Limited the terminal history loading overlay to active `terminal.buffer` requests for the current session, avoiding a stuck loading state before projects or sessions are available.
 - Added regression coverage for project-list retry, project-list cache storage, and opening the terminal before the project list returns.

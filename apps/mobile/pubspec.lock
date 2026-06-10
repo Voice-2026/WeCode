@@ -64,6 +64,13 @@ packages:
       relative: true
     source: path
     version: "0.1.0"
+  codux_protocol_ffi:
+    dependency: "direct main"
+    description:
+      path: "plugin/codux_protocol_ffi"
+      relative: true
+    source: path
+    version: "1.7.6"
   collection:
     dependency: transitive
     description:

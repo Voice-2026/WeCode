@@ -131,9 +131,61 @@ void main() {
     expect(result.ready, isTrue);
     expect(result.payload?['data'], 'new-data');
   });
+
+  test('keeps chunk assemblies isolated by request id', () {
+    final assembler = TerminalBufferAssembler();
+
+    assembler.accept(
+      sessionId: 'term-1',
+      payload: _chunk(
+        requestId: 'request-old',
+        snapshotId: 'snapshot-1',
+        index: 0,
+        data: 'old-',
+        chunkCount: 2,
+      ),
+    );
+    assembler.accept(
+      sessionId: 'term-1',
+      payload: _chunk(
+        requestId: 'request-new',
+        snapshotId: 'snapshot-1',
+        index: 0,
+        data: 'new-',
+        chunkCount: 2,
+      ),
+    );
+
+    final oldResult = assembler.accept(
+      sessionId: 'term-1',
+      payload: _chunk(
+        requestId: 'request-old',
+        snapshotId: 'snapshot-1',
+        index: 1,
+        data: 'data',
+        chunkCount: 2,
+      ),
+    );
+    final newResult = assembler.accept(
+      sessionId: 'term-1',
+      payload: _chunk(
+        requestId: 'request-new',
+        snapshotId: 'snapshot-1',
+        index: 1,
+        data: 'data',
+        chunkCount: 2,
+      ),
+    );
+
+    expect(oldResult.ready, isTrue);
+    expect(oldResult.payload?['data'], 'old-data');
+    expect(newResult.ready, isTrue);
+    expect(newResult.payload?['data'], 'new-data');
+  });
 }
 
 Map<String, Object?> _chunk({
+  String? requestId,
   String snapshotId = 'snapshot-1',
   required int index,
   required String data,
@@ -151,5 +203,6 @@ Map<String, Object?> _chunk({
     'bufferLength': 16,
     'truncated': true,
     'outputSeq': 7,
+    'requestId': ?requestId,
   };
 }

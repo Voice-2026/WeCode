@@ -1,0 +1,593 @@
+use codux_terminal_core::{
+    TerminalDriver, TerminalEvent, TerminalEventSink, TerminalLaunchConfig, TerminalSessionHandle,
+    TerminalSessionSnapshot, TerminalViewportState,
+};
+use parking_lot::Mutex;
+use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use std::{
+    collections::{HashMap, VecDeque},
+    io::{Read, Write},
+    path::PathBuf,
+    sync::Arc,
+    thread,
+    time::{SystemTime, UNIX_EPOCH},
+};
+use uuid::Uuid;
+
+const DEFAULT_COLS: u16 = 100;
+const DEFAULT_ROWS: u16 = 32;
+const DEFAULT_HISTORY_LIMIT: usize = 256 * 1024;
+const LOCAL_VIEWPORT_OWNER: &str = "local";
+
+type EventSinks = Arc<Mutex<Vec<TerminalEventSink>>>;
+
+#[derive(Default)]
+pub struct LocalPtyDriver {
+    sessions: Mutex<HashMap<String, Arc<LocalPtySession>>>,
+}
+
+impl LocalPtyDriver {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl TerminalDriver for LocalPtyDriver {
+    type Session = LocalPtySessionHandle;
+
+    fn list(&self) -> Vec<TerminalSessionSnapshot> {
+        self.sessions
+            .lock()
+            .values()
+            .map(|session| LocalPtySessionHandle(Arc::clone(session)).info())
+            .collect()
+    }
+
+    fn create(
+        &self,
+        config: TerminalLaunchConfig,
+        emit: TerminalEventSink,
+    ) -> Result<Self::Session, String> {
+        let session = Arc::new(LocalPtySession::spawn(config, Some(emit))?);
+        let handle = LocalPtySessionHandle(Arc::clone(&session));
+        self.sessions
+            .lock()
+            .insert(session.id.clone(), Arc::clone(&session));
+        Ok(handle)
+    }
+
+    fn session(&self, session_id: &str) -> Result<Self::Session, String> {
+        self.sessions
+            .lock()
+            .get(session_id)
+            .cloned()
+            .map(LocalPtySessionHandle)
+            .ok_or_else(|| format!("terminal session not found: {session_id}"))
+    }
+
+    fn remove(&self, session_id: &str) -> Result<(), String> {
+        let Some(session) = self.sessions.lock().remove(session_id) else {
+            return Err(format!("terminal session not found: {session_id}"));
+        };
+        LocalPtySessionHandle(session).kill()
+    }
+
+    fn subscribe_events(&self, session_id: &str, emit: TerminalEventSink) -> Result<(), String> {
+        self.session(session_id)?.0.subscribe_events(emit);
+        Ok(())
+    }
+}
+
+pub struct LocalPtySession {
+    id: String,
+    stdin_writer: Mutex<Box<dyn Write + Send>>,
+    history: Arc<Mutex<RingHistory>>,
+    event_sinks: EventSinks,
+    info: Arc<Mutex<TerminalSessionSnapshot>>,
+    _child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    pty_master: Mutex<Box<dyn MasterPty + Send>>,
+    viewport: Mutex<TerminalViewportState>,
+}
+
+#[derive(Clone)]
+pub struct LocalPtySessionHandle(Arc<LocalPtySession>);
+
+impl LocalPtySession {
+    pub fn spawn(
+        config: TerminalLaunchConfig,
+        event_sink: Option<TerminalEventSink>,
+    ) -> Result<Self, String> {
+        let id = config
+            .terminal_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let cols = config.cols.unwrap_or(DEFAULT_COLS).max(20);
+        let rows = config.rows.unwrap_or(DEFAULT_ROWS).max(8);
+        let shell = config.shell.clone().unwrap_or_else(default_shell);
+        let cwd = config.cwd.clone().unwrap_or_else(default_cwd);
+        let command = config
+            .command
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| format!("failed to open PTY: {error}"))?;
+        let mut command_builder = build_shell_command(&shell, command.as_deref());
+        command_builder.cwd(PathBuf::from(&cwd));
+        if let Some(env) = &config.env {
+            for (key, value) in env {
+                command_builder.env(key, value);
+            }
+        }
+        let child = pair
+            .slave
+            .spawn_command(command_builder)
+            .map_err(|error| format!("failed to spawn shell {shell}: {error}"))?;
+        let killer = child.clone_killer();
+        drop(pair.slave);
+
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(|error| format!("failed to take PTY writer: {error}"))?;
+        let reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|error| format!("failed to clone PTY reader: {error}"))?;
+        let event_sinks = Arc::new(Mutex::new(Vec::new()));
+        if let Some(event_sink) = event_sink {
+            event_sinks.lock().push(event_sink);
+        }
+        let now = unix_timestamp_text();
+        let project_name = config
+            .project_name
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "Codux".to_string());
+        let project_id = config
+            .project_id
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| project_name.clone());
+        let info = Arc::new(Mutex::new(TerminalSessionSnapshot {
+            id: id.clone(),
+            title: config
+                .title
+                .clone()
+                .unwrap_or_else(|| "Terminal".to_string()),
+            slot_id: config.slot_id.clone().unwrap_or_default(),
+            session_key: config.session_key.clone(),
+            project_id,
+            project_name,
+            cwd,
+            shell,
+            command: command.unwrap_or_default(),
+            cols,
+            rows,
+            status: "running".to_string(),
+            is_running: true,
+            created_at: now.clone(),
+            last_active_at: now,
+            buffer_characters: 0,
+            has_buffer: false,
+        }));
+        let history = Arc::new(Mutex::new(RingHistory::new(DEFAULT_HISTORY_LIMIT)));
+        let child = Arc::new(Mutex::new(child));
+        spawn_reader(
+            id.clone(),
+            reader,
+            Arc::clone(&history),
+            Arc::clone(&info),
+            Arc::clone(&event_sinks),
+        );
+        spawn_waiter(
+            id.clone(),
+            Arc::clone(&child),
+            Arc::clone(&info),
+            Arc::clone(&event_sinks),
+        );
+
+        Ok(Self {
+            id,
+            stdin_writer: Mutex::new(writer),
+            history,
+            event_sinks,
+            info,
+            _child: child,
+            killer: Mutex::new(killer),
+            pty_master: Mutex::new(pair.master),
+            viewport: Mutex::new(TerminalViewportState {
+                owner: LOCAL_VIEWPORT_OWNER.to_string(),
+                cols,
+                rows,
+                generation: 0,
+            }),
+        })
+    }
+
+    pub fn subscribe_events(&self, emit: TerminalEventSink) {
+        self.event_sinks.lock().push(emit);
+    }
+
+    fn emit_viewport_state(&self, state: TerminalViewportState) {
+        emit_event(
+            &self.event_sinks,
+            TerminalEvent::Viewport {
+                session_id: self.id.clone(),
+                owner: state.owner,
+                cols: state.cols,
+                rows: state.rows,
+                generation: state.generation,
+            },
+        );
+    }
+}
+
+impl TerminalSessionHandle for LocalPtySessionHandle {
+    fn id(&self) -> &str {
+        &self.0.id
+    }
+
+    fn info(&self) -> TerminalSessionSnapshot {
+        let mut info = self.0.info.lock().clone();
+        info.buffer_characters = self.buffer_characters();
+        info.has_buffer = info.buffer_characters > 0;
+        info
+    }
+
+    fn write(&self, data: &[u8]) -> Result<(), String> {
+        let mut writer = self.0.stdin_writer.lock();
+        writer
+            .write_all(data)
+            .and_then(|_| writer.flush())
+            .map_err(|error| error.to_string())
+    }
+
+    fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+        self.resize_viewport(LOCAL_VIEWPORT_OWNER, cols, rows)
+            .map(|_| ())
+    }
+
+    fn claim_viewport(&self, owner: &str) -> Result<TerminalViewportState, String> {
+        let owner = normalize_owner(owner);
+        let mut viewport = self.0.viewport.lock();
+        if viewport.owner != owner {
+            viewport.owner = owner;
+            viewport.generation = viewport.generation.saturating_add(1);
+        }
+        Ok(viewport.clone())
+    }
+
+    fn release_viewport(&self, owner: &str) -> Result<Option<TerminalViewportState>, String> {
+        let owner = normalize_owner(owner);
+        let mut viewport = self.0.viewport.lock();
+        if viewport.owner != owner {
+            return Ok(None);
+        }
+        viewport.owner = LOCAL_VIEWPORT_OWNER.to_string();
+        viewport.generation = viewport.generation.saturating_add(1);
+        let state = viewport.clone();
+        drop(viewport);
+        self.0.emit_viewport_state(state.clone());
+        Ok(Some(state))
+    }
+
+    fn resize_viewport(
+        &self,
+        owner: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Option<TerminalViewportState>, String> {
+        let owner = normalize_owner(owner);
+        let cols = cols.max(20);
+        let rows = rows.max(8);
+        let mut viewport = self.0.viewport.lock();
+        if viewport.owner != owner {
+            return Ok(None);
+        }
+        if viewport.cols == cols && viewport.rows == rows {
+            return Ok(Some(viewport.clone()));
+        }
+        self.0
+            .pty_master
+            .lock()
+            .resize(PtySize {
+                cols,
+                rows,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| error.to_string())?;
+        {
+            let mut info = self.0.info.lock();
+            info.cols = cols;
+            info.rows = rows;
+            info.last_active_at = unix_timestamp_text();
+        }
+        viewport.cols = cols;
+        viewport.rows = rows;
+        viewport.generation = viewport.generation.saturating_add(1);
+        let state = viewport.clone();
+        drop(viewport);
+        self.0.emit_viewport_state(state.clone());
+        Ok(Some(state))
+    }
+
+    fn viewport_state(&self) -> TerminalViewportState {
+        self.0.viewport.lock().clone()
+    }
+
+    fn snapshot(&self) -> String {
+        self.0.history.lock().to_text()
+    }
+
+    fn snapshot_tail(&self, max_chars: usize) -> (String, usize) {
+        self.0.history.lock().tail_text(max_chars)
+    }
+
+    fn buffer_characters(&self) -> usize {
+        self.0.history.lock().len_chars()
+    }
+
+    fn clear_history(&self) {
+        self.0.history.lock().clear();
+        let mut info = self.0.info.lock();
+        info.buffer_characters = 0;
+        info.has_buffer = false;
+        info.last_active_at = unix_timestamp_text();
+    }
+
+    fn kill(&self) -> Result<(), String> {
+        self.0
+            .killer
+            .lock()
+            .kill()
+            .map_err(|error| error.to_string())
+    }
+}
+
+struct RingHistory {
+    chunks: VecDeque<String>,
+    len_chars: usize,
+    max_chars: usize,
+}
+
+impl RingHistory {
+    fn new(max_chars: usize) -> Self {
+        Self {
+            chunks: VecDeque::new(),
+            len_chars: 0,
+            max_chars,
+        }
+    }
+
+    fn push(&mut self, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        self.len_chars += text.chars().count();
+        self.chunks.push_back(text);
+        while self.len_chars > self.max_chars {
+            let Some(front) = self.chunks.pop_front() else {
+                break;
+            };
+            let front_len = front.chars().count();
+            if self.len_chars.saturating_sub(front_len) >= self.max_chars {
+                self.len_chars = self.len_chars.saturating_sub(front_len);
+                continue;
+            }
+            let keep = self.max_chars.min(self.len_chars);
+            let trimmed = tail_chars(&front, keep.saturating_sub(self.len_chars - front_len));
+            self.len_chars = self.len_chars.saturating_sub(front_len) + trimmed.chars().count();
+            if !trimmed.is_empty() {
+                self.chunks.push_front(trimmed);
+            }
+            break;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.chunks.clear();
+        self.len_chars = 0;
+    }
+
+    fn len_chars(&self) -> usize {
+        self.len_chars
+    }
+
+    fn to_text(&self) -> String {
+        self.chunks.iter().cloned().collect()
+    }
+
+    fn tail_text(&self, max_chars: usize) -> (String, usize) {
+        let text = self.to_text();
+        let total = text.chars().count();
+        if total <= max_chars {
+            return (text, total);
+        }
+        (tail_chars(&text, max_chars), total)
+    }
+}
+
+fn spawn_reader(
+    session_id: String,
+    mut reader: Box<dyn Read + Send>,
+    history: Arc<Mutex<RingHistory>>,
+    info: Arc<Mutex<TerminalSessionSnapshot>>,
+    event_sinks: EventSinks,
+) {
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let bytes = buffer[..n].to_vec();
+                    let text = String::from_utf8_lossy(&bytes).to_string();
+                    history.lock().push(text.clone());
+                    {
+                        let mut info = info.lock();
+                        info.buffer_characters = history.lock().len_chars();
+                        info.has_buffer = info.buffer_characters > 0;
+                        info.last_active_at = unix_timestamp_text();
+                    }
+                    emit_event(
+                        &event_sinks,
+                        TerminalEvent::Output {
+                            session_id: session_id.clone(),
+                            text,
+                            bytes,
+                        },
+                    );
+                }
+                Err(error) => {
+                    emit_event(
+                        &event_sinks,
+                        TerminalEvent::Error {
+                            session_id: session_id.clone(),
+                            message: error.to_string(),
+                        },
+                    );
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn spawn_waiter(
+    session_id: String,
+    child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
+    info: Arc<Mutex<TerminalSessionSnapshot>>,
+    event_sinks: EventSinks,
+) {
+    thread::spawn(move || {
+        let exit_code = child
+            .lock()
+            .wait()
+            .ok()
+            .map(|status| i32::try_from(status.exit_code()).unwrap_or(i32::MAX));
+        {
+            let mut info = info.lock();
+            info.status = "exited".to_string();
+            info.is_running = false;
+            info.last_active_at = unix_timestamp_text();
+        }
+        emit_event(
+            &event_sinks,
+            TerminalEvent::Exit {
+                session_id,
+                exit_code,
+            },
+        );
+    });
+}
+
+fn emit_event(event_sinks: &EventSinks, event: TerminalEvent) {
+    let mut sinks = event_sinks.lock();
+    sinks.retain(|sink| sink(event.clone()));
+}
+
+fn build_shell_command(shell: &str, command: Option<&str>) -> CommandBuilder {
+    let mut builder = CommandBuilder::new(shell);
+    if let Some(command) = command {
+        if cfg!(windows) {
+            builder.args(["/C", command]);
+        } else {
+            builder.args(["-lc", command]);
+        }
+    }
+    builder
+}
+
+fn default_shell() -> String {
+    if cfg!(windows) {
+        "powershell.exe".to_string()
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
+}
+
+fn default_cwd() -> String {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .display()
+        .to_string()
+}
+
+fn normalize_owner(owner: &str) -> String {
+    let owner = owner.trim();
+    if owner.is_empty() {
+        LOCAL_VIEWPORT_OWNER.to_string()
+    } else {
+        owner.to_string()
+    }
+}
+
+fn tail_chars(value: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.len() <= max_chars {
+        return value.to_string();
+    }
+    chars[chars.len() - max_chars..].iter().collect()
+}
+
+fn unix_timestamp_text() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ring_history_trims_on_character_boundaries() {
+        let mut history = RingHistory::new(4);
+        history.push("a你好".to_string());
+        history.push("bc".to_string());
+
+        assert_eq!(history.to_text(), "你好bc");
+        assert_eq!(history.len_chars(), 4);
+    }
+
+    #[test]
+    fn local_driver_captures_command_output() {
+        let driver = LocalPtyDriver::new();
+        let session = driver
+            .create(
+                TerminalLaunchConfig {
+                    command: Some("printf codux-pty-test".to_string()),
+                    ..Default::default()
+                },
+                Box::new(|_| true),
+            )
+            .expect("create local pty session");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if session.snapshot().contains("codux-pty-test") {
+                let _ = session.kill();
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let snapshot = session.snapshot();
+        let _ = session.kill();
+        assert!(
+            snapshot.contains("codux-pty-test"),
+            "snapshot did not contain command output: {snapshot:?}"
+        );
+    }
+}

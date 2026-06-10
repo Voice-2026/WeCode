@@ -1,8 +1,377 @@
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
 
 pub const REMOTE_PROTOCOL_VERSION: &str = "v3.1";
 pub const REMOTE_TERMINAL_BUFFER_MAX_CHARS: usize = 200_000;
 pub const REMOTE_TERMINAL_BUFFER_CHUNK_CHARS: usize = 16_384;
+pub const REMOTE_RELAY_TICKET_TTL_SECS: u64 = 60;
+pub const REMOTE_RELAY_TICKET_MAX_ENTRIES: usize = 4096;
+pub const REMOTE_RELAY_TICKET_PAYLOAD_MAX_BYTES: usize = 64 << 10;
+pub const REMOTE_RELAY_MAX_MESSAGE_BYTES: usize = 1 << 20;
+pub const REMOTE_RELAY_BURST_LIMIT: usize = 120;
+pub const REMOTE_RELAY_RATE_WINDOW_SECS: u64 = 10;
+
+pub const REMOTE_RESOURCE_SUBSCRIBE: &str = "resource.subscribe";
+pub const REMOTE_RESOURCE_UNSUBSCRIBE: &str = "resource.unsubscribe";
+pub const REMOTE_RESOURCE_BASELINE: &str = "resource.baseline";
+pub const REMOTE_RESOURCE_DELTA: &str = "resource.delta";
+pub const REMOTE_RESOURCE_RESYNC: &str = "resource.resync";
+pub const REMOTE_RESOURCE_PROJECTS: &str = "projects";
+pub const REMOTE_RESOURCE_TERMINALS: &str = "terminals";
+pub const REMOTE_RESOURCE_WORKTREES: &str = "worktrees";
+pub const REMOTE_RESOURCE_GIT_STATUS: &str = "git.status";
+pub const REMOTE_RESOURCE_AI_STATS: &str = "ai.stats";
+pub const REMOTE_RESOURCE_FILES: &str = "files";
+
+pub const REMOTE_HELLO: &str = "hello";
+pub const REMOTE_ERROR: &str = "error";
+pub const REMOTE_RELAY_ERROR: &str = "relay.error";
+pub const REMOTE_SECURE_MESSAGE: &str = "secure.message";
+pub const REMOTE_HOST_INFO: &str = "host.info";
+pub const REMOTE_HOST_OFFLINE: &str = "host.offline";
+pub const REMOTE_DEVICE_CONNECTED: &str = "device.connected";
+pub const REMOTE_DEVICE_DISCONNECTED: &str = "device.disconnected";
+pub const REMOTE_TRANSPORT_PING: &str = "transport.ping";
+pub const REMOTE_TRANSPORT_PONG: &str = "transport.pong";
+pub const REMOTE_PROJECT_LIST: &str = "project.list";
+pub const REMOTE_PROJECT_SELECT: &str = "project.select";
+pub const REMOTE_PROJECT_SELECTED: &str = "project.selected";
+pub const REMOTE_PROJECT_ADD: &str = "project.add";
+pub const REMOTE_PROJECT_EDIT: &str = "project.edit";
+pub const REMOTE_PROJECT_REMOVE: &str = "project.remove";
+pub const REMOTE_PROJECT_UPDATED: &str = "project.updated";
+pub const REMOTE_WORKTREE_LIST: &str = "worktree.list";
+pub const REMOTE_WORKTREE_SELECT: &str = "worktree.select";
+pub const REMOTE_WORKTREE_CREATE: &str = "worktree.create";
+pub const REMOTE_WORKTREE_MERGE: &str = "worktree.merge";
+pub const REMOTE_WORKTREE_DELETE: &str = "worktree.delete";
+pub const REMOTE_WORKTREE_REMOVE: &str = "worktree.remove";
+pub const REMOTE_WORKTREE_UPDATED: &str = "worktree.updated";
+pub const REMOTE_TERMINAL_LIST: &str = "terminal.list";
+pub const REMOTE_TERMINAL_SUBSCRIBE: &str = "terminal.subscribe";
+pub const REMOTE_TERMINAL_UNSUBSCRIBE: &str = "terminal.unsubscribe";
+pub const REMOTE_TERMINAL_CREATE: &str = "terminal.create";
+pub const REMOTE_TERMINAL_CREATED: &str = "terminal.created";
+pub const REMOTE_TERMINAL_CLOSE: &str = "terminal.close";
+pub const REMOTE_TERMINAL_CLOSED: &str = "terminal.closed";
+pub const REMOTE_TERMINAL_BUFFER: &str = "terminal.buffer";
+pub const REMOTE_TERMINAL_OUTPUT: &str = "terminal.output";
+pub const REMOTE_TERMINAL_OUTPUT_ACK: &str = "terminal.output.ack";
+pub const REMOTE_TERMINAL_INPUT: &str = "terminal.input";
+pub const REMOTE_TERMINAL_INPUT_ACK: &str = "terminal.input.ack";
+pub const REMOTE_TERMINAL_SIGNAL: &str = "terminal.signal";
+pub const REMOTE_TERMINAL_RESIZE: &str = "terminal.resize";
+pub const REMOTE_TERMINAL_VIEWPORT_CLAIM: &str = "terminal.viewport.claim";
+pub const REMOTE_TERMINAL_VIEWPORT_RESIZE: &str = "terminal.viewport.resize";
+pub const REMOTE_TERMINAL_VIEWPORT_RELEASE: &str = "terminal.viewport.release";
+pub const REMOTE_TERMINAL_VIEWPORT_STATE: &str = "terminal.viewport.state";
+pub const REMOTE_TERMINAL_UPLOAD: &str = "terminal.upload";
+pub const REMOTE_TERMINAL_UPLOAD_START: &str = "terminal.upload.start";
+pub const REMOTE_TERMINAL_UPLOAD_CHUNK: &str = "terminal.upload.chunk";
+pub const REMOTE_TERMINAL_UPLOAD_FINISH: &str = "terminal.upload.finish";
+pub const REMOTE_TERMINAL_UPLOAD_CANCEL: &str = "terminal.upload.cancel";
+pub const REMOTE_TERMINAL_UPLOAD_ACK: &str = "terminal.upload.ack";
+pub const REMOTE_TERMINAL_UPLOADED: &str = "terminal.uploaded";
+pub const REMOTE_FILE_LIST: &str = "file.list";
+pub const REMOTE_FILE_READ: &str = "file.read";
+pub const REMOTE_FILE_WRITE: &str = "file.write";
+pub const REMOTE_FILE_WRITTEN: &str = "file.written";
+pub const REMOTE_FILE_RENAME: &str = "file.rename";
+pub const REMOTE_FILE_RENAMED: &str = "file.renamed";
+pub const REMOTE_FILE_DELETE: &str = "file.delete";
+pub const REMOTE_FILE_DELETED: &str = "file.deleted";
+pub const REMOTE_GIT_STATUS: &str = "git.status";
+pub const REMOTE_AI_STATS: &str = "ai.stats";
+
+pub const REMOTE_TRANSPORT_WEBSOCKET_RELAY: &str = "websocketRelay";
+pub const REMOTE_TRANSPORT_WEBRTC: &str = "webRtc";
+pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RemoteTransportKind {
+    WebSocketRelay,
+    WebRtc,
+}
+
+impl RemoteTransportKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WebSocketRelay => REMOTE_TRANSPORT_WEBSOCKET_RELAY,
+            Self::WebRtc => REMOTE_TRANSPORT_WEBRTC,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteTransportCandidate {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "iceServers")]
+    pub ice_servers: Vec<RemoteIceServer>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteIceServer {
+    pub urls: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteTransportPairingRequest {
+    pub device_id: String,
+    pub device_name: String,
+    pub device_public_key: String,
+    pub pairing_id: Option<String>,
+    pub pairing_code: Option<String>,
+    pub pairing_secret: Option<String>,
+}
+
+pub fn websocket_relay_transport_candidate(url: impl Into<String>) -> RemoteTransportCandidate {
+    RemoteTransportCandidate {
+        kind: REMOTE_TRANSPORT_WEBSOCKET_RELAY.to_string(),
+        role: Some(REMOTE_TRANSPORT_ROLE_HOST.to_string()),
+        url: Some(url.into()),
+        ice_servers: Vec::new(),
+    }
+}
+
+pub fn webrtc_transport_candidate(
+    url: impl Into<String>,
+    stun_urls: Vec<String>,
+) -> RemoteTransportCandidate {
+    RemoteTransportCandidate {
+        kind: REMOTE_TRANSPORT_WEBRTC.to_string(),
+        role: Some(REMOTE_TRANSPORT_ROLE_HOST.to_string()),
+        url: Some(url.into()),
+        ice_servers: vec![RemoteIceServer { urls: stun_urls }],
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemoteEnvelope {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default, rename = "deviceId")]
+    pub device_id: Option<String>,
+    #[serde(default, rename = "sessionId")]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub seq: Option<i64>,
+    #[serde(default)]
+    pub payload: Value,
+}
+
+impl RemoteEnvelope {
+    pub fn with_device_id(mut self, device_id: String) -> Self {
+        self.device_id = Some(device_id);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RemoteOutgoingEnvelope {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "deviceId")]
+    pub device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sessionId")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRelayEnvelope {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub host_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub device_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub error: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
+}
+
+pub fn relay_hello_envelope(
+    host_id: impl Into<String>,
+    device_id: impl Into<String>,
+    payload: Value,
+    at: Option<i64>,
+) -> RemoteRelayEnvelope {
+    RemoteRelayEnvelope {
+        kind: REMOTE_HELLO.to_string(),
+        host_id: host_id.into(),
+        device_id: device_id.into(),
+        payload: Some(payload),
+        at,
+        ..RemoteRelayEnvelope::default()
+    }
+}
+
+pub fn relay_error_envelope(
+    host_id: impl Into<String>,
+    device_id: impl Into<String>,
+    error: impl Into<String>,
+    at: Option<i64>,
+) -> RemoteRelayEnvelope {
+    RemoteRelayEnvelope {
+        kind: REMOTE_RELAY_ERROR.to_string(),
+        host_id: host_id.into(),
+        device_id: device_id.into(),
+        error: error.into(),
+        at,
+        ..RemoteRelayEnvelope::default()
+    }
+}
+
+pub fn relay_blocks_message_type(kind: &str) -> bool {
+    matches!(
+        kind,
+        REMOTE_TERMINAL_UPLOAD
+            | REMOTE_TERMINAL_UPLOAD_START
+            | REMOTE_TERMINAL_UPLOAD_CHUNK
+            | REMOTE_TERMINAL_UPLOAD_FINISH
+            | REMOTE_FILE_WRITE
+    )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RemoteRelayPolicy {
+    pub max_message_bytes: usize,
+    pub burst_limit: usize,
+    pub rate_window_secs: u64,
+    pub ticket_ttl_secs: u64,
+    pub ticket_max_entries: usize,
+    pub ticket_payload_max_bytes: usize,
+}
+
+impl Default for RemoteRelayPolicy {
+    fn default() -> Self {
+        Self {
+            max_message_bytes: REMOTE_RELAY_MAX_MESSAGE_BYTES,
+            burst_limit: REMOTE_RELAY_BURST_LIMIT,
+            rate_window_secs: REMOTE_RELAY_RATE_WINDOW_SECS,
+            ticket_ttl_secs: REMOTE_RELAY_TICKET_TTL_SECS,
+            ticket_max_entries: REMOTE_RELAY_TICKET_MAX_ENTRIES,
+            ticket_payload_max_bytes: REMOTE_RELAY_TICKET_PAYLOAD_MAX_BYTES,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RemoteRelayPeerWindow {
+    pub window_started_at_ms: i64,
+    pub count: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RemoteRelayDecision {
+    Allow,
+    Reject(&'static str),
+}
+
+impl RemoteRelayPolicy {
+    pub fn validate_ticket_payload_size(&self, bytes: usize) -> RemoteRelayDecision {
+        if bytes == 0 || bytes > self.ticket_payload_max_bytes {
+            RemoteRelayDecision::Reject("ticket_payload_too_large")
+        } else {
+            RemoteRelayDecision::Allow
+        }
+    }
+
+    pub fn validate_ticket_capacity(&self, active_entries: usize) -> RemoteRelayDecision {
+        if active_entries >= self.ticket_max_entries {
+            RemoteRelayDecision::Reject("too_many_active_tickets")
+        } else {
+            RemoteRelayDecision::Allow
+        }
+    }
+
+    pub fn validate_message(
+        &self,
+        envelope: &RemoteRelayEnvelope,
+        encoded_size: usize,
+        peer_window: &mut RemoteRelayPeerWindow,
+        now_ms: i64,
+    ) -> RemoteRelayDecision {
+        let rate_window_ms = (self.rate_window_secs as i64).saturating_mul(1000);
+        if peer_window.window_started_at_ms > 0
+            && now_ms.saturating_sub(peer_window.window_started_at_ms) < rate_window_ms
+        {
+            peer_window.count = peer_window.count.saturating_add(1);
+        } else {
+            peer_window.window_started_at_ms = now_ms;
+            peer_window.count = 1;
+        }
+        if peer_window.count > self.burst_limit {
+            return RemoteRelayDecision::Reject("rate_limited");
+        }
+        if encoded_size > self.max_message_bytes {
+            return RemoteRelayDecision::Reject("message_too_large");
+        }
+        if relay_blocks_message_type(&envelope.kind) {
+            return RemoteRelayDecision::Reject("upload_requires_p2p");
+        }
+        RemoteRelayDecision::Allow
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteResourceSubscriptionTarget {
+    pub resource: String,
+    pub project_id: Option<String>,
+    pub session_id: Option<String>,
+    pub baseline: bool,
+}
+
+impl RemoteResourceSubscriptionTarget {
+    pub fn from_payload(session_id: Option<&str>, payload: &Value) -> Result<Self, String> {
+        let resource = payload
+            .get("resource")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Resource is required.".to_string())?;
+        let project_id = payload
+            .get("projectId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let session_id = session_id
+            .or_else(|| payload.get("sessionId").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        Ok(Self {
+            resource: resource.to_string(),
+            project_id,
+            session_id,
+            baseline: payload
+                .get("baseline")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
+    }
+}
 
 pub struct RemoteTerminalBufferWindow {
     pub data: String,
@@ -12,8 +381,254 @@ pub struct RemoteTerminalBufferWindow {
     pub output_seq: Option<i64>,
     pub request_id: Option<String>,
     pub tail: bool,
-    pub screen_snapshot: bool,
     pub has_previous: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RemoteTerminalSubscriptionTarget {
+    Project { project_id: String },
+    Session { session_id: String },
+}
+
+impl RemoteTerminalSubscriptionTarget {
+    pub fn from_payload(session_id: Option<&str>, payload: &Value) -> Result<Self, String> {
+        let scope = payload
+            .get("scope")
+            .and_then(Value::as_str)
+            .unwrap_or("session");
+        match scope {
+            "project" => {
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "Project id is required.".to_string())?;
+                Ok(Self::Project {
+                    project_id: project_id.to_string(),
+                })
+            }
+            "session" => {
+                let session_id = session_id
+                    .or_else(|| payload.get("sessionId").and_then(Value::as_str))
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "Terminal session id is required.".to_string())?;
+                Ok(Self::Session {
+                    session_id: session_id.to_string(),
+                })
+            }
+            _ => Err("Unsupported terminal subscription scope.".to_string()),
+        }
+    }
+
+    pub fn baseline_requested(payload: &Value) -> bool {
+        payload
+            .get("baseline")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+}
+
+#[derive(Default)]
+pub struct RemoteResourceSubscriptions {
+    devices_by_resource: Mutex<HashMap<RemoteResourceSubscriptionKey, HashSet<String>>>,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct RemoteResourceSubscriptionKey {
+    resource: String,
+    project_id: Option<String>,
+    session_id: Option<String>,
+}
+
+impl RemoteResourceSubscriptionKey {
+    fn new(resource: &str, project_id: Option<&str>, session_id: Option<&str>) -> Option<Self> {
+        let resource = clean_subscription_part(resource)?;
+        Some(Self {
+            resource,
+            project_id: project_id.and_then(clean_subscription_part),
+            session_id: session_id.and_then(clean_subscription_part),
+        })
+    }
+}
+
+impl RemoteResourceSubscriptions {
+    pub fn subscribe(
+        &self,
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+        device_id: &str,
+    ) {
+        let Some(key) = RemoteResourceSubscriptionKey::new(resource, project_id, session_id) else {
+            return;
+        };
+        let Some(device_id) = clean_subscription_part(device_id) else {
+            return;
+        };
+        if let Ok(mut subscriptions) = self.devices_by_resource.lock() {
+            subscriptions.entry(key).or_default().insert(device_id);
+        }
+    }
+
+    pub fn unsubscribe(
+        &self,
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+        device_id: &str,
+    ) {
+        let Some(key) = RemoteResourceSubscriptionKey::new(resource, project_id, session_id) else {
+            return;
+        };
+        let Some(device_id) = clean_subscription_part(device_id) else {
+            return;
+        };
+        if let Ok(mut subscriptions) = self.devices_by_resource.lock() {
+            if let Some(devices) = subscriptions.get_mut(&key) {
+                devices.remove(&device_id);
+            }
+            subscriptions.retain(|_, devices| !devices.is_empty());
+        }
+    }
+
+    pub fn remove_device(&self, device_id: &str) {
+        let Some(device_id) = clean_subscription_part(device_id) else {
+            return;
+        };
+        if let Ok(mut subscriptions) = self.devices_by_resource.lock() {
+            for devices in subscriptions.values_mut() {
+                devices.remove(&device_id);
+            }
+            subscriptions.retain(|_, devices| !devices.is_empty());
+        }
+    }
+
+    pub fn remove_session(&self, session_id: &str) {
+        let Some(session_id) = clean_subscription_part(session_id) else {
+            return;
+        };
+        if let Ok(mut subscriptions) = self.devices_by_resource.lock() {
+            subscriptions.retain(|key, _| key.session_id.as_deref() != Some(session_id.as_str()));
+        }
+    }
+
+    pub fn remove_project(&self, project_id: &str) {
+        let Some(project_id) = clean_subscription_part(project_id) else {
+            return;
+        };
+        if let Ok(mut subscriptions) = self.devices_by_resource.lock() {
+            subscriptions.retain(|key, _| key.project_id.as_deref() != Some(project_id.as_str()));
+        }
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut subscriptions) = self.devices_by_resource.lock() {
+            subscriptions.clear();
+        }
+    }
+
+    pub fn devices_for(
+        &self,
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> HashSet<String> {
+        let Some(resource) = clean_subscription_part(resource) else {
+            return HashSet::new();
+        };
+        let project_id = project_id.and_then(clean_subscription_part);
+        let session_id = session_id.and_then(clean_subscription_part);
+        let Ok(subscriptions) = self.devices_by_resource.lock() else {
+            return HashSet::new();
+        };
+        let mut devices = HashSet::new();
+        for (key, subscribed_devices) in subscriptions.iter() {
+            if key.resource != resource {
+                continue;
+            }
+            if key.project_id.as_deref().is_some()
+                && key.project_id.as_deref() != project_id.as_deref()
+            {
+                continue;
+            }
+            if key.session_id.as_deref().is_some()
+                && key.session_id.as_deref() != session_id.as_deref()
+            {
+                continue;
+            }
+            devices.extend(subscribed_devices.iter().cloned());
+        }
+        devices
+    }
+}
+
+#[derive(Default)]
+pub struct RemoteTerminalSubscriptions {
+    resources: RemoteResourceSubscriptions,
+}
+
+impl RemoteTerminalSubscriptions {
+    pub fn add_session_viewer(&self, session_id: &str, device_id: &str) {
+        self.resources
+            .subscribe(REMOTE_RESOURCE_TERMINALS, None, Some(session_id), device_id);
+    }
+
+    pub fn add_project_subscriber(&self, project_id: &str, device_id: &str) {
+        self.resources
+            .subscribe(REMOTE_RESOURCE_TERMINALS, Some(project_id), None, device_id);
+    }
+
+    pub fn remove_session_viewer(&self, session_id: &str, device_id: &str) {
+        self.resources
+            .unsubscribe(REMOTE_RESOURCE_TERMINALS, None, Some(session_id), device_id);
+    }
+
+    pub fn remove_project_subscriber(&self, project_id: &str, device_id: &str) {
+        self.resources
+            .unsubscribe(REMOTE_RESOURCE_TERMINALS, Some(project_id), None, device_id);
+    }
+
+    pub fn remove_project_session_viewers<'a>(
+        &self,
+        session_ids: impl IntoIterator<Item = &'a str>,
+        device_id: &str,
+    ) {
+        for session_id in session_ids {
+            self.remove_session_viewer(session_id, device_id);
+        }
+    }
+
+    pub fn remove_device(&self, device_id: &str) {
+        self.resources.remove_device(device_id);
+    }
+
+    pub fn remove_session(&self, session_id: &str) {
+        self.resources.remove_session(session_id);
+    }
+
+    pub fn clear(&self) {
+        self.resources.clear();
+    }
+
+    pub fn viewers_for_session(
+        &self,
+        session_id: &str,
+        project_id: Option<&str>,
+    ) -> HashSet<String> {
+        self.resources
+            .devices_for(REMOTE_RESOURCE_TERMINALS, project_id, Some(session_id))
+    }
+}
+
+fn clean_subscription_part(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 pub fn host_capabilities() -> Value {
@@ -31,8 +646,6 @@ pub fn host_capabilities() -> Value {
             "maxChars": REMOTE_TERMINAL_BUFFER_MAX_CHARS,
             "chunkChars": REMOTE_TERMINAL_BUFFER_CHUNK_CHARS,
             "requestId": true,
-            "tailSnapshot": true,
-            "screenSnapshot": true,
         },
         "terminalViewport": {
             "ownership": true,
@@ -95,7 +708,6 @@ fn terminal_buffer_payload(
         "truncated": window.truncated,
         "outputSeq": output_seq,
         "tail": window.tail,
-        "screenSnapshot": window.screen_snapshot,
         "hasPrevious": window.has_previous,
     });
     if let Some(request_id) = window.request_id.as_deref() {
@@ -143,7 +755,6 @@ mod tests {
             output_seq: None,
             request_id: Some("request-1".to_string()),
             tail: true,
-            screen_snapshot: true,
             has_previous: true,
         };
 
@@ -173,7 +784,6 @@ mod tests {
             assert_eq!(payload["truncated"], true);
             assert_eq!(payload["requestId"], "request-1");
             assert_eq!(payload["tail"], true);
-            assert_eq!(payload["screenSnapshot"], true);
             assert_eq!(payload["hasPrevious"], true);
         }
     }
@@ -189,8 +799,193 @@ mod tests {
         assert_eq!(capabilities["domains"]["aiStats"], true);
         assert_eq!(capabilities["terminalBuffer"]["chunking"], true);
         assert_eq!(capabilities["terminalBuffer"]["requestId"], true);
-        assert_eq!(capabilities["terminalBuffer"]["tailSnapshot"], true);
-        assert_eq!(capabilities["terminalBuffer"]["screenSnapshot"], true);
         assert_eq!(capabilities["terminalViewport"]["ownership"], true);
+    }
+
+    #[test]
+    fn relay_envelope_uses_camel_case_transport_shape() {
+        let envelope =
+            relay_hello_envelope("host-1", "device-1", json!({ "role": "client" }), Some(42));
+        let value = serde_json::to_value(envelope).expect("serialize relay envelope");
+
+        assert_eq!(value["type"], REMOTE_HELLO);
+        assert_eq!(value["hostId"], "host-1");
+        assert_eq!(value["deviceId"], "device-1");
+        assert_eq!(value["payload"]["role"], "client");
+        assert_eq!(value["at"], 42);
+        assert!(value.get("error").is_none());
+    }
+
+    #[test]
+    fn relay_policy_validates_tickets_and_messages() {
+        let policy = RemoteRelayPolicy {
+            max_message_bytes: 16,
+            burst_limit: 2,
+            rate_window_secs: 10,
+            ticket_ttl_secs: 60,
+            ticket_max_entries: 1,
+            ticket_payload_max_bytes: 8,
+        };
+        assert_eq!(
+            policy.validate_ticket_payload_size(0),
+            RemoteRelayDecision::Reject("ticket_payload_too_large")
+        );
+        assert_eq!(
+            policy.validate_ticket_payload_size(8),
+            RemoteRelayDecision::Allow
+        );
+        assert_eq!(
+            policy.validate_ticket_capacity(1),
+            RemoteRelayDecision::Reject("too_many_active_tickets")
+        );
+
+        let mut window = RemoteRelayPeerWindow::default();
+        let envelope = RemoteRelayEnvelope {
+            kind: REMOTE_TERMINAL_OUTPUT.to_string(),
+            ..RemoteRelayEnvelope::default()
+        };
+        assert_eq!(
+            policy.validate_message(&envelope, 8, &mut window, 1_000),
+            RemoteRelayDecision::Allow
+        );
+        assert_eq!(
+            policy.validate_message(&envelope, 8, &mut window, 1_001),
+            RemoteRelayDecision::Allow
+        );
+        assert_eq!(
+            policy.validate_message(&envelope, 8, &mut window, 1_002),
+            RemoteRelayDecision::Reject("rate_limited")
+        );
+        assert_eq!(
+            policy.validate_message(&envelope, 17, &mut RemoteRelayPeerWindow::default(), 2_000),
+            RemoteRelayDecision::Reject("message_too_large")
+        );
+        let upload = RemoteRelayEnvelope {
+            kind: REMOTE_TERMINAL_UPLOAD_START.to_string(),
+            ..RemoteRelayEnvelope::default()
+        };
+        assert_eq!(
+            policy.validate_message(&upload, 8, &mut RemoteRelayPeerWindow::default(), 2_000),
+            RemoteRelayDecision::Reject("upload_requires_p2p")
+        );
+    }
+
+    #[test]
+    fn relay_policy_resets_rate_window_after_timeout() {
+        let policy = RemoteRelayPolicy {
+            max_message_bytes: 64,
+            burst_limit: 1,
+            rate_window_secs: 1,
+            ticket_ttl_secs: 60,
+            ticket_max_entries: 16,
+            ticket_payload_max_bytes: 1024,
+        };
+        let envelope = RemoteRelayEnvelope {
+            kind: REMOTE_TERMINAL_OUTPUT.to_string(),
+            ..RemoteRelayEnvelope::default()
+        };
+        let mut window = RemoteRelayPeerWindow::default();
+
+        assert_eq!(
+            policy.validate_message(&envelope, 8, &mut window, 1_000),
+            RemoteRelayDecision::Allow
+        );
+        assert_eq!(
+            policy.validate_message(&envelope, 8, &mut window, 1_100),
+            RemoteRelayDecision::Reject("rate_limited")
+        );
+        assert_eq!(
+            policy.validate_message(&envelope, 8, &mut window, 2_100),
+            RemoteRelayDecision::Allow
+        );
+    }
+
+    #[test]
+    fn resource_subscription_target_trims_and_rejects_empty_resource() {
+        let target = RemoteResourceSubscriptionTarget::from_payload(
+            Some(" session-1 "),
+            &json!({
+                "resource": " git.status ",
+                "projectId": " project-1 ",
+                "baseline": true,
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(target.resource, REMOTE_RESOURCE_GIT_STATUS);
+        assert_eq!(target.project_id.as_deref(), Some("project-1"));
+        assert_eq!(target.session_id.as_deref(), Some("session-1"));
+        assert!(target.baseline);
+
+        assert!(
+            RemoteResourceSubscriptionTarget::from_payload(None, &json!({ "resource": " " }),)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn terminal_subscription_target_parses_project_scope() {
+        let target = RemoteTerminalSubscriptionTarget::from_payload(
+            None,
+            &json!({ "scope": "project", "projectId": "project-1", "baseline": true }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            target,
+            RemoteTerminalSubscriptionTarget::Project {
+                project_id: "project-1".to_string()
+            }
+        );
+        assert!(RemoteTerminalSubscriptionTarget::baseline_requested(
+            &json!({ "baseline": true })
+        ));
+    }
+
+    #[test]
+    fn terminal_subscriptions_merge_session_and_project_viewers() {
+        let subscriptions = RemoteTerminalSubscriptions::default();
+        subscriptions.add_session_viewer("session-1", "device-a");
+        subscriptions.add_project_subscriber("project-1", "device-b");
+
+        let viewers = subscriptions.viewers_for_session("session-1", Some("project-1"));
+
+        assert!(viewers.contains("device-a"));
+        assert!(viewers.contains("device-b"));
+    }
+
+    #[test]
+    fn resource_subscriptions_match_project_scoped_resources() {
+        let subscriptions = RemoteResourceSubscriptions::default();
+        subscriptions.subscribe(
+            REMOTE_RESOURCE_GIT_STATUS,
+            Some("project-1"),
+            None,
+            "device-a",
+        );
+        subscriptions.subscribe(REMOTE_RESOURCE_GIT_STATUS, None, None, "device-b");
+        subscriptions.subscribe(
+            REMOTE_RESOURCE_WORKTREES,
+            Some("project-1"),
+            None,
+            "device-c",
+        );
+
+        let git_devices =
+            subscriptions.devices_for(REMOTE_RESOURCE_GIT_STATUS, Some("project-1"), None);
+        assert!(git_devices.contains("device-a"));
+        assert!(git_devices.contains("device-b"));
+        assert!(!git_devices.contains("device-c"));
+
+        let other_git_devices =
+            subscriptions.devices_for(REMOTE_RESOURCE_GIT_STATUS, Some("project-2"), None);
+        assert!(!other_git_devices.contains("device-a"));
+        assert!(other_git_devices.contains("device-b"));
+
+        subscriptions.unsubscribe(REMOTE_RESOURCE_GIT_STATUS, None, None, "device-b");
+        let git_devices =
+            subscriptions.devices_for(REMOTE_RESOURCE_GIT_STATUS, Some("project-1"), None);
+        assert!(git_devices.contains("device-a"));
+        assert!(!git_devices.contains("device-b"));
     }
 }

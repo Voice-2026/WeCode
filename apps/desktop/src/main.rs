@@ -209,7 +209,7 @@ fn disable_macos_autofill_heuristics() {
 fn disable_macos_autofill_heuristics() {}
 
 fn disable_root_tab_focus_bindings(cx: &mut App) {
-    cx.bind_keys([
+    let mut bindings = vec![
         KeyBinding::new("tab", Unbind("root::Tab".into()), Some("Root")),
         KeyBinding::new("shift-tab", Unbind("root::TabPrev".into()), Some("Root")),
         KeyBinding::new(
@@ -217,66 +217,75 @@ fn disable_root_tab_focus_bindings(cx: &mut App) {
             crate::app::native_menu::CloseActive,
             Some("CoduxMainWindow"),
         ),
-        KeyBinding::new(
-            "ctrl-w",
-            crate::app::native_menu::CloseActive,
-            Some("CoduxMainWindow"),
-        ),
         KeyBinding::new("cmd-n", crate::app::native_menu::NewProject, None),
-        KeyBinding::new("ctrl-n", crate::app::native_menu::NewProject, None),
         KeyBinding::new("cmd-o", crate::app::native_menu::OpenProjectFolder, None),
-        KeyBinding::new("ctrl-o", crate::app::native_menu::OpenProjectFolder, None),
         KeyBinding::new("cmd-,", crate::app::native_menu::OpenSettings, None),
-        KeyBinding::new("ctrl-,", crate::app::native_menu::OpenSettings, None),
         KeyBinding::new("cmd-alt-1", crate::app::native_menu::ViewTerminal, None),
-        KeyBinding::new("ctrl-alt-1", crate::app::native_menu::ViewTerminal, None),
         KeyBinding::new("cmd-alt-2", crate::app::native_menu::ViewFiles, None),
-        KeyBinding::new("ctrl-alt-2", crate::app::native_menu::ViewFiles, None),
         KeyBinding::new("cmd-alt-3", crate::app::native_menu::ViewReview, None),
-        KeyBinding::new("ctrl-alt-3", crate::app::native_menu::ViewReview, None),
         KeyBinding::new("cmd-alt-p", crate::app::native_menu::ToggleProjects, None),
-        KeyBinding::new("ctrl-alt-p", crate::app::native_menu::ToggleProjects, None),
         KeyBinding::new("cmd-alt-t", crate::app::native_menu::ToggleTasks, None),
-        KeyBinding::new("ctrl-alt-t", crate::app::native_menu::ToggleTasks, None),
         KeyBinding::new("cmd-shift-g", crate::app::native_menu::OpenGitPanel, None),
-        KeyBinding::new("ctrl-shift-g", crate::app::native_menu::OpenGitPanel, None),
         KeyBinding::new("cmd-shift-f", crate::app::native_menu::OpenFilesPanel, None),
-        KeyBinding::new(
-            "ctrl-shift-f",
-            crate::app::native_menu::OpenFilesPanel,
-            None,
-        ),
         KeyBinding::new("cmd-shift-a", crate::app::native_menu::OpenAiPanel, None),
-        KeyBinding::new("ctrl-shift-a", crate::app::native_menu::OpenAiPanel, None),
         KeyBinding::new("cmd-shift-s", crate::app::native_menu::OpenSshPanel, None),
-        KeyBinding::new("ctrl-shift-s", crate::app::native_menu::OpenSshPanel, None),
         KeyBinding::new("cmd-t", crate::app::native_menu::CreateSplit, None),
-        KeyBinding::new("ctrl-t", crate::app::native_menu::CreateSplit, None),
         KeyBinding::new("cmd-shift-t", crate::app::native_menu::CreateTab, None),
-        KeyBinding::new("ctrl-shift-t", crate::app::native_menu::CreateTab, None),
         KeyBinding::new("cmd-shift-n", crate::app::native_menu::CreateTask, None),
-        KeyBinding::new("ctrl-shift-n", crate::app::native_menu::CreateTask, None),
         KeyBinding::new("cmd-s", crate::app::native_menu::EditorSave, None),
-        KeyBinding::new("ctrl-s", crate::app::native_menu::EditorSave, None),
         KeyBinding::new("cmd-f", crate::app::native_menu::EditorSearch, None),
-        KeyBinding::new("ctrl-f", crate::app::native_menu::EditorSearch, None),
         KeyBinding::new("cmd-q", crate::app::native_menu::QuitCodux, None),
-        KeyBinding::new("ctrl-q", crate::app::native_menu::QuitCodux, None),
         KeyBinding::new("cmd-m", crate::app::native_menu::MinimizeWindow, None),
-        KeyBinding::new("ctrl-m", crate::app::native_menu::MinimizeWindow, None),
         KeyBinding::new("cmd-alt-m", crate::app::native_menu::MinimizeWindow, None),
-        KeyBinding::new("ctrl-alt-m", crate::app::native_menu::MinimizeWindow, None),
+        KeyBinding::new("cmd-h", crate::app::native_menu::HideCodux, None),
+        KeyBinding::new("cmd-alt-h", crate::app::native_menu::HideOthers, None),
         KeyBinding::new(
             "cmd-ctrl-f",
             crate::app::native_menu::ToggleFullscreen,
             None,
         ),
+    ];
+
+    add_non_macos_control_shortcuts(&mut bindings);
+    cx.bind_keys(bindings);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn add_non_macos_control_shortcuts(bindings: &mut Vec<KeyBinding>) {
+    bindings.extend([
+        KeyBinding::new(
+            "ctrl-w",
+            crate::app::native_menu::CloseActive,
+            Some("CoduxMainWindow"),
+        ),
+        KeyBinding::new("ctrl-n", crate::app::native_menu::NewProject, None),
+        KeyBinding::new("ctrl-o", crate::app::native_menu::OpenProjectFolder, None),
+        KeyBinding::new("ctrl-,", crate::app::native_menu::OpenSettings, None),
+        KeyBinding::new("ctrl-alt-1", crate::app::native_menu::ViewTerminal, None),
+        KeyBinding::new("ctrl-alt-2", crate::app::native_menu::ViewFiles, None),
+        KeyBinding::new("ctrl-alt-3", crate::app::native_menu::ViewReview, None),
+        KeyBinding::new("ctrl-alt-p", crate::app::native_menu::ToggleProjects, None),
+        KeyBinding::new("ctrl-alt-t", crate::app::native_menu::ToggleTasks, None),
+        KeyBinding::new("ctrl-shift-g", crate::app::native_menu::OpenGitPanel, None),
+        KeyBinding::new(
+            "ctrl-shift-f",
+            crate::app::native_menu::OpenFilesPanel,
+            None,
+        ),
+        KeyBinding::new("ctrl-shift-a", crate::app::native_menu::OpenAiPanel, None),
+        KeyBinding::new("ctrl-shift-s", crate::app::native_menu::OpenSshPanel, None),
+        KeyBinding::new("ctrl-t", crate::app::native_menu::CreateSplit, None),
+        KeyBinding::new("ctrl-shift-t", crate::app::native_menu::CreateTab, None),
+        KeyBinding::new("ctrl-shift-n", crate::app::native_menu::CreateTask, None),
+        KeyBinding::new("ctrl-s", crate::app::native_menu::EditorSave, None),
+        KeyBinding::new("ctrl-f", crate::app::native_menu::EditorSearch, None),
         KeyBinding::new(
             "ctrl-shift-f11",
             crate::app::native_menu::ToggleFullscreen,
             None,
         ),
-        KeyBinding::new("cmd-h", crate::app::native_menu::HideCodux, None),
-        KeyBinding::new("cmd-alt-h", crate::app::native_menu::HideOthers, None),
     ]);
 }
+
+#[cfg(target_os = "macos")]
+fn add_non_macos_control_shortcuts(_bindings: &mut Vec<KeyBinding>) {}

@@ -1,5 +1,6 @@
 import '../models/remote_models.dart';
 import 'remote_path_utils.dart';
+import 'remote_protocol.dart';
 import 'remote_runtime_payloads.dart';
 
 const int remoteFileHighlightMaxChars = 80000;
@@ -27,7 +28,7 @@ class RemoteProjectFileController {
 
   RelayEnvelope listEnvelope(String path) {
     return RelayEnvelope(
-      type: 'file.list',
+      type: RemoteMessageType.fileList,
       payload: {'path': path, 'purpose': 'projectFiles'},
     );
   }
@@ -43,7 +44,10 @@ class RemoteProjectFileController {
   }
 
   RelayEnvelope readEnvelope(RemoteFileEntry entry) {
-    return RelayEnvelope(type: 'file.read', payload: {'path': entry.path});
+    return RelayEnvelope(
+      type: RemoteMessageType.fileRead,
+      payload: {'path': entry.path},
+    );
   }
 
   RemoteFileEditorState beginReadState(RemoteFileEntry entry) {
@@ -74,13 +78,16 @@ class RemoteProjectFileController {
 
   RelayEnvelope writeEnvelope({required String path, required String content}) {
     return RelayEnvelope(
-      type: 'file.write',
+      type: RemoteMessageType.fileWrite,
       payload: {'path': path, 'content': content},
     );
   }
 
   RelayEnvelope deleteEnvelope(RemoteFileEntry entry) {
-    return RelayEnvelope(type: 'file.delete', payload: {'path': entry.path});
+    return RelayEnvelope(
+      type: RemoteMessageType.fileDelete,
+      payload: {'path': entry.path},
+    );
   }
 
   String? deletedPathFromPayload(Object? payload) {
@@ -104,7 +111,7 @@ class RemoteProjectFileController {
     final newPath = parent == '/' ? '/$name' : '$parent/$name';
     return RemoteFileRenamePlan.valid(
       RelayEnvelope(
-        type: 'file.rename',
+        type: RemoteMessageType.fileRename,
         payload: {'path': entry.path, 'newPath': newPath},
       ),
     );

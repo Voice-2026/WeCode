@@ -40,9 +40,10 @@ class TerminalBufferAssembler {
       return const TerminalBufferAssemblyResult(ready: false, progress: null);
     }
 
-    final key = '$sessionId:$snapshotId';
+    final requestId = payload['requestId']?.toString().trim() ?? '';
+    final key = '$sessionId:$requestId:$snapshotId';
     _assemblies.removeWhere((otherKey, _) {
-      return otherKey.startsWith('$sessionId:') && otherKey != key;
+      return otherKey.startsWith('$sessionId:$requestId:') && otherKey != key;
     });
     final assembly = _assemblies.putIfAbsent(
       key,

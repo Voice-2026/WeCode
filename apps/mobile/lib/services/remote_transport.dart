@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/remote_models.dart';
+import 'remote_protocol.dart';
 
 typedef RemoteTransportStateHandler = void Function(String state);
 typedef RemoteTransportEnvelopeHandler =
@@ -21,10 +22,11 @@ abstract interface class RemoteTransport {
 }
 
 RemoteTransport createRemoteTransport(StoredDevice device) {
-  final hasRelay =
-      device.transportByKind(RemoteTransportKind.websocketRelay) != null;
-  final hasWebRtc = device.transportByKind(RemoteTransportKind.webRtc) != null;
-  if (hasRelay && hasWebRtc) return WebRtcTransport();
+  final preferred = remotePreferredTransportKind(
+    device.transports,
+    pairing: false,
+  );
+  if (preferred == RemoteTransportKind.webRtc) return WebRtcTransport();
   return WebSocketRelayTransport();
 }
 
@@ -90,31 +92,21 @@ class WebSocketRelayTransport implements RemoteTransport {
   Uri _clientWebSocketUri(StoredDevice device) {
     final candidate =
         device.transportByKind(RemoteTransportKind.websocketRelay) ??
-        device.preferredTransport;
-    final base = Uri.parse(candidate.url.trim());
-    final scheme = switch (base.scheme) {
-      'https' => 'wss',
-      'http' => 'ws',
-      final other => other,
-    };
-    return base.replace(
-      scheme: scheme,
-      path: _joinRemotePath(base.path, '/ws/client'),
-      queryParameters: {
-        'hostId': device.hostId,
-        'deviceId': device.deviceId,
-        if (device.token.trim().isNotEmpty) 'token': device.token,
-      },
+        device.transportByKind(
+          remotePreferredTransportKind(device.transports, pairing: false),
+        );
+    if (candidate == null) {
+      throw StateError('Missing relay transport candidate');
+    }
+    return Uri.parse(
+      remoteTransportClientWebSocketUrl(
+        base: candidate.url,
+        hostId: device.hostId,
+        deviceId: device.deviceId,
+        token: device.token,
+      ),
     );
   }
-}
-
-String _joinRemotePath(String basePath, String path) {
-  var base = basePath.trim().replaceAll(RegExp(r'/+$'), '');
-  if (base.isEmpty) base = '/v3';
-  final suffix = path.trim().replaceFirst(RegExp(r'^/+'), '');
-  if (suffix.isEmpty) return base;
-  return '$base/$suffix';
 }
 
 class WebRtcTransport implements RemoteTransport {
@@ -338,9 +330,5 @@ List<Map<String, dynamic>> _iceServers(StoredDevice device) {
       .where((server) => (server['urls'] as List).isNotEmpty)
       .toList();
   if (configured != null && configured.isNotEmpty) return configured;
-  return const [
-    {
-      'urls': ['stun:stun.miwifi.com:3478', 'stun:stun.l.google.com:19302'],
-    },
-  ];
+  return remoteTransportDefaultIceServers();
 }

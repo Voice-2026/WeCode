@@ -35,8 +35,14 @@ void main() {
       ],
     });
 
-    expect(device.transport, RemoteTransportKind.websocketRelay);
-    expect(device.preferredTransport.url, 'https://codux-service.dux.plus/v3');
+    expect(
+      remotePreferredTransportKind(device.transports, pairing: false),
+      RemoteTransportKind.websocketRelay,
+    );
+    expect(
+      device.transportByKind(RemoteTransportKind.websocketRelay)?.url,
+      'https://codux-service.dux.plus/v3',
+    );
   });
 
   test(
@@ -66,10 +72,16 @@ void main() {
       });
 
       final payload = await parsePairingPayload(qr);
-      expect(payload.transport.kind, RemoteTransportKind.websocketRelay);
+      expect(
+        remotePreferredTransportKind(payload.transports, pairing: true),
+        RemoteTransportKind.websocketRelay,
+      );
       expect(payload.hostId, 'host-1');
       expect(payload.pairingId, 'pair-1');
-      expect(payload.transport.url, 'https://codux-service.dux.plus/v3');
+      expect(
+        payload.transportByKind(RemoteTransportKind.websocketRelay)?.url,
+        'https://codux-service.dux.plus/v3',
+      );
 
       final request = pairingRequestEnvelope(payload, 'Phone');
       expect(request.type, 'pairing.request');
@@ -93,7 +105,10 @@ void main() {
           },
         ),
       );
-      expect(confirmed.transport, RemoteTransportKind.webRtc);
+      expect(
+        remotePreferredTransportKind(confirmed.transports, pairing: false),
+        RemoteTransportKind.webRtc,
+      );
       expect(confirmed.server, 'https://codux-service.dux.plus/v3');
       expect(confirmed.devicePublicKey, payload.devicePublicKey);
       expect(confirmed.toJson()['transports'], [
