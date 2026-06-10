@@ -1413,6 +1413,7 @@ dependencies = [
  "codux-remote-transport",
  "codux-terminal-core",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

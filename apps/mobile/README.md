@@ -65,7 +65,7 @@ Codux Mobile (Flutter controller)
   ├─ UI shell: renders runtime state and emits user intent
   ├─ Runtime store: selected project, active terminal, sync state
   ├─ Protocol client: v3.1 envelopes, capabilities, chunk assembly, ack/retry
-  ├─ Transport drivers: WebRTC DataChannel and WebSocket relay fallback
+  ├─ Rust transport FFI: WebRTC DataChannel and WebSocket relay fallback
   └─ Native terminal plugin: Flutter PlatformView + Termux TerminalView
 
 Codux Desktop host
@@ -86,7 +86,7 @@ The mobile app is controller-only. It does not try to become the source of truth
 ## Development
 
 ```bash
-cd /Volumes/Web/codux-flutter
+cd /Volumes/Web/codux-gpui/apps/mobile
 flutter pub get
 flutter run
 ```

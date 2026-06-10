@@ -27,7 +27,7 @@ class PairingOverlay extends StatelessWidget {
     final hostName = payload.hostName?.trim().isNotEmpty == true
         ? payload.hostName!.trim()
         : 'Codux Mac';
-    final code = payload.matchCode;
+    final code = payload.code;
     final transport = _pairingTransportKind(payload).toUpperCase();
 
     return Positioned.fill(

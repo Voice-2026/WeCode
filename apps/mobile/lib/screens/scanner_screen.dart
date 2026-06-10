@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../i18n.dart';
+import '../services/remote_protocol.dart';
 import '../theme/app_theme.dart';
 
 class ScannerScreen extends StatefulWidget {
@@ -23,10 +24,11 @@ class ScannerScreen extends StatefulWidget {
 class _ScannerScreenState extends State<ScannerScreen>
     with WidgetsBindingObserver {
   late final MobileScannerController _controller;
-  final _manualController = TextEditingController();
+  final _pairingCodeController = TextEditingController();
+  final _customServerController = TextEditingController();
   bool _startPending = false;
   bool _handledPayload = false;
-  bool _showManualInput = false;
+  bool _showManualConnect = false;
 
   @override
   void initState() {
@@ -64,23 +66,20 @@ class _ScannerScreenState extends State<ScannerScreen>
     widget.onDetected(payload);
   }
 
-  Future<void> _pastePayload() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text?.trim() ?? '';
-    if (!_showManualInput) {
-      setState(() {
-        _showManualInput = true;
-        _manualController.text = text;
-      });
-      return;
-    }
-    if (text.isNotEmpty) {
-      setState(() => _manualController.text = text);
-    }
+  void _openManualConnect() {
+    setState(() => _showManualConnect = true);
   }
 
-  void _submitManualPayload() {
-    _handleDetected(_manualController.text);
+  void _submitManualPayload(String server) {
+    final code = _pairingCodeController.text.trim();
+    if (server.trim().isEmpty || code.isEmpty) return;
+    _handleDetected(
+      Uri(
+        scheme: 'codux',
+        host: 'manual-pair',
+        queryParameters: {'server': server.trim(), 'code': code},
+      ).toString(),
+    );
   }
 
   @override
@@ -100,7 +99,8 @@ class _ScannerScreenState extends State<ScannerScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _manualController.dispose();
+    _pairingCodeController.dispose();
+    _customServerController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -161,8 +161,8 @@ class _ScannerScreenState extends State<ScannerScreen>
                     runSpacing: AppSpacing.s,
                     children: [
                       _ScannerAction(
-                        label: prefs.t('pair.pastePayload'),
-                        onTap: _pastePayload,
+                        label: prefs.t('pair.manualConnect'),
+                        onTap: _openManualConnect,
                       ),
                       _ScannerAction(
                         label: prefs.t('pair.close'),
@@ -176,12 +176,12 @@ class _ScannerScreenState extends State<ScannerScreen>
                 ],
               ),
             ),
-            if (_showManualInput)
-              _ManualPayloadOverlay(
-                controller: _manualController,
-                onPaste: _pastePayload,
+            if (_showManualConnect)
+              _ManualConnectOverlay(
+                codeController: _pairingCodeController,
+                customServerController: _customServerController,
                 onSubmit: _submitManualPayload,
-                onCancel: () => setState(() => _showManualInput = false),
+                onCancel: () => setState(() => _showManualConnect = false),
               ),
           ],
         ),
@@ -219,18 +219,58 @@ class _ScannerAction extends StatelessWidget {
   );
 }
 
-class _ManualPayloadOverlay extends StatelessWidget {
-  const _ManualPayloadOverlay({
-    required this.controller,
-    required this.onPaste,
+class _ManualConnectOverlay extends StatefulWidget {
+  const _ManualConnectOverlay({
+    required this.codeController,
+    required this.customServerController,
     required this.onSubmit,
     required this.onCancel,
   });
 
-  final TextEditingController controller;
-  final VoidCallback onPaste;
-  final VoidCallback onSubmit;
+  final TextEditingController codeController;
+  final TextEditingController customServerController;
+  final ValueChanged<String> onSubmit;
   final VoidCallback onCancel;
+
+  @override
+  State<_ManualConnectOverlay> createState() => _ManualConnectOverlayState();
+}
+
+class _ManualConnectOverlayState extends State<_ManualConnectOverlay> {
+  String _preset = 'global';
+
+  String get _server => remoteTransportRelayUrlForPreset(
+    preset: _preset,
+    customUrl: widget.customServerController.text,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    widget.customServerController.addListener(_onInputChanged);
+    widget.codeController.addListener(_onInputChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.customServerController.removeListener(_onInputChanged);
+    widget.codeController.removeListener(_onInputChanged);
+    super.dispose();
+  }
+
+  void _onInputChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _canSubmit {
+    final code = widget.codeController.text.replaceAll(RegExp(r'\D'), '');
+    return code.length == 6 && _server.trim().isNotEmpty;
+  }
+
+  void _submit() {
+    if (!_canSubmit) return;
+    widget.onSubmit(_server);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +294,7 @@ class _ManualPayloadOverlay extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  prefs.t('pair.manualHint'),
+                  prefs.t('pair.manualConnect'),
                   style: const TextStyle(
                     color: AppColors.textPrimary,
                     fontSize: AppTextSize.body,
@@ -262,19 +302,69 @@ class _ManualPayloadOverlay extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.m),
+                SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                      value: 'global',
+                      label: Text(prefs.t('pair.serverGlobal')),
+                    ),
+                    ButtonSegment(
+                      value: 'china',
+                      label: Text(prefs.t('pair.serverChina')),
+                    ),
+                    ButtonSegment(
+                      value: 'custom',
+                      label: Text(prefs.t('pair.serverCustom')),
+                    ),
+                  ],
+                  selected: {_preset},
+                  onSelectionChanged: (value) =>
+                      setState(() => _preset = value.first),
+                  showSelectedIcon: false,
+                ),
+                if (_preset == 'custom') ...[
+                  const SizedBox(height: AppSpacing.m),
+                  TextField(
+                    controller: widget.customServerController,
+                    autofocus: true,
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: AppTextSize.body,
+                    ),
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: AppColors.bgElevated,
+                      hintText: prefs.t('pair.serverCustomHint'),
+                      hintStyle: const TextStyle(color: AppColors.textSubtle),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.m),
                 TextField(
-                  controller: controller,
-                  autofocus: true,
-                  minLines: 4,
-                  maxLines: 6,
+                  controller: widget.codeController,
+                  autofocus: _preset != 'custom',
+                  keyboardType: TextInputType.number,
+                  textInputAction: TextInputAction.done,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 6,
+                  onSubmitted: (_) => _submit(),
                   style: const TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: AppTextSize.small,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
                   ),
                   decoration: InputDecoration(
+                    counterText: '',
                     filled: true,
                     fillColor: AppColors.bgElevated,
-                    hintText: prefs.t('pair.manualHint'),
+                    hintText: prefs.t('pair.codeHint'),
                     hintStyle: const TextStyle(color: AppColors.textSubtle),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -282,12 +372,20 @@ class _ManualPayloadOverlay extends StatelessWidget {
                     ),
                   ),
                 ),
+                const SizedBox(height: AppSpacing.s),
+                Text(
+                  prefs.t('pair.manualHelp'),
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: AppTextSize.small,
+                  ),
+                ),
                 const SizedBox(height: AppSpacing.m),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: onCancel,
+                        onPressed: widget.onCancel,
                         child: Text(
                           prefs.t('app.cancel'),
                           maxLines: 1,
@@ -297,19 +395,8 @@ class _ManualPayloadOverlay extends StatelessWidget {
                     ),
                     const SizedBox(width: AppSpacing.s),
                     Expanded(
-                      child: OutlinedButton(
-                        onPressed: onPaste,
-                        child: Text(
-                          prefs.t('pair.paste'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.s),
-                    Expanded(
                       child: FilledButton(
-                        onPressed: onSubmit,
+                        onPressed: _canSubmit ? _submit : null,
                         style: FilledButton.styleFrom(
                           backgroundColor: accent,
                           foregroundColor: AppColors.bgBase,

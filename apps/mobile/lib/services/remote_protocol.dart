@@ -123,6 +123,16 @@ String remoteTransportServerUrl(String base) {
   return codux_protocol_ffi.transportServerUrl(base);
 }
 
+String remoteTransportRelayUrlForPreset({
+  required String preset,
+  String customUrl = '',
+}) {
+  return codux_protocol_ffi.transportRelayUrlForPreset(
+    preset: preset,
+    customUrl: customUrl,
+  );
+}
+
 String remoteTransportPairingTicketUrl({
   required String base,
   required String ticket,
@@ -131,6 +141,13 @@ String remoteTransportPairingTicketUrl({
     base: base,
     ticket: ticket,
   );
+}
+
+String remoteTransportPairingCodeUrl({
+  required String base,
+  required String code,
+}) {
+  return codux_protocol_ffi.transportPairingCodeUrl(base: base, code: code);
 }
 
 String remoteTransportPairingWebSocketUrl({

@@ -69,6 +69,17 @@ void main() {
       'https://relay.example/v3/api/tickets/ticket-1',
     );
     expect(
+      codux_protocol_ffi.transportPairingCodeUrl(
+        base: 'https://relay.example',
+        code: '123456',
+      ),
+      'https://relay.example/v3/api/pairings/code/123456',
+    );
+    expect(
+      codux_protocol_ffi.transportRelayUrlForPreset(preset: 'china'),
+      'https://codux-service.dux.plus',
+    );
+    expect(
       codux_protocol_ffi.transportPairingWebSocketUrl(
         base: 'https://relay.example',
         hostId: 'host-1',
@@ -111,6 +122,30 @@ void main() {
       codux_protocol_ffi.transportDefaultIceServers().first['urls'],
       contains('stun:stun.miwifi.com:3478'),
     );
+  });
+
+  test('Rust FFI summarizes controller transport config', () {
+    final summary = codux_protocol_ffi.controllerTransportConfigSummary({
+      'serverUrl': 'https://relay.example',
+      'hostId': 'host-1',
+      'deviceId': 'device-1',
+      'deviceToken': 'token-1',
+      'transports': [
+        {
+          'kind': RemoteTransportKind.websocketRelay,
+          'url': 'https://relay.example/v3',
+        },
+        {'kind': RemoteTransportKind.webRtc, 'url': 'https://relay.example/v3'},
+      ],
+      'stunUrls': ['stun:example.test:3478'],
+    });
+
+    expect(summary['serverUrl'], 'https://relay.example/v3');
+    expect(summary['hostId'], 'host-1');
+    expect(summary['deviceId'], 'device-1');
+    expect(summary['transportKind'], RemoteTransportKind.webRtc);
+    expect(summary['transportCount'], 2);
+    expect(summary['stunCount'], 1);
   });
 
   test('Rust FFI terminal core owns remote pty baseline state', () {

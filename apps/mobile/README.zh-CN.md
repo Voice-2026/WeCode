@@ -65,7 +65,7 @@ Codux Mobile (Flutter 主控端)
   ├─ UI 外壳：渲染 runtime 状态并发出用户意图
   ├─ Runtime store：选中项目、当前终端、同步状态
   ├─ 协议客户端：v3.1 envelope、capabilities、分片组包、ack/retry
-  ├─ 传输驱动：WebRTC DataChannel 和 WebSocket relay 回退
+  ├─ Rust 传输 FFI：WebRTC DataChannel 和 WebSocket relay 回退
   └─ 原生终端插件：Flutter PlatformView + Termux TerminalView
 
 Codux Desktop host
@@ -86,7 +86,7 @@ Codux Desktop host
 ## 开发
 
 ```bash
-cd /Volumes/Web/codux-flutter
+cd /Volumes/Web/codux-gpui/apps/mobile
 flutter pub get
 flutter run
 ```

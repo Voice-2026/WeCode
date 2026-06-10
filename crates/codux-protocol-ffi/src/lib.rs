@@ -20,16 +20,26 @@ use codux_protocol::{
     REMOTE_WORKTREE_UPDATED, relay_blocks_message_type,
 };
 use codux_remote_transport::{
-    preferred_controller_transport_kind, preferred_pairing_transport_kind,
-    remote_client_websocket_url, remote_pairing_ticket_url, remote_pairing_websocket_url,
-    remote_server_url, remote_stun_urls,
+    RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
+    RemoteTransportFactory, preferred_controller_transport_kind, preferred_pairing_transport_kind,
+    remote_client_websocket_url, remote_pairing_code_url, remote_pairing_ticket_url,
+    remote_pairing_websocket_url, remote_relay_url_for_preset, remote_server_url, remote_stun_urls,
 };
 use codux_terminal_core::{RemotePtySession, TerminalOutputSequencer};
 use serde_json::json;
+use std::collections::VecDeque;
 use std::ffi::{CStr, CString, c_char};
 use std::ptr;
+use std::sync::{Arc, Mutex};
+use tokio::runtime::Runtime;
 
 type FfiRemotePtySession = RemotePtySession<i64>;
+
+pub struct FfiControllerTransport {
+    transport: Arc<dyn RemoteTransport>,
+    events: Arc<Mutex<VecDeque<String>>>,
+    runtime: Arc<Runtime>,
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn codux_protocol_version() -> *mut c_char {
@@ -77,6 +87,18 @@ pub extern "C" fn codux_transport_server_url(base: *const c_char) -> *mut c_char
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn codux_transport_relay_url_for_preset(
+    preset: *const c_char,
+    custom_url: *const c_char,
+) -> *mut c_char {
+    let Some(preset) = c_to_string(preset) else {
+        return ptr::null_mut();
+    };
+    let custom_url = c_to_string(custom_url).unwrap_or_default();
+    string_to_c(remote_relay_url_for_preset(&preset, &custom_url))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn codux_transport_pairing_ticket_url(
     base: *const c_char,
     ticket: *const c_char,
@@ -88,6 +110,20 @@ pub extern "C" fn codux_transport_pairing_ticket_url(
         return ptr::null_mut();
     };
     string_to_c(remote_pairing_ticket_url(&base, &ticket).unwrap_or_default())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_transport_pairing_code_url(
+    base: *const c_char,
+    code: *const c_char,
+) -> *mut c_char {
+    let Some(base) = c_to_string(base) else {
+        return ptr::null_mut();
+    };
+    let Some(code) = c_to_string(code) else {
+        return ptr::null_mut();
+    };
+    string_to_c(remote_pairing_code_url(&base, &code).unwrap_or_default())
 }
 
 #[unsafe(no_mangle)]
@@ -170,6 +206,157 @@ pub extern "C" fn codux_transport_preferred_kind(
         preferred_controller_transport_kind(pairs.iter().copied())
     };
     string_to_c(kind)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_controller_transport_config_summary_json(
+    config_json: *const c_char,
+) -> *mut c_char {
+    let Some(config_json) = c_to_string(config_json) else {
+        return ptr::null_mut();
+    };
+    let Ok(config) = controller_transport_config_from_json(&config_json) else {
+        return ptr::null_mut();
+    };
+    let preferred = preferred_controller_transport_kind(
+        config
+            .transports
+            .iter()
+            .map(|candidate| (candidate.kind.as_str(), candidate.url.as_str())),
+    );
+    string_to_c(
+        json!({
+            "serverUrl": remote_server_url(&config.server_url),
+            "hostId": config.host_id,
+            "deviceId": config.device_id,
+            "transportKind": preferred,
+            "transportCount": config.transports.len(),
+            "stunCount": config.stun_urls.len(),
+        })
+        .to_string(),
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_controller_transport_connect_json(
+    config_json: *const c_char,
+) -> *mut FfiControllerTransport {
+    let Some(config_json) = c_to_string(config_json) else {
+        return ptr::null_mut();
+    };
+    let Ok(config) = controller_transport_config_from_json(&config_json) else {
+        return ptr::null_mut();
+    };
+    let Ok(runtime) = Runtime::new() else {
+        return ptr::null_mut();
+    };
+    let runtime = Arc::new(runtime);
+    let events = Arc::new(Mutex::new(VecDeque::new()));
+    push_transport_event(
+        &events,
+        json!({
+            "kind": "state",
+            "state": "connecting",
+        }),
+    );
+
+    let connect_result = runtime.block_on({
+        let events_for_message = Arc::clone(&events);
+        let events_for_state = Arc::clone(&events);
+        let events_for_log = Arc::clone(&events);
+        async move {
+            RemoteTransportFactory::connect_controller(
+                &config,
+                Arc::new(move |device_id, data| {
+                    let text = String::from_utf8(data).unwrap_or_default();
+                    push_transport_event(
+                        &events_for_message,
+                        json!({
+                            "kind": "message",
+                            "deviceId": device_id,
+                            "data": text,
+                        }),
+                    );
+                }),
+                Arc::new(move |device_id, state| {
+                    push_transport_event(
+                        &events_for_state,
+                        json!({
+                            "kind": "state",
+                            "deviceId": device_id,
+                            "state": state,
+                        }),
+                    );
+                }),
+                Some(Arc::new(move |message| {
+                    push_transport_event(
+                        &events_for_log,
+                        json!({
+                            "kind": "log",
+                            "message": message,
+                        }),
+                    );
+                })),
+            )
+            .await
+        }
+    });
+
+    match connect_result {
+        Ok(transport) => Box::into_raw(Box::new(FfiControllerTransport {
+            transport,
+            events,
+            runtime,
+        })),
+        Err(error) => {
+            let _ = error;
+            ptr::null_mut()
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_controller_transport_send_json(
+    transport: *mut FfiControllerTransport,
+    envelope_json: *const c_char,
+) -> bool {
+    let Some(transport) = controller_transport_ref(transport) else {
+        return false;
+    };
+    let Some(envelope_json) = c_to_string(envelope_json) else {
+        return false;
+    };
+    transport.transport.send(envelope_json.into_bytes(), None)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_controller_transport_poll_event_json(
+    transport: *mut FfiControllerTransport,
+) -> *mut c_char {
+    let Some(transport) = controller_transport_ref(transport) else {
+        return ptr::null_mut();
+    };
+    let event = transport
+        .events
+        .lock()
+        .ok()
+        .and_then(|mut events| events.pop_front());
+    match event {
+        Some(event) => string_to_c(event),
+        None => ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_controller_transport_close(transport: *mut FfiControllerTransport) {
+    if transport.is_null() {
+        return;
+    }
+    let transport = unsafe { Box::from_raw(transport) };
+    let runtime = Arc::clone(&transport.runtime);
+    runtime.block_on(async {
+        transport.transport.shutdown().await;
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -673,6 +860,81 @@ fn terminal_output_sequencer_mut<'a>(
         return None;
     }
     unsafe { sequencer.as_mut() }
+}
+
+fn controller_transport_ref<'a>(
+    transport: *mut FfiControllerTransport,
+) -> Option<&'a FfiControllerTransport> {
+    if transport.is_null() {
+        return None;
+    }
+    unsafe { transport.as_ref() }
+}
+
+fn controller_transport_config_from_json(
+    config_json: &str,
+) -> Result<RemoteControllerTransportConfig, String> {
+    let value = serde_json::from_str::<serde_json::Value>(config_json)
+        .map_err(|error| error.to_string())?;
+    let transports = value
+        .get("transports")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| RemoteTransportCandidate {
+                    kind: item
+                        .get("kind")
+                        .or_else(|| item.get("transport"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    url: item
+                        .get("url")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                })
+                .filter(|candidate| {
+                    !candidate.kind.trim().is_empty() && !candidate.url.trim().is_empty()
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let stun_urls = value
+        .get("stunUrls")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::to_string)
+                .filter(|value| !value.trim().is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(remote_stun_urls);
+    Ok(RemoteControllerTransportConfig {
+        server_url: json_string_field(&value, "serverUrl"),
+        host_id: json_string_field(&value, "hostId"),
+        device_id: json_string_field(&value, "deviceId"),
+        device_token: json_string_field(&value, "deviceToken"),
+        transports,
+        stun_urls,
+    })
+}
+
+fn json_string_field(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn push_transport_event(events: &Arc<Mutex<VecDeque<String>>>, event: serde_json::Value) {
+    if let Ok(mut events) = events.lock() {
+        events.push_back(event.to_string());
+    }
 }
 
 fn message_type_by_name(name: &str) -> Option<&'static str> {

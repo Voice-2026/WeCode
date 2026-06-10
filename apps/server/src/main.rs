@@ -43,6 +43,7 @@ struct HubState {
     hosts: HashMap<String, PeerSender>,
     clients: HashMap<String, PeerSender>,
     tickets: HashMap<String, TicketEntry>,
+    tickets_by_code: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -54,6 +55,7 @@ struct PeerSender {
 struct TicketEntry {
     payload: Value,
     expires_at: Instant,
+    code: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -106,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/v3/healthz", get(health))
         .route("/v3/api/tickets", post(create_ticket))
         .route("/v3/api/tickets/{ticket}", get(get_ticket))
+        .route("/v3/api/pairings/code/{code}", get(get_pairing_code))
         .route("/v3/ws/host", get(host_socket))
         .route("/v3/ws/client", get(client_socket))
         .with_state(state);
@@ -158,13 +161,7 @@ async fn create_ticket(
             Json(json!({ "error": "too_many_active_tickets" })),
         );
     }
-    hub.tickets.insert(
-        ticket.clone(),
-        TicketEntry {
-            payload,
-            expires_at,
-        },
-    );
+    hub.insert_ticket(ticket.clone(), payload, expires_at);
     (
         StatusCode::OK,
         Json(json!(TicketResponse {
@@ -182,10 +179,31 @@ async fn get_ticket(
 ) -> impl IntoResponse {
     let mut hub = state.inner.lock().await;
     hub.prune_tickets();
-    let Some(entry) = hub.tickets.remove(ticket.trim()) else {
+    let Some(entry) = hub.take_ticket(ticket.trim()) else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "ticket_not_found_or_expired" })),
+        );
+    };
+    (StatusCode::OK, Json(entry.payload))
+}
+
+async fn get_pairing_code(
+    State(state): State<AppState>,
+    axum::extract::Path(code): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let Some(code) = normalize_pairing_code(&code) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_pairing_code" })),
+        );
+    };
+    let mut hub = state.inner.lock().await;
+    hub.prune_tickets();
+    let Some(entry) = hub.take_pairing_code(&code) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "pairing_code_not_found_or_expired" })),
         );
     };
     (StatusCode::OK, Json(entry.payload))
@@ -377,10 +395,57 @@ fn send_relay_error(
 }
 
 impl HubState {
+    fn insert_ticket(&mut self, ticket: String, payload: Value, expires_at: Instant) {
+        let code = pairing_code_from_payload(&payload);
+        if let Some(code) = &code {
+            if let Some(old_ticket) = self.tickets_by_code.insert(code.clone(), ticket.clone()) {
+                self.tickets.remove(&old_ticket);
+            }
+        }
+        self.tickets.insert(
+            ticket,
+            TicketEntry {
+                payload,
+                expires_at,
+                code,
+            },
+        );
+    }
+
+    fn take_ticket(&mut self, ticket: &str) -> Option<TicketEntry> {
+        let entry = self.tickets.remove(ticket.trim())?;
+        if let Some(code) = &entry.code {
+            if self
+                .tickets_by_code
+                .get(code)
+                .is_some_and(|mapped| mapped == ticket.trim())
+            {
+                self.tickets_by_code.remove(code);
+            }
+        }
+        Some(entry)
+    }
+
+    fn take_pairing_code(&mut self, code: &str) -> Option<TicketEntry> {
+        let ticket = self.tickets_by_code.remove(code)?;
+        self.tickets.remove(&ticket)
+    }
+
     fn prune_tickets(&mut self) {
         let now = Instant::now();
         self.tickets.retain(|_, ticket| ticket.expires_at > now);
+        self.tickets_by_code
+            .retain(|_, ticket| self.tickets.contains_key(ticket));
     }
+}
+
+fn pairing_code_from_payload(payload: &Value) -> Option<String> {
+    normalize_pairing_code(payload.get("code")?.as_str()?)
+}
+
+fn normalize_pairing_code(code: &str) -> Option<String> {
+    let value: String = code.chars().filter(|ch| ch.is_ascii_digit()).collect();
+    if value.len() == 6 { Some(value) } else { None }
 }
 
 fn relay_error(host_id: &str, device_id: &str, error: &str) -> RemoteRelayEnvelope {
@@ -424,19 +489,58 @@ mod tests {
             TicketEntry {
                 payload: json!({ "ok": true }),
                 expires_at: Instant::now() - Duration::from_secs(1),
+                code: Some("111111".to_string()),
             },
         );
+        hub.tickets_by_code
+            .insert("111111".to_string(), "expired".to_string());
         hub.tickets.insert(
             "active".to_string(),
             TicketEntry {
                 payload: json!({ "ok": true }),
                 expires_at: Instant::now() + Duration::from_secs(1),
+                code: Some("222222".to_string()),
             },
         );
+        hub.tickets_by_code
+            .insert("222222".to_string(), "active".to_string());
 
         hub.prune_tickets();
 
         assert!(!hub.tickets.contains_key("expired"));
+        assert!(!hub.tickets_by_code.contains_key("111111"));
         assert!(hub.tickets.contains_key("active"));
+        assert_eq!(
+            hub.tickets_by_code.get("222222"),
+            Some(&"active".to_string())
+        );
+    }
+
+    #[test]
+    fn hub_indexes_pairing_tickets_by_six_digit_code_once() {
+        let mut hub = HubState::default();
+        hub.insert_ticket(
+            "ticket-1".to_string(),
+            json!({ "code": "123456", "hostId": "host-1" }),
+            Instant::now() + Duration::from_secs(60),
+        );
+
+        let entry = hub.take_pairing_code("123456").expect("pairing code");
+        assert_eq!(entry.payload["hostId"], "host-1");
+        assert!(hub.take_pairing_code("123456").is_none());
+        assert!(hub.take_ticket("ticket-1").is_none());
+    }
+
+    #[test]
+    fn hub_removes_code_index_when_ticket_is_taken_by_qr() {
+        let mut hub = HubState::default();
+        hub.insert_ticket(
+            "ticket-1".to_string(),
+            json!({ "code": "123456", "hostId": "host-1" }),
+            Instant::now() + Duration::from_secs(60),
+        );
+
+        assert!(hub.take_ticket("ticket-1").is_some());
+        assert!(hub.take_pairing_code("123456").is_none());
     }
 }

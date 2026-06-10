@@ -4,18 +4,56 @@ use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::Value;
 use serde_json::json;
-use sha2::Digest;
 use sha2::Sha256;
 #[cfg(unix)]
 use std::ffi::CStr;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 pub(crate) fn remote_host_name() -> String {
-    platform_host_name()
+    display_host_name(platform_host_name(), platform_user_name())
         .or_else(|| std::env::var("COMPUTERNAME").ok())
         .or_else(|| std::env::var("HOSTNAME").ok())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| crate::runtime_paths::app_display_name().to_string())
+}
+
+pub(crate) fn display_host_name(
+    host_name: Option<String>,
+    user_name: Option<String>,
+) -> Option<String> {
+    let host_name = host_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    if !is_generic_apple_host_name(&host_name) {
+        return Some(host_name);
+    }
+    let user_name = user_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    user_name
+        .map(|user| format!("{user}的Apple电脑"))
+        .or(Some(host_name))
+}
+
+fn is_generic_apple_host_name(value: &str) -> bool {
+    let normalized: String = value
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '\'' && *ch != '’')
+        .flat_map(char::to_lowercase)
+        .collect();
+    matches!(
+        normalized.as_str(),
+        "apple的apple电脑" | "apple的mac" | "applemac" | "applecomputer" | "apple的电脑"
+    )
+}
+
+fn platform_user_name() -> Option<String> {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && value != "root")
 }
 
 #[cfg(target_os = "macos")]
@@ -116,28 +154,6 @@ pub(crate) fn remote_pairing_payload(
         "protocolVersion": super::protocol::REMOTE_PROTOCOL_VERSION,
         "transports": transports,
     })
-}
-
-pub(crate) fn remote_pairing_match_code(
-    settings: &RemoteSettings,
-    pairing_code: &str,
-    pairing_secret: &str,
-    device_public_key: &str,
-) -> Option<String> {
-    if settings.host_public_key.trim().is_empty() || device_public_key.trim().is_empty() {
-        return None;
-    }
-    let material = format!(
-        "codux-e2e-match-v1|{}|{}|{}|{}",
-        settings.host_public_key, device_public_key, pairing_code, pairing_secret
-    );
-    let digest = Sha256::digest(material.as_bytes());
-    let prefix = digest
-        .iter()
-        .take(3)
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<String>();
-    Some(format!("{}-{}", &prefix[..3], &prefix[3..]))
 }
 
 fn remote_e2e_private_key(value: &str) -> Option<StaticSecret> {

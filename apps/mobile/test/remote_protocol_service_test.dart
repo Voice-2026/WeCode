@@ -2,23 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/e2e_crypto.dart';
 import 'package:codux_flutter/services/remote_protocol_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('match code uses the shared host and mobile formula', () {
-    expect(
-      RemoteE2ECrypto.matchCode(
-        hostPublicKey: 'host-public-key',
-        devicePublicKey: 'device-public-key',
-        pairingCode: '205503D6',
-        pairingSecret: 'pairing-secret',
-      ),
-      '8EC-D5F',
-    );
-  });
-
   test('stored device reads v3 transport candidates', () {
     final device = StoredDevice.fromJson({
       'server': 'https://codux-service.dux.plus/v3',
@@ -125,6 +112,42 @@ void main() {
       ]);
     },
   );
+
+  test('manual pairing code fetches the same v3 payload shape', () async {
+    final manual = await manualPairingCodeUri({
+      'protocolVersion': remoteProtocolVersion,
+      'code': '123456',
+      'secret': 'pairing-secret',
+      'pairingId': 'pair-1',
+      'hostId': 'host-1',
+      'hostPublicKey': 'host-public-key',
+      'cryptoVersion': 1,
+      'hostName': 'Mac',
+      'transports': [
+        {
+          'kind': 'websocketRelay',
+          'role': 'host',
+          'url': 'https://codux-service.dux.plus/v3',
+        },
+      ],
+    });
+
+    final payload = await parsePairingPayload(manual);
+    expect(payload.code, '123456');
+    expect(payload.hostId, 'host-1');
+    expect(payload.pairingId, 'pair-1');
+    expect(
+      payload.transportByKind(RemoteTransportKind.websocketRelay)?.url,
+      'https://codux-service.dux.plus/v3',
+    );
+  });
+
+  test('manual pairing code must be six digits', () {
+    expect(normalizePairingCode('123456'), '123456');
+    expect(normalizePairingCode('123 456'), '123456');
+    expect(normalizePairingCode('12345'), isNull);
+    expect(normalizePairingCode('1234567'), isNull);
+  });
 
   test('pairing payload rejects missing supported transport', () async {
     final qr = await pairingTicketQr({
@@ -263,5 +286,28 @@ Future<String> pairingTicketQr(Map<String, dynamic> payload) async {
     scheme: 'codux',
     host: 'pair',
     queryParameters: {'server': uri.toString(), 'ticket': ticket},
+  ).toString();
+}
+
+Future<String> manualPairingCodeUri(Map<String, dynamic> payload) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  const code = '123456';
+  final uri = Uri.parse('http://${server.address.host}:${server.port}/v3');
+  server.listen((request) {
+    if (request.method == 'GET' &&
+        request.uri.path == '/v3/api/pairings/code/$code') {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode(payload));
+      request.response.close();
+      return;
+    }
+    request.response.statusCode = HttpStatus.notFound;
+    request.response.close();
+  });
+  addTearDown(server.close);
+  return Uri(
+    scheme: 'codux',
+    host: 'manual-pair',
+    queryParameters: {'server': uri.toString(), 'code': code},
   ).toString();
 }

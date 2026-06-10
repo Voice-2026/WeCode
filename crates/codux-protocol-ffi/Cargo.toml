@@ -12,3 +12,4 @@ codux-protocol = { path = "../codux-protocol" }
 codux-remote-transport = { path = "../codux-remote-transport" }
 codux-terminal-core = { path = "../codux-terminal-core" }
 serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time"] }

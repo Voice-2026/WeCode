@@ -31,22 +31,6 @@ class RemoteE2ECrypto {
     );
   }
 
-  static String matchCode({
-    required String hostPublicKey,
-    required String devicePublicKey,
-    required String pairingCode,
-    required String pairingSecret,
-  }) {
-    final material =
-        'codux-e2e-match-v1|$hostPublicKey|$devicePublicKey|$pairingCode|$pairingSecret';
-    final bytes = utf8.encode(material);
-    final digest = const DartSha256().hashSync(bytes).bytes;
-    final prefix = digest.take(3).map((byte) {
-      return byte.toRadixString(16).padLeft(2, '0').toUpperCase();
-    }).join();
-    return '${prefix.substring(0, 3)}-${prefix.substring(3)}';
-  }
-
   static Future<RelayEnvelope> encryptEnvelope({
     required RelayEnvelope inner,
     required StoredDevice device,

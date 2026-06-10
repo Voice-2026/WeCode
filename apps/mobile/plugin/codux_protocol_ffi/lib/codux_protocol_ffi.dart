@@ -47,6 +47,18 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
     library.lookup<
       NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
     >('codux_transport_pairing_ticket_url');
+    library.lookup<
+      NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
+    >('codux_transport_pairing_code_url');
+    library.lookup<
+      NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
+    >('codux_transport_relay_url_for_preset');
+    library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>)>>(
+      'codux_controller_transport_config_summary_json',
+    );
+    library.lookup<NativeFunction<Pointer<Void> Function(Pointer<Utf8>)>>(
+      'codux_controller_transport_connect_json',
+    );
     library.lookup<NativeFunction<Pointer<Void> Function()>>(
       'codux_terminal_output_sequencer_new',
     );
@@ -100,11 +112,21 @@ final _transportServerUrl = _dylib
       Pointer<Utf8> Function(Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>)
     >('codux_transport_server_url');
+final _transportRelayUrlForPreset = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
+    >('codux_transport_relay_url_for_preset');
 final _transportPairingTicketUrl = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
     >('codux_transport_pairing_ticket_url');
+final _transportPairingCodeUrl = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
+    >('codux_transport_pairing_code_url');
 final _transportPairingWebSocketUrl = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>),
@@ -134,6 +156,30 @@ final _transportPreferredKind = _dylib
       Pointer<Utf8> Function(Pointer<Utf8>, Bool),
       Pointer<Utf8> Function(Pointer<Utf8>, bool)
     >('codux_transport_preferred_kind');
+final _controllerTransportConfigSummaryJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Utf8>)
+    >('codux_controller_transport_config_summary_json');
+final _controllerTransportConnectJson = _dylib
+    .lookupFunction<
+      Pointer<Void> Function(Pointer<Utf8>),
+      Pointer<Void> Function(Pointer<Utf8>)
+    >('codux_controller_transport_connect_json');
+final _controllerTransportSendJson = _dylib
+    .lookupFunction<
+      Bool Function(Pointer<Void>, Pointer<Utf8>),
+      bool Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_controller_transport_send_json');
+final _controllerTransportPollEventJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>),
+      Pointer<Utf8> Function(Pointer<Void>)
+    >('codux_controller_transport_poll_event_json');
+final _controllerTransportClose = _dylib
+    .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+      'codux_controller_transport_close',
+    );
 final _resourceSubscribeJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(
@@ -318,6 +364,20 @@ String transportServerUrl(String base) {
   }
 }
 
+String transportRelayUrlForPreset({
+  required String preset,
+  String customUrl = '',
+}) {
+  final presetPtr = preset.toNativeUtf8();
+  final customPtr = customUrl.toNativeUtf8();
+  try {
+    return _takeString(_transportRelayUrlForPreset(presetPtr, customPtr));
+  } finally {
+    malloc.free(presetPtr);
+    malloc.free(customPtr);
+  }
+}
+
 String transportPairingTicketUrl({
   required String base,
   required String ticket,
@@ -329,6 +389,17 @@ String transportPairingTicketUrl({
   } finally {
     malloc.free(basePtr);
     malloc.free(ticketPtr);
+  }
+}
+
+String transportPairingCodeUrl({required String base, required String code}) {
+  final basePtr = base.toNativeUtf8();
+  final codePtr = code.toNativeUtf8();
+  try {
+    return _takeString(_transportPairingCodeUrl(basePtr, codePtr));
+  } finally {
+    malloc.free(basePtr);
+    malloc.free(codePtr);
   }
 }
 
@@ -391,6 +462,68 @@ String preferredTransportKind(
     return _takeString(_transportPreferredKind(transportsPtr, pairing));
   } finally {
     malloc.free(transportsPtr);
+  }
+}
+
+Map<String, dynamic> controllerTransportConfigSummary(
+  Map<String, dynamic> config,
+) {
+  final configPtr = jsonEncode(config).toNativeUtf8();
+  try {
+    return _decodeEnvelope(_controllerTransportConfigSummaryJson(configPtr));
+  } finally {
+    malloc.free(configPtr);
+  }
+}
+
+class ControllerTransportHandle {
+  ControllerTransportHandle._(this._handle);
+
+  Pointer<Void> _handle;
+
+  bool get isClosed => _handle == nullptr;
+
+  static ControllerTransportHandle? connect(Map<String, dynamic> config) {
+    final configPtr = jsonEncode(config).toNativeUtf8();
+    try {
+      final handle = _controllerTransportConnectJson(configPtr);
+      if (handle == nullptr) return null;
+      return ControllerTransportHandle._(handle);
+    } finally {
+      malloc.free(configPtr);
+    }
+  }
+
+  bool send(Map<String, dynamic> envelope) {
+    final handle = _liveHandle();
+    final envelopePtr = jsonEncode(envelope).toNativeUtf8();
+    try {
+      return _controllerTransportSendJson(handle, envelopePtr);
+    } finally {
+      malloc.free(envelopePtr);
+    }
+  }
+
+  Map<String, dynamic>? pollEvent() {
+    final pointer = _controllerTransportPollEventJson(_liveHandle());
+    if (pointer == nullptr) return null;
+    final decoded = _decodeEnvelope(pointer);
+    return decoded.isEmpty ? null : decoded;
+  }
+
+  void close() {
+    final handle = _handle;
+    if (handle == nullptr) return;
+    _handle = nullptr;
+    _controllerTransportClose(handle);
+  }
+
+  Pointer<Void> _liveHandle() {
+    final handle = _handle;
+    if (handle == nullptr) {
+      throw StateError('Controller transport has been closed');
+    }
+    return handle;
   }
 }
 

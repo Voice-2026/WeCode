@@ -101,7 +101,7 @@ codux/
 - `apps/server`：Rust v3 relay service，承接 ticket、signaling 和 WebSocket fallback。
 - `apps/relay-server`：Go relay service，迁移期继续保留老协议兼容。
 - `crates/codux-protocol`：共享协议边界，包含 v3.1 消息名、资源名、secure/relay envelope DTO、transport candidate DTO、订阅消息、通用资源订阅注册表、relay 策略和 terminal buffer payload。
-- `crates/codux-remote-transport`：共享 transport 边界，包含 WebSocket relay host driver、WebRTC DataChannel host driver、controller-side relay factory、local memory transport、URL/STUN 规范化、transport factory 和 path state 回调；不承载 terminal/Git/file/UI 业务状态。
+- `crates/codux-remote-transport`：共享 transport 边界，包含 host/controller WebSocket relay driver、WebRTC DataChannel direct/fallback driver、local memory transport、URL/STUN 规范化、transport factory 和 path state 回调；不承载 terminal/Git/file/UI 业务状态。
 - `crates/codux-protocol-ffi`：Flutter 协议和终端 core 绑定的 C ABI，直接复用 `codux-protocol` 和 `codux-terminal-core`。
 - `crates/codux-runtime-core`：共享 runtime domain 边界，已承载 host.info、project/file/git/worktree/upload/terminal payload 规则、RuntimeSubscriptionRouter 和 terminal domain 接口；桌面 host 已委托这些协议 shape 与通用资源订阅路由到公共 crate。
 - `crates/codux-terminal-core`：共享终端模型边界，负责远程 session 缓存、buffer-window restore、terminal output sequence guard 和 held-live replay 判定。
@@ -117,16 +117,16 @@ codux/
 待迁移：
 
 - `apps/web`：官网/文档站点，等当前桌面、移动端、服务端迁移提交稳定后再导入。
-- `codux-remote-transport` 已提供 host-side WebSocket/WebRTC driver、controller-side relay factory 和 local memory transport，也通过 FFI 供 Flutter controller 复用 URL/STUN/transport 选择规则；后续增强项是 Flutter async event-stream FFI 桥接、controller-side WebRTC Rust IO，以及 QUIC/WebTransport driver。
+- `codux-remote-transport` 已提供 host-side WebSocket/WebRTC driver、controller-side relay/WebRTC direct/fallback factory 和 local memory transport，也通过 FFI 供 Flutter controller 复用 URL/STUN/transport 选择规则与 opaque transport handle；后续增强项是更细的 async event-stream bridge、连接错误诊断和 QUIC/WebTransport driver。
 - `codux-runtime-core` 后续继续迁移 project/file/git/worktree/terminal domain controller 的剩余状态机；当前已先接入 host.info、纯 payload/排序/命名/上传规则、通用订阅路由和公共接口。
 
 ## Platform bindings
 
 - Desktop Rust API uses workspace crates directly.
-- Flutter protocol bindings use `apps/mobile/plugin/codux_protocol_ffi`, backed by `crates/codux-protocol-ffi`.
+- Flutter protocol and transport bindings use `apps/mobile/plugin/codux_protocol_ffi`, backed by `crates/codux-protocol-ffi`.
 - Android builds `libcodux_protocol_ffi.so` with NDK/cargo-ndk during Gradle preBuild.
 - iOS/macOS build the Rust static library from the Flutter plugin podspec script phase.
-- Dart keeps compile-time message constants for switch/case matching, Flutter socket/WebRTC handles, and Flutter UI/runtime wiring only. Protocol envelope construction, relay policy, transport URL/STUN/selection rules, and terminal session state now route through Rust FFI without a duplicate Dart implementation.
+- Dart keeps compile-time message constants for switch/case matching and Flutter UI/runtime wiring only. Protocol envelope construction, relay policy, transport URL/STUN/selection rules, controller transport lifecycle, and terminal session state now route through Rust FFI without a duplicate Dart implementation.
 - Flutter `RemotePtySession` and terminal output sequencer use `codux-terminal-core` through FFI for content, buffer length, sequence, buffer-window restore, cache trimming, duplicate/gap handling, and held-live replay selection. Dart only keeps token-to-object references for Dart-owned objects that cannot cross the FFI boundary.
 
 ## Terminal / PTY 边界
@@ -136,7 +136,7 @@ codux/
 | `codux-terminal-core` | Rust workspace crate | Yes | 平台无关的远程终端数据模型：缓存、分页恢复、sequence guard、restore window、held-live replay 判定。 |
 | `codux-terminal-pty` | Rust workspace crate | Yes for host/headless | 基于 `portable_pty` 的标准 local PTY driver，实现公共 `TerminalDriver`/`TerminalSessionHandle` 接口，可供 Linux headless 和后续桌面适配复用。 |
 | `codux-protocol` | Rust workspace crate | Yes | v3.1 消息名、资源名、secure/relay envelope DTO、transport candidate DTO、订阅模型、relay 策略、terminal buffer payload 标准。 |
-| `codux-remote-transport` | Rust workspace crate | Yes | 多驱动远程传输层：WebSocket relay、WebRTC host driver、URL/STUN 规则和 transport factory；与 runtime domain 和 PTY 解耦。 |
+| `codux-remote-transport` | Rust workspace crate | Yes | 多驱动远程传输层：WebSocket relay、WebRTC host/controller direct/fallback driver、URL/STUN 规则和 transport factory；与 runtime domain 和 PTY 解耦。 |
 | `codux-runtime-core` | Rust workspace crate | Yes | host.info、project/file/Git/worktree/upload/terminal 的 domain payload 规则和公共 runtime 接口。 |
 | `codux-protocol-ffi` | Rust workspace crate + Flutter plugin | Yes for Flutter binding | 把 protocol 和 terminal-core 暴露给 Flutter；不承载 UI 状态。 |
 | `apps/agent` | Headless app | Shared host entry | 无 UI 被控端入口，直接复用 `codux-protocol`、`codux-terminal-core`、`codux-terminal-pty`，后续接入 transport/runtime domains。 |

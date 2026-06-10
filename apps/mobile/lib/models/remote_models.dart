@@ -5,7 +5,6 @@ class PairingPayload {
     required this.hostPublicKey,
     required this.devicePrivateKey,
     required this.devicePublicKey,
-    required this.matchCode,
     required this.transports,
     this.cryptoVersion = 1,
     this.hostName,
@@ -17,7 +16,6 @@ class PairingPayload {
   final String hostPublicKey;
   final String devicePrivateKey;
   final String devicePublicKey;
-  final String matchCode;
   final List<RemoteTransportCandidate> transports;
   final int cryptoVersion;
   final String? hostName;

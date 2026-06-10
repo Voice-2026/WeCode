@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
+    as codux_protocol_ffi;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/remote_models.dart';
@@ -22,12 +24,96 @@ abstract interface class RemoteTransport {
 }
 
 RemoteTransport createRemoteTransport(StoredDevice device) {
-  final preferred = remotePreferredTransportKind(
-    device.transports,
-    pairing: false,
-  );
-  if (preferred == RemoteTransportKind.webRtc) return WebRtcTransport();
-  return WebSocketRelayTransport();
+  return RustControllerTransport();
+}
+
+class RustControllerTransport implements RemoteTransport {
+  codux_protocol_ffi.ControllerTransportHandle? _handle;
+  Timer? _pollTimer;
+  RemoteTransportStateHandler? _onState;
+  RemoteTransportEnvelopeHandler? _onEnvelope;
+  String _kind = RemoteTransportKind.websocketRelay;
+
+  @override
+  String get kind => _kind;
+
+  @override
+  set onState(RemoteTransportStateHandler? handler) => _onState = handler;
+
+  @override
+  set onEnvelope(RemoteTransportEnvelopeHandler? handler) =>
+      _onEnvelope = handler;
+
+  @override
+  Future<void> connect(StoredDevice device) async {
+    await close();
+    final config = _controllerTransportConfig(device);
+    final summary = codux_protocol_ffi.controllerTransportConfigSummary(config);
+    _kind = '${summary['transportKind'] ?? RemoteTransportKind.websocketRelay}';
+    _onState?.call('connecting');
+    final handle = codux_protocol_ffi.ControllerTransportHandle.connect(config);
+    if (handle == null) {
+      _onState?.call('failed:transport-connect');
+      throw StateError('Failed to connect remote transport');
+    }
+    _handle = handle;
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
+      _drainEvents();
+    });
+    _drainEvents();
+  }
+
+  @override
+  Future<bool> send(Map<String, dynamic> envelope) async {
+    return _handle?.send(envelope) ?? false;
+  }
+
+  @override
+  Future<void> close() async {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    final handle = _handle;
+    _handle = null;
+    handle?.close();
+  }
+
+  void _drainEvents() {
+    final handle = _handle;
+    if (handle == null || handle.isClosed) return;
+    for (var i = 0; i < 128; i++) {
+      final event = handle.pollEvent();
+      if (event == null) return;
+      final kind = '${event['kind'] ?? ''}';
+      if (kind == 'state') {
+        _onState?.call('${event['state'] ?? ''}');
+      } else if (kind == 'message') {
+        final data = '${event['data'] ?? ''}';
+        final decoded = jsonDecode(data);
+        if (decoded is Map<String, dynamic>) {
+          _onEnvelope?.call(decoded);
+        } else if (decoded is Map) {
+          _onEnvelope?.call(Map<String, dynamic>.from(decoded));
+        }
+      }
+    }
+  }
+}
+
+Map<String, dynamic> _controllerTransportConfig(StoredDevice device) {
+  final stunUrls = <String>{};
+  for (final candidate in device.transports) {
+    for (final server in candidate.iceServers) {
+      stunUrls.addAll(server.urls);
+    }
+  }
+  return {
+    'serverUrl': device.server,
+    'hostId': device.hostId,
+    'deviceId': device.deviceId,
+    'deviceToken': device.token,
+    'transports': device.transports.map((item) => item.toJson()).toList(),
+    if (stunUrls.isNotEmpty) 'stunUrls': stunUrls.toList(),
+  };
 }
 
 class WebSocketRelayTransport implements RemoteTransport {

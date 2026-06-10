@@ -114,14 +114,22 @@ impl RemoteTransportFactory {
             &config.device_id,
             Some(&config.device_token),
         )?;
-        let relay_transport =
-            RemoteWebSocketControllerTransport::connect(ws_url, on_message, on_state, on_log)
-                .await?;
+        let relay_transport = RemoteWebSocketControllerTransport::connect(
+            ws_url,
+            Arc::clone(&on_message),
+            Arc::clone(&on_state),
+            on_log,
+        )
+        .await?;
         match kind {
-            "webRtc" => Ok(Arc::new(RemoteControllerCompositeTransport {
-                relay: relay_transport,
-                kind: RemoteTransportKind::WebRtc,
-            })),
+            "webRtc" => RemoteControllerCompositeTransport::connect(
+                config,
+                relay_transport,
+                on_message,
+                on_state,
+            )
+            .await
+            .map(|transport| transport as Arc<dyn RemoteTransport>),
             "websocketRelay" => Ok(relay_transport),
             _ => Err("missing supported controller transport candidate".to_string()),
         }
@@ -198,6 +206,16 @@ pub fn remote_pairing_ticket_url(base: &str, ticket: &str) -> Result<String, Str
     remote_url(
         &base,
         &format!("/api/tickets/{}", ticket.trim()),
+        &[],
+        false,
+    )
+}
+
+pub fn remote_pairing_code_url(base: &str, code: &str) -> Result<String, String> {
+    let base = remote_server_url(base);
+    remote_url(
+        &base,
+        &format!("/api/pairings/code/{}", code.trim()),
         &[],
         false,
     )
@@ -405,6 +423,7 @@ pub struct RemoteWebSocketControllerTransport {
     tx: Mutex<Option<mpsc::UnboundedSender<String>>>,
     on_message: RemoteTransportMessageHandler,
     on_state: RemoteTransportStateHandler,
+    on_control: Mutex<Option<RemoteTransportControlHandler>>,
     on_log: Option<RemoteTransportLogHandler>,
 }
 
@@ -424,6 +443,7 @@ impl RemoteWebSocketControllerTransport {
             tx: Mutex::new(Some(tx)),
             on_message,
             on_state,
+            on_control: Mutex::new(None),
             on_log,
         });
 
@@ -447,7 +467,7 @@ impl RemoteWebSocketControllerTransport {
             while let Some(message) = read.next().await {
                 match message {
                     Ok(WebSocketMessage::Text(text)) => {
-                        (reader.on_message)(String::new(), text.to_string().into_bytes());
+                        reader.handle_text(text.to_string());
                     }
                     Ok(WebSocketMessage::Close(_)) => break,
                     Ok(_) => {}
@@ -462,6 +482,29 @@ impl RemoteWebSocketControllerTransport {
         });
 
         Ok(transport)
+    }
+
+    pub fn set_control_handler(&self, handler: Option<RemoteTransportControlHandler>) {
+        if let Ok(mut current) = self.on_control.lock() {
+            *current = handler;
+        }
+    }
+
+    fn handle_text(&self, text: String) {
+        let control_handled = serde_json::from_str::<RemoteEnvelope>(&text)
+            .ok()
+            .and_then(|envelope| {
+                self.on_control
+                    .lock()
+                    .ok()
+                    .and_then(|handler| handler.clone())
+                    .map(|handler| handler(String::new(), envelope))
+            })
+            .unwrap_or(false);
+        if control_handled {
+            return;
+        }
+        (self.on_message)(String::new(), text.into_bytes());
     }
 
     fn close_sender(&self) {
@@ -502,21 +545,194 @@ impl RemoteTransport for RemoteWebSocketControllerTransport {
 
 struct RemoteControllerCompositeTransport {
     relay: Arc<RemoteWebSocketControllerTransport>,
-    kind: RemoteTransportKind,
+    pc: Arc<RTCPeerConnection>,
+    dc: Mutex<Option<Arc<RTCDataChannel>>>,
+    direct_ready: Arc<Mutex<bool>>,
+}
+
+impl RemoteControllerCompositeTransport {
+    async fn connect(
+        config: &RemoteControllerTransportConfig,
+        relay: Arc<RemoteWebSocketControllerTransport>,
+        on_message: RemoteTransportMessageHandler,
+        on_state: RemoteTransportStateHandler,
+    ) -> Result<Arc<Self>, String> {
+        let mut media_engine = MediaEngine::default();
+        media_engine
+            .register_default_codecs()
+            .map_err(|error| error.to_string())?;
+        let api = APIBuilder::new().with_media_engine(media_engine).build();
+        let pc = Arc::new(
+            api.new_peer_connection(RTCConfiguration {
+                ice_servers: vec![RTCIceServer {
+                    urls: if config.stun_urls.is_empty() {
+                        remote_stun_urls()
+                    } else {
+                        config.stun_urls.clone()
+                    },
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .await
+            .map_err(|error| error.to_string())?,
+        );
+        let transport = Arc::new(Self {
+            relay,
+            pc: Arc::clone(&pc),
+            dc: Mutex::new(None),
+            direct_ready: Arc::new(Mutex::new(false)),
+        });
+        let weak_transport = Arc::downgrade(&transport);
+        transport
+            .relay
+            .set_control_handler(Some(Arc::new(move |_, envelope| {
+                if !envelope.kind.starts_with("webrtc.") {
+                    return false;
+                }
+                if let Some(transport) = weak_transport.upgrade() {
+                    tokio::spawn(async move {
+                        transport.handle_signal(envelope).await;
+                    });
+                }
+                true
+            })));
+
+        let ice_relay = Arc::clone(&transport.relay);
+        let ice_device_id = config.device_id.clone();
+        pc.on_ice_candidate(Box::new(move |candidate| {
+            let ice_relay = Arc::clone(&ice_relay);
+            let ice_device_id = ice_device_id.clone();
+            Box::pin(async move {
+                let Some(candidate) = candidate else {
+                    return;
+                };
+                if let Ok(candidate) = candidate.to_json() {
+                    send_controller_signal(
+                        &ice_relay,
+                        "webrtc.ice",
+                        &ice_device_id,
+                        json!({ "candidate": candidate }),
+                    );
+                }
+            })
+        }));
+
+        let state_handler = Arc::clone(&on_state);
+        let direct_ready = Arc::clone(&transport.direct_ready);
+        pc.on_peer_connection_state_change(Box::new(move |state| {
+            let state_handler = Arc::clone(&state_handler);
+            let direct_ready = Arc::clone(&direct_ready);
+            Box::pin(async move {
+                if matches!(
+                    state,
+                    RTCPeerConnectionState::Failed
+                        | RTCPeerConnectionState::Disconnected
+                        | RTCPeerConnectionState::Closed
+                ) {
+                    if let Ok(mut ready) = direct_ready.lock() {
+                        if *ready {
+                            *ready = false;
+                            state_handler(String::new(), "connected:path=relay".to_string());
+                        }
+                    }
+                }
+            })
+        }));
+
+        let dc = pc
+            .create_data_channel("codux", None)
+            .await
+            .map_err(|error| error.to_string())?;
+        install_controller_data_channel(
+            Arc::clone(&transport),
+            Arc::clone(&dc),
+            on_message,
+            on_state,
+        );
+        if let Ok(mut current) = transport.dc.lock() {
+            *current = Some(dc);
+        }
+
+        let offer = pc
+            .create_offer(None)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut gathering_complete = pc.gathering_complete_promise().await;
+        pc.set_local_description(offer)
+            .await
+            .map_err(|error| error.to_string())?;
+        let _ = gathering_complete.recv().await;
+        let description = pc
+            .local_description()
+            .await
+            .ok_or_else(|| "Missing WebRTC local offer.".to_string())?;
+        send_controller_signal(
+            &transport.relay,
+            "webrtc.offer",
+            &config.device_id,
+            json!({ "description": description }),
+        );
+
+        Ok(transport)
+    }
+
+    async fn handle_signal(&self, envelope: RemoteEnvelope) {
+        match envelope.kind.as_str() {
+            "webrtc.answer" => {
+                if let Some(description) = envelope
+                    .payload
+                    .get("description")
+                    .cloned()
+                    .and_then(|value| session_description_from_value(value).ok())
+                {
+                    let _ = self.pc.set_remote_description(description).await;
+                }
+            }
+            "webrtc.ice" => {
+                if let Some(candidate) = envelope
+                    .payload
+                    .get("candidate")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<RTCIceCandidateInit>(value).ok())
+                {
+                    let _ = self.pc.add_ice_candidate(candidate).await;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[async_trait]
 impl RemoteTransport for RemoteControllerCompositeTransport {
     fn kind(&self) -> RemoteTransportKind {
-        self.kind
+        RemoteTransportKind::WebRtc
     }
 
     fn send(&self, data: Vec<u8>, device_id: Option<&str>) -> bool {
+        let direct_ready = self
+            .direct_ready
+            .lock()
+            .map(|ready| *ready)
+            .unwrap_or(false);
+        if direct_ready {
+            let channel = self.dc.lock().ok().and_then(|dc| dc.clone());
+            if let Some(channel) = channel {
+                if let Ok(text) = String::from_utf8(data.clone()) {
+                    tokio::spawn(async move {
+                        let _ = channel.send_text(text).await;
+                    });
+                    return true;
+                }
+            }
+        }
         self.relay.send(data, device_id)
     }
 
     async fn shutdown(&self) {
         self.relay.shutdown().await;
+        let _ = self.pc.close().await;
     }
 }
 
@@ -949,6 +1165,65 @@ fn install_data_channel(
     }));
 }
 
+fn install_controller_data_channel(
+    transport: Arc<RemoteControllerCompositeTransport>,
+    dc: Arc<RTCDataChannel>,
+    on_message: RemoteTransportMessageHandler,
+    on_state: RemoteTransportStateHandler,
+) {
+    let open_transport = Arc::clone(&transport);
+    let open_state = Arc::clone(&on_state);
+    dc.on_open(Box::new(move || {
+        let open_transport = Arc::clone(&open_transport);
+        let open_state = Arc::clone(&open_state);
+        Box::pin(async move {
+            if let Ok(mut ready) = open_transport.direct_ready.lock() {
+                *ready = true;
+            }
+            open_state(String::new(), "connected:path=direct".to_string());
+        })
+    }));
+    let close_transport = Arc::clone(&transport);
+    let close_state = Arc::clone(&on_state);
+    dc.on_close(Box::new(move || {
+        let close_transport = Arc::clone(&close_transport);
+        let close_state = Arc::clone(&close_state);
+        Box::pin(async move {
+            if let Ok(mut ready) = close_transport.direct_ready.lock() {
+                if *ready {
+                    *ready = false;
+                    close_state(String::new(), "connected:path=relay".to_string());
+                }
+            }
+        })
+    }));
+    dc.on_message(Box::new(move |message: DataChannelMessage| {
+        let on_message = Arc::clone(&on_message);
+        Box::pin(async move {
+            on_message(String::new(), message.data.to_vec());
+        })
+    }));
+}
+
+fn send_controller_signal(
+    relay: &RemoteWebSocketControllerTransport,
+    kind: &str,
+    device_id: &str,
+    payload: Value,
+) -> bool {
+    let envelope = RemoteOutgoingEnvelope {
+        kind: kind.to_string(),
+        device_id: Some(device_id.to_string()),
+        session_id: None,
+        seq: None,
+        payload,
+    };
+    let Ok(data) = serde_json::to_vec(&envelope) else {
+        return false;
+    };
+    relay.send(data, None)
+}
+
 fn pairing_handshake_from_envelope(
     envelope: &RemoteEnvelope,
 ) -> Option<RemoteTransportPairingRequest> {
@@ -1075,6 +1350,10 @@ mod tests {
         assert_eq!(
             remote_pairing_ticket_url("https://relay.example", "ticket-1").unwrap(),
             "https://relay.example/v3/api/tickets/ticket-1"
+        );
+        assert_eq!(
+            remote_pairing_code_url("https://relay.example", "123456").unwrap(),
+            "https://relay.example/v3/api/pairings/code/123456"
         );
         assert_eq!(
             remote_pairing_websocket_url("https://relay.example", "host-1", "device-key").unwrap(),
@@ -1232,6 +1511,61 @@ mod tests {
         receiver.shutdown().await;
         assert!(!sender.send(b"after".to_vec(), Some("receiver")));
         assert_eq!(received.lock().unwrap().as_slice(), ["sender:before"]);
+    }
+
+    #[tokio::test]
+    async fn controller_relay_control_handler_intercepts_webrtc_signaling() {
+        let received = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let handled = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let transport = RemoteWebSocketControllerTransport {
+            tx: Mutex::new(None),
+            on_message: {
+                let received = Arc::clone(&received);
+                Arc::new(move |_, data| {
+                    received
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8(data).unwrap());
+                })
+            },
+            on_state: Arc::new(|_, _| {}),
+            on_control: Mutex::new(Some({
+                let handled = Arc::clone(&handled);
+                Arc::new(move |_, envelope| {
+                    if envelope.kind.starts_with("webrtc.") {
+                        handled.lock().unwrap().push(envelope.kind);
+                        return true;
+                    }
+                    false
+                })
+            })),
+            on_log: None,
+        };
+
+        transport.handle_text(
+            serde_json::to_string(&RemoteOutgoingEnvelope {
+                kind: "webrtc.answer".to_string(),
+                device_id: None,
+                session_id: None,
+                seq: None,
+                payload: json!({}),
+            })
+            .unwrap(),
+        );
+        transport.handle_text(
+            serde_json::to_string(&RemoteOutgoingEnvelope {
+                kind: "project.list".to_string(),
+                device_id: None,
+                session_id: None,
+                seq: None,
+                payload: json!({}),
+            })
+            .unwrap(),
+        );
+
+        assert_eq!(handled.lock().unwrap().as_slice(), ["webrtc.answer"]);
+        assert_eq!(received.lock().unwrap().len(), 1);
+        assert!(received.lock().unwrap()[0].contains("project.list"));
     }
 
     #[test]

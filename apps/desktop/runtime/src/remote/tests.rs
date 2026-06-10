@@ -1,6 +1,6 @@
 use super::crypto::{
-    ensure_remote_host_identity, remote_base64_url_encode, remote_e2e_decrypt, remote_e2e_encrypt,
-    remote_e2e_symmetric_key, remote_pairing_match_code, remote_pairing_payload,
+    display_host_name, ensure_remote_host_identity, remote_base64_url_encode, remote_e2e_decrypt,
+    remote_e2e_encrypt, remote_e2e_symmetric_key, remote_pairing_payload,
 };
 use super::host::{
     remote_ai_stats_payload, remote_file_list, remote_file_read, remote_file_rename,
@@ -94,7 +94,25 @@ fn remote_identity_and_pairing_payload_match_tauri_shape() {
     assert!(!settings.host_private_key.is_empty());
     assert!(!settings.host_public_key.is_empty());
 
-    assert!(remote_pairing_match_code(&settings, "123456", "secret", "device-public").is_some());
+    assert_eq!(settings.host_public_key.trim().is_empty(), false);
+}
+
+#[test]
+fn display_host_name_replaces_generic_apple_name_with_user_name() {
+    assert_eq!(
+        display_host_name(
+            Some("Apple 的 Apple 电脑".to_string()),
+            Some("developer".to_string())
+        ),
+        Some("developer的Apple电脑".to_string())
+    );
+    assert_eq!(
+        display_host_name(
+            Some("工作室 MacBook Pro".to_string()),
+            Some("developer".to_string())
+        ),
+        Some("工作室 MacBook Pro".to_string())
+    );
 }
 
 #[test]
@@ -235,7 +253,7 @@ fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
     assert_eq!(summary.pending_pairings, 1);
     assert_eq!(summary.pending_pairing_list[0].id, "pair-1");
     assert_eq!(summary.pending_pairing_list[0].device_name, "iPhone");
-    assert_ne!(summary.pending_pairing_list[0].code, "654321");
+    assert_eq!(summary.pending_pairing_list[0].code, "654321");
 
     let without_device_key = remote_summary_show_pending_pairing(
         settings,

@@ -9,6 +9,32 @@ export 'remote_protocol.dart';
 
 Future<PairingPayload> parsePairingPayload(String input) async {
   final parsed = await _fetchPairingTicketPayload(input);
+  return _pairingPayloadFromJson(parsed);
+}
+
+Future<PairingPayload> parseManualPairingPayload({
+  required String server,
+  required String code,
+}) async {
+  final normalizedCode = normalizePairingCode(code);
+  if (normalizedCode == null) {
+    throw Exception(tr('remote.pairingCodeInvalid', LocaleChoices.system.id));
+  }
+  final parsed = await _fetchPairingCodePayload(
+    server: server,
+    code: normalizedCode,
+  );
+  return _pairingPayloadFromJson(parsed);
+}
+
+String? normalizePairingCode(String code) {
+  final value = code.replaceAll(RegExp(r'\D'), '');
+  return value.length == 6 ? value : null;
+}
+
+Future<PairingPayload> _pairingPayloadFromJson(
+  Map<String, dynamic> parsed,
+) async {
   final code = parsed['code']?.toString();
   final secret = parsed['secret']?.toString();
   final hostId = parsed['hostId']?.toString();
@@ -45,12 +71,6 @@ Future<PairingPayload> parsePairingPayload(String input) async {
     hostPublicKey: hostPublicKey,
     devicePrivateKey: deviceKeyPair.privateKey,
     devicePublicKey: deviceKeyPair.publicKey,
-    matchCode: RemoteE2ECrypto.matchCode(
-      hostPublicKey: hostPublicKey,
-      devicePublicKey: deviceKeyPair.publicKey,
-      pairingCode: pairingCode,
-      pairingSecret: pairingSecret,
-    ),
     cryptoVersion: cryptoVersion,
     hostName: parsed['hostName']?.toString(),
     hostId: hostId,
@@ -71,6 +91,15 @@ Future<Map<String, dynamic>> _fetchPairingTicketPayload(String input) async {
     throw Exception(tr('remote.qrEmpty', LocaleChoices.system.id));
   }
   final uri = Uri.tryParse(value);
+  if (uri != null && uri.scheme == 'codux' && uri.host == 'manual-pair') {
+    final server = uri.queryParameters['server']?.trim() ?? '';
+    final code = uri.queryParameters['code']?.trim() ?? '';
+    final normalizedCode = normalizePairingCode(code);
+    if (server.isEmpty || normalizedCode == null) {
+      throw Exception(tr('remote.pairingCodeInvalid', LocaleChoices.system.id));
+    }
+    return _fetchPairingCodePayload(server: server, code: normalizedCode);
+  }
   if (uri == null ||
       uri.scheme != 'codux' ||
       uri.host != 'pair' ||
@@ -80,14 +109,32 @@ Future<Map<String, dynamic>> _fetchPairingTicketPayload(String input) async {
   }
   final server = uri.queryParameters['server']!.trim();
   final ticket = uri.queryParameters['ticket']!.trim();
-  final response = await HttpClient()
-      .getUrl(
-        Uri.parse(
-          remoteTransportPairingTicketUrl(base: server, ticket: ticket),
-        ),
-      )
+  final response = await _getJsonUrl(
+    remoteTransportPairingTicketUrl(base: server, ticket: ticket),
+  );
+  return _decodePairingPayloadResponse(response);
+}
+
+Future<Map<String, dynamic>> _fetchPairingCodePayload({
+  required String server,
+  required String code,
+}) async {
+  final response = await _getJsonUrl(
+    remoteTransportPairingCodeUrl(base: server, code: code),
+  );
+  return _decodePairingPayloadResponse(response);
+}
+
+Future<HttpClientResponse> _getJsonUrl(String url) {
+  return HttpClient()
+      .getUrl(Uri.parse(url))
       .then((request) => request.close())
       .timeout(const Duration(seconds: 12));
+}
+
+Future<Map<String, dynamic>> _decodePairingPayloadResponse(
+  HttpClientResponse response,
+) async {
   final text = await response.transform(utf8.decoder).join();
   if (response.statusCode < 200 || response.statusCode >= 300) {
     throw Exception(tr('remote.qrInvalid', LocaleChoices.system.id));
