@@ -1372,7 +1372,6 @@ dependencies = [
  "image",
  "objc",
  "parking_lot",
- "portable-pty",
  "qrcode",
  "raw-window-handle",
  "regex",

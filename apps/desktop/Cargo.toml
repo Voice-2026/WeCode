@@ -15,7 +15,6 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component", package
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", package = "gpui-component-assets" }
 image = "0.25.1"
 parking_lot = "0.12"
-portable-pty = "0.9"
 qrcode = "0.14"
 regex = "1"
 rustls = "0.23"
