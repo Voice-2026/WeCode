@@ -8,27 +8,9 @@ struct TerminalInputHandler {
 
 impl TerminalInputHandler {
     fn send_filtered_input(&self, text: &str, window: &mut Window, cx: &mut App) {
-        if text.is_empty() {
+        let bytes = codux_terminal_core::terminal_text_input_bytes(text);
+        if bytes.is_empty() {
             return;
-        }
-
-        let mut bytes = Vec::new();
-        for c in text
-            .chars()
-            .filter(|c| !('\u{F700}'..='\u{F8FF}').contains(c))
-        {
-            match c {
-                '\u{8}' => {
-                    bytes.push(0x7f);
-                }
-                '\n' | '\r' => {
-                    bytes.push(b'\r');
-                }
-                _ => {
-                    let mut buffer = [0; 4];
-                    bytes.extend_from_slice(c.encode_utf8(&mut buffer).as_bytes());
-                }
-            }
         }
         self.model.update(cx, |model, cx| {
             model.prepare_input_viewport(cx);
@@ -183,4 +165,3 @@ fn ime_cursor_bounds_from_content(
         },
     })
 }
-

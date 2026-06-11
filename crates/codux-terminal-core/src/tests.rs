@@ -1,5 +1,123 @@
 use super::*;
 
+fn key_input<'a>(
+    key: &'a str,
+    key_char: Option<&'a str>,
+    shift: bool,
+    alt: bool,
+    control: bool,
+    platform: bool,
+    application_cursor: bool,
+) -> TerminalKeyInput<'a> {
+    TerminalKeyInput {
+        key,
+        key_char,
+        modifiers: TerminalKeyInputModifiers {
+            shift,
+            alt,
+            control,
+            platform,
+        },
+        mode: TerminalInputMode { application_cursor },
+    }
+}
+
+#[test]
+fn terminal_text_input_normalizes_committed_ime_text() {
+    assert_eq!(terminal_text_input("abc"), "abc");
+    assert_eq!(terminal_text_input("你好かな한글"), "你好かな한글");
+    assert_eq!(terminal_text_input("\u{8}"), "\u{7f}");
+    assert_eq!(terminal_text_input("\n\r"), "\r\r");
+    assert_eq!(terminal_text_input("a\u{f700}b"), "ab");
+}
+
+#[test]
+fn terminal_insert_and_paste_input_use_bracketed_paste_rules() {
+    assert_eq!(terminal_insert_input("\r"), "\r");
+    assert_eq!(terminal_insert_input("\u{7f}"), "\u{7f}");
+    assert_eq!(
+        terminal_insert_input("BREW。"),
+        "\u{1b}[200~BREW。\u{1b}[201~"
+    );
+    assert_eq!(terminal_insert_input("a\nb"), "\u{1b}[200~a\nb\u{1b}[201~");
+    assert_eq!(
+        terminal_paste_input_bytes("a\r\nb\rc", true),
+        b"\x1b[200~a\nb\nc\x1b[201~"
+    );
+    assert_eq!(terminal_paste_input_bytes("raw\r\n", false), b"raw\r\n");
+}
+
+#[test]
+fn terminal_key_input_maps_control_and_navigation_sequences() {
+    assert_eq!(
+        terminal_key_input(key_input(
+            "backspace",
+            None,
+            false,
+            false,
+            false,
+            false,
+            false
+        )),
+        Some("\u{7f}".to_string())
+    );
+    assert_eq!(
+        terminal_key_input(key_input("enter", None, false, false, false, false, false)),
+        Some("\r".to_string())
+    );
+    assert_eq!(
+        terminal_key_input(key_input("up", None, false, false, false, false, false)),
+        Some("\u{1b}[A".to_string())
+    );
+    assert_eq!(
+        terminal_key_input(key_input("up", None, false, false, false, false, true)),
+        Some("\u{1b}OA".to_string())
+    );
+    assert_eq!(
+        terminal_key_input_bytes(key_input("space", None, false, false, true, false, false)),
+        Some(vec![0])
+    );
+    assert_eq!(
+        terminal_key_input(key_input("q", None, false, false, true, false, false)),
+        Some("\u{11}".to_string())
+    );
+}
+
+#[test]
+fn terminal_selector_input_maps_platform_edit_commands() {
+    let normal = TerminalInputMode {
+        application_cursor: false,
+    };
+    let app_cursor = TerminalInputMode {
+        application_cursor: true,
+    };
+
+    assert_eq!(
+        terminal_selector_input("deleteBackward:", normal),
+        Some("\u{7f}".to_string())
+    );
+    assert_eq!(
+        terminal_selector_input("moveLeft:", normal),
+        Some("\u{1b}[D".to_string())
+    );
+    assert_eq!(
+        terminal_selector_input("moveLeft:", app_cursor),
+        Some("\u{1b}OD".to_string())
+    );
+    assert_eq!(terminal_selector_input("unknown:", normal), None);
+}
+
+#[test]
+fn terminal_key_input_keeps_app_shortcuts_out_of_terminal() {
+    assert!(terminal_key_input(key_input("q", None, false, false, false, true, false)).is_none());
+    assert!(terminal_is_copy_shortcut(key_input(
+        "c", None, false, false, false, true, false
+    )));
+    assert!(terminal_is_paste_shortcut(key_input(
+        "v", None, false, false, false, true, false
+    )));
+}
+
 #[test]
 fn restores_baseline_before_replaying_held_live_output() {
     let mut session = RemotePtySession::new("session-1", 64);

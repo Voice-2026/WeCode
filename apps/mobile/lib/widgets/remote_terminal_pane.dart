@@ -28,13 +28,15 @@ class RemoteTerminalPane extends StatelessWidget {
     required this.connectionStatusText,
     required this.terminalHistoryLoadingText,
     required this.maskOpacity,
+    required this.keyboardRequested,
     required this.keyboardVisible,
     required this.terminalCursorBottom,
     required this.terminalScreen,
     required this.onConnect,
     required this.onInput,
     required this.onResize,
-    required this.onScrollLines,
+    required this.onScrollPixels,
+    required this.onSettleScroll,
     required this.onScrollToBottom,
     required this.onMetricsCursorBottom,
     required this.onSendKey,
@@ -60,13 +62,15 @@ class RemoteTerminalPane extends StatelessWidget {
   final String connectionStatusText;
   final String terminalHistoryLoadingText;
   final Animation<double> maskOpacity;
+  final bool keyboardRequested;
   final bool keyboardVisible;
   final double terminalCursorBottom;
   final RemoteTerminalScreenSnapshot? terminalScreen;
   final VoidCallback onConnect;
   final ValueChanged<String> onInput;
   final void Function(int cols, int rows) onResize;
-  final ValueChanged<int> onScrollLines;
+  final void Function(double pixels, double cellHeight) onScrollPixels;
+  final VoidCallback onSettleScroll;
   final VoidCallback onScrollToBottom;
   final ValueChanged<double> onMetricsCursorBottom;
   final ValueChanged<String> onSendKey;
@@ -162,10 +166,12 @@ class RemoteTerminalPane extends StatelessWidget {
                             if (showTerminal)
                               TerminalScreenView(
                                 snapshot: terminalScreen,
-                                keyboardVisible: keyboardVisible,
+                                keyboardRequested: keyboardRequested,
+                                scrollEnabled: !keyboardVisible,
                                 onInput: onInput,
                                 onResize: onResize,
-                                onScrollLines: onScrollLines,
+                                onScrollPixels: onScrollPixels,
+                                onSettleScroll: onSettleScroll,
                                 onScrollToBottom: onScrollToBottom,
                                 onCursorBottom: onMetricsCursorBottom,
                               )
@@ -209,6 +215,8 @@ class RemoteTerminalPane extends StatelessWidget {
                     bottom: toolbarBottom,
                     child: Toolbar(
                       onSendKey: onSendKey,
+                      applicationCursor:
+                          terminalScreen?.applicationCursor ?? false,
                       keyboardVisible: keyboardVisible,
                       bottomInset: 0,
                       onToggleKeyboard: onToggleKeyboard,

@@ -1,17 +1,25 @@
 use alacritty_terminal::{
     event::{Event, EventListener},
     grid::{Dimensions, Scroll},
+    index::{Line, Point},
     term::{Config as AlacrittyConfig, Term, TermMode, cell::Flags},
-    vte::ansi::{Color, NamedColor, Processor},
+    vte::ansi::{Color, CursorShape, NamedColor, Processor},
 };
 use serde::Serialize;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+const TERMINAL_SCREEN_OVERSCAN_ROWS: usize = 2;
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TerminalScreenSnapshot {
     pub data: String,
     pub cols: usize,
     pub rows: usize,
     pub display_offset: usize,
+    pub scroll_pixel_offset: f64,
+    pub overscan_top_rows: usize,
+    pub overscan_bottom_rows: usize,
+    pub application_cursor: bool,
     pub cells: Vec<TerminalScreenCellSnapshot>,
     pub cursor: TerminalScreenCursorSnapshot,
 }
@@ -21,11 +29,22 @@ pub struct TerminalScreenCursorSnapshot {
     pub row: usize,
     pub col: usize,
     pub visible: bool,
+    pub shape: TerminalScreenCursorShape,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalScreenCursorShape {
+    #[default]
+    Block,
+    Beam,
+    Underline,
+    HollowBlock,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct TerminalScreenCellSnapshot {
-    pub row: usize,
+    pub row: i32,
     pub col: usize,
     pub text: String,
     pub width: usize,
@@ -55,6 +74,7 @@ pub struct HeadlessTerminalScreen {
     cols: usize,
     rows: usize,
     scrollback: usize,
+    pending_scroll_pixels: f64,
 }
 
 impl HeadlessTerminalScreen {
@@ -70,6 +90,7 @@ impl HeadlessTerminalScreen {
             cols,
             rows,
             scrollback,
+            pending_scroll_pixels: 0.0,
         }
     }
 
@@ -88,6 +109,7 @@ impl HeadlessTerminalScreen {
         }
         self.cols = cols;
         self.rows = rows;
+        self.pending_scroll_pixels = 0.0;
         self.term.resize(HeadlessTermSize::new(cols, rows));
     }
 
@@ -95,10 +117,44 @@ impl HeadlessTerminalScreen {
         if lines == 0 {
             return;
         }
+        self.pending_scroll_pixels = 0.0;
         self.term.scroll_display(Scroll::Delta(lines));
     }
 
+    pub fn scroll_pixels(&mut self, pixels: f64, cell_height: f64) {
+        if !pixels.is_finite() || pixels == 0.0 || !cell_height.is_finite() || cell_height <= 0.0 {
+            return;
+        }
+        self.pending_scroll_pixels += pixels;
+        let requested_lines = (self.pending_scroll_pixels / cell_height).trunc() as i32;
+        if requested_lines != 0 {
+            let previous_offset = self.term.grid().display_offset() as i32;
+            self.term.scroll_display(Scroll::Delta(requested_lines));
+            let applied_lines = self.term.grid().display_offset() as i32 - previous_offset;
+            self.pending_scroll_pixels -= applied_lines as f64 * cell_height;
+            if applied_lines != requested_lines
+                && ((requested_lines > 0 && self.pending_scroll_pixels > 0.0)
+                    || (requested_lines < 0 && self.pending_scroll_pixels < 0.0))
+            {
+                self.pending_scroll_pixels = 0.0;
+            }
+        }
+        if self.term.grid().display_offset() == 0 && self.pending_scroll_pixels < 0.0 {
+            self.pending_scroll_pixels = 0.0;
+        }
+        if self.pending_scroll_pixels > 0.0 && !self.has_history_above_viewport() {
+            self.pending_scroll_pixels = 0.0;
+        }
+    }
+
+    pub fn settle_pixel_scroll(&mut self) {
+        // Pixel scrolling intentionally allows the viewport to stop between
+        // terminal rows. Snapping here makes every drag look like a row-based
+        // rebound; true bounds are already clamped in `scroll_pixels`.
+    }
+
     pub fn scroll_to_bottom(&mut self) {
+        self.pending_scroll_pixels = 0.0;
         self.term.scroll_display(Scroll::Bottom);
     }
 
@@ -107,15 +163,26 @@ impl HeadlessTerminalScreen {
     }
 
     pub fn snapshot(&self) -> TerminalScreenSnapshot {
-        let (data, cells, cursor) = headless_screen_snapshot(&self.term);
+        let (data, cells, cursor, overscan_top_rows, overscan_bottom_rows) =
+            headless_screen_snapshot(&self.term);
         TerminalScreenSnapshot {
             data,
             cols: self.term.columns(),
             rows: self.term.screen_lines(),
             display_offset: self.term.grid().display_offset(),
+            scroll_pixel_offset: self.pending_scroll_pixels,
+            overscan_top_rows,
+            overscan_bottom_rows,
+            application_cursor: self.term.mode().contains(TermMode::APP_CURSOR),
             cells,
             cursor,
         }
+    }
+
+    fn has_history_above_viewport(&self) -> bool {
+        let grid = self.term.grid();
+        let visible_top = -(grid.display_offset() as i32);
+        visible_top > grid.topmost_line().0
     }
 }
 
@@ -174,6 +241,8 @@ fn headless_screen_snapshot(
     String,
     Vec<TerminalScreenCellSnapshot>,
     TerminalScreenCursorSnapshot,
+    usize,
+    usize,
 ) {
     let content = term.renderable_content();
     let cols = term.columns();
@@ -181,17 +250,32 @@ fn headless_screen_snapshot(
     let mut rows_cells = vec![vec![None; cols]; rows];
     let display_offset = content.display_offset;
     let cursor = content.cursor;
-    let cursor_visible = content.mode.contains(TermMode::SHOW_CURSOR);
+    let cursor_visible =
+        content.mode.contains(TermMode::SHOW_CURSOR) && cursor.shape != CursorShape::Hidden;
     let mut snapshot_cells = Vec::new();
+    let grid = term.grid();
+    let visible_top = -(display_offset as i32);
+    let visible_bottom = visible_top + rows as i32 - 1;
+    let top_line = grid.topmost_line().0;
+    let bottom_line = grid.bottommost_line().0;
+    let overscan_top_rows =
+        TERMINAL_SCREEN_OVERSCAN_ROWS.min(visible_top.saturating_sub(top_line) as usize);
+    let overscan_bottom_rows =
+        TERMINAL_SCREEN_OVERSCAN_ROWS.min(bottom_line.saturating_sub(visible_bottom) as usize);
+    let iter_start_line = visible_top - overscan_top_rows as i32;
+    let iter_end_line = visible_bottom + overscan_bottom_rows as i32;
 
-    for indexed in content.display_iter {
-        let row = indexed.point.line.0 + display_offset as i32;
-        if row < 0 {
-            continue;
+    let iter_start = Point::new(Line(iter_start_line - 1), grid.last_column());
+    for indexed in grid.iter_from(iter_start) {
+        if indexed.point.line.0 > iter_end_line {
+            break;
         }
-        let row = row as usize;
+        let row = indexed.point.line.0 - visible_top;
         let col = indexed.point.column.0;
-        if row >= rows || col >= cols {
+        if row < -(overscan_top_rows as i32)
+            || row >= rows as i32 + overscan_bottom_rows as i32
+            || col >= cols
+        {
             continue;
         }
         if indexed
@@ -233,7 +317,9 @@ fn headless_screen_snapshot(
             hidden: style.flags.contains(Flags::HIDDEN),
             strikeout: style.flags.contains(Flags::STRIKEOUT),
         });
-        rows_cells[row][col] = Some(HeadlessScreenCell { text, width, style });
+        if (0..rows as i32).contains(&row) {
+            rows_cells[row as usize][col] = Some(HeadlessScreenCell { text, width, style });
+        }
     }
 
     let mut output = String::new();
@@ -276,19 +362,37 @@ fn headless_screen_snapshot(
     let mut snapshot_cursor = TerminalScreenCursorSnapshot {
         row: 0,
         col: 0,
-        visible: cursor_visible,
+        visible: false,
+        shape: terminal_screen_cursor_shape(cursor.shape),
     };
-    if cursor_row >= 0 {
-        let cursor_row = (cursor_row as usize).min(rows.saturating_sub(1));
+    if cursor_row >= 0 && (cursor_row as usize) < rows {
+        let cursor_row = cursor_row as usize;
         let cursor_col = cursor.point.column.0.min(cols.saturating_sub(1));
         snapshot_cursor.row = cursor_row;
         snapshot_cursor.col = cursor_col;
+        snapshot_cursor.visible = cursor_visible;
         output.push_str(&format!("\x1b[{};{}H", cursor_row + 1, cursor_col + 1));
     }
-    if cursor_visible {
+    if snapshot_cursor.visible {
         output.push_str("\x1b[?25h");
     }
-    (output, snapshot_cells, snapshot_cursor)
+    (
+        output,
+        snapshot_cells,
+        snapshot_cursor,
+        overscan_top_rows,
+        overscan_bottom_rows,
+    )
+}
+
+fn terminal_screen_cursor_shape(shape: CursorShape) -> TerminalScreenCursorShape {
+    match shape {
+        CursorShape::Block => TerminalScreenCursorShape::Block,
+        CursorShape::Beam => TerminalScreenCursorShape::Beam,
+        CursorShape::Underline => TerminalScreenCursorShape::Underline,
+        CursorShape::HollowBlock => TerminalScreenCursorShape::HollowBlock,
+        CursorShape::Hidden => TerminalScreenCursorShape::Block,
+    }
 }
 
 #[derive(Clone)]
@@ -473,5 +577,45 @@ mod tests {
 
         screen.scroll_to_bottom();
         assert_eq!(screen.snapshot().display_offset, 0);
+    }
+
+    #[test]
+    fn hides_cursor_when_current_input_row_is_outside_viewport() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
+        let bottom = screen.snapshot();
+        assert!(bottom.cursor.visible);
+
+        screen.scroll_lines(2);
+        let scrolled = screen.snapshot();
+
+        assert_eq!(scrolled.display_offset, 2);
+        assert!(!scrolled.cursor.visible);
+    }
+
+    #[test]
+    fn pixel_scroll_keeps_fractional_offset_and_overscan_rows() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix");
+
+        screen.scroll_pixels(7.0, 10.0);
+        let partial = screen.snapshot();
+        assert_eq!(partial.display_offset, 0);
+        assert_eq!(partial.scroll_pixel_offset, 7.0);
+
+        screen.scroll_pixels(6.0, 10.0);
+        let scrolled = screen.snapshot();
+        assert!(scrolled.display_offset > 0);
+        assert_eq!(scrolled.scroll_pixel_offset, 3.0);
+        assert!(scrolled.overscan_top_rows > 0 || scrolled.overscan_bottom_rows > 0);
+        assert!(
+            scrolled
+                .cells
+                .iter()
+                .any(|cell| cell.row < 0 || cell.row >= 4)
+        );
+
+        screen.settle_pixel_scroll();
+        assert_eq!(screen.snapshot().scroll_pixel_offset, 3.0);
     }
 }

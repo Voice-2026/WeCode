@@ -134,4 +134,37 @@ void main() {
     expect(screen.data, isNot(contains('partial live raw')));
     expect(screen.data, isNot(contains('old screen')));
   });
+
+  test('remote pty session owns pixel viewport and overscan state', () {
+    final session = RemotePtySession<String>('session-1', maxCachedChars: 200);
+    session.resizeScreen(cols: 20, rows: 8);
+    final content = List.generate(
+      12,
+      (index) => 'line ${index + 1}',
+    ).join('\r\n');
+
+    session.replaceFromBaseline(
+      content: content,
+      bufferLength: content.length,
+      sequence: 1,
+    );
+    session.scrollScreenPixels(pixels: 7, cellHeight: 10);
+
+    var screen = session.screenSnapshot();
+    expect(screen.displayOffset, 0);
+    expect(screen.scrollPixelOffset, 7);
+
+    session.scrollScreenPixels(pixels: 6, cellHeight: 10);
+    screen = session.screenSnapshot();
+
+    expect(screen.displayOffset, greaterThan(0));
+    expect(screen.scrollPixelOffset, 3);
+    expect(
+      screen.cells.any((cell) => cell.row < 0 || cell.row >= screen.rows),
+      isTrue,
+    );
+
+    session.settleScreenPixelScroll();
+    expect(session.screenSnapshot().scrollPixelOffset, 3);
+  });
 }

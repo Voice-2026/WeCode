@@ -80,6 +80,14 @@ impl<T> RemotePtySession<T> {
         self.screen.scroll_lines(lines);
     }
 
+    pub fn scroll_screen_pixels(&mut self, pixels: f64, cell_height: f64) {
+        self.screen.scroll_pixels(pixels, cell_height);
+    }
+
+    pub fn settle_screen_pixel_scroll(&mut self) {
+        self.screen.settle_pixel_scroll();
+    }
+
     pub fn scroll_screen_to_bottom(&mut self) {
         self.screen.scroll_to_bottom();
     }

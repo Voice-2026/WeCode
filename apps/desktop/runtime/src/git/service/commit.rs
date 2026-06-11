@@ -46,10 +46,10 @@ impl GitService {
         create_commit_git2(&repo, message, false)?;
         match action {
             "commit" => Ok(()),
-            "commitAndPush" => push_current_branch_git2(&repo, None, false, None),
+            "commitAndPush" => push_current_branch_system_git(&repo, None, false, None),
             "commitAndSync" => {
-                pull_current_branch_git2(&repo, None)?;
-                push_current_branch_git2(&repo, None, false, None)
+                pull_current_branch_system_git(&repo, None)?;
+                push_current_branch_system_git(&repo, None, false, None)
             }
             _ => Err(format!("Unknown commit action: {action}")),
         }

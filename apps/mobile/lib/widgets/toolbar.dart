@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
+
 import '../i18n.dart';
 import '../theme/app_theme.dart';
 
@@ -12,6 +14,7 @@ class Toolbar extends StatefulWidget {
     required this.onCopy,
     required this.onUpload,
     required this.onVoiceInput,
+    required this.applicationCursor,
     required this.keyboardVisible,
     required this.uploading,
     required this.bottomInset,
@@ -23,6 +26,7 @@ class Toolbar extends StatefulWidget {
   final VoidCallback onCopy;
   final VoidCallback onUpload;
   final VoidCallback onVoiceInput;
+  final bool applicationCursor;
   final bool keyboardVisible;
   final bool uploading;
   final double bottomInset;
@@ -37,51 +41,28 @@ class _ToolbarState extends State<Toolbar> {
   bool _shift = false;
   bool _alt = false;
 
-  static const _arrowMap = {
-    '\u001b[A': 'A',
-    '\u001b[B': 'B',
-    '\u001b[C': 'C',
-    '\u001b[D': 'D',
-  };
-
-  String _resolve(String data) {
-    if (data == '\t' && _shift) return '\u001b[Z';
-    if (data == '\r' && _shift) return '\n';
-    final arrow = _arrowMap[data];
-    if (arrow != null) return _encodeModified(arrow);
-    if (_ctrl && data.length == 1) {
-      final code = data.toLowerCase().codeUnitAt(0);
-      if (code >= 97 && code <= 122) return String.fromCharCode(code - 96);
-    }
-    if (_alt) return '\u001b$data';
-    return data;
+  void _clearModifiers() {
+    if (!_ctrl && !_shift && !_alt) return;
+    setState(() {
+      _ctrl = false;
+      _shift = false;
+      _alt = false;
+    });
   }
 
-  String _encodeModified(String suffix) {
-    final modifier = (_shift ? 1 : 0) + (_alt ? 2 : 0) + (_ctrl ? 4 : 0);
-    if (modifier > 0) return '\u001b[1;${modifier + 1}$suffix';
-    return suffix == 'A'
-        ? '\u001b[A'
-        : suffix == 'B'
-        ? '\u001b[B'
-        : suffix == 'C'
-        ? '\u001b[C'
-        : suffix == 'D'
-        ? '\u001b[D'
-        : suffix == 'H'
-        ? '\u001b[H'
-        : '\u001b[F';
-  }
-
-  void _send(String data) {
-    widget.onSendKey(_resolve(data));
-    if (_ctrl || _shift || _alt) {
-      setState(() {
-        _ctrl = false;
-        _shift = false;
-        _alt = false;
-      });
-    }
+  void _send(String key, {String keyChar = ''}) {
+    final input = keyChar.isNotEmpty && !_ctrl && !_shift && !_alt
+        ? terminalTextInput(keyChar)
+        : terminalKeyInput(
+            key: key,
+            keyChar: keyChar,
+            shift: _shift,
+            alt: _alt,
+            control: _ctrl,
+            applicationCursor: widget.applicationCursor,
+          );
+    widget.onSendKey(input);
+    _clearModifiers();
   }
 
   @override
@@ -91,12 +72,12 @@ class _ToolbarState extends State<Toolbar> {
       _ToolItem(
         label: 'esc',
         kind: _ToolKind.special,
-        onTap: () => _send('\u001b'),
+        onTap: () => _send('escape'),
       ),
       _ToolItem(
         label: 'tab',
         kind: _ToolKind.special,
-        onTap: () => _send('\t'),
+        onTap: () => _send('tab'),
       ),
       _ToolItem(
         icon: Icons.mic_none_rounded,
@@ -128,27 +109,30 @@ class _ToolbarState extends State<Toolbar> {
         label: '↑',
         kind: _ToolKind.icon,
         repeatable: true,
-        onTap: () => _send('\u001b[A'),
+        onTap: () => _send('up'),
       ),
       _ToolItem(
         icon: Icons.backspace_outlined,
         label: 'del',
         kind: _ToolKind.special,
         repeatable: true,
-        onTap: () => _send('\u007f'),
+        onTap: () => _send('backspace'),
       ),
       _ToolItem(
         icon: Icons.keyboard_return_rounded,
         label: prefs.t('toolbar.enter'),
         kind: _ToolKind.enter,
-        onTap: () => _send('\r'),
+        onTap: () => _send('enter'),
       ),
     ];
     final row2 = [
       _ToolItem(
         label: '^C',
         kind: _ToolKind.danger,
-        onTap: () => _send('\u0003'),
+        onTap: () {
+          widget.onSendKey(terminalKeyInput(key: 'c', control: true));
+          _clearModifiers();
+        },
       ),
       _ToolItem(
         label: 'ctrl',
@@ -168,27 +152,31 @@ class _ToolbarState extends State<Toolbar> {
         active: _alt,
         onTap: () => setState(() => _alt = !_alt),
       ),
-      _ToolItem(label: '/', kind: _ToolKind.special, onTap: () => _send('/')),
+      _ToolItem(
+        label: '/',
+        kind: _ToolKind.special,
+        onTap: () => _send('/', keyChar: '/'),
+      ),
       _ToolItem(
         icon: Icons.keyboard_arrow_left_rounded,
         label: '←',
         kind: _ToolKind.icon,
         repeatable: true,
-        onTap: () => _send('\u001b[D'),
+        onTap: () => _send('left'),
       ),
       _ToolItem(
         icon: Icons.keyboard_arrow_down_rounded,
         label: '↓',
         kind: _ToolKind.icon,
         repeatable: true,
-        onTap: () => _send('\u001b[B'),
+        onTap: () => _send('down'),
       ),
       _ToolItem(
         icon: Icons.keyboard_arrow_right_rounded,
         label: '→',
         kind: _ToolKind.icon,
         repeatable: true,
-        onTap: () => _send('\u001b[C'),
+        onTap: () => _send('right'),
       ),
       _ToolItem(
         icon: widget.keyboardVisible

@@ -148,6 +148,48 @@ void main() {
     expect(summary['stunCount'], 1);
   });
 
+  test('Rust FFI terminal input normalizes IME committed text', () {
+    expect(codux_protocol_ffi.terminalTextInput('abc'), 'abc');
+    expect(codux_protocol_ffi.terminalTextInput('你好かな한글'), '你好かな한글');
+    expect(codux_protocol_ffi.terminalTextInput('\u0008'), '\u007f');
+    expect(codux_protocol_ffi.terminalTextInput('\n'), '\r');
+    expect(codux_protocol_ffi.terminalTextInput('a\u{f700}b'), 'ab');
+    expect(codux_protocol_ffi.terminalInsertInput('\u007f'), '\u007f');
+    expect(
+      codux_protocol_ffi.terminalInsertInput('paste\ntext'),
+      '\u001b[200~paste\ntext\u001b[201~',
+    );
+  });
+
+  test('Rust FFI terminal input maps special keys and app cursor mode', () {
+    expect(codux_protocol_ffi.terminalKeyInput(key: 'backspace'), '\u007f');
+    expect(codux_protocol_ffi.terminalKeyInput(key: 'enter'), '\r');
+    expect(codux_protocol_ffi.terminalKeyInput(key: 'up'), '\u001b[A');
+    expect(
+      codux_protocol_ffi.terminalKeyInput(key: 'up', applicationCursor: true),
+      '\u001bOA',
+    );
+    expect(
+      codux_protocol_ffi.terminalKeyInputBytes(key: 'space', control: true),
+      [0],
+    );
+    expect(
+      codux_protocol_ffi.terminalSelectorInput(selector: 'deleteBackward:'),
+      '\u007f',
+    );
+    expect(
+      codux_protocol_ffi.terminalSelectorInput(selector: 'moveLeft:'),
+      '\u001b[D',
+    );
+    expect(
+      codux_protocol_ffi.terminalSelectorInput(
+        selector: 'moveLeft:',
+        applicationCursor: true,
+      ),
+      '\u001bOD',
+    );
+  });
+
   test('Rust FFI terminal core owns remote pty baseline state', () {
     final session = codux_protocol_ffi.TerminalCoreSession(
       sessionId: 'session-1',
@@ -260,6 +302,31 @@ void main() {
       expect(screen.data, contains('restored tui'));
       expect(screen.data, isNot(contains('partial live raw')));
       expect(screen.data, isNot(contains('old screen')));
+    } finally {
+      session.dispose();
+    }
+  });
+
+  test('Rust FFI terminal core exposes cursor shape', () {
+    final session = codux_protocol_ffi.TerminalCoreSession(
+      sessionId: 'session-1',
+      maxCachedChars: 100,
+    );
+    try {
+      session.replaceFromBaseline(
+        content: 'cursor',
+        screenData: '\u001b[2J\u001b[H\u001b]50;CursorShape=1\u0007cursor',
+        bufferLength: 6,
+        sequence: 1,
+      );
+
+      final screen = session.screenSnapshot();
+
+      expect(screen.cursor.visible, isTrue);
+      expect(
+        screen.cursor.shape,
+        codux_protocol_ffi.TerminalScreenCursorShape.beam,
+      );
     } finally {
       session.dispose();
     }

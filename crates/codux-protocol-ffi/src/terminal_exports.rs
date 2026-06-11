@@ -1,16 +1,88 @@
 use crate::common::{
-    FfiRemotePtySession, c_to_string, optional_sequence, optional_usize, remote_sequence_guard_mut,
-    string_to_c, terminal_buffer_assembler_mut, terminal_output_sequencer_mut,
-    terminal_output_sequencer_ref, terminal_screen_mut, terminal_screen_ref, terminal_session_mut,
-    terminal_session_ref,
+    FfiRemotePtySession, c_to_string, clean_ffi_string, optional_sequence, optional_usize,
+    remote_sequence_guard_mut, string_to_c, terminal_buffer_assembler_mut,
+    terminal_output_sequencer_mut, terminal_output_sequencer_ref, terminal_screen_mut,
+    terminal_screen_ref, terminal_session_mut, terminal_session_ref,
 };
 use codux_terminal_core::{
     HeadlessTerminalScreen, RemotePtySession, RemoteSequenceGuard, TerminalBufferAssembler,
-    TerminalOutputSequencer,
+    TerminalInputMode, TerminalKeyInput, TerminalKeyInputModifiers, TerminalOutputSequencer,
+    terminal_insert_input_bytes, terminal_key_input_bytes, terminal_selector_input_bytes,
+    terminal_text_input_bytes,
 };
 use serde_json::json;
 use std::ffi::c_char;
 use std::ptr;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_text_input_json(text: *const c_char) -> *mut c_char {
+    let Some(text) = c_to_string(text) else {
+        return ptr::null_mut();
+    };
+    let bytes = terminal_text_input_bytes(&text);
+    terminal_input_json(bytes)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_insert_input_json(text: *const c_char) -> *mut c_char {
+    let Some(text) = c_to_string(text) else {
+        return ptr::null_mut();
+    };
+    let bytes = terminal_insert_input_bytes(&text);
+    terminal_input_json(bytes)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_key_input_json(
+    key: *const c_char,
+    key_char: *const c_char,
+    shift: bool,
+    alt: bool,
+    control: bool,
+    platform: bool,
+    application_cursor: bool,
+) -> *mut c_char {
+    let Some(key) = c_to_string(key) else {
+        return ptr::null_mut();
+    };
+    let key_char = clean_ffi_string(c_to_string(key_char));
+    let bytes = terminal_key_input_bytes(TerminalKeyInput {
+        key: &key,
+        key_char: key_char.as_deref(),
+        modifiers: TerminalKeyInputModifiers {
+            shift,
+            alt,
+            control,
+            platform,
+        },
+        mode: TerminalInputMode { application_cursor },
+    })
+    .unwrap_or_default();
+    terminal_input_json(bytes)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_selector_input_json(
+    selector: *const c_char,
+    application_cursor: bool,
+) -> *mut c_char {
+    let Some(selector) = c_to_string(selector) else {
+        return ptr::null_mut();
+    };
+    let bytes = terminal_selector_input_bytes(&selector, TerminalInputMode { application_cursor })
+        .unwrap_or_default();
+    terminal_input_json(bytes)
+}
+
+fn terminal_input_json(bytes: Vec<u8>) -> *mut c_char {
+    string_to_c(
+        json!({
+            "input": String::from_utf8_lossy(&bytes),
+            "bytes": bytes,
+        })
+        .to_string(),
+    )
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn codux_terminal_session_new(
@@ -96,6 +168,28 @@ pub extern "C" fn codux_terminal_session_scroll_screen_lines(
         i32::MAX
     });
     session.scroll_screen_lines(lines);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_session_scroll_screen_pixels(
+    session: *mut FfiRemotePtySession,
+    pixels: f64,
+    cell_height: f64,
+) {
+    let Some(session) = terminal_session_mut(session) else {
+        return;
+    };
+    session.scroll_screen_pixels(pixels, cell_height);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_session_settle_screen_pixel_scroll(
+    session: *mut FfiRemotePtySession,
+) {
+    let Some(session) = terminal_session_mut(session) else {
+        return;
+    };
+    session.settle_screen_pixel_scroll();
 }
 
 #[unsafe(no_mangle)]

@@ -1,28 +1,28 @@
 impl GitService {
     pub fn fetch(project_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
-        fetch_all_remotes_git2(&repo, None)
+        fetch_all_remotes_system_git(&repo, None)
     }
 
     pub fn pull(project_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
-        pull_current_branch_git2(&repo, None)
+        pull_current_branch_system_git(&repo, None)
     }
 
     pub fn push(project_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
-        push_current_branch_git2(&repo, None, false, None)
+        push_current_branch_system_git(&repo, None, false, None)
     }
 
     pub fn force_push(project_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
-        push_current_branch_git2(&repo, None, true, None)
+        push_current_branch_system_git(&repo, None, true, None)
     }
 
     pub fn sync(project_path: &str) -> Result<(), String> {
         let repo = open_git_repository(project_path)?;
-        pull_current_branch_git2(&repo, None)?;
-        push_current_branch_git2(&repo, None, false, None)
+        pull_current_branch_system_git(&repo, None)?;
+        push_current_branch_system_git(&repo, None, false, None)
     }
 
     pub fn push_remote(project_path: &str, remote: &str) -> Result<(), String> {
@@ -31,7 +31,7 @@ impl GitService {
             return Err("Remote name cannot be empty.".to_string());
         }
         let repo = open_git_repository(project_path)?;
-        push_current_branch_git2(&repo, Some(remote), false, None)
+        push_current_branch_system_git(&repo, Some(remote), false, None)
     }
 
     pub fn push_remote_branch(
@@ -56,7 +56,7 @@ impl GitService {
             return Err("Cannot push detached HEAD to a remote branch.".to_string());
         }
         let refspec = format!("{branch}:{branch_name}");
-        push_refspec_git2(&repo, remote, &refspec, None)
+        push_refspec_system_git(&repo, remote, &refspec, None)
     }
 
     pub fn add_remote(project_path: &str, name: &str, url: &str) -> Result<(), String> {

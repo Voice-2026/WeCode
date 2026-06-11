@@ -29,7 +29,7 @@ impl GitService {
             return Err("Remote URL cannot be empty.".to_string());
         }
         let project_path = Path::new(project_path.trim());
-        clone_repository_git2(remote_url, project_path)
+        clone_repository_system_git(remote_url, project_path)
     }
 
     pub fn clone_repository_with_credentials(

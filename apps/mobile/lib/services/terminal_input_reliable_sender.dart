@@ -38,7 +38,7 @@ class TerminalInputReliableSender {
   }) {
     if (sessionId.isEmpty || data.isEmpty) return false;
     final inputId = '${DateTime.now().microsecondsSinceEpoch}-${++_seq}';
-    CoduxLog.debug(
+    CoduxLog.info(
       '[codux-flutter-input] source=$source id=$inputId bytes=${data.codeUnits.length} session=$sessionId',
     );
     _pending[inputId] = _PendingTerminalInput(

@@ -72,7 +72,7 @@ impl GitService {
         let repo = open_git_repository(project_path)?;
         hard_reset_git2(&repo, commit)?;
         if force_remote {
-            push_current_branch_git2(&repo, None, true, None)?;
+            push_current_branch_system_git(&repo, None, true, None)?;
         }
         Ok(())
     }

@@ -453,13 +453,10 @@ impl TerminalModel {
     }
 
     fn paste_text(&self, text: &str) {
-        if self.mode().contains(TermMode::BRACKETED_PASTE) {
-            self.write_bytes(b"\x1b[200~");
-            self.write_bytes(text.replace("\r\n", "\n").replace('\r', "\n").as_bytes());
-            self.write_bytes(b"\x1b[201~");
-        } else {
-            self.write_bytes(text.as_bytes());
-        }
+        self.write_bytes(&codux_terminal_core::terminal_paste_input_bytes(
+            text,
+            self.mode().contains(TermMode::BRACKETED_PASTE),
+        ));
     }
 
     fn report_focus_change(&self, focused: bool) {

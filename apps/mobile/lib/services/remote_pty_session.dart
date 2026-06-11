@@ -60,6 +60,17 @@ class RemotePtySession<T> {
     _core.scrollScreenLines(lines);
   }
 
+  void scrollScreenPixels({
+    required double pixels,
+    required double cellHeight,
+  }) {
+    _core.scrollScreenPixels(pixels: pixels, cellHeight: cellHeight);
+  }
+
+  void settleScreenPixelScroll() {
+    _core.settleScreenPixelScroll();
+  }
+
   void scrollScreenToBottom() {
     _core.scrollScreenToBottom();
   }
@@ -213,6 +224,21 @@ class RemotePtySessionStore<T> {
 
   void scrollScreenLines(String sessionId, int lines) {
     _sessions[sessionId]?.scrollScreenLines(lines);
+  }
+
+  void scrollScreenPixels(
+    String sessionId, {
+    required double pixels,
+    required double cellHeight,
+  }) {
+    _sessions[sessionId]?.scrollScreenPixels(
+      pixels: pixels,
+      cellHeight: cellHeight,
+    );
+  }
+
+  void settleScreenPixelScroll(String sessionId) {
+    _sessions[sessionId]?.settleScreenPixelScroll();
   }
 
   void scrollScreenToBottom(String sessionId) {

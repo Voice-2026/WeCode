@@ -10,12 +10,12 @@ final DynamicLibrary _dylib = _loadLibrary();
 
 DynamicLibrary _loadLibrary() {
   if (Platform.isMacOS || Platform.isIOS) {
-    final process = DynamicLibrary.process();
-    if (_hasRequiredSymbols(process)) return process;
     if (!Platform.isIOS) {
       final localPath = _localDevelopmentLibraryPath();
       if (localPath != null) return DynamicLibrary.open(localPath);
     }
+    final process = DynamicLibrary.process();
+    if (_hasRequiredSymbols(process)) return process;
     return process;
   }
   if (Platform.isAndroid || Platform.isLinux) {
@@ -60,8 +60,37 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
     library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
       'codux_terminal_session_screen_snapshot_json',
     );
+    library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>)>>(
+      'codux_terminal_text_input_json',
+    );
+    library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>)>>(
+      'codux_terminal_insert_input_json',
+    );
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+        )
+      >
+    >('codux_terminal_key_input_json');
+    library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Bool)>>(
+      'codux_terminal_selector_input_json',
+    );
     library.lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
       'codux_terminal_session_scroll_screen_lines',
+    );
+    library
+        .lookup<NativeFunction<Void Function(Pointer<Void>, Double, Double)>>(
+          'codux_terminal_session_scroll_screen_pixels',
+        );
+    library.lookup<NativeFunction<Void Function(Pointer<Void>)>>(
+      'codux_terminal_session_settle_screen_pixel_scroll',
     );
     library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>)>>(
       'codux_protocol_transport_kind',
@@ -279,6 +308,42 @@ final _terminalSessionScreenSnapshotJson = _dylib
       Pointer<Utf8> Function(Pointer<Void>),
       Pointer<Utf8> Function(Pointer<Void>)
     >('codux_terminal_session_screen_snapshot_json');
+final _terminalTextInputJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Utf8>)
+    >('codux_terminal_text_input_json');
+final _terminalInsertInputJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Utf8>)
+    >('codux_terminal_insert_input_json');
+final _terminalKeyInputJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+      ),
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+      )
+    >('codux_terminal_key_input_json');
+final _terminalSelectorInputJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Utf8>, Bool),
+      Pointer<Utf8> Function(Pointer<Utf8>, bool)
+    >('codux_terminal_selector_input_json');
 final _terminalSessionResizeScreen = _dylib
     .lookupFunction<
       Void Function(Pointer<Void>, Int64, Int64),
@@ -289,6 +354,15 @@ final _terminalSessionScrollScreenLines = _dylib
       Void Function(Pointer<Void>, Int64),
       void Function(Pointer<Void>, int)
     >('codux_terminal_session_scroll_screen_lines');
+final _terminalSessionScrollScreenPixels = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Double, Double),
+      void Function(Pointer<Void>, double, double)
+    >('codux_terminal_session_scroll_screen_pixels');
+final _terminalSessionSettleScreenPixelScroll = _dylib
+    .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+      'codux_terminal_session_settle_screen_pixel_scroll',
+    );
 final _terminalSessionScrollScreenToBottom = _dylib
     .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
       'codux_terminal_session_scroll_screen_to_bottom',
@@ -351,11 +425,6 @@ final _terminalSessionReplaceFromBaselineScreenJson = _dylib
         int,
       )
     >('codux_terminal_session_replace_from_baseline_screen_json');
-final _terminalSessionAppendLive = _dylib
-    .lookupFunction<
-      Void Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64),
-      void Function(Pointer<Void>, Pointer<Utf8>, int, int)
-    >('codux_terminal_session_append_live');
 final _terminalSessionAppendLiveScreen = _dylib
     .lookupFunction<
       Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Int64, Int64),
@@ -844,6 +913,107 @@ Map<String, dynamic> resourceUnsubscribeEnvelope({
   }
 }
 
+String terminalTextInput(String text) {
+  final textPtr = text.toNativeUtf8();
+  try {
+    return _terminalInputFromJson(_terminalTextInputJson(textPtr));
+  } finally {
+    malloc.free(textPtr);
+  }
+}
+
+String terminalInsertInput(String text) {
+  final textPtr = text.toNativeUtf8();
+  try {
+    return _terminalInputFromJson(_terminalInsertInputJson(textPtr));
+  } finally {
+    malloc.free(textPtr);
+  }
+}
+
+String terminalKeyInput({
+  required String key,
+  String keyChar = '',
+  bool shift = false,
+  bool alt = false,
+  bool control = false,
+  bool platform = false,
+  bool applicationCursor = false,
+}) {
+  final keyPtr = key.toNativeUtf8();
+  final keyCharPtr = keyChar.toNativeUtf8();
+  try {
+    return _terminalInputFromJson(
+      _terminalKeyInputJson(
+        keyPtr,
+        keyCharPtr,
+        shift,
+        alt,
+        control,
+        platform,
+        applicationCursor,
+      ),
+    );
+  } finally {
+    malloc.free(keyPtr);
+    malloc.free(keyCharPtr);
+  }
+}
+
+List<int> terminalKeyInputBytes({
+  required String key,
+  String keyChar = '',
+  bool shift = false,
+  bool alt = false,
+  bool control = false,
+  bool platform = false,
+  bool applicationCursor = false,
+}) {
+  final keyPtr = key.toNativeUtf8();
+  final keyCharPtr = keyChar.toNativeUtf8();
+  try {
+    final decoded = _decodeEnvelope(
+      _terminalKeyInputJson(
+        keyPtr,
+        keyCharPtr,
+        shift,
+        alt,
+        control,
+        platform,
+        applicationCursor,
+      ),
+    );
+    final bytes = decoded['bytes'];
+    return [
+      if (bytes is List)
+        for (final byte in bytes)
+          if (byte is num) byte.toInt(),
+    ];
+  } finally {
+    malloc.free(keyPtr);
+    malloc.free(keyCharPtr);
+  }
+}
+
+String terminalSelectorInput({
+  required String selector,
+  bool applicationCursor = false,
+}) {
+  final selectorPtr = selector.toNativeUtf8();
+  try {
+    return _terminalInputFromJson(
+      _terminalSelectorInputJson(selectorPtr, applicationCursor),
+    );
+  } finally {
+    malloc.free(selectorPtr);
+  }
+}
+
+String _terminalInputFromJson(Pointer<Utf8> pointer) {
+  final decoded = _decodeEnvelope(pointer);
+  return '${decoded['input'] ?? ''}';
+}
+
 class TerminalSessionSnapshot {
   const TerminalSessionSnapshot({
     required this.sessionId,
@@ -928,6 +1098,17 @@ class TerminalCoreSession {
 
   void scrollScreenLines(int lines) {
     _terminalSessionScrollScreenLines(_liveHandle(), lines);
+  }
+
+  void scrollScreenPixels({
+    required double pixels,
+    required double cellHeight,
+  }) {
+    _terminalSessionScrollScreenPixels(_liveHandle(), pixels, cellHeight);
+  }
+
+  void settleScreenPixelScroll() {
+    _terminalSessionSettleScreenPixelScroll(_liveHandle());
   }
 
   void scrollScreenToBottom() {
@@ -1056,6 +1237,10 @@ class TerminalScreenSnapshot {
     required this.cols,
     required this.rows,
     required this.displayOffset,
+    required this.scrollPixelOffset,
+    required this.overscanTopRows,
+    required this.overscanBottomRows,
+    required this.applicationCursor,
     required this.cells,
     required this.cursor,
   });
@@ -1064,6 +1249,10 @@ class TerminalScreenSnapshot {
   final int cols;
   final int rows;
   final int displayOffset;
+  final double scrollPixelOffset;
+  final int overscanTopRows;
+  final int overscanBottomRows;
+  final bool applicationCursor;
   final List<TerminalScreenCell> cells;
   final TerminalScreenCursor cursor;
 
@@ -1074,6 +1263,10 @@ class TerminalScreenSnapshot {
       cols: _jsonInt(json['cols']),
       rows: _jsonInt(json['rows']),
       displayOffset: _jsonInt(json['displayOffset']),
+      scrollPixelOffset: _jsonDouble(json['scrollPixelOffset']),
+      overscanTopRows: _jsonInt(json['overscanTopRows']),
+      overscanBottomRows: _jsonInt(json['overscanBottomRows']),
+      applicationCursor: json['applicationCursor'] == true,
       cells: [
         if (cells is List)
           for (final cell in cells)
@@ -1094,18 +1287,42 @@ class TerminalScreenCursor {
     required this.row,
     required this.col,
     required this.visible,
+    required this.shape,
   });
 
   final int row;
   final int col;
   final bool visible;
+  final TerminalScreenCursorShape shape;
 
   factory TerminalScreenCursor.fromJson(Map<String, dynamic> json) {
     return TerminalScreenCursor(
       row: _jsonInt(json['row']),
       col: _jsonInt(json['col']),
       visible: json['visible'] == true,
+      shape: TerminalScreenCursorShape.fromJson(json['shape']),
     );
+  }
+}
+
+enum TerminalScreenCursorShape {
+  block,
+  beam,
+  underline,
+  hollowBlock;
+
+  factory TerminalScreenCursorShape.fromJson(Object? value) {
+    switch ('$value') {
+      case 'beam':
+        return TerminalScreenCursorShape.beam;
+      case 'underline':
+        return TerminalScreenCursorShape.underline;
+      case 'hollowBlock':
+        return TerminalScreenCursorShape.hollowBlock;
+      case 'block':
+      default:
+        return TerminalScreenCursorShape.block;
+    }
   }
 }
 
@@ -1817,6 +2034,12 @@ int _jsonInt(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse('${value ?? ''}') ?? 0;
+}
+
+double _jsonDouble(Object? value) {
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  return double.tryParse('${value ?? ''}') ?? 0.0;
 }
 
 String? _nullableString(Object? value) {

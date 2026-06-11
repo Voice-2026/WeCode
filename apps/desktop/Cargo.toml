@@ -8,6 +8,7 @@ anyhow = "1"
 alacritty_terminal = "0.25.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 codux-runtime = { path = "runtime" }
+codux-terminal-core = { path = "../../crates/codux-terminal-core" }
 flume = "0.12"
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }

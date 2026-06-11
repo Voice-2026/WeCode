@@ -195,7 +195,7 @@ pub fn git_fetch_with_cancel(
 ) -> Result<GitStatusSnapshot, String> {
     let repo = open_git_repository(&project_path)?;
     let root = repo_root(&repo).display().to_string();
-    fetch_all_remotes_git2(&repo, cancel.as_ref())?;
+    fetch_all_remotes_system_git(&repo, cancel.as_ref())?;
     Ok(git_status(root))
 }
 
@@ -205,8 +205,8 @@ pub fn git_sync_with_cancel(
 ) -> Result<GitStatusSnapshot, String> {
     let repo = open_git_repository(&project_path)?;
     let root = repo_root(&repo).display().to_string();
-    pull_current_branch_git2(&repo, cancel.as_ref())?;
-    push_current_branch_git2(&repo, None, false, cancel.as_ref())?;
+    pull_current_branch_system_git(&repo, cancel.as_ref())?;
+    push_current_branch_system_git(&repo, None, false, cancel.as_ref())?;
     Ok(git_status(root))
 }
 
@@ -220,7 +220,7 @@ pub fn git_push_remote_with_cancel(
     }
     let repo = open_git_repository(&request.project_path)?;
     let root = repo_root(&repo).display().to_string();
-    push_current_branch_git2(&repo, Some(remote), false, cancel.as_ref())?;
+    push_current_branch_system_git(&repo, Some(remote), false, cancel.as_ref())?;
     Ok(git_status(root))
 }
 
@@ -248,7 +248,7 @@ pub fn git_push_remote_branch_with_cancel(
         return Err("Cannot push detached HEAD to a remote branch.".to_string());
     }
     let refspec = format!("{branch}:{branch_name}");
-    push_refspec_git2(&repo, remote, &refspec, cancel.as_ref())?;
+    push_refspec_system_git(&repo, remote, &refspec, cancel.as_ref())?;
     Ok(git_status(root))
 }
 
@@ -258,7 +258,7 @@ pub fn git_pull_with_cancel(
 ) -> Result<GitStatusSnapshot, String> {
     let repo = open_git_repository(&project_path)?;
     let root = repo_root(&repo).display().to_string();
-    pull_current_branch_git2(&repo, cancel.as_ref())?;
+    pull_current_branch_system_git(&repo, cancel.as_ref())?;
     Ok(git_status(root))
 }
 
@@ -268,7 +268,7 @@ pub fn git_push_with_cancel(
 ) -> Result<GitStatusSnapshot, String> {
     let repo = open_git_repository(&project_path)?;
     let root = repo_root(&repo).display().to_string();
-    push_current_branch_git2(&repo, None, false, cancel.as_ref())?;
+    push_current_branch_system_git(&repo, None, false, cancel.as_ref())?;
     Ok(git_status(root))
 }
 
@@ -278,7 +278,7 @@ pub fn git_force_push_with_cancel(
 ) -> Result<GitStatusSnapshot, String> {
     let repo = open_git_repository(&project_path)?;
     let root = repo_root(&repo).display().to_string();
-    push_current_branch_git2(&repo, None, true, cancel.as_ref())?;
+    push_current_branch_system_git(&repo, None, true, cancel.as_ref())?;
     Ok(git_status(root))
 }
 

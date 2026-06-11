@@ -1,12 +1,13 @@
-fn clone_repository_git2(remote_url: &str, project_path: &Path) -> Result<(), String> {
-    let mut fetch_options = git2::FetchOptions::new();
-    fetch_options.remote_callbacks(git_remote_callbacks(None));
-    let mut builder = git2::build::RepoBuilder::new();
-    builder.fetch_options(fetch_options);
-    builder
-        .clone(remote_url, project_path)
-        .map(|_| ())
-        .map_err(|error| error.message().to_string())
+use std::process::{Command, Stdio};
+
+fn clone_repository_system_git(remote_url: &str, project_path: &Path) -> Result<(), String> {
+    let Some(parent) = project_path.parent().filter(|path| !path.as_os_str().is_empty()) else {
+        return Err("Project path must include a parent directory.".to_string());
+    };
+    let Some(name) = project_path.file_name().and_then(|value| value.to_str()) else {
+        return Err("Project path must include a directory name.".to_string());
+    };
+    run_system_git(parent, &["clone", remote_url, name], None)
 }
 
 fn clone_repository_git2_with_credentials(
@@ -24,34 +25,14 @@ fn clone_repository_git2_with_credentials(
         .map_err(|error| error.message().to_string())
 }
 
-fn fetch_all_remotes_git2(
+fn fetch_all_remotes_system_git(
     repo: &GitRepository,
     cancel: Option<&GitCancelToken>,
 ) -> Result<(), String> {
-    let names = repo.remotes().map_err(|error| error.message().to_string())?;
-    for name in names.iter().flatten().flatten() {
-        check_git_cancelled(cancel)?;
-        fetch_remote_git2(repo, name, cancel)?;
-    }
-    Ok(())
+    run_system_git(repo_root(repo), &["fetch", "--all"], cancel)
 }
 
-fn fetch_remote_git2(
-    repo: &GitRepository,
-    remote_name: &str,
-    cancel: Option<&GitCancelToken>,
-) -> Result<(), String> {
-    let mut remote = repo
-        .find_remote(remote_name)
-        .map_err(|error| error.message().to_string())?;
-    let mut options = git2::FetchOptions::new();
-    options.remote_callbacks(git_remote_callbacks(cancel.cloned()));
-    remote
-        .fetch(&[] as &[&str], Some(&mut options), None)
-        .map_err(git_error_message)
-}
-
-fn pull_current_branch_git2(
+fn pull_current_branch_system_git(
     repo: &GitRepository,
     cancel: Option<&GitCancelToken>,
 ) -> Result<(), String> {
@@ -60,7 +41,7 @@ fn pull_current_branch_git2(
     if branch_name == "HEAD" || branch_name == "uninitialized" {
         return Err("Cannot pull detached HEAD.".to_string());
     }
-    let mut branch = repo
+    let branch = repo
         .find_branch(&branch_name, git2::BranchType::Local)
         .map_err(|error| error.message().to_string())?;
     let upstream = branch
@@ -72,70 +53,17 @@ fn pull_current_branch_git2(
         .flatten()
         .ok_or_else(|| "The upstream branch name is invalid.".to_string())?
         .to_string();
-    let remote_name = upstream_name
+    upstream_name
         .split_once('/')
         .map(|(remote, _)| remote)
         .ok_or_else(|| "The upstream branch is missing a remote name.".to_string())?;
-    fetch_remote_git2(repo, remote_name, cancel)?;
+    run_system_git(repo_root(repo), &["pull", "--rebase"], cancel)?;
     check_git_cancelled(cancel)?;
-    branch = repo
-        .find_branch(&branch_name, git2::BranchType::Local)
-        .map_err(|error| error.message().to_string())?;
-    let local_oid = branch
-        .get()
-        .target()
-        .ok_or_else(|| "The current branch target is invalid.".to_string())?;
-    let upstream_ref = repo
-        .find_reference(&format!("refs/remotes/{upstream_name}"))
-        .map_err(|error| error.message().to_string())?;
-    let upstream_oid = upstream_ref
-        .target()
-        .ok_or_else(|| "The upstream target is invalid.".to_string())?;
-    let (ahead, behind) = repo
-        .graph_ahead_behind(local_oid, upstream_oid)
-        .map_err(|error| error.message().to_string())?;
-    if behind == 0 {
-        return Ok(());
-    }
-    if ahead > 0 {
-        return rebase_current_branch_git2(repo, upstream_oid, cancel);
-    }
-    fast_forward_head(repo, upstream_oid)
+    let _ = branch;
+    Ok(())
 }
 
-fn rebase_current_branch_git2(
-    repo: &GitRepository,
-    upstream_oid: git2::Oid,
-    cancel: Option<&GitCancelToken>,
-) -> Result<(), String> {
-    let upstream = repo
-        .find_annotated_commit(upstream_oid)
-        .map_err(git_error_message)?;
-    let mut options = git2::RebaseOptions::new();
-    let mut rebase = repo
-        .rebase(None, Some(&upstream), None, Some(&mut options))
-        .map_err(git_error_message)?;
-    let signature = repo_signature(repo)?;
-    while let Some(operation) = rebase.next() {
-        check_git_cancelled(cancel)?;
-        operation.map_err(git_error_message)?;
-        if repo
-            .index()
-            .map_err(git_error_message)?
-            .has_conflicts()
-        {
-            return Err("Pull rebase produced conflicts. Resolve them manually.".to_string());
-        }
-        rebase
-            .commit(None, &signature, None)
-            .map_err(git_error_message)?;
-    }
-    rebase
-        .finish(Some(&signature))
-        .map_err(git_error_message)
-}
-
-fn push_current_branch_git2(
+fn push_current_branch_system_git(
     repo: &GitRepository,
     remote_override: Option<&str>,
     force: bool,
@@ -156,29 +84,80 @@ fn push_current_branch_git2(
     } else {
         format!("refs/heads/{branch}:refs/heads/{branch}")
     };
-    push_refspec_git2(repo, &remote, &refspec, cancel)?;
+    push_refspec_system_git(repo, &remote, &refspec, cancel)?;
     if let Ok(mut branch_ref) = repo.find_branch(&branch, git2::BranchType::Local) {
         let _ = branch_ref.set_upstream(Some(&format!("{remote}/{branch}")));
     }
     Ok(())
 }
 
-fn push_refspec_git2(
+fn push_refspec_system_git(
     repo: &GitRepository,
     remote_name: &str,
     refspec: &str,
     cancel: Option<&GitCancelToken>,
 ) -> Result<(), String> {
     check_git_cancelled(cancel)?;
-    let mut remote = repo
-        .find_remote(remote_name)
-        .map_err(|error| error.message().to_string())?;
-    let mut options = git2::PushOptions::new();
-    options.remote_callbacks(git_remote_callbacks(cancel.cloned()));
-    remote
-        .push(&[refspec], Some(&mut options))
-        .map_err(git_error_message)?;
-    check_git_cancelled(cancel)
+    run_system_git(repo_root(repo), &["push", remote_name, refspec], cancel)
+}
+
+fn run_system_git(
+    working_dir: &Path,
+    args: &[&str],
+    cancel: Option<&GitCancelToken>,
+) -> Result<(), String> {
+    check_git_cancelled(cancel)?;
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(&working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("Failed to start system git: {error}"))?;
+
+    loop {
+        check_git_cancelled_with_child(cancel, &mut child)?;
+        match child
+            .try_wait()
+            .map_err(|error| format!("Failed to wait for system git: {error}"))?
+        {
+            Some(_) => break,
+            None => thread::sleep(Duration::from_millis(60)),
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("Failed to read system git output: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(normalize_git_error_message(&system_git_output_message(&output)))
+}
+
+fn check_git_cancelled_with_child(
+    cancel: Option<&GitCancelToken>,
+    child: &mut std::process::Child,
+) -> Result<(), String> {
+    if is_git_cancelled(cancel) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("Git operation cancelled.".to_string());
+    }
+    Ok(())
+}
+
+fn system_git_output_message(output: &std::process::Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if !stderr.is_empty() {
+        return stderr;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stdout.is_empty() {
+        return stdout;
+    }
+    format!("System git failed with status {}.", output.status)
 }
 
 fn fast_forward_head(repo: &GitRepository, target: git2::Oid) -> Result<(), String> {
@@ -220,10 +199,6 @@ fn first_remote_name(repo: &GitRepository) -> Option<String> {
         .flatten()
         .next()
         .map(str::to_string)
-}
-
-fn git_remote_callbacks<'a>(cancel: Option<GitCancelToken>) -> git2::RemoteCallbacks<'a> {
-    git_remote_callbacks_with_credentials(cancel, None)
 }
 
 fn git_remote_callbacks_with_credentials<'a>(
@@ -337,7 +312,14 @@ fn default_ssh_key_paths() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod remote_operation_tests {
-    use super::normalize_git_error_message;
+    use super::{check_git_cancelled, normalize_git_error_message, system_git_output_message};
+    use std::{
+        process::Command,
+        sync::{
+            Arc,
+            atomic::AtomicBool,
+        },
+    };
 
     #[test]
     fn normalizes_pull_dirty_worktree_errors() {
@@ -349,5 +331,27 @@ mod remote_operation_tests {
             normalize_git_error_message("Your local changes would be overwritten by checkout"),
             "Pull requires a clean working tree. Commit, stash, or discard local changes, then try again."
         );
+    }
+
+    #[test]
+    fn cancelled_token_stops_remote_git_before_spawn() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+
+        assert_eq!(
+            check_git_cancelled(Some(&cancelled)).expect_err("cancelled"),
+            "Git operation cancelled."
+        );
+    }
+
+    #[test]
+    fn system_git_error_prefers_stderr() {
+        let output = Command::new("git")
+            .args(["not-a-codux-command"])
+            .output()
+            .expect("run git");
+
+        let message = system_git_output_message(&output);
+
+        assert!(message.contains("not-a-codux-command"));
     }
 }

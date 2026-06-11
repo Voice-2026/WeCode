@@ -104,6 +104,22 @@ class RemoteTerminalOutputController {
     _ptySessions.scrollScreenLines(sessionId, lines);
   }
 
+  void scrollScreenPixels(
+    String sessionId, {
+    required double pixels,
+    required double cellHeight,
+  }) {
+    _ptySessions.scrollScreenPixels(
+      sessionId,
+      pixels: pixels,
+      cellHeight: cellHeight,
+    );
+  }
+
+  void settleScreenPixelScroll(String sessionId) {
+    _ptySessions.settleScreenPixelScroll(sessionId);
+  }
+
   void scrollScreenToBottom(String sessionId) {
     _ptySessions.scrollScreenToBottom(sessionId);
   }
