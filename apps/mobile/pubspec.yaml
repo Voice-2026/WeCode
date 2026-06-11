@@ -40,8 +40,6 @@ dependencies:
   url_launcher: ^6.3.2
   http: ^1.6.0
   path: ^1.9.1
-  codux_native_terminal:
-    path: plugin/codux_native_terminal
   codux_protocol_ffi:
     path: plugin/codux_protocol_ffi
   cryptography: ^2.9.0
@@ -51,7 +49,7 @@ dependencies:
   share_plus: ^12.0.1
   archive: ^4.0.9
   file_picker: ^11.0.2
-  flutter_webrtc: ^1.4.1
+  connectivity_plus: ^7.1.1
 
 dev_dependencies:
   flutter_test:

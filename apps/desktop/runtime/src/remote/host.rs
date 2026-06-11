@@ -284,13 +284,41 @@ impl RemoteHostRuntime {
         payload: Value,
     ) -> bool {
         let Some(data) = self.outgoing_transport_text(kind, device_id, session_id, payload) else {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!(
+                    "send drop kind={kind} device={} reason=encode",
+                    device_id.unwrap_or("")
+                ),
+            );
             return false;
         };
         let transport = self.transport.lock().ok().and_then(|value| value.clone());
         let Some(transport) = transport else {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!(
+                    "send drop kind={kind} device={} reason=no_transport",
+                    device_id.unwrap_or("")
+                ),
+            );
             return false;
         };
-        transport.send(data.into_bytes(), device_id)
+        let ok = transport.send(data.into_bytes(), device_id);
+        if matches!(
+            kind,
+            "project.selected" | "project.list" | "terminal.list" | "error"
+        ) {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!(
+                    "send kind={kind} device={} session={} ok={ok}",
+                    device_id.unwrap_or(""),
+                    session_id.unwrap_or("")
+                ),
+            );
+        }
+        ok
     }
 
     fn spawn_transport_start(self: &Arc<Self>, generation: u64) {
@@ -518,16 +546,52 @@ impl RemoteHostRuntime {
 
     fn handle_transport_message(self: Arc<Self>, device_id: String, data: Vec<u8>) {
         let Ok(raw) = serde_json::from_slice::<RemoteEnvelope>(&data) else {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!(
+                    "drop incoming reason=decode device={device_id} bytes={}",
+                    data.len()
+                ),
+            );
             return;
         };
+        let raw_kind = raw.kind.clone();
+        let raw_device_id = raw.device_id.clone().unwrap_or_default();
         let envelope = {
             let Ok(mut received) = self.receive_seq_by_device.lock() else {
+                crate::runtime_trace::runtime_trace(
+                    "remote",
+                    &format!(
+                        "drop incoming reason=sequence_lock device={device_id} kind={}",
+                        raw.kind
+                    ),
+                );
                 return;
             };
-            self.service()
+            match self
+                .service()
                 .decrypt_envelope_if_needed(raw, &mut received)
-                .ok()
-                .flatten()
+            {
+                Ok(Some(envelope)) => Some(envelope),
+                Ok(None) => {
+                    crate::runtime_trace::runtime_trace(
+                        "remote",
+                        &format!(
+                            "drop incoming reason=decrypt_empty transport_device={device_id} envelope_device={raw_device_id} kind={raw_kind}"
+                        ),
+                    );
+                    None
+                }
+                Err(error) => {
+                    crate::runtime_trace::runtime_trace(
+                        "remote",
+                        &format!(
+                            "drop incoming reason=decrypt_failed device={device_id} error={error}"
+                        ),
+                    );
+                    None
+                }
+            }
         };
         let Some(envelope) = envelope else {
             return;
@@ -542,8 +606,18 @@ impl RemoteHostRuntime {
             );
             return;
         }
+        crate::runtime_trace::runtime_trace(
+            "remote",
+            &format!(
+                "recv kind={} transport_device={} envelope_device={} session={}",
+                envelope.kind,
+                device_id,
+                envelope.device_id.as_deref().unwrap_or(""),
+                envelope.session_id.as_deref().unwrap_or("")
+            ),
+        );
         self.update_device_online(envelope.device_id.as_deref(), true);
-        self.handle_remote_envelope(envelope.with_device_id(device_id));
+        self.handle_remote_envelope(envelope);
     }
 
     fn handle_remote_envelope(self: &Arc<Self>, envelope: RemoteEnvelope) {
@@ -606,12 +680,14 @@ impl RemoteHostRuntime {
             REMOTE_PROJECT_EDIT => self.handle_project_edit(&envelope),
             REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
             REMOTE_AI_STATS => self.handle_ai_stats(&envelope),
-            REMOTE_TRANSPORT_PING => self.send_terminal_data(
-                REMOTE_TRANSPORT_PONG,
-                envelope.device_id.as_deref(),
-                None,
-                envelope.payload,
-            ),
+            REMOTE_TRANSPORT_PING => {
+                self.send_plain(
+                    REMOTE_TRANSPORT_PONG,
+                    envelope.device_id.as_deref(),
+                    None,
+                    envelope.payload,
+                );
+            }
             _ => {}
         }
     }
@@ -1107,12 +1183,26 @@ impl RemoteHostRuntime {
             self.send_error(envelope, "Project id is required.");
             return;
         };
+        crate::runtime_trace::runtime_trace(
+            "remote",
+            &format!(
+                "project_select start device={} project={project_id}",
+                envelope.device_id.as_deref().unwrap_or("")
+            ),
+        );
         match self.remote_project_scope(project_id) {
             Ok(scope) => {
                 self.set_remote_project_scope(envelope.device_id.as_deref(), &scope.project_id);
                 if let Err(error) =
                     self.ensure_remote_project_terminal(&scope, envelope.device_id.as_deref())
                 {
+                    crate::runtime_trace::runtime_trace(
+                        "remote",
+                        &format!(
+                            "project_select error device={} project={project_id} error={error}",
+                            envelope.device_id.as_deref().unwrap_or("")
+                        ),
+                    );
                     self.send_error(envelope, &error);
                     return;
                 }
@@ -1127,8 +1217,25 @@ impl RemoteHostRuntime {
                     json!({ "projectId": scope.project_id, "worktreeId": scope.worktree_id }),
                 );
                 self.send_project_and_terminal_lists(envelope.device_id.as_deref());
+                crate::runtime_trace::runtime_trace(
+                    "remote",
+                    &format!(
+                        "project_select ok device={} project={}",
+                        envelope.device_id.as_deref().unwrap_or(""),
+                        scope.project_id
+                    ),
+                );
             }
-            Err(error) => self.send_error(envelope, &error),
+            Err(error) => {
+                crate::runtime_trace::runtime_trace(
+                    "remote",
+                    &format!(
+                        "project_select error device={} project={project_id} error={error}",
+                        envelope.device_id.as_deref().unwrap_or("")
+                    ),
+                );
+                self.send_error(envelope, &error)
+            }
         }
     }
 
@@ -3660,6 +3767,93 @@ mod tests {
             runtime.remote_project_scope_id(Some("device-1")).as_deref(),
             Some("project-b")
         );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn secure_project_select_keeps_decrypted_device_id_for_scope_and_replies() {
+        let support_dir = temp_support_dir("codux-remote-secure-scope-select");
+        write_paired_remote_settings(&support_dir);
+        write_two_project_state(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let encrypted = {
+            let mut send_seq = HashMap::new();
+            runtime
+                .service()
+                .outgoing_transport_text(
+                    "project.select",
+                    Some("device-1"),
+                    None,
+                    json!({ "projectId": "project-b" }),
+                    &mut send_seq,
+                )
+                .expect("secure envelope")
+                .into_bytes()
+        };
+
+        Arc::clone(&runtime).handle_transport_message("relay-device".to_string(), encrypted);
+
+        assert_eq!(
+            runtime.remote_project_scope_id(Some("device-1")).as_deref(),
+            Some("project-b")
+        );
+        assert_eq!(runtime.remote_project_scope_id(Some("relay-device")), None);
+        let replies = transport.take_messages();
+        assert!(
+            replies
+                .iter()
+                .any(|(device_id, _)| device_id.as_deref() == Some("device-1")),
+            "expected reply to decrypted device id"
+        );
+        assert!(
+            replies
+                .iter()
+                .all(|(device_id, _)| device_id.as_deref() != Some("relay-device")),
+            "must not reply to transport device id"
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn transport_ping_runtime_fallback_replies_plain_pong() {
+        let support_dir = temp_support_dir("codux-remote-transport-ping-pong");
+        write_paired_remote_settings(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+
+        Arc::clone(&runtime).handle_transport_message(
+            "device-1".to_string(),
+            json!({
+                "type": REMOTE_TRANSPORT_PING,
+                "deviceId": "device-1",
+                "payload": { "id": "ping-1" },
+            })
+            .to_string()
+            .into_bytes(),
+        );
+
+        let messages = transport.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].0.as_deref(), Some("device-1"));
+        let reply: Value = serde_json::from_slice(&messages[0].1).expect("plain pong json");
+        assert_eq!(
+            reply.get("type").and_then(Value::as_str),
+            Some(REMOTE_TRANSPORT_PONG)
+        );
+        assert_eq!(
+            reply.get("deviceId").and_then(Value::as_str),
+            Some("device-1")
+        );
+        assert_eq!(reply["payload"]["id"], "ping-1");
 
         fs::remove_dir_all(support_dir).ok();
     }

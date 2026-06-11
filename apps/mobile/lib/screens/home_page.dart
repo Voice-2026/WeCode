@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:codux_native_terminal/codux_native_terminal.dart';
 import '../i18n.dart';
 import '../models/remote_models.dart';
 import '../screens/settings_screen.dart';
@@ -23,17 +22,18 @@ import '../services/remote_envelope_send_queue.dart';
 import '../services/remote_capabilities.dart';
 import '../services/remote_connection_sync_controller.dart';
 import '../services/remote_project_controller.dart';
+import '../services/remote_network_route_probe_controller.dart';
 import '../services/remote_protocol_service.dart';
 import '../services/remote_runtime_payloads.dart';
 import '../services/remote_runtime_store.dart';
 import '../services/remote_sequence_guard.dart';
 import '../services/remote_sync_state.dart';
 import '../services/remote_project_file_controller.dart';
+import '../services/remote_pty_session.dart';
+import '../services/remote_terminal_binding_coordinator.dart';
 import '../services/remote_terminal_output_controller.dart';
 import '../services/remote_terminal_scope.dart';
-import '../services/remote_terminal_subscription_controller.dart';
 import '../services/remote_transport.dart';
-import '../services/remote_transport_state_controller.dart';
 import '../services/storage_service.dart';
 import '../services/terminal_buffer_retry.dart';
 import '../services/terminal_input_batcher.dart';
@@ -42,7 +42,6 @@ import '../services/terminal_input_reliable_sender.dart';
 import '../services/terminal_upload_metadata.dart';
 import '../services/terminal_upload_sender.dart';
 import '../services/update_check_service.dart';
-import '../services/remote_terminal_renderer.dart';
 import '../services/terminal_viewport_controller.dart';
 import '../theme/app_theme.dart';
 import '../services/worktree_utils.dart';
@@ -63,9 +62,6 @@ import '../widgets/file_action_dialogs.dart';
 
 const String _remoteProtocolVersion = remoteProtocolVersion;
 const Duration _remoteStartupProbeTimeout = Duration(seconds: 15);
-const Duration _remotePingInterval = Duration(seconds: 10);
-const Duration _remotePingTimeout = Duration(seconds: 12);
-const int _remoteMaxPingMisses = 3;
 
 class CoduxHomePage extends StatefulWidget {
   const CoduxHomePage({
@@ -102,9 +98,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   final _projectFileController = RemoteProjectFileController();
   final _worktreeController = const RemoteWorktreeController();
   final _remoteSyncController = RemoteConnectionSyncController();
-  final _transportStateController = RemoteTransportStateController();
   final _remoteRuntime = RemoteRuntimeStore();
-  final _terminalSubscriptions = RemoteTerminalSubscriptionController();
   final _settingsNameController = TextEditingController();
   final _fileEditorController = CodeEditingController();
   final _projectNameController = TextEditingController();
@@ -117,16 +111,15 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   late final TerminalInputBatcher _terminalInputBatcher;
   late final TerminalInputReliableSender _terminalInputSender;
   late final TerminalUploadSender _terminalUploadSender;
+  late final RemoteNetworkRouteProbeController _networkRouteProbeController;
   late final LocalVoiceRecognitionService _voiceService;
   RemoteTransport? _activeTransport;
   Completer<void>? _terminalUploadCompletion;
-  CoduxNativeTerminalController? _nativeTerminalController;
-  NativeTerminalPort? _nativeTerminalPort;
-  late final RemoteTerminalRenderer _terminalRenderer;
   final TerminalViewportController _terminalViewportController =
       TerminalViewportController();
   final RemoteTerminalOutputController _terminalOutputController =
       RemoteTerminalOutputController(maxBufferChars: _terminalBufferMaxChars);
+  late final RemoteTerminalBindingCoordinator _terminalBindingCoordinator;
   final Set<String> _protocolBlockedHostIds = {};
   int _terminalBufferRequestCounter = 0;
   double _terminalCursorBottom = 0;
@@ -164,12 +157,19 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String _terminalUploadStatus = '';
   RemoteSyncState get _remoteSync => _remoteSyncController.syncState;
   bool get _terminalListLoaded => _remoteSync.terminalListLoaded;
+  RemoteTerminalScreenSnapshot? get _activeTerminalScreen {
+    final sessionId = _sessionId;
+    if (sessionId == null) return null;
+    return _terminalOutputController.screenSnapshot(sessionId);
+  }
+
   bool get _projectListLoaded => _remoteSync.projectListLoaded;
   bool _backgroundConnect = false;
   bool _shouldReconnect = true;
   bool _transportReady = false;
   bool get _remoteProtocolReady => _remoteSyncController.protocolReady;
   bool _hostResponsive = false;
+  int _hostResponseSerial = 0;
   bool _appSuspended = false;
   bool _disposing = false;
   bool _hasShownTerminal = false;
@@ -201,6 +201,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   bool _appInForeground = true;
 
   bool _transportConnected = false;
+  bool _connectInFlight = false;
+  String? _connectInFlightKey;
   int get _transportGeneration => _remoteSyncController.generation;
   int _remoteRuntimeEpoch = 0;
   final _receiveSequenceGuard = RemoteSequenceGuard();
@@ -211,9 +213,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   Timer? _filePickerTimeoutTimer;
   Timer? _projectListRetryTimer;
   Timer? _terminalListRetryTimer;
+  final Map<String, Timer> _projectSelectAckTimers = {};
   Timer? _hostResponseTimer;
-  Timer? _latencyProbeTimer;
-  Timer? _pingTimeoutTimer;
   Timer? _transportCloseTimer;
   int get _projectListRetryAttempt => _remoteSync.projectListRetryAttempt;
   int get _terminalListRetryAttempt => _remoteSync.terminalListRetryAttempt;
@@ -224,6 +225,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String _connectionPath = 'unknown';
   DateTime? _lastConnectedAt;
   DateTime? _connectionGraceUntil;
+  DateTime? _lastTransportProbeAt;
   String? _selectedWorktreeId;
   int? _latencyMs;
   Timer? _connectionGraceTimer;
@@ -244,6 +246,45 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   bool get _isDeviceListConnected => _isHostReady;
+
+  void _startNetworkRouteProbe() {
+    _networkRouteProbeController.start();
+  }
+
+  void _probeTransportRoute({required String reason}) {
+    final device = _activeDevice;
+    if (device == null || !_shouldReconnect) return;
+    final now = DateTime.now();
+    final lastProbe = _lastTransportProbeAt;
+    if (lastProbe != null &&
+        now.difference(lastProbe) < const Duration(seconds: 8)) {
+      CoduxLog.info('[codux-flutter-remote] probe skipped reason=$reason');
+      return;
+    }
+    _lastTransportProbeAt = now;
+    CoduxLog.info('[codux-flutter-remote] probe route reason=$reason');
+    final transport = _activeTransport;
+    if (!_transportConnected || transport == null) {
+      _connect(device, true);
+      return;
+    }
+    unawaited(
+      transport
+          .probePreferredRoute(device)
+          .then((preferred) {
+            CoduxLog.info(
+              '[codux-flutter-remote] probe route result reason=$reason preferred=$preferred',
+            );
+            if (!mounted || _disposing) return;
+            _sendHostInfoRequest(force: true);
+          })
+          .catchError((Object error) {
+            CoduxLog.warn(
+              '[codux-flutter-remote] probe route failed reason=$reason error=$error',
+            );
+          }),
+    );
+  }
 
   String _t(String key, {Map<String, String>? params}) =>
       AppPreferences.of(context).t(key, params: params);
@@ -317,10 +358,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _startHostResponseProbe({
     required String reason,
     Duration duration = _remoteStartupProbeTimeout,
+    bool restart = true,
   }) {
     final device = _activeDevice;
     final generation = _transportGeneration;
-    if (!_transportReady || device == null) return;
+    final startedAtSerial = _hostResponseSerial;
+    if (!_transportConnected || device == null) return;
+    if (!restart && _hostResponseTimer != null) return;
     _cancelHostResponseProbe();
     CoduxLog.info(
       '[codux-flutter-remote] host probe start reason=$reason timeoutMs=${duration.inMilliseconds}',
@@ -328,8 +372,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _hostResponseTimer = Timer(duration, () {
       if (!mounted || _disposing || !_appInForeground) return;
       if (_transportGeneration != generation ||
-          !_transportReady ||
-          _hostResponsive) {
+          !_transportConnected ||
+          _hostResponseSerial != startedAtSerial) {
         return;
       }
       _failHostConnection(device, 'host_response_timeout:$reason');
@@ -340,28 +384,29 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _reconnectAttempt = 0;
     setState(() {
       _transportConnected = true;
-      _transportReady = true;
       _hasShownTerminal = true;
       if (path != null) _connectionPath = path;
-      if (!_backgroundConnect) _status = _t('app.connected');
+      if (!_backgroundConnect && !_transportReady) {
+        _status = _t('app.connecting');
+      }
     });
-    _markTransportConnected(_deviceTransportKind(_activeDevice));
   }
 
   void _markTransportPath(String path) {
     final connected = path != 'none';
     setState(() {
       _transportConnected = connected;
-      _transportReady = connected;
+      if (!connected) {
+        _transportReady = false;
+      }
       if (connected) {
         _hasShownTerminal = true;
-        if (!_backgroundConnect) _status = _t('app.connected');
+        if (!_backgroundConnect && !_transportReady) {
+          _status = _t('app.connecting');
+        }
       }
       _connectionPath = path;
     });
-    if (connected) {
-      _markTransportConnected(_deviceTransportKind(_activeDevice));
-    }
   }
 
   bool _isCompatibleRemoteProtocol(Object? payload) {
@@ -374,6 +419,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     CoduxLog.info('[codux-flutter-remote] protocol ready force=$force');
     _sendInitialTransportRequests(force: force);
     _ensureTerminalForSelectedProject();
+    _drivePendingProjectSelect(reason: 'protocol-ready');
+    _resubscribeVisibleTerminal(reason: 'protocol-ready');
   }
 
   void _failRemoteProtocol(StoredDevice target, Object? payload) {
@@ -392,7 +439,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     unawaited(_closeActiveTransport());
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
-    _terminalSubscriptions.reset();
+    _terminalBindingCoordinator.reset();
     final message = _t('connection.upgradeRequired');
     setState(() {
       _transportReady = false;
@@ -419,8 +466,23 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   void _markHostResponsive(String source, {String? transport}) {
     final wasResponsive = _hostResponsive;
-    _hostResponsive = true;
-    _transportStateController.markResponsive();
+    if (mounted && !_disposing) {
+      setState(() {
+        _transportConnected = true;
+        _transportReady = true;
+        _hostResponsive = true;
+        _connectInFlight = false;
+        _connectInFlightKey = null;
+        if (!_backgroundConnect) _status = _t('app.connected');
+      });
+    } else {
+      _transportConnected = true;
+      _transportReady = true;
+      _hostResponsive = true;
+      _connectInFlight = false;
+      _connectInFlightKey = null;
+    }
+    _hostResponseSerial += 1;
     _cancelHostResponseProbe();
     _markTransportConnected(transport ?? _deviceTransportKind(_activeDevice));
     if (!wasResponsive) {
@@ -446,34 +508,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _clearLatencyProbe() {
-    _latencyProbeTimer?.cancel();
-    _latencyProbeTimer = null;
-    _pingTimeoutTimer?.cancel();
-    _pingTimeoutTimer = null;
-    _transportStateController.clearLatency();
     _latencyMs = null;
   }
 
   void _pauseLatencyProbe() {
-    _latencyProbeTimer?.cancel();
-    _latencyProbeTimer = null;
-    _pingTimeoutTimer?.cancel();
-    _pingTimeoutTimer = null;
-    _transportStateController.pauseLatency();
-  }
-
-  void _recordTransportPong(Object? payload) {
-    final result = _transportStateController.recordPong(payload);
-    if (!result.accepted) return;
-    _pingTimeoutTimer?.cancel();
-    _pingTimeoutTimer = null;
-    final nextLatency = result.latencyMs;
-    if (nextLatency == null) return;
-    CoduxLog.info(
-      '[codux-flutter-remote] latency rtt=${nextLatency}ms path=$_connectionPath',
-    );
-    if (_latencyMs == nextLatency) return;
-    setState(() => _latencyMs = nextLatency);
+    _latencyMs = null;
   }
 
   void _sendHostInfoRequest({bool force = false}) {
@@ -485,48 +524,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       return;
     }
     CoduxLog.info('[codux-flutter-remote] request host.info');
-    final sent = _send(const RelayEnvelope(type: 'host.info'));
-    if (sent) _remoteSyncController.markHostInfoSent();
-  }
-
-  void _sendTransportPing() {
-    final target = _activeDevice;
-    final ping = _transportStateController.beginPing(
-      transportReady: _transportReady,
-      transportConnected: _transportConnected,
-      hasDevice: target != null,
-    );
-    if (target == null || ping == null) return;
-    final sent = _send(
-      RelayEnvelope(type: 'transport.ping', payload: {'id': ping.id}),
-    );
-    if (!sent) {
-      _transportStateController.cancelPendingPing();
-      return;
-    }
-    _pingTimeoutTimer?.cancel();
-    _pingTimeoutTimer = Timer(_remotePingTimeout, () {
-      if (!mounted || _disposing || !_appInForeground) return;
-      if (_transportStateController.latency.pendingPingId != ping.id) return;
-      final missCount = _transportStateController.recordPingTimeoutMiss();
-      CoduxLog.warn(
-        '[codux-flutter-remote] latency timeout miss=$missCount path=$_connectionPath',
-      );
-      if (missCount >= _remoteMaxPingMisses) {
-        setState(() => _latencyMs = null);
-        _failHostConnection(target, 'transport_ping_timeout');
-        return;
-      }
-      _sendHostInfoRequest();
-    });
-  }
-
-  void _startLatencyProbe() {
-    if (_latencyProbeTimer != null) return;
-    _sendTransportPing();
-    _latencyProbeTimer = Timer.periodic(
-      _remotePingInterval,
-      (_) => _sendTransportPing(),
+    _send(
+      const RelayEnvelope(type: 'host.info'),
+      onResult: (_, result) {
+        if (result == RemoteEnvelopeSendResult.delivered) {
+          _remoteSyncController.markHostInfoSent();
+        }
+      },
     );
   }
 
@@ -534,6 +538,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     CoduxLog.warn(
       '[codux-flutter-remote] host unavailable reason=$reason host=${target.hostId} device=${target.deviceId}',
     );
+    _remoteRuntimeEpoch += 1;
     _disconnectTransport(
       status: _t('connection.failedRetry'),
       closeTerminal: false,
@@ -553,14 +558,14 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _cancelRemoteSyncTimers();
     _remoteSyncController.resetSyncForCurrentGeneration();
     _remoteRuntime.reset();
-    _terminalSubscriptions.reset();
+    _terminalBindingCoordinator.reset();
     _syncRuntimeViewState();
   }
 
   void _resetRemoteRuntime({bool keepProjects = false}) {
     _remoteRuntimeEpoch += 1;
     _remoteRuntime.reset(keepProjects: keepProjects);
-    _terminalSubscriptions.reset();
+    _terminalBindingCoordinator.reset();
     _syncRuntimeViewState();
   }
 
@@ -570,7 +575,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _cancelRemoteSyncTimers();
     _remoteSyncController.resetSyncForCurrentGeneration();
     _remoteSyncController.resetProtocolReady();
-    _terminalSubscriptions.reset();
+    _terminalBindingCoordinator.reset();
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
     _terminalBufferRetry.reset();
@@ -603,12 +608,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _projectListRetryTimer = null;
     _terminalListRetryTimer?.cancel();
     _terminalListRetryTimer = null;
+    for (final timer in _projectSelectAckTimers.values) {
+      timer.cancel();
+    }
+    _projectSelectAckTimers.clear();
   }
 
   void _disconnectTransport({
     required String status,
     bool closeTerminal = false,
     bool notifyHost = true,
+    bool resetRuntime = false,
   }) {
     if (notifyHost && _transportConnected) {
       _releaseTerminalViewport();
@@ -624,11 +634,15 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     unawaited(_closeActiveTransport());
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
-    _terminalOutputController.resetAll();
-    _terminalSubscriptions.reset();
+    if (resetRuntime) {
+      _terminalOutputController.resetAll();
+      _terminalBindingCoordinator.reset();
+    }
     setState(() {
       _transportReady = false;
-      _remoteSyncController.resetProtocolReady();
+      if (resetRuntime) {
+        _remoteSyncController.resetProtocolReady();
+      }
       _hostResponsive = false;
       _backgroundConnect = false;
       if (closeTerminal) {
@@ -639,7 +653,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _terminalBufferRetry.reset();
       _setTerminalBufferLoading(false);
     });
-    _clearTerminal();
+    if (resetRuntime || closeTerminal) {
+      _clearTerminal();
+    }
   }
 
   void _recoverForegroundState() {
@@ -654,7 +670,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _sendHostInfoRequest();
     _mountVisibleTerminal(reason: 'foreground');
     _terminalInputBatcher.flush();
-    _startLatencyProbe();
   }
 
   void _mountVisibleTerminal({required String reason}) {
@@ -671,18 +686,19 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     final projectId = _selectedProjectId;
     if (projectId == null) return;
-    _replaceTerminalProjectSubscription(projectId, reason: 'mount-$reason');
+    _terminalBindingCoordinator.replaceProjectSubscription(
+      projectId: projectId,
+      reason: 'mount-$reason',
+      capability: _terminalBufferCapability,
+      activeSessionId: _sessionId,
+    );
   }
 
-  bool _restoreTerminalSessionFromCache(
-    String sessionId, {
-    bool clearFirst = true,
-  }) {
+  bool _restoreTerminalSessionFromCache(String sessionId) {
     final cached = _terminalOutputController.cachedOutput(sessionId);
-    return _terminalRenderer.restoreCached(
-      cached ?? '',
-      clearFirst: clearFirst,
-    );
+    if (cached == null || cached.isEmpty) return false;
+    if (mounted) setState(() {});
+    return true;
   }
 
   ProjectInfo? get _selectedProject {
@@ -723,14 +739,42 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       send: _sendTerminalEnvelope,
       activeSessionId: () => _sessionId,
     );
-    _terminalRenderer = RemoteTerminalRenderer();
     _terminalUploadSender = TerminalUploadSender(
       send: _sendTerminalUploadEnvelopeReliable,
       afterChunkAck: () => Future<void>.delayed(Duration.zero),
     );
+    _terminalBindingCoordinator = RemoteTerminalBindingCoordinator(
+      outputController: _terminalOutputController,
+      send: _send,
+      terminalById: _terminalById,
+      nextRequestId: _nextTerminalBufferRequestId,
+      maxCharsLimit: _terminalBufferMaxChars,
+    );
+    _networkRouteProbeController = RemoteNetworkRouteProbeController(
+      onPauseLatency: _pauseLatencyProbe,
+      onProbeRoute: (reason) {
+        if (!mounted || _disposing || !_appInForeground) return;
+        _probeTransportRoute(reason: reason);
+      },
+      onInitialSignature: (signature) {
+        CoduxLog.info('[codux-flutter-network] initial state=$signature');
+      },
+      onSignatureChanged: (previous, next) {
+        CoduxLog.info(
+          '[codux-flutter-network] changed from=$previous to=$next path=$_connectionPath',
+        );
+      },
+      onInitialCheckFailed: (error) {
+        CoduxLog.warn('[codux-flutter-network] initial check failed $error');
+      },
+      onListenError: (error) {
+        CoduxLog.warn('[codux-flutter-network] listen failed $error');
+      },
+    );
     _voiceService = LocalVoiceRecognitionService(
       onLog: (message) => CoduxLog.info('[codux-flutter-voice] $message'),
     );
+    _startNetworkRouteProbe();
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
   }
 
@@ -742,13 +786,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _reconnectTimer?.cancel();
     _healthTimer?.cancel();
     _connectionGraceTimer?.cancel();
-    _latencyProbeTimer?.cancel();
-    _pingTimeoutTimer?.cancel();
     _transportCloseTimer?.cancel();
+    _networkRouteProbeController.dispose();
     _toastTimer?.cancel();
     _filePickerTimeoutTimer?.cancel();
     _projectListRetryTimer?.cancel();
     _terminalListRetryTimer?.cancel();
+    for (final timer in _projectSelectAckTimers.values) {
+      timer.cancel();
+    }
+    _projectSelectAckTimers.clear();
     _hostResponseTimer?.cancel();
     _terminalBufferRetry.dispose();
     _terminalInputBatcher.dispose();
@@ -761,9 +808,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _voiceService.dispose();
     _terminalOutputController.dispose();
     unawaited(_closeActiveTransport());
-    unawaited(_terminalRenderer.dispose());
-    _nativeTerminalPort = null;
-    _nativeTerminalController = null;
     _settingsNameController.dispose();
     _fileEditorController.dispose();
     _projectNameController.dispose();
@@ -1061,7 +1105,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     );
     await _storage.saveSettings(next);
     CoduxLog.setLevelName(next.logLevel);
-    _nativeTerminalController?.setLogLevel(CoduxLog.nativeLevelName);
     setState(() {
       _settings = next;
       _status = _t('settings.saved');
@@ -1078,6 +1121,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       setState(() => _showScanner = true);
       return;
     }
+    final connectKey = '${target.hostId}:${target.deviceId}';
+    if (_connectInFlight &&
+        _connectInFlightKey == connectKey &&
+        _transportConnected &&
+        !_remoteProtocolReady) {
+      CoduxLog.info(
+        '[codux-flutter-remote] connect skipped reason=in-flight host=${target.hostId} device=${target.deviceId}',
+      );
+      return;
+    }
     if (_protocolBlockedHostIds.contains(target.hostId)) {
       if (!background) {
         setState(() => _status = _t('connection.upgradeRequired'));
@@ -1086,10 +1139,20 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     _shouldReconnect = true;
     _backgroundConnect = background;
+    _connectInFlight = true;
+    _connectInFlightKey = connectKey;
+    final previousDevice = _activeDevice;
+    final switchingDevice =
+        previousDevice == null ||
+        previousDevice.hostId != target.hostId ||
+        previousDevice.deviceId != target.deviceId;
     _cancelRemoteSyncTimers();
     final generation = _remoteSyncController.beginConnectionGeneration();
-    _resetRemoteRuntime(keepProjects: background);
-    _hostRuntimeInstanceId = null;
+    if (switchingDevice) {
+      _hostRuntimeInstanceId = null;
+      _resetRemoteRuntime(keepProjects: false);
+      _terminalOutputController.resetAll();
+    }
     CoduxLog.info(
       '[codux-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)}',
     );
@@ -1133,10 +1196,33 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       setState(() => _status = _t('pair.repairRequired'));
       return;
     }
-    final transport = (widget.transportFactory ?? createRemoteTransport)(target)
-      ..onState = _handleTransportState
+    final transport = (widget.transportFactory ?? createRemoteTransport)(
+      target,
+    );
+    transport
+      ..onState = (rawState) {
+        if (generation != _transportGeneration ||
+            !identical(_activeTransport, transport)) {
+          CoduxLog.debug(
+            '[codux-flutter-remote] drop stale transport state gen=$generation current=$_transportGeneration state=$rawState',
+          );
+          return;
+        }
+        _handleTransportState(rawState);
+      }
       ..onEnvelope = (envelope) {
-        _handleTransportEnvelopeQueued(RelayEnvelope.fromJson(envelope));
+        if (generation != _transportGeneration ||
+            !identical(_activeTransport, transport)) {
+          CoduxLog.debug(
+            '[codux-flutter-remote] drop stale transport envelope gen=$generation current=$_transportGeneration type=${envelope['type'] ?? ''}',
+          );
+          return;
+        }
+        _handleTransportEnvelopeQueued(
+          RelayEnvelope.fromJson(envelope),
+          generation: generation,
+          transport: transport,
+        );
       };
     _activeTransport = transport;
     transport.connect(target).catchError((Object error) {
@@ -1144,6 +1230,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         '[codux-flutter-remote] connect failed gen=$generation error=$error',
       );
       if (generation != _transportGeneration) return;
+      _connectInFlight = false;
+      _connectInFlightKey = null;
       if (!_backgroundConnect && mounted) {
         setState(() => _status = _t('connection.failedRetry'));
       }
@@ -1153,6 +1241,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       if (generation != _transportGeneration) return;
       if (!_transportConnected) {
         CoduxLog.warn('[codux-flutter-remote] connect timeout gen=$generation');
+        _connectInFlight = false;
+        _connectInFlightKey = null;
         if (!_backgroundConnect && mounted) {
           setState(() => _status = _t('connection.failedRetry'));
         }
@@ -1204,7 +1294,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _sendDeviceInfo({bool force = false}) {
     if (!_remoteSyncController.shouldSendDeviceInfo(force: force)) return;
     final target = _activeDevice;
-    final sent = _send(
+    _send(
       RelayEnvelope(
         type: 'device.info',
         payload: {
@@ -1213,10 +1303,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
               : (target?.name ?? _detectedDeviceName),
         },
       ),
+      onResult: (_, result) {
+        if (result == RemoteEnvelopeSendResult.delivered) {
+          _remoteSyncController.markDeviceInfoSent();
+        }
+      },
     );
-    if (sent) {
-      _remoteSyncController.markDeviceInfoSent();
-    }
   }
 
   void _requestProjectList({bool resetRetry = false}) {
@@ -1227,14 +1319,20 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _remoteSync.resetProjectListRetry();
     }
     if (!_remoteSync.shouldRequestProjectList(force: resetRetry)) return;
-    final sent = _send(const RelayEnvelope(type: 'project.list'));
-    if (sent && !_projectListLoaded) {
-      _remoteSync.markProjectListRequested();
-      CoduxLog.info(
-        '[codux-flutter-projects] request project.list attempt=$_projectListRetryAttempt',
-      );
-      _scheduleProjectListRetry();
-    }
+    _send(
+      const RelayEnvelope(type: 'project.list'),
+      onResult: (_, result) {
+        if (result != RemoteEnvelopeSendResult.delivered ||
+            _projectListLoaded) {
+          return;
+        }
+        _remoteSync.markProjectListRequested();
+        CoduxLog.info(
+          '[codux-flutter-projects] request project.list attempt=$_projectListRetryAttempt',
+        );
+        _scheduleProjectListRetry();
+      },
+    );
   }
 
   void _scheduleProjectListRetry() {
@@ -1269,14 +1367,20 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _remoteSync.resetTerminalListRetry();
     }
     if (!_remoteSync.shouldRequestTerminalList(force: resetRetry)) return;
-    final sent = _send(const RelayEnvelope(type: 'terminal.list'));
-    if (sent && !_terminalListLoaded) {
-      _remoteSync.markTerminalListRequested();
-      CoduxLog.info(
-        '[codux-flutter-terminal] request terminal.list attempt=$_terminalListRetryAttempt',
-      );
-      _scheduleTerminalListRetry();
-    }
+    _send(
+      const RelayEnvelope(type: 'terminal.list'),
+      onResult: (_, result) {
+        if (result != RemoteEnvelopeSendResult.delivered ||
+            _terminalListLoaded) {
+          return;
+        }
+        _remoteSync.markTerminalListRequested();
+        CoduxLog.info(
+          '[codux-flutter-terminal] request terminal.list attempt=$_terminalListRetryAttempt',
+        );
+        _scheduleTerminalListRetry();
+      },
+    );
   }
 
   void _requestWorktreeList({bool loading = false}) {
@@ -1317,67 +1421,79 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (device != null) _rememberActiveDevice(device);
   }
 
-  void _sendProjectSelect(String projectId, {required String reason}) {
+  bool _sendProjectSelect(String projectId, {required String reason}) {
     CoduxLog.info(
       '[codux-flutter-projects] send project.select reason=$reason project=$projectId',
     );
-    _send(
+    final sent = _send(
       RelayEnvelope(type: 'project.select', payload: {'projectId': projectId}),
+      onResult: (message, result) {
+        if (result == RemoteEnvelopeSendResult.delivered) {
+          _remoteRuntime.markProjectSelectSent(projectId);
+          _scheduleProjectSelectAckTimeout(projectId);
+          return;
+        }
+        if (!mounted || _disposing) return;
+        CoduxLog.warn(
+          '[codux-flutter-projects] project.select delivery failed reason=$reason project=$projectId result=${result.name}',
+        );
+      },
     );
+    if (!sent) {
+      CoduxLog.warn(
+        '[codux-flutter-projects] project.select not sent reason=$reason project=$projectId connected=$_transportConnected ready=$_transportReady',
+      );
+    }
+    return sent;
   }
 
-  bool _replaceTerminalProjectSubscription(
-    String projectId, {
-    required String reason,
-    bool baseline = true,
-  }) {
-    final maxChars = _terminalBufferCapability.maxChars.clamp(
-      1,
-      _terminalBufferMaxChars,
-    );
-    final requestId = _nextTerminalBufferRequestId('project-$projectId');
-    final plan = _terminalSubscriptions.replaceProject(
-      projectId,
-      baseline: baseline,
-      maxChars: maxChars,
-      chunkChars: _terminalBufferCapability.chunking
-          ? _terminalBufferCapability.chunkChars
-          : null,
-      requestId: requestId,
-    );
-    if (!plan.hasWork) return false;
-    final unsubscribe = plan.unsubscribe;
-    if (unsubscribe != null) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] unsubscribe project=${plan.unsubscribeProjectId ?? ''} reason=$reason',
-      );
-      _send(unsubscribe);
-    }
-    final subscribe = plan.subscribe;
-    var baselineRequested = false;
-    if (subscribe != null) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] subscribe project=${plan.subscribeProjectId ?? ''} reason=$reason',
-      );
-      final sessionId = _sessionId;
-      final currentTerminal = sessionId == null
-          ? null
-          : _terminalById(sessionId);
-      if (baseline &&
-          sessionId != null &&
-          sessionId.isNotEmpty &&
-          currentTerminal?.projectId == projectId) {
-        _terminalOutputController.startBufferRequest(
-          sessionId,
-          requestId,
-          requireBaseline: true,
-          resetAssembler: true,
-        );
+  void _scheduleProjectSelectAckTimeout(String projectId) {
+    _projectSelectAckTimers.remove(projectId)?.cancel();
+    _projectSelectAckTimers[projectId] = Timer(const Duration(seconds: 3), () {
+      _projectSelectAckTimers.remove(projectId);
+      if (!mounted || !_transportReady || !_remoteProtocolReady) return;
+      if (_remoteRuntime.pendingProjectSelect(includeSent: true) != projectId) {
+        return;
       }
-      _send(subscribe);
-      baselineRequested = true;
+      CoduxLog.warn(
+        '[codux-flutter-projects] project.select ack timeout project=$projectId',
+      );
+      _remoteRuntime.clearPendingProjectSelectSent(projectId);
+      _drivePendingProjectSelect(reason: 'ack-timeout');
+      _requestTerminalList(resetRetry: true);
+    });
+  }
+
+  void _clearProjectSelectAck(String projectId) {
+    if (_remoteRuntime.pendingProjectSelect(includeSent: true) != projectId) {
+      return;
     }
-    return baselineRequested;
+    _projectSelectAckTimers.remove(projectId)?.cancel();
+  }
+
+  void _drivePendingProjectSelect({required String reason}) {
+    final projectId = _remoteRuntime.pendingProjectSelect();
+    if (projectId == null) return;
+    _sendProjectSelect(projectId, reason: reason);
+  }
+
+  void _resubscribeVisibleTerminal({required String reason}) {
+    _terminalBindingCoordinator.resubscribeVisibleTerminal(
+      transportConnected: _transportConnected,
+      protocolReady: _remoteProtocolReady,
+      activeSessionId: _sessionId,
+      selectedProjectId: _selectedProjectId,
+      capability: _terminalBufferCapability,
+      reason: reason,
+      ensureBoundBaseline: (sessionId, baselineRequested) {
+        _terminalBindingCoordinator.ensureBoundTerminalHasBaseline(
+          sessionId: sessionId,
+          baselineRequested: baselineRequested,
+          reason: reason,
+          capability: _terminalBufferCapability,
+        );
+      },
+    );
   }
 
   void _syncRuntimeViewState() {
@@ -1414,6 +1530,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _applyRuntimePlan(RemoteRuntimePlan plan, {String reason = ''}) {
+    if (plan.stateChanged ||
+        plan.clearTerminal ||
+        plan.resetTerminalBuffer ||
+        plan.requestTerminalList ||
+        plan.requestProjectSelectId != null ||
+        plan.bindSessionId != null ||
+        plan.removedSessionId != null) {
+      CoduxLog.info(
+        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} bind=${plan.bindSessionId ?? ''} selected=${_selectedProjectId ?? ''} session=${_sessionId ?? ''}',
+      );
+    }
     if (plan.removedSessionId != null) {
       final removed = plan.removedSessionId!;
       _terminalOutputController.removeSession(removed);
@@ -1437,69 +1564,37 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _clearTerminal();
     }
     if (plan.requestTerminalList) {
-      _requestTerminalList();
+      _requestTerminalList(resetRetry: true);
     }
     if (plan.requestProjectSelectId != null) {
       _sendProjectSelect(plan.requestProjectSelectId!, reason: reason);
     }
     if (plan.bindSessionId != null) {
-      var baselineRequested = false;
       final bindSessionId = plan.bindSessionId!;
-      final hasCachedOutput = _terminalOutputController.hasCachedOutput(
-        bindSessionId,
-      );
-      final needsFullBuffer = plan.bindFullBuffer && !hasCachedOutput;
-      final selectedProjectId = _selectedProjectId;
-      if (selectedProjectId != null) {
-        baselineRequested = _replaceTerminalProjectSubscription(
-          selectedProjectId,
-          reason: 'bind-$reason',
-          baseline: needsFullBuffer,
-        );
-      }
-      if (needsFullBuffer) {
-        _terminalOutputController.bindSession(
-          bindSessionId,
-          requireBaseline: true,
-        );
-      }
       final restored = _restoreTerminalSessionFromCache(bindSessionId);
+      final bindResult = _terminalBindingCoordinator.bindSession(
+        plan: plan,
+        bindSessionId: bindSessionId,
+        reason: reason,
+        selectedProjectId: _selectedProjectId,
+        capability: _terminalBufferCapability,
+        restored: restored,
+      );
       CoduxLog.info(
-        '[codux-flutter-terminal] bind session=$bindSessionId project=${_selectedProjectId ?? ''} cached=$restored',
+        '[codux-flutter-terminal] bind session=$bindSessionId project=${_selectedProjectId ?? ''} cached=${bindResult.restored}',
       );
       _claimTerminalViewport(sessionId: bindSessionId);
       _flushPendingTerminalResize(force: true);
-      _ensureBoundTerminalHasBaseline(
-        bindSessionId,
-        baselineRequested: baselineRequested,
+      _terminalBindingCoordinator.ensureBoundTerminalHasBaseline(
+        sessionId: bindSessionId,
+        baselineRequested: bindResult.baselineRequested,
         reason: reason,
+        capability: _terminalBufferCapability,
       );
       if (plan.flushTerminalInput) {
         _terminalInputBatcher.flush();
       }
     }
-  }
-
-  void _ensureBoundTerminalHasBaseline(
-    String sessionId, {
-    required bool baselineRequested,
-    required String reason,
-  }) {
-    if (baselineRequested ||
-        _terminalOutputController.hasCachedOutput(sessionId)) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] baseline satisfied session=$sessionId reason=$reason requested=$baselineRequested',
-      );
-      return;
-    }
-    final terminal = _terminalById(sessionId);
-    if (terminal == null) return;
-    final projectId = terminal.projectId;
-    _terminalSubscriptions.markProjectBaselineStale(projectId);
-    _replaceTerminalProjectSubscription(
-      projectId,
-      reason: 'empty-pool-$reason',
-    );
   }
 
   Future<void> _cacheProjects(List<ProjectInfo> projects) async {
@@ -1512,7 +1607,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
   }
 
-  bool _send(RelayEnvelope message) {
+  bool _send(RelayEnvelope message, {RemoteSendResultHandler? onResult}) {
     if (!_transportConnected) {
       setState(() => _status = _t('app.remoteNotConnected'));
       CoduxLog.warn(
@@ -1521,7 +1616,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       return false;
     }
     final transport = _activeTransport;
-    if (transport == null) return false;
+    if (transport == null) {
+      CoduxLog.warn(
+        '[codux-flutter-remote] drop type=${message.type} reason=no_transport',
+      );
+      return false;
+    }
     CoduxLog.debug(
       '[codux-flutter-remote] send type=${message.type} session=${message.sessionId ?? ''}',
     );
@@ -1531,6 +1631,18 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         transport: transport,
         connected: () => _transportConnected,
         activeDevice: _activeDevice,
+        onResult: (sentMessage, result) {
+          if (sentMessage.type == 'project.select' ||
+              result != RemoteEnvelopeSendResult.delivered) {
+            CoduxLog.info(
+              '[codux-flutter-remote] send result type=${sentMessage.type} session=${sentMessage.sessionId ?? ''} result=${result.name} connected=$_transportConnected ready=$_transportReady path=$_connectionPath',
+            );
+          }
+          if (result == RemoteEnvelopeSendResult.rejected) {
+            _handleRejectedTransportSend(sentMessage);
+          }
+          onResult?.call(sentMessage, result);
+        },
         onError: (error) {
           CoduxLog.error('[codux-flutter-e2e] encrypt failed: $error');
           if (mounted) setState(() => _status = _t('pair.repairRequired'));
@@ -1538,6 +1650,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       ),
     );
     return true;
+  }
+
+  void _handleRejectedTransportSend(RelayEnvelope message) {
+    if (!mounted || _disposing || !_transportConnected) return;
+    if (message.type == 'device.disconnected') return;
+    final target = _activeDevice;
+    if (target == null) {
+      _handleTransportClosed('send_rejected:${message.type}');
+      return;
+    }
+    _failHostConnection(target, 'send_rejected:${message.type}');
   }
 
   bool _sendTerminalEnvelope(RelayEnvelope message, {TerminalInfo? terminal}) {
@@ -1573,6 +1696,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   Future<void> _handleTransportEnvelope(
     RelayEnvelope message,
     StoredDevice target,
+    int generation,
+    RemoteTransport transport,
+    int runtimeEpoch,
   ) async {
     try {
       if (message.type == 'secure.message') {
@@ -1592,6 +1718,14 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           return;
         }
       }
+      if (generation != _transportGeneration ||
+          runtimeEpoch != _remoteRuntimeEpoch ||
+          !identical(_activeTransport, transport)) {
+        CoduxLog.debug(
+          '[codux-flutter-remote] drop stale decoded envelope gen=$generation current=$_transportGeneration epoch=$runtimeEpoch currentEpoch=$_remoteRuntimeEpoch type=${message.type} session=${message.sessionId ?? ''}',
+        );
+        return;
+      }
       _healthTimer?.cancel();
       _healthTimer = null;
       CoduxLog.debug(
@@ -1601,16 +1735,14 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         case 'hello':
           _reconnectAttempt = 0;
           CoduxLog.info('[codux-flutter-remote] hello received');
-          if (!_transportReady) {
+          if (!_transportConnected) {
             setState(() {
-              _transportReady = true;
+              _transportConnected = true;
               _hasShownTerminal = true;
-              if (!_backgroundConnect) _status = _t('app.connected');
+              if (!_backgroundConnect) _status = _t('app.connecting');
             });
-            _markTransportConnected(_deviceTransportKind(target));
           }
           _sendHostInfoRequest(force: true);
-          _sendInitialTransportRequests();
           _startHostResponseProbe(reason: 'hello');
         case 'host.offline':
           final payload = message.payload;
@@ -1675,10 +1807,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
                 !_projectListLoaded ||
                 !_terminalListLoaded,
           );
-          _startLatencyProbe();
-        case 'transport.pong':
-          _markHostResponsive('transport.pong');
-          _recordTransportPong(message.payload);
         case 'project.selected':
           _handleProjectSelected(message);
         case 'project.list':
@@ -1749,6 +1877,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _markActiveDeviceResponsive();
     final payload = message.payload;
     final projectId = payload is Map ? payload['projectId']?.toString() : null;
+    CoduxLog.info(
+      '[codux-flutter-projects] project.selected project=${projectId ?? ''} current=${_selectedProjectId ?? ''}',
+    );
+    if (projectId != null && projectId.isNotEmpty) {
+      _clearProjectSelectAck(projectId);
+    }
     final plan = _remoteRuntime.projectSelected(projectId);
     _applyRuntimePlan(plan, reason: 'project-selected');
     _requestProjectList();
@@ -1761,6 +1895,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final payload = message.payload;
     final next = remoteProjectsFromPayload(payload);
     final remoteSelectedProjectId = remoteSelectedProjectIdFromPayload(payload);
+    CoduxLog.info(
+      '[codux-flutter-projects] recv project.list count=${next.length} remoteSelected=${remoteSelectedProjectId ?? ''} current=${_selectedProjectId ?? ''}',
+    );
     final plan = _remoteRuntime.applyProjectList(
       projects: next,
       remoteSelectedProjectId: remoteSelectedProjectId,
@@ -1779,14 +1916,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _markActiveDeviceResponsive();
     _markTerminalListReceived();
     final next = remoteTerminalsFromPayload(message.payload);
-    CoduxLog.debug(
-      '[codux-flutter-terminal] terminal.list count=${next.length}',
+    CoduxLog.info(
+      '[codux-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')}',
     );
     final plan = _remoteRuntime.applyTerminalList(
       terminals: next,
       terminalVisible: _showTerminal && _workspaceMode == 'terminal',
       terminalListLoaded: _terminalListLoaded,
     );
+    if (plan.bindSessionId != null && _selectedProjectId != null) {
+      _clearProjectSelectAck(_selectedProjectId!);
+    }
     _applyRuntimePlan(plan, reason: 'missing-terminal');
   }
 
@@ -1900,36 +2040,28 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           : '[codux-flutter-remote] state=$state detail=$detail',
     );
     if (!mounted || _disposing) return;
+    if (state == 'latency') {
+      _handleTransportLatencyState(detail);
+      return;
+    }
     if (event.isPathUpdate) {
       final path = event.path;
       if (path != null) {
         final previousPath = _connectionPath;
         final changed = path != _connectionPath;
-        _pingTimeoutTimer?.cancel();
-        _pingTimeoutTimer = null;
-        _transportStateController.cancelPendingPing();
-        final shouldResetRuntime =
-            changed &&
-            _hostResponsive &&
-            (previousPath == 'direct' || previousPath == 'mixed') &&
-            (path == 'relay' || path == 'none');
-        if (shouldResetRuntime) {
-          _resetRemoteRuntimeAfterHostRestart(
-            'path-changed:$previousPath->$path',
-          );
-        }
         _markTransportPath(path);
         if (path != 'none') {
           _sendHostInfoRequest(
             force:
-                shouldResetRuntime ||
+                changed ||
                 !_remoteProtocolReady ||
                 !_projectListLoaded ||
                 !_terminalListLoaded,
           );
-          _sendInitialTransportRequests(force: shouldResetRuntime);
-          _startHostResponseProbe(reason: 'transport_path');
-          if (changed) _sendTransportPing();
+          if (!_projectListLoaded || !_terminalListLoaded) {
+            _sendInitialTransportRequests();
+          }
+          _resubscribeVisibleTerminal(reason: 'path-$previousPath-$path');
         }
         return;
       }
@@ -1942,7 +2074,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             !_projectListLoaded ||
             !_terminalListLoaded,
       );
-      _sendInitialTransportRequests();
       _startHostResponseProbe(reason: 'transport');
       return;
     }
@@ -1951,7 +2082,53 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
   }
 
-  void _handleTransportEnvelopeQueued(RelayEnvelope message) {
+  void _handleTransportLatencyState(String detail) {
+    final parts = detail.split(';');
+    String? rttValue;
+    String? timeoutValue;
+    String? pathValue;
+    for (final part in parts) {
+      final trimmed = part.trim();
+      if (trimmed.startsWith('rtt=')) {
+        rttValue = trimmed.substring(4);
+      } else if (trimmed.startsWith('timeout=')) {
+        timeoutValue = trimmed.substring(8);
+      } else if (trimmed.startsWith('path=')) {
+        pathValue = trimmed.substring(5);
+      }
+    }
+    if (pathValue != null && pathValue.isNotEmpty) {
+      _markTransportPath(pathValue);
+    }
+    if (rttValue != null) {
+      final nextLatency = int.tryParse(rttValue);
+      if (nextLatency == null) return;
+      CoduxLog.info(
+        '[codux-flutter-remote] latency rtt=${nextLatency}ms path=$_connectionPath',
+      );
+      if (_latencyMs == nextLatency) return;
+      setState(() => _latencyMs = nextLatency);
+      return;
+    }
+    if (timeoutValue != null || detail == 'lost') {
+      CoduxLog.warn(
+        '[codux-flutter-remote] latency ${detail.isEmpty ? 'timeout' : detail}',
+      );
+      if (_latencyMs != null) setState(() => _latencyMs = null);
+      if (detail == 'lost') {
+        final target = _activeDevice;
+        if (target != null) {
+          _failHostConnection(target, 'latency_lost');
+        }
+      }
+    }
+  }
+
+  void _handleTransportEnvelopeQueued(
+    RelayEnvelope message, {
+    required int generation,
+    required RemoteTransport transport,
+  }) {
     CoduxLog.debug(
       '[codux-flutter-remote] envelope type=${message.type} session=${message.sessionId ?? ''}',
     );
@@ -1961,13 +2138,26 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final previous = _receiveChain.catchError((_) {});
     final task = previous
         .then((_) {
+          if (generation != _transportGeneration ||
+              !identical(_activeTransport, transport)) {
+            CoduxLog.debug(
+              '[codux-flutter-remote] drop stale queued envelope gen=$generation current=$_transportGeneration type=${message.type} session=${message.sessionId ?? ''}',
+            );
+            return Future<void>.value();
+          }
           if (runtimeEpoch != _remoteRuntimeEpoch) {
             CoduxLog.debug(
               '[codux-flutter-remote] drop stale envelope epoch=$runtimeEpoch current=$_remoteRuntimeEpoch type=${message.type} session=${message.sessionId ?? ''}',
             );
             return Future<void>.value();
           }
-          return _handleTransportEnvelope(message, target);
+          return _handleTransportEnvelope(
+            message,
+            target,
+            generation,
+            transport,
+            runtimeEpoch,
+          );
         })
         .catchError((Object error) {
           CoduxLog.error('[codux-flutter-remote] receive queue failed: $error');
@@ -1976,12 +2166,26 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _handleTransportClosed(String reason) {
+    _remoteRuntimeEpoch += 1;
     _transportConnected = false;
-    _resetRemoteRuntimeAfterHostRestart('transport-closed:$reason');
+    _connectInFlight = false;
+    _connectInFlightKey = null;
+    _cancelHostResponseProbe();
+    _clearLatencyProbe();
+    final pendingProjectSelect = _remoteRuntime.pendingProjectSelect(
+      includeSent: true,
+    );
+    if (pendingProjectSelect != null) {
+      _clearProjectSelectAck(pendingProjectSelect);
+    }
+    _terminalInputBatcher.reset();
+    _terminalInputSender.clear();
     setState(() {
       _transportReady = false;
       _hostResponsive = false;
       _status = _t('app.reconnecting');
+      _terminalBufferRetry.reset();
+      _setTerminalBufferLoading(false);
     });
     if (_lastConnectedAt == null) {
       _clearConnectionGrace();
@@ -2061,16 +2265,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           }
         case RemoteTerminalOutputEffectKind.markBufferReceived:
           _markTerminalBufferReceived(effect.sessionId);
-        case RemoteTerminalOutputEffectKind.renderBaseline:
+        case RemoteTerminalOutputEffectKind.sessionUpdated:
           final sessionId = effect.sessionId;
-          final data = effect.data;
-          if (sessionId != null && data != null) {
-            _renderTerminalBaseline(data, sessionId: sessionId);
-          }
-        case RemoteTerminalOutputEffectKind.writeData:
-          final data = effect.data;
-          if (data != null) {
-            _writeTerminalData(data, replayingBuffer: effect.replayingBuffer);
+          if (sessionId != null && sessionId == _sessionId && mounted) {
+            setState(() {});
           }
       }
     }
@@ -2144,64 +2342,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _clearTerminal() {
-    _terminalRenderer.clear(sessionId: _sessionId);
-  }
-
-  void _writeTerminalData(String data, {required bool replayingBuffer}) {
-    _terminalRenderer.write(data, replayingBuffer: replayingBuffer);
-  }
-
-  void _renderTerminalBaseline(String data, {required String sessionId}) {
-    if (mounted) {
-      setState(
-        () => _setTerminalBufferLoading(
-          true,
-          phase: RemoteTerminalBufferPhase.rendering,
-        ),
-      );
-    } else {
-      _setTerminalBufferLoading(
-        true,
-        phase: RemoteTerminalBufferPhase.rendering,
-      );
-    }
-    final render = _terminalRenderer.replace(data, replayingBuffer: true);
-    unawaited(
-      render.whenComplete(() {
-        if (!mounted || _sessionId != sessionId) return;
-        _markTerminalBufferReceived(sessionId);
-      }),
-    );
-  }
-
-  void _replayCurrentTerminalToNative({
-    required CoduxNativeTerminalController controller,
-    required String reason,
-  }) {
-    if (_nativeTerminalController != controller) return;
-    final sessionId = _sessionId;
-    if (sessionId == null) return;
-    final cached = _terminalOutputController.cachedOutput(sessionId);
-    _terminalRenderer.replayCached(
-      cached ?? '',
-      sessionId: sessionId,
-      reason: reason,
-    );
-  }
-
-  bool _restoreNativeTerminalController(
-    CoduxNativeTerminalController controller,
-  ) {
-    final sessionId = _sessionId;
-    final cached = sessionId == null
-        ? null
-        : _terminalOutputController.cachedOutput(sessionId);
-    return _terminalRenderer.restoreControllerWithCached(cached);
+    if (mounted) setState(() {});
   }
 
   void _sendTerminalResize(int cols, int rows) {
     final id = _sessionId;
     if (id == null) return;
+    _terminalOutputController.resizeScreen(id, cols: cols, rows: rows);
     final terminal = _currentTerminal();
     if (!_canResizeTerminal(terminal)) return;
     final resize = _terminalViewportController.resize(
@@ -2584,7 +2731,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       await Future<void>.delayed(const Duration(milliseconds: 350));
       return;
     }
-    _sendTransportPing();
+    _probeTransportRoute(reason: 'manual-refresh');
     _sendHostInfoRequest(force: true);
     _requestProjectList(resetRetry: true);
     _requestTerminalList(resetRetry: true);
@@ -2592,7 +2739,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _refreshLists() {
-    _sendTransportPing();
+    _probeTransportRoute(reason: 'manual-refresh');
     _sendHostInfoRequest(force: true);
     _requestProjectList(resetRetry: true);
     _requestTerminalList(resetRetry: true);
@@ -2920,13 +3067,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _focusTerminalSoon() {
     Future<void>.delayed(const Duration(milliseconds: 80), () {
       if (!mounted) return;
-      _nativeTerminalController?.focusKeyboard();
+      setState(() => _keyboardVisible = true);
     });
   }
 
   void _toggleTerminalKeyboard() {
     if (_keyboardVisible) {
-      _nativeTerminalController?.hideKeyboard();
+      setState(() => _keyboardVisible = false);
       return;
     }
     _focusTerminalSoon();
@@ -2935,7 +3082,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _focusTerminalViewSoon() {
     Future<void>.delayed(const Duration(milliseconds: 80), () {
       if (!mounted) return;
-      _nativeTerminalController?.requestResize();
+      _flushPendingTerminalResize(force: true);
     });
   }
 
@@ -3006,6 +3153,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _onProjectSelected(ProjectInfo project) {
     final projectChanged = _selectedProjectId != project.id;
     final resetTerminal = projectChanged && _workspaceMode == 'terminal';
+    CoduxLog.info(
+      '[codux-flutter-projects] user select project=${project.id} previous=${_selectedProjectId ?? ''} changed=$projectChanged mode=$_workspaceMode terminalVisible=$resetTerminal currentSession=${_sessionId ?? ''}',
+    );
     setState(() {
       _currentAIStats = null;
       _projectFileEntries = [];
@@ -3056,10 +3206,40 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   Future<void> _copyTerminalSelection() async {
     final prefs = AppPreferences.of(context);
-    final copied = await _nativeTerminalController?.copySelection() ?? false;
+    final text = _visibleTerminalText();
+    final copied = text.trim().isNotEmpty;
+    if (copied) {
+      await Clipboard.setData(ClipboardData(text: text));
+    }
     _showSnack(
       copied ? prefs.t('toolbar.copyDone') : prefs.t('toolbar.copyEmpty'),
     );
+  }
+
+  String _visibleTerminalText() {
+    final screen = _activeTerminalScreen;
+    if (screen == null || screen.cells.isEmpty) return '';
+    final rows = <int, List<RemoteTerminalScreenCell>>{};
+    for (final cell in screen.cells) {
+      rows.putIfAbsent(cell.row, () => []).add(cell);
+    }
+    final output = StringBuffer();
+    final rowKeys = rows.keys.toList()..sort();
+    for (final row in rowKeys) {
+      final cells = rows[row]!..sort((a, b) => a.col.compareTo(b.col));
+      var col = 0;
+      final line = StringBuffer();
+      for (final cell in cells) {
+        while (col < cell.col) {
+          line.write(' ');
+          col += 1;
+        }
+        line.write(cell.text);
+        col += cell.width;
+      }
+      output.writeln(line.toString().trimRight());
+    }
+    return output.toString().trimRight();
   }
 
   Future<void> _startVoiceInput() async {
@@ -3602,7 +3782,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       },
       onChangeLogLevel: (next) {
         CoduxLog.setLevelName(next);
-        _nativeTerminalController?.setLogLevel(CoduxLog.nativeLevelName);
         setState(() => _settings = _settings.copyWith(logLevel: next));
       },
       onUseDetectedName: () =>
@@ -3655,33 +3834,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       maskOpacity: _maskOpacity,
       keyboardVisible: _keyboardVisible,
       terminalCursorBottom: _terminalCursorBottom,
+      terminalScreen: _activeTerminalScreen,
       onConnect: () => _connect(),
-      onControllerCreated: (controller) {
-        final port = CoduxNativeTerminalPort(controller);
-        _nativeTerminalController = controller;
-        _nativeTerminalPort = port;
-        _terminalRenderer.attach(port);
-        controller.setLogLevel(CoduxLog.nativeLevelName);
-        _restoreNativeTerminalController(controller);
-        _terminalReady = false;
-        _terminalBufferRetry.resetLastBuffered();
-        controller.requestResize();
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _mountVisibleTerminal(reason: 'controller-created');
-        });
-      },
-      onControllerDisposed: (controller) {
-        if (_nativeTerminalController == controller) {
-          final port = _nativeTerminalPort;
-          if (port != null) {
-            _terminalRenderer.detach(port);
-          }
-          _nativeTerminalPort = null;
-          _nativeTerminalController = null;
-          _terminalReady = false;
-        }
-      },
       onInput: _queueTerminalTyping,
       onResize: (cols, rows) {
         final firstResize = !_terminalReady;
@@ -3690,15 +3844,21 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         if (firstResize) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            final controller = _nativeTerminalController;
-            if (controller != null) {
-              _replayCurrentTerminalToNative(
-                controller: controller,
-                reason: 'first-resize',
-              );
-            }
+            _mountVisibleTerminal(reason: 'first-resize');
           });
         }
+      },
+      onScrollLines: (lines) {
+        final sessionId = _sessionId;
+        if (sessionId == null || lines == 0) return;
+        _terminalOutputController.scrollScreenLines(sessionId, lines);
+        if (mounted) setState(() {});
+      },
+      onScrollToBottom: () {
+        final sessionId = _sessionId;
+        if (sessionId == null) return;
+        _terminalOutputController.scrollScreenToBottom(sessionId);
+        if (mounted) setState(() {});
       },
       onMetricsCursorBottom: (cursorBottom) {
         if (_terminalCursorBottom == cursorBottom) return;

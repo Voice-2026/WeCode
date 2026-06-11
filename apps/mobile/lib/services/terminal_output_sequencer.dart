@@ -22,8 +22,6 @@ class TerminalOutputSequencer {
 
   int sequenceFor(String sessionId) => _core.sequenceFor(sessionId);
 
-  bool isResyncing(String sessionId) => _core.isResyncing(sessionId);
-
   TerminalOutputSequenceResult observe({
     required String sessionId,
     required bool isBuffer,

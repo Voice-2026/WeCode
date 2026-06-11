@@ -330,10 +330,16 @@ impl TerminalSessionBinding {
     }
 
     fn claim_local_viewport(&self) -> Result<()> {
-        if let Some(session) = self.inner.lock().session.clone() {
-            session
-                .clone_handle()
-                .claim_viewport(terminal_viewport_local_owner())?;
+        let (session, last_resize) = {
+            let inner = self.inner.lock();
+            (inner.session.clone(), inner.last_resize)
+        };
+        if let Some(session) = session {
+            let handle = session.clone_handle();
+            handle.claim_viewport(terminal_viewport_local_owner())?;
+            if let Some((cols, rows)) = last_resize {
+                handle.resize_viewport(terminal_viewport_local_owner(), cols, rows)?;
+            }
         }
         Ok(())
     }

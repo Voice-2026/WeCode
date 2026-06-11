@@ -13,11 +13,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(result), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
-    expect(result.first.data, 'abcd');
+    expect(_kinds(result), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'abcd');
     expect(controller.bufferOffset('session-1'), 8);
   });
@@ -32,11 +28,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(result), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
-    expect(result.first.data, 'tail');
+    expect(_kinds(result), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'tail');
     expect(controller.bufferOffset('session-1'), 104);
   });
@@ -60,40 +52,37 @@ void main() {
     expect(controller.bufferOffset('session-1'), 8);
   });
 
-  test(
-    'stale baseline page is acked without restarting history restore',
-    () {
-      final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
+  test('stale baseline page is acked without restarting history restore', () {
+    final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
 
-      controller.bindSession('session-1', requireBaseline: true);
-      controller.accept(
-        _terminalBuffer(
-          'a' * 65536,
-          offset: 0,
-          bufferLength: 150000,
-          truncated: true,
-          outputSeq: 951,
-          requestId: 'request-1',
-        ),
-        activeSessionId: 'session-1',
-      );
-      final firstPage = controller.accept(
-        _terminalBuffer(
-          'b' * 65536,
-          offset: 65536,
-          bufferLength: 150000,
-          truncated: true,
-          outputSeq: 951,
-          requestId: 'request-1',
-        ),
-        activeSessionId: 'session-1',
-      );
+    controller.bindSession('session-1', requireBaseline: true);
+    controller.accept(
+      _terminalBuffer(
+        'a' * 65536,
+        offset: 0,
+        bufferLength: 150000,
+        truncated: true,
+        outputSeq: 951,
+        requestId: 'request-1',
+      ),
+      activeSessionId: 'session-1',
+    );
+    final firstPage = controller.accept(
+      _terminalBuffer(
+        'b' * 65536,
+        offset: 65536,
+        bufferLength: 150000,
+        truncated: true,
+        outputSeq: 951,
+        requestId: 'request-1',
+      ),
+      activeSessionId: 'session-1',
+    );
 
-      expect(_kinds(firstPage), [RemoteTerminalOutputEffectKind.ack]);
-      expect(controller.cachedOutput('session-1'), 'a' * 65536);
-      expect(controller.bufferOffset('session-1'), 150000);
-    },
-  );
+    expect(_kinds(firstPage), [RemoteTerminalOutputEffectKind.ack]);
+    expect(controller.cachedOutput('session-1'), 'a' * 65536);
+    expect(controller.bufferOffset('session-1'), 150000);
+  });
 
   test('future baseline page is acked without a fresh restore loop', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 4);
@@ -132,14 +121,11 @@ void main() {
     );
 
     expect(_kinds(first), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
+      ..._activeBufferUpdate,
       RemoteTerminalOutputEffectKind.loading,
-      RemoteTerminalOutputEffectKind.writeData,
+      RemoteTerminalOutputEffectKind.sessionUpdated,
       RemoteTerminalOutputEffectKind.ack,
     ]);
-    expect(first.first.data, 'old-');
-    expect(first[3].data, 'new');
     expect(controller.cachedOutput('session-1'), 'old-new');
   });
 
@@ -158,7 +144,7 @@ void main() {
 
     expect(_kinds(skipped), [
       RemoteTerminalOutputEffectKind.loading,
-      RemoteTerminalOutputEffectKind.writeData,
+      RemoteTerminalOutputEffectKind.sessionUpdated,
       RemoteTerminalOutputEffectKind.ack,
     ]);
     expect(controller.cachedOutput('session-1'), 'onethree');
@@ -194,10 +180,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(current), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(current), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'new');
   });
 
@@ -218,10 +201,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(first), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(first), [..._activeBufferUpdate]);
     expect(controller.activeBufferRequestId('session-1'), isNull);
     expect(
       controller.startBufferRequest(
@@ -244,10 +224,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(next), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(next), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'next');
   });
 
@@ -278,10 +255,7 @@ void main() {
         activeSessionId: 'session-1',
       );
 
-      expect(_kinds(result), [
-        RemoteTerminalOutputEffectKind.renderBaseline,
-        RemoteTerminalOutputEffectKind.ack,
-      ]);
+      expect(_kinds(result), [..._activeBufferUpdate]);
       expect(controller.cachedOutput('session-1'), 'tail');
       expect(controller.bufferOffset('session-1'), 100);
     },
@@ -306,10 +280,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(result), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(result), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'tail');
     expect(controller.bufferOffset('session-1'), 100);
   });
@@ -328,7 +299,7 @@ void main() {
     );
     expect(_kinds(gap), [
       RemoteTerminalOutputEffectKind.loading,
-      RemoteTerminalOutputEffectKind.writeData,
+      RemoteTerminalOutputEffectKind.sessionUpdated,
       RemoteTerminalOutputEffectKind.ack,
     ]);
 
@@ -351,13 +322,10 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(snapshot), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(snapshot), [..._activeBufferUpdate]);
     expect(_kinds(live), [
       RemoteTerminalOutputEffectKind.loading,
-      RemoteTerminalOutputEffectKind.writeData,
+      RemoteTerminalOutputEffectKind.sessionUpdated,
       RemoteTerminalOutputEffectKind.ack,
     ]);
     expect(controller.cachedOutput('session-1'), 'tailnext');
@@ -381,10 +349,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(result), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(result), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'ready');
   });
 
@@ -409,10 +374,7 @@ void main() {
         activeSessionId: 'session-1',
       );
 
-      expect(_kinds(result), [
-        RemoteTerminalOutputEffectKind.renderBaseline,
-        RemoteTerminalOutputEffectKind.ack,
-      ]);
+      expect(_kinds(result), [..._activeBufferUpdate]);
     },
   );
 
@@ -449,10 +411,7 @@ void main() {
       activeSessionId: 'session-1',
     );
 
-    expect(_kinds(result), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(result), [..._activeBufferUpdate]);
     expect(controller.cachedOutput('session-1'), 'now');
     expect(controller.bufferOffset('session-1'), 3);
   });
@@ -598,10 +557,7 @@ void main() {
         activeSessionId: 'session-b',
       );
 
-      expect(_kinds(aFirst), [
-        RemoteTerminalOutputEffectKind.renderBaseline,
-        RemoteTerminalOutputEffectKind.ack,
-      ]);
+      expect(_kinds(aFirst), [..._activeBufferUpdate]);
       expect(_kinds(bFirst), [RemoteTerminalOutputEffectKind.ack]);
       expect(_kinds(cSnapshot), [RemoteTerminalOutputEffectKind.ack]);
       expect(_kinds(cLive), [RemoteTerminalOutputEffectKind.ack]);
@@ -642,47 +598,40 @@ void main() {
         activeSessionId: 'session-1',
       );
 
-      expect(_kinds(result), [
-        RemoteTerminalOutputEffectKind.markBufferReceived,
-        RemoteTerminalOutputEffectKind.writeData,
-        RemoteTerminalOutputEffectKind.ack,
-      ]);
+      expect(_kinds(result), [..._activeBufferUpdate]);
       expect(controller.cachedOutput('session-1'), 'oldnew');
     },
   );
 
-  test(
-    'duplicate baseline page is acked without replaying cached session',
-    () {
-      final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
-      controller.bindSession('session-1', requireBaseline: false);
-      controller.accept(
-        _terminalBuffer(
-          'cached',
-          offset: 0,
-          bufferLength: 6,
-          truncated: false,
-          outputSeq: 10,
-        ),
-        activeSessionId: 'session-1',
-      );
+  test('duplicate baseline page is acked without replaying cached session', () {
+    final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
+    controller.bindSession('session-1', requireBaseline: false);
+    controller.accept(
+      _terminalBuffer(
+        'cached',
+        offset: 0,
+        bufferLength: 6,
+        truncated: false,
+        outputSeq: 10,
+      ),
+      activeSessionId: 'session-1',
+    );
 
-      final result = controller.accept(
-        _terminalBuffer(
-          'old-prefix',
-          offset: 0,
-          bufferLength: 400000,
-          truncated: true,
-          outputSeq: 697,
-        ),
-        activeSessionId: 'session-1',
-      );
+    final result = controller.accept(
+      _terminalBuffer(
+        'old-prefix',
+        offset: 0,
+        bufferLength: 400000,
+        truncated: true,
+        outputSeq: 697,
+      ),
+      activeSessionId: 'session-1',
+    );
 
-      expect(_kinds(result), [RemoteTerminalOutputEffectKind.ack]);
-      expect(controller.cachedOutput('session-1'), 'cached');
-      expect(controller.bufferOffset('session-1'), 6);
-    },
-  );
+    expect(_kinds(result), [RemoteTerminalOutputEffectKind.ack]);
+    expect(controller.cachedOutput('session-1'), 'cached');
+    expect(controller.bufferOffset('session-1'), 6);
+  });
 
   test(
     'duplicate chunked baseline is acked before assembly without replaying cache',
@@ -756,10 +705,7 @@ void main() {
       ),
       activeSessionId: 'session-1',
     );
-    expect(_kinds(first), [
-      RemoteTerminalOutputEffectKind.renderBaseline,
-      RemoteTerminalOutputEffectKind.ack,
-    ]);
+    expect(_kinds(first), [..._activeBufferUpdate]);
 
     final second = controller.accept(
       _terminalBuffer(
@@ -865,3 +811,9 @@ RelayEnvelope _liveOutputForSession(
 List<RemoteTerminalOutputEffectKind> _kinds(
   List<RemoteTerminalOutputEffect> effects,
 ) => effects.map((effect) => effect.kind).toList();
+
+const _activeBufferUpdate = [
+  RemoteTerminalOutputEffectKind.sessionUpdated,
+  RemoteTerminalOutputEffectKind.markBufferReceived,
+  RemoteTerminalOutputEffectKind.ack,
+];

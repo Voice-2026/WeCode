@@ -1,10 +1,7 @@
 import 'terminal_output_sequencer.dart';
 
 class TerminalOutputResyncResult {
-  const TerminalOutputResyncResult({
-    required this.render,
-    required this.ack,
-  });
+  const TerminalOutputResyncResult({required this.render, required this.ack});
 
   final bool render;
   final int? ack;
@@ -28,14 +25,8 @@ TerminalOutputResyncResult observeTerminalOutputForResync({
   switch (sequence.action) {
     case TerminalOutputSequenceAction.accept:
     case TerminalOutputSequenceAction.baseline:
-      return TerminalOutputResyncResult(
-        render: true,
-        ack: outputSeq,
-      );
+      return TerminalOutputResyncResult(render: true, ack: outputSeq);
     case TerminalOutputSequenceAction.duplicate:
-      return TerminalOutputResyncResult(
-        render: false,
-        ack: outputSeq,
-      );
+      return TerminalOutputResyncResult(render: false, ack: outputSeq);
   }
 }

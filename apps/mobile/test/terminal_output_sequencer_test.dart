@@ -56,7 +56,6 @@ void main() {
     expect(gap.previousSeq, 1);
     expect(laterDelta.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 4);
-    expect(sequencer.isResyncing('term-1'), isFalse);
   });
 
   test('full buffer resets sequence and resumes ordered output', () {
@@ -77,7 +76,6 @@ void main() {
     );
 
     expect(baseline.action, TerminalOutputSequenceAction.baseline);
-    expect(sequencer.isResyncing('term-1'), isFalse);
     expect(next.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 4);
   });
@@ -127,7 +125,6 @@ void main() {
 
     expect(gap.action, TerminalOutputSequenceAction.accept);
     expect(tailBuffer.action, TerminalOutputSequenceAction.baseline);
-    expect(sequencer.isResyncing('term-1'), isFalse);
     expect(next.action, TerminalOutputSequenceAction.accept);
     expect(sequencer.sequenceFor('term-1'), 901);
   });

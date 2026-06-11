@@ -60,6 +60,22 @@ void main() {
 
     expect(
       controller.shouldSendHostInfo(
+        transportReady: false,
+        transportConnected: true,
+      ),
+      isTrue,
+    );
+    controller.markHostInfoSent();
+    expect(
+      controller.shouldSendHostInfo(
+        transportReady: false,
+        transportConnected: true,
+      ),
+      isFalse,
+    );
+    controller.beginConnectionGeneration();
+    expect(
+      controller.shouldSendHostInfo(
         transportReady: true,
         transportConnected: true,
       ),

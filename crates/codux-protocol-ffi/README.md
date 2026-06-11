@@ -6,14 +6,16 @@ C ABI bridge for Flutter.
 
 - Protocol helper functions exposed to Dart.
 - Controller transport opaque handles backed by `codux-remote-transport`.
-- Remote terminal session handles backed by `codux-terminal-core`.
+- Remote terminal session and headless screen handles backed by `codux-terminal-core`.
 - Terminal output sequencer handles.
+- Remote runtime model handles for project selection, terminal list binding, and
+  stale acknowledgement handling.
 - JSON-based boundary objects for Dart/Rust interop.
 
 ## Does Not Own
 
-- Flutter widgets or app runtime state.
-- Native terminal rendering.
+- Flutter widgets.
+- Terminal drawing policy.
 - Business domain state beyond opaque shared-core handles.
 
 ## Build

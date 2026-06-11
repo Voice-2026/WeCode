@@ -1,18 +1,55 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
     as codux_protocol_ffi;
-import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../models/remote_models.dart';
-import 'remote_protocol.dart';
+import 'log_service.dart';
 
 typedef RemoteTransportStateHandler = void Function(String state);
 typedef RemoteTransportEnvelopeHandler =
     void Function(Map<String, dynamic> envelope);
 typedef RemoteTransportFactory = RemoteTransport Function(StoredDevice device);
+typedef ControllerTransportHandleFactory =
+    ControllerTransportEventHandle? Function(Map<String, dynamic> config);
+
+class RemoteTransportStateEvent {
+  const RemoteTransportStateEvent({
+    required this.state,
+    required this.detail,
+    required this.path,
+  });
+
+  final String state;
+  final String detail;
+  final String? path;
+
+  bool get isPathUpdate => state == 'path' || path != null;
+  bool get isConnected => state == 'connected';
+  bool get isClosed => state == 'failed' || state == 'closed';
+
+  static RemoteTransportStateEvent parse(String rawState) {
+    final state = rawState.split(':').first.trim();
+    final detail = rawState.length > state.length
+        ? rawState.substring(state.length + 1).trim()
+        : '';
+    return RemoteTransportStateEvent(
+      state: state,
+      detail: detail,
+      path: parseTransportPath(detail),
+    );
+  }
+}
+
+abstract interface class ControllerTransportEventHandle {
+  bool get isClosed;
+  bool send(Map<String, dynamic> envelope);
+  bool reportPingTimeout({required String path});
+  bool probePreferredRoute();
+  Map<String, dynamic>? pollEvent();
+  void close();
+}
 
 abstract interface class RemoteTransport {
   String get kind;
@@ -20,7 +57,24 @@ abstract interface class RemoteTransport {
   set onEnvelope(RemoteTransportEnvelopeHandler? handler);
   Future<void> connect(StoredDevice device);
   Future<bool> send(Map<String, dynamic> envelope);
+  Future<bool> reportPingTimeout({required String path});
+  Future<bool> probePreferredRoute(StoredDevice device);
   Future<void> close();
+}
+
+String? parseTransportPath(String detail) {
+  for (final part in detail.split(';')) {
+    final trimmed = part.trim();
+    if (!trimmed.startsWith('path=')) continue;
+    final value = trimmed.substring(5).trim();
+    if (value == 'direct' ||
+        value == 'relay' ||
+        value == 'mixed' ||
+        value == 'none') {
+      return value;
+    }
+  }
+  return null;
 }
 
 RemoteTransport createRemoteTransport(StoredDevice device) {
@@ -28,7 +82,11 @@ RemoteTransport createRemoteTransport(StoredDevice device) {
 }
 
 class RustControllerTransport implements RemoteTransport {
-  codux_protocol_ffi.ControllerTransportHandle? _handle;
+  RustControllerTransport({ControllerTransportHandleFactory? handleFactory})
+    : _handleFactory = handleFactory ?? _connectFfiTransport;
+
+  final ControllerTransportHandleFactory _handleFactory;
+  ControllerTransportEventHandle? _handle;
   Timer? _pollTimer;
   RemoteTransportStateHandler? _onState;
   RemoteTransportEnvelopeHandler? _onEnvelope;
@@ -51,10 +109,12 @@ class RustControllerTransport implements RemoteTransport {
     final summary = codux_protocol_ffi.controllerTransportConfigSummary(config);
     _kind = '${summary['transportKind'] ?? RemoteTransportKind.websocketRelay}';
     _onState?.call('connecting');
-    final handle = codux_protocol_ffi.ControllerTransportHandle.connect(config);
+    final handle = _handleFactory(config);
     if (handle == null) {
-      _onState?.call('failed:transport-connect');
-      throw StateError('Failed to connect remote transport');
+      final error = codux_protocol_ffi.lastError();
+      final detail = error.isEmpty ? 'transport-connect' : error;
+      _onState?.call('failed:$detail');
+      throw StateError('Failed to connect remote transport: $detail');
     }
     _handle = handle;
     _pollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
@@ -66,6 +126,16 @@ class RustControllerTransport implements RemoteTransport {
   @override
   Future<bool> send(Map<String, dynamic> envelope) async {
     return _handle?.send(envelope) ?? false;
+  }
+
+  @override
+  Future<bool> reportPingTimeout({required String path}) async {
+    return _handle?.reportPingTimeout(path: path) ?? false;
+  }
+
+  @override
+  Future<bool> probePreferredRoute(StoredDevice device) async {
+    return _handle?.probePreferredRoute() ?? false;
   }
 
   @override
@@ -81,7 +151,18 @@ class RustControllerTransport implements RemoteTransport {
     final handle = _handle;
     if (handle == null || handle.isClosed) return;
     for (var i = 0; i < 128; i++) {
-      final event = handle.pollEvent();
+      if (!identical(_handle, handle) || handle.isClosed) return;
+      Map<String, dynamic>? event;
+      try {
+        event = handle.pollEvent();
+      } on StateError {
+        if (identical(_handle, handle)) {
+          _pollTimer?.cancel();
+          _pollTimer = null;
+          _handle = null;
+        }
+        return;
+      }
       if (event == null) return;
       final kind = '${event['kind'] ?? ''}';
       if (kind == 'state') {
@@ -94,9 +175,43 @@ class RustControllerTransport implements RemoteTransport {
         } else if (decoded is Map) {
           _onEnvelope?.call(Map<String, dynamic>.from(decoded));
         }
+      } else if (kind == 'log') {
+        CoduxLog.info('[codux-flutter-transport] ${event['message'] ?? ''}');
       }
     }
   }
+}
+
+ControllerTransportEventHandle? _connectFfiTransport(
+  Map<String, dynamic> config,
+) {
+  final handle = codux_protocol_ffi.ControllerTransportHandle.connect(config);
+  return handle == null ? null : _FfiControllerTransportHandle(handle);
+}
+
+class _FfiControllerTransportHandle implements ControllerTransportEventHandle {
+  _FfiControllerTransportHandle(this._inner);
+
+  final codux_protocol_ffi.ControllerTransportHandle _inner;
+
+  @override
+  bool get isClosed => _inner.isClosed;
+
+  @override
+  bool send(Map<String, dynamic> envelope) => _inner.send(envelope);
+
+  @override
+  bool reportPingTimeout({required String path}) =>
+      _inner.reportPingTimeout(path: path);
+
+  @override
+  bool probePreferredRoute() => _inner.probePreferredRoute();
+
+  @override
+  Map<String, dynamic>? pollEvent() => _inner.pollEvent();
+
+  @override
+  void close() => _inner.close();
 }
 
 Map<String, dynamic> _controllerTransportConfig(StoredDevice device) {
@@ -114,307 +229,4 @@ Map<String, dynamic> _controllerTransportConfig(StoredDevice device) {
     'transports': device.transports.map((item) => item.toJson()).toList(),
     if (stunUrls.isNotEmpty) 'stunUrls': stunUrls.toList(),
   };
-}
-
-class WebSocketRelayTransport implements RemoteTransport {
-  WebSocket? _socket;
-  RemoteTransportStateHandler? _onState;
-  RemoteTransportEnvelopeHandler? _onEnvelope;
-
-  @override
-  String get kind => RemoteTransportKind.websocketRelay;
-
-  @override
-  set onState(RemoteTransportStateHandler? handler) => _onState = handler;
-
-  @override
-  set onEnvelope(RemoteTransportEnvelopeHandler? handler) =>
-      _onEnvelope = handler;
-
-  @override
-  Future<void> connect(StoredDevice device) async {
-    await close();
-    final url = _clientWebSocketUri(device);
-    _onState?.call('connecting');
-    final socket = await WebSocket.connect(url.toString());
-    _socket = socket;
-    _onState?.call('connected:path=relay');
-    unawaited(_readLoop(socket));
-  }
-
-  @override
-  Future<bool> send(Map<String, dynamic> envelope) async {
-    final socket = _socket;
-    if (socket == null) return false;
-    socket.add(jsonEncode(envelope));
-    return true;
-  }
-
-  @override
-  Future<void> close() async {
-    final socket = _socket;
-    _socket = null;
-    await socket?.close();
-  }
-
-  Future<void> _readLoop(WebSocket socket) async {
-    try {
-      await for (final message in socket) {
-        if (!identical(socket, _socket)) return;
-        if (message is! String) continue;
-        final decoded = jsonDecode(message);
-        if (decoded is Map<String, dynamic>) {
-          _onEnvelope?.call(decoded);
-        } else if (decoded is Map) {
-          _onEnvelope?.call(Map<String, dynamic>.from(decoded));
-        }
-      }
-      if (identical(socket, _socket)) _onState?.call('closed');
-    } catch (error) {
-      if (identical(socket, _socket)) _onState?.call('failed:$error');
-    }
-  }
-
-  Uri _clientWebSocketUri(StoredDevice device) {
-    final candidate =
-        device.transportByKind(RemoteTransportKind.websocketRelay) ??
-        device.transportByKind(
-          remotePreferredTransportKind(device.transports, pairing: false),
-        );
-    if (candidate == null) {
-      throw StateError('Missing relay transport candidate');
-    }
-    return Uri.parse(
-      remoteTransportClientWebSocketUrl(
-        base: candidate.url,
-        hostId: device.hostId,
-        deviceId: device.deviceId,
-        token: device.token,
-      ),
-    );
-  }
-}
-
-class WebRtcTransport implements RemoteTransport {
-  final WebSocketRelayTransport _relay = WebSocketRelayTransport();
-  RemoteTransportStateHandler? _onState;
-  RemoteTransportEnvelopeHandler? _onEnvelope;
-  RTCPeerConnection? _peerConnection;
-  RTCDataChannel? _dataChannel;
-  bool _closed = false;
-  bool _directReady = false;
-  bool _relayReady = false;
-
-  @override
-  String get kind => RemoteTransportKind.webRtc;
-
-  @override
-  set onState(RemoteTransportStateHandler? handler) => _onState = handler;
-
-  @override
-  set onEnvelope(RemoteTransportEnvelopeHandler? handler) =>
-      _onEnvelope = handler;
-
-  @override
-  Future<void> connect(StoredDevice device) async {
-    await close();
-    _closed = false;
-    _directReady = false;
-    _relayReady = false;
-    _relay
-      ..onState = _handleRelayState
-      ..onEnvelope = _handleRelayEnvelope;
-    await _relay.connect(device);
-    unawaited(_startPeer(device));
-  }
-
-  @override
-  Future<bool> send(Map<String, dynamic> envelope) async {
-    final dataChannel = _dataChannel;
-    if (_directReady &&
-        dataChannel != null &&
-        dataChannel.state == RTCDataChannelState.RTCDataChannelOpen) {
-      await dataChannel.send(RTCDataChannelMessage(jsonEncode(envelope)));
-      return true;
-    }
-    return _relay.send(envelope);
-  }
-
-  @override
-  Future<void> close() async {
-    _closed = true;
-    _directReady = false;
-    _relayReady = false;
-    final channel = _dataChannel;
-    final peerConnection = _peerConnection;
-    _dataChannel = null;
-    _peerConnection = null;
-    await channel?.close();
-    await peerConnection?.close();
-    await peerConnection?.dispose();
-    await _relay.close();
-  }
-
-  void _handleRelayState(String state) {
-    if (state == 'connected:path=relay') {
-      _relayReady = true;
-      if (!_directReady) _onState?.call(state);
-      return;
-    }
-    if (state == 'closed' || state.startsWith('failed:')) {
-      _relayReady = false;
-      if (!_directReady) _onState?.call(state);
-      return;
-    }
-    if (!_directReady) _onState?.call(state);
-  }
-
-  Future<void> _startPeer(StoredDevice device) async {
-    try {
-      final peerConnection = await createPeerConnection({
-        'iceServers': _iceServers(device),
-        'sdpSemantics': 'unified-plan',
-      });
-      if (_closed) {
-        await peerConnection.close();
-        await peerConnection.dispose();
-        return;
-      }
-      _peerConnection = peerConnection;
-      peerConnection.onIceCandidate = (candidate) {
-        if (_closed || candidate.candidate == null) return;
-        unawaited(
-          _relay.send({
-            'type': 'webrtc.ice',
-            'deviceId': device.deviceId,
-            'payload': {'candidate': candidate.toMap()},
-          }),
-        );
-      };
-      peerConnection.onConnectionState = (state) {
-        if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-          _markDirectReady();
-        } else if (state ==
-                RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-            state == RTCPeerConnectionState.RTCPeerConnectionStateClosed) {
-          _markRelayFallback();
-        }
-      };
-      final dataChannel = await peerConnection.createDataChannel(
-        'codux',
-        RTCDataChannelInit()..ordered = true,
-      );
-      _installDataChannel(dataChannel);
-      final offer = await peerConnection.createOffer({});
-      await peerConnection.setLocalDescription(offer);
-      await _relay.send({
-        'type': 'webrtc.offer',
-        'deviceId': device.deviceId,
-        'payload': {'description': offer.toMap()},
-      });
-    } catch (error) {
-      _markRelayFallback();
-    }
-  }
-
-  void _installDataChannel(RTCDataChannel channel) {
-    _dataChannel = channel;
-    channel.onDataChannelState = (state) {
-      if (state == RTCDataChannelState.RTCDataChannelOpen) {
-        _markDirectReady();
-      } else if (state == RTCDataChannelState.RTCDataChannelClosed ||
-          state == RTCDataChannelState.RTCDataChannelClosing) {
-        _markRelayFallback();
-      }
-    };
-    channel.onMessage = (message) {
-      if (message.isBinary) return;
-      final decoded = jsonDecode(message.text);
-      if (decoded is Map<String, dynamic>) {
-        _onEnvelope?.call(decoded);
-      } else if (decoded is Map) {
-        _onEnvelope?.call(Map<String, dynamic>.from(decoded));
-      }
-    };
-  }
-
-  void _handleRelayEnvelope(Map<String, dynamic> envelope) {
-    final type = '${envelope['type'] ?? ''}';
-    if (type == 'webrtc.answer') {
-      unawaited(_handleAnswer(envelope['payload']));
-      return;
-    }
-    if (type == 'webrtc.ice') {
-      unawaited(_handleIce(envelope['payload']));
-      return;
-    }
-    _onEnvelope?.call(envelope);
-  }
-
-  Future<void> _handleAnswer(Object? payload) async {
-    final peerConnection = _peerConnection;
-    final description = _descriptionFromPayload(payload);
-    if (peerConnection == null || description == null) return;
-    try {
-      await peerConnection.setRemoteDescription(description);
-    } catch (_) {
-      _markRelayFallback();
-    }
-  }
-
-  Future<void> _handleIce(Object? payload) async {
-    final peerConnection = _peerConnection;
-    final candidate = _candidateFromPayload(payload);
-    if (peerConnection == null || candidate == null) return;
-    try {
-      await peerConnection.addCandidate(candidate);
-    } catch (_) {}
-  }
-
-  void _markDirectReady() {
-    if (_closed || _directReady) return;
-    _directReady = true;
-    _onState?.call('connected:path=direct');
-  }
-
-  void _markRelayFallback() {
-    if (_closed) return;
-    if (_directReady) {
-      _directReady = false;
-      _onState?.call(_relayReady ? 'connected:path=relay' : 'closed');
-    }
-  }
-}
-
-RTCSessionDescription? _descriptionFromPayload(Object? payload) {
-  if (payload is! Map) return null;
-  final description = payload['description'];
-  if (description is! Map) return null;
-  final sdp = description['sdp']?.toString();
-  final type = description['type']?.toString();
-  if (sdp == null || type == null) return null;
-  return RTCSessionDescription(sdp, type);
-}
-
-RTCIceCandidate? _candidateFromPayload(Object? payload) {
-  if (payload is! Map) return null;
-  final candidate = payload['candidate'];
-  if (candidate is! Map) return null;
-  final text = candidate['candidate']?.toString();
-  if (text == null || text.isEmpty) return null;
-  final sdpMid = candidate['sdpMid']?.toString();
-  final sdpMLineIndex = candidate['sdpMLineIndex'] is num
-      ? (candidate['sdpMLineIndex'] as num).toInt()
-      : int.tryParse('${candidate['sdpMLineIndex'] ?? ''}');
-  return RTCIceCandidate(text, sdpMid, sdpMLineIndex);
-}
-
-List<Map<String, dynamic>> _iceServers(StoredDevice device) {
-  final webRtc = device.transportByKind(RemoteTransportKind.webRtc);
-  final configured = webRtc?.iceServers
-      .map((server) => {'urls': server.urls})
-      .where((server) => (server['urls'] as List).isNotEmpty)
-      .toList();
-  if (configured != null && configured.isNotEmpty) return configured;
-  return remoteTransportDefaultIceServers();
 }

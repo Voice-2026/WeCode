@@ -1,7 +1,4 @@
-enum TerminalBufferRequestMode {
-  historyRestore,
-  liveResume,
-}
+enum TerminalBufferRequestMode { historyRestore, liveResume }
 
 Map<String, Object> buildTerminalBufferRequestPayload({
   required String requestId,

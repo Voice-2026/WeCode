@@ -12,7 +12,7 @@
     <img src="https://img.shields.io/badge/协议-GPLv3-blue?style=flat-square" alt="开源协议">
   </a>
   <img src="https://img.shields.io/badge/平台-Android-3ddc84?style=flat-square" alt="平台">
-  <img src="https://img.shields.io/badge/Flutter-原生终端-02569b?style=flat-square" alt="Flutter">
+  <img src="https://img.shields.io/badge/Flutter-Rust%20terminal%20core-02569b?style=flat-square" alt="Flutter">
   <img src="https://img.shields.io/badge/语言-中文%20%7C%20English-lightgrey?style=flat-square" alt="语言">
 </p>
 
@@ -41,8 +41,8 @@ Codux Desktop 负责真实项目、终端会话、AI 工具运行、Git/worktree
 
 移动端当前聚焦三件事：
 
-- **稳定的 Android 终端渲染**：使用基于 Termux `TerminalView` / `TerminalEmulator` 的 Flutter 原生 PlatformView，不再走 WebView 或 xterm.js。
-- **移动端输入体验**：支持快捷工具栏、输入法开关、文字选择、滚动历史、粘贴、图片上传，以及针对 TUI 程序调过的输入法避让。
+- **稳定的 Android 终端渲染**：远程 PTY 字节先进入共享 Rust `codux-terminal-core` 无头屏幕模型，再由 Flutter 自绘，不再走 WebView 或平台专用终端插件。
+- **移动端输入体验**：支持快捷工具栏、输入法开关、粘贴、图片上传，以及针对 TUI 程序调过的输入法避让。
 - **接入 Codux 工作台**：扫码配对、设备列表、项目标签、终端分屏、文件浏览、AI 用量面板都通过 v3.1 远程协议连接 Codux 桌面 host。
 
 ## 功能
@@ -51,7 +51,7 @@ Codux Desktop 负责真实项目、终端会话、AI 工具运行、Git/worktree
 |:--|:--|:--|
 | 配对 | 可用 | 扫描 macOS 端 Codux 的二维码，提交配对申请，等待 Mac 端确认。 |
 | 设备管理 | 可用 | 本地保存多台 Mac，可编辑 relay 地址和设备名称，断线后后台重连。 |
-| 远程终端 | 可用 | 通过 Android 原生终端插件渲染远程 PTY 输出，并把用户输入显式发回 Mac 端。 |
+| 远程终端 | 可用 | 渲染 Rust 维护的远程 PTY 屏幕模型，并把用户输入显式发回 Mac 端。 |
 | 输入法处理 | 可用 | 输入法弹出时保持终端高度稳定，只移动显示区域，避免 TUI 界面被重绘压坏。 |
 | 快捷键 | 可用 | 双排工具栏包含 Esc、Tab、复制、粘贴、上传、方向键、删除、回车、Ctrl、Shift、Alt、键盘开关和 `^C`。 |
 | 文件 | 可用 | 浏览项目文件、记忆每个项目目录、打开/编辑文件、重命名、复制路径、删除。 |
@@ -66,14 +66,14 @@ Codux Mobile (Flutter 主控端)
   ├─ Runtime store：选中项目、当前终端、同步状态
   ├─ 协议客户端：v3.1 envelope、capabilities、分片组包、ack/retry
   ├─ Rust 传输 FFI：WebRTC DataChannel 和 WebSocket relay 回退
-  └─ 原生终端插件：Flutter PlatformView + Termux TerminalView
+  └─ Rust terminal-core FFI：RemotePtySession + alacritty 无头屏幕模型
 
 Codux Desktop host
   ├─ 持有项目、终端会话、PTY、文件、Git/worktree 状态和 AI 用量
   └─ 确认移动端配对并提供 runtime domain 协议消息
 ```
 
-移动端只作为主控端，不作为终端会话、文件、Git 状态或项目列表的源头。真实会话仍由桌面端工作台管理。业务 payload 会封装为端到端加密的 `secure.message`，终端历史使用有界 v3.1 buffer window，支持分片组包和进度显示。
+移动端只作为主控端，不作为终端会话、文件、Git 状态或项目列表的源头。真实会话仍由桌面端工作台管理。业务 payload 会封装为端到端加密的 `secure.message`，终端历史使用有界 v3.1 buffer window，支持分片组包和进度显示。终端字节必须先进入 `RemotePtySession`，Flutter 只读取生成后的屏幕 cell 并负责绘制和输入意图。
 
 ## 环境要求
 
@@ -114,7 +114,7 @@ build/app/outputs/flutter-apk/app-release.apk
 
 ## 日志等级
 
-Flutter 层和原生终端插件共用构建时日志等级：
+Flutter 层应用代码和终端渲染共用构建时日志等级：
 
 ```bash
 flutter run --dart-define=CODUX_LOG_LEVEL=debug
@@ -177,7 +177,7 @@ git push origin v0.1.1
 | 路径 | 说明 |
 |:--|:--|
 | `lib/` | Flutter 应用外壳、relay 客户端、页面、组件、主题和多语言。 |
-| `plugin/codux_native_terminal/` | Flutter 使用的 Android 原生终端插件。 |
+| `plugin/codux_protocol_ffi/` | Android、iOS 和桌面共用的 Rust 协议与终端 core FFI。 |
 | `android/` | Android 应用壳和发布签名配置。 |
 | `.github/workflows/` | 手动测试构建和 tag 触发发布构建。 |
 | `scripts/release/` | 更新日志提取脚本。 |

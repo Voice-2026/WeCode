@@ -21,23 +21,31 @@ void main() {
     expect(payload['maxChars'], 65536);
     expect(payload['chunkChars'], 16384);
     expect(plan.subscribeProjectId, 'project-a');
+    controller.markProjectSubscribed('project-a', baselineRequested: true);
     expect(controller.projectId, 'project-a');
   });
 
-  test('ignores duplicate project subscription', () {
+  test('does not mark duplicate project subscription until committed', () {
     final controller = RemoteTerminalSubscriptionController();
 
-    controller.replaceProject('project-a');
-    final plan = controller.replaceProject('project-a');
+    final first = controller.replaceProject('project-a');
+    final beforeCommit = controller.replaceProject('project-a');
+    expect(beforeCommit.hasWork, isTrue);
 
-    expect(plan.hasWork, isFalse);
+    controller.markProjectSubscribed(
+      first.subscribeProjectId!,
+      baselineRequested: true,
+    );
+    final afterCommit = controller.replaceProject('project-a');
+
+    expect(afterCommit.hasWork, isFalse);
     expect(controller.projectId, 'project-a');
   });
 
   test('refreshes same project only after baseline is marked stale', () {
     final controller = RemoteTerminalSubscriptionController();
 
-    controller.replaceProject('project-a');
+    controller.markProjectSubscribed('project-a', baselineRequested: true);
     controller.markProjectBaselineStale('project-a');
     final plan = controller.replaceProject('project-a');
 
@@ -52,7 +60,11 @@ void main() {
   test('keeps previous project subscriptions during fast switching', () {
     final controller = RemoteTerminalSubscriptionController();
 
-    controller.replaceProject('project-a');
+    final first = controller.replaceProject('project-a');
+    controller.markProjectSubscribed(
+      first.subscribeProjectId!,
+      baselineRequested: true,
+    );
     final plan = controller.replaceProject('project-b');
 
     expect(plan.unsubscribe, isNull);
@@ -61,6 +73,10 @@ void main() {
     expect(subscribePayload['resource'], RemoteResourceType.terminals);
     expect(subscribePayload['projectId'], 'project-b');
     expect(plan.subscribeProjectId, 'project-b');
+    controller.markProjectSubscribed(
+      plan.subscribeProjectId!,
+      baselineRequested: true,
+    );
     expect(controller.projectId, 'project-b');
 
     final backToA = controller.replaceProject('project-a');
@@ -72,8 +88,16 @@ void main() {
   test('fast switching refreshes only stale subscribed project baseline', () {
     final controller = RemoteTerminalSubscriptionController();
 
-    controller.replaceProject('project-a');
-    controller.replaceProject('project-b');
+    final first = controller.replaceProject('project-a');
+    controller.markProjectSubscribed(
+      first.subscribeProjectId!,
+      baselineRequested: true,
+    );
+    final second = controller.replaceProject('project-b');
+    controller.markProjectSubscribed(
+      second.subscribeProjectId!,
+      baselineRequested: true,
+    );
     controller.markProjectBaselineStale('project-a');
 
     final refreshA = controller.replaceProject('project-a');
@@ -90,7 +114,11 @@ void main() {
   test('reset allows fresh subscription', () {
     final controller = RemoteTerminalSubscriptionController();
 
-    controller.replaceProject('project-a');
+    final first = controller.replaceProject('project-a');
+    controller.markProjectSubscribed(
+      first.subscribeProjectId!,
+      baselineRequested: true,
+    );
     controller.reset();
     final plan = controller.replaceProject('project-a');
 

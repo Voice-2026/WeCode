@@ -56,31 +56,34 @@ void main() {
     expect(state.shouldRequestTerminalList(force: true), isTrue);
   });
 
-  test('retry and reset clear pending requests without marking lists loaded', () {
-    final state = RemoteSyncState()
-      ..markProjectListRequested()
-      ..markTerminalListRequested();
+  test(
+    'retry and reset clear pending requests without marking lists loaded',
+    () {
+      final state = RemoteSyncState()
+        ..markProjectListRequested()
+        ..markTerminalListRequested();
 
-    expect(state.shouldRequestProjectList(), isFalse);
-    expect(state.shouldRequestTerminalList(), isFalse);
+      expect(state.shouldRequestProjectList(), isFalse);
+      expect(state.shouldRequestTerminalList(), isFalse);
 
-    expect(state.nextProjectListRetryAttempt(), 1);
-    expect(state.nextTerminalListRetryAttempt(), 1);
+      expect(state.nextProjectListRetryAttempt(), 1);
+      expect(state.nextTerminalListRetryAttempt(), 1);
 
-    expect(state.projectListPending, isFalse);
-    expect(state.terminalListPending, isFalse);
-    expect(state.shouldRequestProjectList(), isTrue);
-    expect(state.shouldRequestTerminalList(), isTrue);
+      expect(state.projectListPending, isFalse);
+      expect(state.terminalListPending, isFalse);
+      expect(state.shouldRequestProjectList(), isTrue);
+      expect(state.shouldRequestTerminalList(), isTrue);
 
-    state
-      ..markProjectListRequested()
-      ..markTerminalListRequested()
-      ..resetProjectListRetry()
-      ..resetTerminalListRetry();
+      state
+        ..markProjectListRequested()
+        ..markTerminalListRequested()
+        ..resetProjectListRetry()
+        ..resetTerminalListRetry();
 
-    expect(state.projectListRetryAttempt, 0);
-    expect(state.terminalListRetryAttempt, 0);
-    expect(state.projectListPending, isFalse);
-    expect(state.terminalListPending, isFalse);
-  });
+      expect(state.projectListRetryAttempt, 0);
+      expect(state.terminalListRetryAttempt, 0);
+      expect(state.projectListPending, isFalse);
+      expect(state.terminalListPending, isFalse);
+    },
+  );
 }

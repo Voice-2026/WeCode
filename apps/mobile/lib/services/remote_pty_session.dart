@@ -1,6 +1,10 @@
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
     as codux_terminal_core;
 
+typedef RemoteTerminalScreenSnapshot =
+    codux_terminal_core.TerminalScreenSnapshot;
+typedef RemoteTerminalScreenCell = codux_terminal_core.TerminalScreenCell;
+
 class RemotePtySnapshot {
   const RemotePtySnapshot({
     required this.sessionId,
@@ -42,6 +46,22 @@ class RemotePtySession<T> {
       bufferLength: coreSnapshot.bufferLength,
       sequence: coreSnapshot.sequence,
     );
+  }
+
+  RemoteTerminalScreenSnapshot screenSnapshot() {
+    return _core.screenSnapshot();
+  }
+
+  void resizeScreen({required int cols, required int rows}) {
+    _core.resizeScreen(cols: cols, rows: rows);
+  }
+
+  void scrollScreenLines(int lines) {
+    _core.scrollScreenLines(lines);
+  }
+
+  void scrollScreenToBottom() {
+    _core.scrollScreenToBottom();
   }
 
   void resetTransient({bool resetSequence = false}) {
@@ -172,6 +192,9 @@ class RemotePtySessionStore<T> {
   RemotePtySnapshot? snapshot(String sessionId) =>
       _sessions[sessionId]?.snapshot();
 
+  RemoteTerminalScreenSnapshot? screenSnapshot(String sessionId) =>
+      _sessions[sessionId]?.screenSnapshot();
+
   String? content(String sessionId) {
     final content = _sessions[sessionId]?.content;
     return content == null || content.isEmpty ? null : content;
@@ -179,6 +202,18 @@ class RemotePtySessionStore<T> {
 
   int bufferLength(String sessionId) => _sessions[sessionId]?.bufferLength ?? 0;
   int sequence(String sessionId) => _sessions[sessionId]?.sequence ?? 0;
+
+  void resizeScreen(String sessionId, {required int cols, required int rows}) {
+    _sessions[sessionId]?.resizeScreen(cols: cols, rows: rows);
+  }
+
+  void scrollScreenLines(String sessionId, int lines) {
+    _sessions[sessionId]?.scrollScreenLines(lines);
+  }
+
+  void scrollScreenToBottom(String sessionId) {
+    _sessions[sessionId]?.scrollScreenToBottom();
+  }
 
   void remove(String sessionId) {
     _sessions.remove(sessionId)?.dispose();

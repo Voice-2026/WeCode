@@ -1,12 +1,12 @@
 import 'dart:io';
 
-import 'package:codux_native_terminal/codux_native_terminal.dart';
 import 'package:flutter/material.dart';
 
 import '../i18n.dart';
-import '../services/log_service.dart';
+import '../services/remote_pty_session.dart';
 import '../theme/app_theme.dart';
 import 'connect_hint.dart';
+import 'terminal_screen_view.dart';
 import 'terminal_transition_mask.dart';
 import 'toolbar.dart';
 
@@ -30,11 +30,12 @@ class RemoteTerminalPane extends StatelessWidget {
     required this.maskOpacity,
     required this.keyboardVisible,
     required this.terminalCursorBottom,
+    required this.terminalScreen,
     required this.onConnect,
-    required this.onControllerCreated,
-    required this.onControllerDisposed,
     required this.onInput,
     required this.onResize,
+    required this.onScrollLines,
+    required this.onScrollToBottom,
     required this.onMetricsCursorBottom,
     required this.onSendKey,
     required this.onToggleKeyboard,
@@ -61,11 +62,12 @@ class RemoteTerminalPane extends StatelessWidget {
   final Animation<double> maskOpacity;
   final bool keyboardVisible;
   final double terminalCursorBottom;
+  final RemoteTerminalScreenSnapshot? terminalScreen;
   final VoidCallback onConnect;
-  final ValueChanged<CoduxNativeTerminalController> onControllerCreated;
-  final ValueChanged<CoduxNativeTerminalController> onControllerDisposed;
   final ValueChanged<String> onInput;
-  final CoduxTerminalResizeCallback onResize;
+  final void Function(int cols, int rows) onResize;
+  final ValueChanged<int> onScrollLines;
+  final VoidCallback onScrollToBottom;
   final ValueChanged<double> onMetricsCursorBottom;
   final ValueChanged<String> onSendKey;
   final VoidCallback onToggleKeyboard;
@@ -158,23 +160,14 @@ class RemoteTerminalPane extends StatelessWidget {
                         child: Stack(
                           children: [
                             if (showTerminal)
-                              CoduxNativeTerminalView(
-                                scrollEnabled: !keyboardVisible,
-                                onControllerCreated: onControllerCreated,
-                                onControllerDisposed: onControllerDisposed,
+                              TerminalScreenView(
+                                snapshot: terminalScreen,
+                                keyboardVisible: keyboardVisible,
                                 onInput: onInput,
-                                onTerminalResponse: (data) {
-                                  CoduxLog.debug(
-                                    '[codux-flutter-response] local bytes=${data.codeUnits.length}',
-                                  );
-                                },
                                 onResize: onResize,
-                                onMetrics: (metrics) {
-                                  final cursorBottom =
-                                      metrics.cursorBottomPx /
-                                      MediaQuery.devicePixelRatioOf(context);
-                                  onMetricsCursorBottom(cursorBottom);
-                                },
+                                onScrollLines: onScrollLines,
+                                onScrollToBottom: onScrollToBottom,
+                                onCursorBottom: onMetricsCursorBottom,
                               )
                             else
                               ConnectHint(

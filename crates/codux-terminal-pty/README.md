@@ -14,7 +14,7 @@ Shared local PTY driver.
 - Remote terminal protocol.
 - Desktop AI runtime policy.
 - GPUI terminal rendering.
-- Flutter native terminal rendering.
+- Flutter terminal rendering.
 
 ## Used By
 

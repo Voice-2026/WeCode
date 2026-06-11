@@ -63,7 +63,7 @@ class RemoteConnectionSyncController {
     required bool transportConnected,
     bool force = false,
   }) {
-    if (!transportReady || !transportConnected) return false;
+    if (!transportConnected) return false;
     if (!force && _hostInfoSentGeneration == generation) return false;
     return true;
   }

@@ -12,8 +12,7 @@ enum RemoteTerminalOutputEffectKind {
   loading,
   ack,
   markBufferReceived,
-  renderBaseline,
-  writeData,
+  sessionUpdated,
 }
 
 class RemoteTerminalOutputEffect {
@@ -22,10 +21,8 @@ class RemoteTerminalOutputEffect {
     this.sessionId,
     this.outputSeq,
     this.bufferLength,
-    this.data,
     this.progress,
     this.phase,
-    this.replayingBuffer = false,
     this.loading = false,
   });
 
@@ -57,34 +54,18 @@ class RemoteTerminalOutputEffect {
         sessionId: sessionId,
       );
 
-  factory RemoteTerminalOutputEffect.renderBaseline({
-    required String sessionId,
-    required String data,
-  }) => RemoteTerminalOutputEffect._(
-    kind: RemoteTerminalOutputEffectKind.renderBaseline,
-    sessionId: sessionId,
-    data: data,
-  );
-
-  factory RemoteTerminalOutputEffect.writeData({
-    required String sessionId,
-    required String data,
-    required bool replayingBuffer,
-  }) => RemoteTerminalOutputEffect._(
-    kind: RemoteTerminalOutputEffectKind.writeData,
-    sessionId: sessionId,
-    data: data,
-    replayingBuffer: replayingBuffer,
-  );
+  factory RemoteTerminalOutputEffect.sessionUpdated(String sessionId) =>
+      RemoteTerminalOutputEffect._(
+        kind: RemoteTerminalOutputEffectKind.sessionUpdated,
+        sessionId: sessionId,
+      );
 
   final RemoteTerminalOutputEffectKind kind;
   final String? sessionId;
   final int? outputSeq;
   final int? bufferLength;
-  final String? data;
   final double? progress;
   final RemoteTerminalBufferPhase? phase;
-  final bool replayingBuffer;
   final bool loading;
 }
 
@@ -105,12 +86,27 @@ class RemoteTerminalOutputController {
 
   String? cachedOutput(String sessionId) => _ptySessions.content(sessionId);
 
+  RemoteTerminalScreenSnapshot? screenSnapshot(String sessionId) =>
+      _ptySessions.screenSnapshot(sessionId);
+
   bool hasCachedOutput(String sessionId) =>
       _ptySessions.content(sessionId) != null;
 
   int bufferOffset(String sessionId) => _ptySessions.bufferLength(sessionId);
 
   int sequenceFor(String sessionId) => _ptySessions.sequence(sessionId);
+
+  void resizeScreen(String sessionId, {required int cols, required int rows}) {
+    _ptySessions.resizeScreen(sessionId, cols: cols, rows: rows);
+  }
+
+  void scrollScreenLines(String sessionId, int lines) {
+    _ptySessions.scrollScreenLines(sessionId, lines);
+  }
+
+  void scrollScreenToBottom(String sessionId) {
+    _ptySessions.scrollScreenToBottom(sessionId);
+  }
 
   String? activeBufferRequestId(String sessionId) =>
       _activeBufferRequestBySession[sessionId];
@@ -319,7 +315,8 @@ class RemoteTerminalOutputController {
     final raw = decoded.data;
     final isBuffer = decoded.isBuffer;
     final outputSeq = _intPayloadValue(payload['outputSeq']);
-    final activeRequestIdAfterAssembly = _activeBufferRequestBySession[sessionId];
+    final activeRequestIdAfterAssembly =
+        _activeBufferRequestBySession[sessionId];
     if (isBuffer &&
         hadCachedOutputAtStart &&
         activeRequestIdAfterAssembly == null &&
@@ -423,7 +420,6 @@ class RemoteTerminalOutputController {
 
     final effects = <RemoteTerminalOutputEffect>[];
     var heldLive = const <RelayEnvelope>[];
-    var skipBufferTailWrite = false;
 
     if (isBuffer) {
       final activeRequestId = _activeBufferRequestBySession[sessionId];
@@ -440,7 +436,6 @@ class RemoteTerminalOutputController {
           localCacheEmpty;
       var renderData = raw;
       if (isBaselineRestore) {
-        skipBufferTailWrite = true;
         heldLive = _replaceSessionFromBaseline(
           sessionId,
           renderData,
@@ -461,18 +456,15 @@ class RemoteTerminalOutputController {
         _activeBufferRequestBySession.remove(sessionId);
         _removeRestoreRequest(sessionId);
         if (isActiveSession) {
-          effects.add(
-            RemoteTerminalOutputEffect.renderBaseline(
-              sessionId: sessionId,
-              data: renderData,
-            ),
-          );
+          effects.add(RemoteTerminalOutputEffect.sessionUpdated(sessionId));
+          effects.add(RemoteTerminalOutputEffect.markBufferReceived(sessionId));
         }
       } else {
         _appendLiveToSession(sessionId, raw, decoded.bufferLength, resync.ack);
         _activeBufferRequestBySession.remove(sessionId);
         _removeRestoreRequest(sessionId);
         if (isActiveSession) {
+          effects.add(RemoteTerminalOutputEffect.sessionUpdated(sessionId));
           effects.add(RemoteTerminalOutputEffect.markBufferReceived(sessionId));
         }
       }
@@ -484,23 +476,7 @@ class RemoteTerminalOutputController {
       if (!isBuffer) {
         _appendLiveToSession(sessionId, raw, decoded.bufferLength, resync.ack);
         if (isActiveSession) {
-          effects.add(
-            RemoteTerminalOutputEffect.writeData(
-              sessionId: sessionId,
-              data: raw,
-              replayingBuffer: false,
-            ),
-          );
-        }
-      } else if (!skipBufferTailWrite && !ptySession.awaitingBaseline) {
-        if (isActiveSession) {
-          effects.add(
-            RemoteTerminalOutputEffect.writeData(
-              sessionId: sessionId,
-              data: raw,
-              replayingBuffer: true,
-            ),
-          );
+          effects.add(RemoteTerminalOutputEffect.sessionUpdated(sessionId));
         }
       }
     }
@@ -566,7 +542,6 @@ class RemoteTerminalOutputController {
           sequence: outputSeq,
         );
   }
-
 }
 
 int? _intPayloadValue(Object? value) {

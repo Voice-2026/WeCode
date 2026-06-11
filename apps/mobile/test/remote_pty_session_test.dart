@@ -66,4 +66,26 @@ void main() {
     expect(session.bufferLength, 7);
     expect(session.sequence, 2);
   });
+
+  test('remote pty session maintains headless terminal screen', () {
+    final session = RemotePtySession<String>('session-1', maxCachedChars: 200);
+
+    session.replaceFromBaseline(
+      content: 'old line\n\u001b[2J\u001b[Htop',
+      bufferLength: 20,
+      sequence: 1,
+    );
+    session.appendLive(
+      data: '\u001b[3;5Hbottom',
+      bufferLength: 26,
+      sequence: 2,
+    );
+
+    final screen = session.screenSnapshot();
+
+    expect(screen.data, contains('top'));
+    expect(screen.data, contains('bottom'));
+    expect(screen.data, isNot(contains('old line')));
+    expect(screen.cells.any((cell) => cell.text == 't'), isTrue);
+  });
 }

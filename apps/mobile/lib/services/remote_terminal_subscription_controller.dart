@@ -19,6 +19,16 @@ class RemoteTerminalSubscriptionPlan {
   bool get hasWork => unsubscribe != null || subscribe != null;
 }
 
+class RemoteTerminalSubscriptionCommit {
+  const RemoteTerminalSubscriptionCommit({
+    required this.projectId,
+    required this.baseline,
+  });
+
+  final String projectId;
+  final bool baseline;
+}
+
 class RemoteTerminalSubscriptionController {
   final Set<String> _subscribedProjectIds = <String>{};
   final Set<String> _baselineRequestedProjectIds = <String>{};
@@ -55,11 +65,6 @@ class RemoteTerminalSubscriptionController {
       _projectId = cleanProjectId;
       return const RemoteTerminalSubscriptionPlan();
     }
-    _projectId = cleanProjectId;
-    _subscribedProjectIds.add(cleanProjectId);
-    if (baseline) {
-      _baselineRequestedProjectIds.add(cleanProjectId);
-    }
     return RemoteTerminalSubscriptionPlan(
       subscribe: remoteResourceSubscribeEnvelope(
         resource: RemoteResourceType.terminals,
@@ -72,5 +77,36 @@ class RemoteTerminalSubscriptionController {
       subscribeProjectId: cleanProjectId,
       requestId: requestId,
     );
+  }
+
+  RemoteTerminalSubscriptionCommit commitFor(
+    RemoteTerminalSubscriptionPlan plan,
+  ) {
+    final projectId = plan.subscribeProjectId?.trim();
+    if (projectId == null || projectId.isEmpty) {
+      return const RemoteTerminalSubscriptionCommit(
+        projectId: '',
+        baseline: false,
+      );
+    }
+    return RemoteTerminalSubscriptionCommit(
+      projectId: projectId,
+      baseline: plan.subscribe?.payload is Map
+          ? ((plan.subscribe!.payload as Map)['baseline'] == true)
+          : false,
+    );
+  }
+
+  void markProjectSubscribed(
+    String projectId, {
+    required bool baselineRequested,
+  }) {
+    final cleanProjectId = projectId.trim();
+    if (cleanProjectId.isEmpty) return;
+    _projectId = cleanProjectId;
+    _subscribedProjectIds.add(cleanProjectId);
+    if (baselineRequested) {
+      _baselineRequestedProjectIds.add(cleanProjectId);
+    }
   }
 }

@@ -10,7 +10,7 @@ void main() {
 
     expect(result.ready, isTrue);
     expect(result.progress, isNull);
-    expect(result.payload, same(payload));
+    expect(result.payload, payload);
   });
 
   test('assembles chunked terminal buffer payloads in arrival order', () {

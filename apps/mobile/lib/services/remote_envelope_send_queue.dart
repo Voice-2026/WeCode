@@ -3,6 +3,15 @@ import 'e2e_crypto.dart';
 import 'remote_transport.dart';
 
 typedef RemoteSendErrorHandler = void Function(Object error);
+typedef RemoteSendResultHandler =
+    void Function(RelayEnvelope message, RemoteEnvelopeSendResult result);
+
+enum RemoteEnvelopeSendResult {
+  delivered,
+  droppedBeforeEncrypt,
+  droppedAfterEncrypt,
+  rejected,
+}
 
 class RemoteEnvelopeSendQueue {
   int _seq = 0;
@@ -19,14 +28,28 @@ class RemoteEnvelopeSendQueue {
     required bool Function() connected,
     StoredDevice? activeDevice,
     RemoteSendErrorHandler? onError,
+    RemoteSendResultHandler? onResult,
   }) {
     final seq = activeDevice == null ? null : ++_seq;
     final previous = _chain.catchError((_) {});
     final task = previous
         .then((_) async {
-          if (!connected()) return;
+          if (!connected()) {
+            onResult?.call(
+              message,
+              RemoteEnvelopeSendResult.droppedBeforeEncrypt,
+            );
+            return;
+          }
+          var sent = false;
           if (activeDevice == null) {
-            await transport.send(message.toJson());
+            sent = await transport.send(message.toJson());
+            onResult?.call(
+              message,
+              sent
+                  ? RemoteEnvelopeSendResult.delivered
+                  : RemoteEnvelopeSendResult.rejected,
+            );
             return;
           }
           final encrypted = await RemoteE2ECrypto.encryptEnvelope(
@@ -34,8 +57,20 @@ class RemoteEnvelopeSendQueue {
             device: activeDevice,
             seq: seq!,
           );
-          if (!connected()) return;
-          await transport.send(encrypted.toJson());
+          if (!connected()) {
+            onResult?.call(
+              message,
+              RemoteEnvelopeSendResult.droppedAfterEncrypt,
+            );
+            return;
+          }
+          sent = await transport.send(encrypted.toJson());
+          onResult?.call(
+            message,
+            sent
+                ? RemoteEnvelopeSendResult.delivered
+                : RemoteEnvelopeSendResult.rejected,
+          );
         })
         .catchError((Object error) {
           onError?.call(error);

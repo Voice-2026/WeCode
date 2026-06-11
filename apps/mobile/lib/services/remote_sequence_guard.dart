@@ -1,51 +1,27 @@
-class RemoteSequenceGuard {
-  RemoteSequenceGuard({this.maxEntriesPerChannel = 128});
+import 'package:codux_protocol_ffi/codux_protocol_ffi.dart'
+    as codux_protocol_core;
 
-  final int maxEntriesPerChannel;
-  final Map<String, _RemoteSequenceWindow> _seenByChannel = {};
+class RemoteSequenceGuard {
+  RemoteSequenceGuard({int maxEntriesPerChannel = 128})
+    : _core = codux_protocol_core.RemoteSequenceGuardCore(
+        maxEntriesPerChannel: maxEntriesPerChannel,
+      );
+
+  final codux_protocol_core.RemoteSequenceGuardCore _core;
 
   bool accept({
     required String type,
     required String? sessionId,
     required int? seq,
   }) {
-    if (seq == null) return true;
-    final channel = _channelFor(type: type, sessionId: sessionId);
-    final seen = _seenByChannel.putIfAbsent(
-      channel,
-      () => _RemoteSequenceWindow(maxEntries: maxEntriesPerChannel),
-    );
-    return seen.accept(seq);
+    return _core.accept(type: type, sessionId: sessionId, seq: seq);
   }
 
   void reset() {
-    _seenByChannel.clear();
+    _core.reset();
   }
-}
 
-class _RemoteSequenceWindow {
-  _RemoteSequenceWindow({required this.maxEntries});
-
-  final int maxEntries;
-  final List<int> _seen = [];
-  int _maxSeq = 0;
-
-  bool accept(int seq) {
-    if (_maxSeq > maxEntries && seq <= _maxSeq - maxEntries) return false;
-    if (_seen.contains(seq)) return false;
-    _seen.add(seq);
-    if (seq > _maxSeq) _maxSeq = seq;
-    while (_seen.length > maxEntries) {
-      _seen.removeAt(0);
-    }
-    return true;
+  void dispose() {
+    _core.dispose();
   }
-}
-
-String _channelFor({required String type, required String? sessionId}) {
-  final session = sessionId?.trim();
-  if (session != null && session.isNotEmpty) {
-    return 'session:$session';
-  }
-  return 'type:$type';
 }

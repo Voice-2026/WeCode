@@ -12,7 +12,7 @@
     <img src="https://img.shields.io/badge/license-GPLv3-blue?style=flat-square" alt="License">
   </a>
   <img src="https://img.shields.io/badge/platform-Android-3ddc84?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/badge/flutter-native%20terminal-02569b?style=flat-square" alt="Flutter">
+  <img src="https://img.shields.io/badge/flutter-Rust%20terminal%20core-02569b?style=flat-square" alt="Flutter">
   <img src="https://img.shields.io/badge/languages-EN%20%7C%20ZH-lightgrey?style=flat-square" alt="Languages">
 </p>
 
@@ -41,8 +41,8 @@ Codux Desktop owns the real projects, terminals, AI tool sessions, Git/worktree 
 
 The mobile client focuses on three things:
 
-- **Reliable terminal rendering on Android** — uses a native Flutter platform view backed by Termux `TerminalView` / `TerminalEmulator`, not WebView or xterm.js.
-- **Mobile-safe input** — quick-key toolbar, IME toggle, text selection, scrollback, paste, image upload, and keyboard avoidance tuned for terminal TUI apps.
+- **Reliable terminal rendering on Android** — remote PTY bytes are parsed by the shared Rust `codux-terminal-core` headless screen model and rendered by Flutter, not WebView or a platform-specific terminal plugin.
+- **Mobile-safe input** — quick-key toolbar, IME toggle, paste, image upload, and keyboard avoidance tuned for terminal TUI apps.
 - **Codux workspace integration** — QR pairing, device list, project tabs, terminal split list, file browser, and AI usage panels all connect to the Codux desktop host through the v3.1 remote protocol.
 
 ## Features
@@ -51,7 +51,7 @@ The mobile client focuses on three things:
 |:--|:--|:--|
 | Pairing | Ready | Scan the QR code shown by Codux on macOS, submit a pairing request, and wait for host confirmation. |
 | Device Management | Ready | Save multiple Mac devices locally, edit relay address / display name, and reconnect in the background. |
-| Remote Terminal | Ready | Render remote PTY output through the native Android terminal plugin and send explicit user input back to the Mac host. |
+| Remote Terminal | Ready | Render the Rust-backed remote PTY screen model and send explicit user input back to the Mac host. |
 | Keyboard Handling | Ready | Keeps terminal height stable while shifting the surface around the Android IME, avoiding TUI redraw corruption. |
 | Quick Keys | Ready | Two-row terminal toolbar with Esc, Tab, Copy, Paste, Upload, arrows, Delete, Enter, Ctrl, Shift, Alt, keyboard toggle, and `^C`. |
 | Files | Ready | Browse project files, remember per-project path, open/edit files, rename, copy path, and delete through the Mac host. |
@@ -66,14 +66,14 @@ Codux Mobile (Flutter controller)
   ├─ Runtime store: selected project, active terminal, sync state
   ├─ Protocol client: v3.1 envelopes, capabilities, chunk assembly, ack/retry
   ├─ Rust transport FFI: WebRTC DataChannel and WebSocket relay fallback
-  └─ Native terminal plugin: Flutter PlatformView + Termux TerminalView
+  └─ Rust terminal-core FFI: RemotePtySession + alacritty headless screen model
 
 Codux Desktop host
   ├─ Owns projects, terminal sessions, PTYs, files, Git/worktree state, and AI usage
   └─ Confirms mobile pairing and serves runtime-domain protocol messages
 ```
 
-The mobile app is controller-only. It does not try to become the source of truth for terminal sessions, files, Git state, or projects. It renders and interacts with the host-owned workspace through explicit runtime-domain protocol messages. Business payloads are wrapped as end-to-end encrypted `secure.message` envelopes, while terminal history uses bounded v3.1 buffer windows with chunk assembly and progress reporting.
+The mobile app is controller-only. It does not try to become the source of truth for terminal sessions, files, Git state, or projects. It renders and interacts with the host-owned workspace through explicit runtime-domain protocol messages. Business payloads are wrapped as end-to-end encrypted `secure.message` envelopes, while terminal history uses bounded v3.1 buffer windows with chunk assembly and progress reporting. Terminal bytes always enter `RemotePtySession` before rendering; Flutter reads the resulting screen cells and only owns drawing and input intent.
 
 ## Requirements
 
@@ -114,7 +114,7 @@ build/app/outputs/flutter-apk/app-release.apk
 
 ## Logging
 
-Flutter and the native terminal plugin share the same build-time log level:
+Flutter uses the same build-time log level across app code and terminal rendering:
 
 ```bash
 flutter run --dart-define=CODUX_LOG_LEVEL=debug
@@ -177,7 +177,7 @@ The release workflow builds `Codux-Mobile-<version>-android.apk`, generates `SHA
 | Path | Description |
 |:--|:--|
 | `lib/` | Flutter app shell, relay client, screens, widgets, themes, and i18n. |
-| `plugin/codux_native_terminal/` | Native Android terminal plugin used by the Flutter app. |
+| `plugin/codux_protocol_ffi/` | Rust protocol and terminal-core FFI used by Android, iOS, and desktop builds. |
 | `android/` | Android application wrapper and release signing config. |
 | `.github/workflows/` | Manual test builds and tag-triggered release builds. |
 | `scripts/release/` | Release note extraction helpers. |
