@@ -2600,8 +2600,15 @@ impl RemoteHostRuntime {
                 .terminals
                 .buffer_characters(session_id)
                 .unwrap_or_else(|_| start_offset + data.chars().count());
+            let screen_data = self
+                .terminals
+                .screen_snapshot(session_id)
+                .ok()
+                .map(|snapshot| snapshot.data)
+                .filter(|data| !data.is_empty());
             return Ok(RemoteTerminalBufferWindow {
                 data,
+                screen_data,
                 offset: start_offset,
                 total_characters,
                 truncated: false,
@@ -2647,6 +2654,7 @@ impl RemoteHostRuntime {
         }
         Ok(RemoteTerminalBufferWindow {
             data: chunk,
+            screen_data: None,
             offset: clamped,
             total_characters,
             truncated,
@@ -4403,6 +4411,53 @@ mod tests {
         assert_eq!(window.request_id.as_deref(), Some("request-1"));
         assert!(window.tail);
         assert!(window.has_previous);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_buffer_window_tail_includes_headless_screen_baseline() {
+        let support_dir = temp_support_dir("codux-remote-terminal-buffer-screen-baseline");
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        );
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf 'old line\\n\\033[2J\\033[Hvisible tui'".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        let mut window = None;
+        for _ in 0..20 {
+            let current = runtime
+                .terminal_buffer_window(&session_id, 0, 16, Some("request-1".to_string()), true)
+                .expect("terminal buffer window");
+            if current
+                .screen_data
+                .as_deref()
+                .is_some_and(|data| data.contains("visible tui"))
+            {
+                window = Some(current);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let window = window.expect("terminal screen baseline");
+        let screen_data = window.screen_data.expect("screen data");
+
+        assert!(window.data.contains("visible tui"));
+        assert!(screen_data.contains("visible tui"));
+        assert!(!screen_data.contains("old line"));
+        assert!(window.tail);
 
         fs::remove_dir_all(support_dir).ok();
     }

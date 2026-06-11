@@ -439,6 +439,7 @@ class RemoteTerminalOutputController {
         heldLive = _replaceSessionFromBaseline(
           sessionId,
           renderData,
+          decoded.screenData,
           decoded.bufferLength,
           outputSeq,
         );
@@ -449,6 +450,7 @@ class RemoteTerminalOutputController {
           _replaceSessionFromBaseline(
             sessionId,
             renderData,
+            decoded.screenData,
             decoded.bufferLength,
             outputSeq,
           );
@@ -516,6 +518,7 @@ class RemoteTerminalOutputController {
   List<RelayEnvelope> _replaceSessionFromBaseline(
     String sessionId,
     String data,
+    String? screenData,
     int? bufferLength,
     int? outputSeq,
   ) {
@@ -523,6 +526,7 @@ class RemoteTerminalOutputController {
         .session(sessionId)
         .replaceFromBaseline(
           content: data,
+          screenData: screenData,
           bufferLength: bufferLength,
           sequence: outputSeq,
         );

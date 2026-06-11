@@ -375,6 +375,7 @@ impl RemoteResourceSubscriptionTarget {
 
 pub struct RemoteTerminalBufferWindow {
     pub data: String,
+    pub screen_data: Option<String>,
     pub offset: usize,
     pub total_characters: usize,
     pub truncated: bool,
@@ -646,6 +647,7 @@ pub fn host_capabilities() -> Value {
             "maxChars": REMOTE_TERMINAL_BUFFER_MAX_CHARS,
             "chunkChars": REMOTE_TERMINAL_BUFFER_CHUNK_CHARS,
             "requestId": true,
+            "screenData": true,
         },
         "terminalViewport": {
             "ownership": true,
@@ -713,6 +715,14 @@ fn terminal_buffer_payload(
     if let Some(request_id) = window.request_id.as_deref() {
         payload["requestId"] = json!(request_id);
     }
+    if chunk
+        .map(|(_, chunk_index, _)| chunk_index == 0)
+        .unwrap_or(true)
+    {
+        if let Some(screen_data) = window.screen_data.as_deref() {
+            payload["screenData"] = json!(screen_data);
+        }
+    }
     if let Some((snapshot_id, chunk_index, chunk_count)) = chunk {
         payload["snapshotId"] = json!(snapshot_id);
         payload["chunkIndex"] = json!(chunk_index);
@@ -749,6 +759,7 @@ mod tests {
     fn terminal_buffer_payloads_are_chunked_on_character_boundaries() {
         let window = RemoteTerminalBufferWindow {
             data: "ab你好cd".to_string(),
+            screen_data: Some("\x1b[Hscreen".to_string()),
             offset: 10,
             total_characters: 16,
             truncated: true,
@@ -786,6 +797,9 @@ mod tests {
             assert_eq!(payload["tail"], true);
             assert_eq!(payload["hasPrevious"], true);
         }
+        assert_eq!(payloads[0]["screenData"], "\x1b[Hscreen");
+        assert!(payloads[1].get("screenData").is_none());
+        assert!(payloads[2].get("screenData").is_none());
     }
 
     #[test]
@@ -799,6 +813,7 @@ mod tests {
         assert_eq!(capabilities["domains"]["aiStats"], true);
         assert_eq!(capabilities["terminalBuffer"]["chunking"], true);
         assert_eq!(capabilities["terminalBuffer"]["requestId"], true);
+        assert_eq!(capabilities["terminalBuffer"]["screenData"], true);
         assert_eq!(capabilities["terminalViewport"]["ownership"], true);
     }
 

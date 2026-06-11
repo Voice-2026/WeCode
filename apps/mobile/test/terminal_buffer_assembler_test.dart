@@ -18,7 +18,11 @@ void main() {
 
     final first = assembler.accept(
       sessionId: 'term-1',
-      payload: _chunk(index: 0, data: 'ab'),
+      payload: _chunk(
+        index: 0,
+        data: 'ab',
+        screenData: '\u001b[2J\u001b[Hvisible screen',
+      ),
     );
     final second = assembler.accept(
       sessionId: 'term-1',
@@ -39,6 +43,7 @@ void main() {
     expect(third.payload?['offset'], 10);
     expect(third.payload?['chunked'], isFalse);
     expect(third.payload?['assembled'], isTrue);
+    expect(third.payload?['screenData'], '\u001b[2J\u001b[Hvisible screen');
     expect(third.payload?.containsKey('chunkIndex'), isFalse);
     expect(third.payload?.containsKey('chunkCount'), isFalse);
   });
@@ -52,7 +57,11 @@ void main() {
     );
     assembler.accept(
       sessionId: 'term-1',
-      payload: _chunk(index: 0, data: 'ab'),
+      payload: _chunk(
+        index: 0,
+        data: 'ab',
+        screenData: '\u001b[2J\u001b[Hvisible screen',
+      ),
     );
     final result = assembler.accept(
       sessionId: 'term-1',
@@ -61,6 +70,7 @@ void main() {
 
     expect(result.ready, isTrue);
     expect(result.payload?['data'], 'ab你好cd');
+    expect(result.payload?['screenData'], '\u001b[2J\u001b[Hvisible screen');
   });
 
   test('ignores duplicate chunks without advancing progress twice', () {
@@ -190,8 +200,9 @@ Map<String, Object?> _chunk({
   required int index,
   required String data,
   int chunkCount = 3,
+  String? screenData,
 }) {
-  return {
+  final payload = <String, Object?>{
     'buffer': true,
     'chunked': true,
     'snapshotId': snapshotId,
@@ -205,4 +216,6 @@ Map<String, Object?> _chunk({
     'outputSeq': 7,
     'requestId': ?requestId,
   };
+  if (screenData != null) payload['screenData'] = screenData;
+  return payload;
 }

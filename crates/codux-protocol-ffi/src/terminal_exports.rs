@@ -257,6 +257,35 @@ pub extern "C" fn codux_terminal_session_replace_from_baseline_json(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn codux_terminal_session_replace_from_baseline_screen_json(
+    session: *mut FfiRemotePtySession,
+    content: *const c_char,
+    screen_data: *const c_char,
+    buffer_length: i64,
+    sequence: i64,
+) -> *mut c_char {
+    let Some(session) = terminal_session_mut(session) else {
+        return ptr::null_mut();
+    };
+    let Some(content) = c_to_string(content) else {
+        return ptr::null_mut();
+    };
+    let screen_data = c_to_string(screen_data);
+    let replay_tokens = session.replace_from_baseline_screen(
+        &content,
+        screen_data.as_deref().filter(|value| !value.is_empty()),
+        optional_usize(buffer_length),
+        optional_sequence(sequence),
+    );
+    string_to_c(
+        json!({
+            "replayTokens": replay_tokens,
+        })
+        .to_string(),
+    )
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn codux_terminal_session_append_live(
     session: *mut FfiRemotePtySession,
     data: *const c_char,

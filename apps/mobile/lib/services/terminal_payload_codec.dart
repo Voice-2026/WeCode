@@ -5,6 +5,7 @@ class TerminalOutputPayload {
   const TerminalOutputPayload({
     required this.data,
     required this.isBuffer,
+    this.screenData,
     this.offset,
     this.bufferLength,
     this.truncated = false,
@@ -15,6 +16,7 @@ class TerminalOutputPayload {
 
   final String data;
   final bool isBuffer;
+  final String? screenData;
   final int? offset;
   final int? bufferLength;
   final bool truncated;
@@ -30,6 +32,7 @@ TerminalOutputPayload decodeTerminalOutputPayload(
   return TerminalOutputPayload(
     data: data,
     isBuffer: payload['buffer'] == true,
+    screenData: _stringValue(payload['screenData']),
     offset: _intValue(payload['offset']),
     bufferLength: _intValue(payload['bufferLength']),
     truncated: payload['truncated'] == true,

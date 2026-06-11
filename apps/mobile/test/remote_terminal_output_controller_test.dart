@@ -354,6 +354,33 @@ void main() {
   });
 
   test(
+    'terminal buffer uses screen baseline for visible screen while retaining raw history',
+    () {
+      final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
+
+      controller.bindSession('session-1', requireBaseline: true);
+
+      final result = controller.accept(
+        _terminalBuffer(
+          'raw tail fragment',
+          offset: 0,
+          bufferLength: 17,
+          truncated: false,
+          screenData: '\u001b[2J\u001b[Hvisible tui',
+        ),
+        activeSessionId: 'session-1',
+      );
+
+      final screen = controller.screenSnapshot('session-1');
+
+      expect(_kinds(result), [..._activeBufferUpdate]);
+      expect(controller.cachedOutput('session-1'), 'raw tail fragment');
+      expect(screen?.data, contains('visible tui'));
+      expect(screen?.data, isNot(contains('raw tail fragment')));
+    },
+  );
+
+  test(
     'tail history window with previous history does not hydrate on ui mount',
     () {
       final controller = RemoteTerminalOutputController(maxBufferChars: 4);
@@ -732,6 +759,7 @@ RelayEnvelope _terminalBuffer(
   String? requestId,
   bool tail = false,
   bool hasPrevious = false,
+  String? screenData,
 }) {
   final payload = <String, Object?>{
     'data': data,
@@ -744,6 +772,7 @@ RelayEnvelope _terminalBuffer(
   if (requestId != null) payload['requestId'] = requestId;
   if (tail) payload['tail'] = true;
   if (hasPrevious) payload['hasPrevious'] = true;
+  if (screenData != null) payload['screenData'] = screenData;
   return RelayEnvelope(
     type: 'terminal.output',
     sessionId: 'session-1',

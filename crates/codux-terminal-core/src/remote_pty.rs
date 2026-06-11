@@ -149,12 +149,23 @@ impl<T> RemotePtySession<T> {
         buffer_length: Option<usize>,
         sequence: Option<TerminalSequence>,
     ) -> Vec<T> {
+        self.replace_from_baseline_screen(content, None, buffer_length, sequence)
+    }
+
+    pub fn replace_from_baseline_screen(
+        &mut self,
+        content: &str,
+        screen_data: Option<&str>,
+        buffer_length: Option<usize>,
+        sequence: Option<TerminalSequence>,
+    ) -> Vec<T> {
         self.content = trim_to_char_limit(content, self.max_cached_chars);
         if let Some(buffer_length) = buffer_length {
             self.buffer_length = buffer_length;
         }
         self.screen.clear();
-        self.screen.process(content.as_bytes());
+        self.screen
+            .process(screen_data.filter(|data| !data.is_empty()).unwrap_or(content).as_bytes());
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
         self.awaiting_baseline = false;

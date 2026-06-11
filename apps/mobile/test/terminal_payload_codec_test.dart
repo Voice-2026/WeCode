@@ -28,6 +28,7 @@ void main() {
       'offset': 12,
       'bufferLength': 24,
       'truncated': true,
+      'screenData': '\u001b[2J\u001b[Hvisible screen',
     });
 
     expect(payload.data, 'deflate history');
@@ -35,6 +36,7 @@ void main() {
     expect(payload.offset, 12);
     expect(payload.bufferLength, 24);
     expect(payload.truncated, isTrue);
+    expect(payload.screenData, '\u001b[2J\u001b[Hvisible screen');
   });
 
   test('decodes terminal buffer protocol metadata', () {

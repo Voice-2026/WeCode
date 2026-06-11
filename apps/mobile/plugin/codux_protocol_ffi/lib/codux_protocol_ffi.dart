@@ -41,6 +41,17 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
         Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64)
       >
     >('codux_terminal_session_replace_from_baseline_json');
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(
+          Pointer<Void>,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Int64,
+          Int64,
+        )
+      >
+    >('codux_terminal_session_replace_from_baseline_screen_json');
     library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>)>>(
       'codux_terminal_session_screen_snapshot_json',
     );
@@ -318,11 +329,23 @@ final _terminalSessionAcceptBaselinePageJson = _dylib
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64, Bool),
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int, int, bool)
     >('codux_terminal_session_accept_baseline_page_json');
-final _terminalSessionReplaceFromBaselineJson = _dylib
+final _terminalSessionReplaceFromBaselineScreenJson = _dylib
     .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64),
-      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int, int)
-    >('codux_terminal_session_replace_from_baseline_json');
+      Pointer<Utf8> Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Int64,
+        Int64,
+      ),
+      Pointer<Utf8> Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        int,
+        int,
+      )
+    >('codux_terminal_session_replace_from_baseline_screen_json');
 final _terminalSessionAppendLive = _dylib
     .lookupFunction<
       Void Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64),
@@ -943,15 +966,18 @@ class TerminalCoreSession {
 
   List<int> replaceFromBaseline({
     required String content,
+    String? screenData,
     required int? bufferLength,
     required int? sequence,
   }) {
     final contentPtr = content.toNativeUtf8();
+    final screenDataPtr = (screenData ?? '').toNativeUtf8();
     try {
       final decoded = _decodeEnvelope(
-        _terminalSessionReplaceFromBaselineJson(
+        _terminalSessionReplaceFromBaselineScreenJson(
           _liveHandle(),
           contentPtr,
+          screenDataPtr,
           bufferLength ?? -1,
           sequence ?? -1,
         ),
@@ -968,6 +994,7 @@ class TerminalCoreSession {
       ];
     } finally {
       malloc.free(contentPtr);
+      malloc.free(screenDataPtr);
     }
   }
 

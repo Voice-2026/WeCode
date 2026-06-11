@@ -115,11 +115,13 @@ class RemotePtySession<T> {
 
   List<T> replaceFromBaseline({
     required String content,
+    String? screenData,
     required int? bufferLength,
     required int? sequence,
   }) {
     final replayTokens = _core.replaceFromBaseline(
       content: content,
+      screenData: screenData,
       bufferLength: bufferLength,
       sequence: sequence,
     );

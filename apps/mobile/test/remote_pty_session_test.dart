@@ -88,4 +88,29 @@ void main() {
     expect(screen.data, isNot(contains('old line')));
     expect(screen.cells.any((cell) => cell.text == 't'), isTrue);
   });
+
+  test(
+    'remote pty session restores visible screen from screen baseline',
+    () {
+      final session = RemotePtySession<String>(
+        'session-1',
+        maxCachedChars: 200,
+      );
+
+      session.replaceFromBaseline(
+        content: 'raw history fragment that stays cached',
+        screenData: '\u001b[2J\u001b[Hvisible tui',
+        bufferLength: 38,
+        sequence: 3,
+      );
+
+      final screen = session.screenSnapshot();
+
+      expect(session.content, 'raw history fragment that stays cached');
+      expect(session.bufferLength, 38);
+      expect(session.sequence, 3);
+      expect(screen.data, contains('visible tui'));
+      expect(screen.data, isNot(contains('raw history')));
+    },
+  );
 }

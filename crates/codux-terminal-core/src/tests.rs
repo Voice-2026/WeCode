@@ -22,6 +22,25 @@ fn restores_baseline_before_replaying_held_live_output() {
 }
 
 #[test]
+fn restores_visible_screen_from_screen_baseline_while_retaining_history_content() {
+    let mut session = RemotePtySession::<String>::new("session-1", 256);
+
+    session.replace_from_baseline_screen(
+        "raw history that should stay in scrollback cache",
+        Some("\x1b[2J\x1b[Hvisible tui"),
+        Some(43),
+        Some(7),
+    );
+
+    let screen = session.screen_snapshot();
+    assert_eq!(session.content(), "raw history that should stay in scrollback cache");
+    assert_eq!(session.buffer_length(), 43);
+    assert_eq!(session.sequence(), 7);
+    assert!(screen.data.contains("visible tui"));
+    assert!(!screen.data.contains("raw history"));
+}
+
+#[test]
 fn rejects_out_of_order_baseline_pages() {
     let mut session = RemotePtySession::<String>::new("session-1", 64);
     session.require_baseline();
@@ -113,6 +132,29 @@ fn terminal_buffer_assembler_assembles_out_of_order_chunks() {
 }
 
 #[test]
+fn terminal_buffer_assembler_preserves_screen_baseline_metadata() {
+    let mut assembler = TerminalBufferAssembler::new(200_000);
+
+    assert!(
+        !assembler
+            .accept(
+                "term-1",
+                chunk_payload("snapshot-1", "request-1", 1, "history-tail", 2)
+            )
+            .ready
+    );
+    let result = assembler.accept(
+        "term-1",
+        chunk_payload("snapshot-1", "request-1", 0, "raw-", 2),
+    );
+
+    assert!(result.ready);
+    let payload = result.payload.unwrap();
+    assert_eq!(payload["data"], "raw-history-tail");
+    assert_eq!(payload["screenData"], "\u{1b}[2J\u{1b}[Hvisible screen");
+}
+
+#[test]
 fn terminal_buffer_assembler_ignores_duplicate_chunks_and_limits_size() {
     let mut assembler = TerminalBufferAssembler::new(4);
 
@@ -190,6 +232,7 @@ fn chunk_payload(
         "truncated": true,
         "outputSeq": 7,
         "requestId": request_id,
+        "screenData": "\u{1b}[2J\u{1b}[Hvisible screen",
     })
 }
 

@@ -82,6 +82,7 @@ impl TerminalBufferAssembler {
             self.assemblies.remove(&key);
             return TerminalBufferAssemblyResult::pending();
         }
+        assembly.merge_metadata(&payload);
 
         let data = payload
             .get("data")
@@ -135,6 +136,22 @@ struct TerminalBufferAssembly {
 }
 
 impl TerminalBufferAssembly {
+    fn merge_metadata(&mut self, payload: &serde_json::Value) {
+        let Some(base) = self.base_payload.as_object_mut() else {
+            return;
+        };
+        let Some(current) = payload.as_object() else {
+            return;
+        };
+        for key in ["screenData"] {
+            if !base.contains_key(key) {
+                if let Some(value) = current.get(key) {
+                    base.insert(key.to_string(), value.clone());
+                }
+            }
+        }
+    }
+
     fn add(&mut self, index: usize, data: &str) {
         if self.chunks.contains_key(&index) {
             return;

@@ -208,4 +208,27 @@ void main() {
       session.dispose();
     }
   });
+
+  test('Rust FFI terminal core restores visible screen from screen baseline', () {
+    final session = codux_protocol_ffi.TerminalCoreSession(
+      sessionId: 'session-1',
+      maxCachedChars: 100,
+    );
+    try {
+      session.replaceFromBaseline(
+        content: 'raw tail fragment',
+        screenData: '\u001b[2J\u001b[Hvisible tui',
+        bufferLength: 17,
+        sequence: 3,
+      );
+
+      final screen = session.screenSnapshot();
+
+      expect(session.content, 'raw tail fragment');
+      expect(screen.data, contains('visible tui'));
+      expect(screen.data, isNot(contains('raw tail fragment')));
+    } finally {
+      session.dispose();
+    }
+  });
 }
