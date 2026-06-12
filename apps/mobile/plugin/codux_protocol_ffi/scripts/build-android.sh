@@ -24,23 +24,32 @@ if ! command -v cargo-ndk >/dev/null 2>&1; then
 fi
 
 cd "$REPO_ROOT"
+rm -f \
+  "$PLUGIN_DIR/android/src/main/jniLibs/arm64-v8a/libc++_shared.so" \
+  "$PLUGIN_DIR/android/src/main/jniLibs/arm64-v8a/libghostty-vt.so.0"
+
 cargo ndk \
   -t arm64-v8a \
   -o "$PLUGIN_DIR/android/src/main/jniLibs" \
   build -p codux-protocol-ffi --release
 
-copy_libcxx_shared() {
-  local android_triple="$1"
+copy_ghostty_vt() {
+  local target="$1"
   local abi="$2"
-  local src="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"
-  local host_dir
-  host_dir="$(find "$src" -mindepth 1 -maxdepth 1 -type d | sort | head -1)"
-  local libcxx="$host_dir/sysroot/usr/lib/$android_triple/libc++_shared.so"
-  if [[ ! -f "$libcxx" ]]; then
-    echo "libc++_shared.so not found for $android_triple under $ANDROID_NDK_HOME" >&2
+  local ghostty_lib
+  ghostty_lib="$(
+    find "$REPO_ROOT/target/$target/release/build" \
+      -path '*/out/android-link-lib/libghostty-vt.so' \
+      -size +1M \
+      -print \
+      | sort \
+      | tail -1
+  )"
+  if [[ -z "$ghostty_lib" || ! -f "$ghostty_lib" ]]; then
+    echo "libghostty-vt.so not found for $target under $REPO_ROOT/target" >&2
     exit 2
   fi
-  cp "$libcxx" "$PLUGIN_DIR/android/src/main/jniLibs/$abi/libc++_shared.so"
+  cp "$ghostty_lib" "$PLUGIN_DIR/android/src/main/jniLibs/$abi/libghostty-vt.so"
 }
 
-copy_libcxx_shared "aarch64-linux-android" "arm64-v8a"
+copy_ghostty_vt "aarch64-linux-android" "arm64-v8a"

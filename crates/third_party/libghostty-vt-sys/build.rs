@@ -39,6 +39,8 @@ fn main() {
         Err(_) => fetch_ghostty(&out_dir),
     };
 
+    patch_ghostty_for_target(&ghostty_dir, &target);
+
     // Build libghostty-vt via zig.
     let install_prefix = out_dir.join("ghostty-install");
 
@@ -68,15 +70,31 @@ fn main() {
 
     let shared_lib_name = if target.contains("apple") {
         "libghostty-vt.0.1.0.dylib"
+    } else if target.contains("android") {
+        "libghostty-vt.so"
     } else {
         "libghostty-vt.so.0.1.0"
     };
     let static_lib_name = "libghostty-vt.a";
+    let shared_lib_path = if target.contains("android") {
+        find_nonempty_file(
+            &ghostty_dir.join(".zig-cache").join("o"),
+            shared_lib_name,
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "expected non-empty shared library named {shared_lib_name} under {}",
+                ghostty_dir.join(".zig-cache").join("o").display()
+            )
+        })
+    } else {
+        lib_dir.join(shared_lib_name)
+    };
 
     assert!(
-        lib_dir.join(shared_lib_name).exists(),
+        shared_lib_path.exists(),
         "expected shared library at {}",
-        lib_dir.join(shared_lib_name).display()
+        shared_lib_path.display()
     );
     assert!(
         lib_dir.join(static_lib_name).exists(),
@@ -89,11 +107,34 @@ fn main() {
         include_dir.join("ghostty").join("vt.h").display()
     );
 
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-lib=static=ghostty-vt");
-    link_zig_static_dependency(&ghostty_dir, "simdutf");
-    link_zig_static_dependency(&ghostty_dir, "highway");
-    link_zig_static_dependency(&ghostty_dir, "utfcpp");
+    if target.contains("android") {
+        let android_link_dir = out_dir.join("android-link-lib");
+        std::fs::create_dir_all(&android_link_dir).unwrap_or_else(|error| {
+            panic!(
+                "failed to create Android link directory {}: {error}",
+                android_link_dir.display()
+            )
+        });
+        let unversioned = android_link_dir.join("libghostty-vt.so");
+        std::fs::copy(&shared_lib_path, &unversioned).unwrap_or_else(|error| {
+            panic!(
+                "failed to copy {} to {}: {error}",
+                shared_lib_path.display(),
+                unversioned.display()
+            )
+        });
+        println!(
+            "cargo:rustc-link-search=native={}",
+            android_link_dir.display()
+        );
+        println!("cargo:rustc-link-lib=dylib=ghostty-vt");
+    } else {
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=static=ghostty-vt");
+        link_zig_static_dependency(&ghostty_dir, "simdutf");
+        link_zig_static_dependency(&ghostty_dir, "highway");
+        link_zig_static_dependency(&ghostty_dir, "utfcpp");
+    }
     if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
     }
@@ -101,6 +142,49 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
     }
     println!("cargo:include={}", include_dir.display());
+}
+
+fn patch_ghostty_for_target(ghostty_dir: &Path, target: &str) {
+    if !target.contains("android") {
+        return;
+    }
+
+    let path = ghostty_dir.join("src").join("build").join("GhosttyLibVt.zig");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let needle = r#"    const lib = b.addLibrary(.{
+        .name = if (kind == .static) "ghostty-vt-static" else "ghostty-vt",
+        .linkage = linkage,
+        .root_module = zig.vt_c,
+        .version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+    });"#;
+    let replacement = r#"    const lib = b.addLibrary(.{
+        .name = if (kind == .static) "ghostty-vt-static" else "ghostty-vt",
+        .linkage = linkage,
+        .root_module = zig.vt_c,
+        .version = if (linkage == .dynamic and target.result.abi.isAndroid())
+            null
+        else
+            std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 },
+    });"#;
+
+    if source.contains(replacement) {
+        return;
+    }
+    let patched = source.replace(needle, replacement);
+    assert!(
+        patched != source,
+        "failed to patch Android Ghostty SONAME in {}",
+        path.display()
+    );
+    std::fs::write(&path, patched)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
+}
+
+fn find_nonempty_file(root: &Path, file_name: &str) -> Option<PathBuf> {
+    find_file_with(root, file_name, |path| {
+        path.metadata().map(|meta| meta.len() > 0).unwrap_or(false)
+    })
 }
 
 fn link_zig_static_dependency(ghostty_dir: &Path, name: &str) {
@@ -114,14 +198,22 @@ fn link_zig_static_dependency(ghostty_dir: &Path, name: &str) {
 }
 
 fn find_file(root: &Path, file_name: &str) -> Option<PathBuf> {
+    find_file_with(root, file_name, |_| true)
+}
+
+fn find_file_with(
+    root: &Path,
+    file_name: &str,
+    predicate: impl Copy + Fn(&Path) -> bool,
+) -> Option<PathBuf> {
     let entries = std::fs::read_dir(root).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.file_name().and_then(|value| value.to_str()) == Some(file_name) {
+        if path.file_name().and_then(|value| value.to_str()) == Some(file_name) && predicate(&path) {
             return Some(path);
         }
         if path.is_dir()
-            && let Some(found) = find_file(&path, file_name) {
+            && let Some(found) = find_file_with(&path, file_name, predicate) {
                 return Some(found);
             }
     }
