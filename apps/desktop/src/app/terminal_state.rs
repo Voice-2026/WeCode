@@ -430,21 +430,22 @@ where
         if slot.pane.is_some() {
             continue;
         }
+        let pty_config = terminal_pty_config_for_terminal_id(
+            base_pty_config,
+            slot.terminal_id.as_deref(),
+            &slot.title,
+        );
         if let Some(pane) = slot
             .terminal_id
             .as_deref()
             .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
+            .filter(|pane| pane.matches_pty_config(&pty_config))
             .cloned()
         {
             refresh_terminal_pane_config(&pane, terminal_config, cx);
             slot.pane = Some(pane);
             continue;
         }
-        let pty_config = terminal_pty_config_for_terminal_id(
-            base_pty_config,
-            slot.terminal_id.as_deref(),
-            &slot.title,
-        );
         slot.pane = Some(TerminalPane::spawn_with_pty_config(
             cx,
             terminal_manager.clone(),

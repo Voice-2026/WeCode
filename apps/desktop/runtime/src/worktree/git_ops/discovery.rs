@@ -21,6 +21,9 @@ pub(super) fn list_git_worktrees(root_path: &str) -> Result<Vec<GitWorktreeEntry
         let Ok(worktree) = repo.find_worktree(name) else {
             continue;
         };
+        if !worktree.path().exists() {
+            continue;
+        }
         let path = normalize_path(&worktree.path().to_string_lossy());
         let worktree_repo = GitRepository::open(worktree.path()).ok();
         let branch = worktree_repo

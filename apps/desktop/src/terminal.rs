@@ -1,19 +1,11 @@
-use alacritty_terminal::{
-    event::{Event, EventListener, WindowSize},
-    grid::Dimensions,
-    index::{Column, Line, Point as TerminalPoint, Side as TerminalSide},
-    selection::{Selection as AlacrittySelection, SelectionType as AlacrittySelectionType},
-    term::{
-        Config as AlacrittyConfig, RenderableCursor, Term, TermMode,
-        cell::{Cell, Flags},
-        color::Colors,
-    },
-    vte::ansi::{Color, CursorShape, NamedColor, Processor, Rgb},
-};
 use anyhow::Result;
 use codux_runtime::terminal_pty::{
     TerminalEvent, TerminalInputSnapshot, TerminalManager, TerminalOutputSnapshot,
     TerminalPtyConfig, TerminalPtySession, terminal_viewport_local_owner,
+};
+use codux_terminal_core::{
+    HeadlessTerminalScreen, TerminalInputMode, TerminalScreenCellSnapshot, TerminalScreenColor,
+    TerminalScreenCursorShape, TerminalScreenCursorSnapshot, TerminalScreenSnapshot,
 };
 use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Edges, Element,

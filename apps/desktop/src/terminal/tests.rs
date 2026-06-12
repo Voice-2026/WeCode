@@ -56,51 +56,102 @@ mod tests {
         keystroke
     }
 
-    fn bytes(keystroke: Keystroke, mode: TermMode) -> Vec<u8> {
+    fn normal_mode() -> TerminalInputMode {
+        TerminalInputMode::default()
+    }
+
+    fn app_cursor_mode() -> TerminalInputMode {
+        TerminalInputMode {
+            application_cursor: true,
+            ..TerminalInputMode::default()
+        }
+    }
+
+    fn alternate_scroll_mode() -> TerminalInputMode {
+        TerminalInputMode {
+            alternate_screen: true,
+            alternate_scroll: true,
+            ..TerminalInputMode::default()
+        }
+    }
+
+    fn bytes(keystroke: Keystroke, mode: TerminalInputMode) -> Vec<u8> {
         keystroke_to_bytes(&keystroke, mode).expect("keystroke should map to terminal bytes")
+    }
+
+    fn row_text(content: &TerminalContent, line: i32) -> String {
+        content
+            .cells
+            .iter()
+            .filter(|cell| cell.point.line == line)
+            .map(|cell| cell.cell.text.as_str())
+            .collect()
+    }
+
+    fn test_cell(
+        fg: TerminalScreenColor,
+        bg: TerminalScreenColor,
+        bold: bool,
+        inverse: bool,
+    ) -> TerminalScreenCellSnapshot {
+        TerminalScreenCellSnapshot {
+            row: 0,
+            col: 0,
+            text: "x".to_string(),
+            width: 1,
+            fg,
+            bg,
+            bold,
+            dim: false,
+            italic: false,
+            underline: false,
+            inverse,
+            hidden: false,
+            strikeout: false,
+        }
     }
 
     #[test]
     fn maps_plain_text_and_basic_control_keys() {
-        assert_eq!(bytes(keystroke("enter"), TermMode::NONE), b"\r");
-        assert_eq!(bytes(keystroke("Return"), TermMode::NONE), b"\r");
-        assert_eq!(bytes(keystroke("kp_enter"), TermMode::NONE), b"\r");
-        assert_eq!(bytes(keystroke("tab"), TermMode::NONE), b"\t");
-        assert_eq!(bytes(keystroke("Tab"), TermMode::NONE), b"\t");
-        assert_eq!(bytes(keystroke("escape"), TermMode::NONE), b"\x1b");
-        assert_eq!(bytes(keystroke("Esc"), TermMode::NONE), b"\x1b");
-        assert_eq!(bytes(keystroke("backspace"), TermMode::NONE), b"\x7f");
+        assert_eq!(bytes(keystroke("enter"), normal_mode()), b"\r");
+        assert_eq!(bytes(keystroke("Return"), normal_mode()), b"\r");
+        assert_eq!(bytes(keystroke("kp_enter"), normal_mode()), b"\r");
+        assert_eq!(bytes(keystroke("tab"), normal_mode()), b"\t");
+        assert_eq!(bytes(keystroke("Tab"), normal_mode()), b"\t");
+        assert_eq!(bytes(keystroke("escape"), normal_mode()), b"\x1b");
+        assert_eq!(bytes(keystroke("Esc"), normal_mode()), b"\x1b");
+        assert_eq!(bytes(keystroke("backspace"), normal_mode()), b"\x7f");
     }
 
     #[test]
     fn plain_character_without_text_input_is_not_lowercased() {
-        assert!(keystroke_to_bytes(&keystroke("a"), TermMode::NONE).is_none());
+        assert!(keystroke_to_bytes(&keystroke("a"), normal_mode()).is_none());
     }
 
     #[test]
     fn printable_key_chars_are_committed_by_text_input() {
-        assert!(keystroke_to_bytes(&key_char("a", "a"), TermMode::NONE).is_none());
-        assert!(keystroke_to_bytes(&key_char("a", "A"), TermMode::NONE).is_none());
-        assert!(keystroke_to_bytes(&key_char("semicolon", ";"), TermMode::NONE).is_none());
+        assert!(keystroke_to_bytes(&key_char("a", "a"), normal_mode()).is_none());
+        assert!(keystroke_to_bytes(&key_char("a", "A"), normal_mode()).is_none());
+        assert!(keystroke_to_bytes(&key_char("semicolon", ";"), normal_mode()).is_none());
     }
 
     #[test]
     fn maps_terminal_interrupt_shortcut_to_etx() {
         assert_eq!(
-            bytes(modified_key("c", false, false, true, false), TermMode::NONE),
+            bytes(modified_key("c", false, false, true, false), normal_mode()),
             b"\x03"
         );
         assert_eq!(
             bytes(
                 modified_key_with_char("c", "c", false, false, true, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x03"
         );
         assert_eq!(
             bytes(
                 modified_key_with_char("c", "\x03", false, false, true, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x03"
         );
@@ -124,9 +175,8 @@ mod tests {
 
     #[test]
     fn shift_scroll_keeps_terminal_history_available_in_alternate_screen() {
-        let mode = TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL;
-        assert!(should_send_alternate_scroll(mode, false));
-        assert!(!should_send_alternate_scroll(mode, true));
+        assert!(should_send_alternate_scroll(alternate_scroll_mode(), false));
+        assert!(!should_send_alternate_scroll(alternate_scroll_mode(), true));
     }
 
     #[test]
@@ -224,33 +274,18 @@ mod tests {
 
         state.process_bytes(b"\r\x1b[2Kduring");
         let paint_snapshot = state.handle.snapshot();
-        let paint_text: String = paint_snapshot
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
+        let paint_text = row_text(&paint_snapshot, 0);
         assert!(!paint_text.contains("during"));
 
         let live = state.live_snapshot();
 
-        let live_text: String = live
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
+        let live_text = row_text(&live, 0);
 
         assert!(live_text.contains("during"));
 
         state.handle.publish_snapshot();
         let published = state.handle.snapshot();
-        let published_text: String = published
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
+        let published_text = row_text(&published, 0);
 
         assert!(published_text.contains("during"));
     }
@@ -353,21 +388,21 @@ mod tests {
 
     #[test]
     fn maps_app_cursor_mode() {
-        assert_eq!(bytes(keystroke("up"), TermMode::NONE), b"\x1b[A");
-        assert_eq!(bytes(keystroke("down"), TermMode::NONE), b"\x1b[B");
-        assert_eq!(bytes(keystroke("right"), TermMode::NONE), b"\x1b[C");
-        assert_eq!(bytes(keystroke("left"), TermMode::NONE), b"\x1b[D");
-        assert_eq!(bytes(keystroke("arrow_up"), TermMode::NONE), b"\x1b[A");
-        assert_eq!(bytes(keystroke("down_arrow"), TermMode::NONE), b"\x1b[B");
-        assert_eq!(bytes(keystroke("home"), TermMode::NONE), b"\x1b[H");
-        assert_eq!(bytes(keystroke("end"), TermMode::NONE), b"\x1b[F");
+        assert_eq!(bytes(keystroke("up"), normal_mode()), b"\x1b[A");
+        assert_eq!(bytes(keystroke("down"), normal_mode()), b"\x1b[B");
+        assert_eq!(bytes(keystroke("right"), normal_mode()), b"\x1b[C");
+        assert_eq!(bytes(keystroke("left"), normal_mode()), b"\x1b[D");
+        assert_eq!(bytes(keystroke("arrow_up"), normal_mode()), b"\x1b[A");
+        assert_eq!(bytes(keystroke("down_arrow"), normal_mode()), b"\x1b[B");
+        assert_eq!(bytes(keystroke("home"), normal_mode()), b"\x1b[H");
+        assert_eq!(bytes(keystroke("end"), normal_mode()), b"\x1b[F");
 
-        assert_eq!(bytes(keystroke("up"), TermMode::APP_CURSOR), b"\x1bOA");
-        assert_eq!(bytes(keystroke("down"), TermMode::APP_CURSOR), b"\x1bOB");
-        assert_eq!(bytes(keystroke("right"), TermMode::APP_CURSOR), b"\x1bOC");
-        assert_eq!(bytes(keystroke("left"), TermMode::APP_CURSOR), b"\x1bOD");
-        assert_eq!(bytes(keystroke("home"), TermMode::APP_CURSOR), b"\x1bOH");
-        assert_eq!(bytes(keystroke("end"), TermMode::APP_CURSOR), b"\x1bOF");
+        assert_eq!(bytes(keystroke("up"), app_cursor_mode()), b"\x1bOA");
+        assert_eq!(bytes(keystroke("down"), app_cursor_mode()), b"\x1bOB");
+        assert_eq!(bytes(keystroke("right"), app_cursor_mode()), b"\x1bOC");
+        assert_eq!(bytes(keystroke("left"), app_cursor_mode()), b"\x1bOD");
+        assert_eq!(bytes(keystroke("home"), app_cursor_mode()), b"\x1bOH");
+        assert_eq!(bytes(keystroke("end"), app_cursor_mode()), b"\x1bOF");
     }
 
     #[test]
@@ -375,37 +410,37 @@ mod tests {
         assert_eq!(
             bytes(
                 modified_key("up", true, false, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[1;2A"
         );
         assert_eq!(
             bytes(
                 modified_key("left", false, true, true, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[1;7D"
         );
         assert_eq!(
             bytes(
                 modified_key("home", true, false, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[1;2H"
         );
-        assert_eq!(bytes(keystroke("f12"), TermMode::NONE), b"\x1b[24~");
-        assert_eq!(bytes(keystroke("f20"), TermMode::NONE), b"\x1b[34~");
+        assert_eq!(bytes(keystroke("f12"), normal_mode()), b"\x1b[24~");
+        assert_eq!(bytes(keystroke("f20"), normal_mode()), b"\x1b[34~");
         assert_eq!(
             bytes(
                 modified_key("f5", false, false, true, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[15;5~"
         );
         assert_eq!(
             bytes(
                 modified_key("delete", true, false, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[3;2~"
         );
@@ -416,98 +451,98 @@ mod tests {
         assert_eq!(
             bytes(
                 modified_key("left", false, true, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1bb"
         );
         assert_eq!(
             bytes(
                 modified_key("right", false, true, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1bf"
         );
         assert_eq!(
             bytes(
                 modified_key("left", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x01"
         );
         assert_eq!(
             bytes(
                 modified_key("right", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x05"
         );
         assert_eq!(
             bytes(
                 modified_key_with_function("left", false, false, false, true, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x01"
         );
         assert_eq!(
             bytes(
                 modified_key_with_function("right", false, false, false, true, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x05"
         );
         assert_eq!(
             bytes(
                 modified_key_with_function("left", false, true, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1bb"
         );
         assert_eq!(
             bytes(
                 modified_key_with_function("right", false, true, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1bf"
         );
         assert_eq!(
             bytes(
                 modified_key("home", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x01"
         );
         assert_eq!(
             bytes(
                 modified_key("end", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x05"
         );
         assert_eq!(
             bytes(
                 modified_key("delete", false, true, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1bd"
         );
         assert_eq!(
             bytes(
                 modified_key("backspace", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x15"
         );
         assert_eq!(
             bytes(
                 modified_key("back", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x15"
         );
         assert_eq!(
             bytes(
                 modified_key("delete", false, false, false, true),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x0b"
         );
@@ -517,21 +552,21 @@ mod tests {
     fn keeps_macos_app_shortcuts_out_of_terminal_input() {
         for key in ["q", "h", "m", "w", "tab", "`"] {
             assert!(
-                keystroke_to_bytes(&modified_key(key, false, false, false, true), TermMode::NONE)
+                keystroke_to_bytes(&modified_key(key, false, false, false, true), normal_mode())
                     .is_none(),
                 "Cmd+{key} should remain an app shortcut"
             );
         }
         assert!(
-            keystroke_to_bytes(&modified_key("h", false, true, false, true), TermMode::NONE)
+            keystroke_to_bytes(&modified_key("h", false, true, false, true), normal_mode())
                 .is_none()
         );
         assert!(
-            keystroke_to_bytes(&modified_key("m", false, true, false, true), TermMode::NONE)
+            keystroke_to_bytes(&modified_key("m", false, true, false, true), normal_mode())
                 .is_none()
         );
         assert!(
-            keystroke_to_bytes(&modified_key("tab", true, false, false, true), TermMode::NONE)
+            keystroke_to_bytes(&modified_key("tab", true, false, false, true), normal_mode())
                 .is_none()
         );
     }
@@ -539,11 +574,11 @@ mod tests {
     #[test]
     fn preserves_control_q_for_terminal_flow_control() {
         assert_eq!(
-            bytes(modified_key("q", false, false, true, false), TermMode::NONE),
+            bytes(modified_key("q", false, false, true, false), normal_mode()),
             b"\x11"
         );
         assert_eq!(
-            bytes(modified_key("Q", true, false, true, false), TermMode::NONE),
+            bytes(modified_key("Q", true, false, true, false), normal_mode()),
             b"\x11"
         );
     }
@@ -551,138 +586,56 @@ mod tests {
     #[test]
     fn maps_ctrl_alt_and_shift_enter_sequences() {
         assert_eq!(
-            bytes(modified_key("a", false, false, true, false), TermMode::NONE),
+            bytes(modified_key("a", false, false, true, false), normal_mode()),
             b"\x01"
         );
         assert_eq!(
-            bytes(modified_key("C", true, false, true, false), TermMode::NONE),
+            bytes(modified_key("C", true, false, true, false), normal_mode()),
             b"\x03"
         );
         assert_eq!(
-            bytes(modified_key("[", false, false, true, false), TermMode::NONE),
+            bytes(modified_key("[", false, false, true, false), normal_mode()),
             b"\x1b"
         );
         assert_eq!(
             bytes(
                 modified_key("enter", true, false, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\n"
         );
         assert_eq!(
             bytes(
                 modified_key("Tab", true, false, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[Z"
         );
         assert_eq!(
             bytes(
                 modified_key("BackTab", true, false, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b[Z"
         );
         assert_eq!(
             bytes(
                 modified_key("enter", false, true, false, false),
-                TermMode::NONE
+                normal_mode()
             ),
             b"\x1b\r"
         );
         assert_eq!(
-            bytes(modified_key("x", false, true, false, false), TermMode::NONE),
+            bytes(modified_key("x", false, true, false, false), normal_mode()),
             b"\x1bx"
         );
-    }
-
-    #[test]
-    fn maps_mouse_reports() {
-        let point = TerminalCellPoint { row: 1, col: 2 };
-        assert_eq!(
-            mouse_report_sequence(
-                Some(MouseButton::Left),
-                point,
-                MouseReportKind::Press,
-                Modifiers::default(),
-                TermMode::MOUSE_REPORT_CLICK | TermMode::SGR_MOUSE
-            )
-            .unwrap(),
-            b"\x1b[<0;3;2M"
-        );
-        assert_eq!(
-            mouse_report_sequence(
-                Some(MouseButton::Left),
-                point,
-                MouseReportKind::Release,
-                Modifiers::default(),
-                TermMode::MOUSE_REPORT_CLICK | TermMode::SGR_MOUSE
-            )
-            .unwrap(),
-            b"\x1b[<0;3;2m"
-        );
-        assert_eq!(
-            mouse_report_sequence(
-                Some(MouseButton::Left),
-                point,
-                MouseReportKind::Move,
-                Modifiers {
-                    shift: true,
-                    alt: true,
-                    control: true,
-                    platform: false,
-                    function: false,
-                },
-                TermMode::MOUSE_DRAG | TermMode::SGR_MOUSE
-            )
-            .unwrap(),
-            b"\x1b[<60;3;2M"
-        );
-        assert_eq!(
-            mouse_report_sequence(
-                Some(MouseButton::Navigate(NavigationDirection::Back)),
-                point,
-                MouseReportKind::Wheel,
-                Modifiers::default(),
-                TermMode::MOUSE_REPORT_CLICK | TermMode::SGR_MOUSE
-            )
-            .unwrap(),
-            b"\x1b[<64;3;2M"
-        );
-    }
-
-    #[test]
-    fn maps_normal_and_utf8_mouse_reports() {
-        let point = TerminalCellPoint { row: 1, col: 2 };
-        assert_eq!(
-            mouse_report_sequence(
-                Some(MouseButton::Left),
-                point,
-                MouseReportKind::Press,
-                Modifiers::default(),
-                TermMode::MOUSE_MODE
-            )
-            .unwrap(),
-            vec![b'\x1b', b'[', b'M', 32, 35, 34]
-        );
-
-        let utf8_point = TerminalCellPoint { row: 100, col: 100 };
-        let report = mouse_report_sequence(
-            Some(MouseButton::Left),
-            utf8_point,
-            MouseReportKind::Press,
-            Modifiers::default(),
-            TermMode::MOUSE_REPORT_CLICK | TermMode::UTF8_MOUSE,
-        )
-        .unwrap();
-        assert_eq!(&report[..4], &[b'\x1b', b'[', b'M', 32]);
-        assert!(report.len() > 6);
     }
 
     #[test]
     fn selects_text_from_terminal_grid() {
         let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"hello\r\nworld");
+        state.handle.publish_snapshot();
 
         assert_eq!(
             state.handle.selected_text_for_range(SelectionRange {
@@ -697,6 +650,7 @@ mod tests {
     fn keeps_utf8_cjk_output_in_terminal_grid() {
         let mut state = TerminalModel::new_for_test(20, 4, 100);
         state.process_bytes("中文恢复记录".as_bytes());
+        state.handle.publish_snapshot();
 
         assert_eq!(
             state.handle.selected_text_for_range(SelectionRange {
@@ -708,27 +662,23 @@ mod tests {
     }
 
     #[test]
-    fn alacritty_selection_tracks_output_scrollback_rotation() {
+    fn selection_tracks_output_scrollback_rotation() {
         let mut state = TerminalModel::new_for_test(10, 3, 100);
         state.process_bytes(b"one\r\ntwo\r\nthree");
-        state.start_selection(
-            TerminalSelectionPoint { line: 1, col: 0 },
-            TerminalSide::Left,
-        );
-        state.update_selection(
-            TerminalSelectionPoint { line: 1, col: 3 },
-            TerminalSide::Right,
-        );
+        state.handle.publish_snapshot();
+        state.start_selection(TerminalSelectionPoint { line: 1, col: 0 });
+        state.update_selection(TerminalSelectionPoint { line: 1, col: 3 });
         assert_eq!(state.selected_text(), Some("two".to_string()));
 
         state.process_bytes(b"\r\nfour");
+        state.handle.publish_snapshot();
 
         assert_eq!(state.selected_text(), Some("two".to_string()));
         assert_eq!(
             state.selection_range(),
             Some(SelectionRange {
-                start: TerminalSelectionPoint { line: 0, col: 0 },
-                end: TerminalSelectionPoint { line: 0, col: 3 },
+                start: TerminalSelectionPoint { line: 1, col: 0 },
+                end: TerminalSelectionPoint { line: 1, col: 3 },
             })
         );
     }
@@ -739,23 +689,13 @@ mod tests {
         state.process_bytes(b"hello");
 
         let pending_snapshot = state.handle.snapshot();
-        let pending_text: String = pending_snapshot
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
+        let pending_text = row_text(&pending_snapshot, 0);
         assert!(!pending_text.contains("hello"));
 
         state.handle.publish_snapshot();
 
         let snapshot = state.handle.snapshot();
-        let text: String = snapshot
-            .cells
-            .iter()
-            .filter(|cell| cell.point.line.0 == 0)
-            .map(|cell| cell.c)
-            .collect();
+        let text = row_text(&snapshot, 0);
 
         assert!(text.contains("hello"));
         assert_eq!(snapshot.columns, 10);
@@ -776,21 +716,21 @@ mod tests {
     }
 
     #[test]
-    fn display_cursor_tracks_scroll_offset_like_zed() {
+    fn display_cursor_tracks_ghostty_viewport_coordinates() {
         let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
         state.handle.publish_snapshot();
         assert!(state.scroll_display(2));
         let snapshot = state.sync_for_test();
 
-        let display_cursor = DisplayCursor::from(snapshot.cursor.point, snapshot.display_offset);
+        let display_cursor = snapshot.display_cursor();
 
         assert_eq!(snapshot.display_offset, 2);
         assert_eq!(
             display_cursor,
             DisplayCursor {
-                row: snapshot.cursor.point.line.0 + 2,
-                col: snapshot.cursor.point.column.0,
+                row: snapshot.cursor.row as i32,
+                col: snapshot.cursor.col,
             }
         );
     }
@@ -806,14 +746,14 @@ mod tests {
         assert_eq!(snapshot.screen_lines, 6);
         assert_eq!(snapshot.visible_rows(), 4);
         assert_eq!(snapshot.visible_row_shift, 2);
-        assert_eq!(snapshot.display_row_for_line(Line(0)), None);
-        assert_eq!(snapshot.display_row_for_line(Line(1)), None);
-        assert_eq!(snapshot.display_row_for_line(Line(2)), Some(0));
-        assert_eq!(snapshot.display_row_for_line(Line(3)), Some(1));
-        assert_eq!(snapshot.display_row_for_line(Line(4)), Some(2));
-        assert_eq!(snapshot.display_row_for_line(Line(5)), Some(3));
-        assert_eq!(snapshot.line_for_display_row(0), Line(2));
-        assert_eq!(snapshot.line_for_display_row(3), Line(5));
+        assert_eq!(snapshot.display_row_for_line(0), None);
+        assert_eq!(snapshot.display_row_for_line(1), None);
+        assert_eq!(snapshot.display_row_for_line(2), Some(0));
+        assert_eq!(snapshot.display_row_for_line(3), Some(1));
+        assert_eq!(snapshot.display_row_for_line(4), Some(2));
+        assert_eq!(snapshot.display_row_for_line(5), Some(3));
+        assert_eq!(snapshot.line_for_display_row(0), 2);
+        assert_eq!(snapshot.line_for_display_row(3), 5);
     }
 
     #[test]
@@ -979,14 +919,14 @@ mod tests {
         state.prepare_input_viewport_for_test();
         let bottom = state.sync_for_test();
         let bounds = state.current_ime_cursor_bounds(&layout).unwrap();
-        let row = DisplayCursor::from(bottom.cursor.point, bottom.display_offset).row;
+        let row = bottom.display_cursor().row;
 
         assert_eq!(bottom.display_offset, 0);
         assert!(bottom.scrolled_to_bottom);
         assert!(row >= 0);
         assert_eq!(
             bounds.origin.x,
-            px(15.0) + px(10.0) * bottom.cursor.point.column.0 as f32
+            px(15.0) + px(10.0) * bottom.cursor.col as f32
         );
         assert_eq!(bounds.origin.y, px(22.0) + px(20.0) * row as f32);
         assert_eq!(bounds.size.width, px(10.0));
@@ -1143,14 +1083,21 @@ mod tests {
             DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
             ColorPalette::default(),
         );
-        let colors = Colors::default();
-        let mut cell = Cell::default();
-        cell.fg = Color::Named(NamedColor::Foreground);
-        cell.bg = Color::Named(NamedColor::Background);
+        let normal_cell = test_cell(
+            TerminalScreenColor::Default,
+            TerminalScreenColor::Default,
+            false,
+            false,
+        );
+        let inverse_cell = test_cell(
+            TerminalScreenColor::Default,
+            TerminalScreenColor::Default,
+            false,
+            true,
+        );
 
-        let normal = renderer.cell_render_colors(&cell, &colors);
-        cell.flags.insert(Flags::INVERSE);
-        let inverse = renderer.cell_render_colors(&cell, &colors);
+        let normal = renderer.cell_render_colors(&normal_cell);
+        let inverse = renderer.cell_render_colors(&inverse_cell);
 
         assert_eq!(inverse.0, normal.1);
         assert_eq!(inverse.1, normal.0);
@@ -1223,66 +1170,37 @@ mod tests {
             DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
             ColorPalette::default(),
         );
-        let colors = Colors::default();
-        let mut cell = Cell::default();
-        cell.fg = Color::Named(NamedColor::Blue);
-        cell.bg = Color::Named(NamedColor::Background);
-        cell.flags.insert(Flags::BOLD);
+        let cell = test_cell(
+            TerminalScreenColor::Indexed { index: 4 },
+            TerminalScreenColor::Default,
+            true,
+            false,
+        );
 
-        let (fg, _) = renderer.cell_render_colors(&cell, &colors);
+        let (fg, _) = renderer.cell_render_colors(&cell);
         assert_eq!(
             fg,
             renderer
                 .palette
-                .resolve(Color::Named(NamedColor::BrightBlue), &colors)
+                .resolve_fg(&TerminalScreenColor::Indexed { index: 12 }, false, false)
         );
     }
 
     #[test]
-    fn default_named_colors_ignore_stale_dynamic_terminal_colors() {
+    fn default_colors_use_current_palette_values() {
         let palette = ColorPalette::builder()
             .background(0xee, 0xee, 0xee)
             .foreground(0x11, 0x11, 0x11)
             .cursor(0x22, 0x22, 0x22)
             .build();
-        let mut colors = Colors::default();
-        colors[NamedColor::Background] = Some(Rgb {
-            r: 0x11,
-            g: 0x14,
-            b: 0x1a,
-        });
-        colors[NamedColor::Foreground] = Some(Rgb {
-            r: 0xd6,
-            g: 0xda,
-            b: 0xe2,
-        });
 
         assert_eq!(
-            palette.resolve(Color::Named(NamedColor::Background), &colors),
-            palette.background
+            palette.resolve_bg(&TerminalScreenColor::Default),
+            palette.background()
         );
         assert_eq!(
-            palette.resolve(Color::Named(NamedColor::Foreground), &colors),
-            palette.foreground
-        );
-    }
-
-    #[test]
-    fn color_requests_use_current_palette_for_default_colors() {
-        let mut state = TerminalModel::new_for_test(10, 4, 100);
-        state.colors = ColorPalette::builder()
-            .background(0xee, 0xee, 0xee)
-            .foreground(0x11, 0x11, 0x11)
-            .cursor(0x22, 0x22, 0x22)
-            .build();
-
-        assert_eq!(
-            state.color_request(NamedColor::Background as usize),
-            Rgb {
-                r: 0xee,
-                g: 0xee,
-                b: 0xee
-            }
+            palette.resolve_fg(&TerminalScreenColor::Default, false, false),
+            palette.foreground()
         );
     }
 
@@ -1294,29 +1212,30 @@ mod tests {
             DEFAULT_TERMINAL_LINE_HEIGHT_MULTIPLIER,
             ColorPalette::default(),
         );
-        let colors = Colors::default();
-        let mut cell = Cell::default();
-        cell.fg = Color::Named(NamedColor::Blue);
-        cell.bg = Color::Named(NamedColor::Red);
-        cell.flags.insert(Flags::BOLD | Flags::INVERSE);
+        let cell = test_cell(
+            TerminalScreenColor::Indexed { index: 4 },
+            TerminalScreenColor::Indexed { index: 1 },
+            true,
+            true,
+        );
 
-        let (fg, bg) = renderer.cell_render_colors(&cell, &colors);
+        let (fg, bg) = renderer.cell_render_colors(&cell);
         assert_eq!(
             fg,
             renderer
                 .palette
-                .resolve(Color::Named(NamedColor::BrightRed), &colors)
+                .resolve_fg(&TerminalScreenColor::Indexed { index: 9 }, false, false)
         );
         assert_eq!(
             bg,
             renderer
                 .palette
-                .resolve(Color::Named(NamedColor::Blue), &colors)
+                .resolve_fg(&TerminalScreenColor::Indexed { index: 4 }, false, false)
         );
     }
 
     #[test]
-    fn color_requests_use_configured_palette() {
+    fn palette_resolves_configured_colors() {
         let palette = ColorPalette::builder()
             .background(0x28, 0x2A, 0x36)
             .foreground(0xF8, 0xF8, 0xF2)
@@ -1327,59 +1246,71 @@ mod tests {
             .build();
 
         assert_eq!(
-            palette.color_request(NamedColor::Background as usize),
-            Rgb {
+            hsla_to_rgb(palette.resolve_bg(&TerminalScreenColor::Default)),
+            TerminalRgb {
                 r: 0x28,
                 g: 0x2A,
                 b: 0x36
             }
         );
         assert_eq!(
-            palette.color_request(NamedColor::Foreground as usize),
-            Rgb {
+            hsla_to_rgb(palette.resolve_fg(&TerminalScreenColor::Default, false, false)),
+            TerminalRgb {
                 r: 0xF8,
                 g: 0xF8,
                 b: 0xF2
             }
         );
         assert_eq!(
-            palette.color_request(NamedColor::Black as usize),
-            Rgb {
+            hsla_to_rgb(palette.resolve_fg(
+                &TerminalScreenColor::Indexed { index: 0 },
+                false,
+                false
+            )),
+            TerminalRgb {
                 r: 0x21,
                 g: 0x22,
                 b: 0x2C
             }
         );
         assert_eq!(
-            palette.color_request(NamedColor::BrightBlack as usize),
-            Rgb {
+            hsla_to_rgb(palette.resolve_fg(
+                &TerminalScreenColor::Indexed { index: 8 },
+                false,
+                false
+            )),
+            TerminalRgb {
                 r: 0x62,
                 g: 0x72,
                 b: 0xA4
             }
         );
         assert_eq!(
-            palette.color_request(NamedColor::BrightForeground as usize),
-            hsla_to_rgb(brighten_color(rgb_to_hsla(Rgb {
+            hsla_to_rgb(palette.resolve_fg(&TerminalScreenColor::Default, true, false)),
+            TerminalRgb {
                 r: 0xF8,
                 g: 0xF8,
                 b: 0xF2
-            })))
+            }
         );
         assert_eq!(
-            palette.color_request(NamedColor::DimForeground as usize),
-            hsla_to_rgb(dim_color(rgb_to_hsla(Rgb {
+            palette.resolve_fg(&TerminalScreenColor::Default, false, true),
+            dim_color(rgb_to_hsla(TerminalRgb {
                 r: 0xF8,
                 g: 0xF8,
                 b: 0xF2
-            })))
+            }))
         );
         assert_eq!(
-            palette.color_request(999),
-            Rgb {
-                r: 0xF8,
-                g: 0xF8,
-                b: 0xF2
+            hsla_to_rgb(palette.resolve_fg(
+                &TerminalScreenColor::Indexed { index: 255 },
+                false,
+                false
+            )),
+            TerminalRgb {
+                r: 0xEE,
+                g: 0xEE,
+                b: 0xEE
             }
         );
     }

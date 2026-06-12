@@ -295,12 +295,11 @@ fn trace_terminal_paint_snapshot(content: &TerminalContent, cursor_visible: bool
         return;
     }
     terminal_trace(&format!(
-        "paint cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={} visible_rows={} row_shift={}",
+        "paint cursor_visible={} cursor_model_visible={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={} visible_rows={} row_shift={}",
         cursor_visible,
-        content.mode.contains(TermMode::SHOW_CURSOR),
-        content.cursor.shape == CursorShape::Hidden,
-        content.cursor.point.line.0,
-        content.cursor.point.column.0,
+        content.cursor.visible,
+        content.cursor.row,
+        content.cursor.col,
         content.cursor.shape,
         content.display_offset,
         content.cells.len(),

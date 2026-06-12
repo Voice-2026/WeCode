@@ -9,7 +9,7 @@ Platform-neutral terminal model and traits.
 - Remote PTY session cache semantics.
 - Remote runtime project/terminal selection model and action planning.
 - Baseline restore, retained live output, sequence handling, and cache trimming.
-- Alacritty-backed headless screen read model for controller-side rendering.
+- `libghostty-vt` backed headless screen read model for controller-side rendering.
 - Viewport ownership DTOs.
 
 ## Does Not Own

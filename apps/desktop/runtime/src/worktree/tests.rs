@@ -53,6 +53,103 @@ fn reads_and_selects_project_worktree_without_losing_unknown_fields() {
 }
 
 #[test]
+fn summary_ignores_missing_non_default_worktree_selection() {
+    let support_dir = temp_dir("worktree-missing-selection");
+    let project_dir = temp_dir("worktree-missing-selection-project");
+    fs::create_dir_all(&support_dir).unwrap();
+    fs::create_dir_all(&project_dir).unwrap();
+    let missing_dir = support_dir.join("missing-worktree");
+    fs::write(
+        support_dir.join("state.json"),
+        serde_json::to_string_pretty(&json!({
+            "worktrees": [
+                {
+                    "id": "p1",
+                    "projectId": "p1",
+                    "name": "main",
+                    "branch": "main",
+                    "path": project_dir.to_string_lossy(),
+                    "status": "todo",
+                    "isDefault": true
+                },
+                {
+                    "id": "w-missing",
+                    "projectId": "p1",
+                    "name": "missing",
+                    "branch": "missing",
+                    "path": missing_dir.to_string_lossy(),
+                    "status": "todo",
+                    "isDefault": false
+                }
+            ],
+            "selectedWorktreeIdByProject": {"p1": "w-missing"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let summary = WorktreeService::new(support_dir.clone()).state_summary(
+        Some("p1"),
+        Some(project_dir.to_str().expect("project path")),
+    );
+
+    assert_eq!(summary.selected_worktree_id.as_deref(), Some("p1"));
+    assert!(
+        summary
+            .worktrees
+            .iter()
+            .any(|worktree| { worktree.id == "w-missing" && !worktree.exists })
+    );
+
+    fs::remove_dir_all(support_dir).ok();
+    fs::remove_dir_all(project_dir).ok();
+}
+
+#[test]
+fn select_worktree_rejects_missing_non_default_path() {
+    let support_dir = temp_dir("worktree-select-missing");
+    let project_dir = temp_dir("worktree-select-missing-project");
+    fs::create_dir_all(&support_dir).unwrap();
+    fs::create_dir_all(&project_dir).unwrap();
+    let missing_dir = support_dir.join("missing-worktree");
+    fs::write(
+        support_dir.join("state.json"),
+        serde_json::to_string_pretty(&json!({
+            "worktrees": [
+                {
+                    "id": "p1",
+                    "projectId": "p1",
+                    "name": "main",
+                    "branch": "main",
+                    "path": project_dir.to_string_lossy(),
+                    "status": "todo",
+                    "isDefault": true
+                },
+                {
+                    "id": "w-missing",
+                    "projectId": "p1",
+                    "name": "missing",
+                    "branch": "missing",
+                    "path": missing_dir.to_string_lossy(),
+                    "status": "todo",
+                    "isDefault": false
+                }
+            ],
+            "selectedWorktreeIdByProject": {"p1": "p1"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let service = WorktreeService::new(support_dir.clone());
+    assert!(service.select_worktree("p1", "w-missing").is_err());
+    service.select_worktree("p1", "p1").unwrap();
+
+    fs::remove_dir_all(support_dir).ok();
+    fs::remove_dir_all(project_dir).ok();
+}
+
+#[test]
 fn state_summary_falls_back_to_project_worktree_when_state_is_malformed() {
     let support_dir = temp_dir("worktree-state-fallback");
     let project_dir = temp_dir("worktree-state-fallback-project");

@@ -184,6 +184,10 @@ impl TerminalPane {
     pub fn output_snapshot(&self) -> TerminalOutputSnapshot {
         self.session.output_snapshot()
     }
+
+    pub fn matches_pty_config(&self, config: &TerminalPtyConfig) -> bool {
+        self.session.matches_pty_config(config)
+    }
 }
 
 pub struct PendingTerminalAttach {
@@ -396,5 +400,14 @@ impl TerminalSessionBinding {
             .as_ref()
             .map(|session| session.output_snapshot())
             .unwrap_or_default()
+    }
+
+    fn matches_pty_config(&self, config: &TerminalPtyConfig) -> bool {
+        self.inner
+            .lock()
+            .session
+            .as_ref()
+            .map(|session| session.matches_config(config, None))
+            .unwrap_or(false)
     }
 }

@@ -1,0 +1,222 @@
+use std::env;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// Pinned ghostty commit. Update this to pull a newer version.
+const GHOSTTY_REPO: &str = "https://github.com/ghostty-org/ghostty.git";
+const GHOSTTY_COMMIT: &str = "bebca84668947bfc92b9a30ed58712e1c34eee1d";
+
+fn main() {
+    // docs.rs has no Zig toolchain. The checked-in bindings in src/bindings.rs
+    // are enough for generating documentation, so skip the entire native
+    // build when running under docs.rs.
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
+
+    println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_SYS_NO_VENDOR");
+    println!("cargo:rerun-if-env-changed=GHOSTTY_SOURCE_DIR");
+    println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=TARGET");
+    println!("cargo:rerun-if-env-changed=HOST");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR must be set"));
+    let target = env::var("TARGET").expect("TARGET must be set");
+    let host = env::var("HOST").expect("HOST must be set");
+
+    // Locate ghostty source: env override > fetch into OUT_DIR.
+    let ghostty_dir = match env::var("GHOSTTY_SOURCE_DIR") {
+        Ok(dir) => {
+            let p = PathBuf::from(dir);
+            assert!(
+                p.join("build.zig").exists(),
+                "GHOSTTY_SOURCE_DIR does not contain build.zig: {}",
+                p.display()
+            );
+            p
+        }
+        Err(_) => fetch_ghostty(&out_dir),
+    };
+
+    // Build libghostty-vt via zig.
+    let install_prefix = out_dir.join("ghostty-install");
+
+    let zig = zig_command();
+    let mut build = Command::new(&zig);
+    build
+        .arg("build")
+        .arg("-Demit-lib-vt")
+        .arg("--prefix")
+        .arg(&install_prefix)
+        .current_dir(&ghostty_dir);
+
+    // Only pass -Dtarget when cross-compiling. For native builds, let zig
+    // auto-detect the host (matches how ghostty's own CMakeLists.txt works).
+    if target != host {
+        let zig_target = zig_target(&target);
+        build.arg(format!("-Dtarget={zig_target}"));
+        if let Some(zig_cpu) = zig_cpu(&target) {
+            build.arg(format!("-Dcpu={zig_cpu}"));
+        }
+    }
+
+    run(build, "zig build");
+
+    let lib_dir = install_prefix.join("lib");
+    let include_dir = install_prefix.join("include");
+
+    let shared_lib_name = if target.contains("apple") {
+        "libghostty-vt.0.1.0.dylib"
+    } else {
+        "libghostty-vt.so.0.1.0"
+    };
+    let static_lib_name = "libghostty-vt.a";
+
+    assert!(
+        lib_dir.join(shared_lib_name).exists(),
+        "expected shared library at {}",
+        lib_dir.join(shared_lib_name).display()
+    );
+    assert!(
+        lib_dir.join(static_lib_name).exists(),
+        "expected static library at {}",
+        lib_dir.join(static_lib_name).display()
+    );
+    assert!(
+        include_dir.join("ghostty").join("vt.h").exists(),
+        "expected header at {}",
+        include_dir.join("ghostty").join("vt.h").display()
+    );
+
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    println!("cargo:rustc-link-lib=static=ghostty-vt");
+    link_zig_static_dependency(&ghostty_dir, "simdutf");
+    link_zig_static_dependency(&ghostty_dir, "highway");
+    link_zig_static_dependency(&ghostty_dir, "utfcpp");
+    if target.contains("apple") {
+        println!("cargo:rustc-link-lib=c++");
+    }
+    if target.contains("apple-darwin") {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+    }
+    println!("cargo:include={}", include_dir.display());
+}
+
+fn link_zig_static_dependency(ghostty_dir: &Path, name: &str) {
+    let Some(path) = find_file(&ghostty_dir.join(".zig-cache").join("o"), &format!("lib{name}.a")) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        println!("cargo:rustc-link-search=native={}", parent.display());
+        println!("cargo:rustc-link-lib=static={name}");
+    }
+}
+
+fn find_file(root: &Path, file_name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.file_name().and_then(|value| value.to_str()) == Some(file_name) {
+            return Some(path);
+        }
+        if path.is_dir()
+            && let Some(found) = find_file(&path, file_name) {
+                return Some(found);
+            }
+    }
+    None
+}
+
+fn zig_command() -> PathBuf {
+    if let Ok(value) = env::var("ZIG") {
+        let path = PathBuf::from(value);
+        if !path.as_os_str().is_empty() {
+            return path;
+        }
+    }
+    let homebrew_zig = PathBuf::from("/opt/homebrew/opt/zig@0.15/bin/zig");
+    if homebrew_zig.exists() {
+        return homebrew_zig;
+    }
+    PathBuf::from("zig")
+}
+
+/// Clone ghostty at the pinned commit into OUT_DIR/ghostty-src.
+/// Reuses an existing clone if the commit matches.
+fn fetch_ghostty(out_dir: &Path) -> PathBuf {
+    let src_dir = out_dir.join("ghostty-src");
+    let stamp = src_dir.join(".ghostty-commit");
+
+    // Skip fetch if we already have the right commit.
+    if stamp.exists()
+        && let Ok(existing) = std::fs::read_to_string(&stamp)
+            && existing.trim() == GHOSTTY_COMMIT {
+                return src_dir;
+            }
+
+    // Clean and clone fresh.
+    if src_dir.exists() {
+        std::fs::remove_dir_all(&src_dir)
+            .unwrap_or_else(|e| panic!("failed to remove {}: {e}", src_dir.display()));
+    }
+
+    eprintln!("Fetching ghostty {GHOSTTY_COMMIT} ...");
+
+    let mut clone = Command::new("git");
+    clone
+        .arg("clone")
+        .arg("--filter=blob:none")
+        .arg("--no-checkout")
+        .arg(GHOSTTY_REPO)
+        .arg(&src_dir);
+    run(clone, "git clone ghostty");
+
+    let mut checkout = Command::new("git");
+    checkout
+        .arg("checkout")
+        .arg(GHOSTTY_COMMIT)
+        .current_dir(&src_dir);
+    run(checkout, "git checkout ghostty commit");
+
+    std::fs::write(&stamp, GHOSTTY_COMMIT).unwrap_or_else(|e| panic!("failed to write stamp: {e}"));
+
+    src_dir
+}
+
+fn run(mut command: Command, context: &str) {
+    let status = command
+        .status()
+        .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"));
+    assert!(status.success(), "{context} failed with status {status}");
+}
+
+fn zig_target(target: &str) -> String {
+    let value = match target {
+        "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
+        "x86_64-unknown-linux-musl" => "x86_64-linux-musl",
+        "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
+        "aarch64-unknown-linux-musl" => "aarch64-linux-musl",
+        "aarch64-apple-darwin" => "aarch64-macos-none",
+        "x86_64-apple-darwin" => "x86_64-macos-none",
+        "aarch64-apple-ios" => "aarch64-ios-none",
+        "aarch64-apple-ios-sim" => "aarch64-ios-simulator",
+        "x86_64-apple-ios" => "x86_64-ios-simulator",
+        "aarch64-linux-android" => "aarch64-linux-android",
+        "armv7-linux-androideabi" => "arm-linux-androideabi",
+        "i686-linux-android" => "x86-linux-android",
+        "x86_64-linux-android" => "x86_64-linux-android",
+        other => panic!("unsupported Rust target for vendored build: {other}"),
+    };
+    value.to_owned()
+}
+
+fn zig_cpu(target: &str) -> Option<&'static str> {
+    match target {
+        // Ghostty's own XCFramework build uses an Apple CPU model for arm64
+        // simulator builds because Zig's generic baseline currently misses
+        // the altnzcv feature required by simdutf's ARM intrinsic paths.
+        "aarch64-apple-ios-sim" => Some("apple_a17"),
+        _ => None,
+    }
+}

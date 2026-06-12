@@ -3,6 +3,7 @@ use super::{
     ProjectWorkspaceRecord,
 };
 use crate::project_store::helpers::{normalize_path, project_summary, worktree_summary};
+use codux_runtime_core::worktree::{RuntimeWorktreeItem, selected_runtime_worktree_id};
 use serde_json::Value;
 
 impl ProjectStore {
@@ -30,6 +31,21 @@ impl ProjectStore {
             .clone()
             .filter(|id| snapshot.projects.iter().any(|project| &project.id == id))
             .or_else(|| snapshot.projects.first().map(|project| project.id.clone()));
+        let selected_worktree_id_by_project = snapshot
+            .projects
+            .iter()
+            .filter_map(|project| {
+                let selected = selected_runtime_worktree_id(
+                    &project.id,
+                    snapshot
+                        .selected_worktree_id_by_project
+                        .get(&project.id)
+                        .map(String::as_str),
+                    project_runtime_worktrees(&snapshot, project),
+                )?;
+                Some((project.id.clone(), selected))
+            })
+            .collect();
         ProjectListSnapshot {
             projects: snapshot
                 .projects
@@ -37,7 +53,7 @@ impl ProjectStore {
                 .map(project_summary)
                 .collect::<Vec<_>>(),
             selected_project_id,
-            selected_worktree_id_by_project: snapshot.selected_worktree_id_by_project,
+            selected_worktree_id_by_project,
         }
     }
 
@@ -115,6 +131,12 @@ impl ProjectStore {
             .get(project_id)
             .map(String::as_str)
             .unwrap_or(project_id);
+        let selected_worktree_id = selected_runtime_worktree_id(
+            project_id,
+            Some(selected_worktree_id),
+            project_runtime_worktrees(&snapshot, project),
+        )
+        .unwrap_or_else(|| project_id.to_string());
         if selected_worktree_id != project_id
             && let Some(worktree) = snapshot
                 .worktrees
@@ -125,4 +147,31 @@ impl ProjectStore {
         }
         Some(project.path.clone())
     }
+}
+
+fn project_runtime_worktrees(
+    snapshot: &AppSnapshot,
+    project: &ProjectRecord,
+) -> Vec<RuntimeWorktreeItem> {
+    std::iter::once(RuntimeWorktreeItem {
+        id: project.id.clone(),
+        project_id: project.id.clone(),
+        path: project.path.clone(),
+        is_default: true,
+        exists: std::path::Path::new(&project.path).exists(),
+    })
+    .chain(
+        snapshot
+            .worktrees
+            .iter()
+            .filter(|worktree| worktree.project_id == project.id)
+            .map(|worktree| RuntimeWorktreeItem {
+                id: worktree.id.clone(),
+                project_id: worktree.project_id.clone(),
+                path: worktree.path.clone(),
+                is_default: worktree.is_default,
+                exists: std::path::Path::new(&worktree.path).exists(),
+            }),
+    )
+    .collect()
 }

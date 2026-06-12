@@ -1,12 +1,15 @@
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
+struct TerminalPoint {
+    line: i32,
+    column: usize,
+}
+
 #[derive(Clone)]
 struct TerminalContent {
     cells: Vec<TerminalIndexedCell>,
-    colors: Colors,
-    colors_hash: u64,
-    cursor: RenderableCursor,
-    cursor_char: char,
-    mode: TermMode,
+    cursor: TerminalScreenCursorSnapshot,
     display_offset: usize,
+    viewport_start_line: i32,
     columns: usize,
     screen_lines: usize,
     total_lines: usize,
@@ -17,28 +20,34 @@ struct TerminalContent {
 }
 
 impl TerminalContent {
-    fn from_term(term: &Term<GpuiEventProxy>) -> Self {
-        let content = term.renderable_content();
-        let mut cells = Vec::with_capacity(content.display_iter.size_hint().0);
-        cells.extend(content.display_iter.map(|indexed| TerminalIndexedCell {
-            point: indexed.point,
-            cell: indexed.cell.clone(),
-        }));
+    fn from_screen_snapshot(snapshot: TerminalScreenSnapshot) -> Self {
+        let total_lines = snapshot.total_lines.max(snapshot.rows);
+        let viewport_start_line = total_lines
+            .saturating_sub(snapshot.display_offset)
+            .saturating_sub(snapshot.rows) as i32;
+        let cells = snapshot
+            .cells
+            .into_iter()
+            .map(|cell| TerminalIndexedCell {
+                point: TerminalPoint {
+                    line: viewport_start_line + cell.row,
+                    column: cell.col,
+                },
+                cell,
+            })
+            .collect::<Vec<_>>();
         Self {
             cells,
-            colors: *content.colors,
-            colors_hash: terminal_colors_hash(content.colors),
-            cursor: content.cursor,
-            cursor_char: term.grid()[content.cursor.point].c,
-            mode: content.mode,
-            display_offset: content.display_offset,
-            columns: term.columns(),
-            screen_lines: term.screen_lines(),
-            total_lines: term.grid().total_lines(),
-            visible_rows: term.screen_lines(),
+            cursor: snapshot.cursor,
+            display_offset: snapshot.display_offset,
+            viewport_start_line,
+            columns: snapshot.cols,
+            screen_lines: snapshot.rows,
+            total_lines,
+            visible_rows: snapshot.rows,
             visible_row_shift: 0,
             #[cfg(test)]
-            scrolled_to_bottom: content.display_offset == 0,
+            scrolled_to_bottom: snapshot.display_offset == 0,
         }
     }
 
@@ -52,27 +61,49 @@ impl TerminalContent {
         self.visible_rows
     }
 
-    fn display_row_for_line(&self, line: Line) -> Option<usize> {
-        let row = line.0 + self.display_offset as i32 - self.visible_row_shift as i32;
+    fn display_row_for_line(&self, line: i32) -> Option<usize> {
+        let row = line - self.viewport_start_line - self.visible_row_shift as i32;
         if row < 0 || row as usize >= self.visible_rows {
             return None;
         }
         Some(row as usize)
     }
 
-    fn line_for_display_row(&self, row: usize) -> Line {
-        Line(row as i32 + self.visible_row_shift as i32 - self.display_offset as i32)
+    fn line_for_display_row(&self, row: usize) -> i32 {
+        self.viewport_start_line + row as i32 + self.visible_row_shift as i32
     }
 
     fn display_cursor(&self) -> DisplayCursor {
-        DisplayCursor::from(self.cursor.point, self.display_offset).shifted(self.visible_row_shift)
+        DisplayCursor {
+            row: self.cursor.row as i32,
+            col: self.cursor.col,
+        }
+        .shifted(self.visible_row_shift)
     }
 }
 
 #[derive(Clone)]
 struct TerminalIndexedCell {
     point: TerminalPoint,
-    cell: Cell,
+    cell: TerminalScreenCellSnapshot,
+}
+
+impl TerminalIndexedCell {
+    fn col(&self) -> usize {
+        self.point.column
+    }
+
+    fn line(&self) -> i32 {
+        self.point.line
+    }
+
+    fn text(&self) -> &str {
+        &self.cell.text
+    }
+
+    fn is_spacer_or_empty(&self) -> bool {
+        self.cell.hidden || self.cell.text.is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -86,26 +117,14 @@ fn terminal_link_at_cell(
     content: &TerminalContent,
     point: TerminalCellPoint,
 ) -> Option<TerminalLink> {
-    let line = point.row as i32 - content.display_offset as i32;
+    let line = content.line_for_display_row(point.row);
     let row_cells: Vec<&TerminalIndexedCell> = content
         .cells
         .iter()
-        .filter(|indexed| indexed.point.line.0 == line)
+        .filter(|indexed| indexed.line() == line)
         .collect();
     if row_cells.is_empty() {
         return None;
-    }
-
-    if let Some(cell) = row_cells
-        .iter()
-        .find(|indexed| indexed.point.column.0 == point.col)
-        && let Some(hyperlink) = cell.hyperlink()
-    {
-        let url = hyperlink.uri().to_string();
-        if is_openable_terminal_url(&url) {
-            let range = terminal_hyperlink_range(&row_cells, point.col, hyperlink.uri());
-            return Some(TerminalLink { url, line, range });
-        }
     }
 
     let row_text = terminal_row_text(&row_cells);
@@ -116,36 +135,11 @@ fn terminal_link_at_cell(
     })
 }
 
-fn terminal_hyperlink_range(
-    row_cells: &[&TerminalIndexedCell],
-    col: usize,
-    uri: &str,
-) -> Range<usize> {
-    let mut start = col;
-    let mut end = col.saturating_add(1);
-    for indexed in row_cells {
-        if indexed
-            .hyperlink()
-            .is_some_and(|hyperlink| hyperlink.uri() == uri)
-        {
-            let cell_col = indexed.point.column.0;
-            let width = terminal_cell_width(&indexed.cell);
-            start = start.min(cell_col);
-            end = end.max(cell_col.saturating_add(width));
-        }
-    }
-    start..end
-}
-
 fn terminal_row_text(row_cells: &[&TerminalIndexedCell]) -> Vec<(usize, char)> {
     let mut text: Vec<(usize, char)> = Vec::new();
     for indexed in row_cells {
-        let col = indexed.point.column.0;
-        if indexed
-            .flags
-            .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
-            || indexed.c == '\0'
-        {
+        let col = indexed.col();
+        if indexed.is_spacer_or_empty() {
             continue;
         }
         let next_col = text
@@ -155,7 +149,9 @@ fn terminal_row_text(row_cells: &[&TerminalIndexedCell]) -> Vec<(usize, char)> {
         for spacer_col in next_col..col {
             text.push((spacer_col, ' '));
         }
-        text.push((col, indexed.c));
+        for (offset, ch) in indexed.text().chars().enumerate() {
+            text.push((col + offset, ch));
+        }
     }
     text
 }
@@ -195,14 +191,6 @@ fn is_openable_terminal_url(url: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn terminal_cell_width(cell: &Cell) -> usize {
-    if cell.flags.contains(Flags::WIDE_CHAR) {
-        2
-    } else {
-        1
-    }
-}
-
 fn terminal_char_width(ch: char) -> usize {
     if ch.is_ascii() { 1 } else { 2 }
 }
@@ -214,13 +202,6 @@ struct DisplayCursor {
 }
 
 impl DisplayCursor {
-    fn from(cursor_point: TerminalPoint, display_offset: usize) -> Self {
-        Self {
-            row: cursor_point.line.0 + display_offset as i32,
-            col: cursor_point.column.0,
-        }
-    }
-
     fn shifted(self, row_shift: usize) -> Self {
         Self {
             row: self.row - row_shift as i32,
@@ -229,84 +210,46 @@ impl DisplayCursor {
     }
 }
 
-fn terminal_colors_hash(colors: &Colors) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    for index in 0..alacritty_terminal::term::color::COUNT {
-        terminal_optional_rgb_hash(colors[index], &mut hasher);
-    }
-    hasher.finish()
+fn terminal_cell_hash(cell: &TerminalScreenCellSnapshot, hasher: &mut DefaultHasher) {
+    cell.row.hash(hasher);
+    cell.col.hash(hasher);
+    cell.text.hash(hasher);
+    cell.width.hash(hasher);
+    terminal_screen_color_hash(&cell.fg, hasher);
+    terminal_screen_color_hash(&cell.bg, hasher);
+    cell.bold.hash(hasher);
+    cell.dim.hash(hasher);
+    cell.italic.hash(hasher);
+    cell.underline.hash(hasher);
+    cell.inverse.hash(hasher);
+    cell.hidden.hash(hasher);
+    cell.strikeout.hash(hasher);
 }
 
-fn terminal_optional_rgb_hash(rgb: Option<Rgb>, hasher: &mut DefaultHasher) {
-    match rgb {
-        Some(rgb) => {
-            1u8.hash(hasher);
-            rgb.r.hash(hasher);
-            rgb.g.hash(hasher);
-            rgb.b.hash(hasher);
-        }
-        None => 0u8.hash(hasher),
-    }
-}
-
-fn terminal_color_hash(color: Color, hasher: &mut DefaultHasher) {
+fn terminal_screen_color_hash(color: &TerminalScreenColor, hasher: &mut DefaultHasher) {
     match color {
-        Color::Named(named) => {
-            0u8.hash(hasher);
-            (named as usize).hash(hasher);
-        }
-        Color::Spec(rgb) => {
+        TerminalScreenColor::Default => 0u8.hash(hasher),
+        TerminalScreenColor::Named { name } => {
             1u8.hash(hasher);
-            rgb.r.hash(hasher);
-            rgb.g.hash(hasher);
-            rgb.b.hash(hasher);
+            name.hash(hasher);
         }
-        Color::Indexed(index) => {
+        TerminalScreenColor::Rgb { r, g, b } => {
             2u8.hash(hasher);
+            r.hash(hasher);
+            g.hash(hasher);
+            b.hash(hasher);
+        }
+        TerminalScreenColor::Indexed { index } => {
+            3u8.hash(hasher);
             index.hash(hasher);
         }
     }
 }
 
-fn terminal_optional_color_hash(color: Option<Color>, hasher: &mut DefaultHasher) {
-    match color {
-        Some(color) => {
-            1u8.hash(hasher);
-            terminal_color_hash(color, hasher);
-        }
-        None => 0u8.hash(hasher),
-    }
-}
-
-fn terminal_cell_hash(cell: &Cell, hasher: &mut DefaultHasher) {
-    cell.c.hash(hasher);
-    terminal_color_hash(cell.fg, hasher);
-    terminal_color_hash(cell.bg, hasher);
-    cell.flags.hash(hasher);
-    if let Some(zerowidth) = cell.zerowidth() {
-        zerowidth.hash(hasher);
-    }
-    terminal_optional_color_hash(cell.underline_color(), hasher);
-    if let Some(hyperlink) = cell.hyperlink() {
-        hyperlink.id().hash(hasher);
-        hyperlink.uri().hash(hasher);
-    }
-}
-
-fn terminal_row_hash(cells: &[TerminalIndexedCell], colors_hash: u64) -> u64 {
+fn terminal_row_hash(cells: &[TerminalIndexedCell]) -> u64 {
     let mut hasher = DefaultHasher::new();
-    colors_hash.hash(&mut hasher);
     for indexed in cells {
-        indexed.point.column.0.hash(&mut hasher);
         terminal_cell_hash(&indexed.cell, &mut hasher);
     }
     hasher.finish()
-}
-
-impl std::ops::Deref for TerminalIndexedCell {
-    type Target = Cell;
-
-    fn deref(&self) -> &Self::Target {
-        &self.cell
-    }
 }

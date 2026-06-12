@@ -47,7 +47,9 @@ use codux_runtime_core::{
     subscription::RuntimeSubscriptionRouter, terminal as runtime_terminal,
     upload as runtime_upload, worktree as runtime_worktree,
 };
-use codux_terminal_core::{TerminalSequence, runtime_scope_parts};
+use codux_terminal_core::{
+    TerminalDriver, TerminalSequence, TerminalSessionHandle, runtime_scope_parts,
+};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -2897,8 +2899,7 @@ impl RemoteHostRuntime {
             .get("cwd")
             .and_then(Value::as_str)
             .map(str::to_string)
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| scope.project_path.clone());
+            .filter(|value| !value.trim().is_empty());
         let terminal_id = terminal_id.map(str::to_string).or_else(|| {
             if reuse_saved_terminal {
                 self.saved_remote_terminal_id(&scope.layout_key)
@@ -2906,25 +2907,18 @@ impl RemoteHostRuntime {
                 None
             }
         });
-        let config = TerminalPtyConfig {
-            cwd: Some(cwd),
-            command,
-            cols: envelope
-                .payload
-                .get("cols")
-                .and_then(Value::as_u64)
-                .map(|value| value as u16),
-            rows: envelope
-                .payload
-                .get("rows")
-                .and_then(Value::as_u64)
-                .map(|value| value as u16),
-            project_id: Some(scope.project_id.clone()),
-            project_name: Some(scope.project_name.clone()),
-            terminal_id,
-            title: Some(title.clone()),
-            ..Default::default()
-        };
+        let cols = envelope
+            .payload
+            .get("cols")
+            .and_then(Value::as_u64)
+            .map(|value| value as u16);
+        let rows = envelope
+            .payload
+            .get("rows")
+            .and_then(Value::as_u64)
+            .map(|value| value as u16);
+        let config =
+            remote_terminal_pty_config(&scope, terminal_id, &title, command, cwd, cols, rows);
         Ok(RemoteTerminalPlan {
             config,
             scope,
@@ -2983,20 +2977,18 @@ impl RemoteHostRuntime {
                     .map(str::to_string)
             });
         if let Some(session_id) = existing {
-            self.ensure_terminal_event_subscription(&session_id);
-            return Ok(session_id);
+            if self.remote_terminal_session_matches_scope(&session_id, scope) {
+                self.ensure_terminal_event_subscription(&session_id);
+                return Ok(session_id);
+            }
         }
 
-        let terminal_id = self.saved_remote_terminal_id(&scope.layout_key);
+        let terminal_id = self
+            .saved_remote_terminal_id(&scope.layout_key)
+            .or_else(|| Some(remote_terminal_id_for_scope(scope)));
         let title = "Terminal".to_string();
-        let config = TerminalPtyConfig {
-            cwd: Some(scope.project_path.clone()),
-            project_id: Some(scope.project_id.clone()),
-            project_name: Some(scope.project_name.clone()),
-            terminal_id: terminal_id.clone(),
-            title: Some(title.clone()),
-            ..Default::default()
-        };
+        let config =
+            remote_terminal_pty_config(scope, terminal_id.clone(), &title, None, None, None, None);
         let runtime = Arc::clone(self);
         let emit = move |event| {
             runtime.handle_terminal_event(event);
@@ -3009,6 +3001,23 @@ impl RemoteHostRuntime {
         self.mark_terminal_event_subscription(&session_id);
         self.register_terminal_viewer(&session_id, device_id);
         Ok(session_id)
+    }
+
+    fn remote_terminal_session_matches_scope(
+        &self,
+        session_id: &str,
+        scope: &RemoteProjectScope,
+    ) -> bool {
+        self.terminals
+            .session(session_id)
+            .ok()
+            .map(|session| {
+                let info = session.info();
+                info.project_id == scope.worktree_id
+                    && normalize_remote_path(&info.cwd)
+                        == normalize_remote_path(&scope.project_path)
+            })
+            .unwrap_or(false)
     }
 
     fn saved_remote_terminal_id(&self, layout_key: &str) -> Option<String> {
@@ -3735,6 +3744,70 @@ fn remote_terminal_layout_kind(payload: &Value) -> String {
     }
 }
 
+fn remote_terminal_pty_config(
+    scope: &RemoteProjectScope,
+    terminal_id: Option<String>,
+    title: &str,
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> TerminalPtyConfig {
+    let cwd = cwd
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| scope.project_path.clone());
+    let terminal_id = terminal_id.filter(|value| !value.trim().is_empty());
+    let session_key = terminal_id
+        .as_ref()
+        .map(|terminal_id| format!("gpui:{}:{terminal_id}", scope.worktree_id));
+    let session_instance_id = session_key.as_ref().map(|session_key| {
+        uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, session_key.as_bytes()).to_string()
+    });
+    TerminalPtyConfig {
+        cwd: Some(cwd),
+        command,
+        cols,
+        rows,
+        project_id: Some(scope.worktree_id.clone()),
+        project_name: Some(scope.project_name.clone()),
+        terminal_id,
+        session_key,
+        session_instance_id,
+        title: Some(title.to_string()),
+        ..Default::default()
+    }
+}
+
+fn remote_terminal_id_for_scope(scope: &RemoteProjectScope) -> String {
+    format!("gpui-term-{}-{}", scope.worktree_id, uuid::Uuid::new_v4())
+}
+
+#[cfg(windows)]
+fn normalize_remote_path(path: &str) -> String {
+    let path = path.trim();
+    let path = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path.to_string()
+    };
+    trim_remote_path_tail(&path)
+}
+
+#[cfg(not(windows))]
+fn normalize_remote_path(path: &str) -> String {
+    trim_remote_path_tail(path.trim())
+}
+
+fn trim_remote_path_tail(path: &str) -> String {
+    if path == "/" {
+        path.to_string()
+    } else {
+        path.trim_end_matches(['/', '\\']).to_string()
+    }
+}
+
 fn remote_worktree_base_branches(git: &crate::git::GitSummary) -> Vec<String> {
     runtime_worktree::worktree_base_branches(&git.branch, &runtime_git_branches(&git.branches))
 }
@@ -4101,7 +4174,19 @@ mod tests {
     #[test]
     fn remote_project_select_starts_project_terminal_on_host() {
         let support_dir = temp_support_dir("codux-remote-project-terminal");
-        write_two_project_state(&support_dir);
+        let (_, project_b) = write_two_project_state(&support_dir);
+        let worktree_b_path = support_dir.join("project-b-worktree");
+        fs::create_dir_all(&worktree_b_path).expect("create worktree b");
+        let mut state: Value = serde_json::from_str(
+            &fs::read_to_string(support_dir.join("state.json")).expect("read state"),
+        )
+        .expect("parse state");
+        state["worktrees"][0]["path"] = json!(worktree_b_path.to_string_lossy());
+        fs::write(
+            support_dir.join("state.json"),
+            serde_json::to_string_pretty(&state).expect("serialize state"),
+        )
+        .expect("write state");
         let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
 
         runtime.handle_project_select(&RemoteEnvelope {
@@ -4127,6 +4212,30 @@ mod tests {
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].terminal_id, session_id);
+        let session = runtime
+            .terminals
+            .session(session_id)
+            .expect("terminal session");
+        let expected_session_key = format!("gpui:worktree-b:{session_id}");
+        assert_eq!(session.info().project_id, "worktree-b");
+        assert_eq!(
+            session.info().cwd,
+            worktree_b_path.to_string_lossy().as_ref()
+        );
+        assert_eq!(
+            session.info().session_key.as_deref(),
+            Some(expected_session_key.as_str())
+        );
+        assert_eq!(project_terminal["projectId"], "project-b");
+        assert_eq!(project_terminal["worktreeId"], "worktree-b");
+        assert_eq!(
+            project_terminal["cwd"].as_str(),
+            Some(worktree_b_path.to_string_lossy().as_ref())
+        );
+        assert_ne!(
+            project_b.to_string_lossy(),
+            worktree_b_path.to_string_lossy()
+        );
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -4189,6 +4298,84 @@ mod tests {
                 .and_then(Value::as_str)
                 == Some("project-b")
                 && terminal.get("worktreeId").and_then(Value::as_str) == Some("worktree-b"))
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_worktree_select_replaces_saved_terminal_with_wrong_cwd() {
+        let support_dir = temp_support_dir("codux-remote-worktree-wrong-cwd");
+        let (_, project_b) = write_two_project_state(&support_dir);
+        let worktree_b_path = support_dir.join("project-b-worktree");
+        fs::create_dir_all(&worktree_b_path).expect("create worktree b");
+        let mut state: Value = serde_json::from_str(
+            &fs::read_to_string(support_dir.join("state.json")).expect("read state"),
+        )
+        .expect("parse state");
+        state["worktrees"][0]["path"] = json!(worktree_b_path.to_string_lossy());
+        fs::write(
+            support_dir.join("state.json"),
+            serde_json::to_string_pretty(&state).expect("serialize state"),
+        )
+        .expect("write state");
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let stale_terminal_id = "terminal-stale-worktree-b";
+        terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf stale".to_string()),
+                    cwd: Some(project_b.to_string_lossy().to_string()),
+                    project_id: Some("project-b".to_string()),
+                    terminal_id: Some(stale_terminal_id.to_string()),
+                    session_key: Some(format!("gpui:project-b:{stale_terminal_id}")),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create stale terminal");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &terminal_layout_storage_key("project-b", "worktree-b"),
+                Vec::new(),
+                stale_terminal_id.to_string(),
+                vec![TerminalPaneSummary {
+                    title: "Stale".to_string(),
+                    terminal_id: stale_terminal_id.to_string(),
+                }],
+                vec![1.0],
+                0.24,
+            )
+            .expect("save stale layout");
+
+        runtime.handle_worktree_select(&RemoteEnvelope {
+            kind: "worktree.select".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "projectId": "project-b",
+                "worktreeId": "worktree-b",
+            }),
+        });
+
+        let session = runtime
+            .terminals
+            .session(stale_terminal_id)
+            .expect("recreated terminal session");
+        let info = session.info();
+        let expected_session_key = format!("gpui:worktree-b:{stale_terminal_id}");
+        assert_eq!(info.project_id, "worktree-b");
+        assert_eq!(info.cwd, worktree_b_path.to_string_lossy().as_ref());
+        assert_eq!(
+            info.session_key.as_deref(),
+            Some(expected_session_key.as_str())
         );
 
         fs::remove_dir_all(support_dir).ok();
@@ -4481,7 +4668,11 @@ mod tests {
 
         assert_eq!(plan.scope.project_id, "project-b");
         assert_eq!(plan.scope.worktree_id, "worktree-b");
-        assert_eq!(plan.config.project_id.as_deref(), Some("project-b"));
+        assert_eq!(plan.config.project_id.as_deref(), Some("worktree-b"));
+        assert_eq!(
+            plan.config.session_key.as_deref(),
+            Some("gpui:worktree-b:terminal-b")
+        );
         assert_eq!(plan.config.terminal_id.as_deref(), Some("terminal-b"));
 
         fs::remove_dir_all(support_dir).ok();
@@ -4698,6 +4889,13 @@ mod tests {
             )
             .expect("create terminal plan");
         assert_eq!(create_plan.config.terminal_id, None);
+        assert_eq!(create_plan.config.project_id.as_deref(), Some("worktree-b"));
+        let expected_worktree_path = support_dir.join("project-b");
+        let expected_worktree_path = expected_worktree_path.to_string_lossy();
+        assert_eq!(
+            create_plan.config.cwd.as_deref(),
+            Some(expected_worktree_path.as_ref())
+        );
         assert_eq!(create_plan.layout_kind, "tab");
 
         let restore_plan = runtime
@@ -4716,6 +4914,14 @@ mod tests {
         assert_eq!(
             restore_plan.config.terminal_id.as_deref(),
             Some("terminal-b")
+        );
+        assert_eq!(
+            restore_plan.config.project_id.as_deref(),
+            Some("worktree-b")
+        );
+        assert_eq!(
+            restore_plan.config.session_key.as_deref(),
+            Some("gpui:worktree-b:terminal-b")
         );
 
         fs::remove_dir_all(support_dir).ok();

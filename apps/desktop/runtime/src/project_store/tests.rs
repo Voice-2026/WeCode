@@ -202,6 +202,66 @@ fn close_selected_project_moves_selection_to_neighbor() {
     fs::remove_dir_all(dir).ok();
 }
 
+#[test]
+fn worktree_selection_rejects_missing_non_default_workspace() {
+    let dir = temp_dir("project-store-missing-worktree");
+    fs::create_dir_all(&dir).unwrap();
+    let support_dir = dir.join("support");
+    let project_dir = dir.join("project");
+    let missing_dir = dir.join("missing-worktree");
+    fs::create_dir_all(&support_dir).unwrap();
+    fs::create_dir_all(&project_dir).unwrap();
+    fs::write(
+        support_dir.join("state.json"),
+        serde_json::to_string_pretty(&json!({
+            "projects": [
+                {"id": "p1", "name": "One", "path": project_dir.to_string_lossy()}
+            ],
+            "worktrees": [
+                {
+                    "id": "w-missing",
+                    "projectId": "p1",
+                    "name": "Missing",
+                    "branch": "missing",
+                    "path": missing_dir.to_string_lossy(),
+                    "status": "todo",
+                    "isDefault": false,
+                    "createdAt": 1,
+                    "updatedAt": 1
+                }
+            ],
+            "selectedProjectId": "p1",
+            "selectedWorktreeIdByProject": {"p1": "w-missing"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let store = ProjectStore::new(support_dir.clone());
+    assert!(
+        store
+            .select_worktree(ProjectSelectWorktreeRequest {
+                project_id: "p1".to_string(),
+                worktree_id: "w-missing".to_string(),
+            })
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .list_snapshot()
+            .selected_worktree_id_by_project
+            .get("p1")
+            .map(String::as_str),
+        Some("p1")
+    );
+    assert_eq!(
+        store.active_workspace_path_for_project("p1").as_deref(),
+        Some(project_dir.to_string_lossy().as_ref())
+    );
+
+    fs::remove_dir_all(dir).ok();
+}
+
 fn temp_dir(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

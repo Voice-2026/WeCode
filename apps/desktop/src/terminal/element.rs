@@ -204,7 +204,7 @@ struct TerminalBackgroundRect {
 struct TerminalCursorPaint {
     point: TerminalPoint,
     display_row: usize,
-    shape: CursorShape,
+    shape: TerminalScreenCursorShape,
     color: Hsla,
     width: Pixels,
     text_run: Option<TerminalTextRun>,
@@ -243,7 +243,7 @@ impl TerminalCursorPaint {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let x = origin.x + renderer.cell_width * self.point.column.0 as f32;
+        let x = origin.x + renderer.cell_width * self.point.column as f32;
         let y = origin.y + renderer.cell_height * self.display_row as f32;
         let bounds = Bounds {
             origin: Point {
@@ -257,8 +257,7 @@ impl TerminalCursorPaint {
         };
 
         match self.shape {
-            CursorShape::Hidden => {}
-            CursorShape::HollowBlock => {
+            TerminalScreenCursorShape::HollowBlock => {
                 let border_width = px(1.0);
                 window.paint_quad(quad(
                     bounds,
@@ -269,7 +268,7 @@ impl TerminalCursorPaint {
                     Default::default(),
                 ));
             }
-            CursorShape::Beam => {
+            TerminalScreenCursorShape::Beam => {
                 self.paint_filled(
                     Bounds {
                         origin: bounds.origin,
@@ -281,7 +280,7 @@ impl TerminalCursorPaint {
                     window,
                 );
             }
-            CursorShape::Underline => {
+            TerminalScreenCursorShape::Underline => {
                 self.paint_filled(
                     Bounds {
                         origin: Point {
@@ -296,7 +295,7 @@ impl TerminalCursorPaint {
                     window,
                 );
             }
-            CursorShape::Block => {
+            TerminalScreenCursorShape::Block => {
                 self.paint_filled(bounds, window);
                 if let Some(text_run) = &self.text_run {
                     text_run.paint(renderer, origin, window, cx);
@@ -391,6 +390,22 @@ impl SelectionState {
         self.anchor = None;
         self.head = None;
         self.dragging = false;
+    }
+
+    fn set_range(&mut self, range: SelectionRange) {
+        self.anchor = Some(range.start);
+        self.head = Some(range.end);
+    }
+
+    fn range(&self) -> Option<SelectionRange> {
+        let anchor = self.anchor?;
+        let head = self.head?;
+        let (start, end) = if anchor <= head {
+            (anchor, head)
+        } else {
+            (head, anchor)
+        };
+        (start != end).then_some(SelectionRange { start, end })
     }
 }
 
@@ -542,8 +557,8 @@ impl TerminalLayoutMetrics {
         ))
     }
 
-    fn window_size(&self) -> WindowSize {
-        WindowSize {
+    fn window_size(&self) -> TerminalWindowSize {
+        TerminalWindowSize {
             num_lines: self.rows as u16,
             num_cols: self.cols as u16,
             cell_width: f32::from(self.cell_width).round().max(1.0) as u16,

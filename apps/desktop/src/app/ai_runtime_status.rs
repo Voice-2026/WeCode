@@ -23,6 +23,7 @@ pub(in crate::app) fn selected_worktree_info(state: &RuntimeState) -> Option<Wor
         .worktrees
         .iter()
         .find(|worktree| worktree.id == selected_id)
+        .filter(|worktree| worktree.is_default || worktree.exists)
         .cloned()
 }
 

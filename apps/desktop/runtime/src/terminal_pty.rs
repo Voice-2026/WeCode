@@ -233,6 +233,31 @@ pub struct TerminalManager {
     ai_runtime: Option<Arc<AIRuntimeBridge>>,
 }
 
+#[derive(Clone, Debug, Default)]
+struct RequestedTerminalIdentity {
+    cwd: Option<String>,
+    project_id: Option<String>,
+    session_key: Option<String>,
+}
+
+impl RequestedTerminalIdentity {
+    fn from_config(config: &TerminalPtyConfig, context: Option<&TerminalLaunchContext>) -> Self {
+        Self {
+            cwd: requested_terminal_cwd(config, context),
+            project_id: config
+                .project_id
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| context.map(|context| context.project_id.clone())),
+            session_key: config
+                .session_key
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| context.and_then(|context| context.session_key.clone())),
+        }
+    }
+}
+
 impl TerminalManager {
     pub fn new() -> Self {
         Self {
@@ -284,11 +309,15 @@ impl TerminalManager {
             .terminal_id
             .clone()
             .filter(|value| !value.trim().is_empty());
+        let requested_identity = RequestedTerminalIdentity::from_config(&config, context);
         if let Some(session) = requested_id
             .as_deref()
             .and_then(|id| self.sessions.lock().get(id).cloned())
         {
-            return Ok(session.id().to_string());
+            if session.matches_requested_identity(&requested_identity) {
+                return Ok(session.id().to_string());
+            }
+            self.remove_incompatible_session(&session, &requested_identity);
         }
 
         if let Some(ai_runtime) = &self.ai_runtime {
@@ -314,13 +343,17 @@ impl TerminalManager {
             .terminal_id
             .clone()
             .filter(|value| !value.trim().is_empty());
+        let requested_identity = RequestedTerminalIdentity::from_config(&config, context);
         if let Some(session) = requested_id
             .as_deref()
             .and_then(|id| self.sessions.lock().get(id).cloned())
         {
-            session.subscribe_events(emit);
-            let rx = session.subscribe_output(true);
-            return Ok((session, rx));
+            if session.matches_requested_identity(&requested_identity) {
+                session.subscribe_events(emit);
+                let rx = session.subscribe_output(true);
+                return Ok((session, rx));
+            }
+            self.remove_incompatible_session(&session, &requested_identity);
         }
 
         if let Some(ai_runtime) = &self.ai_runtime {
@@ -420,6 +453,42 @@ impl TerminalManager {
             .get(session_id)
             .cloned()
             .ok_or_else(|| anyhow!("terminal session not found: {session_id}"))
+    }
+
+    fn remove_incompatible_session(
+        &self,
+        session: &Arc<TerminalPtySession>,
+        requested: &RequestedTerminalIdentity,
+    ) {
+        let existing = session.info();
+        crate::ai_runtime::runtime_log_line(
+            "terminal-pty",
+            &format!(
+                "replace incompatible session id={} existing_project={} existing_cwd={} requested_project={} requested_cwd={} requested_session_key={}",
+                existing.id,
+                existing.project_id,
+                existing.cwd,
+                requested.project_id.as_deref().unwrap_or(""),
+                requested.cwd.as_deref().unwrap_or(""),
+                requested.session_key.as_deref().unwrap_or("")
+            ),
+        );
+        let removed = {
+            let mut sessions = self.sessions.lock();
+            if sessions
+                .get(&existing.id)
+                .map(|current| Arc::ptr_eq(current, session))
+                .unwrap_or(false)
+            {
+                sessions.remove(&existing.id)
+            } else {
+                None
+            }
+        };
+        if let Some(removed) = removed {
+            self.remove_ai_runtime_terminal(&removed);
+            let _ = removed.kill();
+        }
     }
 
     fn register_ai_runtime_terminal(&self, session: &TerminalPtySession) {
@@ -592,12 +661,7 @@ impl TerminalPtySession {
         let cols = config.cols.unwrap_or(100).max(20);
         let rows = config.rows.unwrap_or(32).max(8);
         let shell = config.shell.clone().unwrap_or_else(default_shell);
-        let cwd = normalize_terminal_cwd(
-            config
-                .cwd
-                .clone()
-                .or_else(|| context.map(|context| context.project_path.display().to_string())),
-        );
+        let cwd = requested_terminal_cwd(&config, context);
         let initial_command = config
             .command
             .clone()
@@ -849,6 +913,34 @@ impl TerminalPtySession {
         info.buffer_characters = self.buffer_characters();
         info.has_buffer = info.buffer_characters > 0;
         info
+    }
+
+    pub fn matches_config(
+        &self,
+        config: &TerminalPtyConfig,
+        context: Option<&TerminalLaunchContext>,
+    ) -> bool {
+        self.matches_requested_identity(&RequestedTerminalIdentity::from_config(config, context))
+    }
+
+    fn matches_requested_identity(&self, requested: &RequestedTerminalIdentity) -> bool {
+        let info = self.info();
+        if let Some(cwd) = requested.cwd.as_deref()
+            && normalize_terminal_path(&info.cwd) != cwd
+        {
+            return false;
+        }
+        if let Some(project_id) = requested.project_id.as_deref()
+            && info.project_id != project_id
+        {
+            return false;
+        }
+        if let Some(session_key) = requested.session_key.as_deref()
+            && info.session_key.as_deref() != Some(session_key)
+        {
+            return false;
+        }
+        true
     }
 
     pub fn ai_runtime_binding(&self) -> AIRuntimeTerminalBinding {
@@ -2272,6 +2364,26 @@ fn normalize_terminal_cwd(cwd: Option<String>) -> Option<String> {
     })
 }
 
+fn requested_terminal_cwd(
+    config: &TerminalPtyConfig,
+    context: Option<&TerminalLaunchContext>,
+) -> Option<String> {
+    normalize_terminal_cwd(
+        config
+            .cwd
+            .clone()
+            .or_else(|| {
+                context.and_then(|context| {
+                    context
+                        .session_cwd
+                        .as_ref()
+                        .map(|cwd| cwd.display().to_string())
+                })
+            })
+            .or_else(|| context.map(|context| context.project_path.display().to_string())),
+    )
+}
+
 #[cfg(windows)]
 fn normalize_terminal_path(path: &str) -> String {
     if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
@@ -3072,6 +3184,102 @@ mod tests {
         );
 
         let _ = session.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_manager_replaces_same_terminal_id_when_identity_changes() {
+        let manager = TerminalManager::new();
+        let emit: EventSink = Arc::new(|_| true);
+        let terminal_id = format!("test-scoped-terminal-{}", Uuid::new_v4());
+        let first_cwd = std::env::temp_dir().join(format!("codux-pty-first-{}", Uuid::new_v4()));
+        let second_cwd = std::env::temp_dir().join(format!("codux-pty-second-{}", Uuid::new_v4()));
+        fs::create_dir_all(&first_cwd).unwrap();
+        fs::create_dir_all(&second_cwd).unwrap();
+
+        let first_config = TerminalPtyConfig {
+            terminal_id: Some(terminal_id.clone()),
+            shell: Some("/bin/cat".to_string()),
+            cwd: Some(first_cwd.display().to_string()),
+            project_id: Some("worktree-a".to_string()),
+            session_key: Some(format!("gpui:worktree-a:{terminal_id}")),
+            cols: Some(80),
+            rows: Some(24),
+            scrollback_lines: Some(100),
+            ..Default::default()
+        };
+        let second_config = TerminalPtyConfig {
+            cwd: Some(second_cwd.display().to_string()),
+            project_id: Some("worktree-b".to_string()),
+            session_key: Some(format!("gpui:worktree-b:{terminal_id}")),
+            ..first_config.clone()
+        };
+
+        let (first_session, _) = manager
+            .attach_or_create_with_context(first_config, None, emit.clone())
+            .expect("first terminal should start");
+        assert_eq!(first_session.info().cwd, first_cwd.display().to_string());
+        assert_eq!(first_session.info().project_id, "worktree-a");
+
+        let (second_session, _) = manager
+            .attach_or_create_with_context(second_config, None, emit)
+            .expect("second terminal should replace incompatible session");
+        assert!(!Arc::ptr_eq(&first_session, &second_session));
+        assert_eq!(second_session.id(), terminal_id);
+        assert_eq!(second_session.info().cwd, second_cwd.display().to_string());
+        assert_eq!(second_session.info().project_id, "worktree-b");
+
+        let _ = second_session.kill();
+        let _ = fs::remove_dir_all(first_cwd);
+        let _ = fs::remove_dir_all(second_cwd);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_manager_uses_context_session_cwd_for_identity() {
+        let manager = TerminalManager::new();
+        let emit: EventSink = Arc::new(|_| true);
+        let terminal_id = format!("test-context-cwd-terminal-{}", Uuid::new_v4());
+        let project_cwd = std::env::temp_dir().join(format!("codux-project-{}", Uuid::new_v4()));
+        let worktree_cwd = std::env::temp_dir().join(format!("codux-worktree-{}", Uuid::new_v4()));
+        fs::create_dir_all(&project_cwd).unwrap();
+        fs::create_dir_all(&worktree_cwd).unwrap();
+        let context = TerminalLaunchContext {
+            project_id: "worktree-context".to_string(),
+            project_name: "Context Worktree".to_string(),
+            project_path: project_cwd.clone(),
+            support_dir: std::env::temp_dir(),
+            runtime_root: std::env::temp_dir(),
+            terminal_id: Some(terminal_id.clone()),
+            slot_id: None,
+            session_key: Some(format!("gpui:worktree-context:{terminal_id}")),
+            session_title: None,
+            session_cwd: Some(worktree_cwd.clone()),
+            session_instance_id: None,
+            tool_permissions_file: None,
+            memory_workspace_root: None,
+            memory_prompt_file: None,
+            memory_index_file: None,
+        };
+        let config = TerminalPtyConfig {
+            terminal_id: Some(terminal_id),
+            shell: Some("/bin/cat".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            scrollback_lines: Some(100),
+            ..Default::default()
+        };
+
+        let (session, _) = manager
+            .attach_or_create_with_context(config, Some(&context), emit)
+            .expect("terminal should use context session cwd");
+
+        assert_eq!(session.info().cwd, worktree_cwd.display().to_string());
+        assert_eq!(session.info().project_id, "worktree-context");
+
+        let _ = session.kill();
+        let _ = fs::remove_dir_all(project_cwd);
+        let _ = fs::remove_dir_all(worktree_cwd);
     }
 
     #[test]

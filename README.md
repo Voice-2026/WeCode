@@ -64,7 +64,7 @@ Codux AI is a native desktop app built with Rust and GPUI. GPUI comes from the s
 
 - Rust owns the runtime, project state, terminal PTY management, remote protocol, settings, Git integration, SSH profile handling, and local indexing.
 - GPUI powers the desktop interface, windowing, input handling, canvas rendering, native dialogs, and high-frequency UI updates.
-- The terminal surface is built on `alacritty_terminal`, with Codux-specific selection, scrollback, colors, key mapping, mouse reporting, drag/drop, clipboard, and remote replica behavior around it.
+- The terminal model is backed by the shared `codux-terminal-core` Ghostty VT headless screen, so desktop and mobile consume the same viewport, scrollback, cursor, input, and remote PTY semantics while each UI only renders snapshots and sends user input.
 - The architecture is cross-platform by design: current desktop releases target macOS and Windows, and the remote protocol is shaped so future Linux headless hosts can expose the same runtime domains without a GUI.
 
 ## Worktree-first Workflow

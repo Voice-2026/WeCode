@@ -1,3 +1,10 @@
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct TerminalRgb {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
 #[derive(Debug, Clone)]
 pub struct ColorPalette {
     ansi_colors: [Hsla; 16],
@@ -11,82 +18,82 @@ pub struct ColorPalette {
 impl Default for ColorPalette {
     fn default() -> Self {
         let ansi_colors = [
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x00,
                 g: 0x00,
                 b: 0x00,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xcc,
                 g: 0x00,
                 b: 0x00,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x4e,
                 g: 0x9a,
                 b: 0x06,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xc4,
                 g: 0xa0,
                 b: 0x00,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x34,
                 g: 0x65,
                 b: 0xa4,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x75,
                 g: 0x50,
                 b: 0x7b,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x06,
                 g: 0x98,
                 b: 0x9a,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xd3,
                 g: 0xd7,
                 b: 0xcf,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x55,
                 g: 0x57,
                 b: 0x53,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xef,
                 g: 0x29,
                 b: 0x29,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x8a,
                 g: 0xe2,
                 b: 0x34,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xfc,
                 g: 0xe9,
                 b: 0x4f,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x72,
                 g: 0x9f,
                 b: 0xcf,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xad,
                 g: 0x7f,
                 b: 0xa8,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0x34,
                 g: 0xe2,
                 b: 0xe2,
             }),
-            rgb_to_hsla(Rgb {
+            rgb_to_hsla(TerminalRgb {
                 r: 0xee,
                 g: 0xee,
                 b: 0xec,
@@ -98,7 +105,7 @@ impl Default for ColorPalette {
         for r in 0..6 {
             for g in 0..6 {
                 for b in 0..6 {
-                    extended_colors[idx] = rgb_to_hsla(Rgb {
+                    extended_colors[idx] = rgb_to_hsla(TerminalRgb {
                         r: if r == 0 { 0 } else { 55 + r * 40 },
                         g: if g == 0 { 0 } else { 55 + g * 40 },
                         b: if b == 0 { 0 } else { 55 + b * 40 },
@@ -109,7 +116,7 @@ impl Default for ColorPalette {
         }
         for i in 0..24 {
             let gray = (8 + i * 10) as u8;
-            extended_colors[232 + i] = rgb_to_hsla(Rgb {
+            extended_colors[232 + i] = rgb_to_hsla(TerminalRgb {
                 r: gray,
                 g: gray,
                 b: gray,
@@ -119,22 +126,22 @@ impl Default for ColorPalette {
         Self {
             ansi_colors,
             extended_colors,
-            foreground: rgb_to_hsla(Rgb {
+            foreground: rgb_to_hsla(TerminalRgb {
                 r: 0xd6,
                 g: 0xda,
                 b: 0xe2,
             }),
-            background: rgb_to_hsla(Rgb {
+            background: rgb_to_hsla(TerminalRgb {
                 r: 0x11,
                 g: 0x14,
                 b: 0x1a,
             }),
-            cursor: rgb_to_hsla(Rgb {
+            cursor: rgb_to_hsla(TerminalRgb {
                 r: 0xf3,
                 g: 0xc9,
                 b: 0x6b,
             }),
-            selection: rgb_to_hsla(Rgb {
+            selection: rgb_to_hsla(TerminalRgb {
                 r: 0x26,
                 g: 0x4f,
                 b: 0x78,
@@ -152,64 +159,63 @@ impl ColorPalette {
         self.background
     }
 
+    fn foreground(&self) -> Hsla {
+        self.foreground
+    }
+
+    fn cursor(&self) -> Hsla {
+        self.cursor
+    }
+
     fn is_dark(&self) -> bool {
         relative_luminance(hsla_to_rgb(self.background))
             < relative_luminance(hsla_to_rgb(self.foreground))
     }
 
-    fn color_request(&self, index: usize) -> Rgb {
-        match index {
-            0..=255 => hsla_to_rgb(self.extended_colors[index]),
-            256 => hsla_to_rgb(self.foreground),
-            257 => hsla_to_rgb(self.background),
-            258 => hsla_to_rgb(self.cursor),
-            259 => hsla_to_rgb(dim_color(self.ansi_colors[0])),
-            260 => hsla_to_rgb(dim_color(self.ansi_colors[1])),
-            261 => hsla_to_rgb(dim_color(self.ansi_colors[2])),
-            262 => hsla_to_rgb(dim_color(self.ansi_colors[3])),
-            263 => hsla_to_rgb(dim_color(self.ansi_colors[4])),
-            264 => hsla_to_rgb(dim_color(self.ansi_colors[5])),
-            265 => hsla_to_rgb(dim_color(self.ansi_colors[6])),
-            266 => hsla_to_rgb(dim_color(self.ansi_colors[7])),
-            267 => hsla_to_rgb(brighten_color(self.foreground)),
-            268 => hsla_to_rgb(dim_color(self.foreground)),
-            _ => hsla_to_rgb(self.foreground),
+    fn resolve_fg(&self, color: &TerminalScreenColor, bold: bool, dim: bool) -> Hsla {
+        let mut resolved = self.resolve_screen_color(color, self.foreground);
+        if bold
+            && let TerminalScreenColor::Indexed { index } = color
+            && *index < 8
+        {
+            resolved = self.extended_colors[*index as usize + 8];
+        }
+        if dim {
+            resolved = dim_color(resolved);
+        }
+        resolved
+    }
+
+    fn resolve_bg(&self, color: &TerminalScreenColor) -> Hsla {
+        self.resolve_screen_color(color, self.background)
+    }
+
+    fn resolve_screen_color(&self, color: &TerminalScreenColor, default: Hsla) -> Hsla {
+        match color {
+            TerminalScreenColor::Default => default,
+            TerminalScreenColor::Rgb { r, g, b } => rgb_to_hsla(TerminalRgb {
+                r: *r,
+                g: *g,
+                b: *b,
+            }),
+            TerminalScreenColor::Indexed { index } => self
+                .extended_colors
+                .get(*index as usize)
+                .copied()
+                .unwrap_or(default),
+            TerminalScreenColor::Named { name } => self.resolve_named(name, default),
         }
     }
 
-    fn resolve(&self, color: Color, colors: &Colors) -> Hsla {
-        match color {
-            Color::Named(named) => {
-                match named {
-                    NamedColor::Foreground => return self.foreground,
-                    NamedColor::Background => return self.background,
-                    NamedColor::Cursor => return self.cursor,
-                    NamedColor::DimForeground => return dim_color(self.foreground),
-                    NamedColor::BrightForeground => return brighten_color(self.foreground),
-                    _ => {}
-                }
-                if let Some(rgb) = colors[named] {
-                    return rgb_to_hsla(rgb);
-                }
-                let index = named as usize;
-                if index < 16 {
-                    self.ansi_colors[index]
-                } else {
-                    match named {
-                        NamedColor::DimBlack => dim_color(self.ansi_colors[0]),
-                        NamedColor::DimRed => dim_color(self.ansi_colors[1]),
-                        NamedColor::DimGreen => dim_color(self.ansi_colors[2]),
-                        NamedColor::DimYellow => dim_color(self.ansi_colors[3]),
-                        NamedColor::DimBlue => dim_color(self.ansi_colors[4]),
-                        NamedColor::DimMagenta => dim_color(self.ansi_colors[5]),
-                        NamedColor::DimCyan => dim_color(self.ansi_colors[6]),
-                        NamedColor::DimWhite => dim_color(self.ansi_colors[7]),
-                        _ => self.foreground,
-                    }
-                }
-            }
-            Color::Spec(rgb) => rgb_to_hsla(rgb),
-            Color::Indexed(index) => self.extended_colors[index as usize],
+    fn resolve_named(&self, name: &str, default: Hsla) -> Hsla {
+        match name {
+            "foreground" => self.foreground,
+            "background" => self.background,
+            "cursor" => self.cursor,
+            "selection" => self.selection,
+            "brightForeground" | "bright_foreground" => brighten_color(self.foreground),
+            "dimForeground" | "dim_foreground" => dim_color(self.foreground),
+            _ => default,
         }
     }
 }
@@ -227,22 +233,22 @@ impl ColorPaletteBuilder {
     }
 
     pub fn background(mut self, r: u8, g: u8, b: u8) -> Self {
-        self.palette.background = rgb_to_hsla(Rgb { r, g, b });
+        self.palette.background = rgb_to_hsla(TerminalRgb { r, g, b });
         self
     }
 
     pub fn foreground(mut self, r: u8, g: u8, b: u8) -> Self {
-        self.palette.foreground = rgb_to_hsla(Rgb { r, g, b });
+        self.palette.foreground = rgb_to_hsla(TerminalRgb { r, g, b });
         self
     }
 
     pub fn cursor(mut self, r: u8, g: u8, b: u8) -> Self {
-        self.palette.cursor = rgb_to_hsla(Rgb { r, g, b });
+        self.palette.cursor = rgb_to_hsla(TerminalRgb { r, g, b });
         self
     }
 
     pub fn selection(mut self, r: u8, g: u8, b: u8) -> Self {
-        self.palette.selection = rgb_to_hsla(Rgb { r, g, b });
+        self.palette.selection = rgb_to_hsla(TerminalRgb { r, g, b });
         self
     }
 
@@ -296,7 +302,7 @@ impl ColorPaletteBuilder {
     }
 
     fn ansi(mut self, index: usize, r: u8, g: u8, b: u8) -> Self {
-        let color = rgb_to_hsla(Rgb { r, g, b });
+        let color = rgb_to_hsla(TerminalRgb { r, g, b });
         self.palette.ansi_colors[index] = color;
         self.palette.extended_colors[index] = color;
         self
@@ -307,21 +313,21 @@ impl ColorPaletteBuilder {
     }
 }
 
-fn rgb_to_hsla(rgb: Rgb) -> Hsla {
+fn rgb_to_hsla(rgb: TerminalRgb) -> Hsla {
     gpui_rgb(rgb.r, rgb.g, rgb.b)
 }
 
-fn hsla_to_rgb(color: Hsla) -> Rgb {
+fn hsla_to_rgb(color: Hsla) -> TerminalRgb {
     let rgba = color.to_rgb();
     let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-    Rgb {
+    TerminalRgb {
         r: channel(rgba.r),
         g: channel(rgba.g),
         b: channel(rgba.b),
     }
 }
 
-fn relative_luminance(rgb: Rgb) -> f32 {
+fn relative_luminance(rgb: TerminalRgb) -> f32 {
     let channel = |value: u8| {
         let value = value as f32 / 255.0;
         if value <= 0.04045 {

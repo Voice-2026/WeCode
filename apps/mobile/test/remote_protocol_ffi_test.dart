@@ -315,7 +315,7 @@ void main() {
     try {
       session.replaceFromBaseline(
         content: 'cursor',
-        screenData: '\u001b[2J\u001b[H\u001b]50;CursorShape=1\u0007cursor',
+        screenData: '\u001b[2J\u001b[H\u001b[5 qcursor',
         bufferLength: 6,
         sequence: 1,
       );

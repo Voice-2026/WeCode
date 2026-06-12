@@ -82,6 +82,24 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
     library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Bool)>>(
       'codux_terminal_selector_input_json',
     );
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Int64,
+          Int64,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+          Bool,
+        )
+      >
+    >('codux_terminal_mouse_input_json');
     library.lookup<NativeFunction<Void Function(Pointer<Void>, Int64)>>(
       'codux_terminal_session_scroll_screen_lines',
     );
@@ -385,6 +403,37 @@ final _terminalSelectorInputJson = _dylib
       Pointer<Utf8> Function(Pointer<Utf8>, Bool),
       Pointer<Utf8> Function(Pointer<Utf8>, bool)
     >('codux_terminal_selector_input_json');
+final _terminalMouseInputJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Int64,
+        Int64,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+        Bool,
+      ),
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        int,
+        int,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+      )
+    >('codux_terminal_mouse_input_json');
 final _terminalSessionResizeScreen = _dylib
     .lookupFunction<
       Void Function(Pointer<Void>, Int64, Int64),
@@ -1084,6 +1133,45 @@ String terminalSelectorInput({
   }
 }
 
+String terminalMouseInput({
+  required String action,
+  String button = '',
+  required int row,
+  required int col,
+  bool shift = false,
+  bool alt = false,
+  bool control = false,
+  bool platform = false,
+  bool mouseMotion = false,
+  bool mouseDrag = false,
+  bool sgrMouse = false,
+  bool utf8Mouse = false,
+}) {
+  final actionPtr = action.toNativeUtf8();
+  final buttonPtr = button.toNativeUtf8();
+  try {
+    return _terminalInputFromJson(
+      _terminalMouseInputJson(
+        actionPtr,
+        buttonPtr,
+        row,
+        col,
+        shift,
+        alt,
+        control,
+        platform,
+        mouseMotion,
+        mouseDrag,
+        sgrMouse,
+        utf8Mouse,
+      ),
+    );
+  } finally {
+    malloc.free(actionPtr);
+    malloc.free(buttonPtr);
+  }
+}
+
 String _terminalInputFromJson(Pointer<Utf8> pointer) {
   final decoded = _decodeEnvelope(pointer);
   return '${decoded['input'] ?? ''}';
@@ -1311,10 +1399,9 @@ class TerminalScreenSnapshot {
     required this.data,
     required this.cols,
     required this.rows,
+    required this.totalLines,
     required this.displayOffset,
     required this.scrollPixelOffset,
-    required this.overscanTopRows,
-    required this.overscanBottomRows,
     required this.applicationCursor,
     required this.cells,
     required this.cursor,
@@ -1323,10 +1410,9 @@ class TerminalScreenSnapshot {
   final String data;
   final int cols;
   final int rows;
+  final int totalLines;
   final int displayOffset;
   final double scrollPixelOffset;
-  final int overscanTopRows;
-  final int overscanBottomRows;
   final bool applicationCursor;
   final List<TerminalScreenCell> cells;
   final TerminalScreenCursor cursor;
@@ -1337,10 +1423,9 @@ class TerminalScreenSnapshot {
       data: '${json['data'] ?? ''}',
       cols: _jsonInt(json['cols']),
       rows: _jsonInt(json['rows']),
+      totalLines: _jsonInt(json['totalLines']),
       displayOffset: _jsonInt(json['displayOffset']),
       scrollPixelOffset: _jsonDouble(json['scrollPixelOffset']),
-      overscanTopRows: _jsonInt(json['overscanTopRows']),
-      overscanBottomRows: _jsonInt(json['overscanBottomRows']),
       applicationCursor: json['applicationCursor'] == true,
       cells: [
         if (cells is List)

@@ -1,18 +1,24 @@
-fn keystroke_to_bytes(keystroke: &Keystroke, mode: TermMode) -> Option<Vec<u8>> {
+fn keystroke_to_bytes(keystroke: &Keystroke, mode: TerminalInputMode) -> Option<Vec<u8>> {
     codux_terminal_core::terminal_key_input_bytes(core_key_input(keystroke, mode))
 }
 
 fn is_copy_keystroke(keystroke: &Keystroke) -> bool {
-    codux_terminal_core::terminal_is_copy_shortcut(core_key_input(keystroke, TermMode::NONE))
+    codux_terminal_core::terminal_is_copy_shortcut(core_key_input(
+        keystroke,
+        TerminalInputMode::default(),
+    ))
 }
 
 fn is_paste_keystroke(keystroke: &Keystroke) -> bool {
-    codux_terminal_core::terminal_is_paste_shortcut(core_key_input(keystroke, TermMode::NONE))
+    codux_terminal_core::terminal_is_paste_shortcut(core_key_input(
+        keystroke,
+        TerminalInputMode::default(),
+    ))
 }
 
 fn core_key_input(
     keystroke: &Keystroke,
-    mode: TermMode,
+    mode: TerminalInputMode,
 ) -> codux_terminal_core::TerminalKeyInput<'_> {
     codux_terminal_core::TerminalKeyInput {
         key: &keystroke.key,
@@ -23,7 +29,7 @@ fn core_key_input(
             control: keystroke.modifiers.control,
             platform: keystroke.modifiers.platform,
         },
-        mode: mode.into(),
+        mode,
     }
 }
 

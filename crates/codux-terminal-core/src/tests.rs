@@ -18,7 +18,10 @@ fn key_input<'a>(
             control,
             platform,
         },
-        mode: TerminalInputMode { application_cursor },
+        mode: TerminalInputMode {
+            application_cursor,
+            ..Default::default()
+        },
     }
 }
 
@@ -87,9 +90,11 @@ fn terminal_key_input_maps_control_and_navigation_sequences() {
 fn terminal_selector_input_maps_platform_edit_commands() {
     let normal = TerminalInputMode {
         application_cursor: false,
+        ..Default::default()
     };
     let app_cursor = TerminalInputMode {
         application_cursor: true,
+        ..Default::default()
     };
 
     assert_eq!(
@@ -116,6 +121,142 @@ fn terminal_key_input_keeps_app_shortcuts_out_of_terminal() {
     assert!(terminal_is_paste_shortcut(key_input(
         "v", None, false, false, false, true, false
     )));
+}
+
+fn mouse_input(
+    action: TerminalMouseAction,
+    button: Option<TerminalMouseButton>,
+    row: usize,
+    col: usize,
+    modifiers: TerminalKeyInputModifiers,
+    mode: TerminalInputMode,
+) -> TerminalMouseInput {
+    TerminalMouseInput {
+        action,
+        button,
+        row,
+        col,
+        modifiers,
+        mode,
+    }
+}
+
+fn mouse_mode(
+    sgr_mouse: bool,
+    utf8_mouse: bool,
+    mouse_drag: bool,
+    mouse_motion: bool,
+) -> TerminalInputMode {
+    TerminalInputMode {
+        mouse_tracking: true,
+        sgr_mouse,
+        utf8_mouse,
+        mouse_drag,
+        mouse_motion,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn terminal_mouse_input_maps_sgr_reports() {
+    let mode = mouse_mode(true, false, false, false);
+    assert_eq!(
+        terminal_mouse_input_bytes(mouse_input(
+            TerminalMouseAction::Press,
+            Some(TerminalMouseButton::Left),
+            1,
+            2,
+            TerminalKeyInputModifiers::default(),
+            mode,
+        ))
+        .unwrap(),
+        b"\x1b[<0;3;2M"
+    );
+    assert_eq!(
+        terminal_mouse_input_bytes(mouse_input(
+            TerminalMouseAction::Release,
+            Some(TerminalMouseButton::Left),
+            1,
+            2,
+            TerminalKeyInputModifiers::default(),
+            mode,
+        ))
+        .unwrap(),
+        b"\x1b[<0;3;2m"
+    );
+    assert_eq!(
+        terminal_mouse_input_bytes(mouse_input(
+            TerminalMouseAction::Press,
+            Some(TerminalMouseButton::WheelUp),
+            1,
+            2,
+            TerminalKeyInputModifiers::default(),
+            mode,
+        ))
+        .unwrap(),
+        b"\x1b[<64;3;2M"
+    );
+}
+
+#[test]
+fn terminal_mouse_input_maps_drag_and_utf8_reports() {
+    let drag_mode = mouse_mode(true, false, true, false);
+    assert_eq!(
+        terminal_mouse_input_bytes(mouse_input(
+            TerminalMouseAction::Move,
+            Some(TerminalMouseButton::Left),
+            1,
+            2,
+            TerminalKeyInputModifiers {
+                shift: true,
+                alt: true,
+                control: true,
+                platform: false,
+            },
+            drag_mode,
+        ))
+        .unwrap(),
+        b"\x1b[<60;3;2M"
+    );
+
+    assert!(
+        terminal_mouse_input_bytes(mouse_input(
+            TerminalMouseAction::Move,
+            None,
+            1,
+            2,
+            TerminalKeyInputModifiers::default(),
+            drag_mode,
+        ))
+        .is_none()
+    );
+
+    let normal = mouse_mode(false, false, false, false);
+    assert_eq!(
+        terminal_mouse_input_bytes(mouse_input(
+            TerminalMouseAction::Press,
+            Some(TerminalMouseButton::Left),
+            1,
+            2,
+            TerminalKeyInputModifiers::default(),
+            normal,
+        ))
+        .unwrap(),
+        vec![b'\x1b', b'[', b'M', 32, 35, 34]
+    );
+
+    let utf8 = mouse_mode(false, true, false, false);
+    let report = terminal_mouse_input_bytes(mouse_input(
+        TerminalMouseAction::Press,
+        Some(TerminalMouseButton::Left),
+        100,
+        100,
+        TerminalKeyInputModifiers::default(),
+        utf8,
+    ))
+    .unwrap();
+    assert_eq!(&report[..4], &[b'\x1b', b'[', b'M', 32]);
+    assert!(report.len() > 6);
 }
 
 fn scrollable_history(prefix: &str) -> String {

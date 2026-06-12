@@ -382,10 +382,9 @@ TerminalScreenSnapshot _snapshot({
     data: data,
     cols: 80,
     rows: 24,
+    totalLines: 24,
     displayOffset: displayOffset,
     scrollPixelOffset: scrollPixelOffset,
-    overscanTopRows: 0,
-    overscanBottomRows: 0,
     applicationCursor: false,
     cells: [
       TerminalScreenCell(

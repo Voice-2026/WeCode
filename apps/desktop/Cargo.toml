@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-alacritty_terminal = "0.25.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 codux-runtime = { path = "runtime" }
 codux-terminal-core = { path = "../../crates/codux-terminal-core" }

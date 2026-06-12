@@ -28,3 +28,19 @@ cargo ndk \
   -t arm64-v8a \
   -o "$PLUGIN_DIR/android/src/main/jniLibs" \
   build -p codux-protocol-ffi --release
+
+copy_libcxx_shared() {
+  local android_triple="$1"
+  local abi="$2"
+  local src="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt"
+  local host_dir
+  host_dir="$(find "$src" -mindepth 1 -maxdepth 1 -type d | sort | head -1)"
+  local libcxx="$host_dir/sysroot/usr/lib/$android_triple/libc++_shared.so"
+  if [[ ! -f "$libcxx" ]]; then
+    echo "libc++_shared.so not found for $android_triple under $ANDROID_NDK_HOME" >&2
+    exit 2
+  fi
+  cp "$libcxx" "$PLUGIN_DIR/android/src/main/jniLibs/$abi/libc++_shared.so"
+}
+
+copy_libcxx_shared "aarch64-linux-android" "arm64-v8a"

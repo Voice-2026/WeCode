@@ -12,7 +12,10 @@ use crate::project_store::raw_state::{
     update_default_worktree_record,
 };
 use serde_json::{Map, Value};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 impl ProjectStore {
     pub fn create_project(
@@ -141,6 +144,16 @@ impl ProjectStore {
             .any(|project| project.id == request.project_id)
         {
             return Err("Project not found.".to_string());
+        }
+        if request.worktree_id != request.project_id {
+            let is_runnable = snapshot.worktrees.iter().any(|worktree| {
+                worktree.project_id == request.project_id
+                    && worktree.id == request.worktree_id
+                    && (worktree.is_default || Path::new(&worktree.path).exists())
+            });
+            if !is_runnable {
+                return Err("Worktree not found.".to_string());
+            }
         }
         let mut raw = self.raw_snapshot();
         if !matches!(

@@ -13,3 +13,7 @@ members = [
 ]
 default-members = ["apps/desktop"]
 resolver = "2"
+
+[patch.crates-io]
+libghostty-vt = { path = "crates/third_party/libghostty-vt" }
+libghostty-vt-sys = { path = "crates/third_party/libghostty-vt-sys" }

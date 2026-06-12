@@ -204,7 +204,7 @@ void main() {
     expect(screen.data, isNot(contains('new screen')));
   });
 
-  test('remote pty session owns pixel viewport and overscan state', () {
+  test('remote pty session owns pixel viewport without synthetic rows', () {
     final session = RemotePtySession<String>('session-1', maxCachedChars: 200);
     session.resizeScreen(cols: 20, rows: 8);
     final content = List.generate(
@@ -229,7 +229,7 @@ void main() {
     expect(screen.displayOffset, greaterThan(0));
     expect(screen.scrollPixelOffset, 3);
     expect(
-      screen.cells.any((cell) => cell.row < 0 || cell.row >= screen.rows),
+      screen.cells.every((cell) => cell.row >= 0 && cell.row < screen.rows),
       isTrue,
     );
 

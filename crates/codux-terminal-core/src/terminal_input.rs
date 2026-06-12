@@ -1,16 +1,19 @@
-use alacritty_terminal::term::TermMode;
+use libghostty_vt::{key as ghostty_key, mouse as ghostty_mouse};
+use serde::Serialize;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TerminalInputMode {
     pub application_cursor: bool,
-}
-
-impl From<TermMode> for TerminalInputMode {
-    fn from(mode: TermMode) -> Self {
-        Self {
-            application_cursor: mode.contains(TermMode::APP_CURSOR),
-        }
-    }
+    pub alternate_screen: bool,
+    pub alternate_scroll: bool,
+    pub bracketed_paste: bool,
+    pub focus_in_out: bool,
+    pub mouse_tracking: bool,
+    pub mouse_motion: bool,
+    pub mouse_drag: bool,
+    pub sgr_mouse: bool,
+    pub utf8_mouse: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -27,6 +30,32 @@ pub struct TerminalKeyInput<'a> {
     pub key_char: Option<&'a str>,
     pub modifiers: TerminalKeyInputModifiers,
     pub mode: TerminalInputMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TerminalMouseInput {
+    pub action: TerminalMouseAction,
+    pub button: Option<TerminalMouseButton>,
+    pub row: usize,
+    pub col: usize,
+    pub modifiers: TerminalKeyInputModifiers,
+    pub mode: TerminalInputMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalMouseAction {
+    Press,
+    Release,
+    Move,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalMouseButton {
+    Left,
+    Middle,
+    Right,
+    WheelUp,
+    WheelDown,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -272,6 +301,53 @@ pub fn terminal_key_input_bytes(input: TerminalKeyInput<'_>) -> Option<Vec<u8>> 
     None
 }
 
+pub fn terminal_mouse_input_bytes(input: TerminalMouseInput) -> Option<Vec<u8>> {
+    if !input.mode.mouse_tracking {
+        return None;
+    }
+    if matches!(input.action, TerminalMouseAction::Move)
+        && !(input.mode.mouse_motion || input.mode.mouse_drag)
+    {
+        return None;
+    }
+    if input.mode.mouse_drag
+        && matches!(input.action, TerminalMouseAction::Move)
+        && input.button.is_none()
+    {
+        return None;
+    }
+
+    let mut encoder = ghostty_mouse::Encoder::new().ok()?;
+    encoder
+        .set_tracking_mode(terminal_mouse_tracking_mode(input.mode))
+        .set_format(terminal_mouse_format(input.mode))
+        .set_size(ghostty_mouse::EncoderSize {
+            screen_width: (input.col.saturating_add(1)).try_into().unwrap_or(u32::MAX),
+            screen_height: (input.row.saturating_add(1)).try_into().unwrap_or(u32::MAX),
+            cell_width: 1,
+            cell_height: 1,
+            padding_top: 0,
+            padding_bottom: 0,
+            padding_right: 0,
+            padding_left: 0,
+        })
+        .set_any_button_pressed(input.button.is_some());
+
+    let mut event = ghostty_mouse::Event::new().ok()?;
+    event
+        .set_action(terminal_mouse_action(input.action))
+        .set_button(terminal_mouse_button(input.button))
+        .set_mods(ghostty_modifiers(input.modifiers))
+        .set_position(ghostty_mouse::Position {
+            x: input.col as f32,
+            y: input.row as f32,
+        });
+
+    let mut bytes = Vec::new();
+    encoder.encode_to_vec(&event, &mut bytes).ok()?;
+    (!bytes.is_empty()).then_some(bytes)
+}
+
 pub fn terminal_is_copy_shortcut(input: TerminalKeyInput<'_>) -> bool {
     terminal_normalize_key(input.key) == "c"
         && input.modifiers.platform
@@ -407,4 +483,60 @@ fn terminal_modifier_code(modifiers: TerminalKeyInputModifiers) -> u32 {
         code |= 1 << 2;
     }
     code + 1
+}
+
+fn terminal_mouse_tracking_mode(mode: TerminalInputMode) -> ghostty_mouse::TrackingMode {
+    if mode.mouse_motion {
+        ghostty_mouse::TrackingMode::Any
+    } else if mode.mouse_drag {
+        ghostty_mouse::TrackingMode::Button
+    } else {
+        ghostty_mouse::TrackingMode::Normal
+    }
+}
+
+fn terminal_mouse_format(mode: TerminalInputMode) -> ghostty_mouse::Format {
+    if mode.sgr_mouse {
+        ghostty_mouse::Format::Sgr
+    } else if mode.utf8_mouse {
+        ghostty_mouse::Format::Utf8
+    } else {
+        ghostty_mouse::Format::X10
+    }
+}
+
+fn terminal_mouse_action(action: TerminalMouseAction) -> ghostty_mouse::Action {
+    match action {
+        TerminalMouseAction::Press => ghostty_mouse::Action::Press,
+        TerminalMouseAction::Release => ghostty_mouse::Action::Release,
+        TerminalMouseAction::Move => ghostty_mouse::Action::Motion,
+    }
+}
+
+fn terminal_mouse_button(button: Option<TerminalMouseButton>) -> Option<ghostty_mouse::Button> {
+    match button {
+        Some(TerminalMouseButton::Left) => Some(ghostty_mouse::Button::Left),
+        Some(TerminalMouseButton::Middle) => Some(ghostty_mouse::Button::Middle),
+        Some(TerminalMouseButton::Right) => Some(ghostty_mouse::Button::Right),
+        Some(TerminalMouseButton::WheelUp) => Some(ghostty_mouse::Button::Four),
+        Some(TerminalMouseButton::WheelDown) => Some(ghostty_mouse::Button::Five),
+        None => None,
+    }
+}
+
+fn ghostty_modifiers(modifiers: TerminalKeyInputModifiers) -> ghostty_key::Mods {
+    let mut mods = ghostty_key::Mods::empty();
+    if modifiers.shift {
+        mods |= ghostty_key::Mods::SHIFT;
+    }
+    if modifiers.alt {
+        mods |= ghostty_key::Mods::ALT;
+    }
+    if modifiers.control {
+        mods |= ghostty_key::Mods::CTRL;
+    }
+    if modifiers.platform {
+        mods |= ghostty_key::Mods::SUPER;
+    }
+    mods
 }

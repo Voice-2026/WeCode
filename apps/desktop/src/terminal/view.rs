@@ -266,9 +266,8 @@ impl TerminalView {
             if let Some(point) = model_point {
                 let selection_point = self.selection_point_from_cell(point, cx);
                 self.selection.lock().extend(selection_point);
-                self.model.update(cx, |model, _| {
-                    model.update_selection(selection_point, TerminalSide::Right)
-                });
+                self.model
+                    .update(cx, |model, _| model.update_selection(selection_point));
             }
             self.selection_autoscroll = None;
             cx.stop_propagation();
@@ -281,7 +280,7 @@ impl TerminalView {
                 self.send_mouse_report(
                     Some(event.button),
                     point,
-                    MouseReportKind::Press,
+                    TerminalMouseUiEvent::Press,
                     event.modifiers,
                     cx,
                 );
@@ -296,9 +295,8 @@ impl TerminalView {
                 if let Some(point) = model_point {
                     let selection_point = self.selection_point_from_cell(point, cx);
                     self.selection.lock().start(selection_point);
-                    self.model.update(cx, |model, _| {
-                        model.start_selection(selection_point, TerminalSide::Left)
-                    });
+                    self.model
+                        .update(cx, |model, _| model.start_selection(selection_point));
                 } else {
                     self.selection.lock().clear();
                     self.model.update(cx, |model, _| model.clear_selection());
@@ -324,7 +322,7 @@ impl TerminalView {
                 self.send_mouse_report(
                     Some(event.button),
                     point,
-                    MouseReportKind::Release,
+                    TerminalMouseUiEvent::Release,
                     event.modifiers,
                     cx,
                 );
@@ -336,9 +334,8 @@ impl TerminalView {
                 let point = self.layout.lock().model_cell_at(event.position).unwrap_or(point);
                 let selection_point = self.selection_point_from_cell(point, cx);
                 self.selection.lock().finish(selection_point);
-                self.model.update(cx, |model, _| {
-                    model.update_selection(selection_point, TerminalSide::Right)
-                });
+                self.model
+                    .update(cx, |model, _| model.update_selection(selection_point));
             }
         } else {
             self.selection.lock().dragging = false;
@@ -367,7 +364,7 @@ impl TerminalView {
             self.send_mouse_report(
                 event.pressed_button,
                 point,
-                MouseReportKind::Move,
+                TerminalMouseUiEvent::Move,
                 event.modifiers,
                 cx,
             );
@@ -390,9 +387,8 @@ impl TerminalView {
                 return;
             }
             if selection_changed {
-                self.model.update(cx, |model, _| {
-                    model.update_selection(selection_point, TerminalSide::Right)
-                });
+                self.model
+                    .update(cx, |model, _| model.update_selection(selection_point));
             }
             if scroll_lines != 0 {
                 self.queue_display_scroll(scroll_lines, cx);
@@ -439,7 +435,7 @@ impl TerminalView {
                     self.send_mouse_report(
                         Some(button),
                         point,
-                        MouseReportKind::Wheel,
+                        TerminalMouseUiEvent::Wheel,
                         event.modifiers,
                         cx,
                     );
@@ -522,9 +518,7 @@ impl TerminalView {
         {
             let point = self.selection_point_from_cell(autoscroll.edge_cell, cx);
             let _ = self.selection.lock().update(point);
-            self.model.update(cx, |model, _| {
-                model.update_selection(point, TerminalSide::Right)
-            });
+            self.model.update(cx, |model, _| model.update_selection(point));
             return Some(ScrollFlushResult {
                 did_scroll,
                 next_lines: Some(autoscroll.lines),
@@ -612,19 +606,19 @@ impl TerminalView {
     }
 
     fn should_report_mouse(&self, shift_pressed: bool, cx: &App) -> bool {
-        !shift_pressed && self.model.read(cx).mode().intersects(TermMode::MOUSE_MODE)
+        !shift_pressed && self.model.read(cx).mode().mouse_tracking
     }
 
     fn send_mouse_report(
         &mut self,
         button: Option<MouseButton>,
         point: TerminalCellPoint,
-        kind: MouseReportKind,
+        kind: TerminalMouseUiEvent,
         modifiers: Modifiers,
         cx: &mut Context<Self>,
     ) {
         let mode = self.model.read(cx).mode();
-        let Some(sequence) = mouse_report_sequence(button, point, kind, modifiers, mode) else {
+        let Some(sequence) = terminal_mouse_ui_event_bytes(button, point, kind, modifiers, mode) else {
             return;
         };
         self.write_bytes(&sequence, cx);
@@ -666,8 +660,9 @@ impl TerminalView {
         point: TerminalCellPoint,
         cx: &App,
     ) -> TerminalSelectionPoint {
+        let content = self.model.read(cx).snapshot();
         TerminalSelectionPoint {
-            line: point.row as i32 - self.model.read(cx).display_offset() as i32,
+            line: content.line_for_display_row(point.row),
             col: point.col,
         }
     }
@@ -694,6 +689,6 @@ impl TerminalView {
     }
 }
 
-fn should_send_alternate_scroll(mode: TermMode, shift_pressed: bool) -> bool {
-    !shift_pressed && mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
+fn should_send_alternate_scroll(mode: TerminalInputMode, shift_pressed: bool) -> bool {
+    !shift_pressed && mode.alternate_screen && mode.alternate_scroll
 }

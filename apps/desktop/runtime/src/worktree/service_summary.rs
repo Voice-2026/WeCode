@@ -162,17 +162,21 @@ fn selected_worktree_id_for_project(
     project_id: &str,
     worktrees: &[WorktreeInfo],
 ) -> Option<String> {
-    selected_by_project
-        .get(project_id)
-        .cloned()
-        .filter(|id| worktrees.iter().any(|worktree| &worktree.id == id))
-        .or_else(|| {
-            worktrees
-                .iter()
-                .find(|worktree| worktree.is_default)
-                .or_else(|| worktrees.first())
-                .map(|worktree| worktree.id.clone())
-        })
+    codux_runtime_core::worktree::selected_runtime_worktree_id(
+        project_id,
+        selected_by_project.get(project_id).map(String::as_str),
+        worktrees.iter().map(runtime_worktree_item),
+    )
+}
+
+fn runtime_worktree_item(worktree: &WorktreeInfo) -> codux_runtime_core::worktree::RuntimeWorktreeItem {
+    codux_runtime_core::worktree::RuntimeWorktreeItem {
+        id: worktree.id.clone(),
+        project_id: worktree.project_id.clone(),
+        path: worktree.path.clone(),
+        is_default: worktree.is_default,
+        exists: worktree.exists,
+    }
 }
 
 fn task_rows_for_worktrees(

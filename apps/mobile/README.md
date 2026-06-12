@@ -66,7 +66,7 @@ Codux Mobile (Flutter controller)
   ├─ Runtime store: selected project, active terminal, sync state
   ├─ Protocol client: v3.1 envelopes, capabilities, chunk assembly, ack/retry
   ├─ Rust transport FFI: WebRTC DataChannel and WebSocket relay fallback
-  └─ Rust terminal-core FFI: RemotePtySession + alacritty headless screen model
+  └─ Rust terminal-core FFI: RemotePtySession + libghostty-vt headless screen model
 
 Codux Desktop host
   ├─ Owns projects, terminal sessions, PTYs, files, Git/worktree state, and AI usage

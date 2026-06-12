@@ -287,6 +287,7 @@ impl CoduxApp {
                 .terminal_id
                 .as_deref()
                 .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
+                .filter(|pane| pane.matches_pty_config(&pty_config))
                 .cloned()
             {
                 refresh_terminal_pane_config(&pane, &config, cx);

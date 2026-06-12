@@ -1,5 +1,54 @@
 use crate::git::GitBranchSummary;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::borrow::Borrow;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeWorktreeItem {
+    pub id: String,
+    pub project_id: String,
+    pub path: String,
+    pub is_default: bool,
+    pub exists: bool,
+}
+
+impl RuntimeWorktreeItem {
+    pub fn runnable(&self) -> bool {
+        self.is_default || self.exists
+    }
+}
+
+pub fn selected_runtime_worktree_id<I>(
+    project_id: &str,
+    selected_worktree_id: Option<&str>,
+    worktrees: I,
+) -> Option<String>
+where
+    I: IntoIterator,
+    I::Item: Borrow<RuntimeWorktreeItem>,
+{
+    let worktrees = worktrees
+        .into_iter()
+        .filter_map(|worktree| {
+            let worktree = worktree.borrow();
+            (worktree.project_id == project_id).then(|| worktree.clone())
+        })
+        .collect::<Vec<_>>();
+    selected_worktree_id
+        .and_then(|selected| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.id == selected && worktree.runnable())
+        })
+        .or_else(|| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.is_default && worktree.runnable())
+        })
+        .or_else(|| worktrees.iter().find(|worktree| worktree.runnable()))
+        .map(|worktree| worktree.id.clone())
+}
 
 pub fn worktree_base_branches(branch: &str, branches: &[GitBranchSummary]) -> Vec<String> {
     let mut values = Vec::new();
@@ -92,5 +141,56 @@ mod tests {
             vec!["main".to_string(), "feature".to_string()]
         );
         assert_eq!(default_worktree_base_branch("fallback", &branches), "main");
+    }
+
+    #[test]
+    fn selected_runtime_worktree_ignores_missing_non_default_selection() {
+        let worktrees = vec![
+            RuntimeWorktreeItem {
+                id: "project-1".to_string(),
+                project_id: "project-1".to_string(),
+                path: "/repo".to_string(),
+                is_default: true,
+                exists: true,
+            },
+            RuntimeWorktreeItem {
+                id: "worktree-missing".to_string(),
+                project_id: "project-1".to_string(),
+                path: "/repo/.codux/worktrees/missing".to_string(),
+                is_default: false,
+                exists: false,
+            },
+        ];
+
+        assert_eq!(
+            selected_runtime_worktree_id("project-1", Some("worktree-missing"), &worktrees)
+                .as_deref(),
+            Some("project-1")
+        );
+    }
+
+    #[test]
+    fn selected_runtime_worktree_keeps_existing_non_default_selection() {
+        let worktrees = vec![
+            RuntimeWorktreeItem {
+                id: "project-1".to_string(),
+                project_id: "project-1".to_string(),
+                path: "/repo".to_string(),
+                is_default: true,
+                exists: true,
+            },
+            RuntimeWorktreeItem {
+                id: "worktree-1".to_string(),
+                project_id: "project-1".to_string(),
+                path: "/repo/.codux/worktrees/task".to_string(),
+                is_default: false,
+                exists: true,
+            },
+        ];
+
+        assert_eq!(
+            selected_runtime_worktree_id("project-1", Some("worktree-1"), &worktrees).as_deref(),
+            Some("worktree-1")
+        );
     }
 }

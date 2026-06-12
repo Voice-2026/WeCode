@@ -66,7 +66,7 @@ Codux Mobile (Flutter 主控端)
   ├─ Runtime store：选中项目、当前终端、同步状态
   ├─ 协议客户端：v3.1 envelope、capabilities、分片组包、ack/retry
   ├─ Rust 传输 FFI：WebRTC DataChannel 和 WebSocket relay 回退
-  └─ Rust terminal-core FFI：RemotePtySession + alacritty 无头屏幕模型
+  └─ Rust terminal-core FFI：RemotePtySession + libghostty-vt 无头屏幕模型
 
 Codux Desktop host
   ├─ 持有项目、终端会话、PTY、文件、Git/worktree 状态和 AI 用量
