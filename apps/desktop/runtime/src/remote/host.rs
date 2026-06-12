@@ -80,6 +80,7 @@ struct RemoteTerminalPlan {
 }
 
 struct RemoteTerminalLayoutScope {
+    project_id: String,
     layout_kind: String,
     worktree_id: String,
     layout_order: usize,
@@ -2751,6 +2752,17 @@ impl RemoteHostRuntime {
     }
 
     fn remote_terminals(&self) -> Vec<Value> {
+        let baseline = ProjectStore::new(self.support_dir.clone()).snapshot();
+        let mut workspace_scopes = HashMap::new();
+        for project in &baseline.projects {
+            workspace_scopes.insert(project.id.clone(), (project.id.clone(), project.id.clone()));
+        }
+        for worktree in &baseline.worktrees {
+            workspace_scopes.insert(
+                worktree.id.clone(),
+                (worktree.project_id.clone(), worktree.id.clone()),
+            );
+        }
         let scopes = self.remote_terminal_layout_scopes();
         let mut terminals = self
             .terminals
@@ -2758,24 +2770,32 @@ impl RemoteHostRuntime {
             .into_iter()
             .map(|terminal| {
                 let fallback_worktree_id = terminal.project_id.clone();
-                let (layout_kind, worktree_id, layout_order) = scopes
-                    .get(&terminal.id)
-                    .map(|scope| {
-                        (
-                            scope.layout_kind.as_str(),
-                            Some(scope.worktree_id.as_str()),
-                            Some(scope.layout_order),
-                        )
-                    })
-                    .unwrap_or_else(|| {
-                        (
-                            "split",
-                            (!fallback_worktree_id.trim().is_empty())
-                                .then_some(fallback_worktree_id.as_str()),
-                            None,
-                        )
+                let workspace_scope = workspace_scopes.get(&terminal.project_id);
+                let layout_scope = scopes.get(&terminal.id);
+                let layout_kind = layout_scope
+                    .map(|scope| scope.layout_kind.as_str())
+                    .unwrap_or("split");
+                let project_id = layout_scope
+                    .map(|scope| scope.project_id.as_str())
+                    .or_else(|| workspace_scope.map(|(project_id, _)| project_id.as_str()));
+                let worktree_id = layout_scope
+                    .map(|scope| scope.worktree_id.as_str())
+                    .or_else(|| workspace_scope.map(|(_, worktree_id)| worktree_id.as_str()))
+                    .or_else(|| {
+                        (!fallback_worktree_id.trim().is_empty())
+                            .then_some(fallback_worktree_id.as_str())
                     });
-                remote_terminal_snapshot_payload(terminal, layout_kind, worktree_id, layout_order)
+                let layout_order = layout_scope.map(|scope| scope.layout_order);
+                let mut payload = remote_terminal_snapshot_payload(
+                    terminal,
+                    layout_kind,
+                    worktree_id,
+                    layout_order,
+                );
+                if let Some(project_id) = project_id.filter(|value| !value.trim().is_empty()) {
+                    payload["projectId"] = json!(project_id);
+                }
+                payload
             })
             .collect::<Vec<_>>();
         terminals.sort_by_key(remote_terminal_order_key);
@@ -2806,15 +2826,21 @@ impl RemoteHostRuntime {
         let layouts = TerminalLayoutService::new(self.support_dir.clone())
             .load_many(keys.iter().map(String::as_str));
         let mut result = HashMap::new();
-        for (layout_key, layout) in layouts {
-            let worktree_id = worktree_id_from_terminal_layout_key(&layout_key)
-                .unwrap_or_default()
-                .to_string();
+        for layout_key in keys {
+            let Some(layout) = layouts.get(&layout_key) else {
+                continue;
+            };
+            let Some((project_id, worktree_id)) = runtime_scope_parts(&layout_key) else {
+                continue;
+            };
+            let project_id = project_id.to_string();
+            let worktree_id = worktree_id.to_string();
             let mut layout_order = 0;
             for pane in &layout.top_panes {
                 result.insert(
                     pane.terminal_id.clone(),
                     RemoteTerminalLayoutScope {
+                        project_id: project_id.clone(),
                         layout_kind: "split".to_string(),
                         worktree_id: worktree_id.clone(),
                         layout_order,
@@ -2826,6 +2852,7 @@ impl RemoteHostRuntime {
                 result.insert(
                     tab.terminal_id.clone(),
                     RemoteTerminalLayoutScope {
+                        project_id: project_id.clone(),
                         layout_kind: "tab".to_string(),
                         worktree_id: worktree_id.clone(),
                         layout_order,
@@ -3694,10 +3721,6 @@ pub(crate) fn remote_terminal_snapshot_payload(
     payload
 }
 
-fn worktree_id_from_terminal_layout_key(layout_key: &str) -> Option<&str> {
-    runtime_scope_parts(layout_key).map(|(_, worktree_id)| worktree_id)
-}
-
 fn remote_terminal_layout_kind(payload: &Value) -> String {
     match payload
         .get("layoutKind")
@@ -4484,6 +4507,98 @@ mod tests {
                 .get(&worktree_session)
                 .map(String::as_str),
             Some("worktree-b")
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_list_reports_all_worktree_splits_under_root_project() {
+        let support_dir = temp_support_dir("codux-remote-terminal-worktree-splits");
+        write_two_project_state(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        );
+        let sessions = (0..3)
+            .map(|index| {
+                terminals
+                    .create(
+                        TerminalPtyConfig {
+                            command: Some(format!("printf split-{index}")),
+                            project_id: Some("worktree-b".to_string()),
+                            terminal_id: Some(format!("terminal-worktree-{index}")),
+                            ..Default::default()
+                        },
+                        |_| {},
+                    )
+                    .expect("create worktree terminal")
+            })
+            .collect::<Vec<_>>();
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &terminal_layout_storage_key("project-b", "project-b"),
+                Vec::new(),
+                sessions[0].clone(),
+                vec![TerminalPaneSummary {
+                    title: "Stale".to_string(),
+                    terminal_id: sessions[0].clone(),
+                }],
+                vec![1.0],
+                0.24,
+            )
+            .expect("save stale default layout");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &terminal_layout_storage_key("project-b", "worktree-b"),
+                Vec::new(),
+                sessions[0].clone(),
+                sessions
+                    .iter()
+                    .enumerate()
+                    .map(|(index, session)| TerminalPaneSummary {
+                        title: format!("Split {}", index + 1),
+                        terminal_id: session.clone(),
+                    })
+                    .collect(),
+                vec![0.33, 0.34, 0.33],
+                0.24,
+            )
+            .expect("save worktree split layout");
+
+        let mut worktree_terminals = runtime
+            .remote_terminals()
+            .into_iter()
+            .filter(|terminal| {
+                terminal.get("projectId").and_then(Value::as_str) == Some("project-b")
+            })
+            .filter(|terminal| {
+                terminal.get("worktreeId").and_then(Value::as_str) == Some("worktree-b")
+            })
+            .collect::<Vec<_>>();
+        worktree_terminals.sort_by_key(|terminal| {
+            terminal
+                .get("layoutOrder")
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::MAX)
+        });
+
+        assert_eq!(worktree_terminals.len(), 3);
+        assert_eq!(
+            worktree_terminals
+                .iter()
+                .filter_map(|terminal| terminal.get("id").and_then(Value::as_str))
+                .collect::<Vec<_>>(),
+            sessions.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            worktree_terminals
+                .iter()
+                .filter_map(|terminal| terminal.get("layoutOrder").and_then(Value::as_u64))
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2]
         );
 
         fs::remove_dir_all(support_dir).ok();

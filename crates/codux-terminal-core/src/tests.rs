@@ -570,6 +570,57 @@ fn runtime_model_preserves_terminal_worktree_scope() {
 }
 
 #[test]
+fn runtime_model_keeps_all_selected_worktree_split_terminals() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(
+        projects(),
+        Some("project-2".to_string()),
+        Some("worktree-2".to_string()),
+        true,
+        false,
+    );
+    runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                layout_order: Some(2),
+                ..terminal("worktree-split-3", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("default-split", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("worktree-split-1", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                layout_order: Some(1),
+                ..terminal("worktree-split-2", "project-2")
+            },
+        ],
+        true,
+        true,
+    );
+
+    assert_eq!(
+        runtime
+            .current_project_terminals()
+            .into_iter()
+            .map(|terminal| terminal.id)
+            .collect::<Vec<_>>(),
+        vec![
+            "worktree-split-1".to_string(),
+            "worktree-split-2".to_string(),
+            "worktree-split-3".to_string()
+        ]
+    );
+}
+
+#[test]
 fn runtime_model_binds_selected_worktree_active_terminal_without_project_select() {
     let mut runtime = RemoteRuntimeModel::new();
     runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
