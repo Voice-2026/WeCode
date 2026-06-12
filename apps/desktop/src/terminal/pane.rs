@@ -251,6 +251,12 @@ struct TerminalSessionBindingInner {
     initial_layout_tx: Option<mpsc::Sender<(u16, u16)>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TerminalLayoutRecord {
+    initialized: bool,
+    resized: bool,
+}
+
 impl TerminalSessionBinding {
     fn pending() -> (Self, mpsc::Receiver<(u16, u16)>) {
         let (initial_layout_tx, initial_layout_rx) = mpsc::channel();
@@ -336,8 +342,10 @@ impl TerminalSessionBinding {
         };
         if let Some(session) = session {
             let handle = session.clone_handle();
-            handle.claim_viewport(terminal_viewport_local_owner())?;
-            if let Some((cols, rows)) = last_resize {
+            let state = handle.claim_viewport(terminal_viewport_local_owner())?;
+            if let Some((cols, rows)) = last_resize
+                && (state.cols, state.rows) != (cols, rows)
+            {
                 handle.resize_viewport(terminal_viewport_local_owner(), cols, rows)?;
             }
         }
@@ -353,17 +361,23 @@ impl TerminalSessionBinding {
             .unwrap_or(true)
     }
 
-    fn record_layout(&self, cols: u16, rows: u16) -> bool {
-        let initial_layout_tx = {
+    fn record_layout(&self, cols: u16, rows: u16) -> TerminalLayoutRecord {
+        let (initial_layout_tx, record) = {
             let mut inner = self.inner.lock();
-            let changed = inner.last_resize != Some((cols, rows));
+            let previous = inner.last_resize;
             inner.last_resize = Some((cols, rows));
-            (inner.initial_layout_tx.take(), changed)
+            (
+                inner.initial_layout_tx.take(),
+                TerminalLayoutRecord {
+                    initialized: previous.is_none(),
+                    resized: previous.is_some_and(|size| size != (cols, rows)),
+                },
+            )
         };
-        if let Some(tx) = initial_layout_tx.0 {
+        if let Some(tx) = initial_layout_tx {
             let _ = tx.send((cols, rows));
         }
-        initial_layout_tx.1
+        record
     }
 
     fn input_snapshot(&self) -> TerminalInputSnapshot {

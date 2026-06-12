@@ -142,27 +142,23 @@ impl TerminalRenderer {
             y: bounds.origin.y + padding.top,
         };
         let content_right = bounds.origin.x + bounds.size.width - padding.right;
-        let display_offset = content.display_offset as i32;
         let visible_rows = self.visible_row_range(bounds, padding, content, window);
 
         let mut background_rects = Vec::new();
         let mut text_runs = Vec::new();
         let mut cursor_cell = None;
-        let cursor_row = content.cursor.point.line.0;
         let cursor_col = content.cursor.point.column.0;
         let cache_key = self.cache_key();
         let mut index = 0usize;
         while index < content.cells.len() {
             let line = content.cells[index].point.line;
-            let row = line.0 + display_offset;
             let start = index;
             while index < content.cells.len() && content.cells[index].point.line == line {
                 index += 1;
             }
-            if row < 0 {
+            let Some(row) = content.display_row_for_line(line) else {
                 continue;
-            }
-            let row = row as usize;
+            };
             if row < visible_rows.start || row >= visible_rows.end {
                 continue;
             }
@@ -190,7 +186,7 @@ impl TerminalRenderer {
                 background_rects.extend(prepared.background_rects);
                 text_runs.extend(prepared.text_runs);
             }
-            if cursor_row + display_offset == row as i32 {
+            if content.display_row_for_line(content.cursor.point.line) == Some(row) {
                 cursor_cell = cells
                     .iter()
                     .find(|indexed| indexed.point.column.0 == cursor_col)
@@ -200,7 +196,7 @@ impl TerminalRenderer {
 
         if let Some(selection) = selection {
             for row in visible_rows.clone() {
-                let line = Line(row as i32 - display_offset);
+                let line = content.line_for_display_row(row);
                 self.prepare_selection(
                     line,
                     row,
@@ -213,9 +209,9 @@ impl TerminalRenderer {
             }
         }
 
-        let display_cursor = DisplayCursor::from(content.cursor.point, content.display_offset);
+        let display_cursor = content.display_cursor();
         let cursor_on_visible_row = display_cursor.row >= 0
-            && (display_cursor.row as usize) < content.screen_lines
+            && (display_cursor.row as usize) < content.visible_rows()
             && display_cursor.col < content.columns
             && (visible_rows.start..visible_rows.end).contains(&(display_cursor.row as usize));
         let cursor = (cursor_visible
@@ -309,7 +305,7 @@ impl TerminalRenderer {
         content: &TerminalContent,
         window: &mut Window,
     ) -> Range<usize> {
-        if content.screen_lines == 0 {
+        if content.visible_rows() == 0 {
             return 0..0;
         }
         let content_bounds = Bounds {
@@ -319,7 +315,7 @@ impl TerminalRenderer {
             },
             size: Size {
                 width: self.cell_width * content.columns.max(1) as f32,
-                height: self.cell_height * content.screen_lines as f32,
+                height: self.cell_height * content.visible_rows() as f32,
             },
         };
         let intersection = window.content_mask().bounds.intersect(&content_bounds);
@@ -334,8 +330,8 @@ impl TerminalRenderer {
             .ceil()
             .max(1.0) as usize
             + 1;
-        let start = start.min(content.screen_lines);
-        let end = start.saturating_add(count).min(content.screen_lines);
+        let start = start.min(content.visible_rows());
+        let end = start.saturating_add(count).min(content.visible_rows());
         start..end
     }
 

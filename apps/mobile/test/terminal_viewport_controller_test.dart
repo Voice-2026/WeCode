@@ -6,8 +6,14 @@ void main() {
   test('emits the first terminal resize and ignores duplicates', () {
     final controller = TerminalViewportController();
 
-    final first = controller.resize(cols: 80, rows: 24, keyboardVisible: false);
+    final first = controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
     final duplicate = controller.resize(
+      sessionId: 'session-1',
       cols: 80,
       rows: 24,
       keyboardVisible: false,
@@ -22,8 +28,18 @@ void main() {
   test('keeps the last row count while keyboard is visible', () {
     final controller = TerminalViewportController();
 
-    controller.resize(cols: 80, rows: 24, keyboardVisible: false);
-    final next = controller.resize(cols: 100, rows: 10, keyboardVisible: true);
+    controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
+    final next = controller.resize(
+      sessionId: 'session-1',
+      cols: 100,
+      rows: 10,
+      keyboardVisible: true,
+    );
 
     expect(next, isNotNull);
     expect(next!.cols, 100);
@@ -35,14 +51,51 @@ void main() {
   test('flushes pending keyboard resize when forced', () {
     final controller = TerminalViewportController();
 
-    controller.resize(cols: 80, rows: 24, keyboardVisible: false);
-    controller.resize(cols: 100, rows: 10, keyboardVisible: true);
+    controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
+    controller.resize(
+      sessionId: 'session-1',
+      cols: 100,
+      rows: 10,
+      keyboardVisible: true,
+    );
 
-    final flushed = controller.flushPending(force: true);
+    final flushed = controller.flushPending(
+      sessionId: 'session-1',
+      force: true,
+    );
 
     expect(flushed, isNotNull);
     expect(flushed!.cols, 100);
     expect(flushed.rows, 10);
+  });
+
+  test('force flush deduplicates per session but emits for a new session', () {
+    final controller = TerminalViewportController();
+
+    controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
+
+    expect(
+      controller.flushPending(sessionId: 'session-1', force: true),
+      isNull,
+    );
+
+    final nextSession = controller.flushPending(
+      sessionId: 'session-2',
+      force: true,
+    );
+    expect(nextSession, isNotNull);
+    expect(nextSession!.cols, 80);
+    expect(nextSession.rows, 24);
   });
 
   test('tracks remote viewport owner and ignores stale generations', () {
@@ -78,5 +131,33 @@ void main() {
     );
     expect(controller.owner, 'desktop');
     expect(controller.generation, 2);
+  });
+
+  test('remote viewport state updates per-session sent size', () {
+    final controller = TerminalViewportController();
+
+    controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
+    controller.applyRemoteState(
+      const RelayEnvelope(
+        type: 'terminal.viewport.state',
+        sessionId: 'session-1',
+        payload: {'owner': 'desktop', 'cols': 120, 'rows': 40, 'generation': 1},
+      ),
+    );
+
+    expect(
+      controller.resize(
+        sessionId: 'session-1',
+        cols: 80,
+        rows: 24,
+        keyboardVisible: false,
+      ),
+      isNotNull,
+    );
   });
 }

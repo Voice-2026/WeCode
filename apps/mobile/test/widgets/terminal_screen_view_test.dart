@@ -206,6 +206,33 @@ void main() {
     },
   );
 
+  testWidgets('native terminal defers follow-tail scroll until after build', (
+    tester,
+  ) async {
+    var scrollToBottomCount = 0;
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: _snapshot(displayOffset: 0, data: 'first'),
+        onScrollPixels: (_, _) {},
+        onScrollToBottom: () => scrollToBottomCount++,
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: _snapshot(displayOffset: 1, data: 'second'),
+        onScrollPixels: (_, _) {},
+        onScrollToBottom: () => scrollToBottomCount++,
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    await tester.pump();
+    expect(scrollToBottomCount, 1);
+  });
+
   testWidgets('native terminal keyboard request owns input focus', (
     tester,
   ) async {
@@ -324,6 +351,7 @@ Widget _terminalHarness({
   bool keyboardRequested = false,
   ValueChanged<String>? onInput,
   required void Function(double pixels, double cellHeight) onScrollPixels,
+  VoidCallback? onScrollToBottom,
 }) {
   return MaterialApp(
     theme: buildAppTheme(),
@@ -338,7 +366,7 @@ Widget _terminalHarness({
         onResize: (_, _) {},
         onScrollPixels: onScrollPixels,
         onSettleScroll: () {},
-        onScrollToBottom: () {},
+        onScrollToBottom: onScrollToBottom ?? () {},
         onCursorBottom: (_) {},
       ),
     ),
@@ -348,9 +376,10 @@ Widget _terminalHarness({
 TerminalScreenSnapshot _snapshot({
   int displayOffset = 0,
   double scrollPixelOffset = 0,
+  String data = 'ready',
 }) {
   return TerminalScreenSnapshot(
-    data: 'ready',
+    data: data,
     cols: 80,
     rows: 24,
     displayOffset: displayOffset,

@@ -47,7 +47,7 @@ impl TerminalScrollHandle {
         *self.state.borrow_mut() = TerminalScrollHandleState {
             line_height: line_height.max(px(1.0)),
             total_lines: content.total_lines.max(content.screen_lines),
-            viewport_lines: content.screen_lines,
+            viewport_lines: content.visible_rows(),
             display_offset: content.display_offset,
         };
     }
@@ -248,9 +248,10 @@ impl TerminalView {
     ) {
         window.focus(&self.focus_handle, cx);
         let point = self.layout.lock().cell_at(event.position);
+        let model_point = self.layout.lock().model_cell_at(event.position);
         if event.button == MouseButton::Left
             && event.modifiers.secondary()
-            && let Some(link) = point.and_then(|point| self.link_at_cell(point, cx))
+            && let Some(link) = model_point.and_then(|point| self.link_at_cell(point, cx))
         {
             if let Err(error) = codux_runtime::app_commands::app_open_url(link.url.clone()) {
                 eprintln!("failed to open terminal link {}: {error}", link.url);
@@ -262,7 +263,7 @@ impl TerminalView {
         }
 
         if event.button == MouseButton::Left && event.modifiers.shift {
-            if let Some(point) = point {
+            if let Some(point) = model_point {
                 let selection_point = self.selection_point_from_cell(point, cx);
                 self.selection.lock().extend(selection_point);
                 self.model.update(cx, |model, _| {
@@ -292,7 +293,7 @@ impl TerminalView {
 
         match event.button {
             MouseButton::Left => {
-                if let Some(point) = point {
+                if let Some(point) = model_point {
                     let selection_point = self.selection_point_from_cell(point, cx);
                     self.selection.lock().start(selection_point);
                     self.model.update(cx, |model, _| {
@@ -317,7 +318,8 @@ impl TerminalView {
 
     fn on_mouse_up(&mut self, event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let selection_dragging = self.selection.lock().dragging;
-        if let Some((point, _)) = self.layout.lock().drag_cell_at(event.position) {
+        let drag_cell = self.layout.lock().drag_cell_at(event.position);
+        if let Some((point, _)) = drag_cell {
             if self.should_report_mouse(event.modifiers.shift, cx) {
                 self.send_mouse_report(
                     Some(event.button),
@@ -331,6 +333,7 @@ impl TerminalView {
                 return;
             }
             if selection_dragging {
+                let point = self.layout.lock().model_cell_at(event.position).unwrap_or(point);
                 let selection_point = self.selection_point_from_cell(point, cx);
                 self.selection.lock().finish(selection_point);
                 self.model.update(cx, |model, _| {
@@ -372,7 +375,7 @@ impl TerminalView {
             return;
         }
         if event.dragging() && self.selection.lock().dragging {
-            let Some((point, scroll_lines)) = self.layout.lock().drag_cell_at(event.position)
+            let Some((point, scroll_lines)) = self.layout.lock().model_drag_cell_at(event.position)
             else {
                 return;
             };
@@ -424,8 +427,8 @@ impl TerminalView {
         let lines = (self.scroll_input.pending_pixels / 20.0) as i32;
         if lines != 0 {
             self.scroll_input.pending_pixels -= lines as f32 * 20.0;
-            if let Some(point) = self.layout.lock().cell_at(event.position)
-                && self.should_report_mouse(event.modifiers.shift, cx)
+            let point = self.layout.lock().cell_at(event.position);
+            if let Some(point) = point.filter(|_| self.should_report_mouse(event.modifiers.shift, cx))
             {
                 let button = if lines > 0 {
                     MouseButton::Navigate(NavigationDirection::Back)
@@ -556,9 +559,6 @@ impl TerminalView {
                     view.model.update(cx, |model, _| model.set_focused(true));
                     view.blink_manager.update(cx, TerminalBlinkManager::enable);
                     view.report_focus_change(true, cx);
-                    if let Err(error) = view.session.claim_local_viewport() {
-                        eprintln!("failed to claim terminal viewport: {error}");
-                    }
                     if let Some(observer) = view.focus_observer.clone() {
                         cx.defer_in(window, move |_, window, cx| {
                             observer(window, cx);
@@ -616,7 +616,7 @@ impl TerminalView {
     }
 
     fn send_mouse_report(
-        &self,
+        &mut self,
         button: Option<MouseButton>,
         point: TerminalCellPoint,
         kind: MouseReportKind,
@@ -637,9 +637,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let next = self
-            .layout
-            .lock()
-            .cell_at(position)
+            .model_cell_at(position)
             .and_then(|point| self.link_at_cell(point, cx));
         if modifiers.secondary() && self.hover_link != next {
             self.hover_link = next;
@@ -652,6 +650,10 @@ impl TerminalView {
     fn link_at_cell(&self, point: TerminalCellPoint, cx: &App) -> Option<TerminalLink> {
         let content = self.model.read(cx).snapshot();
         terminal_link_at_cell(&content, point)
+    }
+
+    fn model_cell_at(&self, position: Point<Pixels>) -> Option<TerminalCellPoint> {
+        self.layout.lock().model_cell_at(position)
     }
 
     fn selected_text(&self, cx: &App) -> Option<String> {

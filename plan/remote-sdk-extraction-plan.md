@@ -67,6 +67,51 @@ Mac、Windows、Linux headless、Flutter 都按 peer 处理。任意 peer 可以
 5. 只有无缓存、host runtime 重启、seq gap、显式 resync 时才触发 full hydrate。
 6. `terminal.buffer` 仍作为 v3.1 终端 baseline/hydration 载荷；后续再升级为通用 `resource.baseline`。
 
+## 远程终端历史/实时稳定性收口
+
+这里的目标不是让同一个真实 PTY 同时拥有多套独立 `cols/rows`，而是让移动端和后续 headless controller 的远程终端恢复稳定：历史可滚、实时输出按序更新、TUI 当前屏不重复也不丢。
+
+当前收口原则：
+
+1. Host `TerminalPtySession` / Alacritty 模型仍是唯一真实 PTY 数据源。
+2. 协议层继续传两类终端数据：
+   - `raw history` / buffer window：负责历史滚动池。
+   - `screenData` / screen keyframe：负责当前 TUI 可见屏。
+3. Controller 侧 `RemotePtySession` 必须真正按两层模型存储：
+   - history pool 只接收 raw history 和 live raw bytes。
+   - screen keyframe 只保存 host 当前屏，不写入 history pool。
+4. UI 永远只读 core model：
+   - 在底部显示 screen keyframe。
+   - 用户向上滚动时显示 history pool。
+   - 回到底部重新显示最新 screen keyframe。
+5. baseline 未完成时 live output 进入 held buffer；baseline 完成后按 sequence replay。重复 seq、旧 request/snapshot、旧 baseline 不得覆盖当前池。
+6. 不在 Flutter/Dart 侧增加兜底拼接逻辑；稳定性规则落在 `codux-terminal-core`，通过 FFI 暴露给移动端。
+
+要避免的错误实现：
+
+- 把 raw history 和 screen keyframe 都喂进同一个 `HeadlessTerminalScreen`。这会导致要么清掉历史，要么把旧 TUI 当前屏混进 scrollback。
+- 把 `screenData` 当作历史增量追加。`screenData` 是当前屏 keyframe，不是 PTY raw stream。
+- UI 主动按页面状态重新请求全量历史。订阅和 core 池负责数据恢复，UI 只负责选择和渲染。
+
+落地任务：
+
+1. 在 `codux-terminal-core::RemotePtySession` 中拆分 `history_screen` 与 `keyframe_screen`，并保存当前是否处于底部。
+2. `replace_from_baseline_screen(content, screenData, ...)`：写入 history pool；若带 screenData，则更新 keyframe screen；默认 snapshot 返回 keyframe。
+3. `append_live_screen(data, screenData, ...)`：raw data 进入 history pool；screenData 更新 keyframe；sequence 只推进一次。
+4. `scroll_screen_*`：滚离底部时读 history pool；滚到底部时读 keyframe screen。
+5. 补 core 测试：历史恢复后可滚、keyframe 不进入 scrollback、live keyframe 替换当前屏不重复、baseline/live 并发 replay 不丢。
+6. 补 Flutter FFI/remote controller 测试：移动端只从 Rust core snapshot 读取，不保留 Dart 侧重复终端恢复逻辑。
+
+本轮完成状态（2026-06-12）：
+
+1. `RemotePtySession` 已拆成 history pool + screen keyframe 双层模型。
+2. `HeadlessTerminalScreen::replace_with_keyframe` 已保证 keyframe 替换当前屏并清掉 keyframe 自己的 scrollback，不污染 raw history。
+3. Flutter `RemotePtySession` 继续只作为 Rust FFI 包装，未增加 Dart 侧 screen 拼接兜底。
+4. Desktop host 的 `TerminalEvent::Viewport` 不再广播 `terminal.list`，避免桌面窗口 resize/focus 导致移动端重复重建终端列表。
+5. Desktop terminal focus 不再抢占 local viewport owner，只有真实 layout resize 继续走已有 viewport 链路。
+6. 已覆盖测试：`codux-terminal-core`、`codux-runtime`、Flutter FFI/remote pty/output controller。
+7. 待真机验收：移动端长会话恢复、TUI 当前屏、历史滚动、桌面窗口 resize 后移动端不重复上屏。
+
 ## Monorepo 迁移状态
 
 当前目录：

@@ -295,7 +295,7 @@ fn trace_terminal_paint_snapshot(content: &TerminalContent, cursor_visible: bool
         return;
     }
     terminal_trace(&format!(
-        "paint cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={}",
+        "paint cursor_visible={} show_cursor={} cursor_hidden={} cursor_row={} cursor_col={} cursor_shape={:?} display_offset={} cells={} cols={} rows={} visible_rows={} row_shift={}",
         cursor_visible,
         content.mode.contains(TermMode::SHOW_CURSOR),
         content.cursor.shape == CursorShape::Hidden,
@@ -306,5 +306,7 @@ fn trace_terminal_paint_snapshot(content: &TerminalContent, cursor_visible: bool
         content.cells.len(),
         content.columns,
         content.screen_lines,
+        content.visible_rows(),
+        content.visible_row_shift,
     ));
 }

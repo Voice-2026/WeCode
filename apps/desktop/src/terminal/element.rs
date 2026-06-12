@@ -72,8 +72,8 @@ impl Element for TerminalElement {
             cols,
             rows,
         );
-        let layout_changed = self.session.record_layout(cols as u16, rows as u16);
-        if self.cursor_focused && layout_changed {
+        let layout_record = self.session.record_layout(cols as u16, rows as u16);
+        if layout_record.resized {
             if let Err(error) = self.session.claim_local_viewport() {
                 eprintln!("failed to claim terminal viewport: {error}");
             }
@@ -95,7 +95,12 @@ impl Element for TerminalElement {
             eprintln!("failed to resize terminal pty: {error}");
         }
 
-        let snapshot = self.model.update(cx, |model, cx| model.sync(cx));
+        let snapshot = self
+            .model
+            .update(cx, |model, cx| model.sync(cx).with_visible_row_shift(rows));
+        self.layout
+            .lock()
+            .set_row_shift(snapshot.visible_row_shift);
         self.scroll_handle
             .update(&snapshot, self.renderer.cell_height.max(px(1.0)));
         trace_terminal_paint_snapshot(&snapshot, self.cursor_visible);
@@ -397,6 +402,7 @@ struct TerminalLayoutMetrics {
     cell_height: Pixels,
     cols: usize,
     rows: usize,
+    row_shift: usize,
 }
 
 impl Default for TerminalLayoutMetrics {
@@ -417,6 +423,7 @@ impl Default for TerminalLayoutMetrics {
             cell_height: px(1.0),
             cols: 0,
             rows: 0,
+            row_shift: 0,
         }
     }
 }
@@ -437,6 +444,33 @@ impl TerminalLayoutMetrics {
         self.cell_height = cell_height.max(px(1.0));
         self.cols = cols;
         self.rows = rows;
+    }
+
+    fn set_row_shift(&mut self, row_shift: usize) {
+        self.row_shift = row_shift;
+    }
+
+    fn model_row(&self, row: usize) -> usize {
+        row.saturating_add(self.row_shift)
+    }
+
+    fn model_cell_at(&self, position: Point<Pixels>) -> Option<TerminalCellPoint> {
+        self.cell_at(position).map(|point| TerminalCellPoint {
+            row: self.model_row(point.row),
+            col: point.col,
+        })
+    }
+
+    fn model_drag_cell_at(&self, position: Point<Pixels>) -> Option<(TerminalCellPoint, i32)> {
+        self.drag_cell_at(position).map(|(point, lines)| {
+            (
+                TerminalCellPoint {
+                    row: self.model_row(point.row),
+                    col: point.col,
+                },
+                lines,
+            )
+        })
     }
 
     fn cell_at(&self, position: Point<Pixels>) -> Option<TerminalCellPoint> {

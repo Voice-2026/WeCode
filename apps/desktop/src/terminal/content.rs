@@ -10,6 +10,8 @@ struct TerminalContent {
     columns: usize,
     screen_lines: usize,
     total_lines: usize,
+    visible_rows: usize,
+    visible_row_shift: usize,
     #[cfg(test)]
     scrolled_to_bottom: bool,
 }
@@ -33,9 +35,37 @@ impl TerminalContent {
             columns: term.columns(),
             screen_lines: term.screen_lines(),
             total_lines: term.grid().total_lines(),
+            visible_rows: term.screen_lines(),
+            visible_row_shift: 0,
             #[cfg(test)]
             scrolled_to_bottom: content.display_offset == 0,
         }
+    }
+
+    fn with_visible_row_shift(mut self, visible_rows: usize) -> Self {
+        self.visible_rows = visible_rows.min(self.screen_lines);
+        self.visible_row_shift = self.screen_lines.saturating_sub(self.visible_rows);
+        self
+    }
+
+    fn visible_rows(&self) -> usize {
+        self.visible_rows
+    }
+
+    fn display_row_for_line(&self, line: Line) -> Option<usize> {
+        let row = line.0 + self.display_offset as i32 - self.visible_row_shift as i32;
+        if row < 0 || row as usize >= self.visible_rows {
+            return None;
+        }
+        Some(row as usize)
+    }
+
+    fn line_for_display_row(&self, row: usize) -> Line {
+        Line(row as i32 + self.visible_row_shift as i32 - self.display_offset as i32)
+    }
+
+    fn display_cursor(&self) -> DisplayCursor {
+        DisplayCursor::from(self.cursor.point, self.display_offset).shifted(self.visible_row_shift)
     }
 }
 
@@ -188,6 +218,13 @@ impl DisplayCursor {
         Self {
             row: cursor_point.line.0 + display_offset as i32,
             col: cursor_point.column.0,
+        }
+    }
+
+    fn shifted(self, row_shift: usize) -> Self {
+        Self {
+            row: self.row - row_shift as i32,
+            col: self.col,
         }
     }
 }

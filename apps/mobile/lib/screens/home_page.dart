@@ -2502,17 +2502,26 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _sendTerminalResize(int cols, int rows, {String? sessionId}) {
+    final id = sessionId ?? _sessionId;
+    if (id == null) return;
     final resize = _terminalViewportController.resize(
+      sessionId: id,
       cols: cols,
       rows: rows,
       keyboardVisible: _keyboardVisible,
     );
-    final id = sessionId ?? _sessionId;
-    if (id == null) return;
     _terminalOutputController.resizeScreen(id, cols: cols, rows: rows);
     final terminal = _terminalById(id);
     if (!_canResizeTerminal(terminal)) return;
-    if (resize == null) return;
+    if (resize == null) {
+      CoduxLog.debug(
+        '[codux-flutter-terminal] resize skip duplicate measured=${cols}x$rows keyboard=$_keyboardVisible session=$id',
+      );
+      return;
+    }
+    CoduxLog.info(
+      '[codux-flutter-terminal] send viewport.resize size=${resize.cols}x${resize.rows} measured=${cols}x$rows keyboard=$_keyboardVisible session=$id',
+    );
     _sendTerminalEnvelope(
       RelayEnvelope(
         type: 'terminal.viewport.resize',
@@ -2528,12 +2537,18 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (id == null) return;
     final terminal = _terminalById(id);
     if (!_canResizeTerminal(terminal)) return;
-    final resize = _terminalViewportController.flushPending(force: force);
+    final resize = _terminalViewportController.flushPending(
+      sessionId: id,
+      force: force,
+    );
     if (resize == null) return;
     _terminalOutputController.resizeScreen(
       id,
       cols: resize.cols,
       rows: resize.rows,
+    );
+    CoduxLog.info(
+      '[codux-flutter-terminal] flush viewport.resize size=${resize.cols}x${resize.rows} force=$force session=$id',
     );
     _sendTerminalEnvelope(
       RelayEnvelope(

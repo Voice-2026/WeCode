@@ -1798,6 +1798,8 @@ impl RemoteHostRuntime {
             return;
         }
         self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
+        let owner = self.remote_viewport_owner(envelope);
+        let _ = self.terminals.claim_viewport(session_id, &owner);
         self.resize_terminal_viewport_from_envelope(session_id, envelope, cols, rows);
     }
 
@@ -3421,7 +3423,6 @@ impl RemoteHostRuntime {
                         "generation": generation,
                     }),
                 );
-                self.send_terminal_list(None);
             }
         }
     }
@@ -4011,6 +4012,64 @@ mod tests {
             Some("device-1")
         );
         assert_eq!(reply["payload"]["id"], "ping-1");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn viewport_events_do_not_broadcast_terminal_list() {
+        let support_dir = temp_support_dir("codux-remote-viewport-no-terminal-list");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        transport.take_messages();
+        runtime.handle_terminal_event(TerminalEvent::Viewport {
+            session_id: session_id.clone(),
+            owner: "desktop".to_string(),
+            cols: 100,
+            rows: 32,
+            generation: 1,
+        });
+
+        let mut kinds = Vec::new();
+        for (_, data) in transport.take_messages() {
+            let text = String::from_utf8(data).expect("utf8 transport");
+            let envelope = runtime
+                .service()
+                .parse_incoming_envelope(&text)
+                .expect("parse outgoing envelope");
+            if let Some(inner) = runtime
+                .service()
+                .decrypt_envelope_if_needed(envelope, &mut HashMap::new())
+                .expect("decrypt outgoing envelope")
+            {
+                kinds.push(inner.kind);
+            }
+        }
+
+        assert_eq!(kinds, vec!["terminal.viewport.state"]);
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -5136,6 +5195,23 @@ mod tests {
         assert_eq!(state.owner, "desktop");
         assert_eq!(state.cols, 100);
         assert_eq!(state.rows, 32);
+
+        runtime.handle_terminal_viewport_resize(&RemoteEnvelope {
+            kind: "terminal.viewport.resize".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({
+                "cols": 72,
+                "rows": 18,
+            }),
+        });
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_eq!(state.owner, "remote:device-1");
+        assert_eq!(state.cols, 72);
+        assert_eq!(state.rows, 18);
 
         fs::remove_dir_all(support_dir).ok();
     }

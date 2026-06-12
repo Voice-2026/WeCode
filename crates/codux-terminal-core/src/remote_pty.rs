@@ -16,11 +16,20 @@ pub struct RemotePtySession<T> {
     content: String,
     buffer_length: usize,
     sequence: TerminalSequence,
-    screen: HeadlessTerminalScreen,
+    history_screen: HeadlessTerminalScreen,
+    keyframe_screen: HeadlessTerminalScreen,
+    has_keyframe_screen: bool,
+    screen_view: RemotePtyScreenView,
     awaiting_baseline: bool,
     page_buffer: Option<RemotePtyPageBuffer>,
     held_sequenced_live: BTreeMap<TerminalSequence, T>,
     held_unsequenced_live: Vec<T>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemotePtyScreenView {
+    Keyframe,
+    History,
 }
 
 impl<T> RemotePtySession<T> {
@@ -31,7 +40,10 @@ impl<T> RemotePtySession<T> {
             content: String::new(),
             buffer_length: 0,
             sequence: 0,
-            screen: HeadlessTerminalScreen::new(80, 24, 2_000),
+            history_screen: HeadlessTerminalScreen::new(80, 24, 2_000),
+            keyframe_screen: HeadlessTerminalScreen::new(80, 24, 2_000),
+            has_keyframe_screen: false,
+            screen_view: RemotePtyScreenView::History,
             awaiting_baseline: false,
             page_buffer: None,
             held_sequenced_live: BTreeMap::new(),
@@ -69,27 +81,54 @@ impl<T> RemotePtySession<T> {
     }
 
     pub fn screen_snapshot(&self) -> TerminalScreenSnapshot {
-        self.screen.snapshot()
+        if self.screen_view == RemotePtyScreenView::Keyframe && self.has_keyframe_screen {
+            self.keyframe_screen.snapshot()
+        } else {
+            self.history_screen.snapshot()
+        }
     }
 
     pub fn resize_screen(&mut self, cols: usize, rows: usize) {
-        self.screen.resize(cols, rows);
+        self.history_screen.resize(cols, rows);
+        self.keyframe_screen.resize(cols, rows);
     }
 
     pub fn scroll_screen_lines(&mut self, lines: i32) {
-        self.screen.scroll_lines(lines);
+        if lines == 0 {
+            return;
+        }
+        if lines > 0 {
+            self.ensure_history_view_at_bottom();
+        }
+        self.history_screen.scroll_lines(lines);
+        self.sync_view_after_history_scroll();
     }
 
     pub fn scroll_screen_pixels(&mut self, pixels: f64, cell_height: f64) {
-        self.screen.scroll_pixels(pixels, cell_height);
+        if !pixels.is_finite() || pixels == 0.0 || !cell_height.is_finite() || cell_height <= 0.0 {
+            return;
+        }
+        if pixels > 0.0 {
+            self.ensure_history_view_at_bottom();
+        }
+        self.history_screen.scroll_pixels(pixels, cell_height);
+        self.sync_view_after_history_scroll();
     }
 
     pub fn settle_screen_pixel_scroll(&mut self) {
-        self.screen.settle_pixel_scroll();
+        self.history_screen.settle_pixel_scroll();
+        self.keyframe_screen.settle_pixel_scroll();
+        self.sync_view_after_history_scroll();
     }
 
     pub fn scroll_screen_to_bottom(&mut self) {
-        self.screen.scroll_to_bottom();
+        self.history_screen.scroll_to_bottom();
+        self.keyframe_screen.scroll_to_bottom();
+        self.screen_view = if self.has_keyframe_screen {
+            RemotePtyScreenView::Keyframe
+        } else {
+            RemotePtyScreenView::History
+        };
     }
 
     pub fn require_baseline(&mut self) {
@@ -171,11 +210,16 @@ impl<T> RemotePtySession<T> {
         if let Some(buffer_length) = buffer_length {
             self.buffer_length = buffer_length;
         }
-        self.screen.clear();
+        self.history_screen.clear();
+        if !content.is_empty() {
+            self.history_screen.process(content.as_bytes());
+            self.history_screen.scroll_to_bottom();
+        }
         if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
-            self.screen.process(screen_data.as_bytes());
-        } else if !content.is_empty() {
-            self.screen.process(content.as_bytes());
+            self.replace_keyframe_screen(screen_data);
+        } else {
+            self.has_keyframe_screen = false;
+            self.screen_view = RemotePtyScreenView::History;
         }
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
@@ -212,11 +256,16 @@ impl<T> RemotePtySession<T> {
         if !data.is_empty() {
             self.content =
                 trim_to_char_limit(&format!("{}{}", self.content, data), self.max_cached_chars);
+            self.history_screen.process(data.as_bytes());
+            if self.screen_view == RemotePtyScreenView::Keyframe && !self.has_keyframe_screen {
+                self.history_screen.scroll_to_bottom();
+            }
         }
         if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
-            self.screen.process(screen_data.as_bytes());
-        } else if !data.is_empty() {
-            self.screen.process(data.as_bytes());
+            self.replace_keyframe_screen(screen_data);
+        } else if !data.is_empty() && self.has_keyframe_screen {
+            self.keyframe_screen.process(data.as_bytes());
+            self.keyframe_screen.scroll_to_bottom();
         }
         if let Some(buffer_length) = buffer_length {
             self.buffer_length = buffer_length;
@@ -230,8 +279,37 @@ impl<T> RemotePtySession<T> {
         self.content.clear();
         self.buffer_length = 0;
         self.sequence = 0;
-        self.screen.clear();
+        self.history_screen.clear();
+        self.keyframe_screen.clear();
+        self.has_keyframe_screen = false;
+        self.screen_view = RemotePtyScreenView::History;
         self.reset_transient(false);
+    }
+
+    fn replace_keyframe_screen(&mut self, screen_data: &str) {
+        self.keyframe_screen
+            .replace_with_keyframe(screen_data.as_bytes());
+        self.has_keyframe_screen = true;
+        if self.screen_view == RemotePtyScreenView::Keyframe
+            || self.history_screen.display_offset() == 0
+        {
+            self.screen_view = RemotePtyScreenView::Keyframe;
+        }
+    }
+
+    fn ensure_history_view_at_bottom(&mut self) {
+        if self.screen_view == RemotePtyScreenView::Keyframe {
+            self.history_screen.scroll_to_bottom();
+            self.screen_view = RemotePtyScreenView::History;
+        }
+    }
+
+    fn sync_view_after_history_scroll(&mut self) {
+        if self.history_screen.display_offset() == 0 && self.has_keyframe_screen {
+            self.screen_view = RemotePtyScreenView::Keyframe;
+        } else {
+            self.screen_view = RemotePtyScreenView::History;
+        }
     }
 }
 

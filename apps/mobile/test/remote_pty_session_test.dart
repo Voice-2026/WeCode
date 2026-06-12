@@ -1,6 +1,13 @@
 import 'package:codux_flutter/services/remote_pty_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+String _scrollableHistory(String prefix) {
+  return List.generate(
+    12,
+    (index) => '$prefix ${(index + 1).toString().padLeft(2, '0')}',
+  ).join('\r\n');
+}
+
 void main() {
   test(
     'remote pty session restores baseline before replaying held live output',
@@ -108,6 +115,36 @@ void main() {
     expect(screen.data, isNot(contains('raw history')));
   });
 
+  test('remote pty session scrolls raw history behind screen baseline', () {
+    final session = RemotePtySession<String>('session-1', maxCachedChars: 512);
+    session.resizeScreen(cols: 20, rows: 8);
+    final history = _scrollableHistory('raw history');
+
+    session.replaceFromBaseline(
+      content: history,
+      screenData: '\u001b[2J\u001b[Hvisible tui',
+      bufferLength: history.length,
+      sequence: 3,
+    );
+
+    var screen = session.screenSnapshot();
+    expect(session.content, history);
+    expect(screen.data, contains('visible tui'));
+    expect(screen.data, isNot(contains('raw history 01')));
+
+    session.scrollScreenLines(8);
+    screen = session.screenSnapshot();
+    expect(screen.displayOffset, greaterThan(0));
+    expect(screen.data, contains('raw history'));
+    expect(screen.data, isNot(contains('visible tui')));
+
+    session.scrollScreenToBottom();
+    screen = session.screenSnapshot();
+    expect(screen.displayOffset, 0);
+    expect(screen.data, contains('visible tui'));
+    expect(screen.data, isNot(contains('raw history 01')));
+  });
+
   test('remote pty session applies live screen keyframe', () {
     final session = RemotePtySession<String>('session-1', maxCachedChars: 200);
 
@@ -133,6 +170,38 @@ void main() {
     expect(screen.data, contains('input box'));
     expect(screen.data, isNot(contains('partial live raw')));
     expect(screen.data, isNot(contains('old screen')));
+  });
+
+  test('remote pty session keeps live keyframe out of raw history', () {
+    final session = RemotePtySession<String>('session-1', maxCachedChars: 512);
+    session.resizeScreen(cols: 20, rows: 8);
+    final history = _scrollableHistory('history');
+
+    session.replaceFromBaseline(
+      content: history,
+      screenData: '\u001b[2J\u001b[Hold screen\r\nold input',
+      bufferLength: history.length,
+      sequence: 3,
+    );
+    session.appendLive(
+      data: 'live raw',
+      screenData: '\u001b[2J\u001b[Hnew screen\r\n\u001b[3;1Hnew input',
+      bufferLength: history.length + 8,
+      sequence: 4,
+    );
+
+    var screen = session.screenSnapshot();
+    expect(screen.data, contains('new screen'));
+    expect(screen.data, contains('new input'));
+    expect(screen.data, isNot(contains('old screen')));
+    expect(screen.data, isNot(contains('history 01')));
+
+    session.scrollScreenLines(8);
+    screen = session.screenSnapshot();
+    expect(screen.displayOffset, greaterThan(0));
+    expect(screen.data, contains('history'));
+    expect(screen.data, isNot(contains('old screen')));
+    expect(screen.data, isNot(contains('new screen')));
   });
 
   test('remote pty session owns pixel viewport and overscan state', () {

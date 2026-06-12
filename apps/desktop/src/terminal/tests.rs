@@ -796,6 +796,27 @@ mod tests {
     }
 
     #[test]
+    fn local_visible_rows_map_bottom_slice_without_screen_gaps() {
+        let mut state = TerminalModel::new_for_test(10, 6, 100);
+        state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix");
+        state.handle.publish_snapshot();
+
+        let snapshot = state.sync_for_test().with_visible_row_shift(4);
+
+        assert_eq!(snapshot.screen_lines, 6);
+        assert_eq!(snapshot.visible_rows(), 4);
+        assert_eq!(snapshot.visible_row_shift, 2);
+        assert_eq!(snapshot.display_row_for_line(Line(0)), None);
+        assert_eq!(snapshot.display_row_for_line(Line(1)), None);
+        assert_eq!(snapshot.display_row_for_line(Line(2)), Some(0));
+        assert_eq!(snapshot.display_row_for_line(Line(3)), Some(1));
+        assert_eq!(snapshot.display_row_for_line(Line(4)), Some(2));
+        assert_eq!(snapshot.display_row_for_line(Line(5)), Some(3));
+        assert_eq!(snapshot.line_for_display_row(0), Line(2));
+        assert_eq!(snapshot.line_for_display_row(3), Line(5));
+    }
+
+    #[test]
     fn scroll_to_bottom_restores_input_viewport() {
         let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
@@ -1015,16 +1036,20 @@ mod tests {
     }
 
     #[test]
-    fn pending_session_reports_initial_layout_once() {
+    fn pending_session_reports_initial_layout_once_without_resize_claim() {
         let (binding, rx) = TerminalSessionBinding::pending();
 
-        binding.record_layout(120, 36);
+        let initial = binding.record_layout(120, 36);
+        assert!(initial.initialized);
+        assert!(!initial.resized);
 
         assert_eq!(
             rx.recv_timeout(Duration::from_millis(10)).unwrap(),
             (120, 36)
         );
-        binding.record_layout(121, 37);
+        let resize = binding.record_layout(121, 37);
+        assert!(!resize.initialized);
+        assert!(resize.resized);
         assert!(rx.try_recv().is_err());
     }
 

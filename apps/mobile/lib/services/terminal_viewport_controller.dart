@@ -8,11 +8,22 @@ class TerminalViewportResize {
   final int rows;
 }
 
+class _ViewportSize {
+  const _ViewportSize(this.cols, this.rows);
+
+  final int cols;
+  final int rows;
+
+  bool matches(int cols, int rows) => this.cols == cols && this.rows == rows;
+}
+
 class TerminalViewportController {
   int? _lastCols;
   int? _lastRows;
   int? _pendingCols;
   int? _pendingRows;
+  final Map<String, _ViewportSize> _sentBySession = {};
+  final Map<String, int> _generationBySession = {};
   String? _owner;
   int _generation = 0;
 
@@ -26,17 +37,32 @@ class TerminalViewportController {
     _lastRows = null;
     _pendingCols = null;
     _pendingRows = null;
+    _sentBySession.clear();
   }
 
   bool applyRemoteState(RelayEnvelope message) {
     final payload = message.payload;
     if (payload is! Map) return false;
+    final sessionId = message.sessionId?.trim() ?? '';
     final nextGeneration = _intValue(payload['generation']) ?? 0;
-    if (nextGeneration < _generation) return false;
+    final currentGeneration = sessionId.isEmpty
+        ? _generation
+        : (_generationBySession[sessionId] ?? 0);
+    if (nextGeneration < currentGeneration) return false;
     _generation = nextGeneration;
+    if (sessionId.isNotEmpty) {
+      _generationBySession[sessionId] = nextGeneration;
+    }
     _owner = payload['owner']?.toString();
     final cols = _intValue(payload['cols']);
     final rows = _intValue(payload['rows']);
+    if (sessionId.isNotEmpty &&
+        cols != null &&
+        rows != null &&
+        cols > 0 &&
+        rows > 0) {
+      _sentBySession[sessionId] = _ViewportSize(cols, rows);
+    }
     CoduxLog.debug(
       '[codux-flutter-terminal] viewport owner=${_owner ?? ''} size=${cols ?? 0}x${rows ?? 0} generation=$_generation session=${message.sessionId ?? ''}',
     );
@@ -44,27 +70,41 @@ class TerminalViewportController {
   }
 
   TerminalViewportResize? resize({
+    required String sessionId,
     required int cols,
     required int rows,
     required bool keyboardVisible,
   }) {
-    if (cols <= 0 || rows <= 0) return null;
+    final id = sessionId.trim();
+    if (id.isEmpty || cols <= 0 || rows <= 0) return null;
     _pendingCols = cols;
     _pendingRows = rows;
-    final nextRows = keyboardVisible ? (_lastRows ?? rows) : rows;
-    if (_lastCols == cols && _lastRows == nextRows) return null;
+    final lastSessionSize = _sentBySession[id];
+    final nextRows = keyboardVisible
+        ? (lastSessionSize?.rows ?? _lastRows ?? rows)
+        : rows;
+    if (lastSessionSize?.matches(cols, nextRows) == true) return null;
     _lastCols = cols;
     _lastRows = nextRows;
+    _sentBySession[id] = _ViewportSize(cols, nextRows);
     return TerminalViewportResize(cols: cols, rows: nextRows);
   }
 
-  TerminalViewportResize? flushPending({required bool force}) {
+  TerminalViewportResize? flushPending({
+    required String sessionId,
+    required bool force,
+  }) {
+    final id = sessionId.trim();
+    if (id.isEmpty) return null;
     final cols = _pendingCols;
     final rows = _pendingRows;
     if (cols == null || rows == null || cols <= 0 || rows <= 0) return null;
+    final lastSessionSize = _sentBySession[id];
+    if (lastSessionSize?.matches(cols, rows) == true) return null;
     if (!force && _lastCols == cols && _lastRows == rows) return null;
     _lastCols = cols;
     _lastRows = rows;
+    _sentBySession[id] = _ViewportSize(cols, rows);
     return TerminalViewportResize(cols: cols, rows: rows);
   }
 }

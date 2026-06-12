@@ -118,6 +118,13 @@ fn terminal_key_input_keeps_app_shortcuts_out_of_terminal() {
     )));
 }
 
+fn scrollable_history(prefix: &str) -> String {
+    (1..=12)
+        .map(|index| format!("{prefix} {index:02}"))
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
 #[test]
 fn restores_baseline_before_replaying_held_live_output() {
     let mut session = RemotePtySession::new("session-1", 64);
@@ -142,33 +149,43 @@ fn restores_baseline_before_replaying_held_live_output() {
 #[test]
 fn restores_visible_screen_from_screen_baseline_without_mixing_raw_history() {
     let mut session = RemotePtySession::<String>::new("session-1", 256);
+    session.resize_screen(20, 8);
+    let history = scrollable_history("raw history");
 
     session.replace_from_baseline_screen(
-        "raw history that should stay in scrollback cache",
+        &history,
         Some("\x1b[2J\x1b[Hvisible tui"),
-        Some(43),
+        Some(83),
         Some(7),
     );
 
     let screen = session.screen_snapshot();
-    assert_eq!(
-        session.content(),
-        "raw history that should stay in scrollback cache"
-    );
-    assert_eq!(session.buffer_length(), 43);
+    assert_eq!(session.content(), history);
+    assert_eq!(session.buffer_length(), 83);
     assert_eq!(session.sequence(), 7);
     assert!(screen.data.contains("visible tui"));
-    assert!(!screen.data.contains("raw history"));
+    assert!(!screen.data.contains("raw history 01"));
+
     session.scroll_screen_lines(8);
     let scrolled = session.screen_snapshot();
-    assert!(!scrolled.data.contains("raw history"));
+    assert!(scrolled.display_offset > 0);
+    assert!(scrolled.data.contains("raw history 01") || scrolled.data.contains("raw history 02"));
+    assert!(!scrolled.data.contains("visible tui"));
+
+    session.scroll_screen_to_bottom();
+    let bottom = session.screen_snapshot();
+    assert_eq!(bottom.display_offset, 0);
+    assert!(bottom.data.contains("visible tui"));
+    assert!(!bottom.data.contains("raw history 01"));
 }
 
 #[test]
 fn live_output_can_update_visible_screen_from_screen_keyframe() {
-    let mut session = RemotePtySession::<String>::new("session-1", 256);
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(20, 8);
+    let history = scrollable_history("cached raw history");
     session.replace_from_baseline_screen(
-        "cached raw history",
+        &history,
         Some("\x1b[2J\x1b[Hold screen"),
         Some(18),
         Some(3),
@@ -182,7 +199,7 @@ fn live_output_can_update_visible_screen_from_screen_keyframe() {
     );
 
     let screen = session.screen_snapshot();
-    assert_eq!(session.content(), "cached raw historypartial live raw");
+    assert_eq!(session.content(), format!("{history}partial live raw"));
     assert_eq!(session.buffer_length(), 32);
     assert_eq!(session.sequence(), 4);
     assert!(screen.data.contains("restored tui"));
@@ -191,8 +208,48 @@ fn live_output_can_update_visible_screen_from_screen_keyframe() {
 
     session.scroll_screen_lines(8);
     let scrolled = session.screen_snapshot();
-    assert!(!scrolled.data.contains("cached raw history"));
-    assert!(!scrolled.data.contains("partial live raw"));
+    assert!(scrolled.display_offset > 0);
+    assert!(scrolled.data.contains("cached raw history"));
+    assert!(!scrolled.data.contains("restored tui"));
+}
+
+#[test]
+fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(20, 8);
+    let history = scrollable_history("history");
+    session.replace_from_baseline_screen(
+        &history,
+        Some("\x1b[2J\x1b[Hold screen\r\nold input"),
+        Some(50),
+        Some(3),
+    );
+
+    session.append_live_screen(
+        "live raw",
+        Some("\x1b[2J\x1b[Hnew screen\r\n\x1b[3;1Hnew input"),
+        Some(58),
+        Some(4),
+    );
+
+    let screen = session.screen_snapshot();
+    assert!(screen.data.contains("new screen"));
+    assert!(screen.data.contains("new input"));
+    assert!(!screen.data.contains("old screen"));
+    assert!(!screen.data.contains("history 01"));
+
+    session.scroll_screen_lines(8);
+    let scrolled = session.screen_snapshot();
+    assert!(scrolled.display_offset > 0);
+    assert!(scrolled.data.contains("history 01") || scrolled.data.contains("history 02"));
+    assert!(!scrolled.data.contains("old screen"));
+    assert!(!scrolled.data.contains("new screen"));
+
+    session.scroll_screen_to_bottom();
+    let bottom = session.screen_snapshot();
+    assert!(bottom.data.contains("new screen"));
+    assert!(bottom.data.contains("new input"));
+    assert!(!bottom.data.contains("history 01"));
 }
 
 #[test]

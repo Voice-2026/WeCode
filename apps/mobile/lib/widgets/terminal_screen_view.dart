@@ -49,6 +49,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
   TextEditingValue _editingValue = _terminalInputSentinelValue;
   bool _followTail = true;
   bool _coreScrollFlushScheduled = false;
+  bool _scrollToBottomScheduled = false;
   double _pendingCoreScrollPixels = 0;
   double _visualScrollOffset = 0;
   double _unconfirmedCoreScrollPixels = 0;
@@ -78,7 +79,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     if (widget.snapshot?.data != oldWidget.snapshot?.data &&
         _followTail &&
         widget.snapshot?.displayOffset != 0) {
-      widget.onScrollToBottom();
+      _scheduleScrollToBottom();
     }
     if (_cursorSignature(widget.snapshot) !=
         _cursorSignature(oldWidget.snapshot)) {
@@ -126,6 +127,18 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
         _keyboardFocusNode.unfocus();
         _closeKeyboardConnection();
       }
+    });
+  }
+
+  void _scheduleScrollToBottom() {
+    if (_scrollToBottomScheduled) return;
+    _scrollToBottomScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToBottomScheduled = false;
+      if (!mounted || !_followTail || widget.snapshot?.displayOffset == 0) {
+        return;
+      }
+      widget.onScrollToBottom();
     });
   }
 

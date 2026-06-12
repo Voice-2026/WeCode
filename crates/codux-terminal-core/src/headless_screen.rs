@@ -101,6 +101,13 @@ impl HeadlessTerminalScreen {
         self.parser.advance(&mut self.term, bytes);
     }
 
+    pub fn replace_with_keyframe(&mut self, bytes: &[u8]) {
+        self.clear();
+        self.process(bytes);
+        self.process(b"\x1b[3J");
+        self.scroll_to_bottom();
+    }
+
     pub fn resize(&mut self, cols: usize, rows: usize) {
         let cols = cols.max(20);
         let rows = rows.max(8);
@@ -156,6 +163,10 @@ impl HeadlessTerminalScreen {
     pub fn scroll_to_bottom(&mut self) {
         self.pending_scroll_pixels = 0.0;
         self.term.scroll_display(Scroll::Bottom);
+    }
+
+    pub fn display_offset(&self) -> usize {
+        self.term.grid().display_offset()
     }
 
     pub fn clear(&mut self) {
@@ -577,6 +588,25 @@ mod tests {
 
         screen.scroll_to_bottom();
         assert_eq!(screen.snapshot().display_offset, 0);
+    }
+
+    #[test]
+    fn keyframe_replaces_previous_screen_and_scrollback() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"old one\r\nold two\r\nold three\r\nold four\r\nold five");
+
+        screen.replace_with_keyframe(b"\x1b[2J\x1b[Hnew one\r\n\x1b[3;1Hnew input");
+
+        let current = screen.snapshot();
+        assert!(current.data.contains("new one"));
+        assert!(current.data.contains("new input"));
+        assert!(!current.data.contains("old one"));
+        assert_eq!(current.display_offset, 0);
+
+        screen.scroll_lines(8);
+        let scrolled = screen.snapshot();
+        assert_eq!(scrolled.display_offset, 0);
+        assert!(!scrolled.data.contains("old one"));
     }
 
     #[test]

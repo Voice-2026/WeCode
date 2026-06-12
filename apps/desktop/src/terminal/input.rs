@@ -140,8 +140,9 @@ fn ime_cursor_bounds_from_content(
         return None;
     }
     let display_cursor = DisplayCursor::from(content.cursor.point, content.display_offset);
+    let display_cursor = display_cursor.shifted(layout.row_shift);
     if display_cursor.row < 0
-        || display_cursor.row as usize >= content.screen_lines
+        || display_cursor.row as usize >= content.visible_rows()
         || display_cursor.col >= content.columns
     {
         return None;
