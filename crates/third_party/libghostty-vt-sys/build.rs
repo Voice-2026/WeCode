@@ -49,6 +49,12 @@ fn main() {
     build
         .arg("build")
         .arg("-Demit-lib-vt")
+        // Zig defaults to Debug, which enables ghostty's "slow runtime
+        // safety" integrity checks: scrollback reflow gets an order of
+        // magnitude slower and Debug-only assertions abort the process
+        // (PageList integrity panic on resize). Build the VT library the
+        // way upstream ships it, regardless of the cargo profile.
+        .arg("-Doptimize=ReleaseFast")
         .arg("--prefix")
         .arg(&install_prefix)
         .current_dir(&ghostty_dir);

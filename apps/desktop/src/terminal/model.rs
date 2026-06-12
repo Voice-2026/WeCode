@@ -6,9 +6,14 @@ struct TerminalModel {
     pending_output_bytes: Vec<u8>,
     output_flush_pending: bool,
     snapshot_dirty: bool,
+    snapshot_publish_pending: bool,
     sync_output_depth: usize,
     sync_output_pending_notify: bool,
     sync_output_scan_tail: Vec<u8>,
+    restored_bootstrap_active: bool,
+    last_paint_sync: Option<Instant>,
+    last_engine_resize_at: Option<Instant>,
+    engine_resize_flush_pending: bool,
     color_scheme_state: TerminalColorSchemeState,
     title: Option<String>,
     exited: bool,
@@ -26,12 +31,17 @@ struct TerminalModel {
 struct TerminalStateHandle {
     screen: Arc<Mutex<HeadlessTerminalScreen>>,
     snapshot: Arc<Mutex<TerminalContent>>,
+    // Last dimensions requested from the screen engine. The published
+    // snapshot lags behind the engine while publishes are queued, so resize
+    // dedup must not compare against it.
+    engine_dims: Arc<Mutex<(usize, usize)>>,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum TerminalInternalEvent {
     Resize { cols: usize, rows: usize },
     Scroll { lines: i32 },
+    ScrollAbsolute { offset: usize },
 }
 
 impl TerminalModel {
@@ -40,17 +50,56 @@ impl TerminalModel {
         bytes_rx: flume::Receiver<Vec<u8>>,
         session_event_rx: mpsc::Receiver<TerminalUiEvent>,
         config: &TerminalConfig,
+        restored_output: Option<TerminalOutputSnapshot>,
         cx: &mut Context<Self>,
     ) -> Self
     where
         W: Write + Send + 'static,
     {
-        let screen = Arc::new(Mutex::new(HeadlessTerminalScreen::new(
+        let stdin_writer: Arc<Mutex<Box<dyn Write + Send>>> =
+            Arc::new(Mutex::new(Box::new(stdin_writer)));
+        // The engine answers VT queries (DSR/CPR, DECRQM, DA, ...) itself;
+        // replies are forwarded straight to the PTY from the worker thread.
+        let responder: codux_terminal_core::TerminalPtyResponder = {
+            let writer = stdin_writer.clone();
+            Arc::new(move |bytes: &[u8]| {
+                let mut writer = writer.lock();
+                let _ = writer.write_all(bytes);
+                let _ = writer.flush();
+            })
+        };
+        let screen = Arc::new(Mutex::new(HeadlessTerminalScreen::new_with_responder(
             config.cols,
             config.rows,
             config.scrollback,
+            Some(responder),
         )));
-        let snapshot = TerminalContent::from_screen_snapshot(screen.lock().snapshot());
+        let restored_bootstrap_active = restored_output
+            .as_ref()
+            .is_some_and(|restored_output| !restored_output.tail.is_empty());
+        if let Some(restored_output) = restored_output.as_ref()
+            && !restored_output.tail.is_empty()
+        {
+            screen.lock().process_replay(restored_output.tail.as_bytes());
+            codux_runtime::runtime_trace::runtime_trace(
+                "terminal-restore",
+                &format!(
+                    "restored_bootstrap tail_bytes={} total_bytes={}",
+                    restored_output.tail.len(),
+                    restored_output.bytes
+                ),
+            );
+        }
+        // Seed the published content with correct dimensions only; blocking
+        // here for a real snapshot would stall the UI thread behind the
+        // restored-tail processing for every pane on a project switch. The
+        // first paint publishes the real content asynchronously.
+        let snapshot = TerminalContent::from_screen_snapshot(TerminalScreenSnapshot {
+            cols: config.cols,
+            rows: config.rows,
+            total_lines: config.rows,
+            ..TerminalScreenSnapshot::default()
+        });
         let reader_task = cx.spawn(async move |this: WeakEntity<Self>, cx| {
             while let Ok(bytes) = bytes_rx.recv_async().await {
                 if this
@@ -66,16 +115,24 @@ impl TerminalModel {
             handle: TerminalStateHandle {
                 screen,
                 snapshot: Arc::new(Mutex::new(snapshot)),
+                engine_dims: Arc::new(Mutex::new((config.cols, config.rows))),
             },
-            stdin_writer: Arc::new(Mutex::new(Box::new(stdin_writer) as Box<dyn Write + Send>)),
+            stdin_writer,
             session_event_rx,
             events: VecDeque::new(),
             pending_output_bytes: Vec::new(),
             output_flush_pending: false,
-            snapshot_dirty: false,
+            // The seeded published content is dimensions-only; the first
+            // paint publishes the real screen.
+            snapshot_dirty: true,
+            snapshot_publish_pending: false,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            restored_bootstrap_active,
+            last_paint_sync: None,
+            last_engine_resize_at: None,
+            engine_resize_flush_pending: false,
             color_scheme_state: TerminalColorSchemeState::default(),
             title: None,
             exited: false,
@@ -121,7 +178,8 @@ impl TerminalModel {
     fn flush_output(&mut self, cx: &mut Context<Self>) {
         let bytes = std::mem::take(&mut self.pending_output_bytes);
         if bytes.is_empty() {
-            if self.process_pending_events(cx) {
+            if self.process_pending_events(cx) || self.snapshot_dirty {
+                self.request_snapshot_publish(cx);
                 cx.notify();
             }
             return;
@@ -131,11 +189,12 @@ impl TerminalModel {
     }
 
     fn process_output_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
-        let before_display_offset = self.handle.display_offset();
+        self.replace_restored_bootstrap_before_output(bytes.len());
         let sync_update = self.update_synchronized_output_state(bytes);
         let color_scheme_update =
             update_terminal_color_scheme_state(bytes, &mut self.color_scheme_state);
         self.respond_to_color_scheme_queries(color_scheme_update.query_count);
+        self.respond_to_osc_color_queries(&color_scheme_update);
         self.process_bytes(bytes);
         trace_terminal_protocol_bytes(
             bytes,
@@ -152,14 +211,18 @@ impl TerminalModel {
             return;
         }
 
-        if sync_update.should_notify || event_should_notify || self.sync_output_pending_notify {
-            self.sync_output_pending_notify = false;
+        let should_publish =
+            sync_update.should_notify || event_should_notify || self.sync_output_pending_notify;
+        self.sync_output_pending_notify = false;
+        if should_publish || self.snapshot_dirty {
+            self.request_snapshot_publish(cx);
         }
-        let after_display_offset = self.handle.display_offset();
-        if after_display_offset != before_display_offset {
-            self.snapshot_dirty = true;
-        }
-        cx.notify();
+    }
+
+    #[cfg(test)]
+    fn process_output_bytes_for_test(&mut self, bytes: &[u8]) {
+        self.replace_restored_bootstrap_before_output(bytes.len());
+        self.process_bytes(bytes);
     }
 
     fn update_synchronized_output_state(&mut self, bytes: &[u8]) -> SyncOutputUpdate {
@@ -239,6 +302,24 @@ impl TerminalModel {
         self.snapshot_dirty = true;
     }
 
+    fn replace_restored_bootstrap_before_output(&mut self, bytes_len: usize) {
+        if !self.restored_bootstrap_active {
+            return;
+        }
+        let cols = self.window_size.num_cols as usize;
+        let rows = self.window_size.num_lines as usize;
+        self.handle.clear_screen();
+        self.restored_bootstrap_active = false;
+        self.snapshot_dirty = true;
+        codux_runtime::runtime_trace::runtime_trace(
+            "terminal-restore",
+            &format!(
+                "restored_bootstrap_replace first_bytes={} cols={} rows={}",
+                bytes_len, cols, rows
+            ),
+        );
+    }
+
     fn update_colors(&mut self, colors: ColorPalette) {
         let was_dark = self.colors.is_dark();
         let is_dark = colors.is_dark();
@@ -259,39 +340,222 @@ impl TerminalModel {
         }
     }
 
+    fn respond_to_osc_color_queries(&self, update: &TerminalColorSchemeUpdate) {
+        for _ in 0..update.osc_foreground_queries {
+            self.write_bytes(&terminal_osc_color_report(10, self.colors.foreground()));
+        }
+        for _ in 0..update.osc_background_queries {
+            self.write_bytes(&terminal_osc_color_report(11, self.colors.background()));
+        }
+    }
+
     fn write_color_scheme_report(&self) {
         self.write_bytes(terminal_color_scheme_report(&self.colors));
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) -> TerminalContent {
+        self.last_paint_sync = Some(Instant::now());
         self.process_pending_events(cx);
-        self.sync_model_events()
+        self.apply_model_events();
+        self.schedule_deferred_resize_flush(cx);
+        self.schedule_snapshot_publish(cx);
+        self.handle.snapshot()
     }
 
-    fn sync_model_events(&mut self) -> TerminalContent {
+    // Output-driven publish requests go through here: snapshots are only
+    // computed for terminals that are actually being painted. For hidden
+    // panes (background worktrees, occluded windows) the snapshot stays
+    // dirty and we just notify; when the view paints again its prepaint
+    // sync() schedules the publish.
+    fn request_snapshot_publish(&mut self, cx: &mut Context<Self>) {
+        let painted_recently = self
+            .last_paint_sync
+            .is_some_and(|at| at.elapsed() < TERMINAL_PAINT_RECENCY);
+        if painted_recently {
+            self.schedule_snapshot_publish(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn apply_model_events(&mut self) -> bool {
         let mut snapshot_dirty = self.snapshot_dirty;
+        let mut deferred_resize = None;
         while let Some(event) = self.events.pop_front() {
             match event {
                 TerminalInternalEvent::Resize { cols, rows } => {
-                    snapshot_dirty |= self.handle.resize(cols, rows);
+                    if self.engine_resize_throttled(cols, rows) {
+                        deferred_resize = Some(event);
+                    } else {
+                        let applied = self.handle.resize(cols, rows);
+                        if applied {
+                            self.last_engine_resize_at = Some(Instant::now());
+                        }
+                        snapshot_dirty |= applied;
+                    }
                 }
                 TerminalInternalEvent::Scroll { lines } => {
                     snapshot_dirty |= self.handle.scroll_display(lines);
                 }
+                TerminalInternalEvent::ScrollAbsolute { offset } => {
+                    snapshot_dirty |= self.handle.scroll_to_offset(offset);
+                }
             }
         }
-        if snapshot_dirty {
+        if let Some(event) = deferred_resize {
+            self.events.push_back(event);
+        }
+        self.snapshot_dirty = snapshot_dirty;
+        snapshot_dirty
+    }
+
+    // Column changes rewrap the whole scrollback; split/window drags emit
+    // one per frame, so engine resizes are rate-limited. The deferred event
+    // stays queued and is flushed by schedule_deferred_resize_flush.
+    fn engine_resize_throttled(&self, cols: usize, rows: usize) -> bool {
+        if *self.handle.engine_dims.lock() == (cols, rows) {
+            return false;
+        }
+        self.last_engine_resize_at
+            .is_some_and(|at| at.elapsed() < TERMINAL_ENGINE_RESIZE_THROTTLE)
+    }
+
+    fn schedule_deferred_resize_flush(&mut self, cx: &mut Context<Self>) {
+        if self.engine_resize_flush_pending {
+            return;
+        }
+        let has_resize = self
+            .events
+            .iter()
+            .any(|event| matches!(event, TerminalInternalEvent::Resize { .. }));
+        if !has_resize {
+            return;
+        }
+        self.engine_resize_flush_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |model: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_ENGINE_RESIZE_THROTTLE).await;
+            let _ = model.update(cx, |model, cx| {
+                model.engine_resize_flush_pending = false;
+                if model.apply_model_events() {
+                    model.schedule_snapshot_publish(cx);
+                    cx.notify();
+                }
+                // Still throttled (another resize landed meanwhile): re-arm.
+                model.schedule_deferred_resize_flush(cx);
+            });
+        })
+        .detach();
+    }
+
+    #[cfg(test)]
+    fn publish_snapshot_now(&mut self) -> TerminalContent {
+        if self.apply_model_events() {
             self.handle.publish_snapshot();
             self.snapshot_dirty = false;
         }
         self.handle.snapshot()
     }
 
+    fn schedule_snapshot_publish(&mut self, cx: &mut Context<Self>) {
+        if !self.snapshot_dirty || self.snapshot_publish_pending || self.snapshot_publish_deferred()
+        {
+            return;
+        }
+        let request = self.handle.snapshot_request();
+        self.snapshot_dirty = false;
+        self.snapshot_publish_pending = true;
+        let started_at = Instant::now();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            let snapshot = codux_runtime::async_runtime::spawn_blocking(move || request.snapshot())
+                .await
+                .ok();
+            let _ = this.update(cx, |model, cx| {
+                model.snapshot_publish_pending = false;
+                let mut content_changed = false;
+                if let Some(snapshot) = snapshot {
+                    let elapsed = started_at.elapsed();
+                    content_changed = model.publish_completed_snapshot(snapshot, elapsed);
+                }
+                if model.snapshot_dirty {
+                    model.request_snapshot_publish(cx);
+                }
+                if content_changed {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn publish_completed_snapshot(
+        &mut self,
+        snapshot: TerminalScreenSnapshot,
+        elapsed: Duration,
+    ) -> bool {
+        if !self.events.is_empty() {
+            self.apply_model_events();
+        }
+        let publish_deferred = self.snapshot_publish_deferred();
+        let dirty_queued = self.snapshot_dirty;
+        if self.should_skip_completed_snapshot(&snapshot, dirty_queued, publish_deferred) {
+            self.snapshot_dirty = true;
+            trace_snapshot_publish_result(
+                "snapshot_publish_skip_stale",
+                elapsed,
+                snapshot.cols,
+                snapshot.rows,
+                snapshot.cells.len(),
+                dirty_queued,
+            );
+            return false;
+        }
+
+        let (cols, rows, cells, content_changed) = self.handle.publish_screen_snapshot(snapshot);
+        trace_snapshot_publish_result(
+            "snapshot_publish_slow",
+            elapsed,
+            cols,
+            rows,
+            cells,
+            dirty_queued,
+        );
+        content_changed
+    }
+
+    fn snapshot_publish_deferred(&self) -> bool {
+        self.output_flush_pending
+            || !self.pending_output_bytes.is_empty()
+            || self.sync_output_depth > 0
+    }
+
+    fn should_skip_completed_snapshot(
+        &self,
+        snapshot: &TerminalScreenSnapshot,
+        dirty_queued: bool,
+        publish_deferred: bool,
+    ) -> bool {
+        if self.sync_output_depth > 0 {
+            return true;
+        }
+
+        // Compare against the dims last requested from the engine, not the
+        // window's target dims: while an engine resize is throttled during a
+        // drag, snapshots at the current engine size are the freshest
+        // content available and must keep publishing.
+        let engine_dims = *self.handle.engine_dims.lock();
+        if dirty_queued && (snapshot.cols, snapshot.rows) != engine_dims {
+            return true;
+        }
+
+        !self.handle.snapshot.lock().cells.is_empty()
+            && snapshot.cells.is_empty()
+            && (dirty_queued || publish_deferred)
+    }
+
     fn prepare_input_viewport(&mut self, cx: &mut Context<Self>) {
         if self.prepare_input_viewport_snapshot() {
-            self.handle.publish_snapshot();
-            self.snapshot_dirty = false;
-            cx.notify();
+            self.schedule_snapshot_publish(cx);
         }
     }
 
@@ -309,17 +573,32 @@ impl TerminalModel {
         for event in events {
             match event {
                 TerminalInternalEvent::Resize { cols, rows } => {
-                    snapshot_dirty |= self.handle.resize(cols, rows);
+                    // Input preparation applies resizes immediately (typing
+                    // implies the drag burst is over); stamp the throttle so
+                    // a following frame doesn't double-resize.
+                    let applied = self.handle.resize(cols, rows);
+                    if applied {
+                        self.last_engine_resize_at = Some(Instant::now());
+                    }
+                    snapshot_dirty |= applied;
                 }
-                TerminalInternalEvent::Scroll { .. } => {}
+                TerminalInternalEvent::Scroll { .. }
+                | TerminalInternalEvent::ScrollAbsolute { .. } => {}
             }
         }
-        snapshot_dirty | self.handle.scroll_to_bottom()
+        snapshot_dirty |= self.handle.scroll_to_bottom();
+        // scroll_to_bottom judges "already at bottom" from the published
+        // offset, which lags the engine while a publish is in flight; the
+        // in-flight snapshot may capture a scrolled viewport, so republish
+        // to be safe.
+        snapshot_dirty |= self.snapshot_publish_pending;
+        self.snapshot_dirty = snapshot_dirty;
+        snapshot_dirty
     }
 
     #[cfg(test)]
     fn sync_for_test(&mut self) -> TerminalContent {
-        self.sync_model_events()
+        self.publish_snapshot_now()
     }
 
     fn live_snapshot(&self) -> TerminalContent {
@@ -327,11 +606,7 @@ impl TerminalModel {
     }
 
     fn mode(&self) -> TerminalInputMode {
-        self.handle.mode()
-    }
-
-    fn display_offset(&self) -> usize {
-        self.handle.display_offset()
+        self.handle.input_mode()
     }
 
     fn snapshot(&self) -> TerminalContent {
@@ -344,12 +619,28 @@ impl TerminalModel {
     }
 
     fn dimensions(&self) -> (usize, usize) {
-        self.handle.dimensions()
+        (
+            self.window_size.num_cols as usize,
+            self.window_size.num_lines as usize,
+        )
     }
 
     fn scroll_display(&mut self, lines: i32) -> bool {
         self.events
             .push_back(TerminalInternalEvent::Scroll { lines });
+        true
+    }
+
+    // Absolute scrollbar targets: the delta is resolved on the engine
+    // worker against the live offset, so a lagging published offset can't
+    // compound the same distance across drag frames.
+    fn scroll_to_display_offset(&mut self, offset: usize) -> bool {
+        match self.events.back_mut() {
+            Some(TerminalInternalEvent::ScrollAbsolute { offset: o }) => *o = offset,
+            _ => self
+                .events
+                .push_back(TerminalInternalEvent::ScrollAbsolute { offset }),
+        }
         true
     }
 
@@ -377,8 +668,9 @@ impl TerminalModel {
     }
 
     fn resize(&mut self, cols: usize, rows: usize, window_size: TerminalWindowSize) {
+        let current = self.dimensions();
         self.window_size = window_size;
-        if self.dimensions() == (cols, rows) {
+        if current == (cols, rows) {
             return;
         }
         match self.events.back_mut() {
@@ -407,9 +699,13 @@ impl TerminalModel {
     }
 
     fn paste_text(&self, text: &str) {
+        // Read bracketed-paste from the live engine: the published snapshot
+        // lags it, and an unbracketed multi-line paste into a shell executes
+        // every line. Pastes are rare user actions, so the blocking worker
+        // round-trip is acceptable.
         self.write_bytes(&codux_terminal_core::terminal_paste_input_bytes(
             text,
-            self.mode().bracketed_paste,
+            self.handle.live_input_mode().bracketed_paste,
         ));
     }
 
@@ -436,6 +732,7 @@ impl TerminalModel {
             handle: TerminalStateHandle {
                 screen,
                 snapshot: Arc::new(Mutex::new(snapshot)),
+                engine_dims: Arc::new(Mutex::new((cols, rows))),
             },
             stdin_writer: Arc::new(Mutex::new(Box::new(TestTerminalWriter {
                 bytes: written_bytes.clone(),
@@ -445,9 +742,14 @@ impl TerminalModel {
             pending_output_bytes: Vec::new(),
             output_flush_pending: false,
             snapshot_dirty: false,
+            snapshot_publish_pending: false,
             sync_output_depth: 0,
             sync_output_pending_notify: false,
             sync_output_scan_tail: Vec::new(),
+            restored_bootstrap_active: false,
+            last_paint_sync: None,
+            last_engine_resize_at: None,
+            engine_resize_flush_pending: false,
             color_scheme_state: TerminalColorSchemeState::default(),
             title: None,
             exited: false,
@@ -464,6 +766,26 @@ impl TerminalModel {
             written_bytes: Some(written_bytes),
             _reader_task: Task::ready(()),
         }
+    }
+
+    #[cfg(test)]
+    fn new_for_test_with_restored_output(
+        cols: usize,
+        rows: usize,
+        scrollback: usize,
+        restored_output: TerminalOutputSnapshot,
+    ) -> Self {
+        let mut model = Self::new_for_test(cols, rows, scrollback);
+        if !restored_output.tail.is_empty() {
+            model
+                .handle
+                .screen
+                .lock()
+                .process_replay(restored_output.tail.as_bytes());
+            model.handle.publish_snapshot();
+            model.restored_bootstrap_active = true;
+        }
+        model
     }
 }
 
@@ -485,53 +807,107 @@ impl Write for TestTerminalWriter {
 }
 
 impl TerminalStateHandle {
-    fn mode(&self) -> TerminalInputMode {
-        self.screen.lock().snapshot().input_mode
-    }
-
     fn display_offset(&self) -> usize {
-        self.screen.lock().display_offset()
+        self.snapshot.lock().display_offset
     }
 
-    fn dimensions(&self) -> (usize, usize) {
-        let snapshot = self.screen.lock().snapshot();
-        (snapshot.cols, snapshot.rows)
+    fn input_mode(&self) -> TerminalInputMode {
+        self.snapshot.lock().input_mode
+    }
+
+    fn live_input_mode(&self) -> TerminalInputMode {
+        self.screen.lock().input_mode()
     }
 
     fn snapshot(&self) -> TerminalContent {
         self.snapshot.lock().clone()
     }
 
+    #[cfg(test)]
     fn publish_snapshot(&self) {
         let snapshot = self.screen.lock().snapshot();
         *self.snapshot.lock() = TerminalContent::from_screen_snapshot(snapshot);
     }
 
+    fn snapshot_request(&self) -> HeadlessTerminalSnapshotRequest {
+        // The desktop renderer only consumes cells; skip the ANSI repaint
+        // string the worker would otherwise build per snapshot.
+        self.screen.lock().snapshot_request(false)
+    }
+
+    // Returns (cols, rows, cell count, content changed). Skipping the
+    // repaint when the content is unchanged keeps idle-but-noisy terminals
+    // from re-shaping the whole viewport every output batch.
+    fn publish_screen_snapshot(&self, snapshot: TerminalScreenSnapshot) -> (usize, usize, usize, bool) {
+        let content = TerminalContent::from_screen_snapshot(snapshot);
+        let stats = (content.columns, content.screen_lines, content.cells.len());
+        let mut published = self.snapshot.lock();
+        let content_changed = *published != content;
+        *published = content;
+        (stats.0, stats.1, stats.2, content_changed)
+    }
+
     fn resize(&self, cols: usize, rows: usize) -> bool {
-        let (current_cols, current_rows) = self.dimensions();
-        if cols == current_cols && rows == current_rows {
+        let mut engine_dims = self.engine_dims.lock();
+        if *engine_dims == (cols, rows) {
             return false;
         }
+        *engine_dims = (cols, rows);
         self.screen.lock().resize(cols, rows);
         true
     }
 
+    fn clear_screen(&self) {
+        self.screen.lock().clear();
+    }
+
     fn scroll_display(&self, lines: i32) -> bool {
-        let before = self.display_offset();
+        if lines == 0 {
+            return false;
+        }
         self.screen.lock().scroll_lines(lines);
-        self.display_offset() != before
+        true
+    }
+
+    fn scroll_to_offset(&self, offset: usize) -> bool {
+        self.screen.lock().scroll_to_offset(offset);
+        true
     }
 
     fn scroll_to_bottom(&self) -> bool {
         let before = self.display_offset();
         self.screen.lock().scroll_to_bottom();
-        self.display_offset() != before
+        before != 0
     }
 
     fn selected_text_for_range(&self, range: SelectionRange) -> String {
         let content = self.snapshot();
         selected_text_from_content(&content, range)
     }
+}
+
+fn trace_snapshot_publish_result(
+    label: &str,
+    elapsed: Duration,
+    cols: usize,
+    rows: usize,
+    cells: usize,
+    dirty_queued: bool,
+) {
+    if elapsed < TERMINAL_SNAPSHOT_PUBLISH_SLOW && !terminal_trace_enabled() {
+        return;
+    }
+    codux_runtime::runtime_trace::runtime_trace(
+        "terminal-render",
+        &format!(
+            "{label} elapsed_ms={} cols={} rows={} cells={} dirty_queued={}",
+            elapsed.as_millis(),
+            cols,
+            rows,
+            cells,
+            dirty_queued
+        ),
+    );
 }
 
 fn selected_text_from_content(content: &TerminalContent, range: SelectionRange) -> String {

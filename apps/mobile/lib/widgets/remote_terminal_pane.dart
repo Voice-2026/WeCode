@@ -98,8 +98,8 @@ class RemoteTerminalPane extends StatelessWidget {
     );
     final toolbarSafeInset = toolbarBottom.clamp(0.0, bottomInset);
     final terminalPadding = Platform.isIOS
-        ? const EdgeInsets.fromLTRB(0, 0, 0, 0)
-        : const EdgeInsets.fromLTRB(8, 6, 8, 6);
+        ? EdgeInsets.zero
+        : const EdgeInsets.symmetric(horizontal: 8);
 
     return MediaQuery.removeViewInsets(
       context: context,

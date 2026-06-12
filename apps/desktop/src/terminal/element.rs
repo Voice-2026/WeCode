@@ -73,26 +73,40 @@ impl Element for TerminalElement {
             rows,
         );
         let layout_record = self.session.record_layout(cols as u16, rows as u16);
-        if layout_record.resized {
+        let mut local_owner = self.session.local_viewport_owns();
+        // Claim only on first layout or when ownership sits elsewhere
+        // (e.g. mobile handoff). When we already own the viewport, plain
+        // size changes go through the debounced PTY resize below; claiming
+        // here would resize the PTY on every frame of a window drag.
+        if layout_record.initialized || !local_owner {
             if let Err(error) = self.session.claim_local_viewport() {
                 eprintln!("failed to claim terminal viewport: {error}");
             }
+            local_owner = self.session.local_viewport_owns();
         }
 
-        let window_size = self.layout.lock().window_size();
-        let local_owner = self.session.local_viewport_owns();
+        let mut window_size = self.layout.lock().window_size();
         let (model_cols, model_rows) = self.model.read(cx).dimensions();
         let next_cols = if local_owner { cols } else { model_cols };
         let next_rows = if local_owner { rows } else { model_rows };
+        // Keep the recorded window size consistent with the dims actually
+        // requested from the engine: for a non-owner pane the layout dims
+        // differ from the engine dims, and dimensions() must not drift.
+        window_size.num_cols = next_cols as u16;
+        window_size.num_lines = next_rows as u16;
         let resized = self.model.read(cx).dimensions() != (next_cols, next_rows);
         self.model.update(cx, |model, _| {
             model.resize(next_cols, next_rows, window_size)
         });
-        if local_owner
-            && resized
-            && let Err(error) = self.session.resize(next_cols as u16, next_rows as u16)
-        {
-            eprintln!("failed to resize terminal pty: {error}");
+        if local_owner && resized {
+            let scheduled = self.terminal_view.update(cx, |view, cx| {
+                view.schedule_pty_resize(next_cols as u16, next_rows as u16, cx);
+            });
+            if scheduled.is_err()
+                && let Err(error) = self.session.resize(next_cols as u16, next_rows as u16)
+            {
+                eprintln!("failed to resize terminal pty: {error}");
+            }
         }
 
         let snapshot = self

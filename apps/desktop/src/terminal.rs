@@ -4,8 +4,9 @@ use codux_runtime::terminal_pty::{
     TerminalPtyConfig, TerminalPtySession, terminal_viewport_local_owner,
 };
 use codux_terminal_core::{
-    HeadlessTerminalScreen, TerminalInputMode, TerminalScreenCellSnapshot, TerminalScreenColor,
-    TerminalScreenCursorShape, TerminalScreenCursorSnapshot, TerminalScreenSnapshot,
+    HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalInputMode,
+    TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
+    TerminalScreenCursorSnapshot, TerminalScreenSnapshot,
 };
 use gpui::{
     App, AppContext, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, Edges, Element,

@@ -719,6 +719,7 @@ pub(in crate::app) struct TerminalWorkspaceSnapshot {
     loading: bool,
     layout_key: String,
     bottom_ratio: f64,
+    top_ratios: Vec<f64>,
     main_panes: Vec<TerminalPaneViewSnapshot>,
     bottom_tabs: Vec<TerminalBottomTabViewSnapshot>,
     active_bottom: Option<TerminalPaneViewSnapshot>,
@@ -750,6 +751,11 @@ pub(in crate::app) struct TerminalWorkspaceView {
     app_entity: gpui::Entity<CoduxApp>,
     snapshot: TerminalWorkspaceSnapshot,
     tab_scroll_handle: ScrollHandle,
+    // Real size of the terminal workspace, recorded at prepaint. Used to
+    // derive panel sizes from the persisted ratios so the first frame
+    // after a layout-key switch matches the actual container.
+    container_height: Option<Pixels>,
+    container_width: Option<Pixels>,
 }
 
 impl TerminalWorkspaceView {
@@ -758,6 +764,8 @@ impl TerminalWorkspaceView {
             app_entity,
             snapshot,
             tab_scroll_handle: ScrollHandle::new(),
+            container_height: None,
+            container_width: None,
         }
     }
 
@@ -784,8 +792,9 @@ impl Render for TerminalWorkspaceView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let has_bottom_tabs = !self.snapshot.bottom_tabs.is_empty();
         let bottom_ratio = clamp_terminal_bottom_ratio(self.snapshot.bottom_ratio);
-        let bottom_size = terminal_bottom_panel_size(bottom_ratio);
-        let main_size = (TERMINAL_SPLIT_BASE_SIZE - bottom_size).max(px(220.0));
+        let total_size = self.container_height.unwrap_or(TERMINAL_SPLIT_BASE_SIZE);
+        let bottom_size = terminal_bottom_panel_size(bottom_ratio, total_size);
+        let main_size = (total_size - bottom_size).max(px(220.0));
         let split_id = SharedString::from(format!(
             "workspace-terminal-split-{}",
             terminal_layout_key_for_element_id(&self.snapshot.layout_key)
@@ -793,6 +802,9 @@ impl Render for TerminalWorkspaceView {
         let main = terminal_main_split_area(
             self.app_entity.clone(),
             self.snapshot.main_panes.clone(),
+            &self.snapshot.layout_key,
+            &self.snapshot.top_ratios,
+            self.container_width,
             cx,
         );
         let bottom = terminal_bottom_tabs_area(
@@ -812,7 +824,30 @@ impl Render for TerminalWorkspaceView {
             .min_h_0()
             .w_full()
             .h_full()
-            .bg(color(theme::BG_TERMINAL));
+            .bg(color(theme::BG_TERMINAL))
+            .on_prepaint({
+                let view = cx.entity();
+                move |bounds, _, cx| {
+                    view.update(cx, |view, cx| {
+                        let height = bounds.size.height;
+                        let width = bounds.size.width;
+                        let changed = view
+                            .container_height
+                            .is_none_or(|recorded| (recorded - height).abs() > px(1.0))
+                            || view
+                                .container_width
+                                .is_none_or(|recorded| (recorded - width).abs() > px(1.0));
+                        if changed {
+                            view.container_height = Some(height);
+                            view.container_width = Some(width);
+                            // Re-render so panel sizes derived from the
+                            // measured size converge this frame cycle
+                            // instead of waiting for an unrelated update.
+                            cx.notify();
+                        }
+                    });
+                }
+            });
 
         if !has_bottom_tabs {
             return base
@@ -852,7 +887,7 @@ impl Render for TerminalWorkspaceView {
                 .child(
                     resizable_panel()
                         .size(main_size)
-                        .size_range(px(220.0)..px(900.0))
+                        .size_range(px(220.0)..Pixels::MAX)
                         .child(main),
                 )
                 .child(
@@ -941,6 +976,10 @@ impl CoduxApp {
             layout_key: super::ai_runtime_status::current_terminal_layout_storage_key(&self.state)
                 .unwrap_or_default(),
             bottom_ratio: clamp_terminal_bottom_ratio(self.state.terminal_layout.bottom_ratio),
+            top_ratios: terminal_top_ratios_for_panes(
+                self.state.terminal_layout.top_ratios.clone(),
+                main_panes.len(),
+            ),
             main_panes,
             bottom_tabs,
             active_bottom,
@@ -953,12 +992,13 @@ fn active_terminal_bottom_tab_id(tabs: &[TerminalBottomTabViewSnapshot]) -> Opti
 }
 
 const TERMINAL_SPLIT_BASE_SIZE: Pixels = px(640.0);
+const TERMINAL_SPLIT_BASE_WIDTH: Pixels = px(1200.0);
 const TERMINAL_BOTTOM_TAB_BAR_HEIGHT: Pixels = px(40.0);
 const TERMINAL_BOTTOM_PANEL_MIN_SIZE: Pixels = px(128.0);
+const TERMINAL_TOP_PANE_MIN_WIDTH: Pixels = px(160.0);
 
-fn terminal_bottom_panel_size(ratio: f64) -> Pixels {
-    px((TERMINAL_SPLIT_BASE_SIZE.as_f32() as f64 * ratio) as f32)
-        .clamp(TERMINAL_BOTTOM_PANEL_MIN_SIZE, px(360.0))
+fn terminal_bottom_panel_size(ratio: f64, total: Pixels) -> Pixels {
+    px((total.as_f32() as f64 * ratio) as f32).clamp(TERMINAL_BOTTOM_PANEL_MIN_SIZE, px(520.0))
 }
 
 fn terminal_bottom_ratio_from_sizes(sizes: &[Pixels]) -> Option<f64> {
@@ -989,6 +1029,9 @@ fn terminal_layout_key_for_element_id(key: &str) -> String {
 fn terminal_main_split_area(
     app_entity: gpui::Entity<CoduxApp>,
     panes: Vec<TerminalPaneViewSnapshot>,
+    layout_key: &str,
+    top_ratios: &[f64],
+    container_width: Option<Pixels>,
     cx: &mut Context<TerminalWorkspaceView>,
 ) -> AnyElement {
     if panes.is_empty() {
@@ -1000,18 +1043,76 @@ fn terminal_main_split_area(
     }
 
     let pane_count = panes.len();
-    div()
-        .flex()
-        .flex_1()
-        .flex_basis(px(0.0))
-        .size_full()
-        .min_w_0()
-        .min_h_0()
-        .overflow_hidden()
+    if pane_count == 1 {
+        return div()
+            .flex()
+            .flex_1()
+            .flex_basis(px(0.0))
+            .size_full()
+            .min_w_0()
+            .min_h_0()
+            .overflow_hidden()
+            .children(panes.into_iter().enumerate().map(move |(index, slot)| {
+                terminal_pane(app_entity.clone(), index, pane_count, slot, cx)
+            }))
+            .into_any_element();
+    }
+
+    let ratios = terminal_top_ratios_for_panes(top_ratios.to_vec(), pane_count);
+    let total_width = container_width.unwrap_or(TERMINAL_SPLIT_BASE_WIDTH);
+    let split_id = SharedString::from(format!(
+        "workspace-terminal-top-split-{}-{}",
+        terminal_layout_key_for_element_id(layout_key),
+        pane_count
+    ));
+    let resize_app_entity = app_entity.clone();
+    let resize_layout_key = layout_key.to_string();
+    h_resizable(split_id)
+        .on_resize(move |state, window, cx| {
+            let sizes = state.read(cx).sizes().clone();
+            let Some(ratios) = terminal_top_ratios_from_sizes(&sizes) else {
+                return;
+            };
+            window.defer(cx, {
+                let app_entity = resize_app_entity.clone();
+                let layout_key = resize_layout_key.clone();
+                move |_window, cx| {
+                    let _ = app_entity.update(cx, |app, cx| {
+                        app.update_terminal_top_ratios(layout_key, ratios, cx);
+                    });
+                }
+            });
+        })
         .children(panes.into_iter().enumerate().map(move |(index, slot)| {
-            terminal_pane(app_entity.clone(), index, pane_count, slot, cx)
+            let ratio = ratios.get(index).copied().unwrap_or(1.0 / pane_count as f64);
+            resizable_panel()
+                .size(px((total_width.as_f32() as f64 * ratio) as f32))
+                .size_range(TERMINAL_TOP_PANE_MIN_WIDTH..Pixels::MAX)
+                .child(terminal_pane(
+                    app_entity.clone(),
+                    index,
+                    pane_count,
+                    slot,
+                    cx,
+                ))
         }))
         .into_any_element()
+}
+
+fn terminal_top_ratios_from_sizes(sizes: &[Pixels]) -> Option<Vec<f64>> {
+    if sizes.len() < 2 {
+        return None;
+    }
+    let total = sizes.iter().map(|size| size.as_f32() as f64).sum::<f64>();
+    if total <= 1.0 {
+        return None;
+    }
+    Some(
+        sizes
+            .iter()
+            .map(|size| size.as_f32() as f64 / total)
+            .collect(),
+    )
 }
 
 fn terminal_pane(

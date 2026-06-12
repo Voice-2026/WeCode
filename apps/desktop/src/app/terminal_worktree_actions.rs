@@ -269,10 +269,10 @@ impl CoduxApp {
             return Ok(());
         };
         let config = self.terminal_config_from_settings();
-        let terminal_manager = self.terminal_manager.clone();
         let base_pty_config = self.current_terminal_base_pty_config();
         let terminal_pane_registry = self.terminal_pane_registry.clone();
         let mut registrations = Vec::new();
+        let mut pending = Vec::new();
         let tab = &mut self.terminals[tab_index];
         for slot in &mut tab.panes {
             if slot.pane.is_some() {
@@ -294,21 +294,26 @@ impl CoduxApp {
                 slot.pane = Some(pane);
                 continue;
             }
-            let pane = TerminalPane::spawn_with_pty_config(
+            let restored_output = TerminalOutputSnapshot {
+                bytes: slot.restored_output_bytes,
+                tail: slot.restored_output_tail.clone(),
+            };
+            let (pane, attach) = TerminalPane::pending_with_restored_output(
                 cx,
-                terminal_manager.clone(),
-                pty_config,
+                pty_config.clone(),
                 config.clone(),
-            )
-            .map_err(|error| error.to_string())?;
+                Some(restored_output),
+            );
             if let Some(terminal_id) = slot.terminal_id.clone() {
                 registrations.push((terminal_id, pane.clone()));
             }
             slot.pane = Some(pane);
+            pending.push((pty_config, attach));
         }
         for (terminal_id, pane) in registrations {
             self.register_terminal_pane(Some(&terminal_id), &pane, cx);
         }
+        self.spawn_attach_pending_terminals(None, pending, cx);
         Ok(())
     }
 
@@ -630,6 +635,119 @@ impl CoduxApp {
         );
     }
 
+    pub(super) fn spawn_attach_pending_terminals(
+        &mut self,
+        generation: Option<u64>,
+        pending_terminals: Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>,
+        cx: &mut Context<Self>,
+    ) {
+        if pending_terminals.is_empty() {
+            if generation.is_some() {
+                self.terminal_layout_loading = false;
+                self.sync_terminal_state_for_project_switch();
+                self.invalidate_terminal_workspace(cx);
+            }
+            return;
+        }
+        let terminal_manager = self.terminal_manager.clone();
+        let terminal_config = self.terminal_config_from_settings();
+        let attach_started_at = Instant::now();
+        // Captured for the ad-hoc (generation=None) completion: if the user
+        // switches scope while the attach is in flight, the live terminal
+        // set no longer belongs to this storage key and must not be
+        // persisted under the new scope's key.
+        let spawn_scope_key =
+            super::ai_runtime_status::current_terminal_layout_storage_key(&self.state);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let results = codux_runtime::async_runtime::spawn_blocking({
+                let terminal_manager = terminal_manager.clone();
+                let terminal_config = terminal_config.clone();
+                move || {
+                    let handles = pending_terminals
+                        .into_iter()
+                        .map(|(pty_config, pending)| {
+                            let terminal_id = pending
+                                .terminal_id()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| "none".to_string());
+                            let terminal_manager = terminal_manager.clone();
+                            let terminal_config = terminal_config.clone();
+                            thread::spawn(move || {
+                                let result = TerminalPane::attach_pending_session(
+                                    terminal_manager,
+                                    pty_config,
+                                    terminal_config,
+                                    pending,
+                                )
+                                .map(|_| ())
+                                .map_err(|error| error.to_string());
+                                (terminal_id, result)
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    handles
+                        .into_iter()
+                        .map(|handle| {
+                            handle
+                                .join()
+                                .unwrap_or_else(|_| ("none".to_string(), Err("panic".to_string())))
+                        })
+                        .collect::<Vec<_>>()
+                }
+            })
+            .await
+            .unwrap_or_else(|error| vec![("none".to_string(), Err(error.to_string()))]);
+            let _ = this.update(cx, |app, cx| {
+                let ok_count = results.iter().filter(|(_, result)| result.is_ok()).count();
+                let error = results.iter().find_map(|(terminal_id, result)| {
+                    result
+                        .as_ref()
+                        .err()
+                        .map(|error| format!("{terminal_id}: {error}"))
+                });
+                app.runtime_trace(
+                    "terminal-restore",
+                    &format!(
+                        "attach_pending elapsed_ms={} ok={} total={} error={}",
+                        attach_started_at.elapsed().as_millis(),
+                        ok_count,
+                        results.len(),
+                        error.as_deref().unwrap_or("none")
+                    ),
+                );
+                if let Some(expected_generation) = generation
+                    && app.project_switch_generation != expected_generation
+                {
+                    return;
+                }
+                if generation.is_some() {
+                    app.terminal_layout_loading = false;
+                    if error.is_none() {
+                        app.sync_terminal_state_for_project_switch();
+                    }
+                } else if error.is_none() {
+                    let scope_unchanged =
+                        super::ai_runtime_status::current_terminal_layout_storage_key(&app.state)
+                            == spawn_scope_key;
+                    if scope_unchanged && !app.terminal_layout_loading {
+                        app.sync_terminal_state_after_layout_change(cx);
+                    }
+                }
+                if let Some(error) = error {
+                    app.status_message = format!("failed to prepare terminal: {error}");
+                } else if generation.is_some() {
+                    app.status_message = format!(
+                        "terminal layout reloaded · {} tab{}",
+                        app.terminals.len(),
+                        if app.terminals.len() == 1 { "" } else { "s" }
+                    );
+                }
+                app.invalidate_terminal_workspace(cx);
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn cached_terminal_layout_state(
         &self,
         key: &WorktreeScopeKey,
@@ -927,6 +1045,47 @@ impl CoduxApp {
             return;
         }
         self.state.terminal_layout.bottom_ratio = bottom_ratio;
+        self.persist_current_terminal_layout();
+        self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(in crate::app) fn update_terminal_top_ratios(
+        &mut self,
+        layout_key: String,
+        top_ratios: Vec<f64>,
+        cx: &mut Context<Self>,
+    ) {
+        if super::ai_runtime_status::current_terminal_layout_storage_key(&self.state).as_deref()
+            != Some(layout_key.as_str())
+        {
+            self.runtime_trace(
+                "terminal-layout",
+                &format!("skip stale top ratios layout={layout_key}"),
+            );
+            return;
+        }
+        let pane_count = top_ratios.len();
+        let top_ratios = terminal_top_ratios_for_panes(top_ratios, pane_count);
+        let current = terminal_top_ratios_for_panes(
+            self.state.terminal_layout.top_ratios.clone(),
+            pane_count,
+        );
+        let unchanged = current.len() == top_ratios.len()
+            && current
+                .iter()
+                .zip(top_ratios.iter())
+                .all(|(current, next)| (current - next).abs() < 0.001);
+        if unchanged {
+            return;
+        }
+        if self.terminal_layout_loading {
+            self.runtime_trace(
+                "terminal-layout",
+                &format!("skip resize_top while loading layout={layout_key}"),
+            );
+            return;
+        }
+        self.state.terminal_layout.top_ratios = top_ratios;
         self.persist_current_terminal_layout();
         self.invalidate_terminal_workspace(cx);
     }
@@ -1411,7 +1570,6 @@ impl CoduxApp {
         self.state.ai_session_detail = None;
         self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
         let generation = self.project_switch_generation;
-        self.terminal_layout_loading = true;
         self.status_message = format!("selected worktree: {worktree_id}");
         if let Some(key) = current_worktree_scope_key(&self.state) {
             let storage_key = super::app_state::worktree_terminal_storage_key(&key);

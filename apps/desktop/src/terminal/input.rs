@@ -143,6 +143,9 @@ fn ime_cursor_bounds_from_content(
         return None;
     }
     let display_cursor = content.display_cursor();
+    // The published snapshot never carries a visible_row_shift (it is only
+    // applied to the prepaint copy); the layout records the shift the
+    // renderer painted with, so apply it here to line up with the screen.
     let display_cursor = display_cursor.shifted(layout.row_shift);
     if display_cursor.row < 0
         || display_cursor.row as usize >= content.visible_rows()

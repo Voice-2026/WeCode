@@ -9,8 +9,9 @@ mod terminal_input;
 
 pub use buffer_assembler::{TerminalBufferAssembler, TerminalBufferAssemblyResult};
 pub use headless_screen::{
-    HeadlessTerminalScreen, TerminalScreenCellSnapshot, TerminalScreenColor,
-    TerminalScreenCursorShape, TerminalScreenCursorSnapshot, TerminalScreenSnapshot,
+    HeadlessTerminalScreen, HeadlessTerminalSnapshotRequest, TerminalPtyResponder,
+    TerminalScreenCellSnapshot, TerminalScreenColor, TerminalScreenCursorShape,
+    TerminalScreenCursorSnapshot, TerminalScreenSnapshot,
 };
 pub use output_sequence::{
     TerminalOutputSequenceAction, TerminalOutputSequenceResult, TerminalOutputSequencer,

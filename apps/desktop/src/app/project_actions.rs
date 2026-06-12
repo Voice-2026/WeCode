@@ -280,7 +280,6 @@ impl CoduxApp {
         self.apply_selected_project_shell(&project_id, window, cx);
         self.memory_manager_scope = "project".to_string();
         self.memory_manager_project_id = Some(project_id.clone());
-        self.terminal_layout_loading = true;
         self.spawn_project_switch_load(project_id, switch_generation, cx);
         self.sync_project_list_state(cx);
         self.invalidate_project_context(cx);
@@ -1148,35 +1147,17 @@ impl CoduxApp {
             terminal_layout = cached_layout;
             terminal_runtime = cached_runtime;
         }
-        self.state.terminal_layout = terminal_layout.clone();
-        self.state.terminal_runtime = terminal_runtime.clone();
-        self.terminal_layout_loading = true;
-        let scheduled_at = Instant::now();
-        let timer = cx.background_executor().clone();
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            timer.timer(Duration::from_millis(16)).await;
-            let _ = this.update_in(cx, |app, window, cx| {
-                app.runtime_trace(
-                    "terminal-restore",
-                    &format!(
-                        "after_frame_start generation={} delay_ms={}",
-                        generation,
-                        scheduled_at.elapsed().as_millis()
-                    ),
-                );
-                if app.project_switch_generation != generation {
-                    return;
-                }
-                app.apply_terminal_layout_skeleton(
-                    terminal_layout,
-                    terminal_runtime,
-                    generation,
-                    window,
-                    cx,
-                );
-            });
-        })
-        .detach();
+        self.runtime_trace(
+            "terminal-restore",
+            &format!("restore_start generation={generation}"),
+        );
+        self.apply_terminal_layout_skeleton(
+            terminal_layout,
+            terminal_runtime,
+            generation,
+            _window,
+            cx,
+        );
     }
 
     fn apply_terminal_layout_skeleton(
@@ -1188,7 +1169,6 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let restore_started_at = Instant::now();
-        self.terminal_layout_loading = true;
         let owner_id = super::ai_runtime_status::terminal_layout_owner_id(&self.state);
         let (terminal_layout, terminal_runtime) = normalize_terminal_restore_state(
             owner_id.as_deref(),
@@ -1246,18 +1226,29 @@ impl CoduxApp {
         self.next_terminal_index = next_terminal_index;
         let pending_terminals =
             self.mount_visible_terminal_views_for_restore(&restore_plan, &base_pty_config, cx);
-        self.status_message = format!(
-            "terminal layout reloading · {} tab{}",
-            self.terminals.len(),
-            if self.terminals.len() == 1 { "" } else { "s" }
-        );
+        let pending_count = pending_terminals.len();
+        self.terminal_layout_loading = pending_count > 0;
+        self.status_message = if pending_count == 0 {
+            format!(
+                "terminal layout reloaded · {} tab{}",
+                self.terminals.len(),
+                if self.terminals.len() == 1 { "" } else { "s" }
+            )
+        } else {
+            format!(
+                "terminal layout reloading · {} tab{}",
+                self.terminals.len(),
+                if self.terminals.len() == 1 { "" } else { "s" }
+            )
+        };
         self.runtime_trace(
             "terminal-restore",
             &format!(
-                "skeleton elapsed_ms={} owner={} tabs={}",
+                "skeleton elapsed_ms={} owner={} tabs={} pending={}",
                 restore_started_at.elapsed().as_millis(),
                 owner_id.as_deref().unwrap_or("none"),
-                tab_count
+                tab_count,
+                pending_count
             ),
         );
         self.invalidate_terminal_workspace(cx);
@@ -1268,7 +1259,7 @@ impl CoduxApp {
                 &format!("focus_after_skeleton focused={focused} generation={generation}"),
             );
         }
-        self.spawn_attach_pending_terminals(generation, pending_terminals, cx);
+        self.spawn_attach_pending_terminals(Some(generation), pending_terminals, cx);
     }
 
     fn mount_visible_terminal_views_for_restore(
@@ -1311,10 +1302,14 @@ impl CoduxApp {
                     slot.pane = Some(pane);
                     continue;
                 }
-                let (pane, attach) = TerminalPane::pending_with_pty_config(
+                let (pane, attach) = TerminalPane::pending_with_restored_output(
                     cx,
                     pty_config.clone(),
                     terminal_config.clone(),
+                    Some(TerminalOutputSnapshot {
+                        bytes: slot.restored_output_bytes,
+                        tail: slot.restored_output_tail.clone(),
+                    }),
                 );
                 if let Some(terminal_id) = slot.terminal_id.clone() {
                     registrations.push((terminal_id, pane.clone()));
@@ -1327,86 +1322,6 @@ impl CoduxApp {
             self.register_terminal_pane(Some(&terminal_id), &pane, cx);
         }
         pending
-    }
-
-    fn spawn_attach_pending_terminals(
-        &mut self,
-        generation: u64,
-        pending_terminals: Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>,
-        cx: &mut Context<Self>,
-    ) {
-        if pending_terminals.is_empty() {
-            self.terminal_layout_loading = false;
-            self.sync_terminal_state_for_project_switch();
-            self.invalidate_terminal_workspace(cx);
-            return;
-        }
-        let terminal_manager = self.terminal_manager.clone();
-        let terminal_config = self.terminal_config_from_settings();
-        let attach_started_at = Instant::now();
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let results = codux_runtime::async_runtime::spawn_blocking({
-                let terminal_manager = terminal_manager.clone();
-                let terminal_config = terminal_config.clone();
-                move || {
-                    pending_terminals
-                        .into_iter()
-                        .map(|(pty_config, pending)| {
-                            let terminal_id = pending
-                                .terminal_id()
-                                .map(str::to_string)
-                                .unwrap_or_else(|| "none".to_string());
-                            let result = TerminalPane::attach_pending_session(
-                                terminal_manager.clone(),
-                                pty_config,
-                                terminal_config.clone(),
-                                pending,
-                            )
-                            .map(|_| ())
-                            .map_err(|error| error.to_string());
-                            (terminal_id, result)
-                        })
-                        .collect::<Vec<_>>()
-                }
-            })
-            .await
-            .unwrap_or_else(|error| vec![("none".to_string(), Err(error.to_string()))]);
-            let _ = this.update(cx, |app, cx| {
-                let ok_count = results.iter().filter(|(_, result)| result.is_ok()).count();
-                let error = results.iter().find_map(|(terminal_id, result)| {
-                    result
-                        .as_ref()
-                        .err()
-                        .map(|error| format!("{terminal_id}: {error}"))
-                });
-                app.runtime_trace(
-                    "terminal-restore",
-                    &format!(
-                        "attach_pending elapsed_ms={} ok={} total={} error={}",
-                        attach_started_at.elapsed().as_millis(),
-                        ok_count,
-                        results.len(),
-                        error.as_deref().unwrap_or("none")
-                    ),
-                );
-                if app.project_switch_generation != generation {
-                    return;
-                }
-                app.terminal_layout_loading = false;
-                if let Some(error) = error {
-                    app.status_message = format!("failed to prepare terminal: {error}");
-                } else {
-                    app.status_message = format!(
-                        "terminal layout reloaded · {} tab{}",
-                        app.terminals.len(),
-                        if app.terminals.len() == 1 { "" } else { "s" }
-                    );
-                    app.sync_terminal_state_for_project_switch();
-                }
-                app.invalidate_terminal_workspace(cx);
-            });
-        })
-        .detach();
     }
 
     pub(super) fn apply_project_list_state(&mut self, next: RuntimeState, cx: &mut Context<Self>) {

@@ -50,7 +50,7 @@ use codux_runtime::{
     settings::{SettingsSummary, locale_from_language_setting},
     ssh::{SSHConnectionProfile, SSHProfileSummary, SSHProfileUpsertRequest, SSHSummary},
     terminal_layout::{TerminalLayoutSummary, TerminalPaneSummary, TerminalTabSummary},
-    terminal_pty::{TerminalManager, TerminalPtyConfig},
+    terminal_pty::{TerminalManager, TerminalOutputSnapshot, TerminalPtyConfig},
     terminal_runtime::{
         TerminalInputSummary, TerminalRuntimeSessionInput, TerminalRuntimeSessionSummary,
         TerminalRuntimeSummary,
@@ -74,7 +74,7 @@ use gpui_component::{
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::{Input, InputEvent, InputState},
     menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
-    resizable::{resizable_panel, v_resizable},
+    resizable::{h_resizable, resizable_panel, v_resizable},
     spinner::Spinner,
     tag::Tag,
     v_virtual_list,
@@ -85,6 +85,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, OnceLock},
+    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 

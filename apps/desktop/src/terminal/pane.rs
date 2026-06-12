@@ -48,6 +48,7 @@ impl TerminalPane {
                 session_event_rx,
                 session.clone(),
                 terminal_config,
+                None,
                 cx,
             )
         });
@@ -71,12 +72,32 @@ impl TerminalPane {
     where
         C: AppContext,
     {
+        Self::pending_with_restored_output(cx, pty_config, terminal_config, None)
+    }
+
+    pub fn pending_with_restored_output<C>(
+        cx: &mut C,
+        pty_config: TerminalPtyConfig,
+        terminal_config: TerminalConfig,
+        restored_output: Option<TerminalOutputSnapshot>,
+    ) -> (Self, PendingTerminalAttach)
+    where
+        C: AppContext,
+    {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let terminal_id = config.terminal_id.clone();
         let (session_event_tx, session_event_rx) = mpsc::channel();
         let (output_tx, output_rx) = flume::unbounded();
-        let (session, initial_layout_rx) = TerminalSessionBinding::pending();
+        let (session, initial_layout_rx) = TerminalSessionBinding::pending(config.clone());
         let writer = TerminalSessionWriter::new(session.clone());
+        let restored_output_bytes = restored_output
+            .as_ref()
+            .map(|output| output.bytes)
+            .unwrap_or_default();
+        let restored_tail_bytes = restored_output
+            .as_ref()
+            .map(|output| output.tail.len())
+            .unwrap_or_default();
         let view_started_at = Instant::now();
         let view = cx.new(|cx| {
             TerminalView::new(
@@ -85,15 +106,18 @@ impl TerminalPane {
                 session_event_rx,
                 session.clone(),
                 terminal_config,
+                restored_output,
                 cx,
             )
         });
         codux_runtime::runtime_trace::runtime_trace(
             "terminal-restore",
             &format!(
-                "view_create elapsed_ms={} terminal_id={}",
+                "pending_view elapsed_ms={} terminal_id={} restored_bytes={} restored_tail_bytes={}",
                 view_started_at.elapsed().as_millis(),
-                terminal_id.as_deref().unwrap_or("none")
+                terminal_id.as_deref().unwrap_or("none"),
+                restored_output_bytes,
+                restored_tail_bytes
             ),
         );
         (
@@ -117,7 +141,10 @@ impl TerminalPane {
         terminal_config: TerminalConfig,
         pending: PendingTerminalAttach,
     ) -> Result<String> {
+        let attach_total_started_at = Instant::now();
+        let layout_started_at = Instant::now();
         let initial_layout = pending.wait_for_initial_layout();
+        let layout_wait_ms = layout_started_at.elapsed().as_millis();
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let terminal_id = config.terminal_id.clone();
         let session_event_tx = pending.session_event_tx.clone();
@@ -148,23 +175,41 @@ impl TerminalPane {
             Some((cols, rows)) => codux_runtime::runtime_trace::runtime_trace(
                 "terminal-restore",
                 &format!(
-                    "initial_layout_ready terminal_id={} cols={} rows={}",
+                    "initial_layout_ready terminal_id={} cols={} rows={} wait_ms={}",
                     terminal_id.as_deref().unwrap_or("none"),
                     cols,
-                    rows
+                    rows,
+                    layout_wait_ms
                 ),
             ),
             None => codux_runtime::runtime_trace::runtime_trace(
                 "terminal-restore",
                 &format!(
-                    "initial_layout_timeout terminal_id={}",
-                    terminal_id.as_deref().unwrap_or("none")
+                    "initial_layout_timeout terminal_id={} wait_ms={}",
+                    terminal_id.as_deref().unwrap_or("none"),
+                    layout_wait_ms
                 ),
             ),
         }
         let output_tx = pending.output_tx;
+        let output_terminal_id = terminal_id
+            .clone()
+            .unwrap_or_else(|| attached_id.clone());
         codux_runtime::async_runtime::spawn(async move {
+            let mut first_output = true;
             while let Ok(bytes) = output_rx.recv_async().await {
+                if first_output {
+                    first_output = false;
+                    codux_runtime::runtime_trace::runtime_trace(
+                        "terminal-restore",
+                        &format!(
+                            "first_output terminal_id={} bytes={} attach_total_ms={}",
+                            output_terminal_id,
+                            bytes.len(),
+                            attach_total_started_at.elapsed().as_millis()
+                        ),
+                    );
+                }
                 if output_tx.send_async(bytes).await.is_err() {
                     break;
                 }
@@ -249,6 +294,7 @@ struct TerminalSessionBinding {
 
 struct TerminalSessionBindingInner {
     session: Option<Arc<TerminalPtySession>>,
+    pending_match_config: Option<TerminalPtyConfig>,
     pending_writes: VecDeque<Vec<u8>>,
     pending_write_bytes: usize,
     last_resize: Option<(u16, u16)>,
@@ -262,12 +308,13 @@ struct TerminalLayoutRecord {
 }
 
 impl TerminalSessionBinding {
-    fn pending() -> (Self, mpsc::Receiver<(u16, u16)>) {
+    fn pending(config: TerminalPtyConfig) -> (Self, mpsc::Receiver<(u16, u16)>) {
         let (initial_layout_tx, initial_layout_rx) = mpsc::channel();
         (
             Self {
                 inner: Arc::new(Mutex::new(TerminalSessionBindingInner {
                     session: None,
+                    pending_match_config: Some(config),
                     pending_writes: VecDeque::new(),
                     pending_write_bytes: 0,
                     last_resize: None,
@@ -282,6 +329,7 @@ impl TerminalSessionBinding {
         Self {
             inner: Arc::new(Mutex::new(TerminalSessionBindingInner {
                 session: Some(session),
+                pending_match_config: None,
                 pending_writes: VecDeque::new(),
                 pending_write_bytes: 0,
                 last_resize: None,
@@ -294,6 +342,7 @@ impl TerminalSessionBinding {
         let (pending_writes, last_resize) = {
             let mut inner = self.inner.lock();
             inner.session = Some(session.clone());
+            inner.pending_match_config = None;
             inner.pending_write_bytes = 0;
             (std::mem::take(&mut inner.pending_writes), inner.last_resize)
         };
@@ -403,11 +452,40 @@ impl TerminalSessionBinding {
     }
 
     fn matches_pty_config(&self, config: &TerminalPtyConfig) -> bool {
-        self.inner
-            .lock()
-            .session
+        let inner = self.inner.lock();
+        if let Some(session) = inner.session.as_ref() {
+            return session.matches_config(config, None);
+        }
+        inner
+            .pending_match_config
             .as_ref()
-            .map(|session| session.matches_config(config, None))
-            .unwrap_or(false)
+            .is_some_and(|pending| terminal_pty_configs_match(pending, config))
     }
+}
+
+fn terminal_pty_configs_match(left: &TerminalPtyConfig, right: &TerminalPtyConfig) -> bool {
+    normalized_config_path(left.cwd.as_deref()) == normalized_config_path(right.cwd.as_deref())
+        && normalized_config_value(left.project_id.as_deref())
+            == normalized_config_value(right.project_id.as_deref())
+        && normalized_config_value(left.session_key.as_deref())
+            == normalized_config_value(right.session_key.as_deref())
+        && normalized_config_value(left.terminal_id.as_deref())
+            == normalized_config_value(right.terminal_id.as_deref())
+}
+
+fn normalized_config_path(value: Option<&str>) -> Option<String> {
+    normalized_config_value(value).map(|path| {
+        PathBuf::from(path)
+            .components()
+            .as_path()
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
+fn normalized_config_value(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }

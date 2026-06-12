@@ -1,4 +1,5 @@
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 
 use libghostty_vt::{
@@ -6,11 +7,20 @@ use libghostty_vt::{
     render::{CellIterator, CursorVisualStyle, RowIterator, Snapshot},
     screen::{Cell, CellContentTag, CellWide},
     style::{RgbColor, Style, Underline},
-    terminal::{Mode, ScrollViewport},
+    terminal::{
+        ConformanceLevel, DeviceAttributeFeature, DeviceAttributes, DeviceType, Mode,
+        PrimaryDeviceAttributes, ScrollViewport, SecondaryDeviceAttributes,
+        TertiaryDeviceAttributes,
+    },
 };
 use serde::Serialize;
 
 use crate::TerminalInputMode;
+
+/// Receives reply bytes the VT engine writes back to the PTY in response
+/// to queries (DSR/CPR, DECRQM, DA, kitty keyboard, XTVERSION, ...).
+/// Invoked on the screen worker thread.
+pub type TerminalPtyResponder = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
 const GHOSTTY_CELL_WIDTH_PX: u32 = 10;
 const GHOSTTY_CELL_HEIGHT_PX: u32 = 20;
@@ -79,10 +89,32 @@ pub struct HeadlessTerminalScreen {
     pending_scroll_pixels: f64,
 }
 
+pub struct HeadlessTerminalSnapshotRequest {
+    rx: mpsc::Receiver<TerminalScreenSnapshot>,
+}
+
+impl HeadlessTerminalSnapshotRequest {
+    pub fn snapshot(self) -> TerminalScreenSnapshot {
+        self.rx.recv().unwrap_or_default()
+    }
+}
+
 impl HeadlessTerminalScreen {
     pub fn new(cols: usize, rows: usize, scrollback: usize) -> Self {
+        Self::new_with_responder(cols, rows, scrollback, None)
+    }
+
+    /// Like [`Self::new`], but installs a responder that receives the VT
+    /// engine's query replies (DSR/CPR, DECRQM, DA, ...) for forwarding to
+    /// the PTY.
+    pub fn new_with_responder(
+        cols: usize,
+        rows: usize,
+        scrollback: usize,
+        responder: Option<TerminalPtyResponder>,
+    ) -> Self {
         Self {
-            engine: GhosttyTerminalScreenEngine::new(cols, rows, scrollback),
+            engine: GhosttyTerminalScreenEngine::new(cols, rows, scrollback, responder),
             pending_scroll_pixels: 0.0,
         }
     }
@@ -91,10 +123,22 @@ impl HeadlessTerminalScreen {
         self.engine.process(bytes);
     }
 
+    /// Process recorded output without answering the queries it contains.
+    /// Replayed history can carry stale DSR/DA queries from a previous run;
+    /// answering those would inject unsolicited reply bytes into the PTY.
+    pub fn process_replay(&mut self, bytes: &[u8]) {
+        if !bytes.is_empty() {
+            self.engine
+                .send(GhosttyScreenCommand::ProcessReplay(bytes.to_vec()));
+        }
+    }
+
     pub fn replace_with_keyframe(&mut self, bytes: &[u8]) {
         self.clear();
-        self.process(bytes);
-        self.process(b"\x1b[3J");
+        // Keyframes are recorded output; never answer the queries they
+        // contain.
+        self.process_replay(bytes);
+        self.process_replay(b"\x1b[3J");
         self.scroll_to_bottom();
     }
 
@@ -148,6 +192,21 @@ impl HeadlessTerminalScreen {
         self.engine.scroll_to_bottom();
     }
 
+    /// Scroll the viewport to an absolute history offset (0 = bottom).
+    /// The delta is computed on the worker against the live engine offset,
+    /// so callers never compound errors from a lagging published offset.
+    pub fn scroll_to_offset(&mut self, offset: usize) {
+        self.pending_scroll_pixels = 0.0;
+        self.engine.scroll_to_offset(offset);
+    }
+
+    /// Current input mode read from the live engine (blocking worker
+    /// round-trip). Use for decisions that must not act on a stale
+    /// published snapshot, e.g. bracketed paste.
+    pub fn input_mode(&self) -> TerminalInputMode {
+        self.engine.input_mode()
+    }
+
     pub fn display_offset(&self) -> usize {
         self.engine.display_offset()
     }
@@ -160,19 +219,34 @@ impl HeadlessTerminalScreen {
     pub fn snapshot(&self) -> TerminalScreenSnapshot {
         self.engine.snapshot(self.pending_scroll_pixels)
     }
+
+    /// Request an asynchronous snapshot. `include_data` controls whether the
+    /// ANSI repaint string (`TerminalScreenSnapshot::data`) is generated;
+    /// consumers that only read `cells` should pass `false` to skip that
+    /// work on the screen worker.
+    pub fn snapshot_request(&self, include_data: bool) -> HeadlessTerminalSnapshotRequest {
+        self.engine
+            .snapshot_request(self.pending_scroll_pixels, include_data)
+    }
 }
 
+#[derive(Clone)]
 struct GhosttyTerminalScreenEngine {
     tx: mpsc::Sender<GhosttyScreenCommand>,
 }
 
 impl GhosttyTerminalScreenEngine {
-    fn new(cols: usize, rows: usize, scrollback: usize) -> Self {
+    fn new(
+        cols: usize,
+        rows: usize,
+        scrollback: usize,
+        responder: Option<TerminalPtyResponder>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         thread::Builder::new()
             .name("codux-ghostty-screen".to_string())
             .spawn(move || {
-                GhosttyScreenWorker::new(cols, rows, scrollback).run(rx);
+                GhosttyScreenWorker::new(cols, rows, scrollback, responder).run(rx);
             })
             .expect("failed to spawn ghostty screen worker");
         Self { tx }
@@ -217,15 +291,38 @@ impl GhosttyTerminalScreenEngine {
         self.send(GhosttyScreenCommand::ScrollToBottom);
     }
 
+    fn scroll_to_offset(&mut self, offset: usize) {
+        self.send(GhosttyScreenCommand::ScrollToOffset(offset));
+    }
+
     fn display_offset(&self) -> usize {
         self.request(GhosttyScreenCommand::DisplayOffset)
+    }
+
+    fn input_mode(&self) -> TerminalInputMode {
+        self.request(GhosttyScreenCommand::InputMode)
     }
 
     fn snapshot(&self, scroll_pixel_offset: f64) -> TerminalScreenSnapshot {
         self.request(|reply| GhosttyScreenCommand::Snapshot {
             scroll_pixel_offset,
+            include_data: true,
             reply,
         })
+    }
+
+    fn snapshot_request(
+        &self,
+        scroll_pixel_offset: f64,
+        include_data: bool,
+    ) -> HeadlessTerminalSnapshotRequest {
+        let (tx, rx) = mpsc::channel();
+        let _ = self.tx.send(GhosttyScreenCommand::Snapshot {
+            scroll_pixel_offset,
+            include_data,
+            reply: tx,
+        });
+        HeadlessTerminalSnapshotRequest { rx }
     }
 
     fn has_history_above_viewport(&self) -> bool {
@@ -235,16 +332,20 @@ impl GhosttyTerminalScreenEngine {
 
 enum GhosttyScreenCommand {
     Process(Vec<u8>),
+    ProcessReplay(Vec<u8>),
     Resize {
         cols: usize,
         rows: usize,
     },
     ScrollLines(i32),
     ScrollToBottom,
+    ScrollToOffset(usize),
     DisplayOffset(mpsc::Sender<usize>),
+    InputMode(mpsc::Sender<TerminalInputMode>),
     HasHistoryAboveViewport(mpsc::Sender<bool>),
     Snapshot {
         scroll_pixel_offset: f64,
+        include_data: bool,
         reply: mpsc::Sender<TerminalScreenSnapshot>,
     },
     Clear,
@@ -256,18 +357,29 @@ struct GhosttyScreenWorker {
     cols: usize,
     rows: usize,
     scrollback: usize,
+    responder: Option<TerminalPtyResponder>,
+    responder_enabled: Arc<AtomicBool>,
 }
 
 impl GhosttyScreenWorker {
-    fn new(cols: usize, rows: usize, scrollback: usize) -> Self {
+    fn new(
+        cols: usize,
+        rows: usize,
+        scrollback: usize,
+        responder: Option<TerminalPtyResponder>,
+    ) -> Self {
         let cols = cols.max(1);
         let rows = rows.max(1);
-        let terminal = Terminal::new(TerminalOptions {
+        let mut terminal = Terminal::new(TerminalOptions {
             cols: cols.try_into().unwrap_or(u16::MAX),
             rows: rows.try_into().unwrap_or(u16::MAX),
             max_scrollback: scrollback,
         })
         .expect("failed to create ghostty terminal");
+        let responder_enabled = Arc::new(AtomicBool::new(true));
+        if let Some(responder) = responder.clone() {
+            install_terminal_query_effects(&mut terminal, responder, responder_enabled.clone());
+        }
         let render_state = RenderState::new().expect("failed to create ghostty render state");
         Self {
             terminal,
@@ -275,32 +387,78 @@ impl GhosttyScreenWorker {
             cols,
             rows,
             scrollback,
+            responder,
+            responder_enabled,
         }
     }
 
     fn run(mut self, rx: mpsc::Receiver<GhosttyScreenCommand>) {
-        while let Ok(command) = rx.recv() {
+        let mut deferred = None;
+        loop {
+            let command = match deferred.take() {
+                Some(command) => command,
+                None => match rx.recv() {
+                    Ok(command) => command,
+                    Err(_) => break,
+                },
+            };
             match command {
                 GhosttyScreenCommand::Process(bytes) => self.terminal.vt_write(&bytes),
-                GhosttyScreenCommand::Resize { cols, rows } => self.resize(cols, rows),
+                GhosttyScreenCommand::ProcessReplay(bytes) => {
+                    self.responder_enabled.store(false, Ordering::Relaxed);
+                    self.terminal.vt_write(&bytes);
+                    self.responder_enabled.store(true, Ordering::Relaxed);
+                }
+                GhosttyScreenCommand::Resize { mut cols, mut rows } => {
+                    // Layout settling queues resizes back-to-back, and every
+                    // column change reflows the whole scrollback. Collapse a
+                    // consecutive run of resizes into the final one; ordering
+                    // relative to other commands is preserved.
+                    while let Ok(following) = rx.try_recv() {
+                        match following {
+                            GhosttyScreenCommand::Resize {
+                                cols: next_cols,
+                                rows: next_rows,
+                            } => {
+                                cols = next_cols;
+                                rows = next_rows;
+                            }
+                            other => {
+                                deferred = Some(other);
+                                break;
+                            }
+                        }
+                    }
+                    self.resize(cols, rows);
+                }
                 GhosttyScreenCommand::ScrollLines(lines) => self.scroll_lines(lines),
                 GhosttyScreenCommand::ScrollToBottom => {
                     self.terminal.scroll_viewport(ScrollViewport::Bottom);
                 }
+                GhosttyScreenCommand::ScrollToOffset(offset) => self.scroll_to_offset(offset),
                 GhosttyScreenCommand::DisplayOffset(reply) => {
                     let _ = reply.send(self.display_offset());
+                }
+                GhosttyScreenCommand::InputMode(reply) => {
+                    let _ = reply.send(ghostty_input_mode(&self.terminal));
                 }
                 GhosttyScreenCommand::HasHistoryAboveViewport(reply) => {
                     let _ = reply.send(self.has_history_above_viewport());
                 }
                 GhosttyScreenCommand::Snapshot {
                     scroll_pixel_offset,
+                    include_data,
                     reply,
                 } => {
-                    let _ = reply.send(self.snapshot(scroll_pixel_offset));
+                    let _ = reply.send(self.snapshot(scroll_pixel_offset, include_data));
                 }
                 GhosttyScreenCommand::Clear => {
-                    self = Self::new(self.cols, self.rows, self.scrollback);
+                    self = Self::new(
+                        self.cols,
+                        self.rows,
+                        self.scrollback,
+                        self.responder.clone(),
+                    );
                 }
             }
         }
@@ -330,6 +488,13 @@ impl GhosttyScreenWorker {
             .scroll_viewport(ScrollViewport::Delta(-(lines as isize)));
     }
 
+    fn scroll_to_offset(&mut self, offset: usize) {
+        let delta = offset as isize - self.display_offset() as isize;
+        if delta != 0 {
+            self.terminal.scroll_viewport(ScrollViewport::Delta(-delta));
+        }
+    }
+
     fn display_offset(&self) -> usize {
         self.terminal
             .scrollbar()
@@ -342,7 +507,7 @@ impl GhosttyScreenWorker {
         self.display_offset() < self.terminal.scrollback_rows().unwrap_or(0)
     }
 
-    fn snapshot(&mut self, scroll_pixel_offset: f64) -> TerminalScreenSnapshot {
+    fn snapshot(&mut self, scroll_pixel_offset: f64, include_data: bool) -> TerminalScreenSnapshot {
         let terminal = &self.terminal;
         let scrollbar = terminal.scrollbar().ok();
         let display_offset = scrollbar.map(ghostty_display_offset).unwrap_or(0);
@@ -367,7 +532,11 @@ impl GhosttyScreenWorker {
         let rows = snapshot.rows().map(usize::from).unwrap_or(self.rows);
         let cursor = ghostty_cursor_snapshot(&snapshot);
         let cells = ghostty_snapshot_cells(&snapshot, cols, rows);
-        let data = terminal_snapshot_data(cols, rows, &cells, &cursor);
+        let data = if include_data {
+            terminal_snapshot_data(cols, rows, &cells, &cursor)
+        } else {
+            String::new()
+        };
         TerminalScreenSnapshot {
             data,
             cols,
@@ -380,6 +549,47 @@ impl GhosttyScreenWorker {
             cells,
             cursor,
         }
+    }
+}
+
+// With a pty-write effect installed, the engine answers DSR/CPR, DECRQM,
+// kitty keyboard and XTVERSION queries itself; DA replies additionally need
+// device attributes. OSC color queries are intentionally NOT answered by the
+// engine (ghostty-vt ignores them) — the embedder answers those from its
+// theme palette.
+fn install_terminal_query_effects(
+    terminal: &mut Terminal<'static, 'static>,
+    responder: TerminalPtyResponder,
+    enabled: Arc<AtomicBool>,
+) {
+    let result = terminal
+        .on_pty_write(move |_term, data| {
+            if enabled.load(Ordering::Relaxed) {
+                responder(data);
+            }
+        })
+        .and_then(|terminal| {
+            terminal.on_device_attributes(|_term| {
+                Some(DeviceAttributes {
+                    primary: PrimaryDeviceAttributes::new(
+                        ConformanceLevel::VT220,
+                        [
+                            DeviceAttributeFeature::ANSI_COLOR,
+                            DeviceAttributeFeature::SELECTIVE_ERASE,
+                        ],
+                    ),
+                    secondary: SecondaryDeviceAttributes {
+                        device_type: DeviceType::VT220,
+                        firmware_version: 1,
+                        rom_cartridge: 0,
+                    },
+                    tertiary: TertiaryDeviceAttributes::default(),
+                })
+            })
+        });
+    if result.is_err() {
+        // Query replies degrade gracefully when the effect cannot be
+        // installed; the terminal itself keeps working.
     }
 }
 
@@ -738,6 +948,21 @@ mod tests {
     }
 
     #[test]
+    fn resize_bursts_settle_on_final_dimensions() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"ready");
+        for cols in [30usize, 40, 50, 60, 25] {
+            screen.resize(cols, 10);
+        }
+
+        let snapshot = screen.snapshot();
+
+        assert_eq!(snapshot.cols, 25);
+        assert_eq!(snapshot.rows, 10);
+        assert!(snapshot.data.contains("ready"));
+    }
+
+    #[test]
     fn keeps_resize_state() {
         let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
         screen.resize(30, 10);
@@ -831,6 +1056,109 @@ mod tests {
 
         screen.scroll_to_bottom();
         assert_eq!(screen.snapshot().display_offset, 0);
+    }
+
+    #[test]
+    fn scroll_to_offset_targets_absolute_history_position() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\neight");
+
+        screen.scroll_to_offset(3);
+        assert_eq!(screen.snapshot().display_offset, 3);
+
+        // Re-targeting the same offset is a no-op; a new target is exact
+        // regardless of the current position.
+        screen.scroll_to_offset(3);
+        assert_eq!(screen.snapshot().display_offset, 3);
+        screen.scroll_to_offset(1);
+        assert_eq!(screen.snapshot().display_offset, 1);
+        screen.scroll_to_offset(0);
+        assert_eq!(screen.snapshot().display_offset, 0);
+    }
+
+    #[test]
+    fn pty_responder_answers_cursor_position_and_mode_queries() {
+        let replies = Arc::new(parking_lot_free_buffer::Buffer::default());
+        let responder: TerminalPtyResponder = {
+            let replies = replies.clone();
+            Arc::new(move |bytes: &[u8]| replies.push(bytes))
+        };
+        let mut screen = HeadlessTerminalScreen::new_with_responder(20, 4, 100, Some(responder));
+
+        // CPR (CSI 6n), DECRQM for bracketed paste, DA1 (CSI c).
+        screen.process(b"hi\x1b[6n\x1b[?2004$p\x1b[c");
+        // Synchronize on the worker queue before reading replies.
+        let _ = screen.snapshot();
+
+        let replies = replies.take();
+        let text = String::from_utf8_lossy(&replies);
+        assert!(text.contains("\x1b[1;3R"), "missing CPR reply: {text:?}");
+        assert!(text.contains("\x1b[?2004;2$y"), "missing DECRQM reply: {text:?}");
+        assert!(text.contains("\x1b[?62;"), "missing DA1 reply: {text:?}");
+    }
+
+    #[test]
+    fn replayed_history_does_not_answer_stale_queries() {
+        let replies = Arc::new(parking_lot_free_buffer::Buffer::default());
+        let responder: TerminalPtyResponder = {
+            let replies = replies.clone();
+            Arc::new(move |bytes: &[u8]| replies.push(bytes))
+        };
+        let mut screen = HeadlessTerminalScreen::new_with_responder(20, 4, 100, Some(responder));
+
+        // Recorded output containing a stale CPR query must not reply...
+        screen.process_replay(b"restored\x1b[6n");
+        let _ = screen.snapshot();
+        assert!(replies.take().is_empty());
+
+        // ...while live queries afterwards still do.
+        screen.process(b"\x1b[6n");
+        let _ = screen.snapshot();
+        assert!(!replies.take().is_empty());
+    }
+
+    #[test]
+    fn live_input_mode_reflects_engine_state_immediately() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        assert!(!screen.input_mode().bracketed_paste);
+        screen.process(b"\x1b[?2004h");
+        assert!(screen.input_mode().bracketed_paste);
+    }
+
+    mod parking_lot_free_buffer {
+        use std::sync::Mutex;
+
+        #[derive(Default)]
+        pub struct Buffer {
+            bytes: Mutex<Vec<u8>>,
+        }
+
+        impl Buffer {
+            pub fn push(&self, bytes: &[u8]) {
+                self.bytes.lock().unwrap().extend_from_slice(bytes);
+            }
+
+            pub fn take(&self) -> Vec<u8> {
+                std::mem::take(&mut self.bytes.lock().unwrap())
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_request_preserves_command_order_without_blocking_caller() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"before");
+        screen.process(b"\r\x1b[2Kafter");
+
+        let request = screen.snapshot_request(true);
+        screen.process(b"\r\x1b[2Klater");
+
+        let requested = request.snapshot();
+        let current = screen.snapshot();
+
+        assert!(requested.data.contains("after"));
+        assert!(!requested.data.contains("later"));
+        assert!(current.data.contains("later"));
     }
 
     #[test]

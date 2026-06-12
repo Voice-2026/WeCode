@@ -4,7 +4,7 @@ struct TerminalPoint {
     column: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct TerminalContent {
     cells: Vec<TerminalIndexedCell>,
     cursor: TerminalScreenCursorSnapshot,
@@ -15,6 +15,7 @@ struct TerminalContent {
     total_lines: usize,
     visible_rows: usize,
     visible_row_shift: usize,
+    input_mode: TerminalInputMode,
     #[cfg(test)]
     scrolled_to_bottom: bool,
 }
@@ -46,6 +47,7 @@ impl TerminalContent {
             total_lines,
             visible_rows: snapshot.rows,
             visible_row_shift: 0,
+            input_mode: snapshot.input_mode,
             #[cfg(test)]
             scrolled_to_bottom: snapshot.display_offset == 0,
         }
@@ -82,7 +84,7 @@ impl TerminalContent {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct TerminalIndexedCell {
     point: TerminalPoint,
     cell: TerminalScreenCellSnapshot,

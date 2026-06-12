@@ -3,9 +3,7 @@ impl Render for TerminalView {
         self.process_events(window, cx);
         if let Some(new_display_offset) = self.scroll_handle.take_future_display_offset() {
             self.model.update(cx, |model, _| {
-                let current = model.display_offset() as i32;
-                let target = new_display_offset as i32;
-                model.scroll_display(target.saturating_sub(current));
+                model.scroll_to_display_offset(new_display_offset);
             });
         }
 

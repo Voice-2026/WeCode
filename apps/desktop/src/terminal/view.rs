@@ -12,6 +12,9 @@ pub struct TerminalView {
     hover_link: Option<TerminalLink>,
     scroll_input: TerminalScrollInputState,
     selection_frame_pending: bool,
+    pending_pty_resize: Option<(u16, u16)>,
+    pty_resize_flush_pending: bool,
+    last_pty_resize_at: Option<Instant>,
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     focus_observer: Option<Arc<dyn Fn(&mut Window, &mut Context<TerminalView>)>>,
@@ -119,13 +122,22 @@ impl TerminalView {
         session_event_rx: mpsc::Receiver<TerminalUiEvent>,
         session: TerminalSessionBinding,
         config: TerminalConfig,
+        restored_output: Option<TerminalOutputSnapshot>,
         cx: &mut Context<Self>,
     ) -> Self
     where
         W: Write + Send + 'static,
     {
-        let model =
-            cx.new(|cx| TerminalModel::new(stdin_writer, bytes_rx, session_event_rx, &config, cx));
+        let model = cx.new(|cx| {
+            TerminalModel::new(
+                stdin_writer,
+                bytes_rx,
+                session_event_rx,
+                &config,
+                restored_output,
+                cx,
+            )
+        });
         let blink_manager = cx.new(TerminalBlinkManager::new);
         let renderer = TerminalRenderer::new(
             config.font_family.clone(),
@@ -151,12 +163,53 @@ impl TerminalView {
             hover_link: None,
             scroll_input: TerminalScrollInputState::default(),
             selection_frame_pending: false,
+            pending_pty_resize: None,
+            pty_resize_flush_pending: false,
+            last_pty_resize_at: None,
             focus_in_subscription: None,
             focus_out_subscription: None,
             focus_observer: None,
             selection_autoscroll: None,
             _observe_model: observe_model,
             _observe_blink_manager: observe_blink_manager,
+        }
+    }
+
+    // PTY resizes are debounced: a live window drag yields a new grid size
+    // nearly every frame, and each SIGWINCH makes the running TUI repaint
+    // its whole screen. The first resize after a quiet period goes out
+    // immediately; bursts settle on the trailing edge with the final size.
+    fn schedule_pty_resize(&mut self, cols: u16, rows: u16, cx: &mut Context<Self>) {
+        self.pending_pty_resize = Some((cols, rows));
+        if self.pty_resize_flush_pending {
+            return;
+        }
+        let quiet = self
+            .last_pty_resize_at
+            .is_none_or(|at| at.elapsed() >= TERMINAL_PTY_RESIZE_DEBOUNCE);
+        if quiet {
+            self.flush_pending_pty_resize();
+            return;
+        }
+        self.pty_resize_flush_pending = true;
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |view: WeakEntity<Self>, cx| {
+            timer.timer(TERMINAL_PTY_RESIZE_DEBOUNCE).await;
+            let _ = view.update(cx, |view, _| {
+                view.pty_resize_flush_pending = false;
+                view.flush_pending_pty_resize();
+            });
+        })
+        .detach();
+    }
+
+    fn flush_pending_pty_resize(&mut self) {
+        let Some((cols, rows)) = self.pending_pty_resize.take() else {
+            return;
+        };
+        self.last_pty_resize_at = Some(Instant::now());
+        if let Err(error) = self.session.resize(cols, rows) {
+            eprintln!("failed to resize terminal pty: {error}");
         }
     }
 

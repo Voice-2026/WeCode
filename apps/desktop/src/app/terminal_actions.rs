@@ -138,40 +138,36 @@ impl CoduxApp {
             pane_terminal_id.as_deref(),
             &title,
         );
-        match TerminalPane::spawn_with_pty_config(
+        let (pane, attach) = TerminalPane::pending_with_pty_config(
             cx,
-            self.terminal_manager.clone(),
-            pty_config,
+            pty_config.clone(),
             self.terminal_config_from_settings(),
-        ) {
-            Ok(pane) => {
-                self.refresh_terminal_slot_snapshots();
-                self.register_terminal_pane(pane_terminal_id.as_deref(), &pane, cx);
-                self.next_terminal_index += 1;
-                let active_runtime_id = pane_terminal_id.clone();
-                self.terminals.push(TerminalTab {
-                    id,
-                    label: title.clone(),
-                    placement: TerminalTabPlacement::Bottom,
-                    terminal_id: pane_terminal_id.clone(),
-                    panes: vec![TerminalPaneSlot {
-                        title: title.clone(),
-                        terminal_id: pane_terminal_id,
-                        pane: Some(pane),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    }],
-                });
-                self.active_terminal_id = id;
-                self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
-                self.detach_inactive_terminal_views();
-                self.focus_active_terminal(window, cx);
-                self.status_message = format!("terminal tab added: {title}");
-                self.sync_terminal_state_after_layout_change(cx);
-                self.invalidate_terminal_workspace(cx);
-            }
-            Err(error) => eprintln!("failed to create terminal tab: {error}"),
-        }
+        );
+        self.refresh_terminal_slot_snapshots();
+        self.register_terminal_pane(pane_terminal_id.as_deref(), &pane, cx);
+        self.next_terminal_index += 1;
+        let active_runtime_id = pane_terminal_id.clone();
+        self.terminals.push(TerminalTab {
+            id,
+            label: title.clone(),
+            placement: TerminalTabPlacement::Bottom,
+            terminal_id: pane_terminal_id.clone(),
+            panes: vec![TerminalPaneSlot {
+                title: title.clone(),
+                terminal_id: pane_terminal_id,
+                pane: Some(pane),
+                restored_output_bytes: 0,
+                restored_output_tail: String::new(),
+            }],
+        });
+        self.active_terminal_id = id;
+        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
+        self.detach_inactive_terminal_views();
+        self.focus_active_terminal(window, cx);
+        self.status_message = format!("terminal tab added: {title}");
+        self.sync_terminal_state_after_layout_change(cx);
+        self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -213,33 +209,29 @@ impl CoduxApp {
             pane_terminal_id.as_deref(),
             &title,
         );
-        match TerminalPane::spawn_with_pty_config(
+        let (terminal, attach) = TerminalPane::pending_with_pty_config(
             cx,
-            self.terminal_manager.clone(),
-            pty_config,
+            pty_config.clone(),
             self.terminal_config_from_settings(),
-        ) {
-            Ok(terminal) => {
-                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal, cx);
-                let active_runtime_id = pane_terminal_id.clone();
-                terminal.view.read(cx).focus_handle().focus(window, cx);
-                if let Some(tab) = self.main_terminal_mut() {
-                    tab.panes.push(TerminalPaneSlot {
-                        title,
-                        terminal_id: pane_terminal_id,
-                        pane: Some(terminal),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    });
-                }
-                self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
-                self.focus_active_terminal(window, cx);
-                self.status_message = "terminal split added".to_string();
-                self.sync_terminal_state_after_layout_change(cx);
-                self.invalidate_terminal_workspace(cx);
-            }
-            Err(error) => eprintln!("failed to split terminal: {error}"),
+        );
+        self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal, cx);
+        let active_runtime_id = pane_terminal_id.clone();
+        terminal.view.read(cx).focus_handle().focus(window, cx);
+        if let Some(tab) = self.main_terminal_mut() {
+            tab.panes.push(TerminalPaneSlot {
+                title,
+                terminal_id: pane_terminal_id,
+                pane: Some(terminal),
+                restored_output_bytes: 0,
+                restored_output_tail: String::new(),
+            });
         }
+        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
+        self.focus_active_terminal(window, cx);
+        self.status_message = "terminal split added".to_string();
+        self.sync_terminal_state_after_layout_change(cx);
+        self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn float_terminal_pane(
@@ -609,46 +601,38 @@ impl CoduxApp {
             pane_terminal_id.as_deref(),
             &title,
         );
-        match TerminalPane::spawn_with_pty_config(
+        let (terminal, attach) = TerminalPane::pending_with_pty_config(
             cx,
-            self.terminal_manager.clone(),
-            pty_config,
+            pty_config.clone(),
             self.terminal_config_from_settings(),
-        ) {
-            Ok(terminal) => {
-                self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal, cx);
-                let active_runtime_id = pane_terminal_id.clone();
-                let send_result = terminal.send_text(&terminal_command_text(&command));
-                if let Some(window) = window.as_deref_mut() {
-                    terminal.view.read(cx).focus_handle().focus(window, cx);
-                }
-                if let Some(tab) = self.main_terminal_mut() {
-                    tab.panes.push(TerminalPaneSlot {
-                        title,
-                        terminal_id: pane_terminal_id,
-                        pane: Some(terminal),
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    });
-                }
-                self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
-                if let Some(window) = window {
-                    self.focus_active_terminal(window, cx);
-                }
-                if let Err(error) = send_result {
-                    self.status_message =
-                        format!("AI session split created; restore send failed: {error}");
-                } else {
-                    self.status_message = "AI session restored in main split".to_string();
-                }
-                self.sync_terminal_state_after_layout_change(cx);
-                self.invalidate_terminal_workspace(cx);
-            }
-            Err(error) => {
-                self.status_message = format!("failed to create AI session split: {error}");
-                self.invalidate_terminal_workspace(cx);
-            }
+        );
+        self.register_terminal_pane(pane_terminal_id.as_deref(), &terminal, cx);
+        let active_runtime_id = pane_terminal_id.clone();
+        let send_result = terminal.send_text(&terminal_command_text(&command));
+        if let Some(window) = window.as_deref_mut() {
+            terminal.view.read(cx).focus_handle().focus(window, cx);
         }
+        if let Some(tab) = self.main_terminal_mut() {
+            tab.panes.push(TerminalPaneSlot {
+                title,
+                terminal_id: pane_terminal_id,
+                pane: Some(terminal),
+                restored_output_bytes: 0,
+                restored_output_tail: String::new(),
+            });
+        }
+        self.select_active_terminal_runtime_id(active_runtime_id.as_deref());
+        if let Some(window) = window {
+            self.focus_active_terminal(window, cx);
+        }
+        if let Err(error) = send_result {
+            self.status_message = format!("AI session split created; restore send failed: {error}");
+        } else {
+            self.status_message = "AI session restored in main split".to_string();
+        }
+        self.sync_terminal_state_after_layout_change(cx);
+        self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
+        self.invalidate_terminal_workspace(cx);
     }
 
     pub(in crate::app) fn close_terminal_tab(

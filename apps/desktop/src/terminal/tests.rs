@@ -319,6 +319,7 @@ mod tests {
                 enabled: true,
                 disabled: false,
                 query_count: 1,
+                ..TerminalColorSchemeUpdate::default()
             }
         );
         assert!(state.updates_enabled);
@@ -329,9 +330,47 @@ mod tests {
                 enabled: false,
                 disabled: true,
                 query_count: 0,
+                ..TerminalColorSchemeUpdate::default()
             }
         );
         assert!(!state.updates_enabled);
+    }
+
+    #[test]
+    fn osc_color_queries_tracked_across_chunks() {
+        let mut state = TerminalColorSchemeState::default();
+
+        assert_eq!(
+            update_terminal_color_scheme_state(b"\x1b]1", &mut state),
+            TerminalColorSchemeUpdate::default()
+        );
+        assert_eq!(
+            update_terminal_color_scheme_state(b"1;?\x07\x1b]10;?\x1b\\", &mut state),
+            TerminalColorSchemeUpdate {
+                osc_foreground_queries: 1,
+                osc_background_queries: 1,
+                ..TerminalColorSchemeUpdate::default()
+            }
+        );
+    }
+
+    #[test]
+    fn osc_color_queries_reply_with_palette_colors() {
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+        state.colors = ColorPalette::builder()
+            .background(0x1e, 0x22, 0x2b)
+            .foreground(0xee, 0xee, 0xee)
+            .build();
+
+        state.respond_to_osc_color_queries(&TerminalColorSchemeUpdate {
+            osc_foreground_queries: 1,
+            osc_background_queries: 1,
+            ..TerminalColorSchemeUpdate::default()
+        });
+
+        let written = String::from_utf8(state.written_bytes_for_test()).unwrap();
+        assert!(written.contains("\x1b]10;rgb:eeee/eeee/eeee\x07"));
+        assert!(written.contains("\x1b]11;rgb:1e1e/2222/2b2b\x07"));
     }
 
     #[test]
@@ -703,6 +742,133 @@ mod tests {
     }
 
     #[test]
+    fn first_real_output_replaces_restored_bootstrap() {
+        let mut state = TerminalModel::new_for_test_with_restored_output(
+            20,
+            4,
+            100,
+            TerminalOutputSnapshot {
+                bytes: 8,
+                tail: "restored".to_string(),
+            },
+        );
+        let bootstrapped = state.handle.snapshot();
+        assert!(row_text(&bootstrapped, 0).contains("restored"));
+
+        state.process_output_bytes_for_test(b"live");
+        let snapshot = state.sync_for_test();
+
+        assert!(!row_text(&snapshot, 0).contains("restored"));
+        assert!(row_text(&snapshot, 0).contains("live"));
+    }
+
+    #[test]
+    fn stale_snapshot_does_not_replace_published_terminal_content() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_bytes(b"stable");
+        state.handle.publish_snapshot();
+        let stale_empty = TerminalScreenSnapshot {
+            cols: 20,
+            rows: 4,
+            total_lines: 4,
+            ..TerminalScreenSnapshot::default()
+        };
+
+        state.snapshot_dirty = true;
+        let published =
+            state.publish_completed_snapshot(stale_empty, TERMINAL_SNAPSHOT_PUBLISH_SLOW);
+        let snapshot = state.handle.snapshot();
+
+        assert!(!published);
+        assert!(state.snapshot_dirty);
+        assert!(row_text(&snapshot, 0).contains("stable"));
+    }
+
+    #[test]
+    fn stale_resized_snapshot_does_not_replace_current_dimensions() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_bytes(b"stable");
+        state.handle.publish_snapshot();
+        state.resize(
+            30,
+            6,
+            TerminalWindowSize {
+                num_lines: 6,
+                num_cols: 30,
+                cell_width: 1,
+                cell_height: 1,
+            },
+        );
+        assert!(state.apply_model_events());
+        let stale_old_size = TerminalScreenSnapshot {
+            cols: 20,
+            rows: 4,
+            total_lines: 4,
+            cells: vec![TerminalScreenCellSnapshot {
+                row: 0,
+                col: 0,
+                text: "old".to_string(),
+                width: 1,
+                fg: TerminalScreenColor::Default,
+                bg: TerminalScreenColor::Default,
+                bold: false,
+                dim: false,
+                italic: false,
+                underline: false,
+                inverse: false,
+                hidden: false,
+                strikeout: false,
+            }],
+            ..TerminalScreenSnapshot::default()
+        };
+
+        let published =
+            state.publish_completed_snapshot(stale_old_size, TERMINAL_SNAPSHOT_PUBLISH_SLOW);
+        let snapshot = state.handle.snapshot();
+
+        assert!(!published);
+        assert!(state.snapshot_dirty);
+        assert_eq!(state.dimensions(), (30, 6));
+        assert_eq!(snapshot.columns, 20);
+        assert!(row_text(&snapshot, 0).contains("stable"));
+    }
+
+    #[test]
+    fn output_batching_keeps_non_empty_snapshot_publishing() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_bytes(b"stable");
+        state.handle.publish_snapshot();
+        let next = TerminalScreenSnapshot {
+            cols: 20,
+            rows: 4,
+            total_lines: 4,
+            cells: vec![TerminalScreenCellSnapshot {
+                row: 0,
+                col: 0,
+                text: "next".to_string(),
+                width: 1,
+                fg: TerminalScreenColor::Default,
+                bg: TerminalScreenColor::Default,
+                bold: false,
+                dim: false,
+                italic: false,
+                underline: false,
+                inverse: false,
+                hidden: false,
+                strikeout: false,
+            }],
+            ..TerminalScreenSnapshot::default()
+        };
+
+        state.output_flush_pending = true;
+        let published = state.publish_completed_snapshot(next, TERMINAL_SNAPSHOT_PUBLISH_SLOW);
+        let snapshot = state.handle.snapshot();
+
+        assert!(published);
+        assert!(row_text(&snapshot, 0).contains("next"));
+    }
+
+    #[test]
     fn updates_render_snapshot_after_resize() {
         let state = TerminalModel::new_for_test(10, 4, 100);
         let handle = state.handle.clone();
@@ -713,6 +879,101 @@ mod tests {
         assert_eq!(snapshot.columns, 20);
         assert_eq!(snapshot.screen_lines, 8);
         assert!(!handle.resize(20, 8));
+    }
+
+    #[test]
+    fn absolute_scroll_targets_do_not_compound_when_published_offset_lags() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_output_bytes_for_test(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
+
+        // Two drag frames target the same offset while no publish has
+        // landed in between; the engine must end exactly at the target.
+        state.scroll_to_display_offset(2);
+        state.publish_snapshot_now();
+        state.scroll_to_display_offset(2);
+        let content = state.publish_snapshot_now();
+
+        assert_eq!(content.display_offset, 2);
+    }
+
+    #[test]
+    fn input_viewport_republishes_when_publish_is_in_flight() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_output_bytes_for_test(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix");
+        state.handle.publish_snapshot();
+        state.snapshot_dirty = false;
+
+        // A publish is in flight: the published offset can't be trusted.
+        state.snapshot_publish_pending = true;
+        assert!(state.prepare_input_viewport_snapshot());
+        assert!(state.snapshot_dirty);
+    }
+
+    #[test]
+    fn paste_uses_live_bracketed_paste_mode_before_snapshot_publish() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        // Enable bracketed paste in the engine without publishing the
+        // snapshot: the published input_mode is still stale.
+        state.process_output_bytes_for_test(b"\x1b[?2004h");
+        assert!(!state.handle.input_mode().bracketed_paste);
+
+        state.paste_text("line1\nline2");
+
+        let written = state.written_bytes_for_test();
+        let text = String::from_utf8_lossy(&written);
+        assert!(
+            text.starts_with("\x1b[200~") && text.ends_with("\x1b[201~"),
+            "paste was not bracketed: {text:?}"
+        );
+    }
+
+    #[test]
+    fn engine_resize_throttles_drag_bursts_but_applies_final_target() {
+        let window_size = |cols: u16, rows: u16| TerminalWindowSize {
+            num_lines: rows,
+            num_cols: cols,
+            cell_width: 1,
+            cell_height: 1,
+        };
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+
+        state.resize(30, 6, window_size(30, 6));
+        state.apply_model_events();
+        assert_eq!(*state.handle.engine_dims.lock(), (30, 6));
+
+        // A second resize inside the throttle window stays queued.
+        state.resize(40, 8, window_size(40, 8));
+        state.apply_model_events();
+        assert_eq!(*state.handle.engine_dims.lock(), (30, 6));
+        assert!(
+            state
+                .events
+                .iter()
+                .any(|event| matches!(event, TerminalInternalEvent::Resize { .. }))
+        );
+
+        // After the throttle window the deferred target applies.
+        state.last_engine_resize_at =
+            Some(Instant::now() - TERMINAL_ENGINE_RESIZE_THROTTLE);
+        state.apply_model_events();
+        assert_eq!(*state.handle.engine_dims.lock(), (40, 8));
+        assert!(state.events.is_empty());
+    }
+
+    #[test]
+    fn resize_back_applies_even_when_published_snapshot_lags() {
+        let state = TerminalModel::new_for_test(20, 4, 100);
+        let handle = state.handle.clone();
+        // Engine resized away while the published snapshot still shows 20x4.
+        assert!(handle.resize(30, 10));
+        // Resizing back must reach the engine; deduping against the lagging
+        // published snapshot would leave the engine stuck at 30x10.
+        assert!(handle.resize(20, 4));
+
+        handle.publish_snapshot();
+        let snapshot = handle.snapshot();
+        assert_eq!(snapshot.columns, 20);
+        assert_eq!(snapshot.screen_lines, 4);
     }
 
     #[test]
@@ -977,7 +1238,7 @@ mod tests {
 
     #[test]
     fn pending_session_reports_initial_layout_once_without_resize_claim() {
-        let (binding, rx) = TerminalSessionBinding::pending();
+        let (binding, rx) = TerminalSessionBinding::pending(TerminalPtyConfig::default());
 
         let initial = binding.record_layout(120, 36);
         assert!(initial.initialized);
@@ -1313,5 +1574,27 @@ mod tests {
                 b: 0xEE
             }
         );
+    }
+
+    #[test]
+    fn pending_terminal_binding_matches_requested_config_before_attach() {
+        let config = terminal_pty_config_with_view(
+            TerminalPtyConfig {
+                cwd: Some("/tmp/project".to_string()),
+                project_id: Some("project-1".to_string()),
+                terminal_id: Some("terminal-1".to_string()),
+                session_key: Some("gpui:project-1:terminal-1".to_string()),
+                ..Default::default()
+            },
+            &terminal_config(),
+        );
+
+        let (binding, _initial_layout_rx) = TerminalSessionBinding::pending(config.clone());
+
+        assert!(binding.matches_pty_config(&config));
+
+        let mut different_terminal = config;
+        different_terminal.terminal_id = Some("terminal-2".to_string());
+        assert!(!binding.matches_pty_config(&different_terminal));
     }
 }
