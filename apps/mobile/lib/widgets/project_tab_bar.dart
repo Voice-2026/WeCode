@@ -99,6 +99,7 @@ class ProjectTabBar extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: AppColors.bgElevated,
                       borderRadius: BorderRadius.circular(AppRadius.sm),
+                      border: Border.all(color: AppColors.border, width: 0.5),
                     ),
                     child: Center(
                       child: loading
@@ -110,7 +111,11 @@ class ProjectTabBar extends StatelessWidget {
                                 color: accent,
                               ),
                             )
-                          : Icon(Icons.tune_rounded, color: accent, size: 16),
+                          : Icon(
+                              Icons.view_sidebar_rounded,
+                              color: accent,
+                              size: 17,
+                            ),
                     ),
                   ),
                 ),

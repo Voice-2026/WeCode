@@ -13,6 +13,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
       terminalVisible: false,
       terminalListLoaded: false,
     );
@@ -25,6 +26,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -43,6 +45,263 @@ void main() {
     expect(plan.requestProjectSelectId, isNull);
   });
 
+  test('worktree selection binds controller active terminal memory', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: true,
+      terminalListLoaded: false,
+    );
+    store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(
+          id: 'session-1',
+          title: 'One',
+          projectId: 'project-2',
+          worktreeId: 'project-2',
+        ),
+        TerminalInfo(
+          id: 'session-2',
+          title: 'Two',
+          projectId: 'project-2',
+          worktreeId: 'worktree-2',
+          layoutOrder: 0,
+        ),
+        TerminalInfo(
+          id: 'session-3',
+          title: 'Three',
+          projectId: 'project-2',
+          worktreeId: 'worktree-2',
+          layoutKind: 'tab',
+          layoutOrder: 1,
+        ),
+      ],
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    final plan = store.worktreeSelected(
+      projectId: 'project-2',
+      worktreeId: 'worktree-2',
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    expect(plan.bindSessionId, 'session-2');
+    expect(plan.requestProjectSelectId, isNull);
+    expect(store.activeSessionId, 'session-2');
+    expect(store.selectedWorktreeId, 'worktree-2');
+    expect(store.currentProjectTerminals().map((terminal) => terminal.id), [
+      'session-2',
+      'session-3',
+    ]);
+
+    store.selectTerminal(
+      const TerminalInfo(
+        id: 'session-3',
+        title: 'Three',
+        projectId: 'project-2',
+        worktreeId: 'worktree-2',
+        layoutKind: 'tab',
+        layoutOrder: 1,
+      ),
+    );
+    store.worktreeSelected(
+      projectId: 'project-2',
+      worktreeId: 'project-2',
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+    final back = store.worktreeSelected(
+      projectId: 'project-2',
+      worktreeId: 'worktree-2',
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    expect(back.bindSessionId, 'session-3');
+  });
+
+  test('project list worktree scope binds controller task terminal', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: 'worktree-2',
+      terminalVisible: true,
+      terminalListLoaded: false,
+    );
+
+    final plan = store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(
+          id: 'default-session',
+          title: 'Default',
+          projectId: 'project-2',
+          worktreeId: 'project-2',
+          layoutOrder: 0,
+        ),
+        TerminalInfo(
+          id: 'worktree-session',
+          title: 'Task',
+          projectId: 'project-2',
+          worktreeId: 'worktree-2',
+          layoutOrder: 0,
+        ),
+      ],
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    expect(plan.bindSessionId, 'worktree-session');
+    expect(store.selectedWorktreeId, 'worktree-2');
+    expect(store.activeSessionId, 'worktree-session');
+  });
+
+  test('project switch restores each project worktree and terminal scope', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: true,
+      terminalListLoaded: false,
+    );
+    store.applyWorktreeState(
+      projectId: 'project-1',
+      selectedWorktreeId: 'project-1',
+      worktrees: const [
+        RemoteWorktreeInfo(
+          id: 'project-1',
+          projectId: 'project-1',
+          name: 'main',
+          branch: 'main',
+          path: '/tmp/project-1',
+          status: 'clean',
+          isDefault: true,
+          exists: true,
+        ),
+        RemoteWorktreeInfo(
+          id: 'worktree-1',
+          projectId: 'project-1',
+          name: 'Task',
+          branch: 'task',
+          path: '/tmp/project-1-task',
+          status: 'clean',
+          isDefault: false,
+          exists: true,
+        ),
+      ],
+      baseBranches: const ['main'],
+      defaultBaseBranch: 'main',
+      allowRuntimeSelection: false,
+      terminalVisible: true,
+      terminalListLoaded: false,
+    );
+    store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(
+          id: 'project-1-main',
+          title: 'Main',
+          projectId: 'project-1',
+          worktreeId: 'project-1',
+          layoutOrder: 0,
+        ),
+        TerminalInfo(
+          id: 'project-1-task',
+          title: 'Task',
+          projectId: 'project-1',
+          worktreeId: 'worktree-1',
+          layoutOrder: 0,
+        ),
+        TerminalInfo(
+          id: 'project-2-main',
+          title: 'Main',
+          projectId: 'project-2',
+          worktreeId: 'project-2',
+          layoutOrder: 0,
+        ),
+      ],
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    final selectedWorktree = store.worktreeSelected(
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+    final selectedProject2 = store.userSelectProject(
+      project: _projects[1],
+      terminalVisible: true,
+    );
+    final backToProject1 = store.userSelectProject(
+      project: _projects[0],
+      terminalVisible: true,
+    );
+
+    expect(selectedWorktree.bindSessionId, 'project-1-task');
+    expect(selectedProject2.bindSessionId, 'project-2-main');
+    expect(backToProject1.bindSessionId, 'project-1-task');
+    expect(store.selectedProjectId, 'project-1');
+    expect(store.selectedWorktreeId, 'worktree-1');
+    expect(store.activeSessionId, 'project-1-task');
+  });
+
+  test('worktree selection does not repeat terminal list for stale list', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: true,
+      terminalListLoaded: false,
+    );
+    store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(
+          id: 'default-session',
+          title: 'Default',
+          projectId: 'project-2',
+          worktreeId: 'project-2',
+        ),
+      ],
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    final selected = store.worktreeSelected(
+      projectId: 'project-2',
+      worktreeId: 'worktree-2',
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+    final staleList = store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(
+          id: 'default-session',
+          title: 'Default',
+          projectId: 'project-2',
+          worktreeId: 'project-2',
+        ),
+      ],
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    expect(selected.bindSessionId, isNull);
+    expect(selected.requestProjectSelectId, isNull);
+    expect(selected.requestTerminalList, isTrue);
+    expect(staleList.bindSessionId, isNull);
+    expect(staleList.requestProjectSelectId, isNull);
+    expect(staleList.requestTerminalList, isFalse);
+    expect(store.activeSessionId, isNull);
+    expect(store.selectedWorktreeId, 'worktree-2');
+  });
+
   test(
     'missing terminal requests one project select until terminal appears',
     () {
@@ -50,6 +309,7 @@ void main() {
       store.applyProjectList(
         projects: _projects,
         remoteSelectedProjectId: 'project-2',
+        remoteSelectedWorktreeId: null,
         terminalVisible: true,
         terminalListLoaded: false,
       );
@@ -94,6 +354,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -131,6 +392,7 @@ void main() {
       store.applyProjectList(
         projects: _projects,
         remoteSelectedProjectId: 'project-1',
+        remoteSelectedWorktreeId: null,
         terminalVisible: true,
         terminalListLoaded: false,
       );
@@ -174,6 +436,7 @@ void main() {
       store.applyProjectList(
         projects: _projects,
         remoteSelectedProjectId: 'project-1',
+        remoteSelectedWorktreeId: null,
         terminalVisible: true,
         terminalListLoaded: false,
       );
@@ -216,6 +479,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -224,6 +488,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -236,6 +501,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -265,6 +531,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -274,7 +541,10 @@ void main() {
     expect(store.pendingProjectSelect(), isNull);
     expect(store.pendingProjectSelect(includeSent: true), 'project-2');
 
-    final confirmed = store.projectSelected('project-2');
+    final confirmed = store.projectSelected(
+      projectId: 'project-2',
+      worktreeId: null,
+    );
     final retry = store.ensureTerminalForSelectedProject(
       terminalVisible: true,
       terminalListLoaded: true,
@@ -291,12 +561,16 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
     store.userSelectProject(project: _projects[1], terminalVisible: true);
 
-    final confirmed = store.projectSelected('project-2');
+    final confirmed = store.projectSelected(
+      projectId: 'project-2',
+      worktreeId: null,
+    );
 
     expect(store.selectedProjectId, 'project-2');
     expect(confirmed.requestTerminalList, isTrue);
@@ -305,6 +579,7 @@ void main() {
     final beforeList = store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: true,
     );
@@ -328,6 +603,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -339,7 +615,10 @@ void main() {
       terminalListLoaded: true,
     );
 
-    final confirmed = store.projectSelected('project-2');
+    final confirmed = store.projectSelected(
+      projectId: 'project-2',
+      worktreeId: null,
+    );
 
     expect(confirmed.requestTerminalList, isTrue);
     expect(confirmed.resetTerminalBuffer, isTrue);
@@ -359,11 +638,35 @@ void main() {
     expect(store.activeSessionId, 'session-2');
   });
 
+  test('terminal list selects active session before viewport is ready', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: false,
+      terminalListLoaded: false,
+    );
+
+    final plan = store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(id: 'session-2', title: 'Two', projectId: 'project-2'),
+      ],
+      terminalVisible: false,
+      terminalListLoaded: true,
+    );
+
+    expect(plan.bindSessionId, 'session-2');
+    expect(plan.bindFullBuffer, isFalse);
+    expect(store.activeSessionId, 'session-2');
+  });
+
   test('background reset keeps project but drops terminal session state', () {
     final store = RemoteRuntimeStore();
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -391,6 +694,7 @@ void main() {
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-2',
+      remoteSelectedWorktreeId: null,
       terminalVisible: false,
       terminalListLoaded: false,
     );
@@ -415,11 +719,221 @@ void main() {
     expect(store.selectedGitStatus?.changes, 6);
   });
 
+  test('stores worktree lists by project in runtime core', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: false,
+      terminalListLoaded: false,
+    );
+
+    store.applyWorktreeState(
+      projectId: 'project-1',
+      selectedWorktreeId: 'project-1',
+      worktrees: const [
+        RemoteWorktreeInfo(
+          id: 'project-1',
+          projectId: 'project-1',
+          name: 'Project 1',
+          branch: 'main',
+          path: '/tmp/project-1',
+          status: 'clean',
+          isDefault: true,
+          exists: true,
+        ),
+      ],
+      baseBranches: const ['main'],
+      defaultBaseBranch: 'main',
+      allowRuntimeSelection: false,
+      terminalVisible: false,
+      terminalListLoaded: false,
+    );
+    store.applyWorktreeState(
+      projectId: 'project-2',
+      selectedWorktreeId: 'worktree-2',
+      worktrees: const [
+        RemoteWorktreeInfo(
+          id: 'worktree-2',
+          projectId: 'project-2',
+          name: 'Task',
+          branch: 'feature/task',
+          path: '/tmp/project-2-task',
+          status: 'clean',
+          isDefault: false,
+          exists: true,
+        ),
+      ],
+      baseBranches: const ['develop'],
+      defaultBaseBranch: 'develop',
+      allowRuntimeSelection: false,
+      terminalVisible: false,
+      terminalListLoaded: false,
+    );
+
+    expect(store.worktrees.map((worktree) => worktree.projectId).toSet(), {
+      'project-1',
+      'project-2',
+    });
+    expect(store.baseBranchesForProject('project-1'), ['main']);
+    expect(store.defaultBaseBranchForProject('project-2'), 'develop');
+  });
+
+  test('initializes selected worktree from default runtime worktree', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: false,
+      terminalListLoaded: false,
+    );
+
+    store.applyWorktreeState(
+      projectId: 'project-1',
+      selectedWorktreeId: null,
+      worktrees: const [
+        RemoteWorktreeInfo(
+          id: 'worktree-1',
+          projectId: 'project-1',
+          name: 'Task',
+          branch: 'task',
+          path: '/tmp/project-1-task',
+          status: 'clean',
+          isDefault: false,
+          exists: true,
+        ),
+        RemoteWorktreeInfo(
+          id: 'project-1',
+          projectId: 'project-1',
+          name: 'main',
+          branch: 'main',
+          path: '/tmp/project-1',
+          status: 'clean',
+          isDefault: true,
+          exists: true,
+        ),
+      ],
+      baseBranches: const ['main'],
+      defaultBaseBranch: 'main',
+      allowRuntimeSelection: false,
+      terminalVisible: false,
+      terminalListLoaded: false,
+    );
+
+    expect(store.selectedWorktreeId, 'project-1');
+  });
+
+  test('local worktree selection is not overwritten by stale list refresh', () {
+    final store = RemoteRuntimeStore();
+    store.applyProjectList(
+      projects: _projects,
+      remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
+      terminalVisible: true,
+      terminalListLoaded: false,
+    );
+    store.applyTerminalList(
+      terminals: const [
+        TerminalInfo(
+          id: 'main-session',
+          title: 'Main',
+          projectId: 'project-1',
+          worktreeId: 'project-1',
+        ),
+        TerminalInfo(
+          id: 'worktree-session',
+          title: 'Task',
+          projectId: 'project-1',
+          worktreeId: 'worktree-1',
+        ),
+      ],
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+    store.applyWorktreeState(
+      projectId: 'project-1',
+      selectedWorktreeId: 'project-1',
+      worktrees: const [
+        RemoteWorktreeInfo(
+          id: 'project-1',
+          projectId: 'project-1',
+          name: 'main',
+          branch: 'main',
+          path: '/tmp/project-1',
+          status: 'clean',
+          isDefault: true,
+          exists: true,
+        ),
+        RemoteWorktreeInfo(
+          id: 'worktree-1',
+          projectId: 'project-1',
+          name: 'Task',
+          branch: 'task',
+          path: '/tmp/project-1-task',
+          status: 'clean',
+          isDefault: false,
+          exists: true,
+        ),
+      ],
+      baseBranches: const ['main'],
+      defaultBaseBranch: 'main',
+      allowRuntimeSelection: false,
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    final local = store.worktreeSelected(
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+    final staleList = store.applyWorktreeState(
+      projectId: 'project-1',
+      selectedWorktreeId: 'project-1',
+      worktrees: const [
+        RemoteWorktreeInfo(
+          id: 'project-1',
+          projectId: 'project-1',
+          name: 'main',
+          branch: 'main',
+          path: '/tmp/project-1',
+          status: 'clean',
+          isDefault: true,
+          exists: true,
+        ),
+        RemoteWorktreeInfo(
+          id: 'worktree-1',
+          projectId: 'project-1',
+          name: 'Task',
+          branch: 'task',
+          path: '/tmp/project-1-task',
+          status: 'clean',
+          isDefault: false,
+          exists: true,
+        ),
+      ],
+      baseBranches: const ['main'],
+      defaultBaseBranch: 'main',
+      allowRuntimeSelection: false,
+      terminalVisible: true,
+      terminalListLoaded: true,
+    );
+
+    expect(local.bindSessionId, 'worktree-session');
+    expect(staleList.bindSessionId, isNull);
+    expect(store.selectedWorktreeId, 'worktree-1');
+    expect(store.activeSessionId, 'worktree-session');
+  });
+
   test('terminal scope follows active terminal project and path', () {
     final store = RemoteRuntimeStore();
     store.applyProjectList(
       projects: _projects,
       remoteSelectedProjectId: 'project-1',
+      remoteSelectedWorktreeId: null,
       terminalVisible: true,
       terminalListLoaded: false,
     );
@@ -439,12 +953,41 @@ void main() {
   });
 
   test(
+    'terminal scope uses explicit terminal when runtime list dropped it',
+    () {
+      final store = RemoteRuntimeStore();
+      store.applyProjectList(
+        projects: _projects,
+        remoteSelectedProjectId: 'project-1',
+        remoteSelectedWorktreeId: null,
+        terminalVisible: true,
+        terminalListLoaded: false,
+      );
+
+      final scope = store.terminalScopeForSession(
+        'session-2',
+        terminal: const TerminalInfo(
+          id: 'session-2',
+          title: 'Two',
+          projectId: 'project-2',
+          worktreeId: 'worktree-2',
+        ),
+      );
+
+      expect(scope?.projectId, 'project-2');
+      expect(scope?.worktreeId, 'worktree-2');
+      expect(scope?.projectPath, '/tmp/project-2');
+    },
+  );
+
+  test(
     'terminal close removes active session without changing selected project',
     () {
       final store = RemoteRuntimeStore();
       store.applyProjectList(
         projects: _projects,
         remoteSelectedProjectId: 'project-1',
+        remoteSelectedWorktreeId: null,
         terminalVisible: true,
         terminalListLoaded: false,
       );

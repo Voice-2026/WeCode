@@ -15,7 +15,10 @@ pub use output_sequence::{
 pub use remote_pty::{RemotePtyBaselinePageResult, RemotePtySession, RemotePtySnapshot};
 pub use runtime_model::{
     RemoteRuntimeModel, RemoteRuntimePlan, RemoteRuntimeProject, RemoteRuntimeStateSnapshot,
-    RemoteRuntimeTerminal,
+    RemoteRuntimeTerminal, RemoteRuntimeTerminalScope, RemoteRuntimeWorktree,
+    RemoteRuntimeWorktreeState, RuntimeModel, RuntimePlan, RuntimeProject, RuntimeStateSnapshot,
+    RuntimeTerminal, RuntimeTerminalScope, RuntimeWorktree, RuntimeWorktreeState,
+    runtime_scope_key, runtime_scope_parts,
 };
 pub use sequence_guard::RemoteSequenceGuard;
 pub use terminal_driver::{

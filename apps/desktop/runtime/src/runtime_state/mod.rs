@@ -85,9 +85,12 @@ use crate::{
     tool_permissions::{ToolPermissionsService, ToolPermissionsSummary},
     update::{UpdateService, UpdateStatus, UpdateSummary},
     worktree::{
-        WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeService,
-        WorktreeSnapshot, WorktreeSummary,
+        WorktreeCreateRequest, WorktreeInfo, WorktreeMergeRequest, WorktreeRemoveRequest,
+        WorktreeService, WorktreeSnapshot, WorktreeSummary,
     },
+};
+use codux_terminal_core::{
+    RuntimeModel, RuntimeProject, RuntimeWorktree, RuntimeWorktreeState, runtime_scope_key,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};

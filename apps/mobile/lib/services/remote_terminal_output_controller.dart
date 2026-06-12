@@ -292,6 +292,23 @@ class RemoteTerminalOutputController {
           _intPayloadValue(payload['startOffset']) ??
           _intPayloadValue(payload['offset']);
       final payloadBufferLength = _intPayloadValue(payload['bufferLength']);
+      final payloadOutputSeq = _intPayloadValue(payload['outputSeq']);
+      final knownOutputSeq = _sequencer.sequenceFor(sessionId);
+      if (payloadOffset == 0 &&
+          payloadOutputSeq != null &&
+          payloadOutputSeq <= knownOutputSeq) {
+        _assembler.remove(sessionId);
+        CoduxLog.debug(
+          '[codux-flutter-output] skip duplicate baseline seq=$payloadOutputSeq known=$knownOutputSeq session=$sessionId',
+        );
+        return [
+          RemoteTerminalOutputEffect.ack(
+            sessionId: sessionId,
+            outputSeq: payloadOutputSeq,
+            bufferLength: payloadBufferLength,
+          ),
+        ];
+      }
       if ((payloadOffset == 0 &&
               payloadBufferLength != null &&
               payloadBufferLength > bufferOffset(sessionId)) ||
@@ -482,6 +499,33 @@ class RemoteTerminalOutputController {
           decoded.bufferLength,
           outputSeq,
         );
+      }
+      final baselineHasRenderableData =
+          raw.isNotEmpty || decoded.screenData != null;
+      if (isBaselineRestore &&
+          activeRequestId != null &&
+          localCacheEmpty &&
+          !baselineHasRenderableData) {
+        CoduxLog.debug(
+          '[codux-flutter-output] keep empty baseline pending session=$sessionId request=$activeRequestId',
+        );
+        if (isActiveSession) {
+          effects.add(
+            RemoteTerminalOutputEffect.loading(
+              loading: true,
+              phase: RemoteTerminalBufferPhase.requesting,
+            ),
+          );
+          effects.add(RemoteTerminalOutputEffect.sessionUpdated(sessionId));
+        }
+        effects.add(
+          RemoteTerminalOutputEffect.ack(
+            sessionId: sessionId,
+            outputSeq: resync.ack,
+            bufferLength: decoded.bufferLength,
+          ),
+        );
+        return effects;
       }
 
       if (isBaselineRestore || _ptySessions.content(sessionId) == null) {

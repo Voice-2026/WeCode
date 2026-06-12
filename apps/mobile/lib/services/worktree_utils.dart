@@ -4,12 +4,14 @@ import 'remote_runtime_payloads.dart';
 
 class RemoteWorktreeState {
   const RemoteWorktreeState({
+    required this.projectId,
     required this.worktrees,
     required this.selectedWorktreeId,
     required this.baseBranches,
     required this.defaultBaseBranch,
   });
 
+  final String? projectId;
   final List<RemoteWorktreeInfo> worktrees;
   final String? selectedWorktreeId;
   final List<String> baseBranches;
@@ -86,9 +88,15 @@ class RemoteWorktreeController {
 
   RemoteWorktreeState? stateFromPayload(Object? payload) {
     if (payload is! Map) return null;
+    final projectId = payload['projectId']?.toString().trim();
+    final selectedWorktreeId = payload['selectedWorktreeId']?.toString().trim();
     return RemoteWorktreeState(
+      projectId: projectId == null || projectId.isEmpty ? null : projectId,
       worktrees: remoteWorktreesFromPayload(payload),
-      selectedWorktreeId: payload['selectedWorktreeId']?.toString(),
+      selectedWorktreeId:
+          selectedWorktreeId == null || selectedWorktreeId.isEmpty
+          ? null
+          : selectedWorktreeId,
       baseBranches: stringListPayload(payload['baseBranches']),
       defaultBaseBranch: payload['defaultBaseBranch']?.toString(),
     );

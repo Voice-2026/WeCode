@@ -64,6 +64,16 @@ import '../widgets/file_action_dialogs.dart';
 final String _remoteProtocolVersion = remoteProtocolVersion;
 const Duration _remoteStartupProbeTimeout = Duration(seconds: 15);
 
+class _PendingWorktreeSwitch {
+  const _PendingWorktreeSwitch({
+    required this.projectId,
+    required this.worktreeId,
+  });
+
+  final String projectId;
+  final String worktreeId;
+}
+
 class CoduxHomePage extends StatefulWidget {
   const CoduxHomePage({
     super.key,
@@ -131,8 +141,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   List<StoredDevice> _devices = [];
   List<ProjectInfo> _projects = [];
   List<TerminalInfo> _terminals = [];
-  List<RemoteWorktreeInfo> _worktrees = [];
-  List<String> _worktreeBaseBranches = [];
   StoredDevice? _activeDevice;
   TerminalBufferCapability _terminalBufferCapability =
       TerminalBufferCapability.fallback;
@@ -143,7 +151,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String? _selectedProjectId;
   String? _sessionId;
   String? _creatingTerminalProjectId;
-  String? _defaultWorktreeBaseBranch;
+  String? _creatingTerminalLayoutKind;
   bool _showSettings = false;
   bool _showScanner = false;
   PairingPayload? _pendingPairing;
@@ -199,6 +207,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String? _blockingLoadingMessage;
   bool _projectFilesLoading = false;
   bool _worktreeListLoading = false;
+  bool _creatingWorktree = false;
   bool _fileEditorLoading = false;
   bool _fileEditorSaving = false;
   bool _fileEditorEditing = false;
@@ -232,7 +241,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   DateTime? _lastConnectedAt;
   DateTime? _connectionGraceUntil;
   DateTime? _lastTransportProbeAt;
-  String? _selectedWorktreeId;
+  _PendingWorktreeSwitch? _pendingWorktreeSwitch;
   int? _latencyMs;
   Timer? _connectionGraceTimer;
 
@@ -456,11 +465,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _backgroundConnect = false;
       _showTerminal = false;
       _workspaceMode = 'terminal';
-      _worktrees = [];
-      _worktreeBaseBranches = [];
       _resetRemoteSyncState();
-      _defaultWorktreeBaseBranch = null;
-      _selectedWorktreeId = null;
       _showTerminalSwitcher = false;
       _status = message;
       _terminalBufferRetry.reset();
@@ -712,6 +717,30 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   ProjectInfo? get _selectedProject {
     return _remoteRuntime.selectedProject();
+  }
+
+  List<RemoteWorktreeInfo> get _worktrees => _remoteRuntime.worktrees;
+
+  String? get _selectedWorktreeId => _remoteRuntime.selectedWorktreeId;
+
+  List<String> get _worktreeBaseBranches {
+    final projectId = _selectedProjectId ?? _remoteRuntime.selectedProjectId;
+    return projectId == null
+        ? const []
+        : _remoteRuntime.baseBranchesForProject(projectId);
+  }
+
+  String? get _defaultWorktreeBaseBranch {
+    final projectId = _selectedProjectId ?? _remoteRuntime.selectedProjectId;
+    return projectId == null
+        ? null
+        : _remoteRuntime.defaultBaseBranchForProject(projectId);
+  }
+
+  List<RemoteWorktreeInfo> _worktreesForProject(String projectId) {
+    return _worktrees
+        .where((worktree) => worktree.projectId == projectId)
+        .toList(growable: false);
   }
 
   @override
@@ -1189,10 +1218,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _latencyMs = null;
       if (!background) {
         _status = _t('app.connecting');
-        _worktrees = [];
-        _worktreeBaseBranches = [];
-        _defaultWorktreeBaseBranch = null;
-        _selectedWorktreeId = null;
         _showTerminalSwitcher = false;
         _terminalBufferRetry.reset();
         _terminalOutputController.resetTransient();
@@ -1396,9 +1421,19 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final project = _selectedProject;
     if (!_remoteProtocolReady || project == null) return;
     if (loading) {
-      setState(() => _worktreeListLoading = true);
+      setState(() {
+        _worktreeListLoading = true;
+      });
     }
     _send(_worktreeController.listEnvelope(project));
+  }
+
+  void _ensureSelectedProjectWorktrees({bool loading = false}) {
+    final projectId = _selectedProjectId;
+    if (projectId == null || _remoteRuntime.hasWorktreesForProject(projectId)) {
+      return;
+    }
+    _requestWorktreeList(loading: loading);
   }
 
   void _scheduleTerminalListRetry() {
@@ -1431,11 +1466,19 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   bool _sendProjectSelect(String projectId, {required String reason}) {
+    final scope = _remoteRuntime.terminalScopeForProject(projectId);
+    final payload = <String, Object>{
+      'projectId': projectId,
+      if (scope?.worktreeId != null && scope!.worktreeId!.trim().isNotEmpty)
+        'worktreeId': scope.worktreeId!,
+      if (scope?.projectPath != null && scope!.projectPath!.trim().isNotEmpty)
+        'projectPath': scope.projectPath!,
+    };
     CoduxLog.info(
-      '[codux-flutter-projects] send project.select reason=$reason project=$projectId',
+      '[codux-flutter-projects] send project.select reason=$reason project=$projectId worktree=${payload['worktreeId'] ?? ''}',
     );
     final sent = _send(
-      RelayEnvelope(type: 'project.select', payload: {'projectId': projectId}),
+      RelayEnvelope(type: 'project.select', payload: payload),
       onResult: (message, result) {
         if (result == RemoteEnvelopeSendResult.delivered) {
           _remoteRuntime.markProjectSelectSent(projectId);
@@ -1512,6 +1555,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _selectedProjectId = _remoteRuntime.selectedProjectId;
     _sessionId = _remoteRuntime.activeSessionId;
     _creatingTerminalProjectId = _remoteRuntime.creatingTerminalProjectId;
+    if (_creatingTerminalProjectId == null) {
+      _creatingTerminalLayoutKind = null;
+    }
   }
 
   bool get _terminalBufferLoading =>
@@ -1548,7 +1594,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         plan.bindSessionId != null ||
         plan.removedSessionId != null) {
       CoduxLog.info(
-        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} bind=${plan.bindSessionId ?? ''} selected=${_selectedProjectId ?? ''} session=${_sessionId ?? ''}',
+        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} pending=${_remoteRuntime.pendingProjectSelect(includeSent: true) ?? ''} bind=${plan.bindSessionId ?? ''} selected=${_selectedProjectId ?? ''} session=${_sessionId ?? ''}',
       );
     }
     if (plan.removedSessionId != null) {
@@ -1588,6 +1634,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (plan.bindSessionId != null) {
       final bindSessionId = plan.bindSessionId!;
       final restored = _restoreTerminalSessionFromCache(bindSessionId);
+      if (restored) {
+        _closeTerminalSwitcherAfterPendingWorktreeBuffer(bindSessionId);
+      }
       _claimTerminalViewport(sessionId: bindSessionId);
       _flushPendingTerminalResize(force: true, sessionId: bindSessionId);
       final bindResult = _terminalBindingCoordinator.bindSession(
@@ -1774,11 +1823,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             _hostResponsive = false;
             _showTerminal = false;
             _workspaceMode = 'terminal';
-            _worktrees = [];
-            _worktreeBaseBranches = [];
             _resetRemoteSyncState();
-            _defaultWorktreeBaseBranch = null;
-            _selectedWorktreeId = null;
             _showTerminalSwitcher = false;
             _status = messageText;
             _terminalBufferRetry.reset();
@@ -1839,7 +1884,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           _handleWorktreeList(message);
         case 'worktree.updated':
           _handleWorktreeUpdated(message);
-          _requestTerminalList(resetRetry: true);
         case 'terminal.output':
           _handleTerminalOutput(message);
         case 'error':
@@ -1893,15 +1937,20 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _markActiveDeviceResponsive();
     final payload = message.payload;
     final projectId = payload is Map ? payload['projectId']?.toString() : null;
+    final worktreeId = payload is Map
+        ? payload['worktreeId']?.toString()
+        : null;
     CoduxLog.info(
-      '[codux-flutter-projects] project.selected project=${projectId ?? ''} current=${_selectedProjectId ?? ''}',
+      '[codux-flutter-projects] project.selected project=${projectId ?? ''} worktree=${worktreeId ?? ''} current=${_selectedProjectId ?? ''}',
     );
     if (projectId != null && projectId.isNotEmpty) {
       _clearProjectSelectAck(projectId);
     }
-    final plan = _remoteRuntime.projectSelected(projectId);
+    final plan = _remoteRuntime.projectSelected(
+      projectId: projectId,
+      worktreeId: worktreeId,
+    );
     _applyRuntimePlan(plan, reason: 'project-selected');
-    _requestProjectList();
   }
 
   void _handleProjectList(RelayEnvelope message) {
@@ -1910,17 +1959,38 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _markProjectListReceived();
     final payload = message.payload;
     final next = remoteProjectsFromPayload(payload);
+    final worktrees = remoteWorktreesFromPayload(payload);
     final remoteSelectedProjectId = remoteSelectedProjectIdFromPayload(payload);
+    final remoteSelectedWorktreeId = remoteSelectedWorktreeIdFromPayload(
+      payload,
+    );
     CoduxLog.info(
-      '[codux-flutter-projects] recv project.list count=${next.length} remoteSelected=${remoteSelectedProjectId ?? ''} current=${_selectedProjectId ?? ''}',
+      '[codux-flutter-projects] recv project.list count=${next.length} remoteSelected=${remoteSelectedProjectId ?? ''} remoteWorktree=${remoteSelectedWorktreeId ?? ''} current=${_selectedProjectId ?? ''}',
     );
     final plan = _remoteRuntime.applyProjectList(
       projects: next,
       remoteSelectedProjectId: remoteSelectedProjectId,
+      remoteSelectedWorktreeId: remoteSelectedWorktreeId,
       terminalVisible: _terminalViewportReady,
       terminalListLoaded: _terminalListLoaded,
     );
     _applyRuntimePlan(plan, reason: 'missing-terminal');
+    if (worktrees.isNotEmpty) {
+      final worktreePlan = _remoteRuntime.applyWorktreeState(
+        worktrees: worktrees,
+        projectId: null,
+        selectedWorktreeId: remoteSelectedWorktreeId,
+        baseBranches: const [],
+        defaultBaseBranch: null,
+        allowRuntimeSelection: false,
+        terminalVisible: _terminalViewportReady,
+        terminalListLoaded: _terminalListLoaded,
+      );
+      if (mounted) setState(_syncRuntimeViewState);
+      if (worktreePlan.hasRuntimeAction) {
+        _applyRuntimePlan(worktreePlan, reason: 'project-list-worktrees');
+      }
+    }
     CoduxLog.debug(
       '[codux-flutter-projects] project.list count=${next.length} selected=${_selectedProjectId ?? ''}',
     );
@@ -1933,13 +2003,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _markTerminalListReceived();
     final next = remoteTerminalsFromPayload(message.payload);
     CoduxLog.info(
-      '[codux-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')}',
+      '[codux-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} worktree=${_selectedWorktreeId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')} items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}').join('|')}',
     );
     final plan = _remoteRuntime.applyTerminalList(
       terminals: next,
       terminalVisible: _terminalViewportReady,
       terminalListLoaded: _terminalListLoaded,
     );
+    if (_creatingTerminalProjectId != null) {
+      _creatingTerminalLayoutKind = null;
+    }
     if (plan.bindSessionId != null && _selectedProjectId != null) {
       _clearProjectSelectAck(_selectedProjectId!);
     }
@@ -1953,6 +2026,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId}',
     );
     final plan = _remoteRuntime.terminalCreated(terminal);
+    if (_creatingTerminalProjectId != null) {
+      _creatingTerminalLayoutKind = null;
+    }
     _applyRuntimePlan(plan, reason: 'terminal-created');
   }
 
@@ -1965,23 +2041,67 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   void _handleWorktreeList(RelayEnvelope message) {
     _markHostResponsive('worktree.list');
-    _applyWorktreeState(message);
+    _applyWorktreeState(message, allowRuntimeSelection: false);
   }
 
   void _handleWorktreeUpdated(RelayEnvelope message) {
-    _applyWorktreeState(message);
+    _applyWorktreeState(message, allowRuntimeSelection: true);
   }
 
-  void _applyWorktreeState(RelayEnvelope message) {
+  void _applyWorktreeState(
+    RelayEnvelope message, {
+    required bool allowRuntimeSelection,
+  }) {
     final worktreeState = _worktreeController.stateFromPayload(message.payload);
     if (worktreeState == null) return;
+    final scopedProjectId = worktreeState.projectId;
+    final currentProjectId =
+        _selectedProjectId ?? _remoteRuntime.selectedProjectId;
+    final effectiveProjectId = scopedProjectId ?? currentProjectId;
+    final affectsCurrentProject =
+        effectiveProjectId == null ||
+        currentProjectId == null ||
+        effectiveProjectId == currentProjectId;
+    final canApplyRuntimeSelection =
+        allowRuntimeSelection && affectsCurrentProject;
+    final scopedWorktrees = effectiveProjectId == null
+        ? worktreeState.worktrees
+        : worktreeState.worktrees
+              .where((worktree) => worktree.projectId == effectiveProjectId)
+              .toList(growable: false);
+    final confirmedWorktreeId = worktreeState.selectedWorktreeId;
+    final pendingSwitch = _pendingWorktreeSwitch;
+    final pendingWorktreeId = pendingSwitch?.worktreeId;
+    final pendingCurrentProject =
+        pendingSwitch != null &&
+        canApplyRuntimeSelection &&
+        (effectiveProjectId == null ||
+            effectiveProjectId == pendingSwitch.projectId);
+    if (allowRuntimeSelection && pendingWorktreeId != null) {
+      CoduxLog.info(
+        '[codux-flutter-worktree] apply type=${message.type} project=${effectiveProjectId ?? ''} current=${currentProjectId ?? ''} confirmed=${confirmedWorktreeId ?? ''} pendingProject=${pendingSwitch?.projectId ?? ''} pendingWorktree=$pendingWorktreeId currentProject=$pendingCurrentProject worktrees=${scopedWorktrees.map((item) => '${item.projectId}:${item.id}').join('|')}',
+      );
+    }
+    final plan = _remoteRuntime.applyWorktreeState(
+      worktrees: scopedWorktrees,
+      projectId: effectiveProjectId,
+      selectedWorktreeId: worktreeState.selectedWorktreeId,
+      baseBranches: worktreeState.baseBranches,
+      defaultBaseBranch: worktreeState.defaultBaseBranch,
+      allowRuntimeSelection: canApplyRuntimeSelection,
+      terminalVisible: _terminalViewportReady,
+      terminalListLoaded: _terminalListLoaded,
+    );
     setState(() {
-      _worktrees = worktreeState.worktrees;
-      _selectedWorktreeId = worktreeState.selectedWorktreeId;
-      _worktreeBaseBranches = worktreeState.baseBranches;
-      _defaultWorktreeBaseBranch = worktreeState.defaultBaseBranch;
-      _worktreeListLoading = false;
+      _syncRuntimeViewState();
+      _worktreeListLoading =
+          pendingCurrentProject && !_pendingWorktreeSwitchHasActiveTerminal();
+      _creatingWorktree = false;
     });
+    if (plan.hasRuntimeAction) {
+      _applyRuntimePlan(plan, reason: 'worktree-updated');
+    }
+    _closeTerminalSwitcherIfPendingWorktreeReady();
   }
 
   void _handleRemoteError(RelayEnvelope message) {
@@ -2003,6 +2123,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _aiStatsLoading = false;
       _filePickerLoading = false;
       _worktreeListLoading = false;
+      _creatingWorktree = false;
+      _pendingWorktreeSwitch = null;
+      _creatingTerminalLayoutKind = null;
       _blockingLoadingMessage = null;
       if (isActiveTerminalError) {
         _terminalOutputController.resetSessionTransient(message.sessionId!);
@@ -2225,30 +2348,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _handleTerminalOutput(RelayEnvelope message) {
-    _releaseTerminalPageRequest(message);
     final effects = _terminalOutputController.accept(
       message,
       activeSessionId: _sessionId,
     );
     _applyTerminalOutputEffects(effects);
-  }
-
-  void _releaseTerminalPageRequest(RelayEnvelope message) {
-    final payload = message.payload;
-    if (payload is! Map || payload['buffer'] != true) return;
-    final sessionId = message.sessionId;
-    if (sessionId == null || sessionId.isEmpty) return;
-    final requestId = payload['requestId']?.toString().trim().isNotEmpty == true
-        ? payload['requestId'].toString().trim()
-        : _terminalOutputController.activeBufferRequestId(sessionId);
-    if (requestId == null || requestId.isEmpty) return;
-    if (requestId ==
-        _terminalOutputController.activeBufferRequestId(sessionId)) {
-      _terminalBufferRetry.markReceived(
-        sessionId: sessionId,
-        activeSessionId: _sessionId,
-      );
-    }
   }
 
   void _applyTerminalOutputEffects(List<RemoteTerminalOutputEffect> effects) {
@@ -2355,6 +2459,42 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     CoduxLog.info(
       '[codux-flutter-terminal] terminal.buffer received session=${sessionId ?? ''}',
     );
+    if (sessionId != null) {
+      _closeTerminalSwitcherAfterPendingWorktreeBuffer(sessionId);
+    }
+  }
+
+  void _closeTerminalSwitcherAfterPendingWorktreeBuffer(String sessionId) {
+    if (sessionId != _sessionId) return;
+    _closeTerminalSwitcherIfPendingWorktreeReady();
+  }
+
+  void _closeTerminalSwitcherIfPendingWorktreeReady() {
+    if (!_showTerminalSwitcher || !_pendingWorktreeSwitchHasActiveTerminal()) {
+      return;
+    }
+    _pendingWorktreeSwitch = null;
+    _closeTerminalSwitcher();
+  }
+
+  bool _pendingWorktreeSwitchHasActiveTerminal() {
+    final pending = _pendingWorktreeSwitch;
+    if (pending == null) return false;
+    if (_selectedProjectId != pending.projectId ||
+        _selectedWorktreeId != pending.worktreeId) {
+      return false;
+    }
+    final active = _remoteRuntime.activeTerminal();
+    if (active == null || active.projectId != pending.projectId) {
+      return false;
+    }
+    return _terminalWorktreeId(active) == pending.worktreeId;
+  }
+
+  String _terminalWorktreeId(TerminalInfo terminal) {
+    final worktreeId = terminal.worktreeId?.trim();
+    if (worktreeId != null && worktreeId.isNotEmpty) return worktreeId;
+    return terminal.projectId;
   }
 
   void _clearTerminal() {
@@ -2502,12 +2642,24 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     if (_creatingTerminalProjectId == target) return;
     _remoteRuntime.setTerminalCreatingProject(target);
+    _creatingTerminalLayoutKind = layoutKind.trim().toLowerCase() == 'tab'
+        ? 'tab'
+        : 'split';
     setState(_syncRuntimeViewState);
-    _clearTerminal();
+    final scope = _remoteRuntime.terminalScopeForProject(target);
     _send(
       RelayEnvelope(
         type: 'terminal.create',
-        payload: {'projectId': target, 'command': '', 'layoutKind': layoutKind},
+        payload: {
+          'projectId': target,
+          if (scope?.worktreeId != null && scope!.worktreeId!.trim().isNotEmpty)
+            'worktreeId': scope.worktreeId!,
+          if (scope?.projectPath != null &&
+              scope!.projectPath!.trim().isNotEmpty)
+            'projectPath': scope.projectPath!,
+          'command': '',
+          'layoutKind': layoutKind,
+        },
       ),
     );
   }
@@ -2608,13 +2760,14 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   Future<void> _openTerminalSwitcher() async {
     if (_showTerminalSwitcher) return;
-    _requestWorktreeList(loading: _worktrees.isEmpty);
+    _ensureSelectedProjectWorktrees(loading: true);
     await _pushCupertinoPage(() {
       _showTerminalSwitcher = true;
     });
   }
 
   void _closeTerminalSwitcher() {
+    _pendingWorktreeSwitch = null;
     _popCupertinoPage(() {
       _showTerminalSwitcher = false;
     });
@@ -2631,8 +2784,39 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _showToast(_t('project.selectFirst'));
       return;
     }
-    setState(() => _worktreeListLoading = true);
-    _send(_worktreeController.selectEnvelope(project, worktree));
+    if (worktree.projectId != project.id) {
+      CoduxLog.warn(
+        '[codux-flutter-worktree] ignore select project=${project.id} worktree=${worktree.id} worktreeProject=${worktree.projectId}',
+      );
+      return;
+    }
+    if (worktree.id == _selectedWorktreeId) {
+      _closeTerminalSwitcher();
+      return;
+    }
+    _terminalInputBatcher.flush();
+    _pendingWorktreeSwitch = _PendingWorktreeSwitch(
+      projectId: project.id,
+      worktreeId: worktree.id,
+    );
+    final plan = _remoteRuntime.worktreeSelected(
+      projectId: project.id,
+      worktreeId: worktree.id,
+      terminalVisible: _terminalViewportReady,
+      terminalListLoaded: _terminalListLoaded,
+    );
+    setState(() {
+      _workspaceMode = 'terminal';
+      _syncRuntimeViewState();
+      _worktreeListLoading = true;
+    });
+    final sent = _send(_worktreeController.selectEnvelope(project, worktree));
+    if (!sent) {
+      _pendingWorktreeSwitch = null;
+      setState(() => _worktreeListLoading = false);
+      return;
+    }
+    _applyRuntimePlan(plan, reason: 'worktree-local-select');
   }
 
   Future<void> _createWorktree() async {
@@ -2664,7 +2848,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _showToast(_t('worktree.nameRequired'));
       return;
     }
-    setState(() => _worktreeListLoading = true);
+    setState(() {
+      _worktreeListLoading = true;
+      _creatingWorktree = true;
+    });
     _send(
       _worktreeController.createEnvelope(
         project: project,
@@ -2675,10 +2862,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   List<String> _worktreeCreatorBranchOptions() {
+    final projectId = _selectedProjectId;
     return worktreeBranchOptions(
       defaultBaseBranch: _defaultWorktreeBaseBranch,
       baseBranches: _worktreeBaseBranches,
-      worktrees: _worktrees,
+      worktrees: projectId == null ? const [] : _worktreesForProject(projectId),
     );
   }
 
@@ -3202,10 +3390,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _projectFilesParent = null;
       if (projectChanged) {
         _projectFileController.forget(project.id);
-        _worktrees = [];
-        _worktreeBaseBranches = [];
-        _defaultWorktreeBaseBranch = null;
-        _selectedWorktreeId = null;
+        _pendingWorktreeSwitch = null;
       }
     });
     final plan = _remoteRuntime.userSelectProject(
@@ -3213,7 +3398,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       terminalVisible: resetTerminal,
     );
     _applyRuntimePlan(plan, reason: 'user-select');
-    _requestWorktreeList(loading: _showTerminalSwitcher);
+    _ensureSelectedProjectWorktrees(loading: _showTerminalSwitcher);
     if (_workspaceMode == 'stats') {
       _requestAIStats();
       return;
@@ -3848,8 +4033,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       terminals: _currentProjectTerminals(),
       worktrees: _worktrees,
       activeTerminalId: _sessionId,
+      selectedProjectId: _selectedProjectId,
       selectedWorktreeId: _selectedWorktreeId,
+      switchingWorktreeId: _pendingWorktreeSwitch?.worktreeId,
       loadingWorktrees: _worktreeListLoading,
+      creatingSplit:
+          _creatingTerminalProjectId == _selectedProjectId &&
+          _creatingTerminalLayoutKind == 'split',
+      creatingTab:
+          _creatingTerminalProjectId == _selectedProjectId &&
+          _creatingTerminalLayoutKind == 'tab',
+      creatingWorktree: _creatingWorktree,
       onBack: _closeTerminalSwitcher,
       onSelectTerminal: _selectTerminalFromSwitcher,
       onCreateSplit: _createCurrentProjectTerminal,
@@ -3859,6 +4053,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onCreateWorktree: _createWorktree,
       onMergeWorktree: _mergeWorktree,
       onDeleteWorktree: _deleteWorktree,
+      onOpenWorktrees: _ensureSelectedProjectWorktrees,
       onRefreshWorktrees: () => _requestWorktreeList(loading: true),
     );
   }
@@ -3893,6 +4088,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         if (firstResize) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            CoduxLog.debug(
+              '[codux-flutter-terminal] first resize ready selected=${_selectedProjectId ?? ''} session=${_sessionId ?? ''} terminalListLoaded=$_terminalListLoaded',
+            );
             _ensureTerminalForSelectedProject();
             _mountVisibleTerminal(reason: 'first-resize');
           });

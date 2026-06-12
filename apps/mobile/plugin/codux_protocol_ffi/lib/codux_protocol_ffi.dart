@@ -131,6 +131,47 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
     library.lookup<NativeFunction<Pointer<Void> Function()>>(
       'codux_remote_runtime_model_new',
     );
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(
+          Pointer<Void>,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Bool,
+          Bool,
+        )
+      >
+    >('codux_remote_runtime_model_apply_project_list_json');
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+      >
+    >('codux_remote_runtime_model_project_selected_json');
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(
+          Pointer<Void>,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Bool,
+          Bool,
+        )
+      >
+    >('codux_remote_runtime_model_worktree_selected_json');
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Bool, Bool, Bool)
+      >
+    >('codux_remote_runtime_model_apply_worktree_state_json');
+    library.lookup<
+      NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>
+    >('codux_remote_runtime_model_terminal_scope_for_project_json');
+    library.lookup<
+      NativeFunction<
+        Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+      >
+    >('codux_remote_runtime_model_terminal_scope_for_session_json');
     library.lookup<NativeFunction<Pointer<Void> Function(Int64, Int64, Int64)>>(
       'codux_terminal_screen_new',
     );
@@ -564,11 +605,13 @@ final _remoteRuntimeModelApplyProjectListJson = _dylib
         Pointer<Void>,
         Pointer<Utf8>,
         Pointer<Utf8>,
+        Pointer<Utf8>,
         Bool,
         Bool,
       ),
       Pointer<Utf8> Function(
         Pointer<Void>,
+        Pointer<Utf8>,
         Pointer<Utf8>,
         Pointer<Utf8>,
         bool,
@@ -587,9 +630,31 @@ final _remoteRuntimeModelUserSelectProjectJson = _dylib
     >('codux_remote_runtime_model_user_select_project_json');
 final _remoteRuntimeModelProjectSelectedJson = _dylib
     .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
-      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
     >('codux_remote_runtime_model_project_selected_json');
+final _remoteRuntimeModelWorktreeSelectedJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Bool,
+        Bool,
+      ),
+      Pointer<Utf8> Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        bool,
+        bool,
+      )
+    >('codux_remote_runtime_model_worktree_selected_json');
+final _remoteRuntimeModelApplyWorktreeStateJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Bool, Bool, Bool),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, bool, bool, bool)
+    >('codux_remote_runtime_model_apply_worktree_state_json');
 final _remoteRuntimeModelEnsureTerminalJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Void>, Bool, Bool),
@@ -635,6 +700,16 @@ final _remoteRuntimeModelCurrentProjectTerminalsJson = _dylib
       Pointer<Utf8> Function(Pointer<Void>),
       Pointer<Utf8> Function(Pointer<Void>)
     >('codux_remote_runtime_model_current_project_terminals_json');
+final _remoteRuntimeModelTerminalScopeForProjectJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_remote_runtime_model_terminal_scope_for_project_json');
+final _remoteRuntimeModelTerminalScopeForSessionJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+    >('codux_remote_runtime_model_terminal_scope_for_session_json');
 final _stringFree = _dylib
     .lookupFunction<Void Function(Pointer<Utf8>), void Function(Pointer<Utf8>)>(
       'codux_protocol_string_free',
@@ -1657,9 +1732,13 @@ class RemoteRuntimeCoreState {
   const RemoteRuntimeCoreState({
     required this.projects,
     required this.terminals,
+    required this.worktrees,
     required this.lastTerminalIdByProject,
+    required this.baseBranchesByProject,
+    required this.defaultBaseBranchByProject,
     this.selectedProjectId,
     this.activeSessionId,
+    this.selectedWorktreeId,
     this.pendingProjectSelectId,
     this.pendingProjectSelectSent = false,
     this.projectSelectAcknowledgedId,
@@ -1668,18 +1747,25 @@ class RemoteRuntimeCoreState {
 
   final List<Map<String, dynamic>> projects;
   final List<Map<String, dynamic>> terminals;
+  final List<Map<String, dynamic>> worktrees;
   final String? selectedProjectId;
   final String? activeSessionId;
+  final String? selectedWorktreeId;
   final String? pendingProjectSelectId;
   final bool pendingProjectSelectSent;
   final String? projectSelectAcknowledgedId;
   final String? creatingTerminalProjectId;
   final Map<String, String> lastTerminalIdByProject;
+  final Map<String, List<String>> baseBranchesByProject;
+  final Map<String, String> defaultBaseBranchByProject;
 
   factory RemoteRuntimeCoreState.fromJson(Map<String, dynamic> json) {
     final projects = json['projects'];
     final terminals = json['terminals'];
+    final worktrees = json['worktrees'];
     final last = json['lastTerminalIdByProject'];
+    final baseBranches = json['baseBranchesByProject'];
+    final defaultBaseBranches = json['defaultBaseBranchByProject'];
     return RemoteRuntimeCoreState(
       projects: [
         if (projects is List)
@@ -1691,8 +1777,14 @@ class RemoteRuntimeCoreState {
           for (final item in terminals)
             if (item is Map) Map<String, dynamic>.from(item),
       ],
+      worktrees: [
+        if (worktrees is List)
+          for (final item in worktrees)
+            if (item is Map) Map<String, dynamic>.from(item),
+      ],
       selectedProjectId: _nullableString(json['selectedProjectId']),
       activeSessionId: _nullableString(json['activeSessionId']),
+      selectedWorktreeId: _nullableString(json['selectedWorktreeId']),
       pendingProjectSelectId: _nullableString(json['pendingProjectSelectId']),
       pendingProjectSelectSent: json['pendingProjectSelectSent'] == true,
       projectSelectAcknowledgedId: _nullableString(
@@ -1704,6 +1796,20 @@ class RemoteRuntimeCoreState {
       lastTerminalIdByProject: {
         if (last is Map)
           for (final entry in last.entries) '${entry.key}': '${entry.value}',
+      },
+      baseBranchesByProject: {
+        if (baseBranches is Map)
+          for (final entry in baseBranches.entries)
+            '${entry.key}': [
+              if (entry.value is List)
+                for (final item in entry.value as List)
+                  if ('$item'.trim().isNotEmpty) '$item'.trim(),
+            ],
+      },
+      defaultBaseBranchByProject: {
+        if (defaultBaseBranches is Map)
+          for (final entry in defaultBaseBranches.entries)
+            '${entry.key}': '${entry.value}',
       },
     );
   }
@@ -1779,11 +1885,13 @@ class RemoteRuntimeCore {
   RemoteRuntimeCorePlan applyProjectList({
     required List<Map<String, dynamic>> projects,
     required String? remoteSelectedProjectId,
+    required String? remoteSelectedWorktreeId,
     required bool terminalVisible,
     required bool terminalListLoaded,
   }) {
     final projectsPtr = jsonEncode(projects).toNativeUtf8();
     final selectedPtr = (remoteSelectedProjectId ?? '').toNativeUtf8();
+    final selectedWorktreePtr = (remoteSelectedWorktreeId ?? '').toNativeUtf8();
     try {
       return RemoteRuntimeCorePlan.fromJson(
         _decodeEnvelope(
@@ -1791,6 +1899,7 @@ class RemoteRuntimeCore {
             _liveHandle(),
             projectsPtr,
             selectedPtr,
+            selectedWorktreePtr,
             terminalVisible,
             terminalListLoaded,
           ),
@@ -1799,6 +1908,7 @@ class RemoteRuntimeCore {
     } finally {
       malloc.free(projectsPtr);
       malloc.free(selectedPtr);
+      malloc.free(selectedWorktreePtr);
     }
   }
 
@@ -1844,16 +1954,75 @@ class RemoteRuntimeCore {
     }
   }
 
-  RemoteRuntimeCorePlan projectSelected(String? projectId) {
+  RemoteRuntimeCorePlan projectSelected({
+    required String? projectId,
+    required String? worktreeId,
+  }) {
     final projectPtr = (projectId ?? '').toNativeUtf8();
+    final worktreePtr = (worktreeId ?? '').toNativeUtf8();
     try {
       return RemoteRuntimeCorePlan.fromJson(
         _decodeEnvelope(
-          _remoteRuntimeModelProjectSelectedJson(_liveHandle(), projectPtr),
+          _remoteRuntimeModelProjectSelectedJson(
+            _liveHandle(),
+            projectPtr,
+            worktreePtr,
+          ),
         ),
       );
     } finally {
       malloc.free(projectPtr);
+      malloc.free(worktreePtr);
+    }
+  }
+
+  RemoteRuntimeCorePlan worktreeSelected({
+    required String? projectId,
+    required String? worktreeId,
+    required bool terminalVisible,
+    required bool terminalListLoaded,
+  }) {
+    final projectPtr = (projectId ?? '').toNativeUtf8();
+    final worktreePtr = (worktreeId ?? '').toNativeUtf8();
+    try {
+      return RemoteRuntimeCorePlan.fromJson(
+        _decodeEnvelope(
+          _remoteRuntimeModelWorktreeSelectedJson(
+            _liveHandle(),
+            projectPtr,
+            worktreePtr,
+            terminalVisible,
+            terminalListLoaded,
+          ),
+        ),
+      );
+    } finally {
+      malloc.free(projectPtr);
+      malloc.free(worktreePtr);
+    }
+  }
+
+  RemoteRuntimeCorePlan applyWorktreeState({
+    required Map<String, dynamic> state,
+    required bool allowRuntimeSelection,
+    required bool terminalVisible,
+    required bool terminalListLoaded,
+  }) {
+    final statePtr = jsonEncode(state).toNativeUtf8();
+    try {
+      return RemoteRuntimeCorePlan.fromJson(
+        _decodeEnvelope(
+          _remoteRuntimeModelApplyWorktreeStateJson(
+            _liveHandle(),
+            statePtr,
+            allowRuntimeSelection,
+            terminalVisible,
+            terminalListLoaded,
+          ),
+        ),
+      );
+    } finally {
+      malloc.free(statePtr);
     }
   }
 
@@ -1954,6 +2123,42 @@ class RemoteRuntimeCore {
       for (final item in decoded)
         if (item is Map) Map<String, dynamic>.from(item),
     ];
+  }
+
+  Map<String, dynamic>? terminalScopeForProject(String projectId) {
+    final projectPtr = projectId.toNativeUtf8();
+    try {
+      final decoded = _decodeJson(
+        _remoteRuntimeModelTerminalScopeForProjectJson(
+          _liveHandle(),
+          projectPtr,
+        ),
+      );
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } finally {
+      malloc.free(projectPtr);
+    }
+  }
+
+  Map<String, dynamic>? terminalScopeForSession({
+    required String sessionId,
+    Map<String, dynamic>? terminal,
+  }) {
+    final sessionPtr = sessionId.toNativeUtf8();
+    final terminalPtr = jsonEncode(terminal ?? const {}).toNativeUtf8();
+    try {
+      final decoded = _decodeJson(
+        _remoteRuntimeModelTerminalScopeForSessionJson(
+          _liveHandle(),
+          sessionPtr,
+          terminalPtr,
+        ),
+      );
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } finally {
+      malloc.free(sessionPtr);
+      malloc.free(terminalPtr);
+    }
   }
 
   void dispose() {

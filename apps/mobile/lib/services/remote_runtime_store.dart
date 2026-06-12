@@ -8,25 +8,33 @@ class RemoteRuntimeState {
   const RemoteRuntimeState({
     this.projects = const [],
     this.terminals = const [],
+    this.worktrees = const [],
     this.selectedProjectId,
     this.activeSessionId,
+    this.selectedWorktreeId,
     this.pendingProjectSelectId,
     this.pendingProjectSelectSent = false,
     this.projectSelectAcknowledgedId,
     this.creatingTerminalProjectId,
     this.lastTerminalIdByProject = const {},
+    this.baseBranchesByProject = const {},
+    this.defaultBaseBranchByProject = const {},
     this.gitStatusByProject = const {},
   });
 
   final List<ProjectInfo> projects;
   final List<TerminalInfo> terminals;
+  final List<RemoteWorktreeInfo> worktrees;
   final String? selectedProjectId;
   final String? activeSessionId;
+  final String? selectedWorktreeId;
   final String? pendingProjectSelectId;
   final bool pendingProjectSelectSent;
   final String? projectSelectAcknowledgedId;
   final String? creatingTerminalProjectId;
   final Map<String, String> lastTerminalIdByProject;
+  final Map<String, List<String>> baseBranchesByProject;
+  final Map<String, String> defaultBaseBranchByProject;
   final Map<String, RemoteGitStatusInfo> gitStatusByProject;
 }
 
@@ -54,6 +62,29 @@ class RemoteRuntimePlan {
   final bool bindFullBuffer;
   final bool flushTerminalInput;
   final String? removedSessionId;
+
+  bool get hasEffect =>
+      stateChanged ||
+      clearTerminal ||
+      resetTerminalInput ||
+      resetTerminalBuffer ||
+      requestTerminalList ||
+      requestProjectSelectId != null ||
+      bindSessionId != null ||
+      bindFullBuffer ||
+      flushTerminalInput ||
+      removedSessionId != null;
+
+  bool get hasRuntimeAction =>
+      clearTerminal ||
+      resetTerminalInput ||
+      resetTerminalBuffer ||
+      requestTerminalList ||
+      requestProjectSelectId != null ||
+      bindSessionId != null ||
+      bindFullBuffer ||
+      flushTerminalInput ||
+      removedSessionId != null;
 }
 
 class RemoteRuntimeStore {
@@ -66,11 +97,20 @@ class RemoteRuntimeStore {
   RemoteRuntimeState get state => _stateFromCore();
   List<ProjectInfo> get projects => state.projects;
   List<TerminalInfo> get terminals => state.terminals;
+  List<RemoteWorktreeInfo> get worktrees => state.worktrees;
   String? get selectedProjectId => state.selectedProjectId;
   String? get activeSessionId => state.activeSessionId;
+  String? get selectedWorktreeId => state.selectedWorktreeId;
   String? get creatingTerminalProjectId => state.creatingTerminalProjectId;
   Map<String, String> get lastTerminalIdByProject =>
       state.lastTerminalIdByProject;
+  List<String> baseBranchesForProject(String projectId) =>
+      state.baseBranchesByProject[projectId] ?? const [];
+  String? defaultBaseBranchForProject(String projectId) =>
+      state.defaultBaseBranchByProject[projectId];
+  bool hasWorktreesForProject(String projectId) {
+    return state.worktrees.any((worktree) => worktree.projectId == projectId);
+  }
 
   RemoteGitStatusInfo? gitStatusForProject(String projectId) =>
       _gitStatusByProject[projectId];
@@ -81,25 +121,19 @@ class RemoteRuntimeStore {
   }
 
   RemoteTerminalScope? terminalScopeForProject(String projectId) {
-    final current = state;
-    return remoteTerminalScopeForProject(
-      projectId: projectId,
-      projects: current.projects,
-    );
+    final scope = _core.terminalScopeForProject(projectId);
+    return scope == null ? null : RemoteTerminalScope.fromJson(scope);
   }
 
   RemoteTerminalScope? terminalScopeForSession(
     String sessionId, {
     TerminalInfo? terminal,
   }) {
-    final current = state;
-    return remoteTerminalScopeForSession(
+    final scope = _core.terminalScopeForSession(
       sessionId: sessionId,
-      projects: current.projects,
-      terminals: current.terminals,
-      selectedProjectId: current.selectedProjectId,
-      terminal: terminal,
+      terminal: terminal == null ? null : _terminalToJson(terminal),
     );
+    return scope == null ? null : RemoteTerminalScope.fromJson(scope);
   }
 
   void reset({bool keepProjects = false}) {
@@ -113,6 +147,7 @@ class RemoteRuntimeStore {
   RemoteRuntimePlan applyProjectList({
     required List<ProjectInfo> projects,
     required String? remoteSelectedProjectId,
+    required String? remoteSelectedWorktreeId,
     required bool terminalVisible,
     required bool terminalListLoaded,
   }) {
@@ -120,6 +155,7 @@ class RemoteRuntimeStore {
       _core.applyProjectList(
         projects: projects.map(_projectToJson).toList(),
         remoteSelectedProjectId: remoteSelectedProjectId,
+        remoteSelectedWorktreeId: remoteSelectedWorktreeId,
         terminalVisible: terminalVisible,
         terminalListLoaded: terminalListLoaded,
       ),
@@ -152,8 +188,62 @@ class RemoteRuntimeStore {
     );
   }
 
-  RemoteRuntimePlan projectSelected(String? projectId) {
-    return _planFromCore(_core.projectSelected(projectId));
+  RemoteRuntimePlan projectSelected({
+    required String? projectId,
+    required String? worktreeId,
+  }) {
+    return _planFromCore(
+      _core.projectSelected(projectId: projectId, worktreeId: worktreeId),
+    );
+  }
+
+  RemoteRuntimePlan worktreeSelected({
+    required String? projectId,
+    required String? worktreeId,
+    required bool terminalVisible,
+    required bool terminalListLoaded,
+  }) {
+    return _planFromCore(
+      _core.worktreeSelected(
+        projectId: projectId,
+        worktreeId: worktreeId,
+        terminalVisible: terminalVisible,
+        terminalListLoaded: terminalListLoaded,
+      ),
+    );
+  }
+
+  RemoteRuntimePlan applyWorktreeState({
+    required List<RemoteWorktreeInfo> worktrees,
+    required String? projectId,
+    required String? selectedWorktreeId,
+    required List<String> baseBranches,
+    required String? defaultBaseBranch,
+    required bool allowRuntimeSelection,
+    required bool terminalVisible,
+    required bool terminalListLoaded,
+  }) {
+    final state = <String, dynamic>{
+      'worktrees': worktrees.map((item) => item.toJson()).toList(),
+      'baseBranches': baseBranches,
+    };
+    if (projectId != null) {
+      state['projectId'] = projectId;
+    }
+    if (selectedWorktreeId != null) {
+      state['selectedWorktreeId'] = selectedWorktreeId;
+    }
+    if (defaultBaseBranch != null) {
+      state['defaultBaseBranch'] = defaultBaseBranch;
+    }
+    return _planFromCore(
+      _core.applyWorktreeState(
+        state: state,
+        allowRuntimeSelection: allowRuntimeSelection,
+        terminalVisible: terminalVisible,
+        terminalListLoaded: terminalListLoaded,
+      ),
+    );
   }
 
   RemoteRuntimePlan ensureTerminalForSelectedProject({
@@ -232,28 +322,20 @@ class RemoteRuntimeStore {
     return RemoteRuntimeState(
       projects: snapshot.projects.map(ProjectInfo.fromJson).toList(),
       terminals: snapshot.terminals.map(TerminalInfo.fromJson).toList(),
+      worktrees: snapshot.worktrees.map(RemoteWorktreeInfo.fromJson).toList(),
       selectedProjectId: snapshot.selectedProjectId,
       activeSessionId: snapshot.activeSessionId,
+      selectedWorktreeId: snapshot.selectedWorktreeId,
       pendingProjectSelectId: snapshot.pendingProjectSelectId,
       pendingProjectSelectSent: snapshot.pendingProjectSelectSent,
       projectSelectAcknowledgedId: snapshot.projectSelectAcknowledgedId,
       creatingTerminalProjectId: snapshot.creatingTerminalProjectId,
       lastTerminalIdByProject: snapshot.lastTerminalIdByProject,
+      baseBranchesByProject: snapshot.baseBranchesByProject,
+      defaultBaseBranchByProject: snapshot.defaultBaseBranchByProject,
       gitStatusByProject: _gitStatusByProject,
     );
   }
-}
-
-int compareTerminals(TerminalInfo left, TerminalInfo right) {
-  final createdAt = (left.createdAt ?? '').compareTo(right.createdAt ?? '');
-  if (createdAt != 0) return createdAt;
-  return left.id.compareTo(right.id);
-}
-
-String terminalLayoutKind(TerminalInfo terminal) {
-  final value = terminal.layoutKind.trim().toLowerCase();
-  if (value == 'tab') return 'tab';
-  return 'split';
 }
 
 RemoteRuntimePlan _planFromCore(codux_runtime_core.RemoteRuntimeCorePlan plan) {
@@ -278,6 +360,8 @@ Map<String, dynamic> _terminalToJson(TerminalInfo terminal) => {
   'title': terminal.title,
   'projectId': terminal.projectId,
   'layoutKind': terminal.layoutKind,
+  if (terminal.worktreeId != null) 'worktreeId': terminal.worktreeId,
+  if (terminal.layoutOrder != null) 'layoutOrder': terminal.layoutOrder,
   if (terminal.cols != null) 'cols': terminal.cols,
   if (terminal.rows != null) 'rows': terminal.rows,
   if (terminal.status != null) 'status': terminal.status,

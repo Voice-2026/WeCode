@@ -20,8 +20,20 @@ pub struct RemoteRuntimeTerminal {
     pub title: String,
     #[serde(rename = "projectId")]
     pub project_id: String,
+    #[serde(
+        default,
+        rename = "worktreeId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub worktree_id: Option<String>,
     #[serde(default = "default_terminal_layout_kind")]
     pub layout_kind: String,
+    #[serde(
+        default,
+        rename = "layoutOrder",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub layout_order: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cols: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,6 +45,76 @@ pub struct RemoteRuntimeTerminal {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub buffer_characters: Option<usize>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRuntimeWorktree {
+    pub id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, rename = "isDefault")]
+    pub is_default: bool,
+    #[serde(default = "default_true")]
+    pub exists: bool,
+    #[serde(
+        default,
+        rename = "baseBranch",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub base_branch: Option<String>,
+    #[serde(default)]
+    pub changes: i64,
+    #[serde(default)]
+    pub incoming: i64,
+    #[serde(default)]
+    pub outgoing: i64,
+    #[serde(default)]
+    pub additions: i64,
+    #[serde(default)]
+    pub deletions: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRuntimeWorktreeState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_worktree_id: Option<String>,
+    #[serde(default)]
+    pub worktrees: Vec<RemoteRuntimeWorktree>,
+    #[serde(default)]
+    pub base_branches: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_base_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteRuntimeTerminalScope {
+    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+}
+
+pub type RuntimeProject = RemoteRuntimeProject;
+pub type RuntimeTerminal = RemoteRuntimeTerminal;
+pub type RuntimeTerminalScope = RemoteRuntimeTerminalScope;
+pub type RuntimeWorktree = RemoteRuntimeWorktree;
+pub type RuntimeWorktreeState = RemoteRuntimeWorktreeState;
+pub type RuntimePlan = RemoteRuntimePlan;
+pub type RuntimeStateSnapshot = RemoteRuntimeStateSnapshot;
+pub type RuntimeModel = RemoteRuntimeModel;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,10 +146,14 @@ pub struct RemoteRuntimePlan {
 pub struct RemoteRuntimeStateSnapshot {
     pub projects: Vec<RemoteRuntimeProject>,
     pub terminals: Vec<RemoteRuntimeTerminal>,
+    #[serde(default)]
+    pub worktrees: Vec<RemoteRuntimeWorktree>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_project_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_worktree_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_project_select_id: Option<String>,
     #[serde(default)]
@@ -78,19 +164,31 @@ pub struct RemoteRuntimeStateSnapshot {
     pub creating_terminal_project_id: Option<String>,
     #[serde(default)]
     pub last_terminal_id_by_project: HashMap<String, String>,
+    #[serde(default)]
+    pub selected_worktree_id_by_project: HashMap<String, String>,
+    #[serde(default)]
+    pub base_branches_by_project: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub default_base_branch_by_project: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct RemoteRuntimeModel {
     projects: Vec<RemoteRuntimeProject>,
     terminals: Vec<RemoteRuntimeTerminal>,
+    worktrees: Vec<RemoteRuntimeWorktree>,
     selected_project_id: Option<String>,
     active_session_id: Option<String>,
+    selected_worktree_id: Option<String>,
+    pending_worktree_terminal_request_key: Option<String>,
     pending_project_select_id: Option<String>,
     pending_project_select_sent: bool,
     project_select_acknowledged_id: Option<String>,
     creating_terminal_project_id: Option<String>,
     last_terminal_id_by_project: HashMap<String, String>,
+    selected_worktree_id_by_project: HashMap<String, String>,
+    base_branches_by_project: HashMap<String, Vec<String>>,
+    default_base_branch_by_project: HashMap<String, String>,
 }
 
 impl RemoteRuntimeModel {
@@ -102,14 +200,78 @@ impl RemoteRuntimeModel {
         RemoteRuntimeStateSnapshot {
             projects: self.projects.clone(),
             terminals: self.terminals.clone(),
+            worktrees: self.worktrees.clone(),
             selected_project_id: self.selected_project_id.clone(),
             active_session_id: self.active_session_id.clone(),
+            selected_worktree_id: self.selected_worktree_id.clone(),
             pending_project_select_id: self.pending_project_select_id.clone(),
             pending_project_select_sent: self.pending_project_select_sent,
             project_select_acknowledged_id: self.project_select_acknowledged_id.clone(),
             creating_terminal_project_id: self.creating_terminal_project_id.clone(),
             last_terminal_id_by_project: self.last_terminal_id_by_project.clone(),
+            selected_worktree_id_by_project: self.selected_worktree_id_by_project.clone(),
+            base_branches_by_project: self.base_branches_by_project.clone(),
+            default_base_branch_by_project: self.default_base_branch_by_project.clone(),
         }
+    }
+
+    pub fn selected_scope_key(&self) -> Option<String> {
+        let project_id = self.selected_project_id.as_deref()?;
+        Some(runtime_scope_key(
+            project_id,
+            self.selected_worktree_id.as_deref(),
+        ))
+    }
+
+    pub fn terminal_scope_for_project(
+        &self,
+        project_id: &str,
+    ) -> Option<RemoteRuntimeTerminalScope> {
+        let project_id = clean_nonempty_str(project_id)?;
+        let worktree_id = if self.selected_project_id.as_deref() == Some(project_id.as_str()) {
+            self.selected_worktree_id.clone()
+        } else {
+            None
+        };
+        Some(RemoteRuntimeTerminalScope {
+            project_path: self.project_path(&project_id),
+            worktree_id: normalize_worktree_scope(&project_id, worktree_id),
+            project_id,
+        })
+    }
+
+    pub fn terminal_scope_for_session(
+        &self,
+        session_id: &str,
+        terminal: Option<RemoteRuntimeTerminal>,
+    ) -> Option<RemoteRuntimeTerminalScope> {
+        let session_id = clean_nonempty_str(session_id)?;
+        let explicit_terminal = terminal
+            .filter(|terminal| terminal.id == session_id && is_accessible_terminal(terminal));
+        let terminal_ref = explicit_terminal.as_ref().or_else(|| {
+            self.terminals
+                .iter()
+                .find(|terminal| terminal.id == session_id && is_accessible_terminal(terminal))
+        });
+        let project_id = terminal_ref
+            .and_then(|terminal| clean_nonempty_str(&terminal.project_id))
+            .or_else(|| self.selected_project_id.clone())?;
+        let terminal_worktree_id = terminal_ref
+            .and_then(|terminal| terminal.worktree_id.as_deref().and_then(clean_nonempty_str));
+        let selected_worktree_id =
+            if self.selected_project_id.as_deref() == Some(project_id.as_str()) {
+                self.selected_worktree_id.clone()
+            } else {
+                None
+            };
+        Some(RemoteRuntimeTerminalScope {
+            project_path: self.project_path(&project_id),
+            worktree_id: normalize_worktree_scope(
+                &project_id,
+                terminal_worktree_id.or(selected_worktree_id),
+            ),
+            project_id,
+        })
     }
 
     pub fn reset(&mut self, keep_projects: bool) {
@@ -126,8 +288,32 @@ impl RemoteRuntimeModel {
         *self = Self {
             projects,
             selected_project_id: selected,
+            worktrees: if keep_projects {
+                self.worktrees.clone()
+            } else {
+                Vec::new()
+            },
+            base_branches_by_project: if keep_projects {
+                self.base_branches_by_project.clone()
+            } else {
+                HashMap::new()
+            },
+            default_base_branch_by_project: if keep_projects {
+                self.default_base_branch_by_project.clone()
+            } else {
+                HashMap::new()
+            },
+            selected_worktree_id: None,
+            selected_worktree_id_by_project: if keep_projects {
+                self.selected_worktree_id_by_project.clone()
+            } else {
+                HashMap::new()
+            },
             ..Self::default()
         };
+        if let Some(selected_project_id) = self.selected_project_id.clone() {
+            self.selected_worktree_id = self.remembered_worktree_for_project(&selected_project_id);
+        }
     }
 
     pub fn restore_cached_projects(&mut self, projects: Vec<RemoteRuntimeProject>) {
@@ -142,11 +328,13 @@ impl RemoteRuntimeModel {
         &mut self,
         projects: Vec<RemoteRuntimeProject>,
         remote_selected_project_id: Option<String>,
+        remote_selected_worktree_id: Option<String>,
         terminal_visible: bool,
         terminal_list_loaded: bool,
     ) -> RemoteRuntimePlan {
         let previous_selected = self.selected_project_id.clone();
         let remote_selected_project_id = clean_optional_string(remote_selected_project_id);
+        let remote_selected_worktree_id = clean_optional_string(remote_selected_worktree_id);
         let confirms_pending_project_select = self
             .pending_project_select_id
             .as_deref()
@@ -159,10 +347,37 @@ impl RemoteRuntimeModel {
             self.active_session_id.is_some(),
         );
         let project_changed = selected != previous_selected;
+        if project_changed {
+            self.remember_current_worktree_selection();
+        }
         self.projects = projects;
         self.selected_project_id = selected;
+        self.prune_worktree_selections();
+        if let Some(project_id) = self.selected_project_id.clone() {
+            let had_remembered = self
+                .selected_worktree_id_by_project
+                .contains_key(project_id.as_str());
+            let remote_worktree_id = remote_selected_worktree_id.clone().and_then(|worktree_id| {
+                self.valid_worktree_selection_for_project(&project_id, Some(worktree_id))
+            });
+            if !had_remembered && let Some(worktree_id) = remote_worktree_id.clone() {
+                self.remember_worktree_selection(&project_id, Some(worktree_id));
+            }
+            let selected_worktree_id = self
+                .remembered_worktree_for_project(&project_id)
+                .or(remote_worktree_id)
+                .or_else(|| self.default_worktree_selection_for_project(&project_id));
+            if project_changed
+                || !had_remembered
+                || self.selected_worktree_id.is_none()
+                || !self.selected_worktree_is_valid_for_project(&project_id)
+            {
+                self.selected_worktree_id = selected_worktree_id;
+            }
+        }
         if project_changed {
             self.active_session_id = None;
+            self.pending_worktree_terminal_request_key = None;
         }
         if confirms_pending_project_select {
             self.project_select_acknowledged_id = self.pending_project_select_id.clone();
@@ -208,18 +423,18 @@ impl RemoteRuntimeModel {
             self.active_session_id = None;
         }
         self.terminals = terminals;
-        let bind =
-            self.ensure_terminal_for_selected_project(terminal_visible, terminal_list_loaded);
+        let bind = self.ensure_terminal_for_selected_project(true, terminal_list_loaded);
         RemoteRuntimePlan {
             state_changed: true,
             reset_terminal_input: active_missing,
-            reset_terminal_buffer: active_missing || bind.reset_terminal_buffer,
+            reset_terminal_buffer: terminal_visible
+                && (active_missing || bind.reset_terminal_buffer),
             removed_session_id,
-            request_terminal_list: bind.request_terminal_list,
+            request_terminal_list: terminal_visible && bind.request_terminal_list,
             request_project_select_id: bind.request_project_select_id,
             bind_session_id: bind.bind_session_id,
-            bind_full_buffer: bind.bind_full_buffer,
-            flush_terminal_input: bind.flush_terminal_input,
+            bind_full_buffer: terminal_visible && bind.bind_full_buffer,
+            flush_terminal_input: terminal_visible && bind.flush_terminal_input,
             clear_terminal: false,
         }
     }
@@ -231,6 +446,17 @@ impl RemoteRuntimeModel {
     ) -> RemoteRuntimePlan {
         let project_changed = self.selected_project_id.as_deref() != Some(project.id.as_str());
         let previous_project_id = self.selected_project_id.clone();
+        if project_changed {
+            self.remember_current_worktree_selection();
+        }
+        let selected_worktree_id = if project_changed {
+            self.remembered_worktree_for_project(&project.id)
+                .or_else(|| self.default_worktree_selection_for_project(&project.id))
+        } else {
+            self.selected_worktree_id
+                .clone()
+                .or_else(|| self.default_worktree_selection_for_project(&project.id))
+        };
         if project_changed
             && let (Some(previous_project_id), Some(active_session_id)) = (
                 previous_project_id.as_ref(),
@@ -242,25 +468,39 @@ impl RemoteRuntimeModel {
                     && is_accessible_terminal(item)
             })
         {
-            self.last_terminal_id_by_project
-                .insert(previous_project_id.clone(), active_session_id.clone());
+            self.last_terminal_id_by_project.insert(
+                terminal_memory_key(previous_project_id, self.selected_worktree_id.as_deref()),
+                active_session_id.clone(),
+            );
         }
         let existing = if terminal_visible {
-            accessible_terminals_for_project(&self.terminals, &project.id)
+            accessible_terminals_for_project_and_worktree(
+                &self.terminals,
+                &project.id,
+                selected_worktree_id.as_deref(),
+            )
         } else {
             Vec::new()
         };
         let terminal = preferred_terminal_for_project(
             &self.last_terminal_id_by_project,
             &project.id,
+            selected_worktree_id.as_deref(),
             &existing,
         )
         .cloned();
         if let Some(terminal) = terminal.as_ref() {
-            self.last_terminal_id_by_project
-                .insert(project.id.clone(), terminal.id.clone());
+            self.last_terminal_id_by_project.insert(
+                terminal_memory_key(&project.id, selected_worktree_id.as_deref()),
+                terminal.id.clone(),
+            );
+            self.pending_worktree_terminal_request_key = None;
         }
         self.selected_project_id = Some(project.id.clone());
+        if project_changed {
+            self.selected_worktree_id = selected_worktree_id;
+            self.pending_worktree_terminal_request_key = None;
+        }
         self.active_session_id = terminal.as_ref().map(|item| item.id.clone()).or_else(|| {
             if project_changed && terminal_visible {
                 None
@@ -285,7 +525,11 @@ impl RemoteRuntimeModel {
         }
     }
 
-    pub fn project_selected(&mut self, project_id: Option<String>) -> RemoteRuntimePlan {
+    pub fn project_selected(
+        &mut self,
+        project_id: Option<String>,
+        worktree_id: Option<String>,
+    ) -> RemoteRuntimePlan {
         let Some(selected) = clean_optional_string(project_id) else {
             return RemoteRuntimePlan::default();
         };
@@ -300,10 +544,18 @@ impl RemoteRuntimeModel {
             return RemoteRuntimePlan::default();
         }
         let project_changed = self.selected_project_id.as_deref() != Some(selected.as_str());
+        if project_changed {
+            self.remember_current_worktree_selection();
+        }
         self.selected_project_id = Some(selected.clone());
+        let selected_worktree_id = normalize_worktree_scope(&selected, worktree_id)
+            .or_else(|| self.remembered_worktree_for_project(&selected));
         if project_changed {
             self.active_session_id = None;
+            self.pending_worktree_terminal_request_key = None;
         }
+        self.selected_worktree_id = selected_worktree_id;
+        self.remember_current_worktree_selection();
         self.pending_project_select_id = None;
         self.pending_project_select_sent = false;
         self.project_select_acknowledged_id = Some(selected);
@@ -337,13 +589,37 @@ impl RemoteRuntimeModel {
             && self.terminals.iter().any(|item| {
                 item.id == *active_id
                     && item.project_id == project_id
+                    && terminal_matches_selected_worktree(
+                        item,
+                        self.selected_worktree_id.as_deref(),
+                    )
                     && is_accessible_terminal(item)
             })
         {
             return RemoteRuntimePlan::default();
         }
-        let existing = accessible_terminals_for_project(&self.terminals, &project_id);
+        let existing = accessible_terminals_for_project_and_worktree(
+            &self.terminals,
+            &project_id,
+            self.selected_worktree_id.as_deref(),
+        );
         if existing.is_empty() {
+            if let Some(selected_worktree_id) = self.selected_worktree_id.as_deref()
+                && selected_worktree_id != project_id
+            {
+                let request_key =
+                    terminal_memory_key(&project_id, self.selected_worktree_id.as_deref());
+                if self.pending_worktree_terminal_request_key.as_deref()
+                    == Some(request_key.as_str())
+                {
+                    return RemoteRuntimePlan::default();
+                }
+                self.pending_worktree_terminal_request_key = Some(request_key);
+                return RemoteRuntimePlan {
+                    request_terminal_list: true,
+                    ..RemoteRuntimePlan::default()
+                };
+            }
             if self.pending_project_select_id.as_deref() == Some(project_id.as_str()) {
                 if self.pending_project_select_sent {
                     return RemoteRuntimePlan::default();
@@ -368,6 +644,7 @@ impl RemoteRuntimeModel {
         let terminal = preferred_terminal_for_project(
             &self.last_terminal_id_by_project,
             &project_id,
+            self.selected_worktree_id.as_deref(),
             &existing,
         )
         .expect("existing terminals are not empty");
@@ -378,8 +655,11 @@ impl RemoteRuntimeModel {
             self.project_select_acknowledged_id = None;
         }
         self.creating_terminal_project_id = None;
-        self.last_terminal_id_by_project
-            .insert(project_id, terminal.id.clone());
+        self.pending_worktree_terminal_request_key = None;
+        self.last_terminal_id_by_project.insert(
+            terminal_memory_key(&project_id, self.selected_worktree_id.as_deref()),
+            terminal.id.clone(),
+        );
         RemoteRuntimePlan {
             state_changed: true,
             reset_terminal_buffer: true,
@@ -394,8 +674,14 @@ impl RemoteRuntimeModel {
         if !is_accessible_terminal(&terminal) {
             return RemoteRuntimePlan::default();
         }
-        self.last_terminal_id_by_project
-            .insert(terminal.project_id.clone(), terminal.id.clone());
+        self.selected_worktree_id =
+            normalize_terminal_worktree_scope(&terminal.project_id, terminal.worktree_id.clone());
+        self.remember_worktree_selection(&terminal.project_id, self.selected_worktree_id.clone());
+        self.pending_worktree_terminal_request_key = None;
+        self.last_terminal_id_by_project.insert(
+            terminal_memory_key(&terminal.project_id, self.selected_worktree_id.as_deref()),
+            terminal.id.clone(),
+        );
         self.selected_project_id = Some(terminal.project_id.clone());
         self.active_session_id = Some(terminal.id.clone());
         self.pending_project_select_id = None;
@@ -440,8 +726,14 @@ impl RemoteRuntimeModel {
         }
         self.terminals.retain(|item| item.id != terminal.id);
         self.terminals.insert(0, terminal.clone());
-        self.last_terminal_id_by_project
-            .insert(terminal.project_id.clone(), terminal.id.clone());
+        self.selected_worktree_id =
+            normalize_terminal_worktree_scope(&terminal.project_id, terminal.worktree_id.clone());
+        self.remember_worktree_selection(&terminal.project_id, self.selected_worktree_id.clone());
+        self.pending_worktree_terminal_request_key = None;
+        self.last_terminal_id_by_project.insert(
+            terminal_memory_key(&terminal.project_id, self.selected_worktree_id.as_deref()),
+            terminal.id.clone(),
+        );
         self.selected_project_id = Some(terminal.project_id);
         self.active_session_id = Some(terminal.id.clone());
         self.pending_project_select_id = None;
@@ -483,9 +775,299 @@ impl RemoteRuntimeModel {
         let Some(project_id) = self.selected_project_id.as_ref() else {
             return Vec::new();
         };
-        let mut terminals = accessible_terminals_for_project(&self.terminals, project_id);
+        let mut terminals = accessible_terminals_for_project_and_worktree(
+            &self.terminals,
+            project_id,
+            self.selected_worktree_id.as_deref(),
+        );
         terminals.sort_by(|left, right| compare_remote_terminals(left, right));
         terminals.into_iter().cloned().collect()
+    }
+
+    fn project_path(&self, project_id: &str) -> Option<String> {
+        self.projects
+            .iter()
+            .find(|project| project.id == project_id)
+            .and_then(|project| project.path.clone())
+            .and_then(clean_nonempty_string)
+    }
+
+    pub fn apply_worktree_selected(
+        &mut self,
+        project_id: Option<String>,
+        worktree_id: Option<String>,
+        terminal_visible: bool,
+        terminal_list_loaded: bool,
+    ) -> RemoteRuntimePlan {
+        let Some(project_id) =
+            clean_optional_string(project_id).or_else(|| self.selected_project_id.clone())
+        else {
+            return RemoteRuntimePlan::default();
+        };
+        if !self.projects.is_empty() && !self.projects.iter().any(|item| item.id == project_id) {
+            return RemoteRuntimePlan::default();
+        }
+        let next_worktree_id = self.valid_worktree_selection_for_project(&project_id, worktree_id);
+        if self.selected_project_id.as_deref() != Some(project_id.as_str())
+            || self.selected_worktree_id != next_worktree_id
+        {
+            self.pending_worktree_terminal_request_key = None;
+        }
+        self.selected_project_id = Some(project_id);
+        self.selected_worktree_id = next_worktree_id;
+        if let Some(project_id) = self.selected_project_id.clone() {
+            self.remember_worktree_selection(&project_id, self.selected_worktree_id.clone());
+        }
+        self.active_session_id = None;
+        self.ensure_terminal_for_selected_project(terminal_visible, terminal_list_loaded)
+    }
+
+    pub fn apply_worktree_state(
+        &mut self,
+        state: RemoteRuntimeWorktreeState,
+        allow_runtime_selection: bool,
+        terminal_visible: bool,
+        terminal_list_loaded: bool,
+    ) -> RemoteRuntimePlan {
+        let current_project_id = self.selected_project_id.clone();
+        let project_id = clean_optional_string(state.project_id.clone());
+        if project_id.is_none() {
+            return self.apply_all_worktree_state(
+                state,
+                allow_runtime_selection,
+                terminal_visible,
+                terminal_list_loaded,
+            );
+        }
+        let project_id = project_id.or(current_project_id);
+        let Some(project_id) = project_id else {
+            self.worktrees = state.worktrees;
+            return RemoteRuntimePlan {
+                state_changed: true,
+                ..RemoteRuntimePlan::default()
+            };
+        };
+        self.worktrees
+            .retain(|worktree| worktree.project_id != project_id);
+        let scoped_worktrees = state
+            .worktrees
+            .into_iter()
+            .filter(|worktree| worktree.project_id == project_id)
+            .collect::<Vec<_>>();
+        let scoped_worktrees = ensure_default_worktree_scope(project_id.as_str(), scoped_worktrees);
+        self.base_branches_by_project
+            .insert(project_id.clone(), state.base_branches);
+        if let Some(default_base_branch) = clean_optional_string(state.default_base_branch) {
+            self.default_base_branch_by_project
+                .insert(project_id.clone(), default_base_branch);
+        } else {
+            self.default_base_branch_by_project.remove(&project_id);
+        }
+
+        let selected_worktree_id = selected_worktree_from_state(
+            &project_id,
+            &scoped_worktrees,
+            self.selected_project_id.as_deref(),
+            self.selected_worktree_id.as_deref(),
+            state.selected_worktree_id.as_deref(),
+            allow_runtime_selection,
+        );
+        self.worktrees.extend(scoped_worktrees);
+        if self.selected_project_id.as_deref() == Some(project_id.as_str()) {
+            self.selected_worktree_id = selected_worktree_id.clone();
+            self.remember_worktree_selection(&project_id, selected_worktree_id.clone());
+        } else if !self
+            .selected_worktree_id_by_project
+            .contains_key(project_id.as_str())
+        {
+            self.remember_worktree_selection(&project_id, selected_worktree_id.clone());
+        }
+
+        if !allow_runtime_selection {
+            return RemoteRuntimePlan {
+                state_changed: true,
+                ..RemoteRuntimePlan::default()
+            };
+        }
+
+        let Some(selected_worktree_id) = selected_worktree_id else {
+            return RemoteRuntimePlan {
+                state_changed: true,
+                ..RemoteRuntimePlan::default()
+            };
+        };
+        if !self.worktrees.iter().any(|worktree| {
+            worktree.project_id == project_id && worktree.id == selected_worktree_id
+        }) {
+            return RemoteRuntimePlan {
+                state_changed: true,
+                ..RemoteRuntimePlan::default()
+            };
+        }
+        let mut plan = self.apply_worktree_selected(
+            Some(project_id),
+            Some(selected_worktree_id),
+            terminal_visible,
+            terminal_list_loaded,
+        );
+        plan.state_changed = true;
+        plan
+    }
+
+    fn apply_all_worktree_state(
+        &mut self,
+        state: RemoteRuntimeWorktreeState,
+        allow_runtime_selection: bool,
+        terminal_visible: bool,
+        terminal_list_loaded: bool,
+    ) -> RemoteRuntimePlan {
+        self.worktrees = state.worktrees;
+        self.base_branches_by_project.clear();
+        self.default_base_branch_by_project.clear();
+        let selected_project_id = self.selected_project_id.clone();
+        let mut valid_project_ids = self
+            .projects
+            .iter()
+            .map(|project| project.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        for worktree in &self.worktrees {
+            valid_project_ids.insert(worktree.project_id.as_str());
+        }
+        self.selected_worktree_id_by_project
+            .retain(|project_id, _| valid_project_ids.contains(project_id.as_str()));
+        if let Some(project_id) = selected_project_id.as_deref() {
+            let selected_worktree_id = selected_worktree_from_state(
+                project_id,
+                &self.worktrees,
+                Some(project_id),
+                self.selected_worktree_id.as_deref(),
+                state.selected_worktree_id.as_deref(),
+                allow_runtime_selection,
+            )
+            .or_else(|| self.default_worktree_selection_for_project(project_id));
+            self.selected_worktree_id = selected_worktree_id.clone();
+            self.remember_worktree_selection(project_id, selected_worktree_id.clone());
+            if allow_runtime_selection {
+                let mut plan = self
+                    .ensure_terminal_for_selected_project(terminal_visible, terminal_list_loaded);
+                plan.state_changed = true;
+                return plan;
+            }
+        }
+        RemoteRuntimePlan {
+            state_changed: true,
+            ..RemoteRuntimePlan::default()
+        }
+    }
+
+    fn remember_current_worktree_selection(&mut self) {
+        let Some(project_id) = self.selected_project_id.clone() else {
+            return;
+        };
+        self.remember_worktree_selection(&project_id, self.selected_worktree_id.clone());
+    }
+
+    fn remember_worktree_selection(&mut self, project_id: &str, worktree_id: Option<String>) {
+        if project_id.trim().is_empty() {
+            return;
+        }
+        if let Some(worktree_id) = normalize_worktree_scope(project_id, worktree_id) {
+            self.selected_worktree_id_by_project
+                .insert(project_id.to_string(), worktree_id);
+        } else {
+            self.selected_worktree_id_by_project
+                .insert(project_id.to_string(), project_id.to_string());
+        }
+    }
+
+    fn remembered_worktree_for_project(&self, project_id: &str) -> Option<String> {
+        let remembered = self
+            .selected_worktree_id_by_project
+            .get(project_id)
+            .and_then(|value| clean_optional_string(Some(value.clone())))?;
+        let has_worktree_list = self
+            .worktrees
+            .iter()
+            .any(|worktree| worktree.project_id == project_id);
+        if has_worktree_list
+            && !self
+                .worktrees
+                .iter()
+                .any(|worktree| worktree.project_id == project_id && worktree.id == remembered)
+        {
+            return None;
+        }
+        Some(remembered)
+    }
+
+    fn valid_worktree_selection_for_project(
+        &self,
+        project_id: &str,
+        worktree_id: Option<String>,
+    ) -> Option<String> {
+        let requested = normalize_worktree_scope(project_id, worktree_id)?;
+        let has_worktree_list = self
+            .worktrees
+            .iter()
+            .any(|worktree| worktree.project_id == project_id);
+        if !has_worktree_list {
+            return Some(requested);
+        }
+        if self
+            .worktrees
+            .iter()
+            .any(|worktree| worktree.project_id == project_id && worktree.id == requested)
+        {
+            return Some(requested);
+        }
+        selected_worktree_from_state(
+            project_id,
+            &self.worktrees,
+            Some(project_id),
+            self.selected_worktree_id.as_deref(),
+            self.selected_worktree_id_by_project
+                .get(project_id)
+                .map(String::as_str),
+            false,
+        )
+    }
+
+    fn default_worktree_selection_for_project(&self, project_id: &str) -> Option<String> {
+        selected_worktree_from_state(
+            project_id,
+            &self.worktrees,
+            Some(project_id),
+            None,
+            None,
+            false,
+        )
+        .or_else(|| normalize_worktree_scope(project_id, None))
+    }
+
+    fn selected_worktree_is_valid_for_project(&self, project_id: &str) -> bool {
+        let Some(selected_worktree_id) =
+            normalize_worktree_scope(project_id, self.selected_worktree_id.clone())
+        else {
+            return false;
+        };
+        let has_worktree_list = self
+            .worktrees
+            .iter()
+            .any(|worktree| worktree.project_id == project_id);
+        !has_worktree_list
+            || self.worktrees.iter().any(|worktree| {
+                worktree.project_id == project_id && worktree.id == selected_worktree_id
+            })
+    }
+
+    fn prune_worktree_selections(&mut self) {
+        let valid_projects = self
+            .projects
+            .iter()
+            .map(|project| project.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        self.selected_worktree_id_by_project
+            .retain(|project_id, _| valid_projects.contains(project_id.as_str()));
     }
 }
 
@@ -493,15 +1075,30 @@ fn default_terminal_layout_kind() -> String {
     "split".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn clean_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
+    value.and_then(clean_nonempty_string)
+}
+
+fn clean_nonempty_string(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn clean_nonempty_str(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn selected_project_from_list(
@@ -539,7 +1136,8 @@ fn selected_project_from_list(
     if remote.is_some() {
         return remote;
     }
-    if let Some(current) = current_selected_project_id
+    if prefer_current_project
+        && let Some(current) = current_selected_project_id
         && projects.iter().any(|item| item.id == current)
     {
         return Some(current.to_string());
@@ -547,28 +1145,77 @@ fn selected_project_from_list(
     projects.first().map(|item| item.id.clone())
 }
 
+fn selected_worktree_from_state(
+    project_id: &str,
+    worktrees: &[RemoteRuntimeWorktree],
+    selected_project_id: Option<&str>,
+    current_selected_worktree_id: Option<&str>,
+    remote_selected_worktree_id: Option<&str>,
+    prefer_remote_selection: bool,
+) -> Option<String> {
+    let find = |candidate: Option<&str>| {
+        let candidate = normalize_worktree_scope(project_id, candidate.map(str::to_string))?;
+        worktrees
+            .iter()
+            .any(|worktree| worktree.project_id == project_id && worktree.id == candidate)
+            .then_some(candidate)
+    };
+    if prefer_remote_selection && let Some(remote) = find(remote_selected_worktree_id) {
+        return Some(remote);
+    }
+    if selected_project_id == Some(project_id)
+        && let Some(current) = find(current_selected_worktree_id)
+    {
+        return Some(current);
+    }
+    if let Some(remote) = find(remote_selected_worktree_id) {
+        return Some(remote);
+    }
+    worktrees
+        .iter()
+        .find(|worktree| worktree.project_id == project_id && worktree.is_default)
+        .or_else(|| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.project_id == project_id && worktree.id == project_id)
+        })
+        .or_else(|| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.project_id == project_id)
+        })
+        .map(|worktree| worktree.id.clone())
+}
+
 fn is_accessible_terminal(terminal: &RemoteRuntimeTerminal) -> bool {
     !terminal.id.is_empty() && !terminal.project_id.is_empty()
 }
 
-fn accessible_terminals_for_project<'a>(
+fn accessible_terminals_for_project_and_worktree<'a>(
     terminals: &'a [RemoteRuntimeTerminal],
     project_id: &str,
+    worktree_id: Option<&str>,
 ) -> Vec<&'a RemoteRuntimeTerminal> {
     terminals
         .iter()
-        .filter(|item| item.project_id == project_id && is_accessible_terminal(item))
+        .filter(|item| {
+            item.project_id == project_id
+                && terminal_matches_selected_worktree(item, worktree_id)
+                && is_accessible_terminal(item)
+        })
         .collect()
 }
 
 fn preferred_terminal_for_project<'a>(
     last_terminal_id_by_project: &HashMap<String, String>,
     project_id: &str,
+    worktree_id: Option<&str>,
     terminals: &'a [&'a RemoteRuntimeTerminal],
 ) -> Option<&'a RemoteRuntimeTerminal> {
     let mut list = terminals.to_vec();
     list.sort_by(|left, right| compare_remote_terminals(left, right));
-    if let Some(remembered_id) = last_terminal_id_by_project.get(project_id)
+    let memory_key = terminal_memory_key(project_id, worktree_id);
+    if let Some(remembered_id) = last_terminal_id_by_project.get(&memory_key)
         && let Some(terminal) = list.iter().find(|terminal| terminal.id == *remembered_id)
     {
         return Some(*terminal);
@@ -586,10 +1233,15 @@ fn compare_remote_terminals(
     left: &RemoteRuntimeTerminal,
     right: &RemoteRuntimeTerminal,
 ) -> std::cmp::Ordering {
-    left.created_at
-        .as_deref()
-        .unwrap_or_default()
-        .cmp(right.created_at.as_deref().unwrap_or_default())
+    left.layout_order
+        .unwrap_or(usize::MAX)
+        .cmp(&right.layout_order.unwrap_or(usize::MAX))
+        .then_with(|| {
+            left.created_at
+                .as_deref()
+                .unwrap_or_default()
+                .cmp(right.created_at.as_deref().unwrap_or_default())
+        })
         .then_with(|| left.id.cmp(&right.id))
 }
 
@@ -599,4 +1251,83 @@ fn terminal_layout_kind(terminal: &RemoteRuntimeTerminal) -> &str {
     } else {
         "split"
     }
+}
+
+fn terminal_matches_selected_worktree(
+    terminal: &RemoteRuntimeTerminal,
+    selected_worktree_id: Option<&str>,
+) -> bool {
+    let Some(project_id) = clean_optional_string(Some(terminal.project_id.clone())) else {
+        return false;
+    };
+    let Some(selected_worktree_id) =
+        normalize_worktree_scope(&project_id, selected_worktree_id.map(str::to_string))
+    else {
+        return false;
+    };
+    normalize_terminal_worktree_scope(&project_id, terminal.worktree_id.clone()).as_deref()
+        == Some(selected_worktree_id.as_str())
+}
+
+fn terminal_memory_key(project_id: &str, worktree_id: Option<&str>) -> String {
+    runtime_scope_key(project_id, worktree_id)
+}
+
+pub fn runtime_scope_key(project_id: &str, worktree_id: Option<&str>) -> String {
+    let project_id = project_id.trim();
+    let worktree_id = normalize_worktree_scope(project_id, worktree_id.map(str::to_string))
+        .unwrap_or_else(|| project_id.to_string());
+    format!("{project_id}::{worktree_id}")
+}
+
+pub fn runtime_scope_parts(scope_key: &str) -> Option<(&str, &str)> {
+    let (project_id, worktree_id) = scope_key.split_once("::")?;
+    let project_id = project_id.trim();
+    let worktree_id = worktree_id.trim();
+    if project_id.is_empty() || worktree_id.is_empty() {
+        return None;
+    }
+    Some((project_id, worktree_id))
+}
+
+fn normalize_worktree_scope(project_id: &str, worktree_id: Option<String>) -> Option<String> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return None;
+    }
+    clean_optional_string(worktree_id).or_else(|| Some(project_id.to_string()))
+}
+
+fn normalize_terminal_worktree_scope(
+    project_id: &str,
+    worktree_id: Option<String>,
+) -> Option<String> {
+    normalize_worktree_scope(project_id, worktree_id)
+}
+
+fn ensure_default_worktree_scope(
+    project_id: &str,
+    mut worktrees: Vec<RemoteRuntimeWorktree>,
+) -> Vec<RemoteRuntimeWorktree> {
+    let project_id = project_id.trim();
+    if project_id.is_empty() {
+        return worktrees;
+    }
+    if worktrees
+        .iter()
+        .any(|worktree| worktree.project_id == project_id && worktree.id == project_id)
+    {
+        return worktrees;
+    }
+    if let Some(default) = worktrees
+        .iter()
+        .find(|worktree| worktree.project_id == project_id && worktree.is_default)
+        .cloned()
+    {
+        let mut default_scope = default;
+        default_scope.id = project_id.to_string();
+        default_scope.is_default = true;
+        worktrees.insert(0, default_scope);
+    }
+    worktrees
 }

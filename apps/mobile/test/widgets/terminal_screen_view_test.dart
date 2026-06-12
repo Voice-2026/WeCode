@@ -271,14 +271,7 @@ void main() {
 
     await _sendTextInputSelectors(tester, ['deleteBackward:', 'moveLeft:']);
     await tester.pump();
-    expect(inputs, [
-      'h',
-      '\u007f',
-      '\r你好',
-      '你',
-      '\u007f',
-      '\u001b[D',
-    ]);
+    expect(inputs, ['h', '\u007f', '\r你好', '你', '\u007f', '\u001b[D']);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
     await tester.pump();

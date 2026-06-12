@@ -172,11 +172,10 @@ impl<T> RemotePtySession<T> {
             self.buffer_length = buffer_length;
         }
         self.screen.clear();
-        if !content.is_empty() {
-            self.screen.process(content.as_bytes());
-        }
         if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
             self.screen.process(screen_data.as_bytes());
+        } else if !content.is_empty() {
+            self.screen.process(content.as_bytes());
         }
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
@@ -213,10 +212,11 @@ impl<T> RemotePtySession<T> {
         if !data.is_empty() {
             self.content =
                 trim_to_char_limit(&format!("{}{}", self.content, data), self.max_cached_chars);
-            self.screen.process(data.as_bytes());
         }
         if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
             self.screen.process(screen_data.as_bytes());
+        } else if !data.is_empty() {
+            self.screen.process(data.as_bytes());
         }
         if let Some(buffer_length) = buffer_length {
             self.buffer_length = buffer_length;

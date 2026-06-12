@@ -124,6 +124,42 @@ void main() {
     expect(state.defaultBaseBranch, 'main');
     expect(state.worktrees.single.name, 'Task');
   });
+
+  test(
+    'passes selected worktree to runtime model without Dart-side scope filtering',
+    () {
+      const controller = RemoteWorktreeController();
+
+      final state = controller.stateFromPayload({
+        'projectId': 'project-1',
+        'selectedWorktreeId': 'project-2',
+        'worktrees': [
+          {
+            'id': 'project-1',
+            'projectId': 'project-1',
+            'name': 'Default',
+            'branch': 'main',
+            'path': '/repo',
+          },
+          {
+            'id': 'project-2',
+            'projectId': 'project-2',
+            'name': 'Other',
+            'branch': 'main',
+            'path': '/other',
+          },
+        ],
+      });
+
+      expect(state, isNotNull);
+      expect(state!.projectId, 'project-1');
+      expect(state.selectedWorktreeId, 'project-2');
+      expect(state.worktrees.map((worktree) => worktree.id), [
+        'project-1',
+        'project-2',
+      ]);
+    },
+  );
 }
 
 RemoteWorktreeInfo _worktree({

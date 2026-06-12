@@ -2,7 +2,9 @@ use crate::common::{
     FfiRemoteRuntimeModel, c_to_string, clean_ffi_string, json_string_to_c,
     remote_runtime_model_mut, remote_runtime_model_ref, string_to_c,
 };
-use codux_terminal_core::{RemoteRuntimeProject, RemoteRuntimeTerminal};
+use codux_terminal_core::{
+    RemoteRuntimeProject, RemoteRuntimeTerminal, RemoteRuntimeWorktreeState,
+};
 use std::ffi::c_char;
 use std::ptr;
 
@@ -63,6 +65,7 @@ pub extern "C" fn codux_remote_runtime_model_apply_project_list_json(
     model: *mut FfiRemoteRuntimeModel,
     projects_json: *const c_char,
     remote_selected_project_id: *const c_char,
+    remote_selected_worktree_id: *const c_char,
     terminal_visible: bool,
     terminal_list_loaded: bool,
 ) -> *mut c_char {
@@ -76,9 +79,11 @@ pub extern "C" fn codux_remote_runtime_model_apply_project_list_json(
         return ptr::null_mut();
     };
     let remote_selected_project_id = clean_ffi_string(c_to_string(remote_selected_project_id));
+    let remote_selected_worktree_id = clean_ffi_string(c_to_string(remote_selected_worktree_id));
     let plan = model.apply_project_list(
         projects,
         remote_selected_project_id,
+        remote_selected_worktree_id,
         terminal_visible,
         terminal_list_loaded,
     );
@@ -128,11 +133,58 @@ pub extern "C" fn codux_remote_runtime_model_user_select_project_json(
 pub extern "C" fn codux_remote_runtime_model_project_selected_json(
     model: *mut FfiRemoteRuntimeModel,
     project_id: *const c_char,
+    worktree_id: *const c_char,
 ) -> *mut c_char {
     let Some(model) = remote_runtime_model_mut(model) else {
         return ptr::null_mut();
     };
-    let plan = model.project_selected(c_to_string(project_id));
+    let plan = model.project_selected(c_to_string(project_id), c_to_string(worktree_id));
+    json_string_to_c(&plan)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_remote_runtime_model_worktree_selected_json(
+    model: *mut FfiRemoteRuntimeModel,
+    project_id: *const c_char,
+    worktree_id: *const c_char,
+    terminal_visible: bool,
+    terminal_list_loaded: bool,
+) -> *mut c_char {
+    let Some(model) = remote_runtime_model_mut(model) else {
+        return ptr::null_mut();
+    };
+    let plan = model.apply_worktree_selected(
+        c_to_string(project_id),
+        c_to_string(worktree_id),
+        terminal_visible,
+        terminal_list_loaded,
+    );
+    json_string_to_c(&plan)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_remote_runtime_model_apply_worktree_state_json(
+    model: *mut FfiRemoteRuntimeModel,
+    worktree_state_json: *const c_char,
+    allow_runtime_selection: bool,
+    terminal_visible: bool,
+    terminal_list_loaded: bool,
+) -> *mut c_char {
+    let Some(model) = remote_runtime_model_mut(model) else {
+        return ptr::null_mut();
+    };
+    let Some(worktree_state_json) = c_to_string(worktree_state_json) else {
+        return ptr::null_mut();
+    };
+    let Ok(state) = serde_json::from_str::<RemoteRuntimeWorktreeState>(&worktree_state_json) else {
+        return ptr::null_mut();
+    };
+    let plan = model.apply_worktree_state(
+        state,
+        allow_runtime_selection,
+        terminal_visible,
+        terminal_list_loaded,
+    );
     json_string_to_c(&plan)
 }
 
@@ -261,4 +313,40 @@ pub extern "C" fn codux_remote_runtime_model_current_project_terminals_json(
         return ptr::null_mut();
     };
     json_string_to_c(&model.current_project_terminals())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_remote_runtime_model_terminal_scope_for_project_json(
+    model: *const FfiRemoteRuntimeModel,
+    project_id: *const c_char,
+) -> *mut c_char {
+    let Some(model) = remote_runtime_model_ref(model) else {
+        return ptr::null_mut();
+    };
+    let Some(project_id) = c_to_string(project_id) else {
+        return ptr::null_mut();
+    };
+    json_string_to_c(&model.terminal_scope_for_project(&project_id))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_remote_runtime_model_terminal_scope_for_session_json(
+    model: *const FfiRemoteRuntimeModel,
+    session_id: *const c_char,
+    terminal_json: *const c_char,
+) -> *mut c_char {
+    let Some(model) = remote_runtime_model_ref(model) else {
+        return ptr::null_mut();
+    };
+    let Some(session_id) = c_to_string(session_id) else {
+        return ptr::null_mut();
+    };
+    let terminal = c_to_string(terminal_json).and_then(|terminal_json| {
+        if terminal_json.trim().is_empty() {
+            None
+        } else {
+            serde_json::from_str::<RemoteRuntimeTerminal>(&terminal_json).ok()
+        }
+    });
+    json_string_to_c(&model.terminal_scope_for_session(&session_id, terminal))
 }

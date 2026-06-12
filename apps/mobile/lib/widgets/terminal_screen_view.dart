@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
@@ -55,6 +56,8 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
   double _lastInertiaPosition = 0;
   double _dragPixels = 0;
   double _fallbackEventTimeMs = 0;
+  bool _cursorBlinkVisible = true;
+  Timer? _cursorBlinkTimer;
   final List<_TerminalDragSample> _dragSamples = [];
 
   @override
@@ -62,6 +65,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     super.initState();
     _inertiaController = AnimationController.unbounded(vsync: this)
       ..addListener(_handleInertiaTick);
+    _startCursorBlink();
     _syncKeyboardFocus();
   }
 
@@ -76,16 +80,40 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
         widget.snapshot?.displayOffset != 0) {
       widget.onScrollToBottom();
     }
+    if (_cursorSignature(widget.snapshot) !=
+        _cursorSignature(oldWidget.snapshot)) {
+      _resetCursorBlink();
+    }
     _syncVisualScrollFromSnapshot(oldWidget.snapshot, widget.snapshot);
     _syncFollowTailFromSnapshot();
   }
 
   @override
   void dispose() {
+    _cursorBlinkTimer?.cancel();
     _closeKeyboardConnection();
     _keyboardFocusNode.dispose();
     _inertiaController.dispose();
     super.dispose();
+  }
+
+  void _startCursorBlink() {
+    _cursorBlinkTimer = Timer.periodic(_terminalCursorBlinkInterval, (_) {
+      if (!mounted) return;
+      final cursor = widget.snapshot?.cursor;
+      if (cursor == null || !cursor.visible) {
+        if (!_cursorBlinkVisible) {
+          setState(() => _cursorBlinkVisible = true);
+        }
+        return;
+      }
+      setState(() => _cursorBlinkVisible = !_cursorBlinkVisible);
+    });
+  }
+
+  void _resetCursorBlink() {
+    if (_cursorBlinkVisible) return;
+    setState(() => _cursorBlinkVisible = true);
   }
 
   void _syncKeyboardFocus() {
@@ -193,6 +221,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
                       scrollOffsetY:
                           (snapshot?.scrollPixelOffset ?? 0) +
                           _visualScrollOffset,
+                      cursorBlinkVisible: _cursorBlinkVisible,
                     ),
                   ),
                 ),
@@ -517,7 +546,10 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
       key: key,
       applicationCursor: widget.snapshot?.applicationCursor ?? false,
     );
-    if (input.isNotEmpty) widget.onInput(input);
+    if (input.isNotEmpty) {
+      _resetCursorBlink();
+      widget.onInput(input);
+    }
   }
 
   @override
@@ -528,7 +560,10 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     }
     final terminalInput = _terminalInputFromEditingValue(value);
     final normalizedInput = terminalTextInput(terminalInput);
-    if (normalizedInput.isNotEmpty) widget.onInput(normalizedInput);
+    if (normalizedInput.isNotEmpty) {
+      _resetCursorBlink();
+      widget.onInput(normalizedInput);
+    }
     _resetImeEditingState();
   }
 
@@ -549,6 +584,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
       case TextInputAction.send:
       case TextInputAction.unspecified:
       case TextInputAction.none:
+        _resetCursorBlink();
         widget.onInput(terminalKeyInput(key: 'enter'));
       case TextInputAction.next:
       case TextInputAction.previous:
@@ -588,7 +624,10 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
       selector: selectorName,
       applicationCursor: widget.snapshot?.applicationCursor ?? false,
     );
-    if (input.isNotEmpty) widget.onInput(input);
+    if (input.isNotEmpty) {
+      _resetCursorBlink();
+      widget.onInput(input);
+    }
   }
 
   @override
@@ -665,6 +704,7 @@ const _terminalVelocitySampleWindowMs = 120.0;
 const _terminalMinVelocitySampleMs = 16.0;
 const _terminalFallbackEventStepMs = 16.0;
 const _terminalScrollEpsilon = 0.01;
+const _terminalCursorBlinkInterval = Duration(milliseconds: 530);
 const _terminalInputSentinel = '  ';
 const _terminalBackspaceInput = '\u0008';
 const _terminalInputSentinelValue = TextEditingValue(
@@ -703,6 +743,12 @@ double _snapshotScrollPosition(TerminalScreenSnapshot snapshot) {
       snapshot.scrollPixelOffset;
 }
 
+String _cursorSignature(TerminalScreenSnapshot? snapshot) {
+  final cursor = snapshot?.cursor;
+  if (cursor == null) return '';
+  return '${cursor.row}:${cursor.col}:${cursor.visible}:${cursor.shape}';
+}
+
 double _smoothStep(double value) {
   final x = value.clamp(0.0, 1.0);
   return x * x * (3 - 2 * x);
@@ -738,6 +784,7 @@ class _TerminalScreenPainter extends CustomPainter {
     required this.cellHeight,
     required this.fontSize,
     required this.scrollOffsetY,
+    required this.cursorBlinkVisible,
   });
 
   final TerminalScreenSnapshot? snapshot;
@@ -745,6 +792,7 @@ class _TerminalScreenPainter extends CustomPainter {
   final double cellHeight;
   final double fontSize;
   final double scrollOffsetY;
+  final bool cursorBlinkVisible;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -796,14 +844,25 @@ class _TerminalScreenPainter extends CustomPainter {
       );
     }
 
-    if (screen.cursor.visible) {
-      final cursorLeft = (screen.cursor.col * cellWidth).floorToDouble();
+    if (screen.cursor.visible && cursorBlinkVisible) {
       final cursorTop = (screen.cursor.row * cellHeight + scrollOffsetY)
           .floorToDouble();
+      final cursorIsBlock =
+          screen.cursor.shape == TerminalScreenCursorShape.block;
+      final cursorCellCol = cursorIsBlock && cursorCell != null
+          ? cursorCell.col
+          : screen.cursor.col;
+      final cursorCellWidth = cursorIsBlock && cursorCell != null
+          ? cursorCell.width
+          : 1;
+      final cursorLeft = (cursorCellCol * cellWidth).floorToDouble();
       final cursorRect = Rect.fromLTWH(
         cursorLeft,
         cursorTop,
-        cellWidth.roundToDouble().clamp(1.0, double.infinity),
+        (cellWidth * cursorCellWidth).roundToDouble().clamp(
+          1.0,
+          double.infinity,
+        ),
         cellHeight.roundToDouble().clamp(1.0, double.infinity),
       );
       if (cursorRect.right <= 0 ||
@@ -813,9 +872,7 @@ class _TerminalScreenPainter extends CustomPainter {
         return;
       }
       _paintCursor(canvas, cursorRect, screen.cursor.shape);
-      if (screen.cursor.shape == TerminalScreenCursorShape.block &&
-          cursorCell != null &&
-          cursorCell.text.isNotEmpty) {
+      if (cursorIsBlock && cursorCell != null && cursorCell.text.isNotEmpty) {
         _paintCellText(
           textPainter: textPainter,
           canvas: canvas,
@@ -907,6 +964,7 @@ class _TerminalScreenPainter extends CustomPainter {
         cellWidth != oldDelegate.cellWidth ||
         cellHeight != oldDelegate.cellHeight ||
         fontSize != oldDelegate.fontSize ||
-        scrollOffsetY != oldDelegate.scrollOffsetY;
+        scrollOffsetY != oldDelegate.scrollOffsetY ||
+        cursorBlinkVisible != oldDelegate.cursorBlinkVisible;
   }
 }

@@ -308,6 +308,8 @@ class TerminalInfo {
     required this.title,
     required this.projectId,
     this.layoutKind = 'split',
+    this.worktreeId,
+    this.layoutOrder,
     this.cols,
     this.rows,
     this.status,
@@ -318,6 +320,8 @@ class TerminalInfo {
   final String title;
   final String projectId;
   final String layoutKind;
+  final String? worktreeId;
+  final int? layoutOrder;
   final int? cols;
   final int? rows;
   final String? status;
@@ -329,6 +333,10 @@ class TerminalInfo {
     title: '${json['title'] ?? 'Terminal'}',
     projectId: '${json['projectId'] ?? ''}',
     layoutKind: '${json['layoutKind'] ?? 'split'}',
+    worktreeId: json['worktreeId']?.toString(),
+    layoutOrder: json['layoutOrder'] is num
+        ? (json['layoutOrder'] as num).toInt()
+        : int.tryParse('${json['layoutOrder'] ?? ''}'),
     cols: json['cols'] is num
         ? (json['cols'] as num).toInt()
         : int.tryParse('${json['cols'] ?? ''}'),
@@ -397,6 +405,23 @@ class RemoteWorktreeInfo {
       deletions: _intValue(gitSummary['deletions']) ?? 0,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'projectId': projectId,
+    'name': name,
+    'branch': branch,
+    'path': path,
+    'status': status,
+    'isDefault': isDefault,
+    'exists': exists,
+    if (baseBranch != null) 'baseBranch': baseBranch,
+    'changes': changes,
+    'incoming': incoming,
+    'outgoing': outgoing,
+    'additions': additions,
+    'deletions': deletions,
+  };
 
   RemoteWorktreeInfo copyWith({String? baseBranch}) {
     return RemoteWorktreeInfo(

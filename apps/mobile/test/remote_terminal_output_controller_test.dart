@@ -228,6 +228,39 @@ void main() {
     expect(controller.cachedOutput('session-1'), 'next');
   });
 
+  test('empty active baseline stays pending for retry', () {
+    final controller = RemoteTerminalOutputController(maxBufferChars: 4);
+
+    controller.bindSession('session-1', requireBaseline: true);
+    expect(
+      controller.startBufferRequest(
+        'session-1',
+        'request-empty',
+        requireBaseline: true,
+      ),
+      isTrue,
+    );
+
+    final empty = controller.accept(
+      _terminalBuffer(
+        '',
+        offset: 0,
+        bufferLength: 0,
+        truncated: false,
+        requestId: 'request-empty',
+      ),
+      activeSessionId: 'session-1',
+    );
+
+    expect(_kinds(empty), [
+      RemoteTerminalOutputEffectKind.loading,
+      RemoteTerminalOutputEffectKind.sessionUpdated,
+      RemoteTerminalOutputEffectKind.ack,
+    ]);
+    expect(controller.activeBufferRequestId('session-1'), 'request-empty');
+    expect(controller.cachedOutput('session-1'), isNull);
+  });
+
   test(
     'full buffer request replaces cache even when recent history offset is non-zero',
     () {
@@ -727,6 +760,35 @@ void main() {
     expect(_kinds(result), [RemoteTerminalOutputEffectKind.ack]);
     expect(controller.cachedOutput('session-1'), 'cached');
     expect(controller.bufferOffset('session-1'), 6);
+  });
+
+  test('same sequence baseline is acked without duplicating prompt text', () {
+    final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
+    controller.bindSession('session-1', requireBaseline: false);
+    controller.accept(
+      _terminalBuffer(
+        '➜  20260611-212631\n',
+        offset: 0,
+        bufferLength: 21,
+        truncated: false,
+        outputSeq: 42,
+      ),
+      activeSessionId: 'session-1',
+    );
+
+    final result = controller.accept(
+      _terminalBuffer(
+        '➜  20260611-212631\n',
+        offset: 0,
+        bufferLength: 21,
+        truncated: false,
+        outputSeq: 42,
+      ),
+      activeSessionId: 'session-1',
+    );
+
+    expect(_kinds(result), [RemoteTerminalOutputEffectKind.ack]);
+    expect(controller.cachedOutput('session-1'), '➜  20260611-212631\n');
   });
 
   test(

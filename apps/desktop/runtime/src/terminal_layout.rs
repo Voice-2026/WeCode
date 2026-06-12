@@ -5,7 +5,7 @@ const TERMINAL_LAYOUT_NAMESPACE: &str = "terminal-layout";
 const DEFAULT_BOTTOM_RATIO: f64 = 0.24;
 
 pub fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> String {
-    format!("{project_id}::{worktree_id}")
+    codux_terminal_core::runtime_scope_key(project_id, Some(worktree_id))
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

@@ -3,43 +3,16 @@ import 'package:codux_flutter/services/remote_terminal_scope.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test(
-    'resolves scope from terminal session project before selected project',
-    () {
-      final scope = remoteTerminalScopeForSession(
-        sessionId: 'session-2',
-        projects: const [
-          ProjectInfo(id: 'project-1', name: 'One', path: '/tmp/one'),
-          ProjectInfo(id: 'project-2', name: 'Two', path: '/tmp/two'),
-        ],
-        terminals: const [
-          TerminalInfo(id: 'session-2', title: 'Two', projectId: 'project-2'),
-        ],
-        selectedProjectId: 'project-1',
-      );
-
-      expect(scope?.projectId, 'project-2');
-      expect(scope?.projectPath, '/tmp/two');
-    },
-  );
-
-  test('uses explicit terminal when runtime state already removed it', () {
-    final scope = remoteTerminalScopeForSession(
-      sessionId: 'session-2',
-      projects: const [
-        ProjectInfo(id: 'project-2', name: 'Two', path: '/tmp/two'),
-      ],
-      terminals: const [],
-      selectedProjectId: null,
-      terminal: const TerminalInfo(
-        id: 'session-2',
-        title: 'Two',
-        projectId: 'project-2',
-      ),
-    );
-
-    expect(scope?.toPayload(), {
+  test('parses terminal scope returned by runtime core', () {
+    final scope = RemoteTerminalScope.fromJson(const {
       'projectId': 'project-2',
+      'worktreeId': 'project-2',
+      'projectPath': '/tmp/two',
+    });
+
+    expect(scope.toPayload(), {
+      'projectId': 'project-2',
+      'worktreeId': 'project-2',
       'projectPath': '/tmp/two',
     });
   });

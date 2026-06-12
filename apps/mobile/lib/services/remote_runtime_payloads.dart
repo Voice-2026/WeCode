@@ -15,6 +15,12 @@ String? remoteSelectedProjectIdFromPayload(Object? payload) {
   return value == null || value.isEmpty ? null : value;
 }
 
+String? remoteSelectedWorktreeIdFromPayload(Object? payload) {
+  if (payload is! Map) return null;
+  final value = payload['selectedWorktreeId']?.toString().trim();
+  return value == null || value.isEmpty ? null : value;
+}
+
 List<TerminalInfo> remoteTerminalsFromPayload(Object? payload) {
   if (payload is! Map) return const [];
   final list = payload['terminals'] as List<dynamic>? ?? const [];

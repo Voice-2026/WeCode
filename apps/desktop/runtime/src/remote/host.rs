@@ -47,7 +47,7 @@ use codux_runtime_core::{
     subscription::RuntimeSubscriptionRouter, terminal as runtime_terminal,
     upload as runtime_upload, worktree as runtime_worktree,
 };
-use codux_terminal_core::TerminalSequence;
+use codux_terminal_core::{TerminalSequence, runtime_scope_parts};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -77,6 +77,12 @@ struct RemoteTerminalPlan {
     scope: RemoteProjectScope,
     title: String,
     layout_kind: String,
+}
+
+struct RemoteTerminalLayoutScope {
+    layout_kind: String,
+    worktree_id: String,
+    layout_order: usize,
 }
 
 struct RemoteTerminalOutputBatch {
@@ -1191,7 +1197,12 @@ impl RemoteHostRuntime {
                 envelope.device_id.as_deref().unwrap_or("")
             ),
         );
-        match self.remote_project_scope(project_id) {
+        let preferred_worktree_id = envelope
+            .payload
+            .get("worktreeId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+        match self.remote_project_scope_with_worktree(project_id, preferred_worktree_id) {
             Ok(scope) => {
                 self.set_remote_project_scope(envelope.device_id.as_deref(), &scope.project_id);
                 if let Err(error) =
@@ -1355,7 +1366,7 @@ impl RemoteHostRuntime {
         );
     }
 
-    fn handle_worktree_select(&self, envelope: &RemoteEnvelope) {
+    fn handle_worktree_select(self: &Arc<Self>, envelope: &RemoteEnvelope) {
         let Ok((project_id, project_path)) = self.worktree_request_scope(envelope) else {
             self.send_error(envelope, "Project id and path are required.");
             return;
@@ -1365,18 +1376,32 @@ impl RemoteHostRuntime {
             return;
         };
         let service = WorktreeService::new(self.support_dir.clone());
-        match service.select_worktree(&project_id, worktree_id) {
-            Ok(()) => {
-                self.broadcast_worktree_summary(
-                    "worktree.updated",
-                    envelope.device_id.as_deref(),
-                    &project_id,
-                    &project_path,
-                );
-                self.send_project_and_terminal_lists(envelope.device_id.as_deref());
-            }
-            Err(error) => self.send_error(envelope, &error),
+        let mut summary = service.summary(Some(&project_id), Some(&project_path));
+        let exists = summary
+            .worktrees
+            .iter()
+            .any(|worktree| worktree.id == worktree_id);
+        if !exists {
+            self.send_error(envelope, "Worktree not found.");
+            return;
         }
+        summary.selected_worktree_id = Some(worktree_id.to_string());
+        self.set_remote_project_scope(envelope.device_id.as_deref(), &project_id);
+        if let Ok(scope) = self.remote_project_scope_for_envelope(envelope, Some(&project_id)) {
+            if let Err(error) =
+                self.ensure_remote_project_terminal(&scope, envelope.device_id.as_deref())
+            {
+                self.send_error(envelope, &error);
+                return;
+            }
+        }
+        self.send(
+            "worktree.updated",
+            envelope.device_id.as_deref(),
+            None,
+            remote_worktree_summary_payload(&project_id, summary),
+        );
+        self.send_project_and_terminal_lists(envelope.device_id.as_deref());
     }
 
     fn handle_worktree_create(&self, envelope: &RemoteEnvelope) {
@@ -1574,7 +1599,7 @@ impl RemoteHostRuntime {
         let emit = move |event| {
             runtime.handle_terminal_event(event);
         };
-        let plan = match self.remote_terminal_plan_from_envelope(envelope, None) {
+        let plan = match self.remote_terminal_plan_from_envelope(envelope, None, false) {
             Ok(plan) => plan,
             Err(error) => {
                 self.send_error(envelope, &error);
@@ -2249,7 +2274,7 @@ impl RemoteHostRuntime {
             .remote_project_scope_id(device_id)
             .filter(|id| baseline.projects.iter().any(|project| &project.id == id))
             .or(baseline.selected_project_id);
-        runtime_project::project_list_payload(
+        runtime_project::project_list_payload_with_worktrees(
             baseline
                 .projects
                 .into_iter()
@@ -2259,6 +2284,21 @@ impl RemoteHostRuntime {
                     path: project.path,
                 }),
             selected_project_id,
+            None,
+            ProjectStore::new(self.support_dir.clone())
+                .snapshot()
+                .worktrees
+                .into_iter()
+                .map(|worktree| runtime_project::ProjectWorktreeListItem {
+                    id: worktree.id,
+                    project_id: worktree.project_id,
+                    name: worktree.name,
+                    branch: worktree.branch,
+                    path: worktree.path,
+                    status: worktree.status,
+                    is_default: worktree.is_default,
+                    exists: true,
+                }),
         )
     }
 
@@ -2318,25 +2358,6 @@ impl RemoteHostRuntime {
         self.send(
             kind,
             device_id,
-            None,
-            remote_worktree_summary_payload(project_id, summary),
-        );
-    }
-
-    fn broadcast_worktree_summary(
-        &self,
-        kind: &str,
-        source_device_id: Option<&str>,
-        project_id: &str,
-        project_path: &str,
-    ) {
-        let summary = WorktreeService::new(self.support_dir.clone())
-            .summary(Some(project_id), Some(project_path));
-        self.broadcast_resource_payload(
-            kind,
-            REMOTE_RESOURCE_WORKTREES,
-            source_device_id,
-            Some(project_id),
             None,
             remote_worktree_summary_payload(project_id, summary),
         );
@@ -2730,47 +2751,87 @@ impl RemoteHostRuntime {
     }
 
     fn remote_terminals(&self) -> Vec<Value> {
-        let layouts = self.remote_terminal_layout_kinds();
+        let scopes = self.remote_terminal_layout_scopes();
         let mut terminals = self
             .terminals
             .list()
             .into_iter()
             .map(|terminal| {
-                let layout_kind = layouts
+                let fallback_worktree_id = terminal.project_id.clone();
+                let (layout_kind, worktree_id, layout_order) = scopes
                     .get(&terminal.id)
-                    .map(String::as_str)
-                    .unwrap_or("split");
-                remote_terminal_snapshot_payload(terminal, layout_kind)
+                    .map(|scope| {
+                        (
+                            scope.layout_kind.as_str(),
+                            Some(scope.worktree_id.as_str()),
+                            Some(scope.layout_order),
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        (
+                            "split",
+                            (!fallback_worktree_id.trim().is_empty())
+                                .then_some(fallback_worktree_id.as_str()),
+                            None,
+                        )
+                    });
+                remote_terminal_snapshot_payload(terminal, layout_kind, worktree_id, layout_order)
             })
             .collect::<Vec<_>>();
         terminals.sort_by_key(remote_terminal_order_key);
         terminals
     }
 
-    fn remote_terminal_layout_kinds(&self) -> HashMap<String, String> {
+    fn remote_terminal_layout_scopes(&self) -> HashMap<String, RemoteTerminalLayoutScope> {
         let project_store = ProjectStore::new(self.support_dir.clone());
         let baseline = project_store.snapshot();
-        let keys = baseline
-            .projects
-            .iter()
-            .map(|project| {
-                let worktree_id = baseline
-                    .selected_worktree_id_by_project
-                    .get(&project.id)
-                    .map(String::as_str)
-                    .unwrap_or(&project.id);
-                terminal_layout_storage_key(&project.id, worktree_id)
-            })
-            .collect::<Vec<_>>();
+        let mut keys = Vec::new();
+        let mut seen = HashSet::new();
+        for project in &baseline.projects {
+            let default_key = terminal_layout_storage_key(&project.id, &project.id);
+            if seen.insert(default_key.clone()) {
+                keys.push(default_key);
+            }
+            for worktree in baseline
+                .worktrees
+                .iter()
+                .filter(|worktree| worktree.project_id == project.id)
+            {
+                let worktree_key = terminal_layout_storage_key(&project.id, &worktree.id);
+                if seen.insert(worktree_key.clone()) {
+                    keys.push(worktree_key);
+                }
+            }
+        }
         let layouts = TerminalLayoutService::new(self.support_dir.clone())
             .load_many(keys.iter().map(String::as_str));
         let mut result = HashMap::new();
-        for layout in layouts.values() {
+        for (layout_key, layout) in layouts {
+            let worktree_id = worktree_id_from_terminal_layout_key(&layout_key)
+                .unwrap_or_default()
+                .to_string();
+            let mut layout_order = 0;
             for pane in &layout.top_panes {
-                result.insert(pane.terminal_id.clone(), "split".to_string());
+                result.insert(
+                    pane.terminal_id.clone(),
+                    RemoteTerminalLayoutScope {
+                        layout_kind: "split".to_string(),
+                        worktree_id: worktree_id.clone(),
+                        layout_order,
+                    },
+                );
+                layout_order += 1;
             }
             for tab in &layout.tabs {
-                result.insert(tab.terminal_id.clone(), "tab".to_string());
+                result.insert(
+                    tab.terminal_id.clone(),
+                    RemoteTerminalLayoutScope {
+                        layout_kind: "tab".to_string(),
+                        worktree_id: worktree_id.clone(),
+                        layout_order,
+                    },
+                );
+                layout_order += 1;
             }
         }
         result
@@ -2780,6 +2841,7 @@ impl RemoteHostRuntime {
         &self,
         envelope: &RemoteEnvelope,
         terminal_id: Option<&str>,
+        reuse_saved_terminal: bool,
     ) -> Result<RemoteTerminalPlan, String> {
         let project_id = envelope
             .payload
@@ -2808,9 +2870,13 @@ impl RemoteHostRuntime {
             .map(str::to_string)
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| scope.project_path.clone());
-        let terminal_id = terminal_id
-            .map(str::to_string)
-            .or_else(|| self.saved_remote_terminal_id(&scope.layout_key));
+        let terminal_id = terminal_id.map(str::to_string).or_else(|| {
+            if reuse_saved_terminal {
+                self.saved_remote_terminal_id(&scope.layout_key)
+            } else {
+                None
+            }
+        });
         let config = TerminalPtyConfig {
             cwd: Some(cwd),
             command,
@@ -2851,7 +2917,7 @@ impl RemoteHostRuntime {
         let emit = move |event| {
             runtime.handle_terminal_event(event);
         };
-        let plan = self.remote_terminal_plan_from_envelope(envelope, Some(session_id))?;
+        let plan = self.remote_terminal_plan_from_envelope(envelope, Some(session_id), true)?;
         self.set_remote_project_scope(envelope.device_id.as_deref(), &plan.scope.project_id);
         self.terminals
             .create(plan.config, emit)
@@ -2877,6 +2943,8 @@ impl RemoteHostRuntime {
             .into_iter()
             .find(|terminal| {
                 terminal.get("projectId").and_then(Value::as_str) == Some(scope.project_id.as_str())
+                    && terminal.get("worktreeId").and_then(Value::as_str)
+                        == Some(scope.worktree_id.as_str())
             })
             .and_then(|terminal| {
                 terminal
@@ -2964,22 +3032,50 @@ impl RemoteHostRuntime {
         let _ = service.save_summary(layout_key, layout);
     }
 
-    fn remote_project_scope(&self, project_id: &str) -> Result<RemoteProjectScope, String> {
+    fn remote_project_scope_with_worktree(
+        &self,
+        project_id: &str,
+        preferred_worktree_id: Option<&str>,
+    ) -> Result<RemoteProjectScope, String> {
         let baseline = ProjectStore::new(self.support_dir.clone()).snapshot();
         let project = baseline
             .projects
             .iter()
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
-        let worktree_id = baseline
-            .selected_worktree_id_by_project
-            .get(&project.id)
-            .cloned()
+        let preferred_worktree_id = preferred_worktree_id
+            .filter(|worktree_id| {
+                worktree_id.trim() == project.id
+                    || baseline.worktrees.iter().any(|worktree| {
+                        worktree.project_id == project.id && worktree.id == worktree_id.trim()
+                    })
+            })
+            .map(str::to_string);
+        let worktree_id = preferred_worktree_id
+            .or_else(|| {
+                baseline
+                    .selected_worktree_id_by_project
+                    .get(&project.id)
+                    .cloned()
+                    .filter(|worktree_id| {
+                        worktree_id == &project.id
+                            || baseline.worktrees.iter().any(|worktree| {
+                                worktree.project_id == project.id && &worktree.id == worktree_id
+                            })
+                    })
+            })
             .unwrap_or_else(|| project.id.clone());
+        let worktree_path = baseline
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.project_id == project.id && worktree.id == worktree_id)
+            .map(|worktree| worktree.path.clone())
+            .filter(|path| !path.trim().is_empty())
+            .unwrap_or_else(|| project.path.clone());
         Ok(RemoteProjectScope {
             project_id: project.id.clone(),
             project_name: project.name.clone(),
-            project_path: project.path.clone(),
+            project_path: worktree_path,
             worktree_id: worktree_id.clone(),
             layout_key: terminal_layout_storage_key(&project.id, &worktree_id),
         })
@@ -2996,7 +3092,13 @@ impl RemoteHostRuntime {
         else {
             return Err("Project id is required.".to_string());
         };
-        self.remote_project_scope(&scoped_project_id)
+        let worktree_id = envelope
+            .payload
+            .get("worktreeId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string);
+        self.remote_project_scope_with_worktree(&scoped_project_id, worktree_id.as_deref())
     }
 
     fn worktree_request_scope(
@@ -3579,8 +3681,21 @@ fn terminal_buffer_baseline_key(session_id: &str, request_id: &str) -> String {
 pub(crate) fn remote_terminal_snapshot_payload(
     terminal: TerminalSessionSnapshot,
     layout_kind: &str,
+    worktree_id: Option<&str>,
+    layout_order: Option<usize>,
 ) -> Value {
-    runtime_terminal::terminal_snapshot_payload(terminal, layout_kind)
+    let mut payload = runtime_terminal::terminal_snapshot_payload(terminal, layout_kind);
+    if let Some(worktree_id) = worktree_id.filter(|value| !value.trim().is_empty()) {
+        payload["worktreeId"] = json!(worktree_id);
+    }
+    if let Some(layout_order) = layout_order {
+        payload["layoutOrder"] = json!(layout_order);
+    }
+    payload
+}
+
+fn worktree_id_from_terminal_layout_key(layout_key: &str) -> Option<&str> {
+    runtime_scope_parts(layout_key).map(|(_, worktree_id)| worktree_id)
 }
 
 fn remote_terminal_layout_kind(payload: &Value) -> String {
@@ -3887,6 +4002,7 @@ mod tests {
         let payload = runtime.remote_project_list_payload(Some("device-1"));
 
         assert_eq!(payload["selectedProjectId"], "project-b");
+        assert!(payload["selectedWorktreeId"].is_null());
         assert_eq!(
             payload["projects"]
                 .as_array()
@@ -3911,7 +4027,7 @@ mod tests {
             device_id: Some("device-1".to_string()),
             session_id: None,
             seq: None,
-            payload: json!({ "projectId": "project-b" }),
+            payload: json!({ "projectId": "project-b", "worktreeId": "worktree-b" }),
         });
 
         let terminals = runtime.remote_terminals();
@@ -3929,6 +4045,69 @@ mod tests {
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].terminal_id, session_id);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_worktree_select_is_device_scoped_and_does_not_mutate_desktop_selection() {
+        let support_dir = temp_support_dir("codux-remote-worktree-device-scope");
+        let (_, project_b) = write_two_project_state(&support_dir);
+        let mut state: Value = serde_json::from_str(
+            &fs::read_to_string(support_dir.join("state.json")).expect("read state"),
+        )
+        .expect("parse state");
+        state["worktrees"]
+            .as_array_mut()
+            .expect("worktrees")
+            .push(json!({
+                "id": "worktree-c",
+                "projectId": "project-b",
+                "name": "Task C",
+                "branch": "task-c",
+                "path": project_b.to_string_lossy(),
+                "status": "active",
+                "isDefault": false,
+                "createdAt": 2,
+                "updatedAt": 2
+            }));
+        state["selectedWorktreeIdByProject"]["project-b"] = json!("worktree-c");
+        fs::write(
+            support_dir.join("state.json"),
+            serde_json::to_string_pretty(&state).expect("serialize state"),
+        )
+        .expect("write state");
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+
+        runtime.handle_worktree_select(&RemoteEnvelope {
+            kind: "worktree.select".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "projectId": "project-b",
+                "worktreeId": "worktree-b",
+            }),
+        });
+
+        let state = fs::read_to_string(support_dir.join("state.json")).expect("read state");
+        let state: Value = serde_json::from_str(&state).expect("parse state");
+        assert_eq!(state["selectedProjectId"], "project-a");
+        assert_eq!(
+            state["selectedWorktreeIdByProject"]["project-b"],
+            "worktree-c"
+        );
+        assert_eq!(
+            runtime.remote_project_scope_id(Some("device-1")).as_deref(),
+            Some("project-b")
+        );
+        assert!(
+            runtime.remote_terminals().iter().any(|terminal| terminal
+                .get("projectId")
+                .and_then(Value::as_str)
+                == Some("project-b")
+                && terminal.get("worktreeId").and_then(Value::as_str) == Some("worktree-b"))
+        );
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -4214,6 +4393,7 @@ mod tests {
                     payload: json!({}),
                 },
                 None,
+                true,
             )
             .expect("terminal plan");
 
@@ -4221,6 +4401,148 @@ mod tests {
         assert_eq!(plan.scope.worktree_id, "worktree-b");
         assert_eq!(plan.config.project_id.as_deref(), Some("project-b"));
         assert_eq!(plan.config.terminal_id.as_deref(), Some("terminal-b"));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_list_indexes_all_project_worktree_layouts() {
+        let support_dir = temp_support_dir("codux-remote-terminal-all-worktrees");
+        write_two_project_state(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        );
+        let default_session = terminals
+            .create(
+                TerminalPtyConfig {
+                    command: Some("printf default".to_string()),
+                    project_id: Some("project-b".to_string()),
+                    terminal_id: Some("terminal-default".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create default terminal");
+        let worktree_session = terminals
+            .create(
+                TerminalPtyConfig {
+                    command: Some("printf worktree".to_string()),
+                    project_id: Some("project-b".to_string()),
+                    terminal_id: Some("terminal-worktree".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create worktree terminal");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &terminal_layout_storage_key("project-b", "project-b"),
+                Vec::new(),
+                default_session.clone(),
+                vec![TerminalPaneSummary {
+                    title: "Default".to_string(),
+                    terminal_id: default_session.clone(),
+                }],
+                vec![1.0],
+                0.24,
+            )
+            .expect("save default layout");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &terminal_layout_storage_key("project-b", "worktree-b"),
+                Vec::new(),
+                worktree_session.clone(),
+                vec![TerminalPaneSummary {
+                    title: "Worktree".to_string(),
+                    terminal_id: worktree_session.clone(),
+                }],
+                vec![1.0],
+                0.24,
+            )
+            .expect("save worktree layout");
+
+        let terminal_worktrees = runtime
+            .remote_terminals()
+            .into_iter()
+            .filter_map(|terminal| {
+                Some((
+                    terminal.get("id")?.as_str()?.to_string(),
+                    terminal.get("worktreeId")?.as_str()?.to_string(),
+                ))
+            })
+            .collect::<HashMap<_, _>>();
+
+        assert_eq!(
+            terminal_worktrees.get(&default_session).map(String::as_str),
+            Some("project-b")
+        );
+        assert_eq!(
+            terminal_worktrees
+                .get(&worktree_session)
+                .map(String::as_str),
+            Some("worktree-b")
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_create_plan_does_not_reuse_saved_layout_terminal() {
+        let support_dir = temp_support_dir("codux-remote-create-new-terminal");
+        write_two_project_state(&support_dir);
+        let runtime = RemoteHostRuntime::new(support_dir.clone());
+        runtime.set_remote_project_scope(Some("device-1"), "project-b");
+        let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &layout_key,
+                Vec::new(),
+                "terminal-b".to_string(),
+                vec![TerminalPaneSummary {
+                    title: "Mobile".to_string(),
+                    terminal_id: "terminal-b".to_string(),
+                }],
+                vec![1.0],
+                0.24,
+            )
+            .expect("save layout");
+
+        let create_plan = runtime
+            .remote_terminal_plan_from_envelope(
+                &RemoteEnvelope {
+                    kind: "terminal.create".to_string(),
+                    device_id: Some("device-1".to_string()),
+                    session_id: None,
+                    seq: None,
+                    payload: json!({"layoutKind": "tab"}),
+                },
+                None,
+                false,
+            )
+            .expect("create terminal plan");
+        assert_eq!(create_plan.config.terminal_id, None);
+        assert_eq!(create_plan.layout_kind, "tab");
+
+        let restore_plan = runtime
+            .remote_terminal_plan_from_envelope(
+                &RemoteEnvelope {
+                    kind: "terminal.buffer".to_string(),
+                    device_id: Some("device-1".to_string()),
+                    session_id: None,
+                    seq: None,
+                    payload: json!({}),
+                },
+                None,
+                true,
+            )
+            .expect("restore terminal plan");
+        assert_eq!(
+            restore_plan.config.terminal_id.as_deref(),
+            Some("terminal-b")
+        );
 
         fs::remove_dir_all(support_dir).ok();
     }

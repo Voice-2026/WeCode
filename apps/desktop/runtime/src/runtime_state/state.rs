@@ -46,15 +46,7 @@ impl RuntimeState {
                 .as_ref()
                 .map(|project| project.path.as_str()),
         );
-        let terminal_layout_owner = selected_project.as_ref().map(|project| {
-            crate::terminal_layout::terminal_layout_storage_key(
-                &project.id,
-                worktrees
-                    .selected_worktree_id
-                    .as_deref()
-                    .unwrap_or(project.id.as_str()),
-            )
-        });
+        let terminal_layout_owner = runtime_model_scope_key(selected_project.as_ref(), &worktrees);
         let terminal_layout = load_terminal_layout(&support_dir, terminal_layout_owner.as_deref());
         let terminal_runtime = TerminalRuntimeSummary::default();
         let update = load_update(&support_dir, std::env::current_dir().unwrap_or_default());
@@ -139,14 +131,10 @@ impl RuntimeState {
         self.notifications = load_notifications(&self.support_dir);
         self.worktrees =
             load_worktrees_from_state(&self.support_dir, Some(&project.id), Some(&project.path));
-        let terminal_layout_owner = crate::terminal_layout::terminal_layout_storage_key(
-            &project.id,
-            self.worktrees
-                .selected_worktree_id
-                .as_deref()
-                .unwrap_or(project.id.as_str()),
-        );
-        self.terminal_layout = load_terminal_layout(&self.support_dir, Some(&terminal_layout_owner));
+        let terminal_layout_owner =
+            runtime_model_scope_key(self.selected_project.as_ref(), &self.worktrees);
+        self.terminal_layout =
+            load_terminal_layout(&self.support_dir, terminal_layout_owner.as_deref());
         self.terminal_runtime = TerminalRuntimeSummary::default();
         self.runtime_activity = load_runtime_activity(&self.support_dir);
         self.runtime_events = load_runtime_events();
@@ -203,6 +191,63 @@ fn selected_ai_runtime_session_scope_id(
         .or_else(|| selected_project.map(|project| project.id.clone()))
 }
 
+fn runtime_model_scope_key(
+    selected_project: Option<&ProjectInfo>,
+    worktrees: &crate::worktree::WorktreeSummary,
+) -> Option<String> {
+    let project = selected_project?;
+    let mut runtime = RuntimeModel::new();
+    runtime.apply_project_list(
+        vec![RuntimeProject {
+            id: project.id.clone(),
+            name: project.name.clone(),
+            path: Some(project.path.clone()),
+        }],
+        Some(project.id.clone()),
+        worktrees.selected_worktree_id.clone(),
+        false,
+        true,
+    );
+    runtime.apply_worktree_state(
+        RuntimeWorktreeState {
+            project_id: Some(project.id.clone()),
+            selected_worktree_id: worktrees.selected_worktree_id.clone(),
+            worktrees: worktrees
+                .worktrees
+                .iter()
+                .map(runtime_worktree_from_desktop)
+                .collect(),
+            base_branches: Vec::new(),
+            default_base_branch: None,
+        },
+        false,
+        false,
+        true,
+    );
+    runtime
+        .selected_scope_key()
+        .or_else(|| Some(runtime_scope_key(&project.id, Some(&project.id))))
+}
+
+fn runtime_worktree_from_desktop(worktree: &WorktreeInfo) -> RuntimeWorktree {
+    RuntimeWorktree {
+        id: worktree.id.clone(),
+        project_id: worktree.project_id.clone(),
+        name: worktree.name.clone(),
+        branch: worktree.branch.clone(),
+        path: worktree.path.clone(),
+        status: worktree.status.clone(),
+        is_default: worktree.is_default,
+        exists: worktree.exists,
+        base_branch: None,
+        changes: worktree.git_summary.changes as i64,
+        incoming: worktree.git_summary.incoming,
+        outgoing: worktree.git_summary.outgoing,
+        additions: worktree.git_summary.additions,
+        deletions: worktree.git_summary.deletions,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,6 +292,53 @@ mod tests {
         assert_eq!(
             selected_ai_runtime_session_scope_id(Some(&project), &worktrees).as_deref(),
             Some("project-a")
+        );
+    }
+
+    #[test]
+    fn runtime_model_scope_key_matches_desktop_terminal_layout_key() {
+        let project = ProjectInfo {
+            id: "project-a".to_string(),
+            name: "Project A".to_string(),
+            path: "/tmp/project-a".to_string(),
+            exists: true,
+            badge: "PA".to_string(),
+            badge_symbol: None,
+            badge_color_hex: None,
+            git_default_push_remote_name: None,
+        };
+        let worktrees = crate::worktree::WorktreeSummary {
+            selected_worktree_id: Some("worktree-b".to_string()),
+            worktrees: vec![
+                crate::worktree::WorktreeInfo {
+                    id: "project-a".to_string(),
+                    project_id: "project-a".to_string(),
+                    name: "main".to_string(),
+                    branch: "main".to_string(),
+                    path: "/tmp/project-a".to_string(),
+                    status: "todo".to_string(),
+                    is_default: true,
+                    exists: true,
+                    git_summary: Default::default(),
+                },
+                crate::worktree::WorktreeInfo {
+                    id: "worktree-b".to_string(),
+                    project_id: "project-a".to_string(),
+                    name: "Task B".to_string(),
+                    branch: "task-b".to_string(),
+                    path: "/tmp/worktree-b".to_string(),
+                    status: "active".to_string(),
+                    is_default: false,
+                    exists: true,
+                    git_summary: Default::default(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            runtime_model_scope_key(Some(&project), &worktrees).as_deref(),
+            Some("project-a::worktree-b")
         );
     }
 }

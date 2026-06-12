@@ -140,7 +140,7 @@ fn restores_baseline_before_replaying_held_live_output() {
 }
 
 #[test]
-fn restores_visible_screen_from_screen_baseline_while_retaining_history_content() {
+fn restores_visible_screen_from_screen_baseline_without_mixing_raw_history() {
     let mut session = RemotePtySession::<String>::new("session-1", 256);
 
     session.replace_from_baseline_screen(
@@ -158,9 +158,10 @@ fn restores_visible_screen_from_screen_baseline_while_retaining_history_content(
     assert_eq!(session.buffer_length(), 43);
     assert_eq!(session.sequence(), 7);
     assert!(screen.data.contains("visible tui"));
+    assert!(!screen.data.contains("raw history"));
     session.scroll_screen_lines(8);
     let scrolled = session.screen_snapshot();
-    assert!(scrolled.data.contains("raw history"));
+    assert!(!scrolled.data.contains("raw history"));
 }
 
 #[test]
@@ -190,8 +191,8 @@ fn live_output_can_update_visible_screen_from_screen_keyframe() {
 
     session.scroll_screen_lines(8);
     let scrolled = session.screen_snapshot();
-    assert!(scrolled.data.contains("cached raw history"));
-    assert!(scrolled.data.contains("partial live raw"));
+    assert!(!scrolled.data.contains("cached raw history"));
+    assert!(!scrolled.data.contains("partial live raw"));
 }
 
 #[test]
@@ -393,7 +394,7 @@ fn chunk_payload(
 #[test]
 fn runtime_model_does_not_repeat_project_select_after_ack() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
 
     let select = runtime.user_select_project(projects()[1].clone(), true);
     assert_eq!(
@@ -402,7 +403,7 @@ fn runtime_model_does_not_repeat_project_select_after_ack() {
     );
     runtime.mark_project_select_sent("project-2");
 
-    let confirmed = runtime.project_selected(Some("project-2".to_string()));
+    let confirmed = runtime.project_selected(Some("project-2".to_string()), None);
     assert!(confirmed.request_terminal_list);
     assert_eq!(runtime.pending_project_select(true), None);
 
@@ -414,13 +415,13 @@ fn runtime_model_does_not_repeat_project_select_after_ack() {
 #[test]
 fn runtime_model_binds_terminal_when_delayed_list_arrives() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
     runtime.user_select_project(projects()[1].clone(), true);
     runtime.mark_project_select_sent("project-2");
-    runtime.project_selected(Some("project-2".to_string()));
+    runtime.project_selected(Some("project-2".to_string()), None);
 
     let before_list =
-        runtime.apply_project_list(projects(), Some("project-2".to_string()), true, true);
+        runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, true);
     assert_eq!(before_list.request_project_select_id, None);
 
     let list = runtime.apply_terminal_list(vec![terminal("session-2", "project-2")], true, true);
@@ -434,10 +435,10 @@ fn runtime_model_binds_terminal_when_delayed_list_arrives() {
 #[test]
 fn runtime_model_latest_project_selection_wins_over_stale_host_list() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
     runtime.user_select_project(projects()[1].clone(), true);
 
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
 
     assert_eq!(
         runtime.snapshot().selected_project_id.as_deref(),
@@ -448,7 +449,7 @@ fn runtime_model_latest_project_selection_wins_over_stale_host_list() {
 #[test]
 fn runtime_model_terminal_list_does_not_ack_pending_project_select() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
     runtime.user_select_project(projects()[1].clone(), true);
     runtime.mark_project_select_sent("project-2");
 
@@ -464,11 +465,11 @@ fn runtime_model_terminal_list_does_not_ack_pending_project_select() {
 #[test]
 fn runtime_model_project_list_remote_selected_acks_pending_project_select() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
     runtime.user_select_project(projects()[1].clone(), true);
     runtime.mark_project_select_sent("project-2");
 
-    runtime.apply_project_list(projects(), Some("project-2".to_string()), true, true);
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, true);
 
     assert_eq!(runtime.pending_project_select(true), None);
     assert_eq!(
@@ -489,6 +490,7 @@ fn runtime_model_ignores_stale_project_selected_during_fast_switch() {
     runtime.apply_project_list(
         three_projects.clone(),
         Some("project-1".to_string()),
+        None,
         true,
         false,
     );
@@ -507,7 +509,7 @@ fn runtime_model_ignores_stale_project_selected_during_fast_switch() {
     runtime.user_select_project(three_projects[2].clone(), true);
     runtime.mark_project_select_sent("project-3");
 
-    let stale = runtime.project_selected(Some("project-2".to_string()));
+    let stale = runtime.project_selected(Some("project-2".to_string()), None);
 
     assert_eq!(stale, RemoteRuntimePlan::default());
     assert_eq!(
@@ -523,7 +525,7 @@ fn runtime_model_ignores_stale_project_selected_during_fast_switch() {
 #[test]
 fn runtime_model_remembers_last_terminal_per_project() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
     runtime.apply_terminal_list(
         vec![
             terminal("session-1", "project-1"),
@@ -542,9 +544,684 @@ fn runtime_model_remembers_last_terminal_per_project() {
 }
 
 #[test]
+fn runtime_model_preserves_terminal_worktree_scope() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(
+        projects(),
+        Some("project-2".to_string()),
+        Some("worktree-2".to_string()),
+        true,
+        false,
+    );
+
+    runtime.apply_terminal_list(
+        vec![RemoteRuntimeTerminal {
+            worktree_id: Some("worktree-2".to_string()),
+            layout_order: Some(0),
+            ..terminal("session-2", "project-2")
+        }],
+        true,
+        true,
+    );
+
+    let terminals = runtime.current_project_terminals();
+    assert_eq!(terminals.len(), 1);
+    assert_eq!(terminals[0].worktree_id.as_deref(), Some("worktree-2"));
+}
+
+#[test]
+fn runtime_model_binds_selected_worktree_active_terminal_without_project_select() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("default-session", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("worktree-split", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                layout_kind: "tab".to_string(),
+                layout_order: Some(1),
+                ..terminal("worktree-tab", "project-2")
+            },
+        ],
+        true,
+        true,
+    );
+
+    let plan = runtime.apply_worktree_selected(
+        Some("project-2".to_string()),
+        Some("worktree-2".to_string()),
+        true,
+        true,
+    );
+
+    assert_eq!(plan.bind_session_id.as_deref(), Some("worktree-split"));
+    assert_eq!(plan.request_project_select_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("worktree-split")
+    );
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-2")
+    );
+    assert_eq!(
+        runtime
+            .current_project_terminals()
+            .into_iter()
+            .map(|terminal| terminal.id)
+            .collect::<Vec<_>>(),
+        vec!["worktree-split".to_string(), "worktree-tab".to_string()]
+    );
+
+    runtime.select_terminal(RemoteRuntimeTerminal {
+        worktree_id: Some("worktree-2".to_string()),
+        layout_kind: "tab".to_string(),
+        layout_order: Some(1),
+        ..terminal("worktree-tab", "project-2")
+    });
+    runtime.apply_worktree_selected(
+        Some("project-2".to_string()),
+        Some("project-2".to_string()),
+        true,
+        true,
+    );
+    let back = runtime.apply_worktree_selected(
+        Some("project-2".to_string()),
+        Some("worktree-2".to_string()),
+        true,
+        true,
+    );
+
+    assert_eq!(back.bind_session_id.as_deref(), Some("worktree-tab"));
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("worktree-tab")
+    );
+}
+
+#[test]
+fn runtime_model_uses_project_list_worktree_scope_for_controller_selection() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(
+        projects(),
+        Some("project-2".to_string()),
+        Some("worktree-2".to_string()),
+        true,
+        false,
+    );
+
+    let plan = runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("default-session", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("worktree-session", "project-2")
+            },
+        ],
+        true,
+        true,
+    );
+
+    assert_eq!(plan.bind_session_id.as_deref(), Some("worktree-session"));
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-2")
+    );
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("worktree-session")
+    );
+}
+
+#[test]
+fn runtime_model_scope_key_matches_desktop_layout_owner_rules() {
+    let mut runtime = RuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+    runtime.apply_worktree_state(
+        RuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: None,
+            worktrees: vec![
+                RemoteRuntimeWorktree {
+                    is_default: false,
+                    ..worktree("worktree-1", "project-1")
+                },
+                worktree("project-1", "project-1"),
+            ],
+            base_branches: Vec::new(),
+            default_base_branch: None,
+        },
+        false,
+        true,
+        true,
+    );
+
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("project-1")
+    );
+    assert_eq!(
+        runtime.selected_scope_key().as_deref(),
+        Some("project-1::project-1")
+    );
+
+    runtime.apply_worktree_selected(
+        Some("project-1".to_string()),
+        Some("worktree-1".to_string()),
+        true,
+        true,
+    );
+
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-1")
+    );
+    assert_eq!(
+        runtime.selected_scope_key().as_deref(),
+        Some("project-1::worktree-1")
+    );
+    assert_eq!(
+        runtime_scope_key("project-1", Some("worktree-1")).as_str(),
+        "project-1::worktree-1"
+    );
+    assert_eq!(
+        super::runtime_scope_parts("project-1::worktree-1"),
+        Some(("project-1", "worktree-1"))
+    );
+    assert_eq!(super::runtime_scope_parts("project-1::"), None);
+}
+
+#[test]
+fn runtime_model_terminal_scope_queries_use_core_state() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+    runtime.apply_worktree_selected(
+        Some("project-1".to_string()),
+        Some("worktree-1".to_string()),
+        true,
+        false,
+    );
+    runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-1".to_string()),
+                ..terminal("session-1", "project-1")
+            },
+            terminal("session-2", "project-2"),
+        ],
+        true,
+        true,
+    );
+
+    let project_scope = runtime
+        .terminal_scope_for_project("project-1")
+        .expect("project scope");
+    assert_eq!(project_scope.project_id, "project-1");
+    assert_eq!(
+        project_scope.project_path.as_deref(),
+        Some("/tmp/project-1")
+    );
+    assert_eq!(project_scope.worktree_id.as_deref(), Some("worktree-1"));
+
+    let session_scope = runtime
+        .terminal_scope_for_session("session-2", None)
+        .expect("session scope");
+    assert_eq!(session_scope.project_id, "project-2");
+    assert_eq!(
+        session_scope.project_path.as_deref(),
+        Some("/tmp/project-2")
+    );
+    assert_eq!(session_scope.worktree_id.as_deref(), Some("project-2"));
+}
+
+#[test]
+fn runtime_model_terminal_scope_uses_explicit_terminal_after_list_removal() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+
+    let scope = runtime
+        .terminal_scope_for_session(
+            "session-2",
+            Some(RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-2".to_string()),
+                ..terminal("session-2", "project-2")
+            }),
+        )
+        .expect("explicit terminal scope");
+
+    assert_eq!(scope.project_id, "project-2");
+    assert_eq!(scope.project_path.as_deref(), Some("/tmp/project-2"));
+    assert_eq!(scope.worktree_id.as_deref(), Some("worktree-2"));
+}
+
+#[test]
+fn runtime_model_restores_project_worktree_scope_after_switching_projects() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("project-1".to_string()),
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        false,
+    );
+    runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-1".to_string()),
+                layout_order: Some(0),
+                ..terminal("project-1-main", "project-1")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-1".to_string()),
+                layout_order: Some(0),
+                ..terminal("project-1-task", "project-1")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-2".to_string()),
+                layout_order: Some(0),
+                ..terminal("project-2-main", "project-2")
+            },
+        ],
+        true,
+        true,
+    );
+    let select_worktree = runtime.apply_worktree_selected(
+        Some("project-1".to_string()),
+        Some("worktree-1".to_string()),
+        true,
+        true,
+    );
+    assert_eq!(
+        select_worktree.bind_session_id.as_deref(),
+        Some("project-1-task")
+    );
+
+    let select_project_2 = runtime.user_select_project(projects()[1].clone(), true);
+    assert_eq!(
+        select_project_2.bind_session_id.as_deref(),
+        Some("project-2-main")
+    );
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("project-2")
+    );
+
+    let back_to_project_1 = runtime.user_select_project(projects()[0].clone(), true);
+
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-1")
+    );
+    assert_eq!(
+        back_to_project_1.bind_session_id.as_deref(),
+        Some("project-1-task")
+    );
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("project-1-task")
+    );
+}
+
+#[test]
+fn runtime_model_waits_for_worktree_terminal_list_without_project_select() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(
+        vec![RemoteRuntimeTerminal {
+            worktree_id: Some("project-2".to_string()),
+            ..terminal("default-session", "project-2")
+        }],
+        true,
+        true,
+    );
+
+    let plan = runtime.apply_worktree_selected(
+        Some("project-2".to_string()),
+        Some("worktree-2".to_string()),
+        true,
+        true,
+    );
+
+    assert_eq!(plan.bind_session_id, None);
+    assert_eq!(plan.request_project_select_id, None);
+    assert!(plan.request_terminal_list);
+    assert_eq!(runtime.snapshot().active_session_id, None);
+
+    let repeated = runtime.apply_terminal_list(
+        vec![RemoteRuntimeTerminal {
+            worktree_id: Some("project-2".to_string()),
+            ..terminal("default-session", "project-2")
+        }],
+        true,
+        true,
+    );
+
+    assert_eq!(repeated.bind_session_id, None);
+    assert_eq!(repeated.request_project_select_id, None);
+    assert!(!repeated.request_terminal_list);
+    assert_eq!(runtime.snapshot().active_session_id, None);
+}
+
+#[test]
+fn runtime_model_rejects_unknown_worktree_when_worktree_list_is_loaded() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("project-1".to_string()),
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        false,
+    );
+    runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-1".to_string()),
+                layout_order: Some(0),
+                ..terminal("main-session", "project-1")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-1".to_string()),
+                layout_order: Some(0),
+                ..terminal("worktree-session", "project-1")
+            },
+        ],
+        true,
+        true,
+    );
+    runtime.apply_worktree_selected(
+        Some("project-1".to_string()),
+        Some("worktree-1".to_string()),
+        true,
+        true,
+    );
+
+    let plan = runtime.apply_worktree_selected(
+        Some("project-1".to_string()),
+        Some("missing-worktree".to_string()),
+        true,
+        true,
+    );
+
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-1")
+    );
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("worktree-session")
+    );
+    assert_eq!(plan.bind_session_id.as_deref(), Some("worktree-session"));
+    assert!(!plan.request_terminal_list);
+    assert_eq!(plan.request_project_select_id, None);
+}
+
+#[test]
+fn runtime_model_caches_worktrees_by_project() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("project-1".to_string()),
+            worktrees: vec![worktree("project-1", "project-1")],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        true,
+    );
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-2".to_string()),
+            selected_worktree_id: Some("worktree-2".to_string()),
+            worktrees: vec![worktree("worktree-2", "project-2")],
+            base_branches: vec!["develop".to_string()],
+            default_base_branch: Some("develop".to_string()),
+        },
+        false,
+        true,
+        true,
+    );
+
+    let snapshot = runtime.snapshot();
+    assert_eq!(snapshot.worktrees.len(), 2);
+    assert!(
+        snapshot
+            .worktrees
+            .iter()
+            .any(|item| item.project_id == "project-1")
+    );
+    assert!(
+        snapshot
+            .worktrees
+            .iter()
+            .any(|item| item.project_id == "project-2")
+    );
+    assert_eq!(
+        snapshot
+            .base_branches_by_project
+            .get("project-1")
+            .cloned()
+            .unwrap_or_default(),
+        vec!["main".to_string()]
+    );
+    assert_eq!(
+        snapshot
+            .default_base_branch_by_project
+            .get("project-2")
+            .map(String::as_str),
+        Some("develop")
+    );
+}
+
+#[test]
+fn runtime_model_caches_full_worktree_snapshot_from_project_list_payload() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: None,
+            selected_worktree_id: None,
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+                worktree("project-2", "project-2"),
+                worktree("worktree-2", "project-2"),
+            ],
+            base_branches: Vec::new(),
+            default_base_branch: None,
+        },
+        false,
+        true,
+        false,
+    );
+
+    let snapshot = runtime.snapshot();
+    assert_eq!(snapshot.worktrees.len(), 4);
+    assert_eq!(snapshot.selected_worktree_id.as_deref(), Some("project-1"));
+    assert!(
+        snapshot
+            .worktrees
+            .iter()
+            .any(|worktree| worktree.project_id == "project-2" && worktree.id == "worktree-2")
+    );
+}
+
+#[test]
+fn runtime_model_initializes_selected_worktree_from_list() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: None,
+            worktrees: vec![
+                worktree("worktree-1", "project-1"),
+                worktree("project-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        true,
+    );
+
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("project-1")
+    );
+}
+
+#[test]
+fn runtime_model_preserves_local_worktree_selection_on_list_refresh() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("project-1".to_string()),
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        true,
+    );
+    runtime.apply_worktree_selected(
+        Some("project-1".to_string()),
+        Some("worktree-1".to_string()),
+        true,
+        true,
+    );
+
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("project-1".to_string()),
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        true,
+    );
+
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-1")
+    );
+}
+
+#[test]
+fn runtime_model_worktree_update_confirmed_selection_wins_over_previous_selection() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
+    runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                worktree_id: Some("project-1".to_string()),
+                ..terminal("main-session", "project-1")
+            },
+            RemoteRuntimeTerminal {
+                worktree_id: Some("worktree-1".to_string()),
+                ..terminal("worktree-session", "project-1")
+            },
+        ],
+        true,
+        true,
+    );
+    runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("project-1".to_string()),
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        false,
+        true,
+        true,
+    );
+
+    let plan = runtime.apply_worktree_state(
+        RemoteRuntimeWorktreeState {
+            project_id: Some("project-1".to_string()),
+            selected_worktree_id: Some("worktree-1".to_string()),
+            worktrees: vec![
+                worktree("project-1", "project-1"),
+                worktree("worktree-1", "project-1"),
+            ],
+            base_branches: vec!["main".to_string()],
+            default_base_branch: Some("main".to_string()),
+        },
+        true,
+        true,
+        true,
+    );
+
+    assert_eq!(plan.bind_session_id.as_deref(), Some("worktree-session"));
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("worktree-1")
+    );
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("worktree-session")
+    );
+}
+
+#[test]
 fn runtime_model_keeps_bound_local_selection_over_stale_host_project_list() {
     let mut runtime = RemoteRuntimeModel::new();
-    runtime.apply_project_list(projects(), Some("project-1".to_string()), true, false);
+    runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, false);
     runtime.apply_terminal_list(
         vec![
             terminal("session-1", "project-1"),
@@ -555,7 +1232,8 @@ fn runtime_model_keeps_bound_local_selection_over_stale_host_project_list() {
     );
     runtime.user_select_project(projects()[1].clone(), true);
 
-    let stale = runtime.apply_project_list(projects(), Some("project-1".to_string()), true, true);
+    let stale =
+        runtime.apply_project_list(projects(), Some("project-1".to_string()), None, true, true);
 
     assert_eq!(stale.bind_session_id, None);
     assert_eq!(
@@ -566,6 +1244,41 @@ fn runtime_model_keeps_bound_local_selection_over_stale_host_project_list() {
         runtime.snapshot().active_session_id.as_deref(),
         Some("session-2")
     );
+}
+
+#[test]
+fn runtime_model_host_selection_replaces_unbound_cached_project() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.restore_cached_projects(projects());
+
+    let plan =
+        runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, true);
+
+    assert!(plan.clear_terminal);
+    assert_eq!(
+        runtime.snapshot().selected_project_id.as_deref(),
+        Some("project-2")
+    );
+    assert_eq!(runtime.snapshot().active_session_id, None);
+}
+
+fn worktree(id: &str, project_id: &str) -> RemoteRuntimeWorktree {
+    RemoteRuntimeWorktree {
+        id: id.to_string(),
+        project_id: project_id.to_string(),
+        name: id.to_string(),
+        branch: "main".to_string(),
+        path: format!("/tmp/{id}"),
+        status: "clean".to_string(),
+        is_default: id == project_id,
+        exists: true,
+        base_branch: None,
+        changes: 0,
+        incoming: 0,
+        outgoing: 0,
+        additions: 0,
+        deletions: 0,
+    }
 }
 
 fn projects() -> Vec<RemoteRuntimeProject> {
@@ -588,7 +1301,9 @@ fn terminal(id: &str, project_id: &str) -> RemoteRuntimeTerminal {
         id: id.to_string(),
         title: id.to_string(),
         project_id: project_id.to_string(),
+        worktree_id: None,
         layout_kind: "split".to_string(),
+        layout_order: None,
         cols: None,
         rows: None,
         status: None,

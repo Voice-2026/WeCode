@@ -15,8 +15,13 @@ class TerminalSwitcherScreen extends StatefulWidget {
     required this.terminals,
     required this.worktrees,
     required this.activeTerminalId,
+    required this.selectedProjectId,
     required this.selectedWorktreeId,
+    required this.switchingWorktreeId,
     required this.loadingWorktrees,
+    required this.creatingSplit,
+    required this.creatingTab,
+    required this.creatingWorktree,
     required this.onBack,
     required this.onSelectTerminal,
     required this.onCreateSplit,
@@ -26,6 +31,7 @@ class TerminalSwitcherScreen extends StatefulWidget {
     required this.onCreateWorktree,
     required this.onMergeWorktree,
     required this.onDeleteWorktree,
+    required this.onOpenWorktrees,
     required this.onRefreshWorktrees,
   });
 
@@ -34,8 +40,13 @@ class TerminalSwitcherScreen extends StatefulWidget {
   final List<TerminalInfo> terminals;
   final List<RemoteWorktreeInfo> worktrees;
   final String? activeTerminalId;
+  final String? selectedProjectId;
   final String? selectedWorktreeId;
+  final String? switchingWorktreeId;
   final bool loadingWorktrees;
+  final bool creatingSplit;
+  final bool creatingTab;
+  final bool creatingWorktree;
   final VoidCallback onBack;
   final ValueChanged<TerminalInfo> onSelectTerminal;
   final VoidCallback onCreateSplit;
@@ -45,6 +56,7 @@ class TerminalSwitcherScreen extends StatefulWidget {
   final VoidCallback onCreateWorktree;
   final ValueChanged<RemoteWorktreeInfo> onMergeWorktree;
   final ValueChanged<RemoteWorktreeInfo> onDeleteWorktree;
+  final VoidCallback onOpenWorktrees;
   final VoidCallback onRefreshWorktrees;
 
   @override
@@ -64,6 +76,11 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
     final tabs = widget.terminals
         .where((item) => _terminalLayoutKind(item) == 'tab')
         .toList();
+    final scopedWorktrees = widget.selectedProjectId == null
+        ? widget.worktrees
+        : widget.worktrees
+              .where((item) => item.projectId == widget.selectedProjectId)
+              .toList(growable: false);
     return ColoredBox(
       color: AppColors.bgBase,
       child: Padding(
@@ -107,7 +124,7 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
               onChanged: (next) {
                 setState(() => _section = next);
                 if (next == TerminalSwitcherSection.worktrees) {
-                  widget.onRefreshWorktrees();
+                  widget.onOpenWorktrees();
                 }
               },
             ),
@@ -119,6 +136,7 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
                   activeTerminalId: widget.activeTerminalId,
                   addLabel: prefs.t('switcher.newSplit'),
                   itemPrefix: prefs.t('switcher.split'),
+                  creating: widget.creatingSplit,
                   onAdd: widget.onCreateSplit,
                   onSelect: widget.onSelectTerminal,
                   onClose: widget.onCloseTerminal,
@@ -128,6 +146,7 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
                   activeTerminalId: widget.activeTerminalId,
                   addLabel: prefs.t('switcher.newTab'),
                   itemPrefix: prefs.t('switcher.tab'),
+                  creating: widget.creatingTab,
                   onAdd: widget.onCreateTab,
                   onSelect: widget.onSelectTerminal,
                   onClose: widget.onCloseTerminal,
@@ -135,8 +154,10 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
                 TerminalSwitcherSection.worktrees => _WorktreeList(
                   accent: accent,
                   loading: widget.loadingWorktrees,
-                  worktrees: widget.worktrees,
+                  creating: widget.creatingWorktree,
+                  worktrees: scopedWorktrees,
                   selectedId: widget.selectedWorktreeId,
+                  switchingId: widget.switchingWorktreeId,
                   onSelect: widget.onSelectWorktree,
                   onCreate: widget.onCreateWorktree,
                   onMerge: widget.onMergeWorktree,
@@ -237,6 +258,7 @@ class _TerminalList extends StatelessWidget {
     required this.activeTerminalId,
     required this.addLabel,
     required this.itemPrefix,
+    required this.creating,
     required this.onAdd,
     required this.onSelect,
     required this.onClose,
@@ -246,6 +268,7 @@ class _TerminalList extends StatelessWidget {
   final String? activeTerminalId;
   final String addLabel;
   final String itemPrefix;
+  final bool creating;
   final VoidCallback onAdd;
   final ValueChanged<TerminalInfo> onSelect;
   final ValueChanged<TerminalInfo> onClose;
@@ -261,10 +284,13 @@ class _TerminalList extends StatelessWidget {
         children: [
           SwipeListTile(
             title: addLabel,
-            subtitle: itemPrefix,
+            subtitle: creating ? prefs.t('terminal.creating') : itemPrefix,
             leadingIcon: Icons.add_rounded,
             active: true,
-            onTap: onAdd,
+            onTap: creating ? null : onAdd,
+            trailing: creating
+                ? _InlineLoader(color: accent)
+                : null,
           ),
         ],
       );
@@ -277,10 +303,13 @@ class _TerminalList extends StatelessWidget {
         if (index == terminals.length) {
           return SwipeListTile(
             title: addLabel,
-            subtitle: itemPrefix,
+            subtitle: creating ? prefs.t('terminal.creating') : itemPrefix,
             leadingIcon: Icons.add_rounded,
             active: true,
-            onTap: onAdd,
+            onTap: creating ? null : onAdd,
+            trailing: creating
+                ? _InlineLoader(color: accent)
+                : null,
           );
         }
         final terminal = terminals[index];
@@ -312,8 +341,10 @@ class _WorktreeList extends StatelessWidget {
   const _WorktreeList({
     required this.accent,
     required this.loading,
+    required this.creating,
     required this.worktrees,
     required this.selectedId,
+    required this.switchingId,
     required this.onSelect,
     required this.onCreate,
     required this.onMerge,
@@ -322,8 +353,10 @@ class _WorktreeList extends StatelessWidget {
 
   final Color accent;
   final bool loading;
+  final bool creating;
   final List<RemoteWorktreeInfo> worktrees;
   final String? selectedId;
+  final String? switchingId;
   final ValueChanged<RemoteWorktreeInfo> onSelect;
   final VoidCallback onCreate;
   final ValueChanged<RemoteWorktreeInfo> onMerge;
@@ -341,10 +374,15 @@ class _WorktreeList extends StatelessWidget {
         children: [
           SwipeListTile(
             title: prefs.t('worktree.new'),
-            subtitle: prefs.t('switcher.worktrees'),
+            subtitle: creating
+                ? prefs.t('worktree.creating')
+                : prefs.t('switcher.worktrees'),
             leadingIcon: Icons.add_rounded,
             active: true,
-            onTap: onCreate,
+            onTap: creating ? null : onCreate,
+            trailing: creating
+                ? _InlineLoader(color: accent)
+                : null,
           ),
         ],
       );
@@ -357,14 +395,20 @@ class _WorktreeList extends StatelessWidget {
         if (index == worktrees.length) {
           return SwipeListTile(
             title: prefs.t('worktree.new'),
-            subtitle: prefs.t('switcher.worktrees'),
+            subtitle: creating
+                ? prefs.t('worktree.creating')
+                : prefs.t('switcher.worktrees'),
             leadingIcon: Icons.add_rounded,
             active: true,
-            onTap: onCreate,
+            onTap: creating ? null : onCreate,
+            trailing: creating
+                ? _InlineLoader(color: accent)
+                : null,
           );
         }
         final item = worktrees[index];
         final active = item.id == selectedId;
+        final switching = item.id == switchingId;
         final actions = _worktreeActions(
           context: context,
           item: item,
@@ -377,8 +421,10 @@ class _WorktreeList extends StatelessWidget {
           subtitle: _worktreeSubtitle(item),
           leadingIcon: Icons.account_tree_outlined,
           active: active,
-          onTap: () => onSelect(item),
-          trailing: active
+          onTap: switching ? null : () => onSelect(item),
+          trailing: switching
+              ? _InlineLoader(color: accent)
+              : active
               ? Icon(Icons.check_rounded, color: accent, size: 20)
               : null,
           actions: actions,
@@ -412,6 +458,24 @@ class _IconButton extends StatelessWidget {
   }
 }
 
+class _InlineLoader extends StatelessWidget {
+  const _InlineLoader({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 18,
+      height: 18,
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: color,
+      ),
+    );
+  }
+}
+
 String _terminalLayoutKind(TerminalInfo terminal) {
   final value = terminal.layoutKind.trim().toLowerCase();
   if (value == 'tab') return 'tab';
@@ -422,8 +486,6 @@ String _terminalSubtitle(TerminalInfo terminal) {
   final parts = <String>[
     if (terminal.title.trim().isNotEmpty) terminal.title.trim(),
     if (terminal.status?.trim().isNotEmpty == true) terminal.status!.trim(),
-    if (terminal.cols != null && terminal.rows != null)
-      '${terminal.cols}x${terminal.rows}',
   ];
   if (parts.isEmpty) return terminal.id;
   return parts.join(' · ');
