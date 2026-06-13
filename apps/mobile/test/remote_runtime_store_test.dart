@@ -3,6 +3,39 @@ import 'package:codux_flutter/services/remote_runtime_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('git status round-trips through the runtime core by project', () {
+    final store = RemoteRuntimeStore();
+    const status = RemoteGitStatusInfo(
+      projectId: 'project-1',
+      projectPath: '/tmp/project-1',
+      branch: 'main',
+      ahead: 1,
+      behind: 2,
+      changes: 3,
+      isRepository: true,
+      changedFiles: [
+        RemoteGitFileStatus(
+          path: 'lib/main.dart',
+          indexStatus: 'M',
+          worktreeStatus: ' ',
+        ),
+      ],
+    );
+
+    final plan = store.applyGitStatus(status);
+    expect(plan.stateChanged, isTrue);
+
+    final restored = store.gitStatusForProject('project-1');
+    expect(restored, isNotNull);
+    expect(restored!.branch, 'main');
+    expect(restored.ahead, 1);
+    expect(restored.behind, 2);
+    expect(restored.changes, 3);
+    expect(restored.isRepository, isTrue);
+    expect(restored.changedFiles.single.path, 'lib/main.dart');
+    expect(store.gitStatusForProject('missing'), isNull);
+  });
+
   test('project list uses host selected project before local cache', () {
     final store = RemoteRuntimeStore();
     store.restoreCachedProjects([

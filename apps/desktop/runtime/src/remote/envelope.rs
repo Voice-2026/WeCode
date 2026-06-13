@@ -1,5 +1,6 @@
 use super::RemoteService;
 use super::crypto::{remote_e2e_decrypt, remote_e2e_encrypt, remote_e2e_symmetric_key};
+use super::protocol::{REMOTE_SECURE_MESSAGE, REMOTE_SECURE_REQUIRED};
 use super::remote_settings_from_raw;
 use super::types::{RemoteEnvelope, RemoteOutgoingEnvelope};
 use codux_terminal_core::RemoteSequenceGuard;
@@ -16,7 +17,7 @@ impl RemoteService {
         envelope: RemoteEnvelope,
         receive_sequence_by_device: &mut HashMap<String, RemoteSequenceGuard>,
     ) -> Result<Option<RemoteEnvelope>, String> {
-        if envelope.kind != "secure.message" {
+        if envelope.kind != REMOTE_SECURE_MESSAGE {
             return Ok(Some(envelope));
         }
         let device_id = match envelope.device_id.clone() {
@@ -57,7 +58,7 @@ impl RemoteService {
         let plaintext = serde_json::to_vec(&inner).map_err(|error| error.to_string())?;
         let payload = self.encrypt_device_payload(&device_id, &plaintext)?;
         Ok(RemoteOutgoingEnvelope {
-            kind: "secure.message".to_string(),
+            kind: REMOTE_SECURE_MESSAGE.to_string(),
             device_id: Some(device_id),
             session_id,
             seq: None,
@@ -83,7 +84,7 @@ impl RemoteService {
         let envelope = self
             .encrypted_outgoing_envelope(inner, send_seq_by_device)
             .unwrap_or_else(|_| RemoteOutgoingEnvelope {
-                kind: "secure.required".to_string(),
+                kind: REMOTE_SECURE_REQUIRED.to_string(),
                 device_id: device_id.map(str::to_string),
                 session_id: session_id.map(str::to_string),
                 seq: None,

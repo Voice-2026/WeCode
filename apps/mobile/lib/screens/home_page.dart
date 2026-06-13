@@ -543,7 +543,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     CoduxLog.info('[codux-flutter-remote] request host.info');
     _send(
-      const RelayEnvelope(type: 'host.info'),
+      RelayEnvelope(type: RemoteMessageType.hostInfo),
       onResult: (_, result) {
         if (result == RemoteEnvelopeSendResult.delivered) {
           _remoteSyncController.markHostInfoSent();
@@ -1432,7 +1432,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     if (!_remoteSync.shouldRequestTerminalList(force: resetRetry)) return;
     _send(
-      const RelayEnvelope(type: 'terminal.list'),
+      RelayEnvelope(type: RemoteMessageType.terminalList),
       onResult: (_, result) {
         if (result != RemoteEnvelopeSendResult.delivered ||
             _terminalListLoaded) {
@@ -1508,7 +1508,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       '[codux-flutter-projects] send project.select reason=$reason project=$projectId worktree=${payload['worktreeId'] ?? ''}',
     );
     final sent = _send(
-      RelayEnvelope(type: 'project.select', payload: payload),
+      RelayEnvelope(type: RemoteMessageType.projectSelect, payload: payload),
       onResult: (message, result) {
         if (result == RemoteEnvelopeSendResult.delivered) {
           _remoteRuntime.markProjectSelectSent(projectId);
@@ -1762,7 +1762,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         connected: () => _transportConnected,
         activeDevice: _activeDevice,
         onResult: (sentMessage, result) {
-          if (sentMessage.type == 'project.select' ||
+          if (sentMessage.type == RemoteMessageType.projectSelect ||
               result != RemoteEnvelopeSendResult.delivered) {
             CoduxLog.info(
               '[codux-flutter-remote] send result type=${sentMessage.type} session=${sentMessage.sessionId ?? ''} result=${result.name} connected=$_transportConnected ready=$_transportReady path=$_connectionPath',
@@ -1831,7 +1831,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     int runtimeEpoch,
   ) async {
     try {
-      if (message.type == 'secure.message') {
+      if (message.type == RemoteMessageType.secureMessage) {
         message = await RemoteE2ECrypto.decryptEnvelope(
           outer: message,
           device: target,
@@ -1862,7 +1862,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         '[codux-flutter-remote] recv type=${message.type} session=${message.sessionId ?? ''}',
       );
       switch (message.type) {
-        case 'hello':
+        case final type when type == RemoteMessageType.hello:
           _reconnectAttempt = 0;
           CoduxLog.info('[codux-flutter-remote] hello received');
           if (!_transportConnected) {
@@ -1874,7 +1874,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           }
           _sendHostInfoRequest(force: true);
           _startHostResponseProbe(reason: 'hello');
-        case 'host.offline':
+        case final type when type == RemoteMessageType.hostOffline:
           final payload = message.payload;
           final messageText = payload is Map
               ? '${payload['message'] ?? _t('connection.macDisconnected')}'
@@ -1902,7 +1902,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           setState(() {
             _status = _t('pair.repairRequired');
           });
-        case 'host.info':
+        case final type when type == RemoteMessageType.hostInfo:
           if (!_isCompatibleRemoteProtocol(message.payload)) {
             _failRemoteProtocol(target, message.payload);
             return;
@@ -1934,34 +1934,34 @@ class _CoduxHomePageState extends State<CoduxHomePage>
                 !_projectListLoaded ||
                 !_terminalListLoaded,
           );
-        case 'project.selected':
+        case final type when type == RemoteMessageType.projectSelected:
           _handleProjectSelected(message);
         case final type when type == RemoteMessageType.projectList:
           _handleProjectList(message);
-        case 'terminal.list':
+        case final type when type == RemoteMessageType.terminalList:
           _handleTerminalList(message);
-        case 'terminal.created':
+        case final type when type == RemoteMessageType.terminalCreated:
           _handleTerminalCreated(message);
-        case 'terminal.closed':
+        case final type when type == RemoteMessageType.terminalClosed:
           _handleTerminalClosed(message);
-        case 'terminal.viewport.state':
+        case final type when type == RemoteMessageType.terminalViewportState:
           _handleTerminalViewportState(message);
         case 'terminal.viewport.scrolled':
           _handleTerminalViewportScrolled(message);
-        case 'worktree.list':
+        case final type when type == RemoteMessageType.worktreeList:
           _handleWorktreeList(message);
-        case 'worktree.updated':
+        case final type when type == RemoteMessageType.worktreeUpdated:
           _handleWorktreeUpdated(message);
-        case 'terminal.output':
+        case final type when type == RemoteMessageType.terminalOutput:
           _handleTerminalOutput(message);
-        case 'error':
+        case final type when type == RemoteMessageType.error:
           _handleRemoteError(message);
-        case 'file.list':
+        case final type when type == RemoteMessageType.fileList:
           _handleFileList(message);
-        case 'project.updated':
+        case final type when type == RemoteMessageType.projectUpdated:
           _refreshLists();
           _showToast(_t('project.updated'));
-        case 'ai.stats':
+        case final type when type == RemoteMessageType.aiStats:
           final payload = message.payload;
           if (payload is Map<String, dynamic>) {
             setState(() {
@@ -1970,27 +1970,27 @@ class _CoduxHomePageState extends State<CoduxHomePage>
               _workspaceMode = 'stats';
             });
           }
-        case 'git.status':
+        case final type when type == RemoteMessageType.gitStatus:
           final status = remoteGitStatusFromPayload(message.payload);
           if (status != null) {
             final plan = _remoteRuntime.applyGitStatus(status);
             _applyRuntimePlan(plan, reason: 'git-status');
           }
-        case 'file.read':
+        case final type when type == RemoteMessageType.fileRead:
           _handleFileRead(message);
-        case 'file.written':
+        case final type when type == RemoteMessageType.fileWritten:
           setState(() => _fileEditorSaving = false);
           _showToast(_t('file.saved'));
-        case 'file.renamed':
+        case final type when type == RemoteMessageType.fileRenamed:
           _requestProjectFiles(_projectFilesPath);
           _showToast(_t('file.renamed'));
-        case 'file.deleted':
+        case final type when type == RemoteMessageType.fileDeleted:
           _handleFileDeleted(message);
           _requestProjectFiles(_projectFilesPath);
           _showToast(_t('file.deleted'));
-        case 'terminal.uploaded':
+        case final type when type == RemoteMessageType.terminalUploaded:
           _handleTerminalUploaded(message);
-        case 'terminal.upload.ack':
+        case final type when type == RemoteMessageType.terminalUploadAck:
           _terminalUploadSender.handleAck(message);
         case final type when type == RemoteMessageType.terminalInputAck:
           _terminalInputSender.handleAck(message);
@@ -2713,7 +2713,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     );
     _sendTerminalEnvelope(
       RelayEnvelope(
-        type: 'terminal.viewport.resize',
+        type: RemoteMessageType.terminalViewportResize,
         sessionId: id,
         payload: {'cols': resize.cols, 'rows': resize.rows},
       ),
@@ -2742,7 +2742,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     );
     _sendTerminalEnvelope(
       RelayEnvelope(
-        type: 'terminal.viewport.resize',
+        type: RemoteMessageType.terminalViewportResize,
         sessionId: id,
         payload: {'cols': resize.cols, 'rows': resize.rows},
       ),
@@ -2757,7 +2757,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final terminal = _terminalById(id);
     if (terminal == null || !_canResizeTerminal(terminal)) return;
     _sendTerminalEnvelope(
-      RelayEnvelope(type: 'terminal.viewport.claim', sessionId: id),
+      RelayEnvelope(
+        type: RemoteMessageType.terminalViewportClaim,
+        sessionId: id,
+      ),
       terminal: terminal,
     );
     if (_hostViewportScroll) {
@@ -2780,7 +2783,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final terminal = _terminalById(id);
     if (terminal == null || !_canResizeTerminal(terminal)) return;
     _sendTerminalEnvelope(
-      RelayEnvelope(type: 'terminal.viewport.release', sessionId: id),
+      RelayEnvelope(
+        type: RemoteMessageType.terminalViewportRelease,
+        sessionId: id,
+      ),
       terminal: terminal,
     );
   }
@@ -2839,7 +2845,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     _sendTerminalEnvelope(
       RelayEnvelope(
-        type: 'terminal.output.ack',
+        type: RemoteMessageType.terminalOutputAck,
         sessionId: sessionId,
         payload: payload,
       ),
@@ -2873,7 +2879,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final scope = _remoteRuntime.terminalScopeForProject(target);
     _send(
       RelayEnvelope(
-        type: 'terminal.create',
+        type: RemoteMessageType.terminalCreate,
         payload: {
           'projectId': target,
           if (scope?.worktreeId != null && scope!.worktreeId!.trim().isNotEmpty)
@@ -2977,7 +2983,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final plan = _remoteRuntime.removeTerminal(terminal.id);
     _applyRuntimePlan(plan, reason: 'close-terminal');
     _sendTerminalEnvelope(
-      RelayEnvelope(type: 'terminal.close', sessionId: terminal.id),
+      RelayEnvelope(type: RemoteMessageType.terminalClose, sessionId: terminal.id),
       terminal: terminal,
     );
   }
@@ -3111,7 +3117,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       destructive: false,
     );
     if (!confirmed) return;
-    _sendWorktreeOperation('worktree.merge', worktree);
+    _sendWorktreeOperation(RemoteMessageType.worktreeMerge, worktree);
   }
 
   Future<void> _deleteWorktree(RemoteWorktreeInfo worktree) async {
@@ -3124,7 +3130,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       destructive: true,
     );
     if (!confirmed) return;
-    _sendWorktreeOperation('worktree.delete', worktree);
+    _sendWorktreeOperation(RemoteMessageType.worktreeDelete, worktree);
   }
 
   void _sendWorktreeOperation(String type, RemoteWorktreeInfo worktree) {
@@ -3134,7 +3140,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       return;
     }
     setState(() => _worktreeListLoading = true);
-    final envelope = type == 'worktree.delete'
+    final envelope = type == RemoteMessageType.worktreeDelete
         ? _worktreeController.deleteEnvelope(project, worktree)
         : _worktreeController.mergeEnvelope(project, worktree);
     _send(envelope);
@@ -3214,7 +3220,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       final plan = _remoteRuntime.removeTerminal(closingSessionId);
       _applyRuntimePlan(plan, reason: 'rebuild-terminal');
       _sendTerminalEnvelope(
-        RelayEnvelope(type: 'terminal.close', sessionId: closingSessionId),
+        RelayEnvelope(
+          type: RemoteMessageType.terminalClose,
+          sessionId: closingSessionId,
+        ),
         terminal: closingTerminal,
       );
     } else {

@@ -2,24 +2,29 @@ use super::RemoteService;
 use super::crypto::{remote_base64_url_decode, remote_host_name};
 use super::pairing::remote_summary_show_pending_pairing;
 use super::protocol::{
-    REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_FILE_DELETE,
-    REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME, REMOTE_FILE_WRITE, REMOTE_GIT_STATUS,
-    REMOTE_HOST_INFO, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST,
-    REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_RESOURCE_AI_STATS,
-    REMOTE_RESOURCE_GIT_STATUS, REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE,
-    REMOTE_RESOURCE_TERMINALS, REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES,
-    REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSE,
-    REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_LIST,
+    REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_ERROR,
+    REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
+    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_GIT_STATUS,
+    REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT,
+    REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED,
+    REMOTE_PROJECT_UPDATED, REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS,
+    REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
+    REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES, REMOTE_TERMINAL_BUFFER,
+    REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
+    REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
+    REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
     REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_SIGNAL,
     REMOTE_TERMINAL_SUBSCRIBE, REMOTE_TERMINAL_UNSUBSCRIBE, REMOTE_TERMINAL_UPLOAD,
-    REMOTE_TERMINAL_UPLOAD_CANCEL, REMOTE_TERMINAL_UPLOAD_CHUNK, REMOTE_TERMINAL_UPLOAD_FINISH,
-    REMOTE_TERMINAL_UPLOAD_START, REMOTE_TERMINAL_VIEWPORT_CLAIM, REMOTE_TERMINAL_VIEWPORT_RELEASE,
-    REMOTE_TERMINAL_VIEWPORT_SCROLL, REMOTE_TERMINAL_VIEWPORT_SCROLLED,
-    REMOTE_TERMINAL_VIEWPORT_RESIZE, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
-    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE,
-    REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_SELECT, RemoteTerminalBufferWindow,
-    RemoteTerminalSubscriptionTarget, RemoteTerminalSubscriptions, terminal_buffer_payloads,
-    terminal_live_output_payload, webrtc_transport_candidate, websocket_relay_transport_candidate,
+    REMOTE_TERMINAL_UPLOAD_ACK, REMOTE_TERMINAL_UPLOAD_CANCEL, REMOTE_TERMINAL_UPLOAD_CHUNK,
+    REMOTE_TERMINAL_UPLOAD_FINISH, REMOTE_TERMINAL_UPLOAD_START, REMOTE_TERMINAL_UPLOADED,
+    REMOTE_TERMINAL_VIEWPORT_CLAIM, REMOTE_TERMINAL_VIEWPORT_RELEASE,
+    REMOTE_TERMINAL_VIEWPORT_RESIZE, REMOTE_TERMINAL_VIEWPORT_SCROLL,
+    REMOTE_TERMINAL_VIEWPORT_SCROLLED, REMOTE_TERMINAL_VIEWPORT_STATE, REMOTE_TRANSPORT_PING,
+    REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST,
+    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_SELECT, REMOTE_WORKTREE_UPDATED,
+    RemoteTerminalBufferWindow, RemoteTerminalSubscriptionTarget, RemoteTerminalSubscriptions,
+    terminal_buffer_payloads, terminal_live_output_payload, webrtc_transport_candidate,
+    websocket_relay_transport_candidate,
 };
 use super::relay::{remote_pairing_ticket_payload, remote_server_url, remote_stun_urls};
 use super::transport::RemoteTransport;
@@ -281,7 +286,7 @@ impl RemoteHostRuntime {
                 .devices_for(REMOTE_RESOURCE_TERMINALS, None, None);
         let payload = json!({ "message": message });
         for device_id in device_ids {
-            self.send_plain("host.offline", Some(&device_id), None, payload.clone());
+            self.send_plain(REMOTE_HOST_OFFLINE, Some(&device_id), None, payload.clone());
         }
     }
 
@@ -342,7 +347,7 @@ impl RemoteHostRuntime {
         let ok = transport.send(data.into_bytes(), device_id);
         if matches!(
             kind,
-            "project.selected" | "project.list" | "terminal.list" | "error"
+            REMOTE_PROJECT_SELECTED | REMOTE_PROJECT_LIST | REMOTE_TERMINAL_LIST | REMOTE_ERROR
         ) {
             crate::runtime_trace::runtime_trace(
                 "remote",
@@ -739,7 +744,7 @@ impl RemoteHostRuntime {
     fn send_host_info(self: &Arc<Self>, device_id: Option<&str>) {
         let transports = self.transport_candidates_snapshot();
         self.send(
-            "host.info",
+            REMOTE_HOST_INFO,
             device_id,
             None,
             runtime_host::host_info_payload(runtime_host::HostInfoPayload {
@@ -1071,7 +1076,7 @@ impl RemoteHostRuntime {
             return;
         };
         match remote_file_read(path) {
-            Ok(payload) => self.send("file.read", envelope.device_id.as_deref(), None, payload),
+            Ok(payload) => self.send(REMOTE_FILE_READ, envelope.device_id.as_deref(), None, payload),
             Err(error) => self.send_error(envelope, &error),
         }
     }
@@ -1087,7 +1092,7 @@ impl RemoteHostRuntime {
         };
         match remote_file_write(path, content) {
             Ok(()) => self.send(
-                "file.written",
+                REMOTE_FILE_WRITTEN,
                 envelope.device_id.as_deref(),
                 None,
                 json!({ "path": path }),
@@ -1107,7 +1112,7 @@ impl RemoteHostRuntime {
         };
         match remote_file_rename(path, new_path) {
             Ok(()) => self.send(
-                "file.renamed",
+                REMOTE_FILE_RENAMED,
                 envelope.device_id.as_deref(),
                 None,
                 json!({ "path": path, "newPath": new_path }),
@@ -1123,7 +1128,7 @@ impl RemoteHostRuntime {
         };
         match fs::remove_file(path).or_else(|_| fs::remove_dir_all(path)) {
             Ok(()) => self.send(
-                "file.deleted",
+                REMOTE_FILE_DELETED,
                 envelope.device_id.as_deref(),
                 None,
                 json!({ "path": path }),
@@ -1153,7 +1158,7 @@ impl RemoteHostRuntime {
             Ok(baseline) => {
                 let project_id = baseline.selected_project_id.unwrap_or_default();
                 self.send(
-                    "project.updated",
+                    REMOTE_PROJECT_UPDATED,
                     envelope.device_id.as_deref(),
                     None,
                     json!({ "action": "add", "projectId": project_id }),
@@ -1191,7 +1196,7 @@ impl RemoteHostRuntime {
         ) {
             Ok(_) => {
                 self.send(
-                    "project.updated",
+                    REMOTE_PROJECT_UPDATED,
                     envelope.device_id.as_deref(),
                     None,
                     json!({ "action": "edit", "projectId": project_id }),
@@ -1211,7 +1216,7 @@ impl RemoteHostRuntime {
             Ok(_) => {
                 self.clear_remote_project_scope_for_project(project_id);
                 self.send(
-                    "project.updated",
+                    REMOTE_PROJECT_UPDATED,
                     envelope.device_id.as_deref(),
                     None,
                     json!({ "action": "remove", "projectId": project_id }),
@@ -1260,7 +1265,7 @@ impl RemoteHostRuntime {
                     envelope.device_id.as_deref(),
                 );
                 self.send(
-                    "project.selected",
+                    REMOTE_PROJECT_SELECTED,
                     envelope.device_id.as_deref(),
                     None,
                     json!({ "projectId": scope.project_id, "worktreeId": scope.worktree_id }),
@@ -1396,7 +1401,7 @@ impl RemoteHostRuntime {
             return;
         };
         self.send_worktree_summary(
-            "worktree.list",
+            REMOTE_WORKTREE_LIST,
             envelope.device_id.as_deref(),
             &project_id,
             &project_path,
@@ -1433,7 +1438,7 @@ impl RemoteHostRuntime {
             }
         }
         self.send(
-            "worktree.updated",
+            REMOTE_WORKTREE_UPDATED,
             envelope.device_id.as_deref(),
             None,
             remote_worktree_summary_payload(&project_id, summary),
@@ -1469,7 +1474,7 @@ impl RemoteHostRuntime {
             Ok(baseline) => {
                 let git = crate::git::GitService::status(&project_path);
                 self.broadcast_worktree_update(
-                    "worktree.updated",
+                    REMOTE_WORKTREE_UPDATED,
                     envelope.device_id.as_deref(),
                     &project_id,
                     remote_worktree_update_payload(project_id.clone(), baseline, git),
@@ -1508,7 +1513,7 @@ impl RemoteHostRuntime {
             Ok(baseline) => {
                 let git = crate::git::GitService::status(&project_path);
                 self.broadcast_worktree_update(
-                    "worktree.updated",
+                    REMOTE_WORKTREE_UPDATED,
                     envelope.device_id.as_deref(),
                     &project_id,
                     remote_worktree_update_payload(project_id.clone(), baseline, git),
@@ -1543,7 +1548,7 @@ impl RemoteHostRuntime {
             Ok(baseline) => {
                 let git = crate::git::GitService::status(&project_path);
                 self.broadcast_worktree_update(
-                    "worktree.updated",
+                    REMOTE_WORKTREE_UPDATED,
                     envelope.device_id.as_deref(),
                     &project_id,
                     remote_worktree_update_payload(project_id.clone(), baseline, git),
@@ -1583,7 +1588,7 @@ impl RemoteHostRuntime {
                         .and_then(Value::as_str)
                         .map(str::to_string);
                     self.broadcast_resource_payload(
-                        "ai.stats",
+                        REMOTE_AI_STATS,
                         REMOTE_RESOURCE_AI_STATS,
                         envelope.device_id.as_deref(),
                         payload_project_id.as_deref(),
@@ -1622,7 +1627,7 @@ impl RemoteHostRuntime {
         };
         let summary = crate::git::GitService::status(&project_path);
         self.broadcast_resource_payload(
-            "git.status",
+            REMOTE_GIT_STATUS,
             REMOTE_RESOURCE_GIT_STATUS,
             envelope.device_id.as_deref(),
             Some(&project_id),
@@ -1655,7 +1660,7 @@ impl RemoteHostRuntime {
                 self.mark_terminal_event_subscription(&session_id);
                 self.register_terminal_viewer(&session_id, envelope.device_id.as_deref());
                 self.send_terminal_data(
-                    "terminal.created",
+                    REMOTE_TERMINAL_CREATED,
                     envelope.device_id.as_deref(),
                     Some(&session_id),
                     self.remote_terminal_payload(&session_id)
@@ -1747,7 +1752,7 @@ impl RemoteHostRuntime {
             .touch_viewport_lease(session_id, &self.remote_viewport_owner(envelope));
         if let Some(input_id) = envelope.payload.get("inputId").and_then(Value::as_str) {
             self.send_terminal_data(
-                "terminal.input.ack",
+                REMOTE_TERMINAL_INPUT_ACK,
                 envelope.device_id.as_deref(),
                 Some(session_id),
                 json!({ "inputId": input_id, "ok": true, "accepted": true }),
@@ -1948,7 +1953,7 @@ impl RemoteHostRuntime {
             Ok(()) => {
                 self.clear_terminal_output_seq(session_id);
                 self.send_terminal_data(
-                    "terminal.closed",
+                    REMOTE_TERMINAL_CLOSED,
                     envelope.device_id.as_deref(),
                     Some(session_id),
                     json!({ "id": session_id }),
@@ -2304,7 +2309,7 @@ impl RemoteHostRuntime {
         let text = format!("{} ", terminal_upload_path_input(&path));
         let _ = self.terminals.write(session_id, text.as_bytes());
         self.send_terminal_data(
-            "terminal.uploaded",
+            REMOTE_TERMINAL_UPLOADED,
             device_id,
             Some(session_id),
             json!({
@@ -2340,7 +2345,7 @@ impl RemoteHostRuntime {
             payload["message"] = json!(message);
         }
         self.send_terminal_data(
-            "terminal.upload.ack",
+            REMOTE_TERMINAL_UPLOAD_ACK,
             envelope.device_id.as_deref(),
             envelope.session_id.as_deref(),
             payload,
@@ -2354,7 +2359,7 @@ impl RemoteHostRuntime {
 
     fn send_project_list(&self, device_id: Option<&str>) {
         let payload = self.remote_project_list_payload(device_id);
-        self.send("project.list", device_id, None, payload);
+        self.send(REMOTE_PROJECT_LIST, device_id, None, payload);
     }
 
     fn remote_project_list_payload(&self, device_id: Option<&str>) -> Value {
@@ -2394,7 +2399,7 @@ impl RemoteHostRuntime {
     fn send_terminal_list(&self, device_id: Option<&str>) {
         let terminals = self.remote_terminals();
         self.send(
-            "terminal.list",
+            REMOTE_TERMINAL_LIST,
             device_id,
             None,
             json!({ "terminals": terminals }),
@@ -2414,7 +2419,7 @@ impl RemoteHostRuntime {
         }
         for device_id in device_ids {
             let payload = self.remote_project_list_payload(Some(&device_id));
-            self.send("project.list", Some(&device_id), None, payload);
+            self.send(REMOTE_PROJECT_LIST, Some(&device_id), None, payload);
         }
     }
 
@@ -2431,7 +2436,7 @@ impl RemoteHostRuntime {
         }
         let payload = json!({ "terminals": self.remote_terminals() });
         for device_id in device_ids {
-            self.send("terminal.list", Some(&device_id), None, payload.clone());
+            self.send(REMOTE_TERMINAL_LIST, Some(&device_id), None, payload.clone());
         }
     }
 
@@ -2649,7 +2654,7 @@ impl RemoteHostRuntime {
                     .unwrap_or_else(|| self.current_terminal_output_seq(session_id));
                 for payload in terminal_buffer_payloads(&window, output_seq, chunk_chars) {
                     self.send_terminal_data(
-                        "terminal.output",
+                        REMOTE_TERMINAL_OUTPUT,
                         device_id,
                         Some(session_id),
                         payload,
@@ -2684,7 +2689,7 @@ impl RemoteHostRuntime {
         state: &TerminalViewportState,
     ) {
         self.send_terminal_data(
-            "terminal.viewport.state",
+            REMOTE_TERMINAL_VIEWPORT_STATE,
             device_id,
             Some(session_id),
             json!({
@@ -3481,7 +3486,7 @@ impl RemoteHostRuntime {
                 self.terminal_subscriptions.remove_session(&session_id);
                 self.clear_terminal_output_seq(&session_id);
                 self.send_terminal_data(
-                    "terminal.closed",
+                    REMOTE_TERMINAL_CLOSED,
                     None,
                     Some(&session_id),
                     json!({ "id": session_id }),
@@ -3506,7 +3511,7 @@ impl RemoteHostRuntime {
                 generation,
             } => {
                 self.send_terminal_data(
-                    "terminal.viewport.state",
+                    REMOTE_TERMINAL_VIEWPORT_STATE,
                     None,
                     Some(&session_id),
                     json!({
@@ -3597,7 +3602,7 @@ impl RemoteHostRuntime {
         );
         for device_id in batch.viewers {
             self.send_terminal_data(
-                "terminal.output",
+                REMOTE_TERMINAL_OUTPUT,
                 Some(&device_id),
                 Some(session_id),
                 payload.clone(),

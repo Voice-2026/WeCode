@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart' as ffi;
 
 import '../models/remote_models.dart';
+import 'remote_protocol.dart';
 
 class DeviceKeyPair {
   const DeviceKeyPair({required this.privateKey, required this.publicKey});
@@ -40,7 +41,7 @@ class RemoteE2ECrypto {
       plaintextBase64: base64UrlEncodeNoPadding(plaintext),
     );
     return RelayEnvelope(
-      type: 'secure.message',
+      type: RemoteMessageType.secureMessage,
       deviceId: device.deviceId,
       sessionId: inner.sessionId,
       payload: payload,

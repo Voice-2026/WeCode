@@ -16,8 +16,10 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use codux_protocol::{
-    REMOTE_PROTOCOL_VERSION, RemoteRelayDecision, RemoteRelayEnvelope, RemoteRelayPeerWindow,
-    RemoteRelayPolicy, relay_error_envelope, relay_hello_envelope,
+    REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_DEVICE_INFO, REMOTE_HOST_OFFLINE,
+    REMOTE_PROTOCOL_VERSION, REMOTE_TRANSPORT_ROLE_HOST, REMOTE_TRANSPORT_WEBRTC,
+    REMOTE_TRANSPORT_WEBSOCKET_RELAY, RemoteRelayDecision, RemoteRelayEnvelope,
+    RemoteRelayPeerWindow, RemoteRelayPolicy, relay_error_envelope, relay_hello_envelope,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -330,8 +332,8 @@ async fn create_pairing(
                 "cryptoVersion": crypto_version,
                 "protocolVersion": REMOTE_PROTOCOL_VERSION,
                 "transports": [
-                    { "kind": "websocketRelay", "role": "host", "url": server_url },
-                    { "kind": "webRtc", "role": "host", "url": server_url, "iceServers": [
+                    { "kind": REMOTE_TRANSPORT_WEBSOCKET_RELAY, "role": REMOTE_TRANSPORT_ROLE_HOST, "url": server_url },
+                    { "kind": REMOTE_TRANSPORT_WEBRTC, "role": REMOTE_TRANSPORT_ROLE_HOST, "url": server_url, "iceServers": [
                         { "urls": ["stun:stun.miwifi.com:3478", "stun:stun.l.google.com:19302"] }
                     ] }
                 ]
@@ -749,7 +751,7 @@ async fn run_peer(
         if !hub.allow_relay_message(&mut peer, &envelope, size, &tx) {
             continue;
         }
-        if !stateless && role == PeerRole::Client && envelope.kind == "device.info" {
+        if !stateless && role == PeerRole::Client && envelope.kind == REMOTE_DEVICE_INFO {
             if let Some(name) = envelope
                 .payload
                 .as_ref()
@@ -834,7 +836,7 @@ impl Hub {
             self.send_to_host(
                 &peer.host_id,
                 RemoteRelayEnvelope {
-                    kind: "device.connected".into(),
+                    kind: REMOTE_DEVICE_CONNECTED.into(),
                     host_id: peer.host_id.clone(),
                     device_id: peer.device_id.clone(),
                     payload: Some(json!({ "deviceId": peer.device_id })),
@@ -898,7 +900,7 @@ impl Hub {
         }
         info!(host = host_id, clients = targets.len(), "host offline notified");
         let envelope = RemoteRelayEnvelope {
-            kind: "host.offline".into(),
+            kind: REMOTE_HOST_OFFLINE.into(),
             host_id: host_id.to_string(),
             payload: Some(json!({ "message": "Desktop host disconnected." })),
             at: Some(crate::store::now_millis()),
@@ -937,7 +939,7 @@ impl Hub {
             self.send_to_host(
                 &peer.host_id,
                 RemoteRelayEnvelope {
-                    kind: "device.disconnected".into(),
+                    kind: REMOTE_DEVICE_DISCONNECTED.into(),
                     host_id: peer.host_id.clone(),
                     device_id: peer.device_id.clone(),
                     payload: Some(json!({ "deviceId": peer.device_id })),
