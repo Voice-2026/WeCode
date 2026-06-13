@@ -8,8 +8,46 @@ use codux_remote_crypto::{
     remote_e2e_encrypt, remote_e2e_symmetric_key,
 };
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::ffi::c_char;
+use std::hash::{Hash, Hasher};
 use std::ptr;
+use std::sync::{LazyLock, Mutex};
+
+// Derived symmetric keys, cached by the device material that produces them.
+// X25519 ECDH + HKDF runs once per device instead of on every encrypt/decrypt;
+// without this, the mobile UI isolate re-derived the key for every message in a
+// connection burst (e.g. right after pairing), causing a multi-second freeze.
+static KEY_CACHE: LazyLock<Mutex<HashMap<u64, [u8; 32]>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cached_symmetric_key(
+    device_private_key: &str,
+    host_public_key: &str,
+    host_id: &str,
+    device_id: &str,
+) -> Result<[u8; 32], String> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    device_private_key.hash(&mut hasher);
+    host_public_key.hash(&mut hasher);
+    host_id.hash(&mut hasher);
+    device_id.hash(&mut hasher);
+    let cache_key = hasher.finish();
+    if let Ok(cache) = KEY_CACHE.lock()
+        && let Some(key) = cache.get(&cache_key)
+    {
+        return Ok(*key);
+    }
+    let key = remote_e2e_symmetric_key(device_private_key, host_public_key, host_id, device_id)?;
+    if let Ok(mut cache) = KEY_CACHE.lock() {
+        // Bound the cache; it only grows with distinct devices, but cap it.
+        if cache.len() > 64 {
+            cache.clear();
+        }
+        cache.insert(cache_key, key);
+    }
+    Ok(key)
+}
 
 fn required(value: *const c_char, label: &str) -> Option<String> {
     match c_to_string(value) {
@@ -50,7 +88,7 @@ pub extern "C" fn codux_e2e_encrypt(
     ) else {
         return ptr::null_mut();
     };
-    let key = match remote_e2e_symmetric_key(&private_key, &public_key, &host_id, &device_id) {
+    let key = match cached_symmetric_key(&private_key, &public_key, &host_id, &device_id) {
         Ok(key) => key,
         Err(error) => {
             set_last_error(error);
@@ -100,7 +138,7 @@ pub extern "C" fn codux_e2e_decrypt(
             return ptr::null_mut();
         }
     };
-    let key = match remote_e2e_symmetric_key(&private_key, &public_key, &host_id, &device_id) {
+    let key = match cached_symmetric_key(&private_key, &public_key, &host_id, &device_id) {
         Ok(key) => key,
         Err(error) => {
             set_last_error(error);
@@ -113,5 +151,13 @@ pub extern "C" fn codux_e2e_decrypt(
             set_last_error(error);
             ptr::null_mut()
         }
+    }
+}
+
+/// Clear the cached derived symmetric keys (e.g. on reconnect / re-pair).
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_e2e_clear_key_cache() {
+    if let Ok(mut cache) = KEY_CACHE.lock() {
+        cache.clear();
     }
 }

@@ -381,6 +381,10 @@ final _e2eNewDeviceKeypair = _dylib
     .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
       'codux_e2e_new_device_keypair',
     );
+final _e2eClearKeyCache = _dylib
+    .lookupFunction<Void Function(), void Function()>(
+      'codux_e2e_clear_key_cache',
+    );
 final _e2eEncrypt = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(
@@ -1106,6 +1110,11 @@ Map<String, dynamic> e2eNewDeviceKeypair() {
     throw StateError('E2E keypair generation failed: ${lastError()}');
   }
   return Map<String, dynamic>.from(jsonDecode(_takeString(result)) as Map);
+}
+
+/// Clear the cached derived symmetric keys (e.g. on reconnect / re-pair).
+void e2eClearKeyCache() {
+  _e2eClearKeyCache();
 }
 
 /// Encrypt the base64url-encoded plaintext for the peer. Returns the encrypted

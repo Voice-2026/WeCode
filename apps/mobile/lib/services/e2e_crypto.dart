@@ -70,9 +70,11 @@ class RemoteE2ECrypto {
     return RelayEnvelope.fromJson(decoded).copyWith(deviceId: device.deviceId);
   }
 
-  /// The symmetric key is derived (and not cached) inside the Rust core, so
-  /// there is no Dart-side key cache to clear. Kept for call-site compatibility.
-  static void clearCache() {}
+  /// Clear the cached derived symmetric keys inside the Rust core (called on
+  /// reconnect / re-pair).
+  static void clearCache() {
+    ffi.e2eClearKeyCache();
+  }
 
   static String base64UrlEncodeNoPadding(List<int> bytes) {
     return base64Url.encode(bytes).replaceAll('=', '');
