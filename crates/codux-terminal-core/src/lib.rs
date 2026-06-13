@@ -1,6 +1,7 @@
 mod buffer_assembler;
 mod headless_screen;
 mod output_sequence;
+mod remote_output_router;
 mod remote_pty;
 mod runtime_model;
 mod sequence_guard;
@@ -15,6 +16,10 @@ pub use headless_screen::{
 };
 pub use output_sequence::{
     TerminalOutputSequenceAction, TerminalOutputSequenceResult, TerminalOutputSequencer,
+};
+pub use remote_output_router::{
+    RemoteTerminalBufferPhase, RemoteTerminalOutputEffect, RemoteTerminalOutputEffectKind,
+    RemoteTerminalOutputRouter,
 };
 pub use remote_pty::{RemotePtyBaselinePageResult, RemotePtySession, RemotePtySnapshot};
 pub use runtime_model::{

@@ -1509,6 +1509,8 @@ dependencies = [
 name = "codux-terminal-core"
 version = "1.7.6"
 dependencies = [
+ "base64 0.22.1",
+ "flate2",
  "libghostty-vt",
  "serde",
  "serde_json",
