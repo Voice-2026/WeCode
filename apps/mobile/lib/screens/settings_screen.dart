@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../i18n.dart';
+import '../models/remote_models.dart';
 import '../theme/app_theme.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -12,9 +13,13 @@ class SettingsScreen extends StatelessWidget {
     required this.currentAccent,
     required this.currentLocale,
     required this.currentLogLevel,
+    required this.appFontSize,
+    required this.terminalFontSize,
     required this.onChangeAccent,
     required this.onChangeLocale,
     required this.onChangeLogLevel,
+    required this.onChangeAppFontSize,
+    required this.onChangeTerminalFontSize,
     required this.onUseDetectedName,
     required this.onSave,
     required this.onBack,
@@ -27,9 +32,13 @@ class SettingsScreen extends StatelessWidget {
   final AccentOption currentAccent;
   final LocaleOption currentLocale;
   final String currentLogLevel;
+  final double appFontSize;
+  final double terminalFontSize;
   final ValueChanged<AccentOption> onChangeAccent;
   final ValueChanged<LocaleOption> onChangeLocale;
   final ValueChanged<String> onChangeLogLevel;
+  final ValueChanged<double> onChangeAppFontSize;
+  final ValueChanged<double> onChangeTerminalFontSize;
   final VoidCallback onUseDetectedName;
   final VoidCallback onSave;
   final VoidCallback onBack;
@@ -84,6 +93,39 @@ class SettingsScreen extends StatelessWidget {
                     _AccentRow(
                       current: currentAccent,
                       onSelect: onChangeAccent,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.l),
+                _SectionLabel(prefs.t('settings.displayLabel')),
+                _Card(
+                  children: [
+                    _StepSliderTile(
+                      label: prefs.t('settings.appFontSize'),
+                      valueLabel: _fontSizeValueLabel(
+                        prefs,
+                        appFontSize,
+                        MobileSettings.defaultAppFontSize,
+                      ),
+                      value: appFontSize,
+                      steps: MobileSettings.appFontSizeSteps,
+                      stepLabels: _appFontStepLabels(prefs),
+                      accent: accent,
+                      onChanged: onChangeAppFontSize,
+                    ),
+                    _Divider(),
+                    _StepSliderTile(
+                      label: prefs.t('settings.terminalFontSize'),
+                      valueLabel: _fontSizeValueLabel(
+                        prefs,
+                        terminalFontSize,
+                        MobileSettings.defaultTerminalFontSize,
+                      ),
+                      value: terminalFontSize,
+                      steps: MobileSettings.terminalFontSizeSteps,
+                      stepLabels: _terminalFontStepLabels(prefs),
+                      accent: accent,
+                      onChanged: onChangeTerminalFontSize,
                     ),
                   ],
                 ),
@@ -608,6 +650,126 @@ class _PickerTile extends StatelessWidget {
       ),
     ),
   );
+}
+
+class _StepSliderTile extends StatelessWidget {
+  const _StepSliderTile({
+    required this.label,
+    required this.valueLabel,
+    required this.value,
+    required this.steps,
+    required this.stepLabels,
+    required this.accent,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String valueLabel;
+  final double value;
+  final List<double> steps;
+  final List<String> stepLabels;
+  final Color accent;
+  final ValueChanged<double> onChanged;
+
+  int get _index {
+    var selected = 0;
+    for (var i = 1; i < steps.length; i++) {
+      if ((steps[i] - value).abs() < (steps[selected] - value).abs()) {
+        selected = i;
+      }
+    }
+    return selected;
+  }
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      AppSpacing.l,
+      AppSpacing.m,
+      AppSpacing.l,
+      AppSpacing.s,
+    ),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: AppTextSize.body,
+                ),
+              ),
+            ),
+            Text(
+              valueLabel,
+              style: TextStyle(
+                color: accent,
+                fontSize: AppTextSize.body,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: accent,
+            inactiveTrackColor: AppColors.border,
+            thumbColor: accent,
+            overlayColor: accent.withValues(alpha: 0.16),
+            trackHeight: 4,
+          ),
+          child: Slider(
+            value: _index.toDouble(),
+            min: 0,
+            max: (steps.length - 1).toDouble(),
+            divisions: steps.length - 1,
+            onChanged: (next) => onChanged(steps[next.round()]),
+          ),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            for (final label in stepLabels)
+              Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: AppTextSize.small,
+                ),
+              ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+List<String> _appFontStepLabels(AppPreferences prefs) => [
+  prefs.t('settings.fontSmall'),
+  prefs.t('settings.fontStandard'),
+  prefs.t('settings.fontLarge'),
+];
+
+List<String> _terminalFontStepLabels(AppPreferences prefs) => [
+  prefs.t('settings.fontSmall'),
+  prefs.t('settings.fontSmaller'),
+  prefs.t('settings.fontStandard'),
+  prefs.t('settings.fontLarge'),
+  prefs.t('settings.fontExtraLarge'),
+];
+
+String _fontSizeValueLabel(
+  AppPreferences prefs,
+  double value,
+  double standard,
+) {
+  if (value <= 10) return prefs.t('settings.fontSmall');
+  if (value < standard) return prefs.t('settings.fontSmaller');
+  if (value >= 18) return prefs.t('settings.fontExtraLarge');
+  if (value > standard) return prefs.t('settings.fontLarge');
+  return prefs.t('settings.fontStandard');
 }
 
 class _AccentRow extends StatelessWidget {

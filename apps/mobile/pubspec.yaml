@@ -83,8 +83,3 @@ flutter:
 
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
-
-  fonts:
-    - family: Maple Mono NF CN
-      fonts:
-        - asset: assets/fonts/MapleMono-NF-CN-Regular.ttf

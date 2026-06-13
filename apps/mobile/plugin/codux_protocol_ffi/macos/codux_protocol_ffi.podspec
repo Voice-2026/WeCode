@@ -27,8 +27,10 @@ Codux remote protocol FFI bridge backed by the shared Rust protocol crate.
   s.platform = :osx, '10.11'
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
-    'LIBRARY_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/Frameworks"',
-    'OTHER_LDFLAGS' => '$(inherited) -lcodux_protocol_ffi'
+    'LIBRARY_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/Frameworks"'
+  }
+  s.user_target_xcconfig = {
+    'OTHER_LDFLAGS' => '$(inherited) -force_load "${PODS_ROOT}/../.symlinks/plugins/codux_protocol_ffi/macos/Frameworks/libcodux_protocol_ffi.a"'
   }
   s.swift_version = '5.0'
 end

@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REPO_ROOT="$(cd "$PLUGIN_DIR/../../../.." && pwd)"
+find_repo_root() {
+  local dir="$PLUGIN_DIR"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/Cargo.toml" ]] && grep -q '^\[workspace\]' "$dir/Cargo.toml"; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+REPO_ROOT="$(find_repo_root)"
 PLATFORM_NAME="${PLATFORM_NAME:-macosx}"
 ARCHS="${ARCHS:-arm64}"
 CONFIGURATION="${CONFIGURATION:-Release}"

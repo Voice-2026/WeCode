@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -21,6 +22,7 @@ class TerminalScreenView extends StatefulWidget {
     required this.onScrollToBottom,
     required this.onCursorBottom,
     this.remoteScroll = false,
+    this.fontSize = _terminalDefaultFontSize,
   });
 
   final TerminalScreenSnapshot? snapshot;
@@ -37,6 +39,7 @@ class TerminalScreenView extends StatefulWidget {
   final VoidCallback onSettleScroll;
   final VoidCallback onScrollToBottom;
   final ValueChanged<double> onCursorBottom;
+  final double fontSize;
 
   @override
   State<TerminalScreenView> createState() => _TerminalScreenViewState();
@@ -174,26 +177,24 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
 
   Rect _caretRect(Size size) {
     final snapshot = widget.snapshot;
+    final fontSize = _normalizeTerminalFontSize(widget.fontSize);
+    final cellHeight = _terminalCellHeight(fontSize);
     if (snapshot == null) {
-      return Rect.fromLTWH(0, 0, 1, _terminalCellHeight);
+      return Rect.fromLTWH(0, 0, 1, cellHeight);
     }
-    final fontSize = _terminalFontSize;
     final cellWidth = _terminalCellWidth(context, fontSize);
     final left = (snapshot.cursor.col * cellWidth).clamp(0.0, size.width);
-    final top = (snapshot.cursor.row * _terminalCellHeight).clamp(
-      0.0,
-      size.height,
-    );
-    return Rect.fromLTWH(left, top, 1, _terminalCellHeight);
+    final top = (snapshot.cursor.row * cellHeight).clamp(0.0, size.height);
+    return Rect.fromLTWH(left, top, 1, cellHeight);
   }
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        const fontSize = _terminalFontSize;
+        final fontSize = _normalizeTerminalFontSize(widget.fontSize);
         final cellWidth = _terminalCellWidth(context, fontSize);
-        const cellHeight = _terminalCellHeight;
+        final cellHeight = _terminalCellHeight(fontSize);
         final cols = math.max(20, constraints.maxWidth ~/ cellWidth);
         final rows = math.max(8, constraints.maxHeight ~/ cellHeight);
         final snapshot = widget.snapshot;
@@ -287,8 +288,10 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     _lastScrollOffset = position.pixels;
     // Follow the tail while the position stays within half a row of the
     // bottom; scrolling away releases the pin.
-    _followTail =
-        position.maxScrollExtent - position.pixels <= _terminalCellHeight / 2;
+    final cellHeight = _terminalCellHeight(
+      _normalizeTerminalFontSize(widget.fontSize),
+    );
+    _followTail = position.maxScrollExtent - position.pixels <= cellHeight / 2;
     setState(() {});
     if (_suppressScrollEmit || previous == null) return;
     // Offset grows downward from the top of history; the contract wants
@@ -326,7 +329,10 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     final pixels = _pendingScrollPixels;
     if (pixels == 0) return;
     _pendingScrollPixels = 0;
-    widget.onScrollPixels(pixels, _terminalCellHeight);
+    widget.onScrollPixels(
+      pixels,
+      _terminalCellHeight(_normalizeTerminalFontSize(widget.fontSize)),
+    );
   }
 
   void _maintainScrollAnchor() {
@@ -526,19 +532,32 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
   void showAutocorrectionPromptRect(int start, int end) {}
 }
 
-const _terminalFontSize = 11.5;
-const _terminalLineHeight = 1.25;
-const _terminalCellHeight = _terminalFontSize * _terminalLineHeight;
+const _terminalDefaultFontSize = 14.0;
 const _terminalLetterSpacing = 0.0;
-const _terminalFontFamily = 'Maple Mono NF CN';
+const _terminalCellWidthProbe =
+    '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const _terminalFontFeatures = [
+  FontFeature.disable('liga'),
+  FontFeature.disable('calt'),
+];
 const _terminalScrollEpsilon = 0.01;
 const _terminalCursorBlinkInterval = Duration(milliseconds: 530);
 const _terminalInputSentinel = '  ';
 const _terminalBackspaceInput = '\u0008';
+final _terminalCellWidthCache = <String, double>{};
 const _terminalInputSentinelValue = TextEditingValue(
   text: _terminalInputSentinel,
   selection: TextSelection.collapsed(offset: _terminalInputSentinel.length),
 );
+
+double _normalizeTerminalFontSize(double value) {
+  return value.clamp(10.0, 18.0).roundToDouble();
+}
+
+double _terminalCellHeight(double fontSize) {
+  return (fontSize + 5.0).roundToDouble();
+}
+
 const _terminalInputConfig = TextInputConfiguration(
   inputType: TextInputType.emailAddress,
   inputAction: TextInputAction.newline,
@@ -573,19 +592,68 @@ String _cursorSignature(TerminalScreenSnapshot? snapshot) {
 }
 
 double _terminalCellWidth(BuildContext context, double fontSize) {
-  final painter = TextPainter(
+  final platform = defaultTargetPlatform;
+  final key = '${platform.name}:$fontSize';
+  final cached = _terminalCellWidthCache[key];
+  if (cached != null) return cached;
+
+  final textPainter = TextPainter(
     text: TextSpan(
-      text: 'm',
-      style: TextStyle(
-        fontFamily: _terminalFontFamily,
+      text: _terminalCellWidthProbe,
+      style: _terminalTextStyle(
+        color: AppColors.textPrimary,
         fontSize: fontSize,
-        height: 1,
-        letterSpacing: _terminalLetterSpacing,
       ),
     ),
     textDirection: TextDirection.ltr,
+    maxLines: 1,
   )..layout();
-  return painter.width.clamp(6.0, 16.0);
+  final measured = textPainter.width / _terminalCellWidthProbe.length;
+  final width = measured.clamp(fontSize * 0.5, fontSize * 0.82);
+  _terminalCellWidthCache[key] = width;
+  return width;
+}
+
+String _terminalFontFamily() {
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.iOS || TargetPlatform.macOS => 'Menlo',
+    TargetPlatform.android => 'monospace',
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.windows => 'monospace',
+  };
+}
+
+List<String> _terminalFontFamilyFallback() {
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.iOS ||
+    TargetPlatform.macOS => const ['SF Mono', 'Courier', 'monospace'],
+    TargetPlatform.android => const ['monospace'],
+    TargetPlatform.fuchsia ||
+    TargetPlatform.linux ||
+    TargetPlatform.windows => const ['monospace'],
+  };
+}
+
+TextStyle _terminalTextStyle({
+  required Color color,
+  required double fontSize,
+  bool bold = false,
+  bool italic = false,
+  TextDecoration? decoration,
+}) {
+  return TextStyle(
+    color: color,
+    fontFamily: _terminalFontFamily(),
+    fontFamilyFallback: _terminalFontFamilyFallback(),
+    fontSize: fontSize,
+    height: 1,
+    letterSpacing: _terminalLetterSpacing,
+    fontFeatures: _terminalFontFeatures,
+    fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+    fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+    decoration: decoration,
+  );
 }
 
 class _TerminalScreenPainter extends CustomPainter {
@@ -637,24 +705,25 @@ class _TerminalScreenPainter extends CustomPainter {
       if (cell.text.isEmpty) continue;
       textPainter.text = TextSpan(
         text: cell.text,
-        style: TextStyle(
+        style: _terminalTextStyle(
           color: colors.fg,
-          fontFamily: _terminalFontFamily,
           fontSize: fontSize,
-          height: 1,
-          letterSpacing: _terminalLetterSpacing,
-          fontWeight: cell.bold ? FontWeight.w700 : FontWeight.w400,
-          fontStyle: cell.italic ? FontStyle.italic : FontStyle.normal,
+          bold: cell.bold,
+          italic: cell.italic,
           decoration: TextDecoration.combine([
             if (cell.underline) TextDecoration.underline,
             if (cell.strikeout) TextDecoration.lineThrough,
           ]),
         ),
       );
-      textPainter.layout(maxWidth: cellWidth * cell.width);
-      textPainter.paint(
-        canvas,
-        Offset(left, top + (cellHeight - fontSize) / 2),
+      _paintTerminalText(
+        canvas: canvas,
+        textPainter: textPainter,
+        left: left,
+        top: top,
+        width: cellWidth * cell.width,
+        height: cellHeight,
+        fontSize: fontSize,
       );
     }
 
@@ -754,22 +823,26 @@ class _TerminalScreenPainter extends CustomPainter {
   }) {
     textPainter.text = TextSpan(
       text: cell.text,
-      style: TextStyle(
+      style: _terminalTextStyle(
         color: color,
-        fontFamily: _terminalFontFamily,
         fontSize: fontSize,
-        height: 1,
-        letterSpacing: _terminalLetterSpacing,
-        fontWeight: cell.bold ? FontWeight.w700 : FontWeight.w400,
-        fontStyle: cell.italic ? FontStyle.italic : FontStyle.normal,
+        bold: cell.bold,
+        italic: cell.italic,
         decoration: TextDecoration.combine([
           if (cell.underline) TextDecoration.underline,
           if (cell.strikeout) TextDecoration.lineThrough,
         ]),
       ),
     );
-    textPainter.layout(maxWidth: cellWidth * cell.width);
-    textPainter.paint(canvas, Offset(left, top + (cellHeight - fontSize) / 2));
+    _paintTerminalText(
+      canvas: canvas,
+      textPainter: textPainter,
+      left: left,
+      top: top,
+      width: cellWidth * cell.width,
+      height: cellHeight,
+      fontSize: fontSize,
+    );
   }
 
   @override
@@ -781,4 +854,21 @@ class _TerminalScreenPainter extends CustomPainter {
         scrollOffsetY != oldDelegate.scrollOffsetY ||
         cursorBlinkVisible != oldDelegate.cursorBlinkVisible;
   }
+}
+
+void _paintTerminalText({
+  required Canvas canvas,
+  required TextPainter textPainter,
+  required double left,
+  required double top,
+  required double width,
+  required double height,
+  required double fontSize,
+}) {
+  textPainter.layout(maxWidth: width);
+  final dx = math.max(0.0, (width - textPainter.width) / 2);
+  canvas.save();
+  canvas.clipRect(Rect.fromLTWH(left, top, width, height));
+  textPainter.paint(canvas, Offset(left + dx, top + (height - fontSize) / 2));
+  canvas.restore();
 }

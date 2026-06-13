@@ -727,42 +727,88 @@ List<T> _listOf<T>(Object? value, T Function(Map<String, dynamic>) mapper) {
 }
 
 class MobileSettings {
+  static const defaultAppFontSize = 16.0;
+  static const defaultTerminalFontSize = 14.0;
+  static const List<double> appFontSizeSteps = [14.0, 16.0, 18.0];
+  static const List<double> terminalFontSizeSteps = [
+    10.0,
+    12.0,
+    14.0,
+    16.0,
+    18.0,
+  ];
+
   const MobileSettings({
     required this.localName,
     this.accentId = 'cyan',
     this.localeId = 'system',
     this.logLevel = 'info',
+    this.appFontSize = defaultAppFontSize,
+    this.terminalFontSize = defaultTerminalFontSize,
   });
   final String localName;
   final String accentId;
   final String localeId;
   final String logLevel;
+  final double appFontSize;
+  final double terminalFontSize;
 
   MobileSettings copyWith({
     String? localName,
     String? accentId,
     String? localeId,
     String? logLevel,
+    double? appFontSize,
+    double? terminalFontSize,
   }) {
     return MobileSettings(
       localName: localName ?? this.localName,
       accentId: accentId ?? this.accentId,
       localeId: localeId ?? this.localeId,
       logLevel: logLevel ?? this.logLevel,
+      appFontSize: appFontSize ?? this.appFontSize,
+      terminalFontSize: terminalFontSize ?? this.terminalFontSize,
     );
   }
 
-  factory MobileSettings.fromJson(Map<String, dynamic> json) => MobileSettings(
-    localName: '${json['localName'] ?? ''}',
-    accentId: '${json['accentId'] ?? 'cyan'}',
-    localeId: '${json['localeId'] ?? 'system'}',
-    logLevel: '${json['logLevel'] ?? 'info'}',
-  );
+  factory MobileSettings.fromJson(Map<String, dynamic> json) {
+    final appFontSize = json['appFontSize'] is num
+        ? (json['appFontSize'] as num).toDouble()
+        : double.tryParse('${json['appFontSize'] ?? ''}');
+    final terminalFontSize = json['terminalFontSize'] is num
+        ? (json['terminalFontSize'] as num).toDouble()
+        : double.tryParse('${json['terminalFontSize'] ?? ''}');
+    return MobileSettings(
+      localName: '${json['localName'] ?? ''}',
+      accentId: '${json['accentId'] ?? 'cyan'}',
+      localeId: '${json['localeId'] ?? 'system'}',
+      logLevel: '${json['logLevel'] ?? 'info'}',
+      appFontSize: _nearestFontStep(
+        appFontSize,
+        MobileSettings.appFontSizeSteps,
+        MobileSettings.defaultAppFontSize,
+      ),
+      terminalFontSize: _nearestFontStep(
+        terminalFontSize,
+        MobileSettings.terminalFontSizeSteps,
+        MobileSettings.defaultTerminalFontSize,
+      ),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'localName': localName,
     'accentId': accentId,
     'localeId': localeId,
     'logLevel': logLevel,
+    'appFontSize': appFontSize,
+    'terminalFontSize': terminalFontSize,
   };
+}
+
+double _nearestFontStep(double? value, List<double> steps, double fallback) {
+  if (value == null || steps.isEmpty) return fallback;
+  return steps.reduce(
+    (best, item) => (item - value).abs() < (best - value).abs() ? item : best,
+  );
 }

@@ -60,7 +60,6 @@ ThemeData buildAppTheme({Color accent = AppColors.cyan}) {
       secondary: accent,
       outline: AppColors.border,
     ),
-    fontFamily: 'SF Pro Display',
     textTheme: const TextTheme(
       bodyMedium: TextStyle(
         color: AppColors.textPrimary,

@@ -51,6 +51,7 @@ RemoteTerminalPane _pane() {
     keyboardVisible: false,
     terminalCursorBottom: 0,
     terminalScreen: null,
+    terminalFontSize: 16,
     onConnect: () {},
     onInput: (_) {},
     onResize: (_, _) {},

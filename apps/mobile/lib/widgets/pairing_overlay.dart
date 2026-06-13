@@ -316,7 +316,6 @@ class _CodeBlock extends StatelessWidget {
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 2.0,
-                fontFamily: 'SF Mono',
               ),
             ),
           ),

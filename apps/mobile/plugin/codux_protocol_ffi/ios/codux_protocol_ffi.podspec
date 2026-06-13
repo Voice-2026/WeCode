@@ -28,8 +28,10 @@ Codux remote protocol FFI bridge backed by the shared Rust protocol crate.
   s.pod_target_xcconfig = {
     'DEFINES_MODULE' => 'YES',
     'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386',
-    'LIBRARY_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/Frameworks"',
-    'OTHER_LDFLAGS' => '$(inherited) -lcodux_protocol_ffi'
+    'LIBRARY_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/Frameworks"'
+  }
+  s.user_target_xcconfig = {
+    'OTHER_LDFLAGS' => '$(inherited) -force_load "${PODS_ROOT}/../.symlinks/plugins/codux_protocol_ffi/ios/Frameworks/libcodux_protocol_ffi.a"'
   }
   s.swift_version = '5.0'
 end

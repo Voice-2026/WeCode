@@ -556,7 +556,7 @@ class FileEditorOverlay extends StatelessWidget {
                                     color: AppColors.textPrimary,
                                     fontSize: AppTextSize.small,
                                     height: 1.42,
-                                    fontFamily: 'SF Mono',
+                                    fontFamily: 'monospace',
                                   ),
                                   cursorColor: accent,
                                   decoration: const InputDecoration(

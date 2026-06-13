@@ -2584,8 +2584,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final displayOffset = (payload['displayOffset'] as num?)?.toInt() ?? 0;
     final totalLines = (payload['totalLines'] as num?)?.toInt() ?? 0;
     final marginRows = (payload['marginRows'] as num?)?.toInt() ?? 0;
-    final marginRowsBelow =
-        (payload['marginRowsBelow'] as num?)?.toInt() ?? 0;
+    final marginRowsBelow = (payload['marginRowsBelow'] as num?)?.toInt() ?? 0;
     _terminalOutputController.applyHostScroll(
       sessionId,
       screenData: screenData,
@@ -2599,9 +2598,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   bool _retryTerminalBaseline(String sessionId) {
     if (!mounted || _sessionId != sessionId) return false;
-    CoduxLog.info(
-      '[codux-flutter-terminal] baseline retry session=$sessionId',
-    );
+    CoduxLog.info('[codux-flutter-terminal] baseline retry session=$sessionId');
     return _terminalBindingCoordinator.subscribeSessionBaseline(
       sessionId: sessionId,
       reason: 'baseline-retry',
@@ -4094,87 +4091,103 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       }
     }
 
-    final deviceHome = _buildDeviceHome(topInset, bottomInset);
-    final settingsPage = _buildSettingsPage(topInset, bottomInset);
-    final switcherPage = _buildTerminalSwitcherPage(topInset, bottomInset);
-    final workspacePage = _buildWorkspace(topInset, bottomInset);
+    final textScale =
+        (_settings.appFontSize / MobileSettings.defaultAppFontSize).clamp(
+          0.75,
+          1.25,
+        );
 
-    return CoduxHomeShell(
-      metrics: CoduxHomeShellMetrics(
-        topInset: topInset,
-        bottomInset: bottomInset,
-        leftInset: leftInset,
-        edgeBackAnimation: _edgeBackController,
-      ),
-      pages: CoduxHomeShellPages(
-        deviceHome: deviceHome,
-        settingsPage: settingsPage,
-        switcherPage: switcherPage,
-        workspacePage: workspacePage,
-      ),
-      state: CoduxHomeShellState(
-        showSettings: _showSettings,
-        showTerminal: _showTerminal,
-        showTerminalSwitcher: _showTerminalSwitcher,
-      ),
-      overlays: CoduxHomeOverlayState(
-        showScanner: _showScanner,
-        pendingPairing: _pendingPairing,
-        pairingInFlight: _pairingInFlight,
-        pairingError: _pairingError,
-        showProjectForm: _showProjectForm,
-        projectFormTitle: _projectFormMode == ProjectFormMode.edit
-            ? _t('project.edit')
-            : _t('project.add'),
-        projectNameController: _projectNameController,
-        projectPathController: _projectPathController,
-        showFilePicker: _showFilePicker,
-        filePickerTitle: _t('project.pathLabel'),
-        filePickerPath: _filePickerPath,
-        filePickerParent: _filePickerParent,
-        filePickerEntries: _filePickerEntries,
-        filePickerLoading: _filePickerLoading,
-        showVoiceOverlay: _showVoiceOverlay,
-        voiceService: _voiceService,
-        editingFilePath: _editingFilePath,
-        fileEditorController: _fileEditorController,
-        fileEditorLoading: _fileEditorLoading,
-        fileEditorSaving: _fileEditorSaving,
-        fileEditorEditing: _fileEditorEditing,
-        fileEditorEditable: _fileEditorEditable,
-        blockingLoadingMessage: _blockingLoadingMessage,
-        toastMessage: _toastMessage,
-      ),
-      actions: CoduxHomeShellActions(
-        onBack: _handleBackNavigation,
-        onEdgeDragStart: _handleWorkspaceEdgeDragStart,
-        onEdgeDragUpdate: _handleWorkspaceEdgeDragUpdate,
-        onEdgeDragEnd: _handleWorkspaceEdgeDragEnd,
-        onEdgeDragCancel: _cancelWorkspaceEdgeBack,
-        onScannerDetected: _handleScannedPayload,
-        onCloseScanner: () => setState(() => _showScanner = false),
-        onCancelPairing: _cancelPairing,
-        onConfirmPairing: _confirmPairing,
-        onCloseProjectForm: () => setState(() => _showProjectForm = false),
-        onChooseProjectPath: _chooseProjectFormPath,
-        onSaveProjectForm: _saveProjectForm,
-        onCloseFilePicker: () {
-          _filePickerTimeoutTimer?.cancel();
-          setState(() => _showFilePicker = false);
+    return MediaQuery(
+      data: media.copyWith(textScaler: TextScaler.linear(textScale)),
+      child: Builder(
+        builder: (context) {
+          final deviceHome = _buildDeviceHome(topInset, bottomInset);
+          final settingsPage = _buildSettingsPage(topInset, bottomInset);
+          final switcherPage = _buildTerminalSwitcherPage(
+            topInset,
+            bottomInset,
+          );
+          final workspacePage = _buildWorkspace(topInset, bottomInset);
+          return CoduxHomeShell(
+            metrics: CoduxHomeShellMetrics(
+              topInset: topInset,
+              bottomInset: bottomInset,
+              leftInset: leftInset,
+              edgeBackAnimation: _edgeBackController,
+            ),
+            pages: CoduxHomeShellPages(
+              deviceHome: deviceHome,
+              settingsPage: settingsPage,
+              switcherPage: switcherPage,
+              workspacePage: workspacePage,
+            ),
+            state: CoduxHomeShellState(
+              showSettings: _showSettings,
+              showTerminal: _showTerminal,
+              showTerminalSwitcher: _showTerminalSwitcher,
+            ),
+            overlays: CoduxHomeOverlayState(
+              showScanner: _showScanner,
+              pendingPairing: _pendingPairing,
+              pairingInFlight: _pairingInFlight,
+              pairingError: _pairingError,
+              showProjectForm: _showProjectForm,
+              projectFormTitle: _projectFormMode == ProjectFormMode.edit
+                  ? _t('project.edit')
+                  : _t('project.add'),
+              projectNameController: _projectNameController,
+              projectPathController: _projectPathController,
+              showFilePicker: _showFilePicker,
+              filePickerTitle: _t('project.pathLabel'),
+              filePickerPath: _filePickerPath,
+              filePickerParent: _filePickerParent,
+              filePickerEntries: _filePickerEntries,
+              filePickerLoading: _filePickerLoading,
+              showVoiceOverlay: _showVoiceOverlay,
+              voiceService: _voiceService,
+              editingFilePath: _editingFilePath,
+              fileEditorController: _fileEditorController,
+              fileEditorLoading: _fileEditorLoading,
+              fileEditorSaving: _fileEditorSaving,
+              fileEditorEditing: _fileEditorEditing,
+              fileEditorEditable: _fileEditorEditable,
+              blockingLoadingMessage: _blockingLoadingMessage,
+              toastMessage: _toastMessage,
+            ),
+            actions: CoduxHomeShellActions(
+              onBack: _handleBackNavigation,
+              onEdgeDragStart: _handleWorkspaceEdgeDragStart,
+              onEdgeDragUpdate: _handleWorkspaceEdgeDragUpdate,
+              onEdgeDragEnd: _handleWorkspaceEdgeDragEnd,
+              onEdgeDragCancel: _cancelWorkspaceEdgeBack,
+              onScannerDetected: _handleScannedPayload,
+              onCloseScanner: () => setState(() => _showScanner = false),
+              onCancelPairing: _cancelPairing,
+              onConfirmPairing: _confirmPairing,
+              onCloseProjectForm: () =>
+                  setState(() => _showProjectForm = false),
+              onChooseProjectPath: _chooseProjectFormPath,
+              onSaveProjectForm: _saveProjectForm,
+              onCloseFilePicker: () {
+                _filePickerTimeoutTimer?.cancel();
+                setState(() => _showFilePicker = false);
+              },
+              onOpenFilePickerPath: _openRemoteFilePicker,
+              onSelectFilePickerEntry: _selectRemoteProjectFolder,
+              onOpenFilePickerHome: () => _openRemoteFilePicker(),
+              onOpenFilePickerRoot: () => _openRemoteFilePicker('/'),
+              onOpenFilePickerVolumes: () => _openRemoteFilePicker('/Volumes'),
+              onCloseVoice: () => setState(() => _showVoiceOverlay = false),
+              onSendVoiceText: (text) {
+                _insertTerminalText(text);
+                setState(() => _showVoiceOverlay = false);
+              },
+              onCloseFileEditor: () => setState(() => _editingFilePath = null),
+              onEditFile: () => setState(() => _fileEditorEditing = true),
+              onSaveFile: _saveEditingFile,
+            ),
+          );
         },
-        onOpenFilePickerPath: _openRemoteFilePicker,
-        onSelectFilePickerEntry: _selectRemoteProjectFolder,
-        onOpenFilePickerHome: () => _openRemoteFilePicker(),
-        onOpenFilePickerRoot: () => _openRemoteFilePicker('/'),
-        onOpenFilePickerVolumes: () => _openRemoteFilePicker('/Volumes'),
-        onCloseVoice: () => setState(() => _showVoiceOverlay = false),
-        onSendVoiceText: (text) {
-          _insertTerminalText(text);
-          setState(() => _showVoiceOverlay = false);
-        },
-        onCloseFileEditor: () => setState(() => _editingFilePath = null),
-        onEditFile: () => setState(() => _fileEditorEditing = true),
-        onSaveFile: _saveEditingFile,
       ),
     );
   }
@@ -4213,6 +4226,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       currentAccent: prefs.accent,
       currentLocale: prefs.locale,
       currentLogLevel: _settings.logLevel,
+      appFontSize: _settings.appFontSize,
+      terminalFontSize: _settings.terminalFontSize,
       onChangeAccent: (next) {
         widget.onChangeAccent(next);
         setState(() => _settings = _settings.copyWith(accentId: next.id));
@@ -4224,6 +4239,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onChangeLogLevel: (next) {
         CoduxLog.setLevelName(next);
         setState(() => _settings = _settings.copyWith(logLevel: next));
+      },
+      onChangeAppFontSize: (next) {
+        final settings = _settings.copyWith(appFontSize: next);
+        setState(() => _settings = settings);
+        unawaited(_storage.saveSettings(settings));
+      },
+      onChangeTerminalFontSize: (next) {
+        final settings = _settings.copyWith(terminalFontSize: next);
+        setState(() => _settings = settings);
+        unawaited(_storage.saveSettings(settings));
       },
       onUseDetectedName: () =>
           setState(() => _settingsNameController.text = _detectedDeviceName),
@@ -4288,6 +4313,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       keyboardVisible: _keyboardVisible,
       terminalCursorBottom: _terminalCursorBottom,
       terminalScreen: _activeTerminalScreen,
+      terminalFontSize: _settings.terminalFontSize,
       onConnect: () => _connect(),
       onInput: _queueTerminalTyping,
       onResize: (cols, rows) {
