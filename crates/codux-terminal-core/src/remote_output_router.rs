@@ -147,6 +147,10 @@ pub struct RemoteTerminalOutputRouter {
     active_buffer_request_by_session: HashMap<String, String>,
     restore_buffer_request_ids: HashSet<String>,
     gap_sessions: HashSet<String>,
+    /// Per-session render generation, bumped whenever the screen could change.
+    /// The UI caches the decoded screen snapshot keyed by this so it only
+    /// re-decodes after a real mutation.
+    render_gen: HashMap<String, u64>,
 }
 
 impl RemoteTerminalOutputRouter {
@@ -160,7 +164,69 @@ impl RemoteTerminalOutputRouter {
             active_buffer_request_by_session: HashMap::new(),
             restore_buffer_request_ids: HashSet::new(),
             gap_sessions: HashSet::new(),
+            render_gen: HashMap::new(),
         }
+    }
+
+    fn bump_render(&mut self, session_id: &str) {
+        *self.render_gen.entry(session_id.to_string()).or_insert(0) += 1;
+    }
+
+    pub fn render_generation(&self, session_id: &str) -> u64 {
+        self.render_gen.get(session_id).copied().unwrap_or(0)
+    }
+
+    // ---- render path (screen operations on the owned sessions) ----------
+
+    pub fn screen_snapshot_json(&self, session_id: &str) -> Option<String> {
+        let session = self.sessions.get(session_id)?;
+        serde_json::to_string(&session.screen_snapshot()).ok()
+    }
+
+    pub fn resize_screen(&mut self, session_id: &str, cols: usize, rows: usize) {
+        self.ensure_session(session_id).resize_screen(cols, rows);
+        self.bump_render(session_id);
+    }
+
+    pub fn scroll_screen_lines(&mut self, session_id: &str, lines: i32) {
+        self.ensure_session(session_id).scroll_screen_lines(lines);
+        self.bump_render(session_id);
+    }
+
+    pub fn scroll_screen_pixels(&mut self, session_id: &str, pixels: f64, cell_height: f64) {
+        self.ensure_session(session_id)
+            .scroll_screen_pixels(pixels, cell_height);
+        self.bump_render(session_id);
+    }
+
+    pub fn settle_screen_pixel_scroll(&mut self, session_id: &str) {
+        self.ensure_session(session_id).settle_screen_pixel_scroll();
+        self.bump_render(session_id);
+    }
+
+    pub fn scroll_screen_to_bottom(&mut self, session_id: &str) {
+        self.ensure_session(session_id).scroll_screen_to_bottom();
+        self.bump_render(session_id);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn apply_host_scroll(
+        &mut self,
+        session_id: &str,
+        screen_data: &str,
+        display_offset: usize,
+        total_lines: usize,
+        margin_rows: usize,
+        margin_rows_below: usize,
+    ) {
+        self.ensure_session(session_id).apply_host_scroll_snapshot(
+            screen_data,
+            display_offset,
+            total_lines,
+            margin_rows,
+            margin_rows_below,
+        );
+        self.bump_render(session_id);
     }
 
     // ---- session access -------------------------------------------------
@@ -743,12 +809,14 @@ impl RemoteTerminalOutputRouter {
         output_seq: Option<TerminalSequence>,
     ) -> Vec<String> {
         self.gap_sessions.remove(session_id);
-        self.session(session_id).replace_from_baseline_screen(
+        let replay = self.session(session_id).replace_from_baseline_screen(
             data,
             screen_data,
             buffer_length.and_then(|value| usize::try_from(value).ok()),
             output_seq,
-        )
+        );
+        self.bump_render(session_id);
+        replay
     }
 
     fn apply_live_to_session(
@@ -767,15 +835,18 @@ impl RemoteTerminalOutputRouter {
                 .map(str::to_string)
                 .unwrap_or_default();
             let combined = format!("{existing}{data}");
-            return self.session(session_id).replace_from_baseline_screen(
+            let replay = self.session(session_id).replace_from_baseline_screen(
                 &combined,
                 screen_data,
                 buffer_len,
                 output_seq,
             );
+            self.bump_render(session_id);
+            return replay;
         }
         self.session(session_id)
             .append_live_screen(data, screen_data, buffer_len, output_seq);
+        self.bump_render(session_id);
         Vec::new()
     }
 }

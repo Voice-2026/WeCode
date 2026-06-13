@@ -2500,3 +2500,388 @@ String? _nullableString(Object? value) {
   final text = '$value';
   return text.isEmpty ? null : text;
 }
+
+String? _takeStringOrNull(Pointer<Utf8> pointer) {
+  if (pointer == nullptr) return null;
+  try {
+    return pointer.toDartString();
+  } finally {
+    _stringFree(pointer);
+  }
+}
+
+// ---- RemoteTerminalOutputRouter FFI -------------------------------------
+
+final _outputRouterNew = _dylib
+    .lookupFunction<
+      Pointer<Void> Function(Int64, Int64),
+      Pointer<Void> Function(int, int)
+    >('codux_output_router_new');
+final _outputRouterFree = _dylib
+    .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+      'codux_output_router_free',
+    );
+final _outputRouterAccept = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
+    >('codux_output_router_accept');
+final _outputRouterBindSession = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>, Bool),
+      void Function(Pointer<Void>, Pointer<Utf8>, bool)
+    >('codux_output_router_bind_session');
+final _outputRouterRemoveSession = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>),
+      void Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_remove_session');
+final _outputRouterStartBufferRequest = _dylib
+    .lookupFunction<
+      Bool Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Bool, Bool, Bool),
+      bool Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, bool, bool, bool)
+    >('codux_output_router_start_buffer_request');
+final _outputRouterEvictInactive = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Int64),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, int)
+    >('codux_output_router_evict_inactive');
+final _outputRouterResetTransient = _dylib
+    .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+      'codux_output_router_reset_transient',
+    );
+final _outputRouterResetSessionTransient = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>, Bool),
+      void Function(Pointer<Void>, Pointer<Utf8>, bool)
+    >('codux_output_router_reset_session_transient');
+final _outputRouterResetAll = _dylib
+    .lookupFunction<Void Function(Pointer<Void>), void Function(Pointer<Void>)>(
+      'codux_output_router_reset_all',
+    );
+final _outputRouterContent = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_content');
+final _outputRouterHasCachedOutput = _dylib
+    .lookupFunction<
+      Bool Function(Pointer<Void>, Pointer<Utf8>),
+      bool Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_has_cached_output');
+final _outputRouterBufferOffset = _dylib
+    .lookupFunction<
+      Int64 Function(Pointer<Void>, Pointer<Utf8>),
+      int Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_buffer_offset');
+final _outputRouterSequenceFor = _dylib
+    .lookupFunction<
+      Int64 Function(Pointer<Void>, Pointer<Utf8>),
+      int Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_sequence_for');
+final _outputRouterHasSequenceGap = _dylib
+    .lookupFunction<
+      Bool Function(Pointer<Void>, Pointer<Utf8>),
+      bool Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_has_sequence_gap');
+final _outputRouterActiveBufferRequestId = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_active_buffer_request_id');
+final _outputRouterHasActiveBufferRequest = _dylib
+    .lookupFunction<
+      Bool Function(Pointer<Void>, Pointer<Utf8>),
+      bool Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_has_active_buffer_request');
+final _outputRouterRenderGeneration = _dylib
+    .lookupFunction<
+      Int64 Function(Pointer<Void>, Pointer<Utf8>),
+      int Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_render_generation');
+final _outputRouterScreenSnapshotJson = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_screen_snapshot_json');
+final _outputRouterResizeScreen = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64),
+      void Function(Pointer<Void>, Pointer<Utf8>, int, int)
+    >('codux_output_router_resize_screen');
+final _outputRouterScrollScreenLines = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>, Int64),
+      void Function(Pointer<Void>, Pointer<Utf8>, int)
+    >('codux_output_router_scroll_screen_lines');
+final _outputRouterScrollScreenPixels = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>, Double, Double),
+      void Function(Pointer<Void>, Pointer<Utf8>, double, double)
+    >('codux_output_router_scroll_screen_pixels');
+final _outputRouterSettleScreenPixelScroll = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>),
+      void Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_settle_screen_pixel_scroll');
+final _outputRouterScrollScreenToBottom = _dylib
+    .lookupFunction<
+      Void Function(Pointer<Void>, Pointer<Utf8>),
+      void Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_scroll_screen_to_bottom');
+final _outputRouterApplyHostScroll = _dylib
+    .lookupFunction<
+      Void Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Int64,
+        Int64,
+        Int64,
+        Int64,
+      ),
+      void Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        int,
+        int,
+        int,
+        int,
+      )
+    >('codux_output_router_apply_host_scroll');
+
+/// Dart handle for the Rust `RemoteTerminalOutputRouter`: terminal output
+/// orchestration + render-path screen ops, all owned by the shared core.
+class RemoteOutputRouter {
+  RemoteOutputRouter({required int maxBufferChars, required int maxCachedChars})
+    : _handle = _outputRouterNew(maxBufferChars, maxCachedChars);
+
+  Pointer<Void> _handle;
+
+  bool get isDisposed => _handle == nullptr;
+
+  Pointer<Void> _liveHandle() {
+    if (_handle == nullptr) {
+      throw StateError('RemoteOutputRouter has been disposed');
+    }
+    return _handle;
+  }
+
+  void dispose() {
+    if (_handle == nullptr) return;
+    _outputRouterFree(_handle);
+    _handle = nullptr;
+  }
+
+  T _withSession<T>(String sessionId, T Function(Pointer<Utf8>) body) {
+    final pointer = sessionId.toNativeUtf8();
+    try {
+      return body(pointer);
+    } finally {
+      malloc.free(pointer);
+    }
+  }
+
+  List<dynamic> accept(String messageJson, String? activeSessionId) {
+    final messagePtr = messageJson.toNativeUtf8();
+    final activePtr = (activeSessionId ?? '').toNativeUtf8();
+    try {
+      final result = _takeString(
+        _outputRouterAccept(_liveHandle(), messagePtr, activePtr),
+      );
+      if (result.isEmpty) return const [];
+      final decoded = jsonDecode(result);
+      return decoded is List ? decoded : const [];
+    } finally {
+      malloc.free(messagePtr);
+      malloc.free(activePtr);
+    }
+  }
+
+  void bindSession(String sessionId, {required bool requireBaseline}) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterBindSession(_liveHandle(), ptr, requireBaseline),
+    );
+  }
+
+  void removeSession(String sessionId) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterRemoveSession(_liveHandle(), ptr),
+    );
+  }
+
+  bool startBufferRequest(
+    String sessionId,
+    String requestId, {
+    bool requireBaseline = false,
+    bool resetAssembler = true,
+    bool replaceActive = false,
+  }) {
+    final sessionPtr = sessionId.toNativeUtf8();
+    final requestPtr = requestId.toNativeUtf8();
+    try {
+      return _outputRouterStartBufferRequest(
+        _liveHandle(),
+        sessionPtr,
+        requestPtr,
+        requireBaseline,
+        resetAssembler,
+        replaceActive,
+      );
+    } finally {
+      malloc.free(sessionPtr);
+      malloc.free(requestPtr);
+    }
+  }
+
+  List<String> evictInactive(String activeSessionId, {int maxSessions = 8}) {
+    return _withSession(activeSessionId, (ptr) {
+      final result = _takeString(
+        _outputRouterEvictInactive(_liveHandle(), ptr, maxSessions),
+      );
+      if (result.isEmpty) return const <String>[];
+      final decoded = jsonDecode(result);
+      return decoded is List
+          ? decoded.map((value) => '$value').toList()
+          : const <String>[];
+    });
+  }
+
+  void resetTransient() => _outputRouterResetTransient(_liveHandle());
+
+  void resetSessionTransient(String sessionId, {bool resetSequence = false}) {
+    _withSession(
+      sessionId,
+      (ptr) =>
+          _outputRouterResetSessionTransient(_liveHandle(), ptr, resetSequence),
+    );
+  }
+
+  void resetAll() => _outputRouterResetAll(_liveHandle());
+
+  String? content(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _takeStringOrNull(_outputRouterContent(_liveHandle(), ptr)),
+  );
+
+  bool hasCachedOutput(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterHasCachedOutput(_liveHandle(), ptr),
+  );
+
+  int bufferOffset(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterBufferOffset(_liveHandle(), ptr),
+  );
+
+  int sequenceFor(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterSequenceFor(_liveHandle(), ptr),
+  );
+
+  bool hasSequenceGap(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterHasSequenceGap(_liveHandle(), ptr),
+  );
+
+  String? activeBufferRequestId(String sessionId) => _withSession(
+    sessionId,
+    (ptr) =>
+        _takeStringOrNull(_outputRouterActiveBufferRequestId(_liveHandle(), ptr)),
+  );
+
+  bool hasActiveBufferRequest(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterHasActiveBufferRequest(_liveHandle(), ptr),
+  );
+
+  int renderGeneration(String sessionId) => _withSession(
+    sessionId,
+    (ptr) => _outputRouterRenderGeneration(_liveHandle(), ptr),
+  );
+
+  TerminalScreenSnapshot? screenSnapshot(String sessionId) {
+    final json = _withSession(
+      sessionId,
+      (ptr) =>
+          _takeStringOrNull(_outputRouterScreenSnapshotJson(_liveHandle(), ptr)),
+    );
+    if (json == null) return null;
+    final decoded = jsonDecode(json);
+    if (decoded is! Map) return null;
+    return TerminalScreenSnapshot.fromJson(Map<String, dynamic>.from(decoded));
+  }
+
+  void resizeScreen(String sessionId, {required int cols, required int rows}) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterResizeScreen(_liveHandle(), ptr, cols, rows),
+    );
+  }
+
+  void scrollScreenLines(String sessionId, int lines) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterScrollScreenLines(_liveHandle(), ptr, lines),
+    );
+  }
+
+  void scrollScreenPixels(
+    String sessionId, {
+    required double pixels,
+    required double cellHeight,
+  }) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterScrollScreenPixels(
+        _liveHandle(),
+        ptr,
+        pixels,
+        cellHeight,
+      ),
+    );
+  }
+
+  void settleScreenPixelScroll(String sessionId) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterSettleScreenPixelScroll(_liveHandle(), ptr),
+    );
+  }
+
+  void scrollScreenToBottom(String sessionId) {
+    _withSession(
+      sessionId,
+      (ptr) => _outputRouterScrollScreenToBottom(_liveHandle(), ptr),
+    );
+  }
+
+  void applyHostScroll(
+    String sessionId, {
+    required String screenData,
+    required int displayOffset,
+    required int totalLines,
+    int marginRows = 0,
+    int marginRowsBelow = 0,
+  }) {
+    final sessionPtr = sessionId.toNativeUtf8();
+    final screenDataPtr = screenData.toNativeUtf8();
+    try {
+      _outputRouterApplyHostScroll(
+        _liveHandle(),
+        sessionPtr,
+        screenDataPtr,
+        displayOffset,
+        totalLines,
+        marginRows,
+        marginRowsBelow,
+      );
+    } finally {
+      malloc.free(sessionPtr);
+      malloc.free(screenDataPtr);
+    }
+  }
+}
