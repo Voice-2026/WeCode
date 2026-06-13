@@ -12,28 +12,33 @@ void main() {
       rows: 24,
       keyboardVisible: false,
     );
+    // resize() only proposes; the dedup cache is committed via markSent after
+    // the caller actually sends the envelope.
+    expect(first, isNotNull);
+    expect(first!.cols, 80);
+    expect(first.rows, 24);
+    controller.markSent('session-1', first);
+
     final duplicate = controller.resize(
       sessionId: 'session-1',
       cols: 80,
       rows: 24,
       keyboardVisible: false,
     );
-
-    expect(first, isNotNull);
-    expect(first!.cols, 80);
-    expect(first.rows, 24);
     expect(duplicate, isNull);
   });
 
   test('keeps the last row count while keyboard is visible', () {
     final controller = TerminalViewportController();
 
-    controller.resize(
+    final base = controller.resize(
       sessionId: 'session-1',
       cols: 80,
       rows: 24,
       keyboardVisible: false,
     );
+    controller.markSent('session-1', base!);
+
     final next = controller.resize(
       sessionId: 'session-1',
       cols: 100,
@@ -74,7 +79,7 @@ void main() {
     expect(flushed.rows, 10);
   });
 
-  test('force flush deduplicates per session but emits for a new session', () {
+  test('force flush always proposes and a new session flushes pending', () {
     final controller = TerminalViewportController();
 
     controller.resize(
@@ -84,14 +89,17 @@ void main() {
       keyboardVisible: false,
     );
 
-    expect(
-      controller.flushPending(sessionId: 'session-1', force: true),
-      isNull,
-    );
+    // force bypasses the dedup cache so a dropped envelope cannot suppress the
+    // resize (used at bind to guarantee the host is told the size).
+    final forced = controller.flushPending(sessionId: 'session-1', force: true);
+    expect(forced, isNotNull);
+    expect(forced!.cols, 80);
+    expect(forced.rows, 24);
 
+    // A different session with no committed size flushes the pending size.
     final nextSession = controller.flushPending(
       sessionId: 'session-2',
-      force: true,
+      force: false,
     );
     expect(nextSession, isNotNull);
     expect(nextSession!.cols, 80);
