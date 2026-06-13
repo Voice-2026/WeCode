@@ -841,6 +841,9 @@ fn remote_pairing_overlay(
         .justify_center()
         .p(px(16.0))
         .bg(cx.theme().overlay)
+        // Block clicks (e.g. on the confirm button) from passing through to the
+        // settings content behind the modal backdrop.
+        .occlude()
         .child(
             div()
                 .w(px(420.0))
@@ -1033,6 +1036,9 @@ fn remote_pending_pairing_overlay(
         .justify_center()
         .p(px(24.0))
         .bg(cx.theme().overlay)
+        // Block clicks (e.g. on the confirm button) from passing through to the
+        // settings content behind the modal backdrop.
+        .occlude()
         .child(
             div()
                 .w(px(400.0))
