@@ -4,6 +4,37 @@
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-14
+
+### 新增
+
+- 新增 MiMo Code AI runtime 支持，包含托管 wrapper 命令、运行状态探测、hook 接入、设置项覆盖和历史索引，并纳入 Codex、Claude Code、Gemini CLI、OpenCode、Kiro CLI、Kimi Code、CodeWhale、Agy 的统一 runtime 体系。
+- 新增跨端共用 runtime 与终端基础 crates：protocol、transport、terminal core、terminal PTY、runtime core 和 protocol FFI 现在作为桌面端、移动端、服务端以及后续 Headless Host 的公共基础层。
+- 新增远程 Host runtime 事件，用于发布终端布局变化，移动端创建 / 删除分屏和标签后桌面端不再依赖轮询刷新。
+- 新增 v1.8.0 服务端 Linux 发布打包流程，relay / service 二进制可以跟桌面端使用同一个主仓库 tag 发布。
+
+### 调整
+
+- 统一远程终端链路：transport / protocol 消息先进入 runtime / terminal session 模型，再由桌面端和移动端从模型渲染，不再各自维护独立的终端历史链路。
+- 移动端终端渲染改为围绕共享 headless terminal screen model 处理，覆盖 scrollback、光标位置、输入、字体大小和移动端 viewport 行为。
+- 重构远程布局同步，项目、worktree、分屏、标签和终端 id 的关系统一通过桌面 Host 使用的 runtime 关系模型解析。
+- 优化 WebRTC / WebSocket 传输状态处理，延迟、直连 / 中继路径变化和重连状态由 transport 层统一发布，减少 UI 层兜底逻辑。
+- 优化移动端显示设置，应用文字和终端文字分开配置，并提供更贴合 iOS / Android 的默认字号。
+- 更新发布自动化，主仓库 tag 可以产出桌面端和服务端资产，移动端发布仓库使用同名源码 tag 触发 Android 与 iOS 构建。
+
+### 修复
+
+- 修复移动端创建的终端分屏 / 标签不会同步到桌面端的问题，同时补齐反向删除和过期布局清理。
+- 修复删除最后一个终端导致空布局被自动重建但不同步的问题，现在会阻止无效空布局并保持 Host / Controller 状态一致。
+- 修复移动端切换 worktree 后选中任务丢失、终端空白或必须手动点分屏才切换的问题。
+- 修复 resize / layout 消息被当作终端内容变化重放后造成重复输出和底部空白视口的问题。
+- 修复移动端恢复 TUI 会话时只显示部分屏幕或大历史恢复后丢失 scrollback 的问题。
+- 修复共享终端模型接入后的光标位置、字符宽度、输入法退格 / 删除和终端点击行为问题。
+- 修复远程布局更新依赖 tick / 轮询的问题，终端布局变化现在通过明确的 runtime event 发布。
+- 修复桌面端 worktree 终端路径 / cwd 显示错误，终端元数据会跟随关联 worktree，不再错误回退为 `~`。
+- 修复移动端项目 / worktree 选中状态被无关项目切换重置的问题，各主控端维护自己的 active view，同时消费共享 Host 模型。
+- 修复 terminal list / listener 噪音导致不必要的历史加载遮罩、重复布局刷新或移动端延迟渲染的问题。
+
 ## [1.7.6] - 2026-06-09
 
 ### 新增

@@ -4,6 +4,31 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-14
+
+### Added
+
+- Added shared Rust protocol FFI usage for the mobile controller path so mobile consumes the same protocol payloads, transport metadata, latency events, and terminal layout messages as desktop.
+- Added mobile-side support for controller-created split, tab, worktree, and terminal layout actions through the host runtime model.
+- Added separate mobile display controls for application text size and terminal text size, with terminal presets from small to extra large.
+
+### Changed
+
+- Reworked the mobile terminal screen to render from the shared headless terminal model instead of a separate Dart terminal history path.
+- Reworked project, worktree, split, and tab selection so mobile keeps its own active UI selection while receiving the shared host project/worktree/terminal relationship model.
+- Improved terminal scrolling, cursor drawing, character-width measurement, IME input forwarding, and TUI restore behavior on iOS and Android.
+- Reduced duplicated mobile fallback logic now covered by the shared runtime, protocol, and terminal crates.
+
+### Fixed
+
+- Fixed blank terminal panes when switching projects, switching worktrees, returning from the background, or reconnecting to a restarted desktop host.
+- Fixed mobile-created split/tab actions not syncing back to desktop and fixed desktop-created layout changes not consistently appearing on mobile.
+- Fixed deleting split/tab entries leaving stale mobile layout state, including the invalid "delete last terminal" case.
+- Fixed terminal-history loading overlays flashing repeatedly during normal live output and project switches.
+- Fixed large restored TUI sessions showing only one screen, losing scrollback, or rendering cursor/input positions incorrectly.
+- Fixed IME backspace/delete, terminal tap focus, terminal font fallback, and mobile cursor rendering regressions.
+- Fixed latency and transport path labels not updating after direct/relay changes or desktop restart.
+
 ## [1.7.5] - 2026-06-09
 
 ### Added

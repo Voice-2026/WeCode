@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-14
+
+### Added
+
+- Added MiMo Code as a supported AI runtime, including managed wrapper commands, runtime detection, hook integration, settings coverage, and history indexing alongside Codex, Claude Code, Gemini CLI, OpenCode, Kiro CLI, Kimi Code, CodeWhale, and Agy.
+- Added shared runtime and terminal crates for the cross-device architecture: protocol, transport, terminal core, terminal PTY, runtime core, and protocol FFI now provide the common foundation for desktop, mobile, server, and future headless hosts.
+- Added remote host runtime events for terminal layout changes so controller-created splits, tabs, and closes can be reflected by desktop without polling.
+- Added v1.8.0 server release packaging for Linux deployments so the relay/service binary can be published from the same tag as the desktop release.
+
+### Changed
+
+- Standardized the remote terminal flow around a single model: transport/protocol messages enter the runtime/terminal session model first, then desktop and mobile render from that state instead of owning separate terminal history paths.
+- Reworked mobile terminal rendering around the shared headless terminal screen model, including scrollback, cursor placement, input handling, terminal font sizing, and mobile-safe viewport behavior.
+- Reworked remote layout synchronization so project, worktree, split, tab, and terminal identifiers are resolved through the same runtime relationship model used by the desktop host.
+- Improved WebRTC/WebSocket transport status handling so latency, direct/relay path changes, and reconnect state are surfaced through the transport layer instead of scattered UI fallbacks.
+- Improved mobile settings typography with separate application and terminal text-size controls and platform-appropriate defaults.
+- Updated release automation so desktop and server assets can be produced from the main repository tag while the mobile release repository can reuse the same source tag for Android and iOS builds.
+
+### Fixed
+
+- Fixed mobile-created terminal splits and tabs not appearing on desktop, including the reverse close path and stale layout reconciliation.
+- Fixed deletion of the last terminal in a project/worktree scope by preventing invalid empty layouts and keeping host/controller state aligned.
+- Fixed mobile worktree switching losing the selected task, showing empty terminal panes, or requiring manual split selection before the terminal changed.
+- Fixed duplicate terminal output and blank lower viewport regions caused by resize/layout messages being replayed as terminal content changes.
+- Fixed restored TUI sessions on mobile showing only a partial screen or losing scrollback after large history recovery.
+- Fixed cursor placement, terminal character width, IME backspace/delete handling, and mobile terminal tap behavior after switching to the shared terminal model.
+- Fixed remote layout updates relying on tick/poll behavior; terminal layout changes now publish explicit runtime events.
+- Fixed desktop path/cwd display for worktree terminals so terminal metadata follows the associated worktree instead of falling back to `~`.
+- Fixed mobile project/worktree selection state being reset by unrelated project switches; each controller keeps its own active view while consuming the shared host model.
+- Fixed terminal list/listener noise that could trigger unnecessary history reload overlays, duplicate layout refreshes, or delayed mobile rendering.
+
 ## [1.7.6] - 2026-06-09
 
 ### Added

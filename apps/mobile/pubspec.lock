@@ -63,7 +63,7 @@ packages:
       path: "plugin/codux_protocol_ffi"
       relative: true
     source: path
-    version: "1.7.6"
+    version: "1.8.0"
   collection:
     dependency: transitive
     description:

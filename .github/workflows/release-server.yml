@@ -1,0 +1,89 @@
+name: Release Server
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Source tag to build, for example v1.8.0."
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux-amd64:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_REF }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Restore Rust cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-server-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            rust-server-release-${{ runner.os }}-
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          version="${SOURCE_REF#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${SOURCE_REF}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release notes
+        shell: bash
+        env:
+          RELEASE_NOTES_PATH: dist/release-notes.md
+        run: |
+          mkdir -p dist
+          node apps/desktop/scripts/release/prepare-release.mjs "${SOURCE_REF}" auto
+
+      - name: Build server package
+        shell: bash
+        run: bash apps/server/scripts/release/build.sh "${{ steps.meta.outputs.version }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codux-service-${{ steps.meta.outputs.version }}-linux-amd64
+          path: |
+            dist/codux-service-${{ steps.meta.outputs.version }}-linux-amd64.tar.gz
+            dist/codux-service-${{ steps.meta.outputs.version }}-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub release assets
+        shell: bash
+        run: |
+          tag="${{ steps.meta.outputs.tag }}"
+          version="${{ steps.meta.outputs.version }}"
+          if ! gh release view "${tag}" >/dev/null 2>&1; then
+            gh release create "${tag}" --title "Codux ${version}" --notes-file dist/release-notes.md
+          fi
+          gh release upload "${tag}" \
+            "dist/codux-service-${version}-linux-amd64.tar.gz" \
+            "dist/codux-service-${version}-linux-amd64.tar.gz.sha256" \
+            --clobber

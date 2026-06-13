@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'codux_protocol_ffi'
-  s.version          = '1.7.6'
+  s.version          = '1.8.0'
   s.summary          = 'Rust-backed Codux remote protocol bindings.'
   s.description      = <<-DESC
 Codux remote protocol FFI bridge backed by the shared Rust protocol crate.

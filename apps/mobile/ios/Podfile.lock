@@ -1,5 +1,5 @@
 PODS:
-  - codux_protocol_ffi (1.7.6):
+  - codux_protocol_ffi (1.8.0):
     - Flutter
   - Flutter (1.0.0)
   - sherpa_onnx_ios (1.13.0):
@@ -19,7 +19,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/sherpa_onnx_ios/ios"
 
 SPEC CHECKSUMS:
-  codux_protocol_ffi: 2337e22043048013a0ef84abe8b6b422a0ba797b
+  codux_protocol_ffi: 814ff617d2bd11c72373fb40a42e67d16451b131
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   sherpa_onnx_ios: dd99d1ea762b50700812684ce429a95709f3756e
 
