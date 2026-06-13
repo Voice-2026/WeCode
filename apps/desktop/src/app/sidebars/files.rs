@@ -157,6 +157,27 @@ pub(in crate::app) fn file_section(
                 }
             }
         }))
+        // Clicking anywhere in the panel outside the draft row (which stops
+        // propagation) finishes an active name draft: empty cancels, non-empty
+        // confirms — the same rule as losing focus. Deferred so we don't
+        // re-enter FileSidebarView while it is mid-update.
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener({
+                let app_entity = app_entity.clone();
+                move |_view, _event, window, cx| {
+                    if app_entity.read(cx).file_name_draft_kind.is_none() {
+                        return;
+                    }
+                    let app_entity = app_entity.clone();
+                    window.defer(cx, move |window, cx| {
+                        cx.update_entity(&app_entity, |app, cx| {
+                            app.finish_file_name_draft_on_blur(window, cx);
+                        });
+                    });
+                }
+            }),
+        )
         .child(assistant_panel_header(
             labels.title.clone(),
             HeroIconName::Folder,
@@ -512,6 +533,12 @@ fn file_name_draft_row(
         .flex()
         .items_center()
         .bg(cx.theme().transparent)
+        // Clicks on the draft row position the input caret; stop them here so
+        // the panel's outside-click handler does not treat them as "clicked
+        // elsewhere" and finish the draft.
+        .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
+            cx.stop_propagation();
+        })
         .child(
             div()
                 .w(px(18.0))
