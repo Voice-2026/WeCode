@@ -1559,11 +1559,18 @@ mod tests {
         );
         assert_eq!(
             palette.resolve_fg(&TerminalScreenColor::Default, false, true),
-            dim_color(rgb_to_hsla(TerminalRgb {
-                r: 0xF8,
-                g: 0xF8,
-                b: 0xF2
-            }))
+            dim_color(
+                rgb_to_hsla(TerminalRgb {
+                    r: 0xF8,
+                    g: 0xF8,
+                    b: 0xF2
+                }),
+                rgb_to_hsla(TerminalRgb {
+                    r: 0x28,
+                    g: 0x2A,
+                    b: 0x36
+                })
+            )
         );
         assert_eq!(
             hsla_to_rgb(palette.resolve_fg(

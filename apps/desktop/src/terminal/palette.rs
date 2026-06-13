@@ -181,7 +181,7 @@ impl ColorPalette {
             resolved = self.extended_colors[*index as usize + 8];
         }
         if dim {
-            resolved = dim_color(resolved);
+            resolved = dim_color(resolved, self.background);
         }
         resolved
     }
@@ -214,7 +214,7 @@ impl ColorPalette {
             "cursor" => self.cursor,
             "selection" => self.selection,
             "brightForeground" | "bright_foreground" => brighten_color(self.foreground),
-            "dimForeground" | "dim_foreground" => dim_color(self.foreground),
+            "dimForeground" | "dim_foreground" => dim_color(self.foreground, self.background),
             _ => default,
         }
     }
@@ -343,9 +343,23 @@ fn gpui_rgb(r: u8, g: u8, b: u8) -> Hsla {
     rgb(((r as u32) << 16) | ((g as u32) << 8) | b as u32).into()
 }
 
-fn dim_color(mut color: Hsla) -> Hsla {
-    color.l *= 0.7;
-    color
+fn dim_color(color: Hsla, background: Hsla) -> Hsla {
+    // "Dim" means lower contrast against the background, not "darker". Blending
+    // a fixed fraction toward the actual background fades the text on both dark
+    // themes (toward black) and light themes (toward white). The previous
+    // `l *= 0.7` only darkened, which on a light background pushed dim text
+    // toward the background and made it look washed out / too pale.
+    const DIM_BLEND: f32 = 0.4;
+    let fg = hsla_to_rgb(color);
+    let bg = hsla_to_rgb(background);
+    let mix = |f: u8, b: u8| -> u8 {
+        (f as f32 * (1.0 - DIM_BLEND) + b as f32 * DIM_BLEND).round() as u8
+    };
+    rgb_to_hsla(TerminalRgb {
+        r: mix(fg.r, bg.r),
+        g: mix(fg.g, bg.g),
+        b: mix(fg.b, bg.b),
+    })
 }
 
 fn brighten_color(mut color: Hsla) -> Hsla {
