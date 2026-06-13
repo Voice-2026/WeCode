@@ -7,6 +7,7 @@ mod codex;
 mod gemini;
 mod kimi;
 mod kiro;
+mod mimo;
 mod opencode;
 
 pub const AI_RUNTIME_TOOL_DRIVERS: &[AIRuntimeToolDriver] = &[
@@ -17,6 +18,7 @@ pub const AI_RUNTIME_TOOL_DRIVERS: &[AIRuntimeToolDriver] = &[
     kiro::DRIVER,
     codewhale::DRIVER,
     kimi::DRIVER,
+    mimo::DRIVER,
     agy::DRIVER,
 ];
 

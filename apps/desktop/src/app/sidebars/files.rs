@@ -1,6 +1,6 @@
 use super::*;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
-use gpui::{ClickEvent, ClipboardEntry, ImageFormat, Point, ScrollWheelEvent};
+use gpui::{ClickEvent, ClipboardEntry, Focusable, ImageFormat, Point, ScrollWheelEvent};
 use gpui_component::input::{Input, InputEvent, InputState, SelectAll};
 use std::{ops::Neg, path::Path};
 
@@ -100,10 +100,16 @@ pub(in crate::app) fn file_section(
                     && !keystroke.modifiers.shift
                     && keystroke.key.eq_ignore_ascii_case("c")
                 {
-                    cx.update_entity(&app_entity, |app, cx| {
-                        if app.copy_selected_file_paths_to_clipboard(cx) {
-                            cx.stop_propagation();
-                        }
+                    // Defer: this listener runs while FileSidebarView is being
+                    // updated, and the copy invalidates the file panel (which
+                    // re-enters this view). Stop propagation synchronously, run
+                    // the mutation after the update lease is released.
+                    cx.stop_propagation();
+                    let app_entity = app_entity.clone();
+                    window.defer(cx, move |_window, cx| {
+                        cx.update_entity(&app_entity, |app, cx| {
+                            let _ = app.copy_selected_file_paths_to_clipboard(cx);
+                        });
                     });
                     return;
                 }
@@ -123,11 +129,32 @@ pub(in crate::app) fn file_section(
                     });
                     return;
                 }
-                cx.update_entity(&app_entity, |app, cx| {
-                    if app.handle_file_name_draft_key(event, window, cx) {
+                // Escape / Enter confirm or cancel an active name draft, which
+                // re-invalidates the file panel. Decide synchronously to keep
+                // key-swallow semantics, but defer the mutation so we don't
+                // re-enter FileSidebarView while it is mid-update.
+                let plain = !keystroke.modifiers.platform
+                    && !keystroke.modifiers.control
+                    && !keystroke.modifiers.alt
+                    && !keystroke.modifiers.function;
+                if plain && app_entity.read(cx).file_name_draft_kind.is_some() {
+                    let key = keystroke.key.as_str();
+                    let confirm = matches!(key, "enter" | "Enter" | "return" | "Return");
+                    let cancel = matches!(key, "escape" | "Escape");
+                    if confirm || cancel {
                         cx.stop_propagation();
+                        let app_entity = app_entity.clone();
+                        window.defer(cx, move |window, cx| {
+                            cx.update_entity(&app_entity, |app, cx| {
+                                if confirm {
+                                    app.confirm_file_name_draft(window, cx);
+                                } else {
+                                    app.cancel_file_name_draft(window, cx);
+                                }
+                            });
+                        });
                     }
-                });
+                }
             }
         }))
         .child(assistant_panel_header(
@@ -536,12 +563,21 @@ fn file_name_draft_input_state(
         },
     );
     input_state.update(cx, |state, cx| {
-        if state.value().as_ref() != value {
-            state.set_value(value.clone(), window, cx);
-        }
-        state.focus(window, cx);
-        if draft_select_all && state.selected_range().is_empty() {
-            window.dispatch_action(Box::new(SelectAll), cx);
+        // Initialize the field only on first appearance, before it takes focus.
+        // The keyed-state observe re-renders the sidebar on every cursor blink,
+        // hover, or value change; re-syncing the value or re-focusing on those
+        // renders fights the user's edits (the draft value lags behind by a
+        // deferred update, so a keystroke or backspace can be snapped back to
+        // the stale value) and restarts the blink cursor (caret flicker). Once
+        // focused, the input owns its text and we only consume Change events.
+        if !state.focus_handle(cx).is_focused(window) {
+            if state.value().as_ref() != value {
+                state.set_value(value.clone(), window, cx);
+            }
+            state.focus(window, cx);
+            if draft_select_all && state.selected_range().is_empty() {
+                window.dispatch_action(Box::new(SelectAll), cx);
+            }
         }
     });
     cx.subscribe_in(
@@ -549,32 +585,34 @@ fn file_name_draft_input_state(
         window,
         move |_view, state, event, window, cx| match event {
             InputEvent::Change => {
-                let mut value = state.read(cx).value().to_string();
+                // Defer the app mutation: this subscription fires while the
+                // FileSidebarView is already being updated, and the app update
+                // re-invalidates the file panel (file_sidebar_view -> view.update),
+                // which would re-enter this same view and panic. Running it after
+                // the current update lease is released avoids the re-entrancy.
+                let value = state.read(cx).value().to_string();
                 let app_entity = app_entity.clone();
-                cx.update_entity(&app_entity, |app, cx| {
-                    if app.file_name_draft_select_all
-                        && value.len() > "undefined".len()
-                        && value.starts_with("undefined")
-                    {
-                        value = value["undefined".len()..].to_string();
-                        state.update(cx, |state, cx| {
-                            state.set_value(value.clone(), window, cx);
-                        });
-                    }
-                    app.file_name_draft_select_all = false;
-                    app.set_file_name_draft_value(value, window, cx);
+                window.defer(cx, move |window, cx| {
+                    cx.update_entity(&app_entity, |app, cx| {
+                        app.file_name_draft_select_all = false;
+                        app.set_file_name_draft_value(value, window, cx);
+                    });
                 });
             }
             InputEvent::PressEnter { .. } => {
                 let app_entity = app_entity.clone();
-                cx.update_entity(&app_entity, |app, cx| {
-                    app.confirm_file_name_draft(window, cx);
+                window.defer(cx, move |window, cx| {
+                    cx.update_entity(&app_entity, |app, cx| {
+                        app.confirm_file_name_draft(window, cx);
+                    });
                 });
             }
             InputEvent::Blur => {
                 let app_entity = app_entity.clone();
-                cx.update_entity(&app_entity, |app, cx| {
-                    app.finish_file_name_draft_on_blur(window, cx);
+                window.defer(cx, move |window, cx| {
+                    cx.update_entity(&app_entity, |app, cx| {
+                        app.finish_file_name_draft_on_blur(window, cx);
+                    });
                 });
             }
             InputEvent::Focus => {}

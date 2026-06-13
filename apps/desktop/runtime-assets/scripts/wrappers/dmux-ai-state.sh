@@ -386,6 +386,9 @@ configured_permission_mode() {
     opencode)
       config_key="opencode"
       ;;
+    mimo)
+      config_key="mimo"
+      ;;
     kiro)
       config_key="kiro"
       ;;

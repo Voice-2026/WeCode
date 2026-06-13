@@ -119,6 +119,7 @@ function Tool-Config-Key([string]$Name) {
     "kimi" { "kimi" }
     "kimi-code" { "kimi" }
     "opencode" { "opencode" }
+    "mimo" { "mimo" }
     "codewhale" { "codewhale" }
     "codewhale-tui" { "codewhale" }
     "deepseek" { "codewhale" }
@@ -137,6 +138,7 @@ function Tool-Model-Key([string]$Name) {
     "kimi" { "kimiModel" }
     "kimi-code" { "kimiModel" }
     "opencode" { "opencodeModel" }
+    "mimo" { "mimoModel" }
     "codewhale" { "codewhaleModel" }
     "codewhale-tui" { "codewhaleModel" }
     "deepseek" { "codewhaleModel" }
@@ -409,7 +411,7 @@ if ($permissionMode -eq "fullAccess") {
     }
   } elseif ($Tool -eq "kimi" -or $Tool -eq "kimi-code") {
     # Kimi Code uses the generic model flag, but its permission flags differ from Gemini/Agy.
-  } elseif ($Tool -eq "opencode") {
+  } elseif ($Tool -eq "opencode" -or $Tool -eq "mimo") {
     if (-not (Has-Arg $launchArgs "--dangerously-skip-permissions")) {
       $launchArgs = @("--dangerously-skip-permissions") + $launchArgs
     }
@@ -434,8 +436,9 @@ if ($memoryInjectionStrategy -eq "claudeAppendSystemPrompt" -and
 $launchModel = Extract-Model $launchArgs
 $env:DMUX_ACTIVE_AI_MODEL = $launchModel
 
-if ($Tool -eq "opencode") {
+if ($Tool -eq "opencode" -or $Tool -eq "mimo") {
   $env:OPENCODE_CONFIG_DIR = Join-Path $wrapperDir "opencode-config"
+  $env:DMUX_ACTIVE_AI_TOOL = $Tool
 }
 
 $launchDir = ""

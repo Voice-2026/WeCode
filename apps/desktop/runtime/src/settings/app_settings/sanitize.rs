@@ -196,6 +196,7 @@ fn sanitize_runtime_tool_settings(mut settings: AIRuntimeToolSettings) -> AIRunt
     settings.kiro = sanitize_tool_permission_mode(&settings.kiro);
     settings.codewhale = sanitize_tool_permission_mode(&settings.codewhale);
     settings.kimi = sanitize_tool_permission_mode(&settings.kimi);
+    settings.mimo = sanitize_tool_permission_mode(&settings.mimo);
     settings.codex_model = settings.codex_model.trim().chars().take(160).collect();
     settings.claude_code_model = settings
         .claude_code_model
@@ -208,6 +209,7 @@ fn sanitize_runtime_tool_settings(mut settings: AIRuntimeToolSettings) -> AIRunt
     settings.kiro_model = settings.kiro_model.trim().chars().take(160).collect();
     settings.codewhale_model = settings.codewhale_model.trim().chars().take(160).collect();
     settings.kimi_model = settings.kimi_model.trim().chars().take(160).collect();
+    settings.mimo_model = settings.mimo_model.trim().chars().take(160).collect();
     settings.codex_effort = match settings.codex_effort.trim() {
         "none" => "none".to_string(),
         "minimal" => "minimal".to_string(),
@@ -367,6 +369,7 @@ fn sanitize_statistics_mode(value: &str) -> String {
 fn sanitize_file_open_default(value: &str) -> String {
     match value.trim() {
         "preview" => "preview".to_string(),
+        "split" => "split".to_string(),
         _ => default_file_open_default(),
     }
 }

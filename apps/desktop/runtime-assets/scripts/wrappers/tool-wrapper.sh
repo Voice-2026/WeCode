@@ -206,6 +206,9 @@ configured_permission_mode() {
     opencode)
       config_key="opencode"
       ;;
+    mimo)
+      config_key="mimo"
+      ;;
     codewhale|codewhale-tui|deepseek|deepseek-tui)
       config_key="codewhale"
       ;;
@@ -257,6 +260,9 @@ configured_tool_model() {
       ;;
     opencode)
       config_key="opencodeModel"
+      ;;
+    mimo)
+      config_key="mimoModel"
       ;;
     codewhale|codewhale-tui|deepseek|deepseek-tui)
       config_key="codewhaleModel"
@@ -330,7 +336,7 @@ apply_configured_model_arg() {
     codex)
       launch_args=("--model=${configured_model}" "${launch_args[@]}")
       ;;
-    claude|claude-code|gemini|agy|kimi|kimi-code|opencode|codewhale|codewhale-tui|deepseek|deepseek-tui)
+    claude|claude-code|gemini|agy|kimi|kimi-code|opencode|mimo|codewhale|codewhale-tui|deepseek|deepseek-tui)
       launch_args=(--model "${configured_model}" "${launch_args[@]}")
       ;;
   esac
@@ -480,7 +486,7 @@ run_wrapped_command() {
     "$@"
   fi
   local exit_code=$?
-  if [[ "${tool_name}" == "opencode" && -z "${external_session_id}" && -n "${DMUX_OPENCODE_SESSION_MAP_DIR:-}" && -n "${DMUX_SESSION_ID:-}" ]]; then
+  if [[ ( "${tool_name}" == "opencode" || "${tool_name}" == "mimo" ) && -z "${external_session_id}" && -n "${DMUX_OPENCODE_SESSION_MAP_DIR:-}" && -n "${DMUX_SESSION_ID:-}" ]]; then
     local opencode_state_path="${DMUX_OPENCODE_SESSION_MAP_DIR}/opencode-session-${DMUX_SESSION_ID}.json"
     if [[ -f "${opencode_state_path}" ]]; then
       local resolved_state
@@ -698,7 +704,7 @@ if [[ "$tool_name" == "kimi" || "$tool_name" == "kimi-code" ]]; then
   exit $?
 fi
 
-if [[ "$tool_name" == "opencode" ]]; then
+if [[ "$tool_name" == "opencode" || "$tool_name" == "mimo" ]]; then
   local_permission_mode="$(configured_permission_mode || true)"
   launch_args=("$@")
   apply_configured_model_arg
@@ -710,7 +716,7 @@ if [[ "$tool_name" == "opencode" ]]; then
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
   opencode_config_dir="${wrapper_dir}/opencode-config"
-  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" DMUX_ACTIVE_AI_TOOL="${tool_name}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 

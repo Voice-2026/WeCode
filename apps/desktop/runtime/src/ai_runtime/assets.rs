@@ -137,6 +137,14 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kimi.ps1"),
     ),
     (
+        "scripts/wrappers/bin/mimo",
+        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/mimo"),
+    ),
+    (
+        "scripts/wrappers/bin/mimo.ps1",
+        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/mimo.ps1"),
+    ),
+    (
         "scripts/wrappers/bin/opencode",
         include_bytes!("../../../runtime-assets/scripts/wrappers/bin/opencode"),
     ),

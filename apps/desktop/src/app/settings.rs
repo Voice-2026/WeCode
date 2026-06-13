@@ -2348,6 +2348,24 @@ fn settings_ai_pane(
             window,
             cx,
         ),
+        settings_runtime_tool_block(
+            settings_text(
+                language,
+                "settings.ai.tool.configuration_format",
+                "%@ Configuration",
+            )
+            .replace("%@", "MiMo-Code"),
+            "mimo",
+            "mimoModel",
+            &permissions.mimo,
+            &permissions.mimo_model,
+            "kimi-k2",
+            false,
+            &permissions.codex_effort,
+            language,
+            window,
+            cx,
+        ),
     ]);
 
     settings_form(vec![
@@ -4114,6 +4132,10 @@ fn file_open_default_options(language: &str) -> Vec<(String, SharedString)> {
         (
             "preview",
             settings_text(language, "settings.file_open_default.preview", "Preview"),
+        ),
+        (
+            "split",
+            settings_text(language, "settings.file_open_default.split", "Split"),
         ),
     ]
     .into_iter()

@@ -8,10 +8,10 @@ fn sanitize_statistics_mode(value: &str) -> String {
 }
 
 fn sanitize_file_open_default(value: &str) -> String {
-    if value.trim() == "preview" {
-        "preview"
-    } else {
-        "edit"
+    match value.trim() {
+        "preview" => "preview",
+        "split" => "split",
+        _ => "edit",
     }
     .to_string()
 }

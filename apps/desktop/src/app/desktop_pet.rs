@@ -534,10 +534,7 @@ pub(in crate::app) fn desktop_pet_reminder_line(
             &settings.pet_sedentary_reminder_minutes,
             "reminder.sedentary",
             "sedentary",
-            format!(
-                "{} minutes seated. Suggest a short stretch.",
-                settings.pet_sedentary_reminder_minutes
-            ),
+            desktop_pet_species_line(pet, language, "sedentary"),
             now,
             sedentary_due_at,
         )
@@ -553,7 +550,7 @@ pub(in crate::app) fn desktop_pet_reminder_line(
             &settings.pet_late_night_reminder_minutes,
             "reminder.lateNight",
             "late-night",
-            format!("{hour:02}:00 late-night coding. Suggest wrapping up gently."),
+            desktop_pet_species_line(pet, language, "late_night"),
             now,
             late_night_due_at,
         )
@@ -618,7 +615,11 @@ fn reminder_interval_seconds(minutes: &str) -> f64 {
         * 60.0
 }
 
-fn desktop_pet_species_line(pet: &PetSnapshot, language: &str, kind: &str) -> String {
+pub(in crate::app) fn desktop_pet_species_line(
+    pet: &PetSnapshot,
+    language: &str,
+    kind: &str,
+) -> String {
     let locale = locale_from_language_setting(language);
     let species = pet.species.trim();
     let species = if species.is_empty() {
@@ -668,6 +669,15 @@ pub(in crate::app) const DESKTOP_PET_BUBBLE_MIN_HEIGHT: f32 = 52.0;
 const DESKTOP_PET_PLAN_BUBBLE_MIN_HEIGHT: f32 = 96.0;
 const DESKTOP_PET_PLAN_TITLE_MAX_UNITS: usize = 18;
 const DESKTOP_PET_PLAN_ITEM_MAX_UNITS: usize = 16;
+/// Display-unit budget for the regular (no-plan) bubble line. Sized so the text
+/// wraps within DESKTOP_PET_BUBBLE_MAX_LINES and any overflow ends in a clean
+/// ellipsis instead of a raw-clipped half glyph.
+const DESKTOP_PET_BUBBLE_LINE_MAX_UNITS: usize = 76;
+const DESKTOP_PET_BUBBLE_MAX_LINES: usize = 4;
+/// Right-edge safety gutter between the wrapped text and the clipping boundary,
+/// so a glyph that lands flush against the content edge is never sliced in half.
+const DESKTOP_PET_BUBBLE_TEXT_GUTTER: f32 = 4.0;
+const DESKTOP_PET_BUBBLE_TEXT_PAD_VERTICAL: f32 = 12.0;
 pub(in crate::app) const DESKTOP_PET_BUBBLE_TOP: f32 = 52.0;
 pub(in crate::app) const DESKTOP_PET_BUBBLE_EDGE: f32 = 8.0;
 pub(in crate::app) const DESKTOP_PET_BUBBLE_TAIL_SIZE: f32 = 9.0;
@@ -795,7 +805,7 @@ pub(in crate::app) fn desktop_pet_bubble(
     let display_line = if has_plan {
         desktop_pet_truncate_display_units(&line, DESKTOP_PET_PLAN_TITLE_MAX_UNITS)
     } else {
-        line
+        desktop_pet_truncate_display_units(&line, DESKTOP_PET_BUBBLE_LINE_MAX_UNITS)
     };
     let min_height = if has_plan {
         DESKTOP_PET_PLAN_BUBBLE_MIN_HEIGHT
@@ -816,8 +826,8 @@ pub(in crate::app) fn desktop_pet_bubble(
             div()
                 .relative()
                 .min_h(px(min_height))
-                .pt(px(10.0))
-                .pb(px(10.0))
+                .pt(px(DESKTOP_PET_BUBBLE_TEXT_PAD_VERTICAL))
+                .pb(px(DESKTOP_PET_BUBBLE_TEXT_PAD_VERTICAL))
                 .pl(px(text_pad_left))
                 .pr(px(text_pad_right))
                 .flex()
@@ -835,11 +845,15 @@ pub(in crate::app) fn desktop_pet_bubble(
                 .text_color(color(text))
                 .child(
                     div()
-                        .w(px(text_width))
+                        .w(px(text_width - DESKTOP_PET_BUBBLE_TEXT_GUTTER))
                         .min_w_0()
                         .when(has_plan, |this| this.truncate())
                         .when(!has_plan, |this| this.whitespace_normal())
-                        .line_clamp(if has_plan { 1 } else { 3 })
+                        .line_clamp(if has_plan {
+                            1
+                        } else {
+                            DESKTOP_PET_BUBBLE_MAX_LINES
+                        })
                         .child(display_line),
                 )
                 .when(has_plan, |this| {

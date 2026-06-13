@@ -45,6 +45,10 @@ pub(in crate::app) struct FileEditorWorkspaceSnapshot {
     active_tab: Option<FileEditorTab>,
     active_editor: Option<gpui::Entity<InputState>>,
     active_loading: bool,
+    /// True when this editor is rendered as the right-hand split panel (next to
+    /// the terminal), so the tab bar shows its own dedicated "close split"
+    /// control on the right.
+    split_active: bool,
 }
 
 impl PartialEq for FileEditorWorkspaceSnapshot {
@@ -60,6 +64,7 @@ impl PartialEq for FileEditorWorkspaceSnapshot {
                     .as_ref()
                     .map(|editor| editor.entity_id())
             && self.active_loading == other.active_loading
+            && self.split_active == other.split_active
     }
 }
 
@@ -171,6 +176,7 @@ impl Render for FileEditorWorkspaceView {
             FileEditorTabBarSnapshot {
                 tabs: snapshot.tabs.clone(),
                 active_path: snapshot.active_path.clone(),
+                show_split_close: snapshot.split_active,
             },
             cx,
         );
@@ -254,6 +260,7 @@ impl Render for FileEditorChromeView {
 struct FileEditorTabBarSnapshot {
     tabs: Vec<FileEditorTab>,
     active_path: Option<String>,
+    show_split_close: bool,
 }
 
 pub(in crate::app) struct FileEditorTabBarView {
@@ -294,6 +301,7 @@ impl Render for FileEditorTabBarView {
             self.app_entity.clone(),
             self.snapshot.tabs.clone(),
             self.snapshot.active_path.clone(),
+            self.snapshot.show_split_close,
             self.tab_scroll_handle.clone(),
             cx,
         )
@@ -663,6 +671,56 @@ impl CoduxApp {
         );
     }
 
+    /// Open a file as the split-mode panel: add (or focus) a file-editor tab and
+    /// show the editor next to the terminal, without leaving the terminal view.
+    /// Reuses the same tab pool as the full Files view, so a second open just
+    /// adds another tab to the existing split.
+    pub(super) fn open_file_editor_split(
+        &mut self,
+        relative_path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_worktree_path().is_none() {
+            self.status_message = "no selected project to open file".to_string();
+            self.invalidate_status_bar(cx);
+            return;
+        }
+        let key = self.file_editor_state_key(&relative_path);
+        let tab_exists = self
+            .file_editor_tabs
+            .iter()
+            .any(|tab| tab.relative_path == relative_path);
+        if !tab_exists {
+            self.file_editor_tabs.push(FileEditorTab {
+                label: file_editor_label(&relative_path),
+                relative_path: relative_path.clone(),
+                editable: true,
+                dirty: false,
+                language: file_language_for_path(&relative_path).to_string(),
+            });
+        }
+        self.ensure_file_editor_state_for_path(relative_path.clone(), window, cx);
+
+        self.workspace_split = Some(WorkspaceSplitKind::FileEditor);
+        self.active_file_editor_tab = Some(relative_path.clone());
+        self.set_single_file_selection(relative_path.clone());
+        if let Some(editor) = self.file_editor_states.get(&key) {
+            editor.update(cx, |state, cx| state.focus(window, cx));
+        }
+        self.persist_file_editor_layout_async(cx);
+        self.status_message = format!("file opened in split: {relative_path}");
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceBody,
+                UiRegion::FileSidebar,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
     pub(super) fn select_file_editor_tab(
         &mut self,
         relative_path: String,
@@ -710,11 +768,43 @@ impl CoduxApp {
                 })
                 .map(|tab| tab.relative_path.clone());
         }
+        // Closing the last tab collapses the split panel back to a plain
+        // terminal workspace.
+        if self.file_editor_tabs.is_empty() {
+            self.workspace_split = None;
+        }
         self.persist_file_editor_layout_async(cx);
         if !self.update_file_editor_workspace_view(cx) {
             self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
         }
         self.invalidate_ui(cx, [UiRegion::FileSidebar, UiRegion::StatusBar]);
+    }
+
+    /// Hide the split file-editor panel and return to a plain terminal
+    /// workspace. The open file tabs are kept (still reachable from the Files
+    /// view), so opening another file re-shows the split with them.
+    pub(super) fn close_file_editor_split(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.workspace_split.is_none() {
+            return;
+        }
+        self.workspace_split = None;
+        self.invalidate_ui(
+            cx,
+            [
+                UiRegion::WorkspaceChrome,
+                UiRegion::WorkspaceBody,
+                UiRegion::StatusBar,
+            ],
+        );
+    }
+
+    /// Whether the active file-editor tab's input currently holds focus. Used to
+    /// route Cmd+W to the file tab (instead of the terminal) while the split is
+    /// open and the user is editing the file.
+    pub(super) fn active_file_editor_split_focused(&self, window: &Window, cx: &gpui::App) -> bool {
+        self.active_file_editor_state()
+            .map(|state| gpui::Focusable::focus_handle(state.read(cx), cx).is_focused(window))
+            .unwrap_or(false)
     }
 
     pub(super) fn reorder_file_editor_tabs(
@@ -1240,6 +1330,8 @@ impl CoduxApp {
             active_tab,
             active_editor,
             active_loading,
+            split_active: self.workspace_view == WorkspaceView::Terminal
+                && self.workspace_split == Some(WorkspaceSplitKind::FileEditor),
         }
     }
 
@@ -1344,10 +1436,6 @@ pub(in crate::app) fn file_preview_window_workspace(
         .unwrap_or_else(|| {
             file_editor_i18n(app_entity.clone(), cx, "files.preview.title", "Preview")
         });
-    let parent = relative_path
-        .as_deref()
-        .map(|path| file_editor_parent_label(path, &title))
-        .unwrap_or_default();
     let markdown_source_editor = text_editor.clone();
     let markdown_preview_state = markdown_state.clone();
     let text_preview_editor = text_editor.clone();
@@ -1361,14 +1449,8 @@ pub(in crate::app) fn file_preview_window_workspace(
         .bg(color(theme::BG_TERMINAL))
         .text_color(cx.theme().foreground)
         .child(
-            file_preview_window_header(
-                app_entity.clone(),
-                title,
-                parent,
-                relative_path.clone(),
-                cx,
-            )
-            .flex_none(),
+            file_preview_window_header(app_entity.clone(), title, relative_path.clone(), cx)
+                .flex_none(),
         )
         .child(
             div()
@@ -1420,7 +1502,6 @@ pub(in crate::app) fn file_preview_window_workspace(
 fn file_preview_window_header(
     app_entity: gpui::Entity<CoduxApp>,
     title: String,
-    parent: String,
     relative_path: Option<String>,
     cx: &mut Context<FilePreviewWindowView>,
 ) -> gpui::Div {
@@ -1459,22 +1540,11 @@ fn file_preview_window_header(
             div()
                 .min_w_0()
                 .flex_1()
-                .child(
-                    div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(rems(0.75))
-                        .line_height(rems(1.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(parent),
-                ),
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
+                .text_color(color(theme::TEXT))
+                .truncate()
+                .child(title),
         )
         .child(
             div()
@@ -1724,6 +1794,7 @@ pub(in crate::app) fn file_editor_workspace(
         active_tab: _,
         active_editor: _,
         active_loading: _,
+        split_active: _,
     } = snapshot;
     let empty_text = file_editor_i18n(
         app_entity.clone(),
@@ -1795,6 +1866,7 @@ fn file_editor_tab_bar(
     app_entity: gpui::Entity<CoduxApp>,
     tabs: Vec<FileEditorTab>,
     active_path: Option<String>,
+    show_split_close: bool,
     tab_scroll_handle: ScrollHandle,
     cx: &mut Context<FileEditorTabBarView>,
 ) -> impl IntoElement {
@@ -1844,6 +1916,51 @@ fn file_editor_tab_bar(
                         })),
                 ),
         )
+        // Dedicated "close split" control, right of the tabs. It is a flex_none
+        // sibling of the flex_1 tab strip, so growing tabs clip/scroll under
+        // their own area and never overlap this button.
+        .when(show_split_close, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .h_full()
+                    .pl(px(8.0))
+                    .ml(px(2.0))
+                    .border_l_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .id("file-editor-split-close")
+                            .size(px(22.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(4.0))
+                            .cursor_pointer()
+                            .text_color(cx.theme().muted_foreground)
+                            .hover(|style| style.bg(cx.theme().secondary_hover))
+                            .child(
+                                Icon::new(HeroIconName::XMark)
+                                    .size_3()
+                                    .text_color(cx.theme().muted_foreground),
+                            )
+                            .on_click(cx.listener(|view, _event, window, cx| {
+                                let app_entity = view.app_entity.clone();
+                                defer_codux_app_update(
+                                    app_entity,
+                                    window,
+                                    cx,
+                                    move |app, window, app_cx| {
+                                        app.close_file_editor_split(window, app_cx);
+                                    },
+                                );
+                                cx.stop_propagation();
+                            })),
+                    ),
+            )
+        })
 }
 
 fn file_editor_tab_button(
@@ -2003,14 +2120,9 @@ fn file_editor_toolbar(
 ) -> impl IntoElement {
     let active_dirty = active_tab.as_ref().is_some_and(|tab| tab.dirty);
     let read_only = active_tab.as_ref().is_none_or(|tab| !tab.editable);
-    let (active_label, active_parent) = active_tab
+    let active_label = active_tab
         .as_ref()
-        .map(|tab| {
-            (
-                tab.label.clone(),
-                file_editor_parent_label(&tab.relative_path, &tab.label),
-            )
-        })
+        .map(|tab| tab.label.clone())
         .unwrap_or_default();
 
     div()
@@ -2036,22 +2148,11 @@ fn file_editor_toolbar(
             div()
                 .min_w_0()
                 .flex_1()
-                .child(
-                    div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .text_color(color(theme::TEXT))
-                        .truncate()
-                        .child(active_label),
-                )
-                .child(
-                    div()
-                        .text_size(rems(0.75))
-                        .line_height(rems(1.0))
-                        .text_color(color(theme::TEXT_DIM))
-                        .truncate()
-                        .child(active_parent),
-                ),
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
+                .text_color(color(theme::TEXT))
+                .truncate()
+                .child(active_label),
         )
         .child(
             div()
@@ -2212,18 +2313,6 @@ fn file_editor_toolbar_button(
             )
             .on_click(cx.listener(on_click)),
     )
-}
-
-fn file_editor_parent_label(relative_path: &str, label: &str) -> String {
-    let parent = Path::new(relative_path)
-        .parent()
-        .and_then(|path| path.to_str())
-        .unwrap_or_default();
-    if parent.trim().is_empty() || parent == "." || parent == label {
-        "/".to_string()
-    } else {
-        parent.to_string()
-    }
 }
 
 fn file_editor_i18n(

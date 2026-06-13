@@ -388,7 +388,7 @@ fn provider_summary(value: &Value) -> Option<AIProviderSummary> {
 }
 
 fn runtime_tool_count(value: &Value) -> usize {
-    const TOOL_KEYS: [&str; 7] = [
+    const TOOL_KEYS: [&str; 8] = [
         "codex",
         "claudeCode",
         "gemini",
@@ -396,6 +396,7 @@ fn runtime_tool_count(value: &Value) -> usize {
         "kiro",
         "codewhale",
         "kimi",
+        "mimo",
     ];
     match value {
         Value::Object(tools) => TOOL_KEYS

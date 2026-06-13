@@ -92,6 +92,7 @@ pub enum AISessionForkTarget {
     Kiro,
     CodeWhale,
     Kimi,
+    MiMo,
 }
 
 impl AISessionForkTarget {
@@ -105,6 +106,7 @@ impl AISessionForkTarget {
             Self::Kiro => "Kiro",
             Self::CodeWhale => "CodeWhale",
             Self::Kimi => "Kimi Code",
+            Self::MiMo => "MiMo-Code",
         }
     }
 }

@@ -1,5 +1,8 @@
 use crate::ai_runtime::{
-    constants::{COMPLETION_TIMESTAMP_SKEW_SECONDS, RUNNING_STATE_RENEWAL_SECONDS},
+    constants::{
+        COMPLETION_TIMESTAMP_SKEW_SECONDS, RESPONDING_RENEWAL_MAX_SECONDS,
+        RUNNING_STATE_RENEWAL_SECONDS,
+    },
     snapshot::{AIRuntimeContextSnapshot, AISessionSnapshot},
     state::{canonical_tool_name, normalized_string, status_for_runtime_state},
     store::{AIRuntimeStateCore, helpers::note_latest_active_started_at, helpers::now_seconds},
@@ -18,7 +21,20 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
     if snapshot.response_state.as_deref() == Some("responding")
         && now - session.updated_at >= RUNNING_STATE_RENEWAL_SECONDS
     {
-        snapshot_updated_at = snapshot_updated_at.max(now);
+        // Renew the heartbeat across quiet gaps within a genuinely long turn,
+        // but only while the turn is younger than the renewal ceiling. Past it,
+        // stop synthesizing fresh activity so a session whose transcript merely
+        // *looks* like it is still responding (e.g. the CLI was killed mid-turn
+        // while the terminal tab stayed open) finally goes stale and gets aged
+        // out by reconcile_bridge_snapshot instead of pinning the pet bubble.
+        let turn_started_at = session
+            .runtime_turn_started_at
+            .or(session.active_turn_started_at)
+            .or(session.started_at)
+            .unwrap_or(session.updated_at);
+        if now - turn_started_at <= RESPONDING_RENEWAL_MAX_SECONDS {
+            snapshot_updated_at = snapshot_updated_at.max(now);
+        }
     }
 
     let mut state = session.state.clone();

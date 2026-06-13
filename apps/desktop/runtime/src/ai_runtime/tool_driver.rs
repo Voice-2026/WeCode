@@ -130,6 +130,7 @@ mod tests {
         assert_eq!(canonical_tool_name("codewhale-tui"), Some("codewhale"));
         assert_eq!(canonical_tool_name("deepseek-tui"), Some("codewhale"));
         assert_eq!(canonical_tool_name("kimi-code"), Some("kimi"));
+        assert_eq!(canonical_tool_name("mimo"), Some("mimo"));
         assert_eq!(canonical_tool_name("codex"), Some("codex"));
     }
 

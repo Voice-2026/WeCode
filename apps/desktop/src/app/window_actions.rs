@@ -324,6 +324,7 @@ impl CoduxApp {
             remote_pairing_poll_generation: 0,
             recording_shortcut_id: None,
             workspace_view: WorkspaceView::Terminal,
+            workspace_split: None,
             assistant_panel: None,
             project_column_collapsed: true,
             task_column_collapsed: false,
@@ -1394,7 +1395,21 @@ impl CoduxApp {
     ) {
         match self.workspace_view {
             WorkspaceView::Terminal => {
-                self.confirm_or_close_active_terminal_target(window, cx);
+                // In split mode, if the file editor holds focus, Cmd+W closes the
+                // active file tab (and the split collapses once the last one is
+                // gone) instead of closing the terminal.
+                let close_split_file = self.workspace_split
+                    == Some(WorkspaceSplitKind::FileEditor)
+                    && self.active_file_editor_tab.is_some()
+                    && self.active_file_editor_split_focused(window, cx);
+                if close_split_file {
+                    if let Some(relative_path) = self.active_file_editor_tab.clone() {
+                        self.close_file_editor_tab(relative_path, window, cx);
+                        self.status_message = "file tab closed".to_string();
+                    }
+                } else {
+                    self.confirm_or_close_active_terminal_target(window, cx);
+                }
             }
             WorkspaceView::Files => {
                 if let Some(relative_path) = self.active_file_editor_tab.clone() {

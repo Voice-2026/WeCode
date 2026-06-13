@@ -25,6 +25,8 @@ pub(in crate::app) fn ai_session_restore_command(session: &AISessionSummary) -> 
         format!("gemini resume {quoted_id}")
     } else if tool.contains("opencode") {
         format!("opencode run --session {quoted_id}")
+    } else if tool.contains("mimo") {
+        format!("mimo run --session {quoted_id}")
     } else if tool.contains("codewhale") || tool.contains("deepseek") {
         format!("codewhale resume {quoted_id}")
     } else if tool.contains("kimi") {
@@ -34,7 +36,7 @@ pub(in crate::app) fn ai_session_restore_command(session: &AISessionSummary) -> 
     }
 }
 
-pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 8] = [
+pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 9] = [
     AISessionForkTarget::Codex,
     AISessionForkTarget::Claude,
     AISessionForkTarget::Gemini,
@@ -43,6 +45,7 @@ pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 8] = [
     AISessionForkTarget::Kiro,
     AISessionForkTarget::CodeWhale,
     AISessionForkTarget::Kimi,
+    AISessionForkTarget::MiMo,
 ];
 
 pub(in crate::app) fn ai_session_fork_command(
@@ -59,6 +62,7 @@ pub(in crate::app) fn ai_session_fork_command(
         AISessionForkTarget::Kiro => format!("kiro {prompt}"),
         AISessionForkTarget::CodeWhale => format!("codewhale {prompt}"),
         AISessionForkTarget::Kimi => format!("kimi {prompt}"),
+        AISessionForkTarget::MiMo => format!("mimo run {prompt}"),
     }
 }
 

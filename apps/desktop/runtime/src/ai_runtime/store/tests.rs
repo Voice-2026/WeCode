@@ -476,6 +476,111 @@ fn reconcile_without_live_terminal_marks_running_session_interrupted() {
     assert!(snapshot.sessions[0].was_interrupted);
 }
 
+fn responding_probe_snapshot(updated_at: f64) -> AIRuntimeContextSnapshot {
+    AIRuntimeContextSnapshot {
+        tool: "codex".to_string(),
+        external_session_id: Some("session-1".to_string()),
+        transcript_path: None,
+        model: Some("gpt-5.5".to_string()),
+        assistant_preview: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_input_tokens: 0,
+        total_tokens: 0,
+        updated_at,
+        started_at: None,
+        completed_at: None,
+        response_state: Some("responding".to_string()),
+        was_interrupted: false,
+        has_completed_turn: false,
+        session_origin: "live".to_string(),
+        source: "probe".to_string(),
+        plan: None,
+    }
+}
+
+fn codex_bridge_terminal() -> crate::ai_runtime::registry::AIRuntimeTerminalState {
+    crate::ai_runtime::registry::AIRuntimeTerminalState {
+        terminal_id: "terminal-1".to_string(),
+        terminal_instance_id: Some("instance-1".to_string()),
+        project_id: "project-1".to_string(),
+        slot_id: "slot-1".to_string(),
+        title: "Codex".to_string(),
+        cwd: "/tmp/codex-project".to_string(),
+        tool: Some("codex".to_string()),
+        is_active: true,
+        session_key: Some("session-1".to_string()),
+    }
+}
+
+#[test]
+fn responding_heartbeat_stops_renewing_after_turn_exceeds_ceiling() {
+    // A turn that started long ago and whose transcript still merely *parses* as
+    // "responding" (e.g. the CLI was killed mid-turn while the terminal tab
+    // stayed open) must not have its heartbeat synthesized forever, otherwise
+    // reconcile never ages it and the pet bubble stays pinned.
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        test_hook("promptSubmitted", 1000.0)
+    ));
+    assert_eq!(core.sessions.get("terminal-1").unwrap().state, "responding");
+
+    // The probe keeps reporting "responding" with no genuine transcript
+    // progress (snapshot.updated_at stays in the distant past).
+    apply_runtime_snapshot_unlocked(&mut core, "terminal-1", responding_probe_snapshot(1000.0));
+
+    // Because the turn is older than the renewal ceiling, updated_at is NOT
+    // pulled forward to "now" — it stays anchored in the past so staleness aging
+    // can fire.
+    let session = core.sessions.get("terminal-1").unwrap();
+    assert!(
+        session.updated_at
+            < now_seconds() - crate::ai_runtime::constants::RESPONDING_RENEWAL_MAX_SECONDS,
+        "stale responding turn should not renew its heartbeat (updated_at={})",
+        session.updated_at
+    );
+
+    // reconcile, with the terminal still live, now sees a stale responding
+    // session and marks it interrupted -> idle, releasing the pet bubble.
+    let store = AIRuntimeStateStore::default();
+    *store.core.lock().unwrap() = core;
+    let result = store.reconcile_bridge_snapshot(&[codex_bridge_terminal()]);
+    assert!(result.did_change);
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 0);
+    assert_eq!(snapshot.sessions[0].state, "idle");
+    assert!(snapshot.sessions[0].was_interrupted);
+}
+
+#[test]
+fn responding_heartbeat_renews_within_ceiling_across_quiet_gap() {
+    // A genuinely active turn that has only just gone quiet (well within the
+    // ceiling) must still have its heartbeat renewed so it is not interrupted
+    // mid-flight.
+    let now = now_seconds();
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        test_hook("promptSubmitted", now - 60.0)
+    ));
+    assert_eq!(core.sessions.get("terminal-1").unwrap().state, "responding");
+
+    apply_runtime_snapshot_unlocked(
+        &mut core,
+        "terminal-1",
+        responding_probe_snapshot(now - 60.0),
+    );
+
+    let session = core.sessions.get("terminal-1").unwrap();
+    assert_eq!(session.state, "responding");
+    assert!(
+        session.updated_at >= now - 5.0,
+        "fresh responding turn should renew its heartbeat to ~now (updated_at={}, now={now})",
+        session.updated_at
+    );
+}
+
 #[test]
 fn first_prompt_notifies_when_bridge_already_marked_terminal_running() {
     let store = AIRuntimeStateStore::default();

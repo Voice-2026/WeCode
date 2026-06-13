@@ -75,6 +75,17 @@ pub(in crate::app) enum WorkspaceView {
     Review,
 }
 
+/// Secondary panel shown alongside the terminal workspace when a file is opened
+/// in split mode. The body composes the existing full-body workspace views as
+/// side-by-side typed panels, so adding a new panel kind (e.g. an in-split chat
+/// view) only means another variant here plus its render arm — the terminal
+/// pane internals stay untouched.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) enum WorkspaceSplitKind {
+    FileEditor,
+    // Chat,  // future: chat session panel hosted in the body split
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum FileNameDraftKind {
     CreateFile,

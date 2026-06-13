@@ -7,6 +7,7 @@ mod codex;
 mod gemini;
 mod kimi;
 mod kiro;
+mod mimo;
 mod opencode;
 
 pub(super) fn history_source_drivers() -> &'static [HistorySourceDriver] {
@@ -18,6 +19,7 @@ pub(super) fn history_source_drivers() -> &'static [HistorySourceDriver] {
         kiro::DRIVER,
         codewhale::DRIVER,
         kimi::DRIVER,
+        mimo::DRIVER,
         opencode::DRIVER,
     ]
 }
@@ -31,6 +33,7 @@ pub(super) fn history_source_progress(source: &str) -> f64 {
         "kiro" => 0.82,
         "codewhale" => 0.86,
         "kimi" => 0.87,
+        "mimo" => 0.875,
         "opencode" => 0.88,
         _ => 0.88,
     }

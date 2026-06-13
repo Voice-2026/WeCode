@@ -231,6 +231,9 @@ pub struct CoduxApp {
     pub(in crate::app) remote_pairing_poll_generation: u64,
     pub(in crate::app) recording_shortcut_id: Option<String>,
     pub(in crate::app) workspace_view: WorkspaceView,
+    /// Secondary body panel shown next to the terminal workspace (split mode).
+    /// `None` = single full-body view (the default). Session-only; not persisted.
+    pub(in crate::app) workspace_split: Option<WorkspaceSplitKind>,
     pub(in crate::app) assistant_panel: Option<AssistantPanel>,
     pub(in crate::app) project_column_collapsed: bool,
     pub(in crate::app) task_column_collapsed: bool,

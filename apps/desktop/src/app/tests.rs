@@ -485,6 +485,12 @@ mod tests {
             "opencode run --session 'session key'"
         );
 
+        session.source = "mimo".to_string();
+        assert_eq!(
+            ai_session_restore_command(&session),
+            "mimo run --session 'session key'"
+        );
+
         session.source = "antigravity".to_string();
         assert_eq!(
             ai_session_restore_command(&session),
@@ -531,6 +537,9 @@ mod tests {
             ai_session_fork_command(AISessionForkTarget::CodeWhale, path).starts_with("codewhale ")
         );
         assert!(ai_session_fork_command(AISessionForkTarget::Kimi, path).starts_with("kimi "));
+        assert!(
+            ai_session_fork_command(AISessionForkTarget::MiMo, path).starts_with("mimo run ")
+        );
     }
 
     #[test]

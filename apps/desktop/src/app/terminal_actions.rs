@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
+use gpui::Focusable;
 use gpui_component::input::{Input, InputEvent, InputState};
 
 impl CoduxApp {
@@ -932,7 +933,11 @@ fn terminal_tab_editor_input(
         if state.value().as_ref() != value.as_str() {
             state.set_value(value.clone(), window, cx);
         }
-        state.focus(window, cx);
+        // Focus only on first appearance; re-focusing on every re-render
+        // restarts the blink cursor and makes the caret flicker.
+        if !state.focus_handle(cx).is_focused(window) {
+            state.focus(window, cx);
+        }
     });
     cx.subscribe_in(
         &input,

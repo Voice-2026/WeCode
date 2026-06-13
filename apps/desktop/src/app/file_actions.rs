@@ -328,10 +328,12 @@ impl CoduxApp {
             FileKind::File => {
                 if self.workspace_view == WorkspaceView::Files {
                     self.open_file_editor_tab(entry.relative_path, window, cx);
-                } else if self.state.settings.file_open_default == "preview" {
-                    self.open_file_preview_window(entry.relative_path, cx);
                 } else {
-                    self.open_file_editor_window(entry.relative_path, cx);
+                    match self.state.settings.file_open_default.as_str() {
+                        "preview" => self.open_file_preview_window(entry.relative_path, cx),
+                        "split" => self.open_file_editor_split(entry.relative_path, window, cx),
+                        _ => self.open_file_editor_window(entry.relative_path, cx),
+                    }
                 }
             }
         }
@@ -731,11 +733,9 @@ impl CoduxApp {
     }
 
     pub(super) fn create_project_file(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.start_file_name_draft(
-            FileNameDraftKind::CreateFile,
-            Some("undefined".to_string()),
-            cx,
-        );
+        // Start with an empty field (the input shows its own placeholder) rather
+        // than a pre-filled value the user has to clear first.
+        self.start_file_name_draft(FileNameDraftKind::CreateFile, Some(String::new()), cx);
     }
 
     pub(super) fn create_project_directory(
@@ -743,11 +743,7 @@ impl CoduxApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.start_file_name_draft(
-            FileNameDraftKind::CreateDirectory,
-            Some("undefined".to_string()),
-            cx,
-        );
+        self.start_file_name_draft(FileNameDraftKind::CreateDirectory, Some(String::new()), cx);
     }
 
     pub(super) fn start_file_name_draft(

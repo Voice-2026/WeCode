@@ -26,6 +26,7 @@ pub fn hook_config_status_in(
     let mut codewhale = AIRuntimeToolHookConfigStatus::default();
     let mut kimi = AIRuntimeToolHookConfigStatus::default();
     let opencode = opencode_hook_config_status(opencode_config_dir);
+    let mimo = opencode.clone();
 
     for driver in ai_runtime_tool_drivers() {
         let status = match driver.hook {
@@ -66,6 +67,7 @@ pub fn hook_config_status_in(
         gemini,
         agy,
         opencode,
+        mimo,
         kiro,
         codewhale,
         kimi,

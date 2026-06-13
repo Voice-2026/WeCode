@@ -15,6 +15,7 @@ pub struct ToolPermissionsSummary {
     pub kiro: String,
     pub codewhale: String,
     pub kimi: String,
+    pub mimo: String,
     pub codex_model: String,
     pub claude_code_model: String,
     pub gemini_model: String,
@@ -22,6 +23,7 @@ pub struct ToolPermissionsSummary {
     pub kiro_model: String,
     pub codewhale_model: String,
     pub kimi_model: String,
+    pub mimo_model: String,
     pub codex_effort: String,
     pub full_access_count: usize,
     pub error: Option<String>,
@@ -44,6 +46,8 @@ struct AIRuntimeToolSettings {
     codewhale: String,
     #[serde(default = "default_permission_mode")]
     kimi: String,
+    #[serde(default = "default_permission_mode")]
+    mimo: String,
     #[serde(default)]
     codex_model: String,
     #[serde(default)]
@@ -58,6 +62,8 @@ struct AIRuntimeToolSettings {
     codewhale_model: String,
     #[serde(default)]
     kimi_model: String,
+    #[serde(default)]
+    mimo_model: String,
     #[serde(default = "default_codex_effort")]
     codex_effort: String,
 }
@@ -72,6 +78,7 @@ impl Default for AIRuntimeToolSettings {
             kiro: default_permission_mode(),
             codewhale: default_permission_mode(),
             kimi: default_permission_mode(),
+            mimo: default_permission_mode(),
             codex_model: String::new(),
             claude_code_model: String::new(),
             gemini_model: String::new(),
@@ -79,6 +86,7 @@ impl Default for AIRuntimeToolSettings {
             kiro_model: String::new(),
             codewhale_model: String::new(),
             kimi_model: String::new(),
+            mimo_model: String::new(),
             codex_effort: default_codex_effort(),
         }
     }
@@ -153,6 +161,7 @@ fn summary_from_settings(
         &settings.kiro,
         &settings.codewhale,
         &settings.kimi,
+        &settings.mimo,
     ]
     .into_iter()
     .filter(|mode| mode.as_str() == "fullAccess")
@@ -167,6 +176,7 @@ fn summary_from_settings(
         kiro: settings.kiro,
         codewhale: settings.codewhale,
         kimi: settings.kimi,
+        mimo: settings.mimo,
         codex_model: settings.codex_model,
         claude_code_model: settings.claude_code_model,
         gemini_model: settings.gemini_model,
@@ -174,6 +184,7 @@ fn summary_from_settings(
         kiro_model: settings.kiro_model,
         codewhale_model: settings.codewhale_model,
         kimi_model: settings.kimi_model,
+        mimo_model: settings.mimo_model,
         codex_effort: settings.codex_effort,
         full_access_count,
         error,
@@ -188,6 +199,7 @@ fn sanitize_runtime_tool_settings(mut settings: AIRuntimeToolSettings) -> AIRunt
     settings.kiro = sanitize_permission_mode(&settings.kiro);
     settings.codewhale = sanitize_permission_mode(&settings.codewhale);
     settings.kimi = sanitize_permission_mode(&settings.kimi);
+    settings.mimo = sanitize_permission_mode(&settings.mimo);
     settings.codex_model = sanitize_model(&settings.codex_model);
     settings.claude_code_model = sanitize_model(&settings.claude_code_model);
     settings.gemini_model = sanitize_model(&settings.gemini_model);
@@ -195,6 +207,7 @@ fn sanitize_runtime_tool_settings(mut settings: AIRuntimeToolSettings) -> AIRunt
     settings.kiro_model = sanitize_model(&settings.kiro_model);
     settings.codewhale_model = sanitize_model(&settings.codewhale_model);
     settings.kimi_model = sanitize_model(&settings.kimi_model);
+    settings.mimo_model = sanitize_model(&settings.mimo_model);
     settings.codex_effort = match settings.codex_effort.trim() {
         "none" => "none".to_string(),
         "minimal" => "minimal".to_string(),
@@ -257,9 +270,11 @@ mod tests {
                         "kiro": "fullAccess",
                         "codewhale": "fullAccess",
                         "kimi": "fullAccess",
+                        "mimo": "fullAccess",
                         "codexModel": " gpt-5.5 ",
                         "codewhaleModel": " deepseek-chat ",
                         "kimiModel": " kimi-k2 ",
+                        "mimoModel": " kimi-k2 ",
                         "codexEffort": "xhigh"
                     }
                 }
@@ -278,16 +293,19 @@ mod tests {
             serde_json::from_str::<Value>(&fs::read_to_string(output_path).unwrap()).unwrap();
 
         assert!(summary.available);
-        assert_eq!(summary.full_access_count, 5);
+        assert_eq!(summary.full_access_count, 6);
         assert_eq!(summary.claude_code, "default");
         assert_eq!(summary.codex_model, "gpt-5.5");
         assert_eq!(summary.codewhale_model, "deepseek-chat");
         assert_eq!(summary.kimi_model, "kimi-k2");
+        assert_eq!(summary.mimo_model, "kimi-k2");
         assert_eq!(written["codex"], "fullAccess");
         assert_eq!(written["codewhale"], "fullAccess");
         assert_eq!(written["codewhaleModel"], "deepseek-chat");
         assert_eq!(written["kimi"], "fullAccess");
         assert_eq!(written["kimiModel"], "kimi-k2");
+        assert_eq!(written["mimo"], "fullAccess");
+        assert_eq!(written["mimoModel"], "kimi-k2");
         assert_eq!(written["claudeCode"], "default");
         assert_eq!(written["codexEffort"], "xhigh");
 

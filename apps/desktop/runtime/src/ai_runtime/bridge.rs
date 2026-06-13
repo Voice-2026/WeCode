@@ -41,6 +41,7 @@ pub struct AIRuntimeHookConfigStatus {
     pub gemini: AIRuntimeToolHookConfigStatus,
     pub agy: AIRuntimeToolHookConfigStatus,
     pub opencode: AIRuntimeToolHookConfigStatus,
+    pub mimo: AIRuntimeToolHookConfigStatus,
     pub kiro: AIRuntimeToolHookConfigStatus,
     pub codewhale: AIRuntimeToolHookConfigStatus,
     pub kimi: AIRuntimeToolHookConfigStatus,
@@ -341,12 +342,13 @@ impl AIRuntimeBridge {
         super::runtime_log_line(
             "runtime-hooks",
             &format!(
-                "{phase} codex={} claude={} gemini={} agy={} opencode={} kiro={} codewhale={} kimi={} claude_missing={}",
+                "{phase} codex={} claude={} gemini={} agy={} opencode={} mimo={} kiro={} codewhale={} kimi={} claude_missing={}",
                 status.codex.configured,
                 status.claude.configured,
                 status.gemini.configured,
                 status.agy.configured,
                 status.opencode.configured,
+                status.mimo.configured,
                 status.kiro.configured,
                 status.codewhale.configured,
                 status.kimi.configured,
@@ -385,6 +387,7 @@ mod tests {
             assert!(bridge.wrapper_bin_dir().join("deepseek-tui").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi-code").is_file());
+            assert!(bridge.wrapper_bin_dir().join("mimo").is_file());
         }
         #[cfg(windows)]
         {
@@ -395,6 +398,7 @@ mod tests {
             assert!(bridge.wrapper_bin_dir().join("deepseek-tui.ps1").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi.ps1").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi-code.ps1").is_file());
+            assert!(bridge.wrapper_bin_dir().join("mimo.ps1").is_file());
             assert!(!bridge.wrapper_bin_dir().join("codex.cmd").exists());
         }
         assert!(

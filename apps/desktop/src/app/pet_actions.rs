@@ -484,7 +484,14 @@ impl CoduxApp {
         self.request_desktop_pet_llm_context(
             DesktopPetLlmContext {
                 event: "idle.monologue",
-                fallback_text: "The user is idle or between AI tasks.".to_string(),
+                // Shown when the LLM is unavailable — localize it (the facts stay
+                // English as context; the model is told to reply in the UI
+                // language).
+                fallback_text: desktop_pet_species_line(
+                    &self.pet_snapshot,
+                    &self.state.settings.language,
+                    "idle",
+                ),
                 facts: "The user is idle or between AI tasks.".to_string(),
                 tone: DesktopPetActivityTone::Normal,
                 tool: "idle".to_string(),

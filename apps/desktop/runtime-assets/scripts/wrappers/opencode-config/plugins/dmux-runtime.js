@@ -4,6 +4,7 @@ const runtimeEventDir = process.env.DMUX_RUNTIME_EVENT_DIR ?? ""
 const logFile = process.env.DMUX_LOG_FILE ?? ""
 const opencodeSessionMapDir = process.env.DMUX_OPENCODE_SESSION_MAP_DIR ?? ""
 const runtimeSessionID = process.env.DMUX_SESSION_ID ?? ""
+const runtimeTool = process.env.DMUX_ACTIVE_AI_TOOL || "opencode"
 
 function log(message, extra) {
   if (!logFile) return
@@ -92,7 +93,7 @@ function basePayload({ externalSessionID, responseState, model, status }) {
     projectName: process.env.DMUX_PROJECT_NAME ?? "Workspace",
     projectPath: process.env.DMUX_PROJECT_PATH ?? "",
     sessionTitle: process.env.DMUX_SESSION_TITLE ?? "Terminal",
-    tool: "opencode",
+    tool: runtimeTool,
     model: model ?? null,
     status: phase,
     responseState: responseState ?? null,
@@ -226,7 +227,7 @@ function dispatchAIHook({
     projectName: process.env.DMUX_PROJECT_NAME ?? "Workspace",
     projectPath: process.env.DMUX_PROJECT_PATH ?? "",
     sessionTitle: process.env.DMUX_SESSION_TITLE ?? "Terminal",
-    tool: "opencode",
+    tool: runtimeTool,
     aiSessionID: nextExternalSessionID ?? null,
     model: nextModel ?? null,
     totalTokens: Number.isInteger(totalTokens) ? totalTokens : null,

@@ -163,7 +163,44 @@ impl Render for WorkspaceBodyView {
                     self.terminal_workspace_view = Some(view.clone());
                     view
                 };
-                gpui::AnyView::from(terminal_view).into_any_element()
+                let split_file_editor = app.workspace_split
+                    == Some(WorkspaceSplitKind::FileEditor)
+                    && !app.file_editor_tabs.is_empty();
+                if !split_file_editor {
+                    return gpui::AnyView::from(terminal_view).into_any_element();
+                }
+                // Split mode: terminal on the left, the existing file-editor
+                // workspace (with its own tab bar) on the right, in a draggable
+                // horizontal split. h_resizable persists the dragged sizes in
+                // its own keyed state for the session.
+                let fe_snapshot = app.file_editor_workspace_snapshot();
+                let file_editor_view = if let Some(view) = &self.file_editor_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_snapshot(fe_snapshot, cx));
+                    view.clone()
+                } else {
+                    let view = app_cx.new(|_| {
+                        file_editor::FileEditorWorkspaceView::new(app_entity.clone(), fe_snapshot)
+                    });
+                    self.file_editor_workspace_view = Some(view.clone());
+                    view
+                };
+                // Both panels carry equal flex (no fixed `.size`), so the split
+                // defaults to an even 50/50 — matching the terminal splits —
+                // while h_resizable still lets the user drag it. The "close
+                // split" control lives in the file editor's tab bar (a dedicated
+                // slot), so it never overlaps the tabs.
+                h_resizable("workspace-body-file-split")
+                    .child(
+                        resizable_panel()
+                            .size_range(px(320.0)..Pixels::MAX)
+                            .child(gpui::AnyView::from(terminal_view)),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size_range(px(320.0)..Pixels::MAX)
+                            .child(gpui::AnyView::from(file_editor_view)),
+                    )
+                    .into_any_element()
             } else if app.workspace_view == WorkspaceView::Files {
                 let snapshot = app.file_editor_workspace_snapshot();
                 let file_editor_view = if let Some(view) = &self.file_editor_workspace_view {

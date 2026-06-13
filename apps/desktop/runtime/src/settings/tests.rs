@@ -95,6 +95,7 @@ mod tests {
                   "kiro": "default",
                   "codewhale": "default",
                   "kimi": "default",
+                  "mimo": "default",
                   "codexModel": "",
                   "claudeCodeModel": "",
                   "geminiModel": "",
@@ -102,6 +103,7 @@ mod tests {
                   "kiroModel": "",
                   "codewhaleModel": "",
                   "kimiModel": "",
+                  "mimoModel": "",
                   "codexEffort": "medium"
                 },
                 "providers": [
@@ -166,7 +168,7 @@ mod tests {
             summary.git_commit_style_rules_chars,
             "Keep scope clear.".chars().count()
         );
-        assert_eq!(summary.runtime_tool_count, 7);
+        assert_eq!(summary.runtime_tool_count, 8);
         assert_eq!(summary.memory_extraction_idle_delay_seconds, "300");
         assert_eq!(summary.memory_session_extraction_cooldown_seconds, "900");
         assert_eq!(summary.memory_max_index_sessions, "20");

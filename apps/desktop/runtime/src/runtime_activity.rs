@@ -219,6 +219,7 @@ fn is_ai_runtime_process(command: &str) -> bool {
         "codewhale",
         "deepseek",
         "kimi",
+        "mimo",
     ]
     .iter()
     .any(|needle| lower.contains(needle))

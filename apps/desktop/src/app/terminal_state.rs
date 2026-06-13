@@ -256,9 +256,15 @@ pub(in crate::app) fn terminal_top_ratios_for_panes(
     if pane_count == 0 {
         return Vec::new();
     }
-    let mut values = ratios
+    // Saved ratios only describe the panes that existed when the user dragged
+    // the divider. When the pane count changes (a split was added or closed),
+    // the saved split no longer maps onto the new panes — so a freshly added
+    // split opens evenly instead of inheriting a skewed share of the old layout.
+    if ratios.len() != pane_count {
+        return vec![1.0 / pane_count as f64; pane_count];
+    }
+    let values = ratios
         .into_iter()
-        .take(pane_count)
         .map(|value| {
             if value.is_finite() {
                 value.max(0.0)
@@ -267,9 +273,6 @@ pub(in crate::app) fn terminal_top_ratios_for_panes(
             }
         })
         .collect::<Vec<_>>();
-    while values.len() < pane_count {
-        values.push(1.0 / pane_count as f64);
-    }
     let total = values.iter().sum::<f64>();
     if total <= 0.0 {
         return vec![1.0 / pane_count as f64; pane_count];
