@@ -2995,6 +2995,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   void _closeTerminal(TerminalInfo terminal) {
     if (!_isAccessibleTerminal(terminal)) return;
+    final scopedTerminals = _currentProjectTerminals();
+    if (scopedTerminals.length <= 1 &&
+        scopedTerminals.any((item) => item.id == terminal.id)) {
+      _showToast(_t('terminal.keepOne'));
+      return;
+    }
     final plan = _remoteRuntime.removeTerminal(terminal.id);
     _applyRuntimePlan(plan, reason: 'close-terminal');
     _sendTerminalEnvelope(
@@ -3231,7 +3237,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       closingSessionId = closingTerminal.id;
     }
     final shouldCreateReplacement = projectTerminals.length > 1;
-    if (closingSessionId != null) {
+    final canCloseCurrent = projectTerminals.length > 1;
+    if (closingSessionId != null && canCloseCurrent) {
       final plan = _remoteRuntime.removeTerminal(closingSessionId);
       _applyRuntimePlan(plan, reason: 'rebuild-terminal');
       _sendTerminalEnvelope(

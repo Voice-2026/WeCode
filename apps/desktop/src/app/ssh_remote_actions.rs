@@ -1064,20 +1064,24 @@ impl CoduxApp {
         let file_events = self.runtime_service.drain_file_change_events();
         let applied_file_events = self.apply_file_change_events(file_events, cx);
         let remote_events = self.runtime_service.drain_remote_events();
-        if let Some(remote) = remote_events.last().cloned() {
-            self.state.remote = remote;
-            if self.remote_reconnecting && self.state.remote.status != "connecting" {
-                self.remote_reconnecting = false;
+        let mut remote_summary_events = 0;
+        let mut remote_terminal_layout_events = 0;
+        for event in &remote_events {
+            match event {
+                RemoteHostEvent::Summary(remote) => {
+                    remote_summary_events += 1;
+                    self.state.remote = remote.clone();
+                    if self.remote_reconnecting && self.state.remote.status != "connecting" {
+                        self.remote_reconnecting = false;
+                    }
+                    self.normalize_selected_remote_device();
+                }
+                RemoteHostEvent::TerminalLayoutChanged(_) => {
+                    remote_terminal_layout_events += 1;
+                }
             }
-            self.normalize_selected_remote_device();
         }
-        // Pick up terminals a connected phone created (split/tab) for the current
-        // scope: when the runtime's terminal-layout generation advances, attach
-        // the desktop view to the already-running mobile PTYs.
-        let remote_terminal_generation =
-            self.runtime_service.remote_terminal_layout_generation();
-        if remote_terminal_generation != self.last_remote_terminal_layout_generation {
-            self.last_remote_terminal_layout_generation = remote_terminal_generation;
+        if remote_terminal_layout_events > 0 {
             self.reconcile_remote_terminal_layout(cx);
         }
         let scheduled_refresh = self.pending_runtime_refresh.take();
@@ -1157,7 +1161,7 @@ impl CoduxApp {
             self.runtime_trace(
                 "runtime-activity",
                 &format!(
-                    "tick scheduled={} settings={} child_windows={} project={} files={} pet_catalog={} pet_updates={} runtime_pet={} ai_history={} ai_events={} memory={} remote={} scheduled_refresh={} ai_state_error={}",
+                    "tick scheduled={} settings={} child_windows={} project={} files={} pet_catalog={} pet_updates={} runtime_pet={} ai_history={} ai_events={} memory={} remote={} remote_layout={} scheduled_refresh={} ai_state_error={}",
                     include_scheduled_tick,
                     applied_settings_events,
                     child_window_events,
@@ -1169,7 +1173,8 @@ impl CoduxApp {
                     applied_ai_history_events,
                     drained.events.len(),
                     drained.memory.len(),
-                    remote_events.len(),
+                    remote_summary_events,
+                    remote_terminal_layout_events,
                     has_scheduled_refresh,
                     "none"
                 ),

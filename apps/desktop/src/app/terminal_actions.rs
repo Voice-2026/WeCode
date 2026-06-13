@@ -122,9 +122,95 @@ impl CoduxApp {
         let Some(launch_context) = self.current_terminal_launch_context() else {
             return;
         };
-        let owner_id = launch_context.project_id.clone();
+        let Some(layout_key) =
+            super::ai_runtime_status::current_terminal_layout_storage_key(&self.state)
+        else {
+            return;
+        };
         let base_pty_config = launch_context.to_config();
-        let layout = self.runtime_service.reload_terminal_layout(Some(&owner_id));
+        let layout = self
+            .runtime_service
+            .reload_terminal_layout(Some(&layout_key));
+        let layout_ids: std::collections::HashSet<String> = layout
+            .top_panes
+            .iter()
+            .map(|pane| pane.terminal_id.clone())
+            .chain(layout.tabs.iter().map(|tab| tab.terminal_id.clone()))
+            .filter(|terminal_id| !terminal_id.trim().is_empty())
+            .collect();
+        if layout_ids.is_empty() {
+            return;
+        }
+        let mut removed_stale = false;
+        let mut removed_terminal_ids = Vec::new();
+        for tab in &mut self.terminals {
+            if tab.placement != TerminalTabPlacement::Top {
+                continue;
+            }
+            let tab_terminal_id = tab.terminal_id.clone();
+            let mut index = 0;
+            while tab.panes.len() > 1 && index < tab.panes.len() {
+                let terminal_id = tab.panes[index]
+                    .terminal_id
+                    .clone()
+                    .or_else(|| tab_terminal_id.clone());
+                if terminal_id
+                    .as_deref()
+                    .is_some_and(|terminal_id| !layout_ids.contains(terminal_id))
+                {
+                    if let Some(terminal_id) = terminal_id.as_deref() {
+                        removed_terminal_ids.push(terminal_id.to_string());
+                    }
+                    tab.panes.remove(index);
+                    removed_stale = true;
+                } else {
+                    index += 1;
+                }
+            }
+        }
+        let mut index = 0;
+        while index < self.terminals.len() {
+            if self.terminals[index].placement == TerminalTabPlacement::Bottom {
+                let terminal_id = self.terminals[index]
+                    .terminal_id
+                    .clone()
+                    .or_else(|| {
+                        self.terminals[index]
+                            .panes
+                            .first()
+                            .and_then(|slot| slot.terminal_id.clone())
+                    });
+                if terminal_id
+                    .as_deref()
+                    .is_some_and(|terminal_id| !layout_ids.contains(terminal_id))
+                {
+                    if let Some(terminal_id) = terminal_id.as_deref() {
+                        removed_terminal_ids.push(terminal_id.to_string());
+                    }
+                    self.terminals.remove(index);
+                    removed_stale = true;
+                    continue;
+                }
+            }
+            index += 1;
+        }
+        for terminal_id in removed_terminal_ids {
+            self.remove_registered_terminal_pane(&terminal_id);
+        }
+        if removed_stale {
+            if !self.terminals.iter().any(|tab| tab.id == self.active_terminal_id) {
+                let next_active_id = self
+                    .bottom_terminals()
+                    .next()
+                    .map(|tab| tab.id)
+                    .unwrap_or(0);
+                self.active_terminal_id = next_active_id;
+            }
+            let active_id = self.active_terminal_runtime_id();
+            if active_id.trim().is_empty() || !layout_ids.contains(&active_id) {
+                self.activate_first_terminal();
+            }
+        }
 
         let shown_ids: std::collections::HashSet<String> = self
             .terminals
@@ -229,6 +315,11 @@ impl CoduxApp {
         }
 
         if pending.is_empty() {
+            if removed_stale {
+                self.sync_terminal_state_after_layout_change(cx);
+                self.detach_inactive_terminal_views();
+                self.invalidate_terminal_workspace(cx);
+            }
             return;
         }
         // Do not steal focus/active selection — the desktop user may be working;

@@ -43,7 +43,10 @@ use codux_runtime::{
         ProjectCreateRequest, ProjectDefaultPushRemoteRequest, ProjectReorderRequest,
         ProjectUpdateRequest,
     },
-    remote::{RemoteDeviceSummary, RemotePairingInfo, RemotePairingPollResult, RemoteSummary},
+    remote::{
+        RemoteDeviceSummary, RemoteHostEvent, RemotePairingInfo, RemotePairingPollResult,
+        RemoteSummary,
+    },
     runtime_activity::RuntimeActivitySummary,
     runtime_bridge::RuntimeInventory,
     runtime_state::{FileEntry, FileKind, ProjectInfo, RuntimeService, RuntimeState},

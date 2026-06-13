@@ -10,7 +10,8 @@ use super::host::{
 use super::pairing::remote_summary_show_pending_pairing;
 use super::summary::remote_summary_from_settings;
 use super::types::{
-    RemoteDeviceSettings, RemoteOutgoingEnvelope, RemotePairingInfo, RemoteSettings,
+    RemoteDeviceSettings, RemoteHostEvent, RemoteOutgoingEnvelope, RemotePairingInfo,
+    RemoteSettings,
 };
 use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
@@ -299,24 +300,18 @@ fn remote_e2e_crypto_matches_tauri_envelope_shape() {
         encrypted.get("alg").and_then(serde_json::Value::as_str),
         Some("X25519-HKDF-SHA256-AES-256-GCM")
     );
-    assert!(
-        encrypted
-            .get("nonce")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
-    assert!(
-        encrypted
-            .get("ciphertext")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
-    assert!(
-        encrypted
-            .get("tag")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
+    assert!(encrypted
+        .get("nonce")
+        .and_then(serde_json::Value::as_str)
+        .is_some());
+    assert!(encrypted
+        .get("ciphertext")
+        .and_then(serde_json::Value::as_str)
+        .is_some());
+    assert!(encrypted
+        .get("tag")
+        .and_then(serde_json::Value::as_str)
+        .is_some());
 
     let decrypted =
         remote_e2e_decrypt(&encrypted, &device_key, "host-1", "device-1").expect("decrypt");
@@ -588,8 +583,11 @@ fn remote_host_runtime_queues_status_events_for_gpui() {
     host.stop_with_message("Remote Host stopped for test.");
     let events = host.drain_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "stopped");
-    assert_eq!(events[0].message, "Remote Host stopped for test.");
+    let RemoteHostEvent::Summary(summary) = &events[0] else {
+        panic!("expected remote summary event");
+    };
+    assert_eq!(summary.status, "stopped");
+    assert_eq!(summary.message, "Remote Host stopped for test.");
     assert!(host.drain_events().is_empty());
 
     fs::remove_dir_all(dir).ok();
@@ -611,8 +609,11 @@ fn remote_host_runtime_shutdown_stops_and_queues_gpui_event() {
     assert_eq!(snapshot.message, "Remote Host stopped.");
     let events = host.drain_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "stopped");
-    assert_eq!(events[0].message, "Remote Host stopped.");
+    let RemoteHostEvent::Summary(summary) = &events[0] else {
+        panic!("expected remote summary event");
+    };
+    assert_eq!(summary.status, "stopped");
+    assert_eq!(summary.message, "Remote Host stopped.");
 
     fs::remove_dir_all(dir).ok();
 }
@@ -673,13 +674,11 @@ fn remote_file_read_write_and_rename_match_tauri_mobile_limits() {
     );
     assert!(remote_file_read(dir.to_str().unwrap()).is_err());
 
-    assert!(
-        remote_file_rename(
-            source.to_str().unwrap(),
-            other.join("note.txt").to_str().unwrap()
-        )
-        .is_err()
-    );
+    assert!(remote_file_rename(
+        source.to_str().unwrap(),
+        other.join("note.txt").to_str().unwrap()
+    )
+    .is_err());
     remote_file_rename(source.to_str().unwrap(), renamed.to_str().unwrap()).expect("rename");
     assert!(renamed.exists());
 
@@ -716,12 +715,10 @@ fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
             .and_then(serde_json::Value::as_str),
         Some("Project One")
     );
-    assert!(
-        payload
-            .get("projectSummary")
-            .and_then(serde_json::Value::as_object)
-            .is_some()
-    );
+    assert!(payload
+        .get("projectSummary")
+        .and_then(serde_json::Value::as_object)
+        .is_some());
     assert_eq!(
         payload
             .get("sessions")
@@ -729,12 +726,10 @@ fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
             .map(Vec::len),
         Some(0)
     );
-    assert!(
-        payload
-            .get("updatedAt")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
+    assert!(payload
+        .get("updatedAt")
+        .and_then(serde_json::Value::as_str)
+        .is_some());
 }
 
 #[test]
@@ -1180,7 +1175,10 @@ fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
     assert_eq!(runtime.snapshot().host_id, "host-1");
     let events = runtime.drain_events();
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].host_id, "host-1");
+    let RemoteHostEvent::Summary(summary) = &events[0] else {
+        panic!("expected remote summary event");
+    };
+    assert_eq!(summary.host_id, "host-1");
     fs::remove_dir_all(dir).ok();
 }
 

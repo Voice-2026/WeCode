@@ -21,6 +21,17 @@ pub struct RemoteSummary {
     pub error: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum RemoteHostEvent {
+    Summary(RemoteSummary),
+    TerminalLayoutChanged(RemoteTerminalLayoutChanged),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteTerminalLayoutChanged {
+    pub generation: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemotePairingPollResult {

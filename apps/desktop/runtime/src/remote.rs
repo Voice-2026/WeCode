@@ -23,8 +23,9 @@ pub use relay::{
 };
 pub(crate) use settings::{remote_settings_from_raw, remote_settings_mut};
 pub use types::{
-    RemoteDeviceSummary, RemoteEnvelope, RemoteOutgoingEnvelope, RemotePairingInfo,
-    RemotePairingPollResult, RemotePendingPairing, RemoteSummary,
+    RemoteDeviceSummary, RemoteEnvelope, RemoteHostEvent, RemoteOutgoingEnvelope,
+    RemotePairingInfo, RemotePairingPollResult, RemotePendingPairing, RemoteSummary,
+    RemoteTerminalLayoutChanged,
 };
 
 pub struct RemoteService {

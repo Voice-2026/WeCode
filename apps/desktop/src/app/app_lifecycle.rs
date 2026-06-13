@@ -136,7 +136,6 @@ impl CoduxApp {
             terminal_layout_cache: HashMap::new(),
             file_panel_cache: HashMap::new(),
             next_terminal_index,
-            last_remote_terminal_layout_generation: 0,
             runtime,
             state,
             runtime_service,

@@ -32,7 +32,8 @@ use super::transport::RemoteTransport;
 use super::transport_factory::RemoteTransportFactory;
 use super::types::{
     RemoteDeviceSettings, RemoteEnvelope, RemotePairingInfo, RemotePairingPollResult,
-    RemoteSummary, RemoteTransportCandidate, RemoteTransportPairingRequest,
+    RemoteHostEvent, RemoteSummary, RemoteTerminalLayoutChanged, RemoteTransportCandidate,
+    RemoteTransportPairingRequest,
 };
 use crate::ai_history_indexer::{AIHistoryIndexer, AIHistoryProjectState};
 use crate::ai_history_normalized::AIHistoryProjectRequest;
@@ -89,6 +90,7 @@ struct RemoteTerminalPlan {
 }
 
 struct RemoteTerminalLayoutScope {
+    layout_key: String,
     project_id: String,
     layout_kind: String,
     worktree_id: String,
@@ -127,12 +129,10 @@ pub struct RemoteHostRuntime {
     transport_start_lock: tokio::sync::Mutex<()>,
     active_pairing: Mutex<Option<RemotePairingInfo>>,
     pending_pairings: Mutex<HashMap<String, RemoteTransportPairingRequest>>,
-    events: Mutex<VecDeque<RemoteSummary>>,
+    events: Mutex<VecDeque<RemoteHostEvent>>,
     snapshot: Mutex<RemoteSummary>,
     connection_generation: AtomicU64,
-    // Bumped whenever a remote (mobile) request mutates the terminal layout
-    // (create/close). The desktop app polls this to reconcile its own in-memory
-    // terminal layout with sessions the phone added/removed.
+    // Sequence for terminal layout changes emitted by remote clients.
     remote_terminal_layout_generation: AtomicU64,
     resolved_relay: Mutex<Option<String>>,
     send_seq_by_device: Mutex<HashMap<String, i64>>,
@@ -217,7 +217,7 @@ impl RemoteHostRuntime {
         }
     }
 
-    pub fn drain_events(&self) -> Vec<RemoteSummary> {
+    pub fn drain_events(&self) -> Vec<RemoteHostEvent> {
         self.events
             .lock()
             .map(|mut events| events.drain(..).collect())
@@ -236,16 +236,11 @@ impl RemoteHostRuntime {
         self.broadcast_terminal_list(None);
     }
 
-    /// Current remote-terminal-layout generation. The desktop app compares this
-    /// across ticks; a change means a mobile request created/closed a terminal
-    /// and the app should reconcile its in-memory layout.
-    pub fn remote_terminal_layout_generation(&self) -> u64 {
-        self.remote_terminal_layout_generation.load(Ordering::Relaxed)
-    }
-
-    fn bump_remote_terminal_layout_generation(&self) {
-        self.remote_terminal_layout_generation
-            .fetch_add(1, Ordering::Relaxed);
+    fn publish_remote_terminal_layout_changed(&self) {
+        let generation = self.remote_terminal_layout_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.push_event(RemoteHostEvent::TerminalLayoutChanged(
+            RemoteTerminalLayoutChanged { generation },
+        ));
     }
 
     pub fn apply_snapshot(&self, summary: RemoteSummary) -> RemoteSummary {
@@ -1675,7 +1670,7 @@ impl RemoteHostRuntime {
                     &plan.title,
                     &plan.layout_kind,
                 );
-                self.bump_remote_terminal_layout_generation();
+                self.publish_remote_terminal_layout_changed();
                 self.mark_terminal_event_subscription(&session_id);
                 self.register_terminal_viewer(&session_id, envelope.device_id.as_deref());
                 self.send_terminal_data(
@@ -1968,10 +1963,14 @@ impl RemoteHostRuntime {
         let Some(session_id) = envelope.session_id.as_deref() else {
             return;
         };
+        if !self.remove_remote_terminal_from_layout(session_id) {
+            self.send_terminal_list(envelope.device_id.as_deref());
+            return;
+        }
         match self.terminals.kill(session_id) {
             Ok(()) => {
                 self.clear_terminal_output_seq(session_id);
-                self.bump_remote_terminal_layout_generation();
+                self.publish_remote_terminal_layout_changed();
                 self.send_terminal_data(
                     REMOTE_TERMINAL_CLOSED,
                     envelope.device_id.as_deref(),
@@ -2648,11 +2647,15 @@ impl RemoteHostRuntime {
     fn update_snapshot(&self, summary: RemoteSummary) {
         if let Ok(mut current) = self.snapshot.lock() {
             *current = summary;
-            if let Ok(mut events) = self.events.lock() {
-                events.push_back(current.clone());
-                while events.len() > 128 {
-                    events.pop_front();
-                }
+            self.push_event(RemoteHostEvent::Summary(current.clone()));
+        }
+    }
+
+    fn push_event(&self, event: RemoteHostEvent) {
+        if let Ok(mut events) = self.events.lock() {
+            events.push_back(event);
+            while events.len() > 128 {
+                events.pop_front();
             }
         }
     }
@@ -2971,6 +2974,7 @@ impl RemoteHostRuntime {
                 result.insert(
                     pane.terminal_id.clone(),
                     RemoteTerminalLayoutScope {
+                        layout_key: layout_key.clone(),
                         project_id: project_id.clone(),
                         layout_kind: "split".to_string(),
                         worktree_id: worktree_id.clone(),
@@ -2983,6 +2987,7 @@ impl RemoteHostRuntime {
                 result.insert(
                     tab.terminal_id.clone(),
                     RemoteTerminalLayoutScope {
+                        layout_key: layout_key.clone(),
                         project_id: project_id.clone(),
                         layout_kind: "tab".to_string(),
                         worktree_id: worktree_id.clone(),
@@ -2993,6 +2998,31 @@ impl RemoteHostRuntime {
             }
         }
         result
+    }
+
+    fn remove_remote_terminal_from_layout(&self, terminal_id: &str) -> bool {
+        let scopes = self.remote_terminal_layout_scopes();
+        let Some(scope) = scopes.get(terminal_id) else {
+            return true;
+        };
+        let service = TerminalLayoutService::new(self.support_dir.clone());
+        let mut layout = service.load(Some(&scope.layout_key));
+        let before_top = layout.top_panes.len();
+        let before_tabs = layout.tabs.len();
+        let before_total = before_top + before_tabs;
+        if before_total <= 1 {
+            return false;
+        }
+        layout
+            .top_panes
+            .retain(|pane| pane.terminal_id != terminal_id);
+        layout.tabs.retain(|tab| tab.terminal_id != terminal_id);
+        let after_total = layout.top_panes.len() + layout.tabs.len();
+        if after_total == before_total || after_total == 0 {
+            return false;
+        }
+        let _ = service.save_summary(&scope.layout_key, layout);
+        true
     }
 
     fn remote_terminal_plan_from_envelope(
@@ -3078,6 +3108,7 @@ impl RemoteHostRuntime {
             &plan.title,
             &plan.layout_kind,
         );
+        self.publish_remote_terminal_layout_changed();
         self.mark_terminal_event_subscription(session_id);
         self.send_terminal_list(envelope.device_id.as_deref());
         Ok(())
@@ -3125,6 +3156,7 @@ impl RemoteHostRuntime {
             .create(config, emit)
             .map_err(|error| error.to_string())?;
         self.persist_remote_terminal_layout(&scope.layout_key, &session_id, &title, "split");
+        self.publish_remote_terminal_layout_changed();
         self.mark_terminal_event_subscription(&session_id);
         self.register_terminal_viewer(&session_id, device_id);
         Ok(session_id)
@@ -4363,6 +4395,10 @@ mod tests {
             project_b.to_string_lossy(),
             worktree_b_path.to_string_lossy()
         );
+        assert!(runtime.drain_events().iter().any(|event| matches!(
+            event,
+            RemoteHostEvent::TerminalLayoutChanged(_)
+        )));
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -5067,6 +5103,124 @@ mod tests {
         assert_eq!(layout.active_terminal_id, "");
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].terminal_id, "terminal-mobile-b");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_create_emits_layout_changed_event() {
+        let support_dir = temp_support_dir("codux-remote-create-layout-event");
+        write_two_project_state(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        runtime.set_remote_project_scope(Some("device-1"), "project-b");
+        runtime.drain_events();
+
+        runtime.handle_terminal_create(&RemoteEnvelope {
+            kind: "terminal.create".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "projectId": "project-b",
+                "worktreeId": "worktree-b",
+                "layoutKind": "tab",
+            }),
+        });
+
+        let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
+        let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
+        assert_eq!(layout.tabs.len(), 1);
+        assert!(runtime.drain_events().iter().any(|event| matches!(
+            event,
+            RemoteHostEvent::TerminalLayoutChanged(_)
+        )));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_terminal_close_removes_layout_entry_but_keeps_last_terminal() {
+        let support_dir = temp_support_dir("codux-remote-close-layout-entry");
+        write_two_project_state(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
+        let session_a = terminals
+            .create(
+                TerminalPtyConfig {
+                    command: Some("printf a".to_string()),
+                    project_id: Some("worktree-b".to_string()),
+                    terminal_id: Some("terminal-a".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal a");
+        let session_b = terminals
+            .create(
+                TerminalPtyConfig {
+                    command: Some("printf b".to_string()),
+                    project_id: Some("worktree-b".to_string()),
+                    terminal_id: Some("terminal-b".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal b");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &layout_key,
+                Vec::new(),
+                session_a.clone(),
+                vec![
+                    TerminalPaneSummary {
+                        title: "A".to_string(),
+                        terminal_id: session_a.clone(),
+                    },
+                    TerminalPaneSummary {
+                        title: "B".to_string(),
+                        terminal_id: session_b.clone(),
+                    },
+                ],
+                vec![0.5, 0.5],
+                0.24,
+            )
+            .expect("save layout");
+        runtime.drain_events();
+
+        runtime.handle_terminal_close(&RemoteEnvelope {
+            kind: "terminal.close".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_b.clone()),
+            seq: None,
+            payload: json!({ "projectId": "project-b", "worktreeId": "worktree-b" }),
+        });
+
+        let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
+        assert_eq!(layout.top_panes.len(), 1);
+        assert_eq!(layout.top_panes[0].terminal_id, session_a);
+        assert!(terminals.snapshot(&session_b).is_err());
+        assert!(runtime.drain_events().iter().any(|event| matches!(
+            event,
+            RemoteHostEvent::TerminalLayoutChanged(_)
+        )));
+
+        runtime.handle_terminal_close(&RemoteEnvelope {
+            kind: "terminal.close".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_a.clone()),
+            seq: None,
+            payload: json!({ "projectId": "project-b", "worktreeId": "worktree-b" }),
+        });
+
+        let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
+        assert_eq!(layout.top_panes.len(), 1);
+        assert_eq!(layout.top_panes[0].terminal_id, session_a);
+        assert!(terminals.snapshot(&session_a).is_ok());
 
         fs::remove_dir_all(support_dir).ok();
     }
