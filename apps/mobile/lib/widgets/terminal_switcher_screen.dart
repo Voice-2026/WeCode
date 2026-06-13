@@ -33,6 +33,7 @@ class TerminalSwitcherScreen extends StatefulWidget {
     required this.onDeleteWorktree,
     required this.onOpenWorktrees,
     required this.onRefreshWorktrees,
+    required this.onRefreshTerminals,
   });
 
   final double topInset;
@@ -58,6 +59,7 @@ class TerminalSwitcherScreen extends StatefulWidget {
   final ValueChanged<RemoteWorktreeInfo> onDeleteWorktree;
   final VoidCallback onOpenWorktrees;
   final VoidCallback onRefreshWorktrees;
+  final VoidCallback onRefreshTerminals;
 
   @override
   State<TerminalSwitcherScreen> createState() => _TerminalSwitcherScreenState();
@@ -114,7 +116,7 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
                   icon: Icons.refresh_rounded,
                   onTap: _section == TerminalSwitcherSection.worktrees
                       ? widget.onRefreshWorktrees
-                      : () {},
+                      : widget.onRefreshTerminals,
                 ),
               ],
             ),

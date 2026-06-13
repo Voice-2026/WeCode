@@ -76,7 +76,14 @@ impl RuntimeService {
         &self,
         request: WorktreeCreateRequest,
     ) -> Result<WorktreeSnapshot, String> {
-        WorktreeService::new(self.support_dir.clone()).create_from_request(request)
+        let project_id = request.project_id.clone();
+        let project_path = request.project_path.clone();
+        let result = WorktreeService::new(self.support_dir.clone()).create_from_request(request);
+        if result.is_ok() {
+            self.remote_host
+                .broadcast_worktree_list_change(&project_id, &project_path);
+        }
+        result
     }
 
     pub fn remove_worktree_from_request(
@@ -123,12 +130,17 @@ impl RuntimeService {
         worktree_id: &str,
         remove_branch: bool,
     ) -> Result<WorktreeSummary, String> {
-        WorktreeService::new(self.support_dir.clone()).remove_worktree(
+        let result = WorktreeService::new(self.support_dir.clone()).remove_worktree(
             project_id,
             project_path,
             worktree_id,
             remove_branch,
-        )
+        );
+        if result.is_ok() {
+            self.remote_host
+                .broadcast_worktree_list_change(project_id, project_path);
+        }
+        result
     }
 
     pub fn merge_worktree(
@@ -137,11 +149,16 @@ impl RuntimeService {
         project_path: &str,
         worktree_id: &str,
     ) -> Result<WorktreeSummary, String> {
-        WorktreeService::new(self.support_dir.clone()).merge_worktree(
+        let result = WorktreeService::new(self.support_dir.clone()).merge_worktree(
             project_id,
             project_path,
             worktree_id,
-        )
+        );
+        if result.is_ok() {
+            self.remote_host
+                .broadcast_worktree_list_change(project_id, project_path);
+        }
+        result
     }
 
     pub fn save_terminal_layout(

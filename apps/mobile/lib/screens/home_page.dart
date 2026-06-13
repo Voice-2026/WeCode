@@ -4333,6 +4333,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onDeleteWorktree: _deleteWorktree,
       onOpenWorktrees: _ensureSelectedProjectWorktrees,
       onRefreshWorktrees: () => _requestWorktreeList(loading: true),
+      onRefreshTerminals: () => _requestTerminalList(resetRetry: true),
     );
   }
 

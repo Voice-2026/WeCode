@@ -2458,6 +2458,24 @@ impl RemoteHostRuntime {
         );
     }
 
+    /// Push the current worktree list to subscribed devices after a
+    /// desktop-initiated worktree mutation (create/remove/merge), so mobile
+    /// reconciles its view instead of showing a stale list. A no-op when no
+    /// device is subscribed. Mirrors the `worktree.list` request reply.
+    pub fn broadcast_worktree_list_change(&self, project_id: &str, project_path: &str) {
+        if project_id.trim().is_empty() {
+            return;
+        }
+        let summary = WorktreeService::new(self.support_dir.clone())
+            .summary(Some(project_id), Some(project_path));
+        self.broadcast_worktree_update(
+            REMOTE_WORKTREE_LIST,
+            None,
+            project_id,
+            remote_worktree_summary_payload(project_id, summary),
+        );
+    }
+
     fn broadcast_worktree_update(
         &self,
         kind: &str,

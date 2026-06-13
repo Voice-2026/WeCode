@@ -203,6 +203,11 @@ impl ServerConfig {
 }
 
 fn parse_addr(value: &str) -> anyhow::Result<SocketAddr> {
+    let value = if value.starts_with(':') {
+        format!("0.0.0.0{value}")
+    } else {
+        value.to_string()
+    };
     value
         .parse()
         .with_context(|| format!("invalid listen addr {value:?}"))
@@ -299,5 +304,12 @@ timeout_seconds = 14
         assert!(config.stats_enabled);
         assert_eq!(config.stats_flush_interval, Duration::from_secs(12));
         assert_eq!(config.pairing_ttl, Duration::from_secs(13));
+    }
+
+    #[test]
+    fn config_accepts_go_style_port_only_addr() {
+        let addr = parse_addr(":8088").unwrap();
+
+        assert_eq!(addr, "0.0.0.0:8088".parse::<SocketAddr>().unwrap());
     }
 }

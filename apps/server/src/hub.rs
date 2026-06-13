@@ -899,7 +899,11 @@ impl Hub {
         if targets.is_empty() {
             return;
         }
-        info!(host = host_id, clients = targets.len(), "host offline notified");
+        info!(
+            host = host_id,
+            clients = targets.len(),
+            "host offline notified"
+        );
         let envelope = RemoteRelayEnvelope {
             kind: REMOTE_HOST_OFFLINE.into(),
             host_id: host_id.to_string(),

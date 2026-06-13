@@ -739,6 +739,11 @@ impl CoduxApp {
                             == spawn_scope_key;
                     if scope_unchanged && !app.terminal_layout_loading {
                         app.sync_terminal_state_after_layout_change(cx);
+                        // A newly attached split/tab belongs to the current
+                        // scope; tell subscribed mobile clients so their split
+                        // list reflects it (mirrors the close path, which is the
+                        // only mutation that previously broadcast).
+                        app.runtime_service.broadcast_remote_terminal_list();
                     }
                 }
                 if let Some(error) = error {
