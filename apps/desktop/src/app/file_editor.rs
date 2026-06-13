@@ -1209,7 +1209,7 @@ impl CoduxApp {
     /// used states beyond `MAX_FILE_EDITOR_STATES`, but never a state that is
     /// still referenced by an open tab or has unsaved (dirty) changes.
     fn prune_file_editor_states(&mut self) {
-        const MAX_FILE_EDITOR_STATES: usize = 24;
+        const MAX_FILE_EDITOR_STATES: usize = 12;
         if self.file_editor_states.len() <= MAX_FILE_EDITOR_STATES {
             return;
         }
