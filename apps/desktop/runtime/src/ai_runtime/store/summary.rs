@@ -205,6 +205,14 @@ pub(super) fn next_completion_event_unlocked(
         return None;
     };
     let completion_key = completion_event_key(&session);
+    // Dedup only needs recent completion keys; bound the set so it does not grow
+    // one entry per AI turn for the life of the process. The cap is far larger
+    // than any reconciliation window, so clearing on overflow cannot cause a
+    // duplicate notification in practice.
+    const MAX_NOTIFIED_COMPLETION_KEYS: usize = 2048;
+    if core.notified_completion_keys.len() >= MAX_NOTIFIED_COMPLETION_KEYS {
+        core.notified_completion_keys.clear();
+    }
     if !core.notified_completion_keys.insert(completion_key.clone()) {
         runtime_log_line(
             "runtime-state",

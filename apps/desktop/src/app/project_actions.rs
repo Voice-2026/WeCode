@@ -1331,6 +1331,7 @@ impl CoduxApp {
             .as_ref()
             .map(|project| project.id.clone());
         self.state.projects = next.projects;
+        self.prune_worktree_scoped_caches();
         self.state.selected_project = previous_selected_id
             .as_deref()
             .and_then(|id| {
@@ -1618,6 +1619,24 @@ impl CoduxApp {
         .detach();
     }
 
+    /// Drop worktree-scoped UI caches for projects that no longer exist. These
+    /// maps (file panel state, terminal layout, active terminal ids) are keyed
+    /// by (project, worktree) and are otherwise only added to — one entry per
+    /// worktree ever visited — so without this they retain closed projects'
+    /// state for the life of the process.
+    pub(super) fn prune_worktree_scoped_caches(&mut self) {
+        let live: std::collections::HashSet<String> =
+            self.state.projects.iter().map(|p| p.id.clone()).collect();
+        self.file_panel_cache
+            .retain(|key, _| live.contains(&key.project_id));
+        self.terminal_layout_cache
+            .retain(|key, _| live.contains(&key.project_id));
+        self.active_terminal_runtime_ids
+            .retain(|key, _| live.contains(&key.project_id));
+        self.active_bottom_terminal_ids
+            .retain(|key, _| live.contains(&key.project_id));
+    }
+
     fn remove_project(&mut self, project: ProjectInfo, cx: &mut Context<Self>) {
         let runtime_service = self.runtime_service.clone();
         let project_id = project.id.clone();
@@ -1657,6 +1676,7 @@ impl CoduxApp {
                 match result {
                     Ok((state, next_project_id)) => {
                         app.state = state;
+                        app.prune_worktree_scoped_caches();
                         app.normalize_selected_ai_session();
                         app.normalize_selected_runtime_session();
                         app.normalize_selected_ssh_profile();
