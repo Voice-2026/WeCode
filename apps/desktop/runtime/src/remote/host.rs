@@ -270,7 +270,23 @@ impl RemoteHostRuntime {
         self.update_snapshot(summary);
     }
 
+    /// Tell connected clients the host is going offline before we tear down the
+    /// transport, so a clean quit reflects on mobile immediately instead of
+    /// waiting out the relay's disconnect grace period. Best-effort: if the
+    /// message does not flush before the socket closes, the relay grace still
+    /// catches it.
+    fn broadcast_host_offline(&self, message: &str) {
+        let device_ids =
+            self.resource_subscriptions
+                .devices_for(REMOTE_RESOURCE_TERMINALS, None, None);
+        let payload = json!({ "message": message });
+        for device_id in device_ids {
+            self.send_plain("host.offline", Some(&device_id), None, payload.clone());
+        }
+    }
+
     pub fn shutdown(&self) {
+        self.broadcast_host_offline("Remote Host stopped.");
         self.stop_with_message("Remote Host stopped.");
         self.resource_subscriptions.clear();
         self.terminal_subscriptions.clear();
