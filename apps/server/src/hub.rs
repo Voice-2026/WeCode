@@ -36,7 +36,17 @@ pub struct Hub {
     peers: tokio::sync::Mutex<PeerRegistry>,
     stats: Option<StatsRecorder>,
     config: ServerConfig,
+    // Per-host generation, bumped on every (dis)connect. A host disconnect
+    // schedules a grace-delayed `host.offline` to that host's clients; if the
+    // host reconnects within the grace (a transient blip) the generation moves
+    // and the pending notification is skipped, so blips never reset clients.
+    host_offline_gen: tokio::sync::Mutex<HashMap<String, u64>>,
 }
+
+/// How long the relay waits after a host's socket drops before telling that
+/// host's clients it is offline. Long enough to ride out a relay blip /
+/// reconnect, short enough that a genuine quit/crash is reflected promptly.
+const HOST_OFFLINE_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Default, Debug)]
 struct PeerRegistry {
@@ -182,6 +192,7 @@ impl Hub {
             peers: tokio::sync::Mutex::new(PeerRegistry::default()),
             stats,
             config,
+            host_offline_gen: tokio::sync::Mutex::new(HashMap::new()),
         })
     }
 
@@ -202,6 +213,7 @@ impl Hub {
                 read_header_timeout: std::time::Duration::from_secs(10),
                 config_loaded_from: None,
             },
+            host_offline_gen: tokio::sync::Mutex::new(HashMap::new()),
         })
     }
 
@@ -754,6 +766,11 @@ async fn run_peer(
 
     writer.abort();
     hub.unregister_peer(&peer.snapshot, &tx).await;
+    if peer.snapshot.role == PeerRole::Host {
+        // The host's socket dropped; after a grace period (to ride out blips)
+        // tell its clients it is offline so they stop showing stale content.
+        hub.schedule_host_offline(peer.snapshot.host_id.clone());
+    }
 }
 
 impl Hub {
@@ -779,6 +796,8 @@ impl Hub {
                         Some(crate::store::now_millis()),
                     ));
                 }
+                // A reconnecting host cancels any pending grace-delayed offline.
+                self.bump_host_offline_gen(&peer.host_id).await;
             }
             PeerRole::Client => {
                 if let Some(old) = peers.clients.insert(
@@ -821,6 +840,67 @@ impl Hub {
                 },
             )
             .await;
+        }
+    }
+
+    /// Bump and return a host's generation. Any in-flight grace task that
+    /// captured an older generation will skip its `host.offline`.
+    async fn bump_host_offline_gen(&self, host_id: &str) -> u64 {
+        let mut gens = self.host_offline_gen.lock().await;
+        let generation = gens.entry(host_id.to_string()).or_insert(0);
+        *generation += 1;
+        *generation
+    }
+
+    /// After a host's socket drops, wait out the grace period and — only if the
+    /// host has not reconnected — tell its clients it is offline. A reconnect
+    /// (which bumps the generation and re-adds the host) cancels this, so a
+    /// transient blip never resets clients.
+    fn schedule_host_offline(self: &Arc<Self>, host_id: String) {
+        let hub = Arc::clone(self);
+        tokio::spawn(async move {
+            let generation = hub.bump_host_offline_gen(&host_id).await;
+            tokio::time::sleep(HOST_OFFLINE_GRACE).await;
+            let generation_current = hub
+                .host_offline_gen
+                .lock()
+                .await
+                .get(&host_id)
+                .copied();
+            if generation_current != Some(generation) {
+                return; // host reconnected (or disconnected again); not gone.
+            }
+            if hub.peers.lock().await.hosts.contains_key(&host_id) {
+                return; // host is back.
+            }
+            hub.broadcast_host_offline(&host_id).await;
+            hub.host_offline_gen.lock().await.remove(&host_id);
+        });
+    }
+
+    async fn broadcast_host_offline(&self, host_id: &str) {
+        let targets: Vec<mpsc::UnboundedSender<RemoteRelayEnvelope>> = {
+            let peers = self.peers.lock().await;
+            peers
+                .clients
+                .values()
+                .filter(|client| client.host_id == host_id)
+                .map(|client| client.tx.clone())
+                .collect()
+        };
+        if targets.is_empty() {
+            return;
+        }
+        info!(host = host_id, clients = targets.len(), "host offline notified");
+        let envelope = RemoteRelayEnvelope {
+            kind: "host.offline".into(),
+            host_id: host_id.to_string(),
+            payload: Some(json!({ "message": "Desktop host disconnected." })),
+            at: Some(crate::store::now_millis()),
+            ..RemoteRelayEnvelope::default()
+        };
+        for tx in targets {
+            let _ = tx.send(envelope.clone());
         }
     }
 
