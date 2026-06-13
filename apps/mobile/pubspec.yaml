@@ -42,7 +42,6 @@ dependencies:
   path: ^1.9.1
   codux_protocol_ffi:
     path: plugin/codux_protocol_ffi
-  cryptography: ^2.9.0
   sherpa_onnx: ^1.13.0
   record: ^6.2.0
   path_provider: ^2.1.5
