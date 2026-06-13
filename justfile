@@ -21,6 +21,9 @@ mobile *args:
       *) platform="" ;; \
     esac; \
     if [ -n "$platform" ]; then \
+        if [ "$platform" = "ios" ]; then \
+            ./scripts/configure-ios-local-signing.sh; \
+        fi; \
         device_id="$(flutter devices --machine | ruby -rjson -e 'platform = ARGV[0]; devices = JSON.parse(STDIN.read); device = devices.find { |item| item["isSupported"] && item["targetPlatform"].to_s.start_with?(platform) }; print(device ? device["id"] : "")' "$platform")"; \
         if [ -n "$device_id" ]; then \
             echo "Using $platform device: $device_id"; \
