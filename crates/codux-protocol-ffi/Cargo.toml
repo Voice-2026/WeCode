@@ -9,6 +9,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 codux-protocol = { path = "../codux-protocol" }
+codux-remote-crypto = { path = "../codux-remote-crypto" }
 codux-remote-transport = { path = "../codux-remote-transport" }
 codux-terminal-core = { path = "../codux-terminal-core" }
 serde = { version = "1", features = ["derive"] }

@@ -1,10 +1,13 @@
 use super::types::{RemotePairingInfo, RemoteSettings, RemoteTransportCandidate};
-use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use base64::{Engine as _, engine::general_purpose};
+// E2E crypto (key derivation, encrypt/decrypt, base64url) lives in the shared
+// codux-remote-crypto crate so the host and the mobile device (via FFI) stay
+// byte-compatible. Re-exported here so existing call sites are unchanged.
+pub(crate) use codux_remote_crypto::{
+    remote_base64_url_decode, remote_base64_url_encode, remote_e2e_decrypt, remote_e2e_encrypt,
+    remote_e2e_symmetric_key,
+};
 use serde_json::Value;
 use serde_json::json;
-use sha2::Sha256;
 #[cfg(unix)]
 use std::ffi::CStr;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
@@ -162,107 +165,3 @@ fn remote_e2e_private_key(value: &str) -> Option<StaticSecret> {
     Some(StaticSecret::from(array))
 }
 
-pub(crate) fn remote_e2e_symmetric_key(
-    host_private_key: &str,
-    remote_public_key: &str,
-    host_id: &str,
-    device_id: &str,
-) -> Result<[u8; 32], String> {
-    let private_key = remote_e2e_private_key(host_private_key)
-        .ok_or_else(|| "Invalid host private key.".to_string())?;
-    let public_bytes = remote_base64_url_decode(remote_public_key)?;
-    let public_array: [u8; 32] = public_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| "Invalid device public key.".to_string())?;
-    let public_key = X25519PublicKey::from(public_array);
-    let shared = private_key.diffie_hellman(&public_key);
-    let salt = format!("codux-e2e-v1|{host_id}|{device_id}");
-    let hkdf = hkdf::Hkdf::<Sha256>::new(Some(salt.as_bytes()), shared.as_bytes());
-    let mut key = [0_u8; 32];
-    hkdf.expand(b"codux-remote-payload-v1", &mut key)
-        .map_err(|_| "Failed to derive encryption key.".to_string())?;
-    Ok(key)
-}
-
-pub(crate) fn remote_e2e_encrypt(
-    plaintext: &[u8],
-    key: &[u8; 32],
-    host_id: &str,
-    device_id: &str,
-) -> Result<Value, String> {
-    let nonce_bytes = uuid::Uuid::new_v4().as_bytes()[..12].to_vec();
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let aad = format!("codux-e2e-aad-v1|{host_id}|{device_id}");
-    let encrypted = cipher
-        .encrypt(
-            Nonce::from_slice(&nonce_bytes),
-            Payload {
-                msg: plaintext,
-                aad: aad.as_bytes(),
-            },
-        )
-        .map_err(|_| "Failed to encrypt remote payload.".to_string())?;
-    if encrypted.len() < 16 {
-        return Err("Invalid encrypted payload.".to_string());
-    }
-    let (ciphertext, tag) = encrypted.split_at(encrypted.len() - 16);
-    Ok(json!({
-        "v": 1,
-        "alg": "X25519-HKDF-SHA256-AES-256-GCM",
-        "nonce": remote_base64_url_encode(&nonce_bytes),
-        "ciphertext": remote_base64_url_encode(ciphertext),
-        "tag": remote_base64_url_encode(tag),
-    }))
-}
-
-pub(crate) fn remote_e2e_decrypt(
-    payload: &Value,
-    key: &[u8; 32],
-    host_id: &str,
-    device_id: &str,
-) -> Result<Vec<u8>, String> {
-    if payload.get("v").and_then(Value::as_i64) != Some(1) {
-        return Err("Unsupported encrypted payload.".to_string());
-    }
-    let nonce = remote_base64_url_decode(
-        payload
-            .get("nonce")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Missing nonce.".to_string())?,
-    )?;
-    let mut ciphertext = remote_base64_url_decode(
-        payload
-            .get("ciphertext")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Missing ciphertext.".to_string())?,
-    )?;
-    let tag = remote_base64_url_decode(
-        payload
-            .get("tag")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "Missing tag.".to_string())?,
-    )?;
-    ciphertext.extend_from_slice(&tag);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let aad = format!("codux-e2e-aad-v1|{host_id}|{device_id}");
-    cipher
-        .decrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: &ciphertext,
-                aad: aad.as_bytes(),
-            },
-        )
-        .map_err(|_| "Failed to decrypt remote payload.".to_string())
-}
-
-pub(crate) fn remote_base64_url_encode(data: &[u8]) -> String {
-    general_purpose::URL_SAFE_NO_PAD.encode(data)
-}
-
-pub(crate) fn remote_base64_url_decode(value: &str) -> Result<Vec<u8>, String> {
-    general_purpose::URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|error| error.to_string())
-}

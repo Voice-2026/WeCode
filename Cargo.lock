@@ -1381,11 +1381,25 @@ name = "codux-protocol-ffi"
 version = "1.7.6"
 dependencies = [
  "codux-protocol",
+ "codux-remote-crypto",
  "codux-remote-transport",
  "codux-terminal-core",
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "codux-remote-crypto"
+version = "1.7.6"
+dependencies = [
+ "aes-gcm",
+ "base64 0.22.1",
+ "hkdf",
+ "serde_json",
+ "sha2",
+ "uuid",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -1414,6 +1428,7 @@ dependencies = [
  "bytes",
  "chrono",
  "codux-protocol",
+ "codux-remote-crypto",
  "codux-remote-transport",
  "codux-runtime-core",
  "codux-terminal-core",

@@ -377,6 +377,44 @@ final _terminalInsertInputJson = _dylib
       Pointer<Utf8> Function(Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>)
     >('codux_terminal_insert_input_json');
+final _e2eNewDeviceKeypair = _dylib
+    .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+      'codux_e2e_new_device_keypair',
+    );
+final _e2eEncrypt = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+      ),
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+      )
+    >('codux_e2e_encrypt');
+final _e2eDecrypt = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+      ),
+      Pointer<Utf8> Function(
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+      )
+    >('codux_e2e_decrypt');
 final _terminalKeyInputJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(
@@ -1057,6 +1095,86 @@ String terminalInsertInput(String text) {
     return _terminalInputFromJson(_terminalInsertInputJson(textPtr));
   } finally {
     malloc.free(textPtr);
+  }
+}
+
+/// Generate a fresh device X25519 keypair, as `{privateKey, publicKey}`
+/// (base64url). Runs the shared codux-remote-crypto code the host uses.
+Map<String, dynamic> e2eNewDeviceKeypair() {
+  final result = _e2eNewDeviceKeypair();
+  if (result == nullptr) {
+    throw StateError('E2E keypair generation failed: ${lastError()}');
+  }
+  return Map<String, dynamic>.from(jsonDecode(_takeString(result)) as Map);
+}
+
+/// Encrypt the base64url-encoded plaintext for the peer. Returns the encrypted
+/// payload map `{v, alg, nonce, ciphertext, tag}`.
+Map<String, dynamic> e2eEncrypt({
+  required String devicePrivateKey,
+  required String hostPublicKey,
+  required String hostId,
+  required String deviceId,
+  required String plaintextBase64,
+}) {
+  final privatePtr = devicePrivateKey.toNativeUtf8();
+  final publicPtr = hostPublicKey.toNativeUtf8();
+  final hostPtr = hostId.toNativeUtf8();
+  final devicePtr = deviceId.toNativeUtf8();
+  final plaintextPtr = plaintextBase64.toNativeUtf8();
+  try {
+    final result = _e2eEncrypt(
+      privatePtr,
+      publicPtr,
+      hostPtr,
+      devicePtr,
+      plaintextPtr,
+    );
+    if (result == nullptr) {
+      throw StateError('E2E encrypt failed: ${lastError()}');
+    }
+    return Map<String, dynamic>.from(jsonDecode(_takeString(result)) as Map);
+  } finally {
+    malloc.free(privatePtr);
+    malloc.free(publicPtr);
+    malloc.free(hostPtr);
+    malloc.free(devicePtr);
+    malloc.free(plaintextPtr);
+  }
+}
+
+/// Decrypt an encrypted payload (JSON `{v, alg, nonce, ciphertext, tag}`).
+/// Returns the recovered plaintext as base64url.
+String e2eDecrypt({
+  required String devicePrivateKey,
+  required String hostPublicKey,
+  required String hostId,
+  required String deviceId,
+  required String payloadJson,
+}) {
+  final privatePtr = devicePrivateKey.toNativeUtf8();
+  final publicPtr = hostPublicKey.toNativeUtf8();
+  final hostPtr = hostId.toNativeUtf8();
+  final devicePtr = deviceId.toNativeUtf8();
+  final payloadPtr = payloadJson.toNativeUtf8();
+  try {
+    final result = _e2eDecrypt(
+      privatePtr,
+      publicPtr,
+      hostPtr,
+      devicePtr,
+      payloadPtr,
+    );
+    if (result == nullptr) {
+      throw StateError('E2E decrypt failed: ${lastError()}');
+    }
+    return _takeString(result);
+  } finally {
+    malloc.free(privatePtr);
+    malloc.free(publicPtr);
+    malloc.free(hostPtr);
+    malloc.free(devicePtr);
+    malloc.free(payloadPtr);
   }
 }
 

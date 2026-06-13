@@ -11,6 +11,7 @@ base64 = "0.22"
 bytes = "1.9"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 codux-protocol = { path = "../../../crates/codux-protocol" }
+codux-remote-crypto = { path = "../../../crates/codux-remote-crypto" }
 codux-remote-transport = { path = "../../../crates/codux-remote-transport" }
 codux-runtime-core = { path = "../../../crates/codux-runtime-core" }
 codux-terminal-core = { path = "../../../crates/codux-terminal-core" }

@@ -6,6 +6,7 @@ members = [
     "apps/server",
     "crates/codux-protocol",
     "crates/codux-protocol-ffi",
+    "crates/codux-remote-crypto",
     "crates/codux-remote-transport",
     "crates/codux-runtime-core",
     "crates/codux-terminal-core",
