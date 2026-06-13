@@ -133,16 +133,16 @@ The default is `warn`. Release workflows build with `warn` unless overridden.
 
 ## Release
 
-This repository includes the same release shape as the macOS app:
+The mobile source lives in this monorepo under `apps/mobile`. Mobile signing and public releases stay in the legacy `duxweb/codux-flutter` repository so the existing Android and iOS signing secrets do not need to be moved:
 
 - `CHANGELOG.md` and `CHANGELOG.zh-CN.md` keep versioned release notes.
 - `scripts/release/build-release-notes.sh` extracts bilingual release notes for GitHub Releases.
-- `.github/workflows/test-build.yml` creates manual debug / release APK artifacts.
-- `.github/workflows/release-build.yml` builds on `v*` tags and publishes GitHub Release assets.
+- `duxweb/codux` is the source repository for desktop, shared crates, and mobile app code.
+- `duxweb/codux-flutter` is the mobile release repository. Its workflows build from the monorepo source and publish mobile GitHub Release / TestFlight artifacts with the existing mobile secrets.
 
 ### Android Signing
 
-Published releases require these repository secrets:
+Published Android releases require these secrets in `duxweb/codux-flutter`:
 
 - `CODUX_ANDROID_KEYSTORE_BASE64`
 - `CODUX_ANDROID_KEYSTORE_PASSWORD`
@@ -157,20 +157,39 @@ base64 -i codux-release.jks | pbcopy
 
 For local development without `android/key.properties`, release builds fall back to debug signing so `flutter run --release` still works. GitHub published releases use the signing secrets when configured and otherwise publish the same debug-signing fallback APK with a workflow warning.
 
+### iOS Signing
+
+TestFlight releases require these secrets in `duxweb/codux-flutter`:
+
+- `IOS_DISTRIBUTION_CERT_BASE64`
+- `IOS_DISTRIBUTION_CERT_PASSWORD`
+- `IOS_PROVISIONING_PROFILE_BASE64`
+- `APP_STORE_CONNECT_API_KEY_ID`
+- `APP_STORE_CONNECT_API_ISSUER_ID`
+- `APP_STORE_CONNECT_API_KEY_P8_BASE64`
+
 ### Publish A Version
 
-1. Add notes under the target version in `CHANGELOG.md` and `CHANGELOG.zh-CN.md`.
+1. Add mobile notes under the target version in `apps/mobile/CHANGELOG.md` and `apps/mobile/CHANGELOG.zh-CN.md`.
 2. Update `pubspec.yaml` version if needed.
-3. Commit the release changes.
-4. Tag and push:
+3. Commit the release changes in `duxweb/codux`, then push `main` and the source tag:
 
 ```bash
+cd /Volumes/Web/codux-gpui
 git tag v0.1.4
 git push origin main
 git push origin v0.1.4
 ```
 
-The release workflow builds `Codux-Mobile-<version>-android.apk`, generates `SHA256SUMS.txt`, extracts release notes, and uploads the assets to GitHub Releases.
+4. Push the same tag in `duxweb/codux-flutter` to trigger the mobile release workflows:
+
+```bash
+cd /Volumes/Web/codux-flutter
+git tag v0.1.4
+git push origin v0.1.4
+```
+
+The mobile release workflows in `duxweb/codux-flutter` build `apps/mobile` from the matching `duxweb/codux` tag, publish `Codux-Mobile-<version>-arm64-v8a-android.apk` and `SHA256SUMS.txt` to the mobile GitHub Release, and optionally upload the iOS IPA to TestFlight.
 
 ## Repository Layout
 
@@ -179,7 +198,7 @@ The release workflow builds `Codux-Mobile-<version>-android.apk`, generates `SHA
 | `lib/` | Flutter app shell, relay client, screens, widgets, themes, and i18n. |
 | `plugin/codux_protocol_ffi/` | Rust protocol and terminal-core FFI used by Android, iOS, and desktop builds. |
 | `android/` | Android application wrapper and release signing config. |
-| `.github/workflows/` | Manual test builds and tag-triggered release builds. |
+| `.github/workflows/` | Desktop release and formal macOS signing workflows for this monorepo. |
 | `scripts/release/` | Release note extraction helpers. |
 | `docs/images/` | Reserved screenshot location. |
 

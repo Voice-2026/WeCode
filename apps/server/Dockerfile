@@ -1,18 +1,12 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.23-bookworm AS builder
+FROM rust:1-bookworm AS builder
 WORKDIR /src
 
-COPY go.mod go.sum ./
-RUN go mod download
-
 COPY . .
+
 ARG VERSION=dev
-RUN CGO_ENABLED=1 go build \
-    -trimpath \
-    -ldflags "-s -w -X main.version=${VERSION}" \
-    -o /out/codux-service \
-    ./cmd/codux-service
+RUN cargo build --release -p codux-server
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -22,11 +16,11 @@ RUN apt-get update \
     && mkdir -p /data \
     && chown -R codux:codux /data /opt/codux-service
 
-COPY --from=builder /out/codux-service /usr/local/bin/codux-service
-COPY deploy/docker.toml /opt/codux-service/config.toml
+COPY --from=builder /src/target/release/codux-server /usr/local/bin/codux-service
+COPY apps/server/deploy/docker.toml /opt/codux-service/config.toml
 USER codux
 WORKDIR /opt/codux-service
 VOLUME ["/data"]
 EXPOSE 8088
 ENTRYPOINT ["/usr/local/bin/codux-service"]
-CMD ["-config", "/opt/codux-service/config.toml"]
+CMD ["--config", "/opt/codux-service/config.toml"]

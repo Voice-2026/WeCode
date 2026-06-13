@@ -8,4 +8,4 @@ services:
     volumes:
       - ./data:/data
       - ./deploy/docker.toml:/opt/codux-service/config.toml:ro
-    command: ["-config", "/opt/codux-service/config.toml"]
+    command: ["--config", "/opt/codux-service/config.toml"]

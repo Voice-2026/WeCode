@@ -2216,16 +2216,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final event = RemoteTransportStateEvent.parse(rawState);
     final state = event.state;
     final detail = event.detail;
+    if (state == 'latency') {
+      if (!mounted || _disposing) return;
+      _handleTransportLatencyState(detail);
+      return;
+    }
     CoduxLog.info(
       detail.isEmpty
           ? '[codux-flutter-remote] state=$state'
           : '[codux-flutter-remote] state=$state detail=$detail',
     );
     if (!mounted || _disposing) return;
-    if (state == 'latency') {
-      _handleTransportLatencyState(detail);
-      return;
-    }
     if (event.isPathUpdate) {
       final path = event.path;
       if (path != null) {
@@ -2290,7 +2291,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (rttValue != null) {
       final nextLatency = int.tryParse(rttValue);
       if (nextLatency == null) return;
-      CoduxLog.info(
+      CoduxLog.debug(
         '[codux-flutter-remote] latency rtt=${nextLatency}ms path=$_connectionPath',
       );
       if (_latencyMs == nextLatency) return;

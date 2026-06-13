@@ -1,7 +1,6 @@
 [server]
 # HTTP/WebSocket listen address.
-# Use "127.0.0.1:8088" for local-only binding or ":8088" for all interfaces.
-addr = ":8088"
+addr = "0.0.0.0:8088"
 read_header_timeout_seconds = 10
 
 [database]
@@ -18,5 +17,5 @@ flush_interval_seconds = 10
 ttl_seconds = 300
 
 [shutdown]
-# Graceful shutdown timeout before force exit.
+# Graceful shutdown timeout.
 timeout_seconds = 3

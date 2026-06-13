@@ -214,3 +214,11 @@ jobs:
 
       - name: Publish formal macOS assets and updater metadata
         run: node apps/desktop/scripts/release/publish-github-release.mjs
+
+      - name: Publish Homebrew tap
+        shell: bash
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_ARTIFACTS_DIR: release-artifacts/macos-universal-formal
+        run: node apps/desktop/scripts/release/publish-homebrew-cask.mjs

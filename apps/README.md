@@ -9,8 +9,7 @@ This directory contains runnable Codux applications. Shared protocol, runtime, t
 | `desktop/` | Rust + GPUI desktop app. Owns the primary UI, local workspace orchestration, AI CLI sessions, local terminal adapter, and host-side remote runtime. | Rust |
 | `mobile/` | Flutter mobile controller. Connects to a Codux host, renders remote runtime state, and sends user intent. | Flutter + Rust FFI |
 | `agent/` | Headless controlled-agent entry point. Uses shared protocol, transport, runtime, and PTY crates without GPUI. | Rust |
-| `server/` | Rust v3 relay service for pairing tickets, signaling, and WebSocket fallback routing. | Rust |
-| `relay-server/` | Go relay service kept during migration for legacy deployment compatibility. | Go |
+| `server/` | Rust relay service for persisted pairing, device authorization, signaling, and WebSocket fallback routing. | Rust |
 
 ## Commands
 
@@ -25,7 +24,7 @@ just agent -- --version
 just test
 ```
 
-Use app-local commands only when working inside that app's native toolchain, such as `flutter test` in `apps/mobile` or `go test ./...` in `apps/relay-server`.
+Use app-local commands only when working inside that app's native toolchain, such as `flutter test` in `apps/mobile` or `cargo test -p codux-server` for `apps/server`.
 
 ## Ownership Rules
 

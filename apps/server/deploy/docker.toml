@@ -1,5 +1,5 @@
 [server]
-addr = ":8088"
+addr = "0.0.0.0:8088"
 read_header_timeout_seconds = 10
 
 [database]

@@ -48,15 +48,14 @@ This repository is the Codux monorepo:
 - `apps/desktop`: Rust + GPUI desktop app, desktop runtime, desktop assets, and desktop release scripts.
 - `apps/agent`: headless controlled-agent app that links protocol, terminal core, and the shared local PTY driver without GPUI.
 - `apps/mobile`: Flutter mobile controller.
-- `apps/server`: Rust v3 relay service for ticket pairing, signaling, and WebSocket fallback.
-- `apps/relay-server`: Go relay service kept for legacy protocol compatibility during migration.
+- `apps/server`: Rust relay service for persisted pairing, device authorization, signaling, and WebSocket fallback.
 - `crates/codux-protocol`: shared remote protocol helpers, capabilities, envelope DTOs, transport candidates, and relay rules.
 - `crates/codux-protocol-ffi`: Flutter-facing C ABI for shared protocol and terminal core bindings.
 - `crates/codux-runtime-core`: shared runtime domain payload rules for host info, project, file, Git, worktree, upload, and terminal shapes.
 - `crates/codux-terminal-core`: shared terminal session, sequence, baseline restore, and remote PTY model primitives.
 - `crates/codux-terminal-pty`: shared `portable_pty` local PTY driver for host/headless targets.
 
-Flutter and the legacy Go relay keep their own native build systems. Rust packages, including `apps/server`, are Cargo workspace members.
+Flutter keeps its own native build system. Rust packages, including `apps/server`, are Cargo workspace members.
 
 ## Rust + GPUI Native Foundation
 

@@ -133,16 +133,16 @@ flutter build apk --release --dart-define=CODUX_LOG_LEVEL=warn
 
 ## 发布
 
-当前仓库已按 macOS 端的发布结构补齐：
+移动端源码维护在当前 monorepo 的 `apps/mobile` 下。移动端签名和公开发布继续放在遗留的 `duxweb/codux-flutter` 仓库，这样不需要迁移已有 Android / iOS 签名 secrets：
 
 - `CHANGELOG.md` 和 `CHANGELOG.zh-CN.md` 记录版本更新。
 - `scripts/release/build-release-notes.sh` 从中英文更新日志提取 GitHub Release 内容。
-- `.github/workflows/test-build.yml` 手动构建 debug / release APK。
-- `.github/workflows/release-build.yml` 在 `v*` tag 推送时自动构建并发布 GitHub Release。
+- `duxweb/codux` 是桌面端、共享 crates 和移动端源码仓库。
+- `duxweb/codux-flutter` 是移动端发布仓库。它的 workflows 从 monorepo 源码构建，并使用现有移动端 secrets 发布 GitHub Release / TestFlight 产物。
 
 ### Android 签名
 
-正式发布需要在 GitHub 仓库配置这些 secrets：
+Android 正式发布需要在 `duxweb/codux-flutter` 配置这些 secrets：
 
 - `CODUX_ANDROID_KEYSTORE_BASE64`
 - `CODUX_ANDROID_KEYSTORE_PASSWORD`
@@ -157,20 +157,39 @@ base64 -i codux-release.jks | pbcopy
 
 本地没有 `android/key.properties` 时，release 构建会回退到 debug 签名，方便本地 `flutter run --release`。GitHub 发布时如果已配置签名 secrets 会使用正式签名，否则会带 workflow warning 发布同样的 debug 签名兜底 APK。
 
+### iOS 签名
+
+TestFlight 发布需要在 `duxweb/codux-flutter` 配置这些 secrets：
+
+- `IOS_DISTRIBUTION_CERT_BASE64`
+- `IOS_DISTRIBUTION_CERT_PASSWORD`
+- `IOS_PROVISIONING_PROFILE_BASE64`
+- `APP_STORE_CONNECT_API_KEY_ID`
+- `APP_STORE_CONNECT_API_ISSUER_ID`
+- `APP_STORE_CONNECT_API_KEY_P8_BASE64`
+
 ### 发布版本
 
-1. 在 `CHANGELOG.md` 和 `CHANGELOG.zh-CN.md` 写入目标版本更新记录。
+1. 在 `apps/mobile/CHANGELOG.md` 和 `apps/mobile/CHANGELOG.zh-CN.md` 写入目标版本更新记录。
 2. 如有需要，同步更新 `pubspec.yaml` 版本号。
-3. 提交发布变更。
-4. 打 tag 并推送：
+3. 在 `duxweb/codux` 提交发布变更，然后推送 `main` 和源码 tag：
 
 ```bash
+cd /Volumes/Web/codux-gpui
 git tag v0.1.1
 git push origin main
 git push origin v0.1.1
 ```
 
-发布 workflow 会构建 `Codux-Mobile-<version>-android.apk`，生成 `SHA256SUMS.txt`，提取双语更新记录，并上传到 GitHub Releases。
+4. 在 `duxweb/codux-flutter` 推送同名 tag，触发移动端发布 workflows：
+
+```bash
+cd /Volumes/Web/codux-flutter
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+`duxweb/codux-flutter` 的移动端发布 workflows 会从匹配的 `duxweb/codux` tag 构建 `apps/mobile`，把 `Codux-Mobile-<version>-arm64-v8a-android.apk` 和 `SHA256SUMS.txt` 发布到移动端 GitHub Release，并可选上传 iOS IPA 到 TestFlight。
 
 ## 目录结构
 
@@ -179,7 +198,7 @@ git push origin v0.1.1
 | `lib/` | Flutter 应用外壳、relay 客户端、页面、组件、主题和多语言。 |
 | `plugin/codux_protocol_ffi/` | Android、iOS 和桌面共用的 Rust 协议与终端 core FFI。 |
 | `android/` | Android 应用壳和发布签名配置。 |
-| `.github/workflows/` | 手动测试构建和 tag 触发发布构建。 |
+| `.github/workflows/` | 当前 monorepo 的桌面发布和正式 macOS 签名 workflow。 |
 | `scripts/release/` | 更新日志提取脚本。 |
 | `docs/images/` | 截图预留目录。 |
 
