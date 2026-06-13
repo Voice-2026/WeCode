@@ -86,7 +86,7 @@ Codux Desktop host
 ## 开发
 
 ```bash
-cd /Volumes/Web/codux-gpui/apps/mobile
+cd <codux-repo>/apps/mobile
 flutter pub get
 flutter run
 ```
@@ -175,7 +175,7 @@ TestFlight 发布需要在 `duxweb/codux-flutter` 配置这些 secrets：
 3. 在 `duxweb/codux` 提交发布变更，然后推送 `main` 和源码 tag：
 
 ```bash
-cd /Volumes/Web/codux-gpui
+cd <codux-repo>
 git tag v0.1.1
 git push origin main
 git push origin v0.1.1
@@ -184,7 +184,7 @@ git push origin v0.1.1
 4. 在 `duxweb/codux-flutter` 推送同名 tag，触发移动端发布 workflows：
 
 ```bash
-cd /Volumes/Web/codux-flutter
+cd <codux-flutter-release-repo>
 git tag v0.1.1
 git push origin v0.1.1
 ```

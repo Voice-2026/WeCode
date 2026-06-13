@@ -195,7 +195,7 @@ class _PathField extends StatelessWidget {
             ),
             cursorColor: accent,
             decoration: const InputDecoration(
-              hintText: '/Volumes/Web/project',
+              hintText: '/path/to/project',
               hintStyle: TextStyle(color: AppColors.textSubtle),
               border: InputBorder.none,
               contentPadding: EdgeInsets.symmetric(

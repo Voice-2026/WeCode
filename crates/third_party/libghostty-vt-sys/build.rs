@@ -74,46 +74,46 @@ fn main() {
     let lib_dir = install_prefix.join("lib");
     let include_dir = install_prefix.join("include");
 
-    let shared_lib_name = if target.contains("apple") {
-        "libghostty-vt.0.1.0.dylib"
-    } else if target.contains("android") {
-        "libghostty-vt.so"
-    } else {
-        "libghostty-vt.so.0.1.0"
-    };
-    let static_lib_name = "libghostty-vt.a";
-    let shared_lib_path = if target.contains("android") {
-        find_nonempty_file(
-            &ghostty_dir.join(".zig-cache").join("o"),
-            shared_lib_name,
+    let platform = TargetPlatform::from_triple(&target);
+    let static_lib_name = platform.static_lib_name();
+    let static_link_name = platform.static_link_name();
+    let shared_lib_path = if platform == TargetPlatform::Android {
+        let shared_lib_name = platform
+            .shared_lib_name()
+            .expect("Android must have a shared library name");
+        Some(
+            find_nonempty_file(&ghostty_dir.join(".zig-cache").join("o"), shared_lib_name)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "expected non-empty shared library named {shared_lib_name} under {}",
+                        ghostty_dir.join(".zig-cache").join("o").display()
+                    )
+                }),
         )
-        .unwrap_or_else(|| {
-            panic!(
-                "expected non-empty shared library named {shared_lib_name} under {}",
-                ghostty_dir.join(".zig-cache").join("o").display()
-            )
-        })
     } else {
-        lib_dir.join(shared_lib_name)
+        platform.shared_lib_name().map(|name| lib_dir.join(name))
     };
 
-    assert!(
-        shared_lib_path.exists(),
-        "expected shared library at {}",
-        shared_lib_path.display()
-    );
-    assert!(
-        lib_dir.join(static_lib_name).exists(),
-        "expected static library at {}",
-        lib_dir.join(static_lib_name).display()
-    );
+    if let Some(shared_lib_path) = &shared_lib_path {
+        assert!(
+            shared_lib_path.exists(),
+            "expected shared library at {}",
+            shared_lib_path.display()
+        );
+    }
+    let static_lib_path = find_nonempty_file(&lib_dir, static_lib_name).unwrap_or_else(|| {
+        panic!(
+            "expected non-empty static library named {static_lib_name} under {}",
+            lib_dir.display()
+        )
+    });
     assert!(
         include_dir.join("ghostty").join("vt.h").exists(),
         "expected header at {}",
         include_dir.join("ghostty").join("vt.h").display()
     );
 
-    if target.contains("android") {
+    if platform == TargetPlatform::Android {
         let android_link_dir = out_dir.join("android-link-lib");
         std::fs::create_dir_all(&android_link_dir).unwrap_or_else(|error| {
             panic!(
@@ -122,10 +122,10 @@ fn main() {
             )
         });
         let unversioned = android_link_dir.join("libghostty-vt.so");
-        std::fs::copy(&shared_lib_path, &unversioned).unwrap_or_else(|error| {
+        std::fs::copy(shared_lib_path.as_ref().unwrap(), &unversioned).unwrap_or_else(|error| {
             panic!(
                 "failed to copy {} to {}: {error}",
-                shared_lib_path.display(),
+                shared_lib_path.as_ref().unwrap().display(),
                 unversioned.display()
             )
         });
@@ -136,10 +136,13 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=ghostty-vt");
     } else {
         println!("cargo:rustc-link-search=native={}", lib_dir.display());
-        println!("cargo:rustc-link-lib=static=ghostty-vt");
-        link_zig_static_dependency(&ghostty_dir, "simdutf");
-        link_zig_static_dependency(&ghostty_dir, "highway");
-        link_zig_static_dependency(&ghostty_dir, "utfcpp");
+        if let Some(parent) = static_lib_path.parent() {
+            println!("cargo:rustc-link-search=native={}", parent.display());
+        }
+        println!("cargo:rustc-link-lib=static={static_link_name}");
+        link_zig_static_dependency(&ghostty_dir, "simdutf", platform);
+        link_zig_static_dependency(&ghostty_dir, "highway", platform);
+        link_zig_static_dependency(&ghostty_dir, "utfcpp", platform);
     }
     if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
@@ -150,12 +153,67 @@ fn main() {
     println!("cargo:include={}", include_dir.display());
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TargetPlatform {
+    Apple,
+    Android,
+    Windows,
+    Unix,
+}
+
+impl TargetPlatform {
+    fn from_triple(target: &str) -> Self {
+        if target.contains("apple") {
+            Self::Apple
+        } else if target.contains("android") {
+            Self::Android
+        } else if target.contains("windows") {
+            Self::Windows
+        } else {
+            Self::Unix
+        }
+    }
+
+    fn shared_lib_name(self) -> Option<&'static str> {
+        match self {
+            Self::Apple => Some("libghostty-vt.0.1.0.dylib"),
+            Self::Android => Some("libghostty-vt.so"),
+            Self::Windows => None,
+            Self::Unix => Some("libghostty-vt.so.0.1.0"),
+        }
+    }
+
+    fn static_lib_name(self) -> &'static str {
+        match self {
+            Self::Windows => "ghostty-vt-static.lib",
+            _ => "libghostty-vt.a",
+        }
+    }
+
+    fn static_link_name(self) -> &'static str {
+        match self {
+            Self::Windows => "ghostty-vt-static",
+            _ => "ghostty-vt",
+        }
+    }
+
+    fn static_dependency_file_names(self, name: &str) -> Vec<String> {
+        match self {
+            Self::Windows => vec![format!("{name}.lib"), format!("lib{name}.lib")],
+            _ => vec![format!("lib{name}.a")],
+        }
+    }
+}
+
 fn patch_ghostty_for_target(ghostty_dir: &Path, target: &str) {
     if !target.contains("android") {
         return;
     }
 
-    let path = ghostty_dir.join("src").join("build").join("GhosttyLibVt.zig");
+    let path = ghostty_dir
+        .join("src")
+        .join("build")
+        .join("GhosttyLibVt.zig");
     let source = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let needle = r#"    const lib = b.addLibrary(.{
@@ -193,8 +251,12 @@ fn find_nonempty_file(root: &Path, file_name: &str) -> Option<PathBuf> {
     })
 }
 
-fn link_zig_static_dependency(ghostty_dir: &Path, name: &str) {
-    let Some(path) = find_file(&ghostty_dir.join(".zig-cache").join("o"), &format!("lib{name}.a")) else {
+fn link_zig_static_dependency(ghostty_dir: &Path, name: &str, platform: TargetPlatform) {
+    let Some(path) = platform
+        .static_dependency_file_names(name)
+        .iter()
+        .find_map(|file_name| find_file(&ghostty_dir.join(".zig-cache").join("o"), file_name))
+    else {
         return;
     };
     if let Some(parent) = path.parent() {
@@ -215,13 +277,15 @@ fn find_file_with(
     let entries = std::fs::read_dir(root).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.file_name().and_then(|value| value.to_str()) == Some(file_name) && predicate(&path) {
+        if path.file_name().and_then(|value| value.to_str()) == Some(file_name) && predicate(&path)
+        {
             return Some(path);
         }
         if path.is_dir()
-            && let Some(found) = find_file_with(&path, file_name, predicate) {
-                return Some(found);
-            }
+            && let Some(found) = find_file_with(&path, file_name, predicate)
+        {
+            return Some(found);
+        }
     }
     None
 }
@@ -249,9 +313,10 @@ fn fetch_ghostty(out_dir: &Path) -> PathBuf {
     // Skip fetch if we already have the right commit.
     if stamp.exists()
         && let Ok(existing) = std::fs::read_to_string(&stamp)
-            && existing.trim() == GHOSTTY_COMMIT {
-                return src_dir;
-            }
+        && existing.trim() == GHOSTTY_COMMIT
+    {
+        return src_dir;
+    }
 
     // Clean and clone fresh.
     if src_dir.exists() {

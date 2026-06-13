@@ -86,7 +86,7 @@ The mobile app is controller-only. It does not try to become the source of truth
 ## Development
 
 ```bash
-cd /Volumes/Web/codux-gpui/apps/mobile
+cd <codux-repo>/apps/mobile
 flutter pub get
 flutter run
 ```
@@ -175,7 +175,7 @@ TestFlight releases require these secrets in `duxweb/codux-flutter`:
 3. Commit the release changes in `duxweb/codux`, then push `main` and the source tag:
 
 ```bash
-cd /Volumes/Web/codux-gpui
+cd <codux-repo>
 git tag v0.1.4
 git push origin main
 git push origin v0.1.4
@@ -184,7 +184,7 @@ git push origin v0.1.4
 4. Push the same tag in `duxweb/codux-flutter` to trigger the mobile release workflows:
 
 ```bash
-cd /Volumes/Web/codux-flutter
+cd <codux-flutter-release-repo>
 git tag v0.1.4
 git push origin v0.1.4
 ```
