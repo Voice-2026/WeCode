@@ -165,6 +165,7 @@ struct TerminalPaintState {
     background: Hsla,
     background_rects: Vec<TerminalBackgroundRect>,
     text_runs: Vec<TerminalTextRun>,
+    lines: Vec<TerminalRowLine>,
     cursor: Option<TerminalCursorPaint>,
     marked_text_cursor: Option<TerminalPoint>,
     ime_cursor_bounds: Option<Bounds<Pixels>>,
@@ -192,6 +193,7 @@ struct TerminalRenderCache {
 struct TerminalPreparedRow {
     background_rects: Vec<TerminalBackgroundRect>,
     text_runs: Vec<TerminalTextRun>,
+    line: Option<TerminalRowLine>,
 }
 
 impl TerminalPreparedRow {
@@ -202,6 +204,9 @@ impl TerminalPreparedRow {
         }
         for text_run in &mut prepared.text_runs {
             text_run.row = row;
+        }
+        if let Some(line) = &mut prepared.line {
+            line.row = row;
         }
         prepared
     }

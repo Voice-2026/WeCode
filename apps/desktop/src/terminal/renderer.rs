@@ -143,6 +143,7 @@ impl TerminalRenderer {
 
         let mut background_rects = Vec::new();
         let mut text_runs = Vec::new();
+        let mut lines = Vec::new();
         let mut cursor_cell = None;
         let cache_key = self.cache_key();
         let mut index = 0usize;
@@ -159,7 +160,13 @@ impl TerminalRenderer {
                 continue;
             }
             let cells = &content.cells[start..index];
-            let prepared = self.prepare_cached_row(row, cells, default_bg, cache_key);
+            // Use the per-line hash computed once when the content was built,
+            // instead of re-hashing the row on every frame.
+            let row_hash = content
+                .row_hashes
+                .get(line)
+                .unwrap_or_else(|| terminal_row_hash(cells));
+            let prepared = self.prepare_cached_row(row, cells, default_bg, cache_key, row_hash);
             if let Some(hover_link) = hover_link
                 && hover_link.line == line
             {
@@ -173,6 +180,7 @@ impl TerminalRenderer {
             } else {
                 background_rects.extend(prepared.background_rects);
                 text_runs.extend(prepared.text_runs);
+                lines.extend(prepared.line);
             }
             let cursor_line = content.viewport_start_line + content.cursor.row as i32;
             if content.display_row_for_line(cursor_line) == Some(row) {
@@ -268,6 +276,7 @@ impl TerminalRenderer {
             background: default_bg,
             background_rects,
             text_runs,
+            lines,
             cursor,
             marked_text_cursor: cursor_on_visible_row.then_some(TerminalPoint {
                 line: display_cursor.row,
@@ -350,8 +359,8 @@ impl TerminalRenderer {
         cells: &[TerminalIndexedCell],
         default_bg: Hsla,
         font_key: TerminalRendererCacheKey,
+        row_hash: u64,
     ) -> TerminalPreparedRow {
-        let row_hash = terminal_row_hash(cells);
         let key = TerminalRowCacheKey { row_hash, font_key };
         if let Some(prepared) = self.cache.lock().rows.get(&key).cloned() {
             return prepared.for_display_row(row);
@@ -361,9 +370,16 @@ impl TerminalRenderer {
         let mut text_runs = Vec::new();
         self.prepare_row_backgrounds(0, cells, default_bg, &mut background_rects);
         self.prepare_row_text(0, cells, &mut text_runs, None);
+        // Prefer a single shaped line for simple rows; on success the per-span
+        // runs are dropped so the row is shaped/painted once instead of N times.
+        let line = self.combine_row_runs(&text_runs);
+        if line.is_some() {
+            text_runs.clear();
+        }
         let prepared = TerminalPreparedRow {
             background_rects,
             text_runs,
+            line,
         };
         let mut cache = self.cache.lock();
         if cache.rows.len() > TERMINAL_ROW_CACHE_LIMIT {
@@ -572,6 +588,9 @@ impl TerminalRenderer {
         for rect in &state.background_rects {
             rect.paint(self, state.origin, window);
         }
+        for line in &state.lines {
+            line.paint(self, state.origin, window, cx);
+        }
         for text_run in &state.text_runs {
             text_run.paint(self, state.origin, window, cx);
         }
@@ -738,4 +757,133 @@ fn terminal_text_run_hash(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
+}
+
+/// One terminal row painted as a single shaped line carrying multiple style
+/// runs, so GPUI shapes and paints it once per row instead of once per style
+/// span. Only built for "simple" rows (every painted cell is a single-codepoint,
+/// width-1 glyph) so the natural glyph advances line up exactly with the cell
+/// grid; rows with wide (CJK) or multi-codepoint cells fall back to the
+/// per-span path to keep grid alignment intact.
+#[derive(Clone)]
+struct TerminalRowLine {
+    row: usize,
+    start_col: usize,
+    text: String,
+    runs: Vec<TextRun>,
+    layout_hash: u64,
+}
+
+impl TerminalRowLine {
+    fn paint(
+        &self,
+        renderer: &TerminalRenderer,
+        origin: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.text.is_empty() || self.runs.is_empty() {
+            return;
+        }
+        let shaped = window.text_system().shape_line_by_hash(
+            self.layout_hash,
+            self.text.len(),
+            renderer.font_size,
+            &self.runs,
+            None,
+            || SharedString::from(self.text.clone()),
+        );
+        let _ = shaped.paint(
+            Point {
+                x: origin.x + renderer.cell_width * self.start_col as f32,
+                y: origin.y + renderer.cell_height * self.row as f32,
+            },
+            renderer.cell_height,
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        );
+    }
+}
+
+fn terminal_row_line_layout_hash(text: &str, runs: &[TextRun]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    for run in runs {
+        // Glyph layout depends on text + font (family/weight/style) + run
+        // length; colour, underline and strikethrough are applied at paint time
+        // and do not affect advances, so they are excluded for better reuse.
+        run.len.hash(&mut hasher);
+        run.font.family.hash(&mut hasher);
+        run.font.weight.0.to_bits().hash(&mut hasher);
+        matches!(run.font.style, FontStyle::Italic).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+impl TerminalRenderer {
+    /// Combine a row's already-built per-span runs into a single shaped line,
+    /// filling inter-span column gaps with spaces. Returns `None` (keeping the
+    /// per-span path) when any span is not a 1:1 char-to-cell run, so wide/CJK
+    /// rows are never re-flowed by natural advances.
+    fn combine_row_runs(&self, runs: &[TerminalTextRun]) -> Option<TerminalRowLine> {
+        combine_terminal_row_runs(runs, self.font(false, false), self.palette.foreground())
+    }
+}
+
+fn combine_terminal_row_runs(
+    runs: &[TerminalTextRun],
+    gap_font: Font,
+    gap_color: Hsla,
+) -> Option<TerminalRowLine> {
+    let first = runs.first()?;
+    // Only 1:1 char-to-cell spans are safe to re-flow as one line; wide (CJK) or
+    // multi-codepoint cells keep the per-span path so their grid columns hold.
+    if runs
+        .iter()
+        .any(|run| run.text.chars().count() != run.width_cols)
+    {
+        return None;
+    }
+    let row = first.row;
+    let start_col = first.start_col;
+    let mut text = String::new();
+    let mut text_runs: Vec<TextRun> = Vec::new();
+    let mut next_col = start_col;
+    for run in runs {
+        if run.start_col > next_col {
+            let gap = run.start_col - next_col;
+            text.extend(std::iter::repeat_n(' ', gap));
+            text_runs.push(TextRun {
+                len: gap,
+                font: gap_font.clone(),
+                color: gap_color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            });
+        }
+        text.push_str(&run.text);
+        let mut style = run.style.clone();
+        style.len = run.text.len();
+        text_runs.push(style);
+        next_col = run.start_col + run.width_cols;
+    }
+    if text.is_empty() {
+        return None;
+    }
+    debug_assert_eq!(
+        text_runs.iter().map(|run| run.len).sum::<usize>(),
+        text.len(),
+        "combined run lengths must cover the line text exactly"
+    );
+    let layout_hash = terminal_row_line_layout_hash(&text, &text_runs);
+    Some(TerminalRowLine {
+        row,
+        start_col,
+        text,
+        runs: text_runs,
+        layout_hash,
+    })
 }

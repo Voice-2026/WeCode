@@ -4,9 +4,45 @@ struct TerminalPoint {
     column: usize,
 }
 
+/// Per-line content hashes, computed once when the content is built (i.e. once
+/// per published snapshot, not per frame) so the renderer can key its row cache
+/// without re-hashing every visible row on every frame. Derived purely from
+/// `cells`, so it is excluded from content identity (see `PartialEq`).
+#[derive(Clone, Default)]
+struct PrecomputedRowHashes(HashMap<i32, u64>);
+
+impl PartialEq for PrecomputedRowHashes {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl PrecomputedRowHashes {
+    fn from_cells(cells: &[TerminalIndexedCell]) -> Self {
+        let mut hashers: HashMap<i32, DefaultHasher> = HashMap::new();
+        for indexed in cells {
+            terminal_cell_hash(
+                &indexed.cell,
+                hashers.entry(indexed.point.line).or_default(),
+            );
+        }
+        Self(
+            hashers
+                .into_iter()
+                .map(|(line, hasher)| (line, hasher.finish()))
+                .collect(),
+        )
+    }
+
+    fn get(&self, line: i32) -> Option<u64> {
+        self.0.get(&line).copied()
+    }
+}
+
 #[derive(Clone, PartialEq)]
 struct TerminalContent {
     cells: Vec<TerminalIndexedCell>,
+    row_hashes: PrecomputedRowHashes,
     cursor: TerminalScreenCursorSnapshot,
     display_offset: usize,
     viewport_start_line: i32,
@@ -37,8 +73,10 @@ impl TerminalContent {
                 cell,
             })
             .collect::<Vec<_>>();
+        let row_hashes = PrecomputedRowHashes::from_cells(&cells);
         Self {
             cells,
+            row_hashes,
             cursor: snapshot.cursor,
             display_offset: snapshot.display_offset,
             viewport_start_line,

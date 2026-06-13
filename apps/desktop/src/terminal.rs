@@ -43,6 +43,7 @@ include!("terminal/protocol.rs");
 include!("terminal/render.rs");
 include!("terminal/model.rs");
 include!("terminal/content.rs");
+include!("terminal/grid_version.rs");
 include!("terminal/element.rs");
 include!("terminal/input.rs");
 include!("terminal/events.rs");
