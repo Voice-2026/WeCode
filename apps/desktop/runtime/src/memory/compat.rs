@@ -5,7 +5,6 @@ use super::{
     render_launch_memory_index,
 };
 use crate::{runtime_paths::app_support_dir, runtime_state::ProjectInfo};
-use std::fs;
 
 impl MemoryService {
     pub fn load_or_create() -> Result<Self, String> {
@@ -63,18 +62,7 @@ impl MemoryService {
             Some(extra_context),
         );
 
-        fs::create_dir_all(&artifacts.workspace_root).ok()?;
-        fs::write(&artifacts.prompt_file, &content).ok()?;
-        fs::write(&artifacts.index_file, &content).ok()?;
-        fs::write(
-            artifacts.workspace_root.join("memory-recent.md"),
-            super::render_recent_memory(&summary),
-        )
-        .ok()?;
-        fs::write(artifacts.workspace_root.join("AGENTS.md"), &content).ok()?;
-        fs::write(artifacts.workspace_root.join("CLAUDE.md"), &content).ok()?;
-        fs::write(artifacts.workspace_root.join("GEMINI.md"), &content).ok()?;
-
+        self.write_launch_artifacts(&artifacts, &content, &super::render_recent_memory(&summary))?;
         Some(artifacts)
     }
 

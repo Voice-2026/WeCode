@@ -255,6 +255,30 @@ impl MemoryService {
             .map_err(|error| error.to_string())?;
         }
         tx.commit().map_err(|error| error.to_string())?;
+        // Best-effort: keep the archived/merged tail bounded. Archived rows are
+        // no longer injected, so they are pure history — cap the total so the
+        // table does not grow without bound over the app's lifetime.
+        let _ = self.prune_archived_entries();
+        Ok(())
+    }
+
+    fn prune_archived_entries(&self) -> Result<(), String> {
+        const MAX_ARCHIVED_ENTRIES: i64 = 500;
+        let conn = self.open_connection()?;
+        conn.execute(
+            r#"
+            DELETE FROM memory_entries
+            WHERE status IN ('archived', 'merged')
+              AND id NOT IN (
+                SELECT id FROM memory_entries
+                WHERE status IN ('archived', 'merged')
+                ORDER BY COALESCE(archived_at, updated_at) DESC
+                LIMIT ?1
+              );
+            "#,
+            params![MAX_ARCHIVED_ENTRIES],
+        )
+        .map_err(|error| error.to_string())?;
         Ok(())
     }
 }
