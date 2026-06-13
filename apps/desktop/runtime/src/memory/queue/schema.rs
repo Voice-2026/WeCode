@@ -79,6 +79,10 @@ impl MemoryService {
             );
             CREATE INDEX IF NOT EXISTS idx_memory_queue_status_time
                 ON memory_extraction_queue(status, enqueued_at);
+            CREATE INDEX IF NOT EXISTS idx_memory_entries_recall
+                ON memory_entries(status, project_id, tier, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_memory_entries_scope
+                ON memory_entries(scope, project_id, tier, status);
             ALTER TABLE memory_extraction_queue ADD COLUMN workspace_path TEXT;
             "#,
         )

@@ -52,11 +52,32 @@ pub(super) fn prompt_entries(
             .partial_cmp(&left_score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    Ok(entries
+    let selected: Vec<PromptMemoryEntry> = entries
         .into_iter()
         .take(limit as usize)
         .map(|(entry, _, _)| entry)
-        .collect())
+        .collect();
+    // Record usage: these entries were recalled as relevant to a real session.
+    // This is the signal the scorer's access_count weighting and the launch
+    // injection ranking rely on (previously never written, so it stayed 0).
+    bump_access_counts(conn, selected.iter().map(|entry| entry.id.as_str()));
+    Ok(selected)
+}
+
+fn bump_access_counts<'a>(conn: &Connection, ids: impl Iterator<Item = &'a str>) {
+    let ids = ids.collect::<Vec<_>>();
+    if ids.is_empty() {
+        return;
+    }
+    let placeholders = std::iter::repeat_n("?", ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "UPDATE memory_entries SET access_count = access_count + 1, \
+         last_accessed_at = unixepoch('now') WHERE id IN ({placeholders})"
+    );
+    // Best-effort: a failed usage bump must not fail extraction recall.
+    let _ = conn.execute(&sql, rusqlite::params_from_iter(ids));
 }
 
 fn prompt_entry_score(

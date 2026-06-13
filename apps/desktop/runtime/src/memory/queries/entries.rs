@@ -1,52 +1,38 @@
+/// Entries injected into the AI CLI launch context. Only `active` entries are
+/// injected — `archived`/`merged` rows are explicitly superseded/stale and must
+/// not be fed to the live agent. Ranking prefers important and frequently-used
+/// memory over merely-recent: tier priority (core, then working), then
+/// access_count, then recency.
 pub(super) fn load_recent_entries(
     conn: &Connection,
     project_id: Option<&str>,
     include_user_recall: bool,
 ) -> Result<Vec<MemoryEntrySummary>, String> {
-    let (sql, values) = if let Some(project_id) = project_id {
-        if include_user_recall {
-            (
-                r#"
+    const SELECT: &str = r#"
             SELECT id, scope, project_id, tool_id, tier, kind, COALESCE(module_key, 'general'),
                    status, content, rationale, source_tool, source_session_id, merged_summary_id,
                    archived_at, access_count, created_at, updated_at
             FROM memory_entries
-            WHERE status IN ('active', 'archived') AND (project_id = ?1 OR scope = 'user')
-            ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
-            LIMIT 10
-            "#,
-                vec![project_id.to_string()],
-            )
-        } else {
-            (
-                r#"
-            SELECT id, scope, project_id, tool_id, tier, kind, COALESCE(module_key, 'general'),
-                   status, content, rationale, source_tool, source_session_id, merged_summary_id,
-                   archived_at, access_count, created_at, updated_at
-            FROM memory_entries
-            WHERE status IN ('active', 'archived') AND project_id = ?1
-            ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
-            LIMIT 10
-            "#,
-                vec![project_id.to_string()],
-            )
-        }
-    } else {
-        (
-            r#"
-            SELECT id, scope, project_id, tool_id, tier, kind, COALESCE(module_key, 'general'),
-                   status, content, rationale, source_tool, source_session_id, merged_summary_id,
-                   archived_at, access_count, created_at, updated_at
-            FROM memory_entries
-            WHERE status IN ('active', 'archived')
-            ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
-            LIMIT 10
-            "#,
-            Vec::new(),
-        )
+            WHERE status = 'active' AND "#;
+    const ORDER: &str = r#"
+            ORDER BY CASE tier WHEN 'core' THEN 0 WHEN 'working' THEN 1 ELSE 2 END,
+                     access_count DESC, updated_at DESC
+            LIMIT 16
+            "#;
+    let (where_clause, values): (&str, Vec<rusqlite::types::Value>) = match project_id {
+        Some(project_id) if include_user_recall => (
+            "(project_id = ?1 OR scope = 'user')",
+            vec![rusqlite::types::Value::Text(project_id.to_string())],
+        ),
+        Some(project_id) => (
+            "project_id = ?1",
+            vec![rusqlite::types::Value::Text(project_id.to_string())],
+        ),
+        None => ("1 = 1", Vec::new()),
     };
+    let sql = format!("{SELECT}{where_clause}{ORDER}");
 
-    let mut statement = conn.prepare(sql).map_err(|error| error.to_string())?;
+    let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = statement
         .query_map(rusqlite::params_from_iter(values), |row| {
             memory_entry_summary_from_row(row, true)

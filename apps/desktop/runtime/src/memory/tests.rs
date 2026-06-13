@@ -169,19 +169,29 @@ fn summary_includes_active_and_archived_recent_entries() {
     let summary = MemoryService::new(support_dir.clone()).summary(Some("project-a"));
 
     assert!(summary.available);
-    assert_eq!(summary.active_entries, 3);
+    // active_entries is now project-scoped (project-a + user) and consistent
+    // with core/working: project-active + user-active = 2.
+    assert_eq!(summary.active_entries, 2);
     assert_eq!(summary.core_entries, 1);
     assert_eq!(summary.working_entries, 1);
     assert_eq!(summary.archived_entries, 1);
     assert_eq!(summary.queued_extractions, 1);
     assert!(summary.project_profile_present);
+    // Injection recall is active-only and ranked core-first.
     assert_eq!(summary.recent_entries[0].id, "project-active");
     assert_eq!(summary.recent_entries[0].status, "active");
     assert!(
         summary
             .recent_entries
             .iter()
-            .any(|entry| entry.id == "project-archived" && entry.status == "archived")
+            .all(|entry| entry.status == "active"),
+        "archived entries must not be injected into the launch context"
+    );
+    assert!(
+        !summary
+            .recent_entries
+            .iter()
+            .any(|entry| entry.id == "project-archived")
     );
     assert!(
         !summary
@@ -203,11 +213,12 @@ fn archive_and_restore_memory_entry() {
         .set_entry_status(Some("project-a"), "project-active", "archived")
         .unwrap();
     assert_eq!(archived.archived_entries, 2);
+    // Archived entries are excluded from injection recall.
     assert!(
-        archived
+        !archived
             .recent_entries
             .iter()
-            .any(|entry| entry.id == "project-active" && entry.status == "archived")
+            .any(|entry| entry.id == "project-active")
     );
 
     let restored = service

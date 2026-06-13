@@ -41,7 +41,10 @@ impl MemoryService {
         project_id: Option<&str>,
         include_user_recall: bool,
     ) -> Result<MemorySummary, String> {
-        let active_entries = count_entries(conn, None, None, Some("active"))?;
+        // Scope the headline "active" count to the same project as core/working
+        // so the injected numbers reconcile (previously this counted active rows
+        // across every project, so 592 active never matched 165+58 core+working).
+        let active_entries = count_entries(conn, None, project_id, Some("active"))?;
         let core_entries = count_entries(conn, Some("core"), project_id, Some("active"))?;
         let working_entries = count_entries(conn, Some("working"), project_id, Some("active"))?;
         let archived_entries = count_entries(conn, None, project_id, Some("archived"))?;
