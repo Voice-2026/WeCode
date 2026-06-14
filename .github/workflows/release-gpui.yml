@@ -110,6 +110,7 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
+          use-cache: false
 
       - name: Restore Rust cache
         uses: actions/cache/restore@v4
@@ -133,7 +134,12 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
+          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
         run: |
+          rm -rf "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
+          mkdir -p "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
           if [[ "${CARGO_BUILD_TARGET}" == "universal-apple-darwin" ]]; then
             cargo build --release --target aarch64-apple-darwin
             cargo build --release --target x86_64-apple-darwin
