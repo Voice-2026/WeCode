@@ -84,18 +84,16 @@ fn main() {
     let static_lib_name = platform.static_lib_name();
     let static_link_name = platform.static_link_name();
     let shared_lib_path = if platform == TargetPlatform::Android {
-        let shared_lib_name = platform
-            .shared_lib_name()
-            .expect("Android must have a shared library name");
-        Some(
-            find_nonempty_file(&ghostty_dir.join(".zig-cache").join("o"), shared_lib_name)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "expected non-empty shared library named {shared_lib_name} under {}",
-                        ghostty_dir.join(".zig-cache").join("o").display()
-                    )
-                }),
-        )
+        Some(find_android_shared_library(&ghostty_dir, &install_prefix).unwrap_or_else(|| {
+            panic!(
+                "expected non-empty Android shared library under {}",
+                android_shared_library_search_roots(&ghostty_dir, &install_prefix)
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }))
     } else if platform == TargetPlatform::Windows {
         let shared_lib_name = platform
             .shared_lib_name()
@@ -547,6 +545,34 @@ fn find_nonempty_file(root: &Path, file_name: &str) -> Option<PathBuf> {
     })
 }
 
+fn find_android_shared_library(ghostty_dir: &Path, install_prefix: &Path) -> Option<PathBuf> {
+    let file_names = [
+        "libghostty-vt.so",
+        "libghostty-vt.so.0",
+        "libghostty-vt.so.0.1.0",
+    ];
+    let roots = android_shared_library_search_roots(ghostty_dir, install_prefix);
+    for file_name in file_names {
+        if let Some(path) = roots
+            .iter()
+            .find_map(|root| find_nonempty_file(root, file_name))
+        {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn android_shared_library_search_roots(ghostty_dir: &Path, install_prefix: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    push_unique_path(&mut roots, install_prefix.join("lib"));
+    push_unique_path(&mut roots, install_prefix.to_path_buf());
+    for root in zig_static_dependency_search_roots(ghostty_dir) {
+        push_unique_path(&mut roots, root);
+    }
+    roots
+}
+
 fn link_zig_static_dependency(
     out_dir: &Path,
     ghostty_dir: &Path,
@@ -692,8 +718,12 @@ fn push_zig_cache_search_root(roots: &mut Vec<PathBuf>, cache_root: PathBuf) {
         return;
     }
     let object_root = cache_root.join("o");
-    if !roots.iter().any(|root| root == &object_root) {
-        roots.push(object_root);
+    push_unique_path(roots, object_root);
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|existing| existing == &path) {
+        paths.push(path);
     }
 }
 
@@ -1023,12 +1053,57 @@ fn cxx_runtime_link_name(target: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
 
     fn probe(path: &str, version: Option<&str>, explicit: bool) -> ZigProbe {
         ZigProbe {
             path: PathBuf::from(path),
             version: version.map(str::to_owned),
             explicit,
+        }
+    }
+
+    fn zig_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct ZigCacheEnvGuard {
+        old_local: Option<OsString>,
+        old_global: Option<OsString>,
+    }
+
+    impl ZigCacheEnvGuard {
+        fn set_local(local_cache: &Path) -> Self {
+            let old_local = std::env::var_os("ZIG_LOCAL_CACHE_DIR");
+            let old_global = std::env::var_os("ZIG_GLOBAL_CACHE_DIR");
+            unsafe {
+                std::env::set_var("ZIG_LOCAL_CACHE_DIR", local_cache);
+                std::env::remove_var("ZIG_GLOBAL_CACHE_DIR");
+            }
+            Self {
+                old_local,
+                old_global,
+            }
+        }
+    }
+
+    impl Drop for ZigCacheEnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = &self.old_local {
+                    std::env::set_var("ZIG_LOCAL_CACHE_DIR", value);
+                } else {
+                    std::env::remove_var("ZIG_LOCAL_CACHE_DIR");
+                }
+                if let Some(value) = &self.old_global {
+                    std::env::set_var("ZIG_GLOBAL_CACHE_DIR", value);
+                } else {
+                    std::env::remove_var("ZIG_GLOBAL_CACHE_DIR");
+                }
+            }
         }
     }
 
@@ -1087,13 +1162,13 @@ mod tests {
     #[test]
     fn resolves_cargo_target_profile_dir_from_out_dir() {
         let out_dir = PathBuf::from(
-            r"F:\repo\target\x86_64-pc-windows-msvc\release\build\libghostty-vt-sys-abcd\out",
+            "/repo/target/x86_64-pc-windows-msvc/release/build/libghostty-vt-sys-abcd/out",
         );
 
         assert_eq!(
             cargo_target_profile_dir(&out_dir, "x86_64-pc-windows-msvc"),
             Some(PathBuf::from(
-                r"F:\repo\target\x86_64-pc-windows-msvc\release"
+                "/repo/target/x86_64-pc-windows-msvc/release"
             ))
         );
     }
@@ -1112,24 +1187,12 @@ mod tests {
         std::fs::create_dir_all(source.join(".zig-cache").join("o")).expect("create source cache");
         std::fs::write(lib_dir.join("libsimdutf.a"), b"archive").expect("write lib");
 
-        let old_local = std::env::var_os("ZIG_LOCAL_CACHE_DIR");
-        unsafe {
-            std::env::set_var("ZIG_LOCAL_CACHE_DIR", &local_cache);
-            std::env::remove_var("ZIG_GLOBAL_CACHE_DIR");
-        }
+        let _lock = zig_env_lock().lock().expect("lock Zig cache env");
+        let _env = ZigCacheEnvGuard::set_local(&local_cache);
 
         let found = find_zig_static_dependency(&source, "simdutf", TargetPlatform::AppleMobile)
             .expect("expected dependency in env cache");
 
-        if let Some(value) = old_local {
-            unsafe {
-                std::env::set_var("ZIG_LOCAL_CACHE_DIR", value);
-            }
-        } else {
-            unsafe {
-                std::env::remove_var("ZIG_LOCAL_CACHE_DIR");
-            }
-        }
         let _ = std::fs::remove_dir_all(&test_root);
 
         assert_eq!(found, lib_dir.join("libsimdutf.a"));
@@ -1158,5 +1221,30 @@ mod tests {
         );
         assert_eq!(cxx_runtime_link_name("aarch64-linux-android"), None);
         assert_eq!(cxx_runtime_link_name("x86_64-pc-windows-msvc"), None);
+    }
+
+    #[test]
+    fn finds_android_shared_library_in_zig_env_cache() {
+        let test_root = std::env::temp_dir().join(format!(
+            "codux-libghostty-vt-sys-android-shared-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&test_root);
+        let local_cache = test_root.join("local-cache");
+        let source = test_root.join("ghostty-src");
+        let lib_dir = local_cache.join("o").join("abcd");
+        std::fs::create_dir_all(&lib_dir).expect("create lib dir");
+        std::fs::create_dir_all(source.join(".zig-cache").join("o")).expect("create source cache");
+        std::fs::write(lib_dir.join("libghostty-vt.so"), b"shared").expect("write shared lib");
+
+        let _lock = zig_env_lock().lock().expect("lock Zig cache env");
+        let _env = ZigCacheEnvGuard::set_local(&local_cache);
+
+        let found = find_android_shared_library(&source, &test_root.join("install"))
+            .expect("expected Android shared library in env cache");
+
+        let _ = std::fs::remove_dir_all(&test_root);
+
+        assert_eq!(found, lib_dir.join("libghostty-vt.so"));
     }
 }
