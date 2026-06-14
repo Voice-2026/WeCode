@@ -202,8 +202,8 @@ fn main() {
         link_zig_static_dependency(&out_dir, &ghostty_dir, "highway", platform);
         link_zig_static_dependency(&out_dir, &ghostty_dir, "utfcpp", platform);
     }
-    if target.contains("apple") {
-        println!("cargo:rustc-link-lib=c++");
+    if let Some(link_name) = cxx_runtime_link_name(&target) {
+        println!("cargo:rustc-link-lib={link_name}");
     }
     println!("cargo:include={}", include_dir.display());
 }
@@ -1010,6 +1010,16 @@ fn zig_cpu(target: &str) -> Option<&'static str> {
     }
 }
 
+fn cxx_runtime_link_name(target: &str) -> Option<&'static str> {
+    if target.contains("apple") {
+        Some("c++")
+    } else if target.contains("linux") && !target.contains("android") {
+        Some("stdc++")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1134,5 +1144,19 @@ mod tests {
             normalized_static_dependency(&out_dir, &source, "highway", TargetPlatform::AppleMobile),
             source
         );
+    }
+
+    #[test]
+    fn links_cxx_runtime_for_host_platforms() {
+        assert_eq!(
+            cxx_runtime_link_name("aarch64-apple-darwin"),
+            Some("c++")
+        );
+        assert_eq!(
+            cxx_runtime_link_name("x86_64-unknown-linux-gnu"),
+            Some("stdc++")
+        );
+        assert_eq!(cxx_runtime_link_name("aarch64-linux-android"), None);
+        assert_eq!(cxx_runtime_link_name("x86_64-pc-windows-msvc"), None);
     }
 }
