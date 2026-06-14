@@ -27,6 +27,10 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 fn main() -> Result<()> {
+    if handle_cli_args() {
+        return Ok(());
+    }
+
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     disable_macos_autofill_heuristics();
 
@@ -77,6 +81,21 @@ fn main() -> Result<()> {
     });
 
     Ok(())
+}
+
+fn handle_cli_args() -> bool {
+    match std::env::args().nth(1).as_deref() {
+        Some("--version") | Some("-V") => {
+            println!("codux {}", env!("CARGO_PKG_VERSION"));
+            true
+        }
+        Some("--help") | Some("-h") => {
+            println!("Codux {}", env!("CARGO_PKG_VERSION"));
+            println!("Usage: codux [--version]");
+            true
+        }
+        _ => false,
+    }
 }
 
 fn load_embedded_fonts(cx: &App) {
