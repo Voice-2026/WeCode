@@ -208,16 +208,16 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
                     .get("serverUrl")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                if !server_url.trim().is_empty() {
-                    return crate::remote::remote_relay_preset_for_url(server_url);
-                }
-                remote
+                let preset = remote
                     .get("relayPreset")
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| crate::remote::remote_relay_preset_for_url(server_url))
+                    .unwrap_or_default();
+                match preset {
+                    "global" | "china" | "custom" => preset.to_string(),
+                    _ => crate::remote::remote_relay_preset_for_url(server_url),
+                }
             })
             .unwrap_or_else(|| crate::remote::remote_relay_preset_for_url("")),
         remote_server_url: remote

@@ -574,6 +574,61 @@ mod tests {
     }
 
     #[test]
+    fn remote_relay_preset_is_not_overridden_by_existing_server_url() {
+        let support_dir = temp_dir("settings-remote-preset-primary");
+        fs::write(
+            support_dir.join("settings.json"),
+            r#"
+            {
+              "remote": {
+                "isEnabled": true,
+                "relayPreset": "custom",
+                "serverUrl": "https://codux-service.dux.plus"
+              }
+            }
+            "#,
+        )
+        .expect("settings");
+
+        let summary = SettingsService::new(support_dir.clone()).summary();
+        assert_eq!(summary.remote_relay_preset, "custom");
+        assert_eq!(summary.remote_server_url, "https://codux-service.dux.plus");
+
+        let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
+        let (updated, remote) = service
+            .set_remote_relay_preset("custom")
+            .expect("set custom relay");
+        assert_eq!(updated.remote_relay_preset, "custom");
+        assert_eq!(updated.remote_server_url, "https://codux-service.dux.plus");
+        assert_eq!(remote.relay, "https://codux-service.dux.plus");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn remote_relay_preset_migrates_from_url_when_missing() {
+        let support_dir = temp_dir("settings-remote-preset-migration");
+        fs::write(
+            support_dir.join("settings.json"),
+            r#"
+            {
+              "remote": {
+                "isEnabled": true,
+                "serverUrl": "https://codux-service.dux.plus"
+              }
+            }
+            "#,
+        )
+        .expect("settings");
+
+        let summary = SettingsService::new(support_dir.clone()).summary();
+        assert_eq!(summary.remote_relay_preset, "china");
+        assert_eq!(summary.remote_server_url, "https://codux-service.dux.plus");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     fn missing_remote_server_url_uses_global_relay_preset() {
         let support_dir = temp_dir("settings-remote-missing-url");
         fs::write(

@@ -448,6 +448,24 @@ impl RemoteHostRuntime {
         Some((transport, restart_generation))
     }
 
+    fn prepare_transport_for_pairing(
+        &self,
+    ) -> Result<(Option<Arc<dyn RemoteTransport>>, u64), String> {
+        let mut status = self.service().summary();
+        if !status.enabled {
+            return Err("Remote Host is disabled.".to_string());
+        }
+        let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let transport = self.take_transport();
+        status.status = "connecting".to_string();
+        status.message = "Connecting relay...".to_string();
+        status.pairing = None;
+        status.pending_pairing_list.clear();
+        status.pending_pairings = 0;
+        self.update_snapshot(status);
+        Ok((transport, generation))
+    }
+
     fn handle_transport_state(
         self: &Arc<Self>,
         state_generation: u64,
@@ -864,11 +882,11 @@ impl RemoteHostRuntime {
         if !self.snapshot().enabled {
             return Err("Remote Host is disabled.".to_string());
         }
-        let generation = match self.connection_generation.load(Ordering::SeqCst) {
-            0 => self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1,
-            generation => generation,
-        };
-        self.ensure_transport_ready(generation).await?;
+        let (transport, generation) = self.prepare_transport_for_pairing()?;
+        if let Some(transport) = transport {
+            transport.shutdown().await;
+        }
+        self.start_remote_transport(generation).await?;
         let raw = self.service().raw_settings();
         let settings = super::remote_settings_from_raw(&raw);
         if settings.host_public_key.trim().is_empty() {
@@ -4075,6 +4093,32 @@ mod tests {
         assert!(restart.is_none());
         assert_eq!(runtime.connection_generation.load(Ordering::SeqCst), 8);
         assert!(runtime.transport.lock().expect("transport lock").is_some());
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn pairing_preparation_restarts_host_transport() {
+        let support_dir = temp_support_dir("codux-remote-host-pairing-restart");
+        write_paired_remote_settings(&support_dir);
+        let runtime = RemoteHostRuntime::new(support_dir.clone());
+        runtime.connection_generation.store(11, Ordering::SeqCst);
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(Arc::new(CapturingTransport::default()));
+        }
+
+        let (transport, generation) = runtime
+            .prepare_transport_for_pairing()
+            .expect("prepare pairing transport");
+
+        assert!(transport.is_some());
+        assert_eq!(generation, 12);
+        assert_eq!(runtime.connection_generation.load(Ordering::SeqCst), 12);
+        assert!(runtime.transport.lock().expect("transport lock").is_none());
+        let snapshot = runtime.snapshot();
+        assert_eq!(snapshot.status, "connecting");
+        assert_eq!(snapshot.message, "Connecting relay...");
+        assert!(snapshot.pairing.is_none());
 
         fs::remove_dir_all(support_dir).ok();
     }

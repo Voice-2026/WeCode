@@ -266,11 +266,13 @@ impl RuntimeService {
         server_url: &str,
         reset_devices: bool,
     ) -> Result<(SettingsSummary, RemoteSummary), String> {
-        self.update_remote_relay_settings(
-            crate::remote::remote_relay_preset_for_url(server_url),
-            server_url.trim().to_string(),
-            reset_devices,
-        )
+        let server_url = server_url.trim();
+        let relay_preset = if server_url.is_empty() {
+            crate::remote::remote_relay_preset_for_url(server_url)
+        } else {
+            "custom".to_string()
+        };
+        self.update_remote_relay_settings(relay_preset, server_url.to_string(), reset_devices)
     }
 
     pub fn set_remote_relay_preset(
@@ -292,10 +294,8 @@ impl RuntimeService {
             _ => "global",
         };
         let current = self.reload_settings();
-        let server_url = crate::remote::remote_relay_url_for_preset(
-            relay_preset,
-            &current.remote_server_url,
-        );
+        let server_url =
+            crate::remote::remote_relay_url_for_preset(relay_preset, &current.remote_server_url);
         self.update_remote_relay_settings(relay_preset.to_string(), server_url, reset_devices)
     }
 
