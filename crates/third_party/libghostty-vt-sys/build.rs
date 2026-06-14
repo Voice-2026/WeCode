@@ -320,13 +320,6 @@ fn vendor_uucode_for_windows(zig: &Path, ghostty_dir: &Path) {
         "zig fetch uucode did not print a package hash"
     );
 
-    let fetched_dir = fetch_cache.join("p").join(&package_hash);
-    assert!(
-        fetched_dir.join("build.zig").exists(),
-        "expected fetched uucode package at {}",
-        fetched_dir.display()
-    );
-
     let uucode_dir = ghostty_dir.join("vendor").join("uucode-codux");
     if uucode_dir.exists() {
         std::fs::remove_dir_all(&uucode_dir).unwrap_or_else(|error| {
@@ -336,9 +329,52 @@ fn vendor_uucode_for_windows(zig: &Path, ghostty_dir: &Path) {
             )
         });
     }
+    let fetched_dir = resolve_zig_fetched_package(&fetch_cache, &package_hash);
     copy_dir_all(&fetched_dir, &uucode_dir);
     patch_uucode_build_for_windows(&uucode_dir);
     patch_ghostty_uucode_dependency(ghostty_dir);
+}
+
+fn resolve_zig_fetched_package(fetch_cache: &Path, package_hash: &str) -> PathBuf {
+    let package_path = fetch_cache.join("p").join(package_hash);
+    if package_path.join("build.zig").exists() {
+        return package_path;
+    }
+
+    if package_path.is_file() {
+        let unpack_dir = fetch_cache.join("unpacked").join(package_hash);
+        if unpack_dir.exists() {
+            std::fs::remove_dir_all(&unpack_dir).unwrap_or_else(|error| {
+                panic!(
+                    "failed to remove stale uucode unpack directory {}: {error}",
+                    unpack_dir.display()
+                )
+            });
+        }
+        std::fs::create_dir_all(&unpack_dir).unwrap_or_else(|error| {
+            panic!(
+                "failed to create uucode unpack directory {}: {error}",
+                unpack_dir.display()
+            )
+        });
+
+        let mut tar = Command::new("tar");
+        tar.arg("-xf").arg(&package_path).arg("-C").arg(&unpack_dir);
+        run(tar, "unpack uucode package");
+
+        let unpacked_package = find_dir_with_file(&unpack_dir, "build.zig").unwrap_or_else(|| {
+            panic!(
+                "expected unpacked uucode package with build.zig under {}",
+                unpack_dir.display()
+            )
+        });
+        return unpacked_package;
+    }
+
+    panic!(
+        "expected fetched uucode package at {}",
+        package_path.display()
+    );
 }
 
 fn patch_uucode_build_for_windows(uucode_dir: &Path) {
@@ -442,6 +478,22 @@ fn link_zig_static_dependency(ghostty_dir: &Path, name: &str, platform: TargetPl
 
 fn find_file(root: &Path, file_name: &str) -> Option<PathBuf> {
     find_file_with(root, file_name, |_| true)
+}
+
+fn find_dir_with_file(root: &Path, file_name: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.join(file_name).exists() {
+                return Some(path);
+            }
+            if let Some(found) = find_dir_with_file(&path, file_name) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 fn find_file_with(
