@@ -983,12 +983,12 @@ void main() {
         RemoteMessageType.resourceSubscribe,
       );
       expect(subscribePayload?['resource'], RemoteResourceType.terminals);
-      expect(subscribePayload?['sessionId'], 'session-1');
-      expect(subscribePayload?['projectId'], isNull);
+      expect(subscribePayload?['sessionId'], isNull);
+      expect(subscribePayload?['projectId'], 'project-1');
       expect(subscribePayload?['baseline'], isTrue);
       expect(
         CoduxLog.snapshotText(),
-        contains('mount session=session-1 reason=open cached=false'),
+        contains('bind session=session-1 project=project-1 cached=false'),
       );
     },
   );
