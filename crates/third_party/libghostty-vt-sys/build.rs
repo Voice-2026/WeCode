@@ -5,6 +5,7 @@ use std::process::Command;
 /// Pinned ghostty commit. Update this to pull a newer version.
 const GHOSTTY_REPO: &str = "https://github.com/ghostty-org/ghostty.git";
 const GHOSTTY_COMMIT: &str = "bebca84668947bfc92b9a30ed58712e1c34eee1d";
+const UUCODE_URL: &str = "https://deps.files.ghostty.org/uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9.tar.gz";
 
 fn main() {
     // docs.rs has no Zig toolchain. The checked-in bindings in src/bindings.rs
@@ -59,13 +60,13 @@ fn main() {
     let zig = zig_command();
 
     if platform == TargetPlatform::Windows {
+        vendor_uucode_for_windows(&zig, &ghostty_dir);
         let mut fetch = Command::new(&zig);
         fetch.arg("build");
         add_ghostty_zig_build_args(&mut fetch, &install_prefix_arg);
         add_zig_target_args(&mut fetch, &target, &host);
         fetch.arg("--fetch=needed").current_dir(&ghostty_dir);
         run(fetch, "zig fetch ghostty dependencies");
-        patch_uucode_for_windows(&ghostty_dir);
     }
 
     let mut build = Command::new(&zig);
@@ -304,21 +305,43 @@ fn patch_ghostty_for_target(ghostty_dir: &Path, target: &str) {
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
 }
 
-fn patch_uucode_for_windows(ghostty_dir: &Path) {
-    let zig_pkg = ghostty_dir.join("zig-pkg");
-    let Some(uucode_dir) = std::fs::read_dir(&zig_pkg).ok().and_then(|entries| {
-        entries.flatten().find_map(|entry| {
-            let path = entry.path();
-            let name = path.file_name()?.to_str()?;
-            (path.is_dir() && name.starts_with("uucode-")).then_some(path)
-        })
-    }) else {
-        panic!(
-            "expected fetched uucode package under {}",
-            zig_pkg.display()
-        );
-    };
+fn vendor_uucode_for_windows(zig: &Path, ghostty_dir: &Path) {
+    let fetch_cache = ghostty_dir.join(".zig-fetch-codux");
+    let mut fetch = Command::new(zig);
+    fetch
+        .arg("fetch")
+        .arg("--global-cache-dir")
+        .arg(&fetch_cache)
+        .arg(UUCODE_URL)
+        .current_dir(ghostty_dir);
+    let package_hash = run_output(fetch, "zig fetch uucode").trim().to_owned();
+    assert!(
+        !package_hash.is_empty(),
+        "zig fetch uucode did not print a package hash"
+    );
 
+    let fetched_dir = fetch_cache.join("p").join(&package_hash);
+    assert!(
+        fetched_dir.join("build.zig").exists(),
+        "expected fetched uucode package at {}",
+        fetched_dir.display()
+    );
+
+    let uucode_dir = ghostty_dir.join("vendor").join("uucode-codux");
+    if uucode_dir.exists() {
+        std::fs::remove_dir_all(&uucode_dir).unwrap_or_else(|error| {
+            panic!(
+                "failed to remove stale uucode vendor directory {}: {error}",
+                uucode_dir.display()
+            )
+        });
+    }
+    copy_dir_all(&fetched_dir, &uucode_dir);
+    patch_uucode_build_for_windows(&uucode_dir);
+    patch_ghostty_uucode_dependency(ghostty_dir);
+}
+
+fn patch_uucode_build_for_windows(uucode_dir: &Path) {
     let path = uucode_dir.join("build.zig");
     let source = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
@@ -343,6 +366,58 @@ fn patch_uucode_for_windows(ghostty_dir: &Path) {
     let patched = source.replace(needle, replacement);
     std::fs::write(&path, patched)
         .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
+}
+
+fn patch_ghostty_uucode_dependency(ghostty_dir: &Path) {
+    let path = ghostty_dir.join("build.zig.zon");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let needle = format!(
+        r#"        .uucode = .{{
+            // jacobsandlund/uucode
+            .url = "{UUCODE_URL}",
+            .hash = "uucode-0.2.0-ZZjBPqZVVABQepOqZHR7vV_NcaN-wats0IB6o-Exj6m9",
+        }},"#
+    );
+    let replacement = r#"        .uucode = .{ .path = "./vendor/uucode-codux" },"#;
+
+    if source.contains(replacement) {
+        return;
+    }
+
+    let patched = source.replace(&needle, replacement);
+    assert!(
+        patched != source,
+        "failed to patch uucode dependency in {}",
+        path.display()
+    );
+    std::fs::write(&path, patched)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
+}
+
+fn copy_dir_all(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to)
+        .unwrap_or_else(|error| panic!("failed to create {}: {error}", to.display()));
+    for entry in std::fs::read_dir(from)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", from.display()))
+    {
+        let entry = entry.unwrap_or_else(|error| {
+            panic!("failed to read entry under {}: {error}", from.display())
+        });
+        let from_path = entry.path();
+        let to_path = to.join(entry.file_name());
+        if from_path.is_dir() {
+            copy_dir_all(&from_path, &to_path);
+        } else {
+            std::fs::copy(&from_path, &to_path).unwrap_or_else(|error| {
+                panic!(
+                    "failed to copy {} to {}: {error}",
+                    from_path.display(),
+                    to_path.display()
+                )
+            });
+        }
+    }
 }
 
 fn find_nonempty_file(root: &Path, file_name: &str) -> Option<PathBuf> {
@@ -452,6 +527,21 @@ fn run(mut command: Command, context: &str) {
         .status()
         .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"));
     assert!(status.success(), "{context} failed with status {status}");
+}
+
+fn run_output(mut command: Command, context: &str) -> String {
+    let output = command
+        .output()
+        .unwrap_or_else(|error| panic!("failed to execute {context}: {error}"));
+    assert!(
+        output.status.success(),
+        "{context} failed with status {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout)
+        .unwrap_or_else(|error| panic!("{context} printed non-UTF-8 stdout: {error}"))
 }
 
 fn zig_target(target: &str) -> String {
