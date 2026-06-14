@@ -44,8 +44,19 @@ try {
   ]) {
     assert.equal(fs.existsSync(path.join(runtimeRoot, relativePath)), true, `${relativePath} should be packaged`);
   }
+  assertNoSymlinks(runtimeRoot);
 } finally {
   fs.rmSync(tempDir, { recursive: true, force: true });
 }
 
 console.log("package-gpui installer test passed");
+
+function assertNoSymlinks(root) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const entryPath = path.join(root, entry.name);
+    assert.equal(entry.isSymbolicLink(), false, `${entryPath} should not be a symlink`);
+    if (entry.isDirectory()) {
+      assertNoSymlinks(entryPath);
+    }
+  }
+}

@@ -101,11 +101,7 @@ pub fn tool_hook_config_status(
 }
 
 pub fn opencode_hook_config_status(config_dir: &Path) -> AIRuntimeToolHookConfigStatus {
-    let expected = [
-        "package.json",
-        "plugins/dmux-runtime.js",
-        "node_modules/@opencode-ai/plugin/package.json",
-    ];
+    let expected = ["package.json", "plugins/dmux-runtime.js"];
     let missing = expected
         .iter()
         .filter(|relative| !config_dir.join(relative).exists())
@@ -261,6 +257,21 @@ mod tests {
         assert!(status.configured);
         assert!(status.missing.is_empty());
         fs::remove_file(root).unwrap();
+    }
+
+    #[test]
+    fn opencode_hook_config_status_matches_embedded_runtime_assets() {
+        let home = std::env::temp_dir().join(format!("codux-opencode-hooks-{}", Uuid::new_v4()));
+        let config = home.join("opencode-config");
+        fs::create_dir_all(config.join("plugins")).unwrap();
+        fs::write(config.join("package.json"), "{}").unwrap();
+        fs::write(config.join("plugins/dmux-runtime.js"), "export {};").unwrap();
+
+        let status = opencode_hook_config_status(&config);
+
+        assert!(status.configured);
+        assert!(status.missing.is_empty());
+        fs::remove_dir_all(home).unwrap();
     }
 
     #[test]
