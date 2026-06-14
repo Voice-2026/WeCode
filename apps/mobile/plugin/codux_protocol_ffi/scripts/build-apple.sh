@@ -30,6 +30,7 @@ case "$PLATFORM_NAME" in
   iphoneos)
     TARGET="aarch64-apple-ios"
     OUT_DIR="$PLUGIN_DIR/ios/Frameworks"
+    export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
     ;;
   iphonesimulator)
     if [[ "$ARCHS" == *"x86_64"* ]]; then
@@ -38,6 +39,7 @@ case "$PLATFORM_NAME" in
       TARGET="aarch64-apple-ios-sim"
     fi
     OUT_DIR="$PLUGIN_DIR/ios/Frameworks"
+    export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
     ;;
   macosx)
     if [[ "$ARCHS" == *"x86_64"* ]]; then
@@ -46,6 +48,7 @@ case "$PLATFORM_NAME" in
       TARGET="aarch64-apple-darwin"
     fi
     OUT_DIR="$PLUGIN_DIR/macos/Frameworks"
+    export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
     ;;
   *)
     echo "Unsupported Apple platform: $PLATFORM_NAME" >&2
