@@ -95,8 +95,23 @@ function extractChangelogSection(relativePath, nextVersion) {
 function buildReleaseNotes(nextVersion) {
   const english = extractChangelogSection("CHANGELOG.md", nextVersion);
   const chinese = extractChangelogSection("CHANGELOG.zh-CN.md", nextVersion);
+  const downloadGuide = buildDownloadGuide();
   if (chinese && english) {
-    return [`## 中文`, chinese, `---`, `## English`, english].join("\n\n");
+    return [`## 中文`, chinese, `---`, `## English`, english, downloadGuide].join("\n\n");
   }
-  return english || chinese || `Codux ${nextVersion}`;
+  return [english || chinese || `Codux ${nextVersion}`, downloadGuide].join("\n\n");
+}
+
+function buildDownloadGuide() {
+  return [
+    `## 下载说明`,
+    ``,
+    `| 文件 | 用途 |`,
+    `| --- | --- |`,
+    `| \`codux-*-macos-aarch64.dmg\` | Apple Silicon Mac 正式版本 |`,
+    `| \`codux-*-macos-x86_64.dmg\` | Intel Mac 正式版本 |`,
+    `| \`codux-*-macos-aarch64-debug.dmg\` | Apple Silicon Mac 测试版本 |`,
+    `| \`codux-*-macos-x86_64-debug.dmg\` | Intel Mac 测试版本 |`,
+    `| \`codux-*-windows-x86_64-setup.exe\` | Windows 64 位安装包 |`,
+  ].join("\n");
 }

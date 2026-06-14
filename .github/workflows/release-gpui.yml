@@ -77,11 +77,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - id: macos-universal
+          - id: macos-aarch64
             os: macos-26
-            target: universal-apple-darwin
-            targets: aarch64-apple-darwin,x86_64-apple-darwin
-            artifact_suffix: -adhoc
+            target: aarch64-apple-darwin
+            zig_cache_suffix: aarch64
+            artifact_suffix: -debug
+          - id: macos-x86_64
+            os: macos-26
+            target: x86_64-apple-darwin
+            zig_cache_suffix: x86_64
+            artifact_suffix: -debug
           - id: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -145,25 +150,16 @@ jobs:
       - name: Build
         shell: bash
         env:
-          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
-          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
+          ZIG_CACHE_SUFFIX: ${{ matrix.zig_cache_suffix || matrix.id }}
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache-${{ matrix.zig_cache_suffix || matrix.id }}
+          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache-${{ matrix.zig_cache_suffix || matrix.id }}
         run: |
           rm -rf "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
           mkdir -p "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
-          if [[ "${CARGO_BUILD_TARGET}" == "universal-apple-darwin" ]]; then
-            cargo build --release --target aarch64-apple-darwin
-            cargo build --release --target x86_64-apple-darwin
-            mkdir -p target/universal-apple-darwin/release
-            lipo -create \
-              -output target/universal-apple-darwin/release/codux \
-              target/aarch64-apple-darwin/release/codux \
-              target/x86_64-apple-darwin/release/codux
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-windows.ps1 -Target "${CARGO_BUILD_TARGET}"
           else
-            if [[ "${RUNNER_OS}" == "Windows" ]]; then
-              pwsh -NoProfile -ExecutionPolicy Bypass -File tools/build-windows.ps1 -Target "${CARGO_BUILD_TARGET}"
-            else
-              cargo build --release --target "${CARGO_BUILD_TARGET}"
-            fi
+            cargo build --release --target "${CARGO_BUILD_TARGET}"
           fi
 
       - name: Stage built binary
@@ -171,11 +167,11 @@ jobs:
         run: |
           rm -rf dist/binary
           mkdir -p dist/binary
-          if [[ "${CARGO_BUILD_TARGET}" == "universal-apple-darwin" ]]; then
-            cp target/universal-apple-darwin/release/codux dist/binary/codux
-          elif [[ "${RUNNER_OS}" == "Windows" ]]; then
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
             cp "target/${CARGO_BUILD_TARGET}/release/codux.exe" dist/binary/codux.exe
             cp "target/${CARGO_BUILD_TARGET}/release/ghostty-vt.dll" dist/binary/ghostty-vt.dll
+          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
+            cp "target/${CARGO_BUILD_TARGET}/release/codux" dist/binary/codux
           else
             cp "target/${CARGO_BUILD_TARGET}/release/codux" dist/binary/codux
           fi
@@ -187,6 +183,17 @@ jobs:
           path: dist/binary/*
           if-no-files-found: error
 
+      - name: Save Rust cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-release-${{ runner.os }}-${{ matrix.id }}-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
+
   package:
     needs:
       - metadata
@@ -195,10 +202,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - id: macos-universal
+          - id: macos-aarch64
             os: macos-26
-            target: universal-apple-darwin
-            artifact_suffix: -adhoc
+            target: aarch64-apple-darwin
+            artifact_suffix: -debug
+          - id: macos-x86_64
+            os: macos-26
+            target: x86_64-apple-darwin
+            artifact_suffix: -debug
           - id: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -250,6 +261,9 @@ jobs:
           if [[ "${RUNNER_OS}" == "Windows" ]]; then
             cp dist/binary/codux.exe "target/${CARGO_BUILD_TARGET}/release/codux.exe"
             cp dist/binary/ghostty-vt.dll "target/${CARGO_BUILD_TARGET}/release/ghostty-vt.dll"
+          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
+            cp dist/binary/codux "target/${CARGO_BUILD_TARGET}/release/codux"
+            chmod +x "target/${CARGO_BUILD_TARGET}/release/codux"
           else
             cp dist/binary/codux "target/${CARGO_BUILD_TARGET}/release/codux"
             chmod +x "target/${CARGO_BUILD_TARGET}/release/codux"

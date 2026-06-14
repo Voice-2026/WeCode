@@ -182,29 +182,7 @@ fn main() {
             )
         });
 
-        // A normal Cargo run/build leaves dependent DLLs next to the final exe
-        // only if the build script stages them there. Keep raw codux.exe
-        // runnable without requiring users or CI to know Cargo's OUT_DIR.
-        if let Some(profile_dir) = cargo_target_profile_dir(&out_dir, &target) {
-            let exe_sibling = profile_dir.join(
-                shared_lib_path
-                    .file_name()
-                    .expect("Windows shared library path must have a file name"),
-            );
-            std::fs::create_dir_all(&profile_dir).unwrap_or_else(|error| {
-                panic!(
-                    "failed to create Windows target profile directory {}: {error}",
-                    profile_dir.display()
-                )
-            });
-            std::fs::copy(shared_lib_path, &exe_sibling).unwrap_or_else(|error| {
-                panic!(
-                    "failed to copy {} to {}: {error}",
-                    shared_lib_path.display(),
-                    exe_sibling.display()
-                )
-            });
-        }
+        stage_shared_library_next_to_cargo_binary(&out_dir, &target, shared_lib_path);
 
         println!(
             "cargo:rustc-link-search=native={}",
@@ -212,27 +190,28 @@ fn main() {
         );
         println!("cargo:rustc-link-lib=dylib=ghostty-vt");
     } else {
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
-        if let Some(parent) = static_lib_path.as_ref().and_then(|path| path.parent()) {
+        let static_link_path = static_lib_path
+            .as_ref()
+            .map(|path| normalized_static_dependency(&out_dir, path, static_link_name, platform));
+        if let Some(parent) = static_link_path.as_ref().and_then(|path| path.parent()) {
             println!("cargo:rustc-link-search=native={}", parent.display());
         }
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
         println!("cargo:rustc-link-lib=static={static_link_name}");
-        link_zig_static_dependency(&ghostty_dir, "simdutf", platform);
-        link_zig_static_dependency(&ghostty_dir, "highway", platform);
-        link_zig_static_dependency(&ghostty_dir, "utfcpp", platform);
+        link_zig_static_dependency(&out_dir, &ghostty_dir, "simdutf", platform);
+        link_zig_static_dependency(&out_dir, &ghostty_dir, "highway", platform);
+        link_zig_static_dependency(&out_dir, &ghostty_dir, "utfcpp", platform);
     }
     if target.contains("apple") {
         println!("cargo:rustc-link-lib=c++");
-    }
-    if target.contains("apple-darwin") {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
     }
     println!("cargo:include={}", include_dir.display());
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TargetPlatform {
-    Apple,
+    Macos,
+    AppleMobile,
     Android,
     Windows,
     Unix,
@@ -248,15 +227,17 @@ impl LinkMode {
     fn for_platform(platform: TargetPlatform) -> Self {
         match platform {
             TargetPlatform::Windows | TargetPlatform::Android => Self::Dynamic,
-            TargetPlatform::Apple | TargetPlatform::Unix => Self::Static,
+            TargetPlatform::Macos | TargetPlatform::AppleMobile | TargetPlatform::Unix => Self::Static,
         }
     }
 }
 
 impl TargetPlatform {
     fn from_triple(target: &str) -> Self {
-        if target.contains("apple") {
-            Self::Apple
+        if target.contains("apple-darwin") {
+            Self::Macos
+        } else if target.contains("apple-ios") {
+            Self::AppleMobile
         } else if target.contains("android") {
             Self::Android
         } else if target.contains("windows") {
@@ -268,7 +249,8 @@ impl TargetPlatform {
 
     fn shared_lib_name(self) -> Option<&'static str> {
         match self {
-            Self::Apple => Some("libghostty-vt.0.1.0.dylib"),
+            Self::Macos => None,
+            Self::AppleMobile => Some("libghostty-vt.0.1.0.dylib"),
             Self::Android => Some("libghostty-vt.so"),
             Self::Windows => Some("ghostty-vt.dll"),
             Self::Unix => Some("libghostty-vt.so.0.1.0"),
@@ -565,17 +547,176 @@ fn find_nonempty_file(root: &Path, file_name: &str) -> Option<PathBuf> {
     })
 }
 
-fn link_zig_static_dependency(ghostty_dir: &Path, name: &str, platform: TargetPlatform) {
-    let Some(path) = platform
-        .static_dependency_file_names(name)
-        .iter()
-        .find_map(|file_name| find_file(&ghostty_dir.join(".zig-cache").join("o"), file_name))
-    else {
-        return;
-    };
-    if let Some(parent) = path.parent() {
+fn link_zig_static_dependency(
+    out_dir: &Path,
+    ghostty_dir: &Path,
+    name: &str,
+    platform: TargetPlatform,
+) {
+    let path = find_zig_static_dependency(ghostty_dir, name, platform).unwrap_or_else(|| {
+        panic!(
+            "expected static Ghostty dependency {name} under Zig cache roots: {}",
+            zig_static_dependency_search_roots(ghostty_dir)
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    });
+    let link_path = normalized_static_dependency(out_dir, &path, name, platform);
+    if let Some(parent) = link_path.parent() {
         println!("cargo:rustc-link-search=native={}", parent.display());
         println!("cargo:rustc-link-lib=static={name}");
+    }
+}
+
+fn normalized_static_dependency(
+    out_dir: &Path,
+    source_path: &Path,
+    name: &str,
+    platform: TargetPlatform,
+) -> PathBuf {
+    if platform != TargetPlatform::Macos {
+        return source_path.to_path_buf();
+    }
+
+    let output_dir = out_dir.join("apple-static-deps");
+    std::fs::create_dir_all(&output_dir).unwrap_or_else(|error| {
+        panic!(
+            "failed to create Apple static dependency directory {}: {error}",
+            output_dir.display()
+        )
+    });
+    let output_path = output_dir.join(format!("lib{name}.a"));
+    let object_dir = out_dir.join("apple-static-objects").join(name);
+    if object_dir.exists() {
+        std::fs::remove_dir_all(&object_dir).unwrap_or_else(|error| {
+            panic!(
+                "failed to remove stale Apple static object directory {}: {error}",
+                object_dir.display()
+            )
+        });
+    }
+    std::fs::create_dir_all(&object_dir).unwrap_or_else(|error| {
+        panic!(
+            "failed to create Apple static object directory {}: {error}",
+            object_dir.display()
+        )
+    });
+
+    let mut ar = Command::new("ar");
+    ar.arg("-x").arg(source_path).current_dir(&object_dir);
+    run(ar, "extract Apple static archive");
+
+    let mut objects = std::fs::read_dir(&object_dir)
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to read Apple static object directory {}: {error}",
+                object_dir.display()
+            )
+        })
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("o"))
+        .collect::<Vec<_>>();
+    objects.sort();
+    assert!(
+        !objects.is_empty(),
+        "expected object files after extracting {}",
+        source_path.display()
+    );
+    set_apple_static_object_permissions(&objects);
+
+    let mut libtool = Command::new("xcrun");
+    libtool
+        .arg("libtool")
+        .arg("-static")
+        .arg("-o")
+        .arg(&output_path);
+    for object in objects {
+        libtool.arg(object);
+    }
+    run(libtool, "normalize Apple static archive");
+    output_path
+}
+
+fn set_apple_static_object_permissions(objects: &[PathBuf]) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        for object in objects {
+            let permissions = std::fs::Permissions::from_mode(0o644);
+            std::fs::set_permissions(object, permissions)
+                .unwrap_or_else(|error| panic!("failed to chmod {}: {error}", object.display()));
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        for object in objects {
+            let mut permissions = std::fs::metadata(object)
+                .unwrap_or_else(|error| panic!("failed to stat {}: {error}", object.display()))
+                .permissions();
+            permissions.set_readonly(false);
+            std::fs::set_permissions(object, permissions)
+                .unwrap_or_else(|error| panic!("failed to chmod {}: {error}", object.display()));
+        }
+    }
+}
+
+fn find_zig_static_dependency(
+    ghostty_dir: &Path,
+    name: &str,
+    platform: TargetPlatform,
+) -> Option<PathBuf> {
+    let file_names = platform.static_dependency_file_names(name);
+    zig_static_dependency_search_roots(ghostty_dir)
+        .iter()
+        .find_map(|root| file_names.iter().find_map(|file_name| find_file(root, file_name)))
+}
+
+fn zig_static_dependency_search_roots(ghostty_dir: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(value) = env::var("ZIG_LOCAL_CACHE_DIR") {
+        push_zig_cache_search_root(&mut roots, PathBuf::from(value));
+    }
+    if let Ok(value) = env::var("ZIG_GLOBAL_CACHE_DIR") {
+        push_zig_cache_search_root(&mut roots, PathBuf::from(value));
+    }
+    push_zig_cache_search_root(&mut roots, ghostty_dir.join(".zig-cache"));
+    roots
+}
+
+fn push_zig_cache_search_root(roots: &mut Vec<PathBuf>, cache_root: PathBuf) {
+    if cache_root.as_os_str().is_empty() {
+        return;
+    }
+    let object_root = cache_root.join("o");
+    if !roots.iter().any(|root| root == &object_root) {
+        roots.push(object_root);
+    }
+}
+
+fn stage_shared_library_next_to_cargo_binary(out_dir: &Path, target: &str, shared_lib_path: &Path) {
+    if let Some(profile_dir) = cargo_target_profile_dir(out_dir, target) {
+        let binary_sibling = profile_dir.join(
+            shared_lib_path
+                .file_name()
+                .expect("shared library path must have a file name"),
+        );
+        std::fs::create_dir_all(&profile_dir).unwrap_or_else(|error| {
+            panic!(
+                "failed to create target profile directory {}: {error}",
+                profile_dir.display()
+            )
+        });
+        std::fs::copy(shared_lib_path, &binary_sibling).unwrap_or_else(|error| {
+            panic!(
+                "failed to copy {} to {}: {error}",
+                shared_lib_path.display(),
+                binary_sibling.display()
+            )
+        });
     }
 }
 
@@ -914,6 +1055,26 @@ mod tests {
     }
 
     #[test]
+    fn macos_uses_static_linking_for_ghostty_vt() {
+        assert_eq!(
+            LinkMode::for_platform(TargetPlatform::Macos),
+            LinkMode::Static
+        );
+        assert_eq!(
+            TargetPlatform::from_triple("aarch64-apple-darwin"),
+            TargetPlatform::Macos
+        );
+        assert_eq!(
+            TargetPlatform::from_triple("aarch64-apple-ios"),
+            TargetPlatform::AppleMobile
+        );
+        assert_eq!(
+            TargetPlatform::Macos.shared_lib_name(),
+            None
+        );
+    }
+
+    #[test]
     fn resolves_cargo_target_profile_dir_from_out_dir() {
         let out_dir = PathBuf::from(
             r"F:\repo\target\x86_64-pc-windows-msvc\release\build\libghostty-vt-sys-abcd\out",
@@ -924,6 +1085,54 @@ mod tests {
             Some(PathBuf::from(
                 r"F:\repo\target\x86_64-pc-windows-msvc\release"
             ))
+        );
+    }
+
+    #[test]
+    fn searches_zig_env_cache_before_source_cache_for_static_dependencies() {
+        let test_root = std::env::temp_dir().join(format!(
+            "codux-libghostty-vt-sys-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&test_root);
+        let local_cache = test_root.join("local-cache");
+        let source = test_root.join("ghostty-src");
+        let lib_dir = local_cache.join("o").join("abcd");
+        std::fs::create_dir_all(&lib_dir).expect("create lib dir");
+        std::fs::create_dir_all(source.join(".zig-cache").join("o")).expect("create source cache");
+        std::fs::write(lib_dir.join("libsimdutf.a"), b"archive").expect("write lib");
+
+        let old_local = std::env::var_os("ZIG_LOCAL_CACHE_DIR");
+        unsafe {
+            std::env::set_var("ZIG_LOCAL_CACHE_DIR", &local_cache);
+            std::env::remove_var("ZIG_GLOBAL_CACHE_DIR");
+        }
+
+        let found = find_zig_static_dependency(&source, "simdutf", TargetPlatform::AppleMobile)
+            .expect("expected dependency in env cache");
+
+        if let Some(value) = old_local {
+            unsafe {
+                std::env::set_var("ZIG_LOCAL_CACHE_DIR", value);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("ZIG_LOCAL_CACHE_DIR");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&test_root);
+
+        assert_eq!(found, lib_dir.join("libsimdutf.a"));
+    }
+
+    #[test]
+    fn non_macos_static_dependency_keeps_original_archive() {
+        let out_dir = PathBuf::from("/tmp/codux-out");
+        let source = PathBuf::from("/tmp/zig-cache/o/libhighway.a");
+
+        assert_eq!(
+            normalized_static_dependency(&out_dir, &source, "highway", TargetPlatform::AppleMobile),
+            source
         );
     }
 }

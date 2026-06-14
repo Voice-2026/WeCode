@@ -76,12 +76,22 @@ jobs:
 
   build:
     needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: macos-aarch64
+            target: aarch64-apple-darwin
+            zig_cache_suffix: aarch64
+          - id: macos-x86_64
+            target: x86_64-apple-darwin
+            zig_cache_suffix: x86_64
     runs-on: macos-26
     env:
-      CARGO_BUILD_TARGET: universal-apple-darwin
-      RELEASE_BUILD_ID: macos-universal-formal
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      RELEASE_BUILD_ID: ${{ matrix.id }}
       RELEASE_STAGE_DIR: release-artifacts
-      RELEASE_ARTIFACT_SUFFIX: -formal
+      RELEASE_ARTIFACT_SUFFIX: ""
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -106,7 +116,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - name: Set up Zig
         shell: bash
@@ -123,10 +133,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: formal-rust-${{ runner.os }}-macos-universal-${{ hashFiles('Cargo.lock') }}
+          key: formal-rust-${{ runner.os }}-${{ matrix.id }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            formal-rust-${{ runner.os }}-macos-universal-
-            rust-${{ runner.os }}-macos-universal-
+            formal-rust-${{ runner.os }}-${{ matrix.id }}-
+            rust-${{ runner.os }}-${{ matrix.id }}-
             rust-${{ runner.os }}-
 
       - name: Print macOS build environment
@@ -163,18 +173,12 @@ jobs:
       - name: Build
         shell: bash
         env:
-          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache
-          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache
+          ZIG_GLOBAL_CACHE_DIR: ${{ runner.temp }}/zig-global-cache-${{ matrix.zig_cache_suffix }}
+          ZIG_LOCAL_CACHE_DIR: ${{ runner.temp }}/zig-local-cache-${{ matrix.zig_cache_suffix }}
         run: |
           rm -rf "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
           mkdir -p "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR"
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
-          mkdir -p target/universal-apple-darwin/release
-          lipo -create \
-            -output target/universal-apple-darwin/release/codux \
-            target/aarch64-apple-darwin/release/codux \
-            target/x86_64-apple-darwin/release/codux
+          cargo build --release --target "${CARGO_BUILD_TARGET}"
 
       - name: Package formal macOS bundle
         shell: bash
@@ -183,9 +187,20 @@ jobs:
       - name: Upload formal macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: package-macos-universal-formal
-          path: release-artifacts/macos-universal-formal/*
+          name: package-${{ matrix.id }}
+          path: release-artifacts/${{ matrix.id }}/*
           if-no-files-found: error
+
+      - name: Save Rust cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: formal-rust-${{ runner.os }}-${{ matrix.id }}-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
 
   publish:
     needs:
@@ -197,7 +212,7 @@ jobs:
       RELEASE_CHANNEL: ${{ needs.metadata.outputs.channel }}
       RELEASE_TAG: ${{ needs.metadata.outputs.source_ref }}
       RELEASE_NOTES_PATH: dist/release-notes.md
-      RELEASE_ARTIFACTS_DIR: release-artifacts/macos-universal-formal
+      RELEASE_ARTIFACTS_DIR: release-artifacts
       RELEASE_REQUIRE_EXISTING: true
       RELEASE_MERGE_EXISTING_LATEST: true
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -222,8 +237,9 @@ jobs:
       - name: Download formal macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: package-macos-universal-formal
-          path: release-artifacts/macos-universal-formal
+          pattern: package-macos-*
+          path: release-artifacts
+          merge-multiple: true
 
       - name: Publish formal macOS assets and updater metadata
         run: node apps/desktop/scripts/release/publish-github-release.mjs
@@ -233,5 +249,5 @@ jobs:
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
-          RELEASE_ARTIFACTS_DIR: release-artifacts/macos-universal-formal
+          RELEASE_ARTIFACTS_DIR: release-artifacts
         run: node apps/desktop/scripts/release/publish-homebrew-cask.mjs

@@ -4,11 +4,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const [, , versionArg, sha256, outputPath] = process.argv;
+const [, , versionArg, armSha256, intelSha256, outputPath] = process.argv;
 const version = (versionArg || "").replace(/^v/, "");
 
-if (!version || !sha256 || !outputPath) {
-  throw new Error("usage: render-homebrew-cask.mjs <version> <sha256> <output-path>");
+if (!version || !armSha256 || !intelSha256 || !outputPath) {
+  throw new Error("usage: render-homebrew-cask.mjs <version> <arm-sha256> <intel-sha256> <output-path>");
 }
 
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -16,9 +16,17 @@ fs.writeFileSync(
   outputPath,
   `cask "codux" do
   version "${version}"
-  sha256 "${sha256}"
 
-  url "https://github.com/duxweb/codux/releases/download/v#{version}/codux-#{version}-macos-universal-formal.dmg"
+  on_arm do
+    sha256 "${armSha256}"
+    url "https://github.com/duxweb/codux/releases/download/v#{version}/codux-#{version}-macos-aarch64.dmg"
+  end
+
+  on_intel do
+    sha256 "${intelSha256}"
+    url "https://github.com/duxweb/codux/releases/download/v#{version}/codux-#{version}-macos-x86_64.dmg"
+  end
+
   name "Codux"
   desc "Native terminal workspace for AI coding tools"
   homepage "https://github.com/duxweb/codux"

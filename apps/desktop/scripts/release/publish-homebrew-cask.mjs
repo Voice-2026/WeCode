@@ -10,10 +10,12 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const version = requiredEnv("RELEASE_VERSION").replace(/^v/, "");
 const token = requiredEnv("HOMEBREW_TAP_TOKEN");
-const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts", "macos-universal-formal");
+const artifactsDir = process.env.RELEASE_ARTIFACTS_DIR || path.join(root, "release-artifacts");
 const tapRepo = process.env.HOMEBREW_TAP_REPO || "duxweb/homebrew-tap";
-const dmgPath = findFormalDmg(artifactsDir);
-const sha256 = sha256File(dmgPath);
+const armDmgPath = findFormalDmg(artifactsDir, "aarch64");
+const intelDmgPath = findFormalDmg(artifactsDir, "x86_64");
+const armSha256 = sha256File(armDmgPath);
+const intelSha256 = sha256File(intelDmgPath);
 const tapDir = fs.mkdtempSync(path.join(os.tmpdir(), "codux-homebrew-tap-"));
 
 try {
@@ -23,7 +25,8 @@ try {
   run("node", [
     "apps/desktop/scripts/release/render-homebrew-cask.mjs",
     version,
-    sha256,
+    armSha256,
+    intelSha256,
     caskPath,
   ]);
 
@@ -51,12 +54,11 @@ function requiredEnv(name) {
   return value;
 }
 
-function findFormalDmg(dir) {
+function findFormalDmg(dir, arch) {
   const files = walk(dir).filter((file) => file.endsWith(".dmg"));
-  const formal = files.find((file) => path.basename(file) === `codux-${version}-macos-universal-formal.dmg`);
+  const formal = files.find((file) => path.basename(file) === `codux-${version}-macos-${arch}.dmg`);
   if (formal) return formal;
-  if (files.length === 1) return files[0];
-  throw new Error(`Unable to find formal macOS DMG in ${dir}`);
+  throw new Error(`Unable to find formal macOS ${arch} DMG in ${dir}`);
 }
 
 function walk(dir) {
