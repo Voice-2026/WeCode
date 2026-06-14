@@ -57,39 +57,22 @@ fn main() {
     }
 
     let zig = zig_command();
-    let mut build = Command::new(&zig);
-    build
-        .arg("build")
-        .arg("-Demit-lib-vt")
-        .arg("-Demit-exe=false")
-        .arg("-Demit-docs=false")
-        .arg("-Demit-bench=false")
-        .arg("-Demit-helpgen=false")
-        .arg("-Demit-test-exe=false")
-        .arg("-Demit-unicode-table-gen=false")
-        .arg("-Demit-terminfo=false")
-        .arg("-Demit-termcap=false")
-        .arg("-Demit-themes=false")
-        .arg("-Demit-webdata=false")
-        // Zig defaults to Debug, which enables ghostty's "slow runtime
-        // safety" integrity checks: scrollback reflow gets an order of
-        // magnitude slower and Debug-only assertions abort the process
-        // (PageList integrity panic on resize). Build the VT library the
-        // way upstream ships it, regardless of the cargo profile.
-        .arg("-Doptimize=ReleaseFast")
-        .arg("--prefix")
-        .arg(&install_prefix_arg)
-        .current_dir(&ghostty_dir);
 
-    // Only pass -Dtarget when cross-compiling. For native builds, let zig
-    // auto-detect the host (matches how ghostty's own CMakeLists.txt works).
-    if target != host {
-        let zig_target = zig_target(&target);
-        build.arg(format!("-Dtarget={zig_target}"));
-        if let Some(zig_cpu) = zig_cpu(&target) {
-            build.arg(format!("-Dcpu={zig_cpu}"));
-        }
+    if platform == TargetPlatform::Windows {
+        let mut fetch = Command::new(&zig);
+        fetch.arg("build");
+        add_ghostty_zig_build_args(&mut fetch, &install_prefix_arg);
+        add_zig_target_args(&mut fetch, &target, &host);
+        fetch.arg("--fetch=needed").current_dir(&ghostty_dir);
+        run(fetch, "zig fetch ghostty dependencies");
+        patch_uucode_for_windows(&ghostty_dir);
     }
+
+    let mut build = Command::new(&zig);
+    build.arg("build");
+    add_ghostty_zig_build_args(&mut build, &install_prefix_arg);
+    add_zig_target_args(&mut build, &target, &host);
+    build.current_dir(&ghostty_dir);
 
     run(build, "zig build");
 
@@ -244,6 +227,43 @@ fn zig_install_prefix_arg(install_prefix: &Path, platform: TargetPlatform) -> Pa
     }
 }
 
+fn add_ghostty_zig_build_args(command: &mut Command, install_prefix_arg: &Path) {
+    command
+        .arg("-Demit-lib-vt")
+        .arg("-Demit-exe=false")
+        .arg("-Demit-docs=false")
+        .arg("-Demit-bench=false")
+        .arg("-Demit-helpgen=false")
+        .arg("-Demit-test-exe=false")
+        .arg("-Demit-unicode-table-gen=false")
+        .arg("-Demit-terminfo=false")
+        .arg("-Demit-termcap=false")
+        .arg("-Demit-themes=false")
+        .arg("-Demit-webdata=false")
+        // Zig defaults to Debug, which enables ghostty's "slow runtime
+        // safety" integrity checks: scrollback reflow gets an order of
+        // magnitude slower and Debug-only assertions abort the process
+        // (PageList integrity panic on resize). Build the VT library the
+        // way upstream ships it, regardless of the cargo profile.
+        .arg("-Doptimize=ReleaseFast")
+        .arg("--prefix")
+        .arg(install_prefix_arg);
+}
+
+fn add_zig_target_args(command: &mut Command, target: &str, host: &str) {
+    // Only pass -Dtarget when cross-compiling. For native builds, let zig
+    // auto-detect the host (matches how ghostty's own CMakeLists.txt works).
+    if target == host {
+        return;
+    }
+
+    let zig_target = zig_target(target);
+    command.arg(format!("-Dtarget={zig_target}"));
+    if let Some(zig_cpu) = zig_cpu(target) {
+        command.arg(format!("-Dcpu={zig_cpu}"));
+    }
+}
+
 fn patch_ghostty_for_target(ghostty_dir: &Path, target: &str) {
     if !target.contains("android") {
         return;
@@ -278,6 +298,44 @@ fn patch_ghostty_for_target(ghostty_dir: &Path, target: &str) {
     assert!(
         patched != source,
         "failed to patch Android Ghostty SONAME in {}",
+        path.display()
+    );
+    std::fs::write(&path, patched)
+        .unwrap_or_else(|error| panic!("failed to write {}: {error}", path.display()));
+}
+
+fn patch_uucode_for_windows(ghostty_dir: &Path) {
+    let zig_pkg = ghostty_dir.join("zig-pkg");
+    let Some(uucode_dir) = std::fs::read_dir(&zig_pkg).ok().and_then(|entries| {
+        entries.flatten().find_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            (path.is_dir() && name.starts_with("uucode-")).then_some(path)
+        })
+    }) else {
+        panic!(
+            "expected fetched uucode package under {}",
+            zig_pkg.display()
+        );
+    };
+
+    let path = uucode_dir.join("build.zig");
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+    let needle = r#"    run_build_tables_exe.setCwd(b.path(""));"#;
+    let replacement = r#"    // Codux: Zig 0.15.2 on Windows asserts when this absolute cwd is used
+    // to rewrite the generated tables.zig path for the uucode helper.
+    // The helper already works from the build runner cwd because its inputs are
+    // provided as modules, so leaving cwd unset is equivalent for this build.
+"#;
+
+    if source.contains("Codux: Zig 0.15.2 on Windows asserts") {
+        return;
+    }
+    let patched = source.replace(needle, replacement);
+    assert!(
+        patched != source,
+        "failed to patch uucode Windows cwd issue in {}",
         path.display()
     );
     std::fs::write(&path, patched)
