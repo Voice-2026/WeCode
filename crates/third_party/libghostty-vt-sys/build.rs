@@ -382,11 +382,11 @@ fn patch_uucode_build_for_windows(uucode_dir: &Path) {
     let source = std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
     let needle = r#"    run_build_tables_exe.setCwd(b.path(""));"#;
-    let replacement = r#"    // Codux: Zig 0.15.2 on Windows asserts when this absolute cwd is used
-    // to rewrite the generated tables.zig path for the uucode helper.
-    // The helper already works from the build runner cwd because its inputs are
-    // provided as modules, so leaving cwd unset is equivalent for this build.
-"#;
+    let replacement = r#"    // Codux: Zig 0.15.2 on Windows asserts while converting the
+    // b.path("") cwd for generated output arguments. Keep uucode's cwd
+    // semantics so the table generator can read ucd/*, but use a path relative
+    // to Ghostty's build root.
+    run_build_tables_exe.cwd = .{ .cwd_relative = "vendor/uucode-codux" };"#;
 
     if source.contains("Codux: Zig 0.15.2 on Windows asserts") {
         return;
