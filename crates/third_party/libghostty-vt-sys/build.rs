@@ -254,7 +254,14 @@ fn add_ghostty_zig_build_args(command: &mut Command, install_prefix_arg: &Path) 
 fn add_zig_target_args(command: &mut Command, target: &str, host: &str) {
     // Only pass -Dtarget when cross-compiling. For native builds, let zig
     // auto-detect the host (matches how ghostty's own CMakeLists.txt works).
-    if target == host {
+    //
+    // Windows is the exception: zig's native Windows target is the GNU/MinGW
+    // ABI (`zig cc -dumpmachine` -> x86_64-unknown-windows-gnu), but `codux` is
+    // built with the MSVC toolchain. A MinGW static lib linked into the MSVC
+    // binary mismatches the CRT/TLS layout and crashes at startup inside
+    // __dyn_tls_init_callback. Always pin the MSVC ABI on Windows so
+    // ghostty-vt-static.lib is ABI-compatible with the Rust binary.
+    if target == host && !target.contains("windows") {
         return;
     }
 
@@ -729,6 +736,10 @@ fn zig_target(target: &str) -> String {
         "armv7-linux-androideabi" => "arm-linux-androideabi",
         "i686-linux-android" => "x86-linux-android",
         "x86_64-linux-android" => "x86_64-linux-android",
+        // Pin the MSVC ABI on Windows to match the MSVC-built Rust binary; the
+        // native (gnu/MinGW) ABI mismatches the CRT/TLS layout and crashes.
+        "x86_64-pc-windows-msvc" => "x86_64-windows-msvc",
+        "aarch64-pc-windows-msvc" => "aarch64-windows-msvc",
         other => panic!("unsupported Rust target for vendored build: {other}"),
     };
     value.to_owned()
