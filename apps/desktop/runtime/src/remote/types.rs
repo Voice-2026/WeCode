@@ -58,8 +58,6 @@ pub struct RemotePairingInfo {
     pub pairing_id: String,
     pub code: String,
     pub secret: String,
-    pub host_public_key: Option<String>,
-    pub crypto_version: Option<u32>,
     pub expires_at: String,
     pub qr_payload: String,
 }
@@ -69,7 +67,7 @@ pub struct RemotePairingInfo {
 pub struct RemotePendingPairing {
     pub id: String,
     pub device_name: String,
-    pub device_public_key: String,
+    pub device_id: String,
     pub code: String,
 }
 
@@ -81,15 +79,13 @@ pub(crate) struct RemoteSettings {
     #[serde(default)]
     pub(crate) relay_preset: String,
     #[serde(default)]
-    pub(crate) server_url: String,
+    pub(crate) relay_url: String,
     #[serde(default, alias = "hostId", rename = "hostID")]
     pub(crate) host_id: String,
     #[serde(default)]
+    pub(crate) relay_authentication: String,
+    #[serde(default)]
     pub(crate) host_token: String,
-    #[serde(default)]
-    pub(crate) host_private_key: String,
-    #[serde(default)]
-    pub(crate) host_public_key: String,
     #[serde(default)]
     pub(crate) cached_devices: Vec<RemoteDeviceSettings>,
 }

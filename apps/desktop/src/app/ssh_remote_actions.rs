@@ -5,7 +5,8 @@ use crate::app::app_events::{
 
 enum RemoteRelayChange {
     Preset(String),
-    ServerUrl(String),
+    RelayUrl(String),
+    Authentication(String),
 }
 
 impl CoduxApp {
@@ -490,31 +491,74 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
-    pub(super) fn set_remote_server_url(
+    pub(super) fn set_remote_relay_url(
         &mut self,
-        server_url: String,
+        relay_url: String,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.settings.remote_server_url.trim() == server_url.trim() {
+        if self.state.settings.remote_relay_url.trim() == relay_url.trim() {
             return;
         }
         if self.remote_relay_change_requires_confirmation() {
-            self.confirm_remote_relay_change(RemoteRelayChange::ServerUrl(server_url), cx);
+            self.confirm_remote_relay_change(RemoteRelayChange::RelayUrl(relay_url), cx);
             return;
         }
-        self.apply_remote_server_url_change(server_url, false, cx);
+        self.apply_remote_relay_url_change(relay_url, false, cx);
     }
 
-    fn apply_remote_server_url_change(
+    fn apply_remote_relay_url_change(
         &mut self,
-        server_url: String,
+        relay_url: String,
         reset_devices: bool,
         cx: &mut Context<Self>,
     ) {
         match self
             .runtime_service
-            .set_remote_server_url_with_device_reset(&server_url, reset_devices)
+            .set_remote_relay_url_with_device_reset(&relay_url, reset_devices)
+        {
+            Ok((settings, remote)) => {
+                self.apply_settings_summary(settings);
+                self.state.remote = remote;
+                self.remote_reconnecting = self.state.remote.status == "connecting";
+                self.normalize_selected_remote_device();
+                self.status_message = "remote relay setting saved".to_string();
+            }
+            Err(error) => {
+                self.status_message = format!("failed to save remote relay setting: {error}");
+            }
+        }
+        self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn set_remote_relay_authentication(
+        &mut self,
+        relay_authentication: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.settings.remote_relay_authentication.trim() == relay_authentication.trim() {
+            return;
+        }
+        if self.remote_relay_change_requires_confirmation() {
+            self.confirm_remote_relay_change(
+                RemoteRelayChange::Authentication(relay_authentication),
+                cx,
+            );
+            return;
+        }
+        self.apply_remote_relay_authentication_change(relay_authentication, false, cx);
+    }
+
+    fn apply_remote_relay_authentication_change(
+        &mut self,
+        relay_authentication: String,
+        reset_devices: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self
+            .runtime_service
+            .set_remote_relay_authentication_with_device_reset(&relay_authentication, reset_devices)
         {
             Ok((settings, remote)) => {
                 self.apply_settings_summary(settings);
@@ -602,8 +646,11 @@ impl CoduxApp {
                     RemoteRelayChange::Preset(relay_preset) => {
                         app.apply_remote_relay_preset_change(relay_preset, true, cx)
                     }
-                    RemoteRelayChange::ServerUrl(server_url) => {
-                        app.apply_remote_server_url_change(server_url, true, cx)
+                    RemoteRelayChange::RelayUrl(relay_url) => {
+                        app.apply_remote_relay_url_change(relay_url, true, cx)
+                    }
+                    RemoteRelayChange::Authentication(relay_authentication) => {
+                        app.apply_remote_relay_authentication_change(relay_authentication, true, cx)
                     }
                 },
                 Ok(false) => {

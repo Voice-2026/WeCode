@@ -1,5 +1,4 @@
 import '../models/remote_models.dart';
-import 'e2e_crypto.dart';
 import 'remote_transport.dart';
 
 typedef RemoteSendErrorHandler = void Function(Object error);
@@ -8,8 +7,7 @@ typedef RemoteSendResultHandler =
 
 enum RemoteEnvelopeSendResult {
   delivered,
-  droppedBeforeEncrypt,
-  droppedAfterEncrypt,
+  droppedWhileDisconnected,
   rejected,
 }
 
@@ -37,34 +35,13 @@ class RemoteEnvelopeSendQueue {
           if (!connected()) {
             onResult?.call(
               message,
-              RemoteEnvelopeSendResult.droppedBeforeEncrypt,
+              RemoteEnvelopeSendResult.droppedWhileDisconnected,
             );
             return;
           }
+          final outgoing = _attachDeviceIdentity(message, activeDevice, seq);
           var sent = false;
-          if (activeDevice == null) {
-            sent = await transport.send(message.toJson());
-            onResult?.call(
-              message,
-              sent
-                  ? RemoteEnvelopeSendResult.delivered
-                  : RemoteEnvelopeSendResult.rejected,
-            );
-            return;
-          }
-          final encrypted = await RemoteE2ECrypto.encryptEnvelope(
-            inner: message,
-            device: activeDevice,
-            seq: seq!,
-          );
-          if (!connected()) {
-            onResult?.call(
-              message,
-              RemoteEnvelopeSendResult.droppedAfterEncrypt,
-            );
-            return;
-          }
-          sent = await transport.send(encrypted.toJson());
+          sent = await transport.send(outgoing.toJson());
           onResult?.call(
             message,
             sent
@@ -77,5 +54,20 @@ class RemoteEnvelopeSendQueue {
         });
     _chain = task;
     return task;
+  }
+
+  RelayEnvelope _attachDeviceIdentity(
+    RelayEnvelope message,
+    StoredDevice? activeDevice,
+    int? seq,
+  ) {
+    if (activeDevice == null) {
+      return seq == null ? message : message.copyWith(seq: seq);
+    }
+    return message.copyWith(
+      hostId: activeDevice.hostId,
+      deviceId: activeDevice.deviceId,
+      seq: seq,
+    );
   }
 }

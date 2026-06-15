@@ -40,6 +40,7 @@ pub struct Device {
     pub id: String,
     pub host_id: String,
     pub name: String,
+    #[allow(dead_code)]
     #[serde(skip_serializing)]
     pub token: String,
     pub public_key: String,
@@ -48,19 +49,6 @@ pub struct Device {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<i64>,
     pub online: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct Pairing {
-    pub id: String,
-    pub host_id: String,
-    pub code: String,
-    pub secret: String,
-    pub device_name: String,
-    pub device_public_key: String,
-    pub status: String,
-    pub expires_at: i64,
-    pub device_id: Option<String>,
 }
 
 impl Store {
@@ -77,15 +65,6 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         let store = Self { conn };
-        store.migrate()?;
-        Ok(store)
-    }
-
-    #[cfg(test)]
-    pub fn in_memory() -> anyhow::Result<Self> {
-        let store = Self {
-            conn: Connection::open_in_memory()?,
-        };
         store.migrate()?;
         Ok(store)
     }
@@ -113,22 +92,6 @@ CREATE TABLE IF NOT EXISTS devices (
   FOREIGN KEY(host_id) REFERENCES hosts(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_devices_host ON devices(host_id);
-CREATE TABLE IF NOT EXISTS pairings (
-  id TEXT PRIMARY KEY,
-  host_id TEXT NOT NULL,
-  code TEXT NOT NULL UNIQUE,
-  secret TEXT NOT NULL,
-  device_name TEXT NOT NULL DEFAULT '',
-  device_public_key TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  claimed_at INTEGER,
-  confirmed_at INTEGER,
-  device_id TEXT,
-  FOREIGN KEY(host_id) REFERENCES hosts(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_pairings_host ON pairings(host_id);
 "#,
         )?;
         Ok(())
@@ -172,16 +135,6 @@ ON CONFLICT(id) DO UPDATE SET
         Ok(host)
     }
 
-    pub fn host_by_id(&self, id: &str) -> StoreResult<Host> {
-        self.conn
-            .query_row(
-                "SELECT id, name, token, public_key, created_at, last_seen FROM hosts WHERE id=?1",
-                [id],
-                scan_host,
-            )
-            .map_err(map_not_found)
-    }
-
     pub fn host_by_token(&self, token: &str) -> StoreResult<Host> {
         self.conn
             .query_row(
@@ -189,140 +142,6 @@ ON CONFLICT(id) DO UPDATE SET
                 [token],
                 scan_host,
             )
-            .map_err(map_not_found)
-    }
-
-    pub fn touch_host(&self, id: &str) -> StoreResult<()> {
-        self.conn
-            .execute(
-                "UPDATE hosts SET last_seen=?1 WHERE id=?2",
-                params![now_millis(), id],
-            )
-            .map(|_| ())
-            .map_err(Into::into)
-    }
-
-    pub fn create_pairing(
-        &self,
-        host_id: String,
-        code: String,
-        secret: String,
-        ttl_ms: i64,
-    ) -> StoreResult<Pairing> {
-        let now = now_millis();
-        let pairing = Pairing {
-            id: Uuid::new_v4().to_string(),
-            host_id,
-            code,
-            secret,
-            device_name: String::new(),
-            device_public_key: String::new(),
-            status: "pending".into(),
-            expires_at: now.saturating_add(ttl_ms),
-            device_id: None,
-        };
-        self.conn.execute(
-            r#"
-INSERT INTO pairings(id, host_id, code, secret, status, created_at, expires_at)
-VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
-"#,
-            params![
-                pairing.id,
-                pairing.host_id,
-                pairing.code,
-                pairing.secret,
-                pairing.status,
-                now,
-                pairing.expires_at
-            ],
-        )?;
-        Ok(pairing)
-    }
-
-    pub fn pairing_by_code(&self, code: &str) -> StoreResult<Pairing> {
-        self.conn
-            .query_row(PAIRING_SELECT_BY_CODE, [code], scan_pairing)
-            .map_err(map_not_found)
-    }
-
-    pub fn pairing_by_id(&self, id: &str) -> StoreResult<Pairing> {
-        self.conn
-            .query_row(PAIRING_SELECT_BY_ID, [id], scan_pairing)
-            .map_err(map_not_found)
-    }
-
-    pub fn claim_pairing(
-        &self,
-        id: &str,
-        device_name: &str,
-        device_public_key: &str,
-    ) -> StoreResult<()> {
-        let affected = self.conn.execute(
-            r#"
-UPDATE pairings
-SET status='claimed', device_name=?1, device_public_key=?2, claimed_at=?3
-WHERE id=?4 AND status='pending' AND expires_at>?3
-"#,
-            params![device_name, device_public_key, now_millis(), id],
-        )?;
-        affected_or_not_found(affected)
-    }
-
-    pub fn confirm_pairing(&mut self, pairing: &Pairing) -> StoreResult<Device> {
-        let now = now_millis();
-        let device = Device {
-            id: Uuid::new_v4().to_string(),
-            host_id: pairing.host_id.clone(),
-            name: non_empty(Some(pairing.device_name.clone()), "Mobile Device"),
-            token: token_url(32),
-            public_key: pairing.device_public_key.clone(),
-            created_at: now,
-            last_seen: now,
-            revoked_at: None,
-            online: false,
-        };
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            r#"
-INSERT INTO devices(id, host_id, name, token, public_key, created_at, last_seen)
-VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
-"#,
-            params![
-                device.id,
-                device.host_id,
-                device.name,
-                device.token,
-                device.public_key,
-                device.created_at,
-                device.last_seen
-            ],
-        )?;
-        let affected = tx.execute(
-            "UPDATE pairings SET status='confirmed', confirmed_at=?1, device_id=?2 WHERE id=?3 AND status='claimed'",
-            params![now, device.id, pairing.id],
-        )?;
-        affected_or_not_found(affected)?;
-        tx.commit()?;
-        Ok(device)
-    }
-
-    pub fn reject_pairing(&self, host_id: &str, pairing_id: &str) -> StoreResult<()> {
-        let affected = self.conn.execute(
-            "UPDATE pairings SET status='rejected', confirmed_at=?1 WHERE host_id=?2 AND id=?3 AND status IN ('pending', 'claimed')",
-            params![now_millis(), host_id, pairing_id],
-        )?;
-        affected_or_not_found(affected)
-    }
-
-    pub fn device_by_id(&self, id: &str) -> StoreResult<Device> {
-        self.conn
-            .query_row(DEVICE_SELECT_BY_ID, [id], scan_device)
-            .map_err(map_not_found)
-    }
-
-    pub fn device_by_token(&self, token: &str) -> StoreResult<Device> {
-        self.conn
-            .query_row(DEVICE_SELECT_BY_TOKEN, [token], scan_device)
             .map_err(map_not_found)
     }
 
@@ -343,26 +162,6 @@ ORDER BY created_at DESC
         Ok(devices)
     }
 
-    pub fn touch_device(&self, id: &str) -> StoreResult<()> {
-        self.conn
-            .execute(
-                "UPDATE devices SET last_seen=?1 WHERE id=?2",
-                params![now_millis(), id],
-            )
-            .map(|_| ())
-            .map_err(Into::into)
-    }
-
-    pub fn update_device_name(&self, id: &str, name: &str) -> StoreResult<()> {
-        self.conn
-            .execute(
-                "UPDATE devices SET name=?1, last_seen=?2 WHERE id=?3 AND revoked_at IS NULL",
-                params![name, now_millis(), id],
-            )
-            .map(|_| ())
-            .map_err(Into::into)
-    }
-
     pub fn revoke_device(&self, host_id: &str, device_id: &str) -> StoreResult<()> {
         let affected = self.conn.execute(
             "UPDATE devices SET revoked_at=?1 WHERE host_id=?2 AND id=?3 AND revoked_at IS NULL",
@@ -371,30 +170,6 @@ ORDER BY created_at DESC
         affected_or_not_found(affected)
     }
 }
-
-const PAIRING_SELECT_BY_CODE: &str = r#"
-SELECT id, host_id, code, secret, device_name, device_public_key, status, expires_at, device_id
-FROM pairings
-WHERE code=?1
-"#;
-
-const PAIRING_SELECT_BY_ID: &str = r#"
-SELECT id, host_id, code, secret, device_name, device_public_key, status, expires_at, device_id
-FROM pairings
-WHERE id=?1
-"#;
-
-const DEVICE_SELECT_BY_ID: &str = r#"
-SELECT id, host_id, name, token, public_key, created_at, last_seen, revoked_at
-FROM devices
-WHERE id=?1
-"#;
-
-const DEVICE_SELECT_BY_TOKEN: &str = r#"
-SELECT id, host_id, name, token, public_key, created_at, last_seen, revoked_at
-FROM devices
-WHERE token=?1
-"#;
 
 fn scan_host(row: &rusqlite::Row<'_>) -> rusqlite::Result<Host> {
     Ok(Host {
@@ -418,20 +193,6 @@ fn scan_device(row: &rusqlite::Row<'_>) -> rusqlite::Result<Device> {
         last_seen: row.get(6)?,
         revoked_at: row.get(7)?,
         online: false,
-    })
-}
-
-fn scan_pairing(row: &rusqlite::Row<'_>) -> rusqlite::Result<Pairing> {
-    Ok(Pairing {
-        id: row.get(0)?,
-        host_id: row.get(1)?,
-        code: row.get(2)?,
-        secret: row.get(3)?,
-        device_name: row.get(4)?,
-        device_public_key: row.get(5)?,
-        status: row.get(6)?,
-        expires_at: row.get(7)?,
-        device_id: row.get(8)?,
     })
 }
 
@@ -464,44 +225,9 @@ pub fn token_url(bytes: usize) -> String {
     URL_SAFE_NO_PAD.encode(data)
 }
 
-pub fn pairing_code() -> String {
-    let mut data = [0_u8; 4];
-    getrandom::fill(&mut data).expect("system random");
-    let number = u32::from_le_bytes(data) % 1_000_000;
-    format!("{number:06}")
-}
-
 pub fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn store_runs_pairing_lifecycle() {
-        let mut store = Store::in_memory().unwrap();
-        let host = store
-            .upsert_host(Some("host-1".into()), Some("Host".into()), None, None)
-            .unwrap();
-        let pairing = store
-            .create_pairing(host.id.clone(), "123456".into(), "secret".into(), 60_000)
-            .unwrap();
-
-        store
-            .claim_pairing(&pairing.id, "Phone", "device-key")
-            .unwrap();
-        let pairing = store.pairing_by_id(&pairing.id).unwrap();
-        assert_eq!(pairing.status, "claimed");
-        assert_eq!(pairing.device_name, "Phone");
-
-        let device = store.confirm_pairing(&pairing).unwrap();
-        assert_eq!(device.host_id, host.id);
-        assert_eq!(device.name, "Phone");
-        assert!(store.device_by_token(&device.token).is_ok());
-    }
 }

@@ -95,9 +95,9 @@ Important changes to this project are documented here.
 
 ### Changed
 
-- Replaced the mobile remote transport with the v3 relay/WebRTC model.
-- Prefer WebRTC DataChannel when a direct path is available and fall back to WebSocket relay when P2P cannot connect.
-- Store transport candidates from pairing payloads so reconnects use the same protocol model as desktop.
+- Replaced the mobile remote transport with the unified Iroh protocol model.
+- Prefer Iroh direct paths when available and use configured Iroh relays when direct paths cannot connect.
+- Store Iroh transport candidates from pairing payloads so reconnects use the same protocol model as desktop.
 
 ### Notes
 
@@ -160,7 +160,7 @@ Important changes to this project are documented here.
 
 ### Changed
 
-- Replaced the legacy relay/WebRTC terminal transport with the unified Iroh QUIC protocol path.
+- Replaced the previous terminal transport with the unified Iroh QUIC protocol path.
 - Standardized pairing and reconnect around encrypted Dart protocol envelopes, keeping native transport code limited to connection and frame delivery.
 - Restricted terminal file and image uploads to direct Iroh connections so large transfers never run over relay paths.
 - Updated the iOS TestFlight workflow to build the Iroh bridge before archiving.

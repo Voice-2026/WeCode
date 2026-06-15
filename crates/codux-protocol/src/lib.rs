@@ -28,8 +28,6 @@ pub const REMOTE_RESOURCE_FILES: &str = "files";
 pub const REMOTE_HELLO: &str = "hello";
 pub const REMOTE_ERROR: &str = "error";
 pub const REMOTE_RELAY_ERROR: &str = "relay.error";
-pub const REMOTE_SECURE_MESSAGE: &str = "secure.message";
-pub const REMOTE_SECURE_REQUIRED: &str = "secure.required";
 pub const REMOTE_HOST_INFO: &str = "host.info";
 pub const REMOTE_HOST_OFFLINE: &str = "host.offline";
 pub const REMOTE_DEVICE_INFO: &str = "device.info";
@@ -92,21 +90,18 @@ pub const REMOTE_FILE_DELETED: &str = "file.deleted";
 pub const REMOTE_GIT_STATUS: &str = "git.status";
 pub const REMOTE_AI_STATS: &str = "ai.stats";
 
-pub const REMOTE_TRANSPORT_WEBSOCKET_RELAY: &str = "websocketRelay";
-pub const REMOTE_TRANSPORT_WEBRTC: &str = "webRtc";
+pub const REMOTE_TRANSPORT_IROH: &str = "iroh";
 pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RemoteTransportKind {
-    WebSocketRelay,
-    WebRtc,
+    Iroh,
 }
 
 impl RemoteTransportKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::WebSocketRelay => REMOTE_TRANSPORT_WEBSOCKET_RELAY,
-            Self::WebRtc => REMOTE_TRANSPORT_WEBRTC,
+            Self::Iroh => REMOTE_TRANSPORT_IROH,
         }
     }
 }
@@ -119,44 +114,60 @@ pub struct RemoteTransportCandidate {
     pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "iceServers")]
-    pub ice_servers: Vec<RemoteIceServer>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteIceServer {
-    pub urls: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "nodeId")]
+    pub node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "relayUrl")]
+    pub relay_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticket: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_authentication: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteTransportPairingRequest {
     pub device_id: String,
     pub device_name: String,
-    pub device_public_key: String,
     pub pairing_id: Option<String>,
     pub pairing_code: Option<String>,
     pub pairing_secret: Option<String>,
 }
 
-pub fn websocket_relay_transport_candidate(url: impl Into<String>) -> RemoteTransportCandidate {
-    RemoteTransportCandidate {
-        kind: REMOTE_TRANSPORT_WEBSOCKET_RELAY.to_string(),
-        role: Some(REMOTE_TRANSPORT_ROLE_HOST.to_string()),
-        url: Some(url.into()),
-        ice_servers: Vec::new(),
-    }
+pub fn iroh_transport_candidate(
+    url: impl Into<String>,
+    node_id: impl Into<String>,
+    relay_url: impl Into<String>,
+) -> RemoteTransportCandidate {
+    iroh_transport_candidate_with_ticket(url, node_id, relay_url, "")
 }
 
-pub fn webrtc_transport_candidate(
+pub fn iroh_transport_candidate_with_ticket(
     url: impl Into<String>,
-    stun_urls: Vec<String>,
+    node_id: impl Into<String>,
+    relay_url: impl Into<String>,
+    ticket: impl Into<String>,
 ) -> RemoteTransportCandidate {
+    iroh_transport_candidate_with_ticket_and_authentication(url, node_id, relay_url, ticket, "")
+}
+
+pub fn iroh_transport_candidate_with_ticket_and_authentication(
+    url: impl Into<String>,
+    node_id: impl Into<String>,
+    relay_url: impl Into<String>,
+    ticket: impl Into<String>,
+    relay_authentication: impl Into<String>,
+) -> RemoteTransportCandidate {
+    let ticket = ticket.into();
+    let relay_authentication = relay_authentication.into();
     RemoteTransportCandidate {
-        kind: REMOTE_TRANSPORT_WEBRTC.to_string(),
+        kind: REMOTE_TRANSPORT_IROH.to_string(),
         role: Some(REMOTE_TRANSPORT_ROLE_HOST.to_string()),
         url: Some(url.into()),
-        ice_servers: vec![RemoteIceServer { urls: stun_urls }],
+        node_id: Some(node_id.into()),
+        relay_url: Some(relay_url.into()),
+        ticket: (!ticket.trim().is_empty()).then_some(ticket),
+        relay_authentication: (!relay_authentication.trim().is_empty())
+            .then_some(relay_authentication),
     }
 }
 

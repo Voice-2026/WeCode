@@ -419,13 +419,13 @@ impl RemoteRuntimeModel {
             state_changed: true,
             clear_terminal: project_changed && terminal_visible,
             reset_terminal_input: project_changed && terminal_visible,
-            reset_terminal_buffer: (project_changed && terminal_visible)
-                || bind.reset_terminal_buffer,
+            reset_terminal_buffer: terminal_visible
+                && (project_changed || bind.reset_terminal_buffer),
             request_terminal_list: bind.request_terminal_list,
             request_project_select_id: bind.request_project_select_id,
             bind_session_id: bind.bind_session_id,
-            bind_full_buffer: bind.bind_full_buffer,
-            flush_terminal_input: bind.flush_terminal_input,
+            bind_full_buffer: terminal_visible && bind.bind_full_buffer,
+            flush_terminal_input: terminal_visible && bind.flush_terminal_input,
             removed_session_id: None,
         }
     }
@@ -452,14 +452,15 @@ impl RemoteRuntimeModel {
             self.active_session_id = None;
         }
         self.terminals = terminals;
-        let bind = self.ensure_terminal_for_selected_project(true, terminal_list_loaded);
+        let bind =
+            self.ensure_terminal_for_selected_project(terminal_visible, terminal_list_loaded);
         RemoteRuntimePlan {
             state_changed: true,
-            reset_terminal_input: active_missing,
+            reset_terminal_input: terminal_visible && active_missing,
             reset_terminal_buffer: terminal_visible
                 && (active_missing || bind.reset_terminal_buffer),
             removed_session_id,
-            request_terminal_list: terminal_visible && bind.request_terminal_list,
+            request_terminal_list: bind.request_terminal_list,
             request_project_select_id: bind.request_project_select_id,
             bind_session_id: bind.bind_session_id,
             bind_full_buffer: terminal_visible && bind.bind_full_buffer,
@@ -602,9 +603,6 @@ impl RemoteRuntimeModel {
         terminal_visible: bool,
         terminal_list_loaded: bool,
     ) -> RemoteRuntimePlan {
-        if !terminal_visible {
-            return RemoteRuntimePlan::default();
-        }
         let Some(project_id) = self.selected_project_id.clone() else {
             return RemoteRuntimePlan::default();
         };
@@ -691,10 +689,10 @@ impl RemoteRuntimeModel {
         );
         RemoteRuntimePlan {
             state_changed: true,
-            reset_terminal_buffer: true,
+            reset_terminal_buffer: terminal_visible,
             bind_session_id: Some(terminal.id.clone()),
-            bind_full_buffer: true,
-            flush_terminal_input: true,
+            bind_full_buffer: terminal_visible,
+            flush_terminal_input: terminal_visible,
             ..RemoteRuntimePlan::default()
         }
     }

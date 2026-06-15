@@ -18,6 +18,12 @@ void main() {
       ),
       '',
     );
+    expect(
+      presenter.deviceListStatusKey(
+        _snapshot(connected: false, status: 'Pair again'),
+      ),
+      '',
+    );
   });
 
   test('shows syncing until the first project list is loaded', () {

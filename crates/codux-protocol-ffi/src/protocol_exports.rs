@@ -9,19 +9,18 @@ use codux_protocol::{
     REMOTE_PROJECT_SELECTED, REMOTE_PROJECT_UPDATED, REMOTE_PROTOCOL_VERSION, REMOTE_RELAY_ERROR,
     REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_FILES, REMOTE_RESOURCE_GIT_STATUS,
     REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
-    REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES, REMOTE_SECURE_MESSAGE,
-    REMOTE_SECURE_REQUIRED, REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
-    REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
-    REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
+    REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES, REMOTE_TERMINAL_BUFFER,
+    REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED,
+    REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
     REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_SUBSCRIBE, REMOTE_TERMINAL_UNSUBSCRIBE,
     REMOTE_TERMINAL_UPLOAD_ACK, REMOTE_TERMINAL_UPLOAD_CHUNK, REMOTE_TERMINAL_UPLOAD_FINISH,
     REMOTE_TERMINAL_UPLOAD_START, REMOTE_TERMINAL_UPLOADED, REMOTE_TERMINAL_VIEWPORT_CLAIM,
     REMOTE_TERMINAL_VIEWPORT_RELEASE, REMOTE_TERMINAL_VIEWPORT_RESIZE,
     REMOTE_TERMINAL_VIEWPORT_SCROLL, REMOTE_TERMINAL_VIEWPORT_SCROLLED,
-    REMOTE_TERMINAL_VIEWPORT_STATE, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
-    REMOTE_TRANSPORT_WEBRTC, REMOTE_TRANSPORT_WEBSOCKET_RELAY, REMOTE_WORKTREE_CREATE,
-    REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_SELECT,
-    REMOTE_WORKTREE_UPDATED, relay_blocks_message_type,
+    REMOTE_TERMINAL_VIEWPORT_STATE, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING,
+    REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST,
+    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_SELECT, REMOTE_WORKTREE_UPDATED,
+    relay_blocks_message_type,
 };
 use serde_json::json;
 use std::ffi::c_char;
@@ -137,8 +136,6 @@ fn message_type_by_name(name: &str) -> Option<&'static str> {
         "hello" => REMOTE_HELLO,
         "error" => REMOTE_ERROR,
         "relayError" => REMOTE_RELAY_ERROR,
-        "secureMessage" => REMOTE_SECURE_MESSAGE,
-        "secureRequired" => REMOTE_SECURE_REQUIRED,
         "hostInfo" => REMOTE_HOST_INFO,
         "hostOffline" => REMOTE_HOST_OFFLINE,
         "deviceInfo" => REMOTE_DEVICE_INFO,
@@ -215,8 +212,7 @@ fn resource_type_by_name(name: &str) -> Option<&'static str> {
 
 fn transport_kind_by_name(name: &str) -> Option<&'static str> {
     Some(match name {
-        "websocketRelay" => REMOTE_TRANSPORT_WEBSOCKET_RELAY,
-        "webRtc" => REMOTE_TRANSPORT_WEBRTC,
+        "iroh" => REMOTE_TRANSPORT_IROH,
         _ => return None,
     })
 }
@@ -235,10 +231,6 @@ mod tests {
         // a missing arm here silently resolves them to "" at the FFI boundary.
         assert_eq!(message_type_by_name("deviceInfo"), Some("device.info"));
         assert_eq!(
-            message_type_by_name("secureRequired"),
-            Some("secure.required")
-        );
-        assert_eq!(
             message_type_by_name("terminalViewportScroll"),
             Some("terminal.viewport.scroll")
         );
@@ -247,10 +239,6 @@ mod tests {
             Some("pairing.confirmed")
         );
         assert_eq!(resource_type_by_name("gitStatus"), Some("git.status"));
-        assert_eq!(
-            transport_kind_by_name("websocketRelay"),
-            Some("websocketRelay")
-        );
-        assert_eq!(transport_kind_by_name("webRtc"), Some("webRtc"));
+        assert_eq!(transport_kind_by_name("iroh"), Some("iroh"));
     }
 }

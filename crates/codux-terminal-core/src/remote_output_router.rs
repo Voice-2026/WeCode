@@ -210,6 +210,8 @@ impl RemoteTerminalOutputRouter {
         &mut self,
         session_id: &str,
         screen_data: &str,
+        cols: usize,
+        rows: usize,
         display_offset: usize,
         total_lines: usize,
         margin_rows: usize,
@@ -217,6 +219,8 @@ impl RemoteTerminalOutputRouter {
     ) {
         self.ensure_session(session_id).apply_host_scroll_snapshot(
             screen_data,
+            cols,
+            rows,
             display_offset,
             total_lines,
             margin_rows,

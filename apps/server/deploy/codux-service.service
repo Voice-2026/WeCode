@@ -1,5 +1,5 @@
 [Unit]
-Description=Codux relay service
+Description=Codux service
 After=network-online.target
 Wants=network-online.target
 

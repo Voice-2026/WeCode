@@ -1,5 +1,5 @@
 use codux_remote_transport::{
-    RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate, remote_stun_urls,
+    RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
 };
 use codux_terminal_core::{RemoteRuntimeModel, RemoteSequenceGuard};
 use std::any::Any;
@@ -12,7 +12,7 @@ use tokio::runtime::Runtime;
 pub type FfiRemoteRuntimeModel = RemoteRuntimeModel;
 
 pub struct FfiControllerTransport {
-    pub(crate) transport: Mutex<Arc<dyn RemoteTransport>>,
+    pub(crate) transport: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>>,
     pub(crate) events: Arc<Mutex<VecDeque<String>>>,
     pub(crate) runtime: Arc<Runtime>,
 }
@@ -130,6 +130,26 @@ pub(crate) fn controller_transport_config_from_json(
                         .and_then(serde_json::Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    node_id: item
+                        .get("nodeId")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    relay_url: item
+                        .get("relayUrl")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    ticket: item
+                        .get("ticket")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    relay_authentication: item
+                        .get("relayAuthentication")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
                 })
                 .filter(|candidate| {
                     !candidate.kind.trim().is_empty() && !candidate.url.trim().is_empty()
@@ -137,25 +157,12 @@ pub(crate) fn controller_transport_config_from_json(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let stun_urls = value
-        .get("stunUrls")
-        .and_then(serde_json::Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(str::to_string)
-                .filter(|value| !value.trim().is_empty())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(remote_stun_urls);
     Ok(RemoteControllerTransportConfig {
-        server_url: json_string_field(&value, "serverUrl"),
+        relay_url: json_string_field(&value, "relayUrl"),
         host_id: json_string_field(&value, "hostId"),
         device_id: json_string_field(&value, "deviceId"),
         device_token: json_string_field(&value, "deviceToken"),
         transports,
-        stun_urls,
     })
 }
 

@@ -14,7 +14,7 @@ Shared runtime-domain payload and subscription logic.
 - GPUI state.
 - Flutter state.
 - Actual PTY process management.
-- Transport sockets or WebRTC state.
+- Transport connection state.
 
 ## Direction
 

@@ -17,6 +17,8 @@ find_repo_root() {
 REPO_ROOT="$(find_repo_root)"
 PLATFORM_NAME="${PLATFORM_NAME:-macosx}"
 ARCHS="${ARCHS:-arm64}"
+CURRENT_ARCH="${CURRENT_ARCH:-}"
+NATIVE_ARCH_ACTUAL="${NATIVE_ARCH_ACTUAL:-}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 
 PROFILE_FLAG="--release"
@@ -26,6 +28,24 @@ if [[ "$CONFIGURATION" == "Debug" ]]; then
   TARGET_DIR="debug"
 fi
 
+select_apple_arch() {
+  if [[ -n "$CURRENT_ARCH" && "$CURRENT_ARCH" != "undefined_arch" ]]; then
+    printf '%s\n' "$CURRENT_ARCH"
+    return 0
+  fi
+  if [[ -n "$NATIVE_ARCH_ACTUAL" && "$NATIVE_ARCH_ACTUAL" != "undefined_arch" ]]; then
+    printf '%s\n' "$NATIVE_ARCH_ACTUAL"
+    return 0
+  fi
+  case " $ARCHS " in
+    *" arm64 "*) printf '%s\n' "arm64" ;;
+    *" x86_64 "*) printf '%s\n' "x86_64" ;;
+    *) printf '%s\n' "$(uname -m)" ;;
+  esac
+}
+
+APPLE_ARCH="$(select_apple_arch)"
+
 case "$PLATFORM_NAME" in
   iphoneos)
     TARGET="aarch64-apple-ios"
@@ -33,7 +53,7 @@ case "$PLATFORM_NAME" in
     export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
     ;;
   iphonesimulator)
-    if [[ "$ARCHS" == *"x86_64"* ]]; then
+    if [[ "$APPLE_ARCH" == "x86_64" ]]; then
       TARGET="x86_64-apple-ios"
     else
       TARGET="aarch64-apple-ios-sim"
@@ -42,7 +62,7 @@ case "$PLATFORM_NAME" in
     export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
     ;;
   macosx)
-    if [[ "$ARCHS" == *"x86_64"* ]]; then
+    if [[ "$APPLE_ARCH" == "x86_64" ]]; then
       TARGET="x86_64-apple-darwin"
     else
       TARGET="aarch64-apple-darwin"

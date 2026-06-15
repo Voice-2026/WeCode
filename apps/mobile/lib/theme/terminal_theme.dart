@@ -36,11 +36,19 @@ class TerminalTheme {
     required Map<String, dynamic> fg,
     required Map<String, dynamic> bg,
     required bool inverse,
+    bool bold = false,
+    bool dim = false,
   }) {
-    final cacheKey = '${_colorKey(fg)}|${_colorKey(bg)}|$inverse';
+    final cacheKey = '${_colorKey(fg)}|${_colorKey(bg)}|$inverse|$bold|$dim';
     final cached = _cellColorCache[cacheKey];
     if (cached != null) return cached;
-    final resolved = _resolveCellColors(fg: fg, bg: bg, inverse: inverse);
+    final resolved = _resolveCellColors(
+      fg: fg,
+      bg: bg,
+      inverse: inverse,
+      bold: bold,
+      dim: dim,
+    );
     if (_cellColorCache.length > 512) _cellColorCache.clear();
     _cellColorCache[cacheKey] = resolved;
     return resolved;
@@ -50,6 +58,8 @@ class TerminalTheme {
     required Map<String, dynamic> fg,
     required Map<String, dynamic> bg,
     required bool inverse,
+    required bool bold,
+    required bool dim,
   }) {
     final foreground = _resolveScreenColor(fg, AppColors.textPrimary);
     var background = _resolveScreenColor(bg, AppColors.bgBase);
@@ -64,7 +74,14 @@ class TerminalTheme {
     }
 
     if (inverse) {
-      final inverseFg = _ensureReadable(background.color, foreground.color);
+      var inverseFg = background.color;
+      if (bold) {
+        inverseFg = _boldForeground(bg, inverseFg);
+      }
+      inverseFg = _ensureReadable(inverseFg, foreground.color);
+      if (dim) {
+        inverseFg = _dimColor(inverseFg, foreground.color);
+      }
       return TerminalPaintColors(
         fg: inverseFg,
         bg: foreground.color,
@@ -72,7 +89,15 @@ class TerminalTheme {
       );
     }
 
-    fgColor = _ensureReadable(fgColor, bgColor);
+    if (bold) {
+      fgColor = _boldForeground(fg, fgColor);
+    }
+    if (!foreground.isRgb) {
+      fgColor = _ensureReadable(fgColor, bgColor);
+    }
+    if (dim) {
+      fgColor = _dimColor(fgColor, bgColor);
+    }
 
     return TerminalPaintColors(
       fg: fgColor,
@@ -86,11 +111,13 @@ class _ResolvedScreenColor {
   const _ResolvedScreenColor({
     required this.color,
     required this.isDefault,
+    required this.isRgb,
     required this.isHostLightSurface,
   });
 
   final Color color;
   final bool isDefault;
+  final bool isRgb;
   final bool isHostLightSurface;
 
   _ResolvedScreenColor copyWith({Color? color}) {
@@ -98,6 +125,7 @@ class _ResolvedScreenColor {
     return _ResolvedScreenColor(
       color: nextColor,
       isDefault: isDefault,
+      isRgb: isRgb,
       isHostLightSurface: _isHostLightSurface(nextColor),
     );
   }
@@ -122,6 +150,7 @@ _ResolvedScreenColor _resolveScreenColor(
   return _ResolvedScreenColor(
     color: color,
     isDefault: kind.isEmpty || kind == 'default',
+    isRgb: kind == 'rgb',
     isHostLightSurface: kind != 'default' && _isHostLightSurface(color),
   );
 }
@@ -168,6 +197,15 @@ Color _ansiIndexedColor(Object? value) {
   return AppColors.textPrimary;
 }
 
+Color _boldForeground(Map<String, dynamic> value, Color fallback) {
+  if ('${value['kind'] ?? ''}' != 'indexed') return fallback;
+  final index = value['index'] is num
+      ? (value['index'] as num).toInt()
+      : int.tryParse('${value['index'] ?? ''}');
+  if (index == null || index < 0 || index >= 8) return fallback;
+  return _ansiIndexedColor(index + 8);
+}
+
 Color _namedColor(String name, Color fallback) {
   return switch (name) {
     'Black' || 'DimBlack' => const Color(0xFF000000),
@@ -184,6 +222,21 @@ Color _namedColor(String name, Color fallback) {
     'Background' => AppColors.bgBase,
     _ => fallback,
   };
+}
+
+Color _dimColor(Color fg, Color bg) {
+  const blend = 0.4;
+  int channel(double foreground, double background) {
+    final value = foreground * 255 * (1 - blend) + background * 255 * blend;
+    return value.round().clamp(0, 255);
+  }
+
+  return Color.fromARGB(
+    255,
+    channel(fg.r, bg.r),
+    channel(fg.g, bg.g),
+    channel(fg.b, bg.b),
+  );
 }
 
 Color _ensureReadable(Color fg, Color bg) {

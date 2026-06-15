@@ -45,8 +45,6 @@ class RemoteTransportStateEvent {
 abstract interface class ControllerTransportEventHandle {
   bool get isClosed;
   bool send(Map<String, dynamic> envelope);
-  bool reportPingTimeout({required String path});
-  bool probePreferredRoute();
   Map<String, dynamic>? pollEvent();
   void close();
 }
@@ -57,8 +55,6 @@ abstract interface class RemoteTransport {
   set onEnvelope(RemoteTransportEnvelopeHandler? handler);
   Future<void> connect(StoredDevice device);
   Future<bool> send(Map<String, dynamic> envelope);
-  Future<bool> reportPingTimeout({required String path});
-  Future<bool> probePreferredRoute(StoredDevice device);
   Future<void> close();
 }
 
@@ -67,10 +63,7 @@ String? parseTransportPath(String detail) {
     final trimmed = part.trim();
     if (!trimmed.startsWith('path=')) continue;
     final value = trimmed.substring(5).trim();
-    if (value == 'direct' ||
-        value == 'relay' ||
-        value == 'mixed' ||
-        value == 'none') {
+    if (value == 'direct' || value == 'relay' || value == 'unknown') {
       return value;
     }
   }
@@ -90,7 +83,7 @@ class RustControllerTransport implements RemoteTransport {
   Timer? _pollTimer;
   RemoteTransportStateHandler? _onState;
   RemoteTransportEnvelopeHandler? _onEnvelope;
-  String _kind = RemoteTransportKind.websocketRelay;
+  String _kind = RemoteTransportKind.iroh;
 
   @override
   String get kind => _kind;
@@ -105,9 +98,10 @@ class RustControllerTransport implements RemoteTransport {
   @override
   Future<void> connect(StoredDevice device) async {
     await close();
+    final connected = Completer<void>();
     final config = _controllerTransportConfig(device);
     final summary = codux_protocol_ffi.controllerTransportConfigSummary(config);
-    _kind = '${summary['transportKind'] ?? RemoteTransportKind.websocketRelay}';
+    _kind = '${summary['transportKind'] ?? RemoteTransportKind.iroh}';
     _onState?.call('connecting');
     final handle = _handleFactory(config);
     if (handle == null) {
@@ -118,24 +112,20 @@ class RustControllerTransport implements RemoteTransport {
     }
     _handle = handle;
     _pollTimer = Timer.periodic(const Duration(milliseconds: 16), (_) {
-      _drainEvents();
+      _drainEvents(connected: connected);
     });
-    _drainEvents();
+    _drainEvents(connected: connected);
+    await connected.future.timeout(
+      const Duration(seconds: 15),
+      onTimeout: () {
+        throw StateError('Failed to connect remote transport: timed out');
+      },
+    );
   }
 
   @override
   Future<bool> send(Map<String, dynamic> envelope) async {
     return _handle?.send(envelope) ?? false;
-  }
-
-  @override
-  Future<bool> reportPingTimeout({required String path}) async {
-    return _handle?.reportPingTimeout(path: path) ?? false;
-  }
-
-  @override
-  Future<bool> probePreferredRoute(StoredDevice device) async {
-    return _handle?.probePreferredRoute() ?? false;
   }
 
   @override
@@ -147,7 +137,7 @@ class RustControllerTransport implements RemoteTransport {
     handle?.close();
   }
 
-  void _drainEvents() {
+  void _drainEvents({Completer<void>? connected}) {
     final handle = _handle;
     if (handle == null || handle.isClosed) return;
     for (var i = 0; i < 128; i++) {
@@ -166,7 +156,16 @@ class RustControllerTransport implements RemoteTransport {
       if (event == null) return;
       final kind = '${event['kind'] ?? ''}';
       if (kind == 'state') {
-        _onState?.call('${event['state'] ?? ''}');
+        final state = '${event['state'] ?? ''}';
+        final parsed = RemoteTransportStateEvent.parse(state);
+        if (parsed.isConnected && connected?.isCompleted == false) {
+          connected?.complete();
+        } else if (parsed.isClosed && connected?.isCompleted == false) {
+          connected?.completeError(
+            StateError('Failed to connect remote transport: $state'),
+          );
+        }
+        _onState?.call(state);
       } else if (kind == 'message') {
         final data = '${event['data'] ?? ''}';
         final decoded = jsonDecode(data);
@@ -201,13 +200,6 @@ class _FfiControllerTransportHandle implements ControllerTransportEventHandle {
   bool send(Map<String, dynamic> envelope) => _inner.send(envelope);
 
   @override
-  bool reportPingTimeout({required String path}) =>
-      _inner.reportPingTimeout(path: path);
-
-  @override
-  bool probePreferredRoute() => _inner.probePreferredRoute();
-
-  @override
   Map<String, dynamic>? pollEvent() => _inner.pollEvent();
 
   @override
@@ -215,18 +207,11 @@ class _FfiControllerTransportHandle implements ControllerTransportEventHandle {
 }
 
 Map<String, dynamic> _controllerTransportConfig(StoredDevice device) {
-  final stunUrls = <String>{};
-  for (final candidate in device.transports) {
-    for (final server in candidate.iceServers) {
-      stunUrls.addAll(server.urls);
-    }
-  }
   return {
-    'serverUrl': device.server,
+    'relayUrl': device.server,
     'hostId': device.hostId,
     'deviceId': device.deviceId,
     'deviceToken': device.token,
     'transports': device.transports.map((item) => item.toJson()).toList(),
-    if (stunUrls.isNotEmpty) 'stunUrls': stunUrls.toList(),
   };
 }

@@ -1,5 +1,4 @@
 import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/e2e_crypto.dart';
 import 'package:codux_flutter/services/remote_envelope_send_queue.dart';
 import 'package:codux_flutter/services/remote_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +20,7 @@ void main() {
     expect(results, [RemoteEnvelopeSendResult.delivered]);
   });
 
-  test('encrypts envelopes and increments sequence numbers in order', () async {
+  test('sends envelopes and increments sequence numbers in order', () async {
     final queue = RemoteEnvelopeSendQueue();
     final transport = _FakeTransport();
     final device = await _fakeDevice();
@@ -39,18 +38,35 @@ void main() {
       activeDevice: device,
     );
 
-    final first = await RemoteE2ECrypto.decryptEnvelope(
-      outer: RelayEnvelope.fromJson(transport.sent[0]),
-      device: device,
-    );
-    final second = await RemoteE2ECrypto.decryptEnvelope(
-      outer: RelayEnvelope.fromJson(transport.sent[1]),
-      device: device,
-    );
+    final first = RelayEnvelope.fromJson(transport.sent[0]);
+    final second = RelayEnvelope.fromJson(transport.sent[1]);
     expect(first.type, 'first');
+    expect(first.hostId, 'host-1');
+    expect(first.deviceId, 'device-1');
     expect(first.seq, 1);
     expect(second.type, 'second');
+    expect(second.hostId, 'host-1');
+    expect(second.deviceId, 'device-1');
     expect(second.seq, 2);
+  });
+
+  test('attaches active device identity to host info messages', () async {
+    final queue = RemoteEnvelopeSendQueue();
+    final transport = _FakeTransport();
+    final device = await _fakeDevice();
+
+    await queue.send(
+      message: const RelayEnvelope(type: 'host.info'),
+      transport: transport,
+      connected: () => true,
+      activeDevice: device,
+    );
+
+    final envelope = RelayEnvelope.fromJson(transport.sent.single);
+    expect(envelope.type, 'host.info');
+    expect(envelope.hostId, 'host-1');
+    expect(envelope.deviceId, 'device-1');
+    expect(envelope.seq, 1);
   });
 
   test(
@@ -78,7 +94,7 @@ void main() {
       expect(transport.sent.map((item) => item['type']), ['first']);
       expect(results, [
         RemoteEnvelopeSendResult.delivered,
-        RemoteEnvelopeSendResult.droppedBeforeEncrypt,
+        RemoteEnvelopeSendResult.droppedWhileDisconnected,
       ]);
     },
   );
@@ -101,18 +117,12 @@ void main() {
 }
 
 Future<StoredDevice> _fakeDevice() async {
-  final host = await RemoteE2ECrypto.newDeviceKeyPair();
-  final mobile = await RemoteE2ECrypto.newDeviceKeyPair();
-  return StoredDevice(
-    server: 'https://relay.example/v3',
+  return const StoredDevice(
+    server: 'https://relay.example',
     hostId: 'host-1',
     deviceId: 'device-1',
     token: 'token',
     name: 'Mac',
-    hostPublicKey: host.publicKey,
-    devicePrivateKey: mobile.privateKey,
-    devicePublicKey: mobile.publicKey,
-    cryptoVersion: 1,
   );
 }
 
@@ -123,7 +133,7 @@ class _FakeTransport implements RemoteTransport {
   final sent = <Map<String, dynamic>>[];
 
   @override
-  String get kind => RemoteTransportKind.websocketRelay;
+  String get kind => RemoteTransportKind.iroh;
 
   @override
   set onEnvelope(RemoteTransportEnvelopeHandler? handler) {}
@@ -136,12 +146,6 @@ class _FakeTransport implements RemoteTransport {
 
   @override
   Future<void> connect(StoredDevice device) async {}
-
-  @override
-  Future<bool> probePreferredRoute(StoredDevice device) async => false;
-
-  @override
-  Future<bool> reportPingTimeout({required String path}) async => false;
 
   @override
   Future<bool> send(Map<String, dynamic> envelope) async {

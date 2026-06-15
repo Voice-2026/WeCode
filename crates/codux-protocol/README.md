@@ -13,7 +13,7 @@ Shared v3.1 remote protocol definitions.
 
 ## Does Not Own
 
-- Network sockets or WebRTC connections.
+- Transport connection state.
 - Encryption key storage or authorization policy.
 - Terminal history state.
 - UI state.

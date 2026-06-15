@@ -251,15 +251,13 @@ pub struct RemoteSettings {
     #[serde(default)]
     pub relay_preset: String,
     #[serde(default)]
-    pub server_url: String,
+    pub relay_url: String,
+    #[serde(default)]
+    pub relay_authentication: String,
     #[serde(default, rename = "hostID")]
     pub host_id: String,
     #[serde(default)]
     pub host_token: String,
-    #[serde(default)]
-    pub host_private_key: String,
-    #[serde(default)]
-    pub host_public_key: String,
     #[serde(default)]
     pub cached_devices: Vec<RemoteHostDeviceSettings>,
 }

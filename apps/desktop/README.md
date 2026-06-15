@@ -15,7 +15,7 @@ Codux Desktop is the Rust + GPUI application. It is the primary controller UI an
 Desktop should reuse:
 
 - `crates/codux-protocol` for protocol constants and wire payload helpers.
-- `crates/codux-remote-transport` for WebSocket/WebRTC transport drivers.
+- `crates/codux-remote-transport` for Iroh transport drivers.
 - `crates/codux-runtime-core` for reusable runtime-domain payload and subscription logic.
 - `crates/codux-terminal-core` for terminal model traits and remote terminal semantics.
 - `crates/codux-terminal-pty` as the shared local PTY driver target for future delegation.

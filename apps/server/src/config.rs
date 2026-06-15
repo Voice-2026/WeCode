@@ -18,14 +18,6 @@ pub struct Args {
     pub addr: Option<String>,
     #[arg(long = "db", env = "CODEX_SERVER_DB")]
     pub db_path: Option<PathBuf>,
-    #[arg(long = "stats", env = "CODEX_STATS_ENABLED", num_args = 0..=1, default_missing_value = "true")]
-    pub stats_enabled: Option<bool>,
-    #[arg(long = "stats-path", env = "CODEX_STATS_PATH")]
-    pub stats_path: Option<PathBuf>,
-    #[arg(long = "stats-flush-interval", env = "CODEX_STATS_FLUSH_INTERVAL")]
-    pub stats_flush_interval_secs: Option<u64>,
-    #[arg(long = "pairing-ttl", env = "CODEX_PAIRING_TTL")]
-    pub pairing_ttl_secs: Option<u64>,
     #[arg(long = "shutdown-timeout", env = "CODEX_SHUTDOWN_TIMEOUT")]
     pub shutdown_timeout_secs: Option<u64>,
     #[arg(long = "read-header-timeout", env = "CODEX_READ_HEADER_TIMEOUT")]
@@ -36,10 +28,6 @@ pub struct Args {
 pub struct ServerConfig {
     pub addr: SocketAddr,
     pub db_path: PathBuf,
-    pub stats_enabled: bool,
-    pub stats_path: PathBuf,
-    pub stats_flush_interval: Duration,
-    pub pairing_ttl: Duration,
     pub shutdown_timeout: Duration,
     pub read_header_timeout: Duration,
     pub config_loaded_from: Option<PathBuf>,
@@ -49,8 +37,6 @@ pub struct ServerConfig {
 struct FileConfig {
     server: Option<FileServerConfig>,
     database: Option<FileDatabaseConfig>,
-    stats: Option<FileStatsConfig>,
-    pairing: Option<FilePairingConfig>,
     shutdown: Option<FileShutdownConfig>,
 }
 
@@ -66,18 +52,6 @@ struct FileDatabaseConfig {
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct FileStatsConfig {
-    enabled: Option<bool>,
-    path: Option<PathBuf>,
-    flush_interval_seconds: Option<u64>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct FilePairingConfig {
-    ttl_seconds: Option<u64>,
-}
-
-#[derive(Debug, Default, Deserialize)]
 struct FileShutdownConfig {
     timeout_seconds: Option<u64>,
 }
@@ -87,10 +61,6 @@ impl ServerConfig {
         let mut config = Self {
             addr: "0.0.0.0:8088".parse().expect("default addr"),
             db_path: PathBuf::from("codux-service.sqlite3"),
-            stats_enabled: true,
-            stats_path: PathBuf::from("codux-service.stats.jsonl"),
-            stats_flush_interval: Duration::from_secs(10),
-            pairing_ttl: Duration::from_secs(300),
             shutdown_timeout: Duration::from_secs(3),
             read_header_timeout: Duration::from_secs(10),
             config_loaded_from: None,
@@ -113,18 +83,6 @@ impl ServerConfig {
         }
         if let Some(path) = args.db_path {
             config.db_path = path;
-        }
-        if let Some(enabled) = args.stats_enabled {
-            config.stats_enabled = enabled;
-        }
-        if let Some(path) = args.stats_path {
-            config.stats_path = path;
-        }
-        if let Some(value) = args.stats_flush_interval_secs {
-            config.stats_flush_interval = seconds("stats flush interval", value)?;
-        }
-        if let Some(value) = args.pairing_ttl_secs {
-            config.pairing_ttl = seconds("pairing ttl", value)?;
         }
         if let Some(value) = args.shutdown_timeout_secs {
             config.shutdown_timeout = seconds("shutdown timeout", value)?;
@@ -155,22 +113,6 @@ impl ServerConfig {
                 self.db_path = path;
             }
         }
-        if let Some(stats) = file.stats {
-            if let Some(enabled) = stats.enabled {
-                self.stats_enabled = enabled;
-            }
-            if let Some(path) = stats.path {
-                self.stats_path = path;
-            }
-            if let Some(value) = stats.flush_interval_seconds {
-                self.stats_flush_interval = seconds("stats flush interval", value)?;
-            }
-        }
-        if let Some(pairing) = file.pairing {
-            if let Some(value) = pairing.ttl_seconds {
-                self.pairing_ttl = seconds("pairing ttl", value)?;
-            }
-        }
         if let Some(shutdown) = file.shutdown {
             if let Some(value) = shutdown.timeout_seconds {
                 self.shutdown_timeout = seconds("shutdown timeout", value)?;
@@ -182,15 +124,6 @@ impl ServerConfig {
     fn validate(&self) -> anyhow::Result<()> {
         if self.db_path.as_os_str().is_empty() {
             bail!("db path cannot be empty");
-        }
-        if self.stats_enabled && self.stats_path.as_os_str().is_empty() {
-            bail!("stats path cannot be empty when stats are enabled");
-        }
-        if self.stats_enabled && self.stats_flush_interval.is_zero() {
-            bail!("stats flush interval must be positive");
-        }
-        if self.pairing_ttl.is_zero() {
-            bail!("pairing ttl must be positive");
         }
         if self.shutdown_timeout.is_zero() {
             bail!("shutdown timeout must be positive");
@@ -231,10 +164,6 @@ mod tests {
             config: Some(PathBuf::from("missing-test-config.toml")),
             addr: None,
             db_path: None,
-            stats_enabled: None,
-            stats_path: None,
-            stats_flush_interval_secs: None,
-            pairing_ttl_secs: None,
             shutdown_timeout_secs: None,
             read_header_timeout_secs: None,
         })
@@ -245,10 +174,6 @@ mod tests {
             config: None,
             addr: None,
             db_path: None,
-            stats_enabled: None,
-            stats_path: None,
-            stats_flush_interval_secs: None,
-            pairing_ttl_secs: None,
             shutdown_timeout_secs: None,
             read_header_timeout_secs: None,
         })
@@ -272,14 +197,6 @@ read_header_timeout_seconds = 11
 [database]
 path = "from-file.sqlite3"
 
-[stats]
-enabled = false
-path = "stats.jsonl"
-flush_interval_seconds = 12
-
-[pairing]
-ttl_seconds = 13
-
 [shutdown]
 timeout_seconds = 14
 "#
@@ -290,10 +207,6 @@ timeout_seconds = 14
             config: Some(path),
             addr: Some("127.0.0.1:9100".into()),
             db_path: Some(PathBuf::from("from-cli.sqlite3")),
-            stats_enabled: Some(true),
-            stats_path: None,
-            stats_flush_interval_secs: None,
-            pairing_ttl_secs: None,
             shutdown_timeout_secs: None,
             read_header_timeout_secs: None,
         })
@@ -301,9 +214,7 @@ timeout_seconds = 14
 
         assert_eq!(config.addr.port(), 9100);
         assert_eq!(config.db_path, PathBuf::from("from-cli.sqlite3"));
-        assert!(config.stats_enabled);
-        assert_eq!(config.stats_flush_interval, Duration::from_secs(12));
-        assert_eq!(config.pairing_ttl, Duration::from_secs(13));
+        assert_eq!(config.shutdown_timeout, Duration::from_secs(14));
     }
 
     #[test]

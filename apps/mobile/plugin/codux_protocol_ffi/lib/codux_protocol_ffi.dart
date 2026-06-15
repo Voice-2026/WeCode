@@ -77,24 +77,12 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
     );
     library.lookup<
       NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
-    >('codux_transport_pairing_ticket_url');
-    library.lookup<
-      NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
-    >('codux_transport_pairing_code_url');
-    library.lookup<
-      NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
     >('codux_transport_relay_url_for_preset');
     library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>)>>(
       'codux_controller_transport_config_summary_json',
     );
     library.lookup<NativeFunction<Pointer<Void> Function(Pointer<Utf8>)>>(
       'codux_controller_transport_connect_json',
-    );
-    library.lookup<NativeFunction<Bool Function(Pointer<Void>, Pointer<Utf8>)>>(
-      'codux_controller_transport_report_ping_timeout',
-    );
-    library.lookup<NativeFunction<Bool Function(Pointer<Void>)>>(
-      'codux_controller_transport_probe_preferred_route',
     );
     library.lookup<NativeFunction<Pointer<Utf8> Function()>>(
       'codux_protocol_last_error',
@@ -191,50 +179,16 @@ final _relayBlocks = _dylib
     .lookupFunction<Bool Function(Pointer<Utf8>), bool Function(Pointer<Utf8>)>(
       'codux_protocol_relay_blocks_message',
     );
-final _transportServerUrl = _dylib
+final _transportRelayUrl = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>)
-    >('codux_transport_server_url');
+    >('codux_transport_relay_url');
 final _transportRelayUrlForPreset = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
     >('codux_transport_relay_url_for_preset');
-final _transportPairingTicketUrl = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
-    >('codux_transport_pairing_ticket_url');
-final _transportPairingCodeUrl = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
-    >('codux_transport_pairing_code_url');
-final _transportPairingWebSocketUrl = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>),
-      Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>)
-    >('codux_transport_pairing_websocket_url');
-final _transportClientWebSocketUrl = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-      ),
-      Pointer<Utf8> Function(
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-      )
-    >('codux_transport_client_websocket_url');
-final _transportDefaultIceServersJson = _dylib
-    .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
-      'codux_transport_default_ice_servers_json',
-    );
 final _transportPreferredKind = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Utf8>, Bool),
@@ -259,15 +213,6 @@ final _controllerTransportSendJson = _dylib
       Bool Function(Pointer<Void>, Pointer<Utf8>),
       bool Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_controller_transport_send_json');
-final _controllerTransportReportPingTimeout = _dylib
-    .lookupFunction<
-      Bool Function(Pointer<Void>, Pointer<Utf8>),
-      bool Function(Pointer<Void>, Pointer<Utf8>)
-    >('codux_controller_transport_report_ping_timeout');
-final _controllerTransportProbePreferredRoute = _dylib
-    .lookupFunction<Bool Function(Pointer<Void>), bool Function(Pointer<Void>)>(
-      'codux_controller_transport_probe_preferred_route',
-    );
 final _controllerTransportPollEventJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Void>),
@@ -311,48 +256,6 @@ final _terminalInsertInputJson = _dylib
       Pointer<Utf8> Function(Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>)
     >('codux_terminal_insert_input_json');
-final _e2eNewDeviceKeypair = _dylib
-    .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
-      'codux_e2e_new_device_keypair',
-    );
-final _e2eClearKeyCache = _dylib
-    .lookupFunction<Void Function(), void Function()>(
-      'codux_e2e_clear_key_cache',
-    );
-final _e2eEncrypt = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-      ),
-      Pointer<Utf8> Function(
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-      )
-    >('codux_e2e_encrypt');
-final _e2eDecrypt = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-      ),
-      Pointer<Utf8> Function(
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-      )
-    >('codux_e2e_decrypt');
 final _terminalKeyInputJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(
@@ -609,10 +512,10 @@ bool relayBlocksMessage(String kind) {
   }
 }
 
-String transportServerUrl(String base) {
+String transportRelayUrl(String base) {
   final basePtr = base.toNativeUtf8();
   try {
-    return _takeString(_transportServerUrl(basePtr));
+    return _takeString(_transportRelayUrl(basePtr));
   } finally {
     malloc.free(basePtr);
   }
@@ -630,81 +533,6 @@ String transportRelayUrlForPreset({
     malloc.free(presetPtr);
     malloc.free(customPtr);
   }
-}
-
-String transportPairingTicketUrl({
-  required String base,
-  required String ticket,
-}) {
-  final basePtr = base.toNativeUtf8();
-  final ticketPtr = ticket.toNativeUtf8();
-  try {
-    return _takeString(_transportPairingTicketUrl(basePtr, ticketPtr));
-  } finally {
-    malloc.free(basePtr);
-    malloc.free(ticketPtr);
-  }
-}
-
-String transportPairingCodeUrl({required String base, required String code}) {
-  final basePtr = base.toNativeUtf8();
-  final codePtr = code.toNativeUtf8();
-  try {
-    return _takeString(_transportPairingCodeUrl(basePtr, codePtr));
-  } finally {
-    malloc.free(basePtr);
-    malloc.free(codePtr);
-  }
-}
-
-String transportPairingWebSocketUrl({
-  required String base,
-  required String hostId,
-  required String devicePublicKey,
-}) {
-  final basePtr = base.toNativeUtf8();
-  final hostPtr = hostId.toNativeUtf8();
-  final devicePtr = devicePublicKey.toNativeUtf8();
-  try {
-    return _takeString(
-      _transportPairingWebSocketUrl(basePtr, hostPtr, devicePtr),
-    );
-  } finally {
-    malloc.free(basePtr);
-    malloc.free(hostPtr);
-    malloc.free(devicePtr);
-  }
-}
-
-String transportClientWebSocketUrl({
-  required String base,
-  required String hostId,
-  required String deviceId,
-  String token = '',
-}) {
-  final basePtr = base.toNativeUtf8();
-  final hostPtr = hostId.toNativeUtf8();
-  final devicePtr = deviceId.toNativeUtf8();
-  final tokenPtr = token.toNativeUtf8();
-  try {
-    return _takeString(
-      _transportClientWebSocketUrl(basePtr, hostPtr, devicePtr, tokenPtr),
-    );
-  } finally {
-    malloc.free(basePtr);
-    malloc.free(hostPtr);
-    malloc.free(devicePtr);
-    malloc.free(tokenPtr);
-  }
-}
-
-List<Map<String, dynamic>> transportDefaultIceServers() {
-  final decoded = _decodeJson(_transportDefaultIceServersJson());
-  if (decoded is! List) return const [];
-  return [
-    for (final item in decoded)
-      if (item is Map) Map<String, dynamic>.from(item),
-  ];
 }
 
 String preferredTransportKind(
@@ -756,19 +584,6 @@ class ControllerTransportHandle {
     } finally {
       malloc.free(envelopePtr);
     }
-  }
-
-  bool reportPingTimeout({required String path}) {
-    final pathPtr = path.toNativeUtf8();
-    try {
-      return _controllerTransportReportPingTimeout(_liveHandle(), pathPtr);
-    } finally {
-      malloc.free(pathPtr);
-    }
-  }
-
-  bool probePreferredRoute() {
-    return _controllerTransportProbePreferredRoute(_liveHandle());
   }
 
   Map<String, dynamic>? pollEvent() {
@@ -862,90 +677,6 @@ String terminalInsertInput(String text) {
   }
 }
 
-/// Generate a fresh device X25519 keypair, as `{privateKey, publicKey}`
-/// (base64url). Runs the shared codux-remote-crypto code the host uses.
-Map<String, dynamic> e2eNewDeviceKeypair() {
-  final result = _e2eNewDeviceKeypair();
-  if (result == nullptr) {
-    throw StateError('E2E keypair generation failed: ${lastError()}');
-  }
-  return Map<String, dynamic>.from(jsonDecode(_takeString(result)) as Map);
-}
-
-/// Clear the cached derived symmetric keys (e.g. on reconnect / re-pair).
-void e2eClearKeyCache() {
-  _e2eClearKeyCache();
-}
-
-/// Encrypt the base64url-encoded plaintext for the peer. Returns the encrypted
-/// payload map `{v, alg, nonce, ciphertext, tag}`.
-Map<String, dynamic> e2eEncrypt({
-  required String devicePrivateKey,
-  required String hostPublicKey,
-  required String hostId,
-  required String deviceId,
-  required String plaintextBase64,
-}) {
-  final privatePtr = devicePrivateKey.toNativeUtf8();
-  final publicPtr = hostPublicKey.toNativeUtf8();
-  final hostPtr = hostId.toNativeUtf8();
-  final devicePtr = deviceId.toNativeUtf8();
-  final plaintextPtr = plaintextBase64.toNativeUtf8();
-  try {
-    final result = _e2eEncrypt(
-      privatePtr,
-      publicPtr,
-      hostPtr,
-      devicePtr,
-      plaintextPtr,
-    );
-    if (result == nullptr) {
-      throw StateError('E2E encrypt failed: ${lastError()}');
-    }
-    return Map<String, dynamic>.from(jsonDecode(_takeString(result)) as Map);
-  } finally {
-    malloc.free(privatePtr);
-    malloc.free(publicPtr);
-    malloc.free(hostPtr);
-    malloc.free(devicePtr);
-    malloc.free(plaintextPtr);
-  }
-}
-
-/// Decrypt an encrypted payload (JSON `{v, alg, nonce, ciphertext, tag}`).
-/// Returns the recovered plaintext as base64url.
-String e2eDecrypt({
-  required String devicePrivateKey,
-  required String hostPublicKey,
-  required String hostId,
-  required String deviceId,
-  required String payloadJson,
-}) {
-  final privatePtr = devicePrivateKey.toNativeUtf8();
-  final publicPtr = hostPublicKey.toNativeUtf8();
-  final hostPtr = hostId.toNativeUtf8();
-  final devicePtr = deviceId.toNativeUtf8();
-  final payloadPtr = payloadJson.toNativeUtf8();
-  try {
-    final result = _e2eDecrypt(
-      privatePtr,
-      publicPtr,
-      hostPtr,
-      devicePtr,
-      payloadPtr,
-    );
-    if (result == nullptr) {
-      throw StateError('E2E decrypt failed: ${lastError()}');
-    }
-    return _takeString(result);
-  } finally {
-    malloc.free(privatePtr);
-    malloc.free(publicPtr);
-    malloc.free(hostPtr);
-    malloc.free(devicePtr);
-    malloc.free(payloadPtr);
-  }
-}
 
 String terminalKeyInput({
   required String key,
@@ -1831,8 +1562,22 @@ final _outputRouterRemoveSession = _dylib
     >('codux_output_router_remove_session');
 final _outputRouterStartBufferRequest = _dylib
     .lookupFunction<
-      Bool Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, Bool, Bool, Bool),
-      bool Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>, bool, bool, bool)
+      Bool Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        Bool,
+        Bool,
+        Bool,
+      ),
+      bool Function(
+        Pointer<Void>,
+        Pointer<Utf8>,
+        Pointer<Utf8>,
+        bool,
+        bool,
+        bool,
+      )
     >('codux_output_router_start_buffer_request');
 final _outputRouterEvictInactive = _dylib
     .lookupFunction<
@@ -1932,11 +1677,15 @@ final _outputRouterApplyHostScroll = _dylib
         Int64,
         Int64,
         Int64,
+        Int64,
+        Int64,
       ),
       void Function(
         Pointer<Void>,
         Pointer<Utf8>,
         Pointer<Utf8>,
+        int,
+        int,
         int,
         int,
         int,
@@ -2082,8 +1831,9 @@ class RemoteOutputRouter {
 
   String? activeBufferRequestId(String sessionId) => _withSession(
     sessionId,
-    (ptr) =>
-        _takeStringOrNull(_outputRouterActiveBufferRequestId(_liveHandle(), ptr)),
+    (ptr) => _takeStringOrNull(
+      _outputRouterActiveBufferRequestId(_liveHandle(), ptr),
+    ),
   );
 
   bool hasActiveBufferRequest(String sessionId) => _withSession(
@@ -2099,8 +1849,9 @@ class RemoteOutputRouter {
   TerminalScreenSnapshot? screenSnapshot(String sessionId) {
     final json = _withSession(
       sessionId,
-      (ptr) =>
-          _takeStringOrNull(_outputRouterScreenSnapshotJson(_liveHandle(), ptr)),
+      (ptr) => _takeStringOrNull(
+        _outputRouterScreenSnapshotJson(_liveHandle(), ptr),
+      ),
     );
     if (json == null) return null;
     final decoded = jsonDecode(json);
@@ -2155,6 +1906,8 @@ class RemoteOutputRouter {
   void applyHostScroll(
     String sessionId, {
     required String screenData,
+    required int cols,
+    required int rows,
     required int displayOffset,
     required int totalLines,
     int marginRows = 0,
@@ -2167,6 +1920,8 @@ class RemoteOutputRouter {
         _liveHandle(),
         sessionPtr,
         screenDataPtr,
+        cols,
+        rows,
         displayOffset,
         totalLines,
         marginRows,

@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_remote_server_url_uses_global_relay_preset() {
+    fn empty_remote_relay_url_uses_global_relay_preset() {
         let support_dir = temp_dir("settings-remote-empty-url");
         fs::write(
             support_dir.join("settings.json"),
@@ -527,7 +527,7 @@ mod tests {
             {
               "remote": {
                 "isEnabled": false,
-                "serverUrl": "   "
+                "relayUrl": "   "
               }
             }
             "#,
@@ -538,17 +538,17 @@ mod tests {
         let summary = service.summary();
         assert_eq!(summary.remote_relay_preset, "global");
         assert_eq!(
-            summary.remote_server_url,
+            summary.remote_relay_url,
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
 
         let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
         let (updated, remote) = service
-            .set_remote_server_url("")
+            .set_remote_relay_url("")
             .expect("update remote server");
         assert_eq!(updated.remote_relay_preset, "global");
         assert_eq!(
-            updated.remote_server_url,
+            updated.remote_relay_url,
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
         assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
@@ -558,23 +558,23 @@ mod tests {
             .expect("set global relay");
         assert_eq!(updated.remote_relay_preset, "global");
         assert_eq!(
-            updated.remote_server_url,
+            updated.remote_relay_url,
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
         assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);
 
         let (updated, remote) = service
-            .set_remote_server_url("https://relay.example")
+            .set_remote_relay_url("https://relay.example")
             .expect("set custom relay");
         assert_eq!(updated.remote_relay_preset, "custom");
-        assert_eq!(updated.remote_server_url, "https://relay.example");
+        assert_eq!(updated.remote_relay_url, "https://relay.example");
         assert_eq!(remote.relay, "https://relay.example");
 
         fs::remove_dir_all(support_dir).ok();
     }
 
     #[test]
-    fn remote_relay_preset_is_not_overridden_by_existing_server_url() {
+    fn remote_relay_preset_is_not_overridden_by_existing_relay_url() {
         let support_dir = temp_dir("settings-remote-preset-primary");
         fs::write(
             support_dir.join("settings.json"),
@@ -583,7 +583,7 @@ mod tests {
               "remote": {
                 "isEnabled": true,
                 "relayPreset": "custom",
-                "serverUrl": "https://codux-service.dux.plus"
+                "relayUrl": "https://iroh-service.dux.plus"
               }
             }
             "#,
@@ -592,15 +592,15 @@ mod tests {
 
         let summary = SettingsService::new(support_dir.clone()).summary();
         assert_eq!(summary.remote_relay_preset, "custom");
-        assert_eq!(summary.remote_server_url, "https://codux-service.dux.plus");
+        assert_eq!(summary.remote_relay_url, "https://iroh-service.dux.plus");
 
         let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
         let (updated, remote) = service
             .set_remote_relay_preset("custom")
             .expect("set custom relay");
         assert_eq!(updated.remote_relay_preset, "custom");
-        assert_eq!(updated.remote_server_url, "https://codux-service.dux.plus");
-        assert_eq!(remote.relay, "https://codux-service.dux.plus");
+        assert_eq!(updated.remote_relay_url, "https://iroh-service.dux.plus");
+        assert_eq!(remote.relay, "https://iroh-service.dux.plus");
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -614,7 +614,7 @@ mod tests {
             {
               "remote": {
                 "isEnabled": true,
-                "serverUrl": "https://codux-service.dux.plus"
+                "relayUrl": "https://iroh-service.dux.plus"
               }
             }
             "#,
@@ -623,13 +623,13 @@ mod tests {
 
         let summary = SettingsService::new(support_dir.clone()).summary();
         assert_eq!(summary.remote_relay_preset, "china");
-        assert_eq!(summary.remote_server_url, "https://codux-service.dux.plus");
+        assert_eq!(summary.remote_relay_url, "https://iroh-service.dux.plus");
 
         fs::remove_dir_all(support_dir).ok();
     }
 
     #[test]
-    fn missing_remote_server_url_uses_global_relay_preset() {
+    fn missing_remote_relay_url_uses_global_relay_preset() {
         let support_dir = temp_dir("settings-remote-missing-url");
         fs::write(
             support_dir.join("settings.json"),
@@ -646,7 +646,7 @@ mod tests {
         let summary = SettingsService::new(support_dir.clone()).summary();
         assert_eq!(summary.remote_relay_preset, "global");
         assert_eq!(
-            summary.remote_server_url,
+            summary.remote_relay_url,
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
 
@@ -656,7 +656,7 @@ mod tests {
             .expect("set relay preset");
         assert_eq!(updated.remote_relay_preset, "global");
         assert_eq!(
-            updated.remote_server_url,
+            updated.remote_relay_url,
             crate::remote::GLOBAL_RELAY_SERVER_URL
         );
         assert_eq!(remote.relay, crate::remote::GLOBAL_RELAY_SERVER_URL);

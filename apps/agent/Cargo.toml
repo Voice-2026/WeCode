@@ -9,3 +9,5 @@ codux-remote-transport = { path = "../../crates/codux-remote-transport" }
 codux-runtime-core = { path = "../../crates/codux-runtime-core" }
 codux-terminal-core = { path = "../../crates/codux-terminal-core" }
 codux-terminal-pty = { path = "../../crates/codux-terminal-pty" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }

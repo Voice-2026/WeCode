@@ -26,7 +26,7 @@ pub fn host_info_payload(input: HostInfoPayload) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codux_protocol::websocket_relay_transport_candidate;
+    use codux_protocol::iroh_transport_candidate;
 
     #[test]
     fn host_info_payload_advertises_protocol_capabilities_and_transports() {
@@ -36,13 +36,22 @@ mod tests {
             name: "Codux Mac".to_string(),
             platform: "macos".to_string(),
             app: "Codux".to_string(),
-            transports: vec![websocket_relay_transport_candidate("https://relay.example")],
+            transports: vec![iroh_transport_candidate(
+                "https://relay.example/v3",
+                "node-1",
+                "https://relay.example",
+            )],
         });
 
         assert_eq!(payload["hostId"], "host-1");
         assert_eq!(payload["runtimeInstanceId"], "runtime-1");
         assert_eq!(payload["protocolVersion"], REMOTE_PROTOCOL_VERSION);
         assert_eq!(payload["capabilities"]["domains"]["terminal"], true);
-        assert_eq!(payload["transports"][0]["kind"], "websocketRelay");
+        assert_eq!(payload["transports"][0]["kind"], "iroh");
+        assert_eq!(payload["transports"][0]["nodeId"], "node-1");
+        assert_eq!(
+            payload["transports"][0]["relayUrl"],
+            "https://relay.example"
+        );
     }
 }

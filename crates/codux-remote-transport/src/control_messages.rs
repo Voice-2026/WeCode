@@ -4,15 +4,6 @@ use codux_protocol::{
 };
 use serde_json::Value;
 
-pub(crate) fn transport_pong_for_ping_bytes(
-    data: &[u8],
-    fallback_device_id: Option<&str>,
-) -> Option<String> {
-    let text = std::str::from_utf8(data).ok()?;
-    let envelope = serde_json::from_str::<RemoteEnvelope>(text).ok()?;
-    transport_pong_for_ping(&envelope, fallback_device_id)
-}
-
 pub(crate) fn transport_pong_for_ping(
     envelope: &RemoteEnvelope,
     fallback_device_id: Option<&str>,
@@ -56,16 +47,9 @@ pub(crate) fn pairing_handshake_from_envelope(
         .and_then(Value::as_str)
         .unwrap_or("Mobile Device")
         .to_string();
-    let device_public_key = envelope
-        .payload
-        .get("devicePublicKey")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
     Some(RemoteTransportPairingRequest {
         device_id,
         device_name,
-        device_public_key,
         pairing_id: envelope
             .payload
             .get("pairingId")

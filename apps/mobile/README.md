@@ -65,7 +65,7 @@ Codux Mobile (Flutter controller)
   ├─ UI shell: renders runtime state and emits user intent
   ├─ Runtime store: selected project, active terminal, sync state
   ├─ Protocol client: v3.1 envelopes, capabilities, chunk assembly, ack/retry
-  ├─ Rust transport FFI: WebRTC DataChannel and WebSocket relay fallback
+  ├─ Rust transport FFI: Iroh QUIC host/controller link
   └─ Rust terminal-core FFI: RemotePtySession + libghostty-vt headless screen model
 
 Codux Desktop host
@@ -133,7 +133,7 @@ The default is `warn`. Release workflows build with `warn` unless overridden.
 
 ## Release
 
-The mobile source lives in this monorepo under `apps/mobile`. Mobile signing and public releases stay in the legacy `duxweb/codux-flutter` repository so the existing Android and iOS signing secrets do not need to be moved:
+The mobile source lives in this monorepo under `apps/mobile`. Mobile signing and public releases stay in the existing `duxweb/codux-flutter` repository so the existing Android and iOS signing secrets do not need to be moved:
 
 - `CHANGELOG.md` and `CHANGELOG.zh-CN.md` keep versioned release notes.
 - `scripts/release/build-release-notes.sh` extracts bilingual release notes for GitHub Releases.

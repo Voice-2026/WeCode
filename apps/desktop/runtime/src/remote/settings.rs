@@ -1,5 +1,5 @@
-use super::types::RemoteSettings;
 use super::RemoteService;
+use super::types::RemoteSettings;
 use crate::config::ConfigStore;
 use serde_json::{Map, Value};
 
@@ -32,9 +32,9 @@ pub(crate) fn remote_settings_from_raw(raw: &Map<String, Value>) -> RemoteSettin
         "global" => "global".to_string(),
         "china" => "china".to_string(),
         "custom" => "custom".to_string(),
-        _ => super::relay::remote_relay_preset_for_url(&settings.server_url),
+        _ => super::relay::remote_relay_preset_for_url(&settings.relay_url),
     };
-    settings.server_url =
-        super::relay::remote_relay_url_for_preset(&settings.relay_preset, &settings.server_url);
+    settings.relay_url =
+        super::relay::remote_relay_url_for_preset(&settings.relay_preset, &settings.relay_url);
     settings
 }

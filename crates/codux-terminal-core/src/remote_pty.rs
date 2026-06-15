@@ -132,10 +132,14 @@ impl<T> RemotePtySession<T> {
     /// size; rendering it replaces the fragile local raw-byte history
     /// replay entirely. `margin_rows` rows at the top of the data are
     /// pre-rendered overscan context above the viewport;
-    /// `margin_rows_below` rows at the bottom are context below it.
+    /// `margin_rows_below` rows at the bottom are context below it. `rows`
+    /// is the full host-rendered snapshot height, already including those
+    /// margins.
     pub fn apply_host_scroll_snapshot(
         &mut self,
         screen_data: &str,
+        cols: usize,
+        rows: usize,
         display_offset: usize,
         total_lines: usize,
         margin_rows: usize,
@@ -144,16 +148,16 @@ impl<T> RemotePtySession<T> {
         if screen_data.is_empty() {
             return;
         }
+        let cols = cols.max(1);
+        let rows = rows.max(1);
         self.host_total_lines = Some(total_lines);
-        if display_offset == 0 {
+        if display_offset == 0 && margin_rows == 0 && margin_rows_below == 0 {
             // At the live bottom the keyframe screen stays in charge so
-            // live output keeps rendering; sync replies (margin > 0) only
-            // seed the scroll range recorded above.
-            if margin_rows == 0 {
-                self.keyframe_screen
-                    .replace_with_keyframe(screen_data.as_bytes());
-                self.has_keyframe_screen = true;
-            }
+            // live output keeps rendering.
+            self.keyframe_screen.resize(cols, rows);
+            self.keyframe_screen
+                .replace_with_keyframe(screen_data.as_bytes());
+            self.has_keyframe_screen = true;
             self.screen_view = if self.has_keyframe_screen {
                 RemotePtyScreenView::Keyframe
             } else {
@@ -162,10 +166,7 @@ impl<T> RemotePtySession<T> {
             self.host_scroll = None;
             return;
         }
-        self.scroll_screen.resize(
-            self.screen_cols,
-            self.screen_rows + margin_rows + margin_rows_below,
-        );
+        self.scroll_screen.resize(cols, rows);
         self.scroll_screen
             .replace_with_keyframe(screen_data.as_bytes());
         self.host_scroll = Some((display_offset, total_lines, margin_rows, margin_rows_below));
@@ -355,6 +356,15 @@ impl<T> RemotePtySession<T> {
         buffer_length: Option<usize>,
         sequence: Option<TerminalSequence>,
     ) {
+        if matches!(self.host_scroll, Some((0, _, _, _))) {
+            self.host_scroll = None;
+            self.scroll_screen.clear();
+            self.screen_view = if self.has_keyframe_screen {
+                RemotePtyScreenView::Keyframe
+            } else {
+                RemotePtyScreenView::History
+            };
+        }
         if !data.is_empty() {
             self.content =
                 trim_to_char_limit(&format!("{}{}", self.content, data), self.max_cached_chars);

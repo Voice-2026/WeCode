@@ -7,7 +7,6 @@ import '../services/remote_pty_session.dart';
 import '../theme/app_theme.dart';
 import 'connect_hint.dart';
 import 'terminal_screen_view.dart';
-import 'terminal_transition_mask.dart';
 import 'toolbar.dart';
 
 class RemoteTerminalPane extends StatelessWidget {
@@ -27,7 +26,6 @@ class RemoteTerminalPane extends StatelessWidget {
     required this.pendingBufferSessionId,
     required this.connectionStatusText,
     required this.terminalHistoryLoadingText,
-    required this.maskOpacity,
     required this.keyboardRequested,
     required this.keyboardVisible,
     required this.terminalCursorBottom,
@@ -41,6 +39,7 @@ class RemoteTerminalPane extends StatelessWidget {
     required this.onSettleScroll,
     required this.onScrollToBottom,
     required this.onMetricsCursorBottom,
+    this.onSelectionChanged,
     required this.onSendKey,
     required this.onToggleKeyboard,
     required this.onPaste,
@@ -63,7 +62,6 @@ class RemoteTerminalPane extends StatelessWidget {
   final String? pendingBufferSessionId;
   final String connectionStatusText;
   final String terminalHistoryLoadingText;
-  final Animation<double> maskOpacity;
   final bool keyboardRequested;
   final bool keyboardVisible;
   final double terminalCursorBottom;
@@ -77,6 +75,7 @@ class RemoteTerminalPane extends StatelessWidget {
   final VoidCallback onSettleScroll;
   final VoidCallback onScrollToBottom;
   final ValueChanged<double> onMetricsCursorBottom;
+  final ValueChanged<String?>? onSelectionChanged;
   final ValueChanged<String> onSendKey;
   final VoidCallback onToggleKeyboard;
   final VoidCallback onPaste;
@@ -186,6 +185,7 @@ class RemoteTerminalPane extends StatelessWidget {
                                 onSettleScroll: onSettleScroll,
                                 onScrollToBottom: onScrollToBottom,
                                 onCursorBottom: onMetricsCursorBottom,
+                                onSelectionChanged: onSelectionChanged,
                               )
                             else
                               ConnectHint(
@@ -210,10 +210,6 @@ class RemoteTerminalPane extends StatelessWidget {
                                     : terminalHistoryLoadingText,
                                 opacity: 0.72,
                               ),
-                            FadeTransition(
-                              opacity: maskOpacity,
-                              child: const TerminalTransitionMask(),
-                            ),
                           ],
                         ),
                       ),

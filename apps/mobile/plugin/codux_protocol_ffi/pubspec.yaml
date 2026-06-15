@@ -37,6 +37,8 @@ flutter:
   plugin:
     platforms:
       android:
+        package: com.codux.codux_protocol_ffi
+        pluginClass: CoduxProtocolFfiPlugin
         ffiPlugin: true
       ios:
         ffiPlugin: true

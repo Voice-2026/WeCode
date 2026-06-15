@@ -16,12 +16,8 @@ abstract final class RemoteResourceType {
 abstract final class RemoteMessageType {
   static final hello = codux_protocol_ffi.messageType('hello');
   static final error = codux_protocol_ffi.messageType('error');
-  static final secureMessage = codux_protocol_ffi.messageType('secureMessage');
   static final hostInfo = codux_protocol_ffi.messageType('hostInfo');
   static final hostOffline = codux_protocol_ffi.messageType('hostOffline');
-  static final secureRequired = codux_protocol_ffi.messageType(
-    'secureRequired',
-  );
   static final deviceInfo = codux_protocol_ffi.messageType('deviceInfo');
   static final deviceDisconnected = codux_protocol_ffi.messageType(
     'deviceDisconnected',
@@ -184,8 +180,8 @@ bool remoteRelayBlocksMessage(String kind) {
   return codux_protocol_ffi.relayBlocksMessage(kind);
 }
 
-String remoteTransportServerUrl(String base) {
-  return codux_protocol_ffi.transportServerUrl(base);
+String remoteTransportRelayUrl(String base) {
+  return codux_protocol_ffi.transportRelayUrl(base);
 }
 
 String remoteTransportRelayUrlForPreset({
@@ -196,53 +192,6 @@ String remoteTransportRelayUrlForPreset({
     preset: preset,
     customUrl: customUrl,
   );
-}
-
-String remoteTransportPairingTicketUrl({
-  required String base,
-  required String ticket,
-}) {
-  return codux_protocol_ffi.transportPairingTicketUrl(
-    base: base,
-    ticket: ticket,
-  );
-}
-
-String remoteTransportPairingCodeUrl({
-  required String base,
-  required String code,
-}) {
-  return codux_protocol_ffi.transportPairingCodeUrl(base: base, code: code);
-}
-
-String remoteTransportPairingWebSocketUrl({
-  required String base,
-  required String hostId,
-  required String devicePublicKey,
-}) {
-  return codux_protocol_ffi.transportPairingWebSocketUrl(
-    base: base,
-    hostId: hostId,
-    devicePublicKey: devicePublicKey,
-  );
-}
-
-String remoteTransportClientWebSocketUrl({
-  required String base,
-  required String hostId,
-  required String deviceId,
-  String token = '',
-}) {
-  return codux_protocol_ffi.transportClientWebSocketUrl(
-    base: base,
-    hostId: hostId,
-    deviceId: deviceId,
-    token: token,
-  );
-}
-
-List<Map<String, dynamic>> remoteTransportDefaultIceServers() {
-  return codux_protocol_ffi.transportDefaultIceServers();
 }
 
 String remotePreferredTransportKind(

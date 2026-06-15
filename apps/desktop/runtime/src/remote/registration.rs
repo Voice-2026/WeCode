@@ -1,5 +1,4 @@
-use super::crypto::{ensure_remote_host_identity, remote_random_token};
-use super::relay::remote_server_url;
+use super::crypto::remote_random_token;
 use super::summary::remote_summary_from_settings;
 use super::types::{RemoteSettings, RemoteSummary};
 use super::{RemoteService, remote_settings_from_raw, remote_settings_mut};
@@ -48,24 +47,17 @@ impl RemoteService {
         if settings.host_token.trim().is_empty() {
             settings.host_token = remote_random_token();
         }
-        ensure_remote_host_identity(&mut settings);
-        let configured_server_url = settings.server_url.clone();
-        let resolved_relay = remote_server_url(&settings.server_url);
         runtime_trace(
             "remote",
             &format!(
-                "register_host relay={} has_host={} has_token={}",
-                resolved_relay,
+                "register_host has_host={} has_token={}",
                 !settings.host_id.trim().is_empty(),
                 !settings.host_token.trim().is_empty()
             ),
         );
-        settings.server_url = resolved_relay;
-        let mut saved_settings = settings.clone();
-        saved_settings.server_url = configured_server_url;
         raw.insert(
             "remote".to_string(),
-            serde_json::to_value(&saved_settings).map_err(|error| error.to_string())?,
+            serde_json::to_value(&settings).map_err(|error| error.to_string())?,
         );
         runtime_trace_elapsed(
             "remote",

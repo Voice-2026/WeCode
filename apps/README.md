@@ -9,7 +9,7 @@ This directory contains runnable Codux applications. Shared protocol, runtime, t
 | `desktop/` | Rust + GPUI desktop app. Owns the primary UI, local workspace orchestration, AI CLI sessions, local terminal adapter, and host-side remote runtime. | Rust |
 | `mobile/` | Flutter mobile controller. Connects to a Codux host, renders remote runtime state, and sends user intent. | Flutter + Rust FFI |
 | `agent/` | Headless controlled-agent entry point. Uses shared protocol, transport, runtime, and PTY crates without GPUI. | Rust |
-| `server/` | Rust relay service for persisted pairing, device authorization, signaling, and WebSocket fallback routing. | Rust |
+| `server/` | Rust service for host registration, device records, and short-lived pairing ticket exchange. | Rust |
 
 ## Commands
 
@@ -52,5 +52,5 @@ Do not add mobile or service release workflows back into this repository unless 
 
 - UI code belongs in an app directory.
 - Shared protocol names, payload shapes, transport rules, terminal state, and reusable runtime models belong in `../crates`.
-- Do not duplicate WebSocket/WebRTC URL selection, terminal sequence handling, or remote PTY restore logic in app code.
+- Do not duplicate Iroh transport selection, terminal sequence handling, or remote PTY restore logic in app code.
 - Keep generated build output out of version control.

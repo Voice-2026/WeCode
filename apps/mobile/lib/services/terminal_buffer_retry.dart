@@ -2,6 +2,7 @@ import 'dart:async';
 
 typedef TerminalBufferTimerFactory =
     Timer Function(Duration delay, void Function() callback);
+typedef TerminalBufferRequestPending = bool Function(String sessionId);
 
 class TerminalBufferRetryCoordinator {
   TerminalBufferRetryCoordinator({
@@ -87,6 +88,18 @@ class TerminalBufferRetryCoordinator {
     _scheduleRetry(sessionId, send);
   }
 
+  void trackWhilePending(
+    String sessionId, {
+    required bool Function(String sessionId) send,
+    required TerminalBufferRequestPending hasPendingRequest,
+  }) {
+    _retryTimer?.cancel();
+    _pendingSessionId = sessionId;
+    _retryAttempt = 0;
+    _lastBufferedSessionId = sessionId;
+    _scheduleRetry(sessionId, send, hasPendingRequest: hasPendingRequest);
+  }
+
   void markReceived({
     required String? sessionId,
     required String? activeSessionId,
@@ -105,7 +118,11 @@ class TerminalBufferRetryCoordinator {
     _retryTimer = null;
   }
 
-  void _scheduleRetry(String sessionId, bool Function(String sessionId) send) {
+  void _scheduleRetry(
+    String sessionId,
+    bool Function(String sessionId) send, {
+    TerminalBufferRequestPending? hasPendingRequest,
+  }) {
     _retryTimer?.cancel();
     if (_retryAttempt >= maxRetries) {
       onRetryExhausted?.call(sessionId);
@@ -113,18 +130,26 @@ class TerminalBufferRetryCoordinator {
     }
     _retryTimer = _timerFactory(retryDelay, () {
       if (_pendingSessionId != sessionId) return;
+      if (hasPendingRequest?.call(sessionId) == true) {
+        _scheduleRetry(sessionId, send, hasPendingRequest: hasPendingRequest);
+        return;
+      }
       _retryAttempt += 1;
       _lastBufferedSessionId = '';
-      _sendAndTrack(sessionId, send);
+      _sendAndTrack(sessionId, send, hasPendingRequest: hasPendingRequest);
     });
   }
 
-  bool _sendAndTrack(String sessionId, bool Function(String sessionId) send) {
+  bool _sendAndTrack(
+    String sessionId,
+    bool Function(String sessionId) send, {
+    TerminalBufferRequestPending? hasPendingRequest,
+  }) {
     final sent = send(sessionId);
     if (!sent) return false;
     _lastBufferedSessionId = sessionId;
     _pendingSessionId = sessionId;
-    _scheduleRetry(sessionId, send);
+    _scheduleRetry(sessionId, send, hasPendingRequest: hasPendingRequest);
     return true;
   }
 }

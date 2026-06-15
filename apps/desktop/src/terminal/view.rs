@@ -305,6 +305,7 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
+        let _ = self.session.claim_local_viewport_active();
         let point = self.layout.lock().cell_at(event.position);
         let model_point = self.layout.lock().model_cell_at(event.position);
         if event.button == MouseButton::Left
@@ -632,6 +633,7 @@ impl TerminalView {
     }
 
     fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let _ = self.session.claim_local_viewport_active();
         self.blink_manager
             .update(cx, TerminalBlinkManager::pause_blinking);
         self.clear_pending_view_scroll();

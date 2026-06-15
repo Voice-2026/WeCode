@@ -1,61 +1,41 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:math';
 import '../i18n.dart';
 import '../models/remote_models.dart';
-import 'e2e_crypto.dart';
+import 'log_service.dart';
 import 'remote_protocol.dart';
+import 'remote_transport.dart';
 export 'remote_protocol.dart';
 
 Future<PairingPayload> parsePairingPayload(String input) async {
-  final parsed = await _fetchPairingTicketPayload(input);
-  return _pairingPayloadFromJson(parsed);
+  final parsed = _parsePairingTokenPayload(input);
+  return _pairingPayloadFromJson(parsed.payload, server: parsed.server);
 }
 
-Future<PairingPayload> parseManualPairingPayload({
-  required String server,
-  required String code,
-}) async {
-  final normalizedCode = normalizePairingCode(code);
-  if (normalizedCode == null) {
-    throw Exception(tr('remote.pairingCodeInvalid', LocaleChoices.system.id));
-  }
-  final parsed = await _fetchPairingCodePayload(
-    server: server,
-    code: normalizedCode,
-  );
-  return _pairingPayloadFromJson(parsed);
-}
+class _FetchedPairingPayload {
+  const _FetchedPairingPayload({required this.server, required this.payload});
 
-String? normalizePairingCode(String code) {
-  final value = code.replaceAll(RegExp(r'\D'), '');
-  return value.length == 6 ? value : null;
+  final String server;
+  final Map<String, dynamic> payload;
 }
 
 Future<PairingPayload> _pairingPayloadFromJson(
-  Map<String, dynamic> parsed,
-) async {
+  Map<String, dynamic> parsed, {
+  required String server,
+}) async {
+  final normalizedServer = remoteTransportRelayUrl(server);
   final code = parsed['code']?.toString();
   final secret = parsed['secret']?.toString();
   final hostId = parsed['hostId']?.toString();
-  final hostPublicKey = parsed['hostPublicKey']?.toString() ?? '';
-  final cryptoVersion = parsed['cryptoVersion'] is num
-      ? (parsed['cryptoVersion'] as num).toInt()
-      : int.tryParse('${parsed['cryptoVersion'] ?? ''}') ?? 0;
-  final transports = _normalizedPairingTransports(parsed);
-  final hasSupportedTransport = transports.any(
-    (item) =>
-        item.kind == RemoteTransportKind.websocketRelay &&
-        item.url.trim().isNotEmpty,
-  );
+  final transports = _normalizedPairingTransports(parsed, normalizedServer);
+  final hasSupportedTransport = _irohTransport(transports) != null;
   final missingFields = <String>[
     if (code == null || code.isEmpty) 'code',
     if (secret == null || secret.isEmpty) 'secret',
     if (hostId == null || hostId.isEmpty) 'hostId',
     if (parsed['pairingId']?.toString().trim().isEmpty != false) 'pairingId',
-    if (hostPublicKey.isEmpty) 'hostPublicKey',
-    if (cryptoVersion < 1) 'cryptoVersion',
-    if (!hasSupportedTransport) 'transports.websocketRelay.url',
+    if (!hasSupportedTransport) 'transports.iroh.ticket',
   ];
   if (missingFields.isNotEmpty) {
     throw Exception(
@@ -64,14 +44,15 @@ Future<PairingPayload> _pairingPayloadFromJson(
   }
   final pairingCode = code!;
   final pairingSecret = secret!;
-  final deviceKeyPair = await RemoteE2ECrypto.newDeviceKeyPair();
+  final deviceId = _newDeviceId();
+  CoduxLog.info(
+    '[codux-flutter-pairing] payload ready server=$normalizedServer host=${hostId ?? ''} pair=${parsed['pairingId']?.toString() ?? ''} transports=${_transportLogSummary(transports)}',
+  );
   return PairingPayload(
+    server: normalizedServer,
     code: pairingCode,
     secret: pairingSecret,
-    hostPublicKey: hostPublicKey,
-    devicePrivateKey: deviceKeyPair.privateKey,
-    devicePublicKey: deviceKeyPair.publicKey,
-    cryptoVersion: cryptoVersion,
+    deviceId: deviceId,
     hostName: parsed['hostName']?.toString(),
     hostId: hostId,
     transports: transports,
@@ -81,68 +62,71 @@ Future<PairingPayload> _pairingPayloadFromJson(
 
 List<RemoteTransportCandidate> _normalizedPairingTransports(
   Map<String, dynamic> parsed,
+  String server,
 ) {
-  return remoteTransportCandidatesFromJson(parsed['transports']);
+  return remoteTransportCandidatesFromJson(parsed['transports']).map((
+    candidate,
+  ) {
+    if (candidate.kind != RemoteTransportKind.iroh) return candidate;
+    return RemoteTransportCandidate(
+      kind: candidate.kind,
+      role: candidate.role,
+      url: server,
+      nodeId: candidate.nodeId,
+      relayUrl: candidate.relayUrl,
+      ticket: candidate.ticket,
+      relayAuthentication: candidate.relayAuthentication,
+    );
+  }).toList();
 }
 
-Future<Map<String, dynamic>> _fetchPairingTicketPayload(String input) async {
+RemoteTransportCandidate? _irohTransport(
+  List<RemoteTransportCandidate> transports,
+) {
+  for (final candidate in transports) {
+    if (candidate.kind == RemoteTransportKind.iroh &&
+        (candidate.ticket.trim().isNotEmpty ||
+            (candidate.nodeId.trim().isNotEmpty &&
+                candidate.relayUrl.trim().isNotEmpty))) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+_FetchedPairingPayload _parsePairingTokenPayload(String input) {
   final value = input.trim();
   if (value.isEmpty) {
     throw Exception(tr('remote.qrEmpty', LocaleChoices.system.id));
   }
   final uri = Uri.tryParse(value);
-  if (uri != null && uri.scheme == 'codux' && uri.host == 'manual-pair') {
-    final server = uri.queryParameters['server']?.trim() ?? '';
-    final code = uri.queryParameters['code']?.trim() ?? '';
-    final normalizedCode = normalizePairingCode(code);
-    if (server.isEmpty || normalizedCode == null) {
-      throw Exception(tr('remote.pairingCodeInvalid', LocaleChoices.system.id));
+  if (uri != null && uri.scheme == 'codux' && uri.host == 'pair') {
+    final encodedPayload = uri.queryParameters['payload']?.trim() ?? '';
+    if (encodedPayload.isNotEmpty) {
+      return _decodeEmbeddedPairingPayload(encodedPayload);
     }
-    return _fetchPairingCodePayload(server: server, code: normalizedCode);
   }
-  if (uri == null ||
-      uri.scheme != 'codux' ||
-      uri.host != 'pair' ||
-      uri.queryParameters['server']?.trim().isEmpty != false ||
-      uri.queryParameters['ticket']?.trim().isEmpty != false) {
+  return _decodeEmbeddedPairingPayload(value);
+}
+
+_FetchedPairingPayload _decodeEmbeddedPairingPayload(String encodedPayload) {
+  try {
+    final normalized = base64Url.normalize(encodedPayload);
+    final decoded = utf8.decode(base64Url.decode(normalized));
+    final value = jsonDecode(decoded);
+    if (value is! Map) {
+      throw const FormatException('pairing payload must be an object');
+    }
+    final payload = Map<String, dynamic>.from(value);
+    final transports = remoteTransportCandidatesFromJson(payload['transports']);
+    final iroh = _irohTransport(transports);
+    final server = (iroh?.url.trim().isNotEmpty == true)
+        ? iroh!.url.trim()
+        : '';
+    return _FetchedPairingPayload(server: server, payload: payload);
+  } catch (_) {
     throw Exception(tr('remote.qrInvalid', LocaleChoices.system.id));
   }
-  final server = uri.queryParameters['server']!.trim();
-  final ticket = uri.queryParameters['ticket']!.trim();
-  final response = await _getJsonUrl(
-    remoteTransportPairingTicketUrl(base: server, ticket: ticket),
-  );
-  return _decodePairingPayloadResponse(response);
-}
-
-Future<Map<String, dynamic>> _fetchPairingCodePayload({
-  required String server,
-  required String code,
-}) async {
-  final response = await _getJsonUrl(
-    remoteTransportPairingCodeUrl(base: server, code: code),
-  );
-  return _decodePairingPayloadResponse(response);
-}
-
-Future<HttpClientResponse> _getJsonUrl(String url) {
-  return HttpClient()
-      .getUrl(Uri.parse(url))
-      .then((request) => request.close())
-      .timeout(const Duration(seconds: 12));
-}
-
-Future<Map<String, dynamic>> _decodePairingPayloadResponse(
-  HttpClientResponse response,
-) async {
-  final text = await response.transform(utf8.decoder).join();
-  if (response.statusCode < 200 || response.statusCode >= 300) {
-    throw Exception(tr('remote.qrInvalid', LocaleChoices.system.id));
-  }
-  final decoded = jsonDecode(text);
-  if (decoded is Map<String, dynamic>) return decoded;
-  if (decoded is Map) return Map<String, dynamic>.from(decoded);
-  throw Exception(tr('remote.qrInvalid', LocaleChoices.system.id));
 }
 
 RelayEnvelope pairingRequestEnvelope(PairingPayload payload, String name) {
@@ -152,18 +136,18 @@ RelayEnvelope pairingRequestEnvelope(PairingPayload payload, String name) {
   }
   return RelayEnvelope(
     type: RemoteMessageType.pairingRequest,
-    deviceId: payload.devicePublicKey,
+    deviceId: payload.deviceId,
     payload: {
       'pairingId': pairingId,
       'code': payload.code,
       'secret': payload.secret,
       'deviceName': name,
-      'devicePublicKey': payload.devicePublicKey,
+      'deviceId': payload.deviceId,
     },
   );
 }
 
-Future<StoredDevice> claimPairingOverRelay({
+Future<StoredDevice> confirmPairingOverIroh({
   required PairingPayload payload,
   required String name,
   Duration timeout = const Duration(seconds: 90),
@@ -174,7 +158,7 @@ Future<StoredDevice> claimPairingOverRelay({
     pairing: true,
   );
   for (final candidate in payload.transports) {
-    if (candidate.kind == preferred && candidate.url.trim().isNotEmpty) {
+    if (candidate.kind == preferred) {
       transport = candidate;
       break;
     }
@@ -182,42 +166,68 @@ Future<StoredDevice> claimPairingOverRelay({
   if (transport == null) {
     throw Exception(tr('remote.qrMissingFields', LocaleChoices.system.id));
   }
-  final socket = await WebSocket.connect(
-    remoteTransportPairingWebSocketUrl(
-      base: transport.url,
-      hostId: payload.hostId ?? '',
-      devicePublicKey: payload.devicePublicKey,
-    ),
-  ).timeout(const Duration(seconds: 12));
+  CoduxLog.info(
+    '[codux-flutter-pairing] iroh confirm start relay=${payload.server} transport=${transport.kind} url=${transport.url} host=${payload.hostId ?? ''} pair=${payload.pairingId ?? ''}',
+  );
+  final pendingDevice = pendingPairingDevice(payload: payload, name: name);
+  final pairingTransport = createRemoteTransport(pendingDevice);
+  final completer = Completer<RelayEnvelope>();
+  pairingTransport.onEnvelope = (envelope) {
+    final message = RelayEnvelope.fromJson(envelope);
+    if (message.type == RemoteMessageType.pairingConfirmed ||
+        message.type == RemoteMessageType.pairingRejected) {
+      if (!completer.isCompleted) completer.complete(message);
+    }
+  };
+  pairingTransport.onState = (state) {
+    if (RemoteTransportStateEvent.parse(state).isClosed &&
+        !completer.isCompleted) {
+      completer.completeError(
+        Exception(tr('remote.waitTimeout', LocaleChoices.system.id)),
+      );
+    }
+  };
   try {
-    socket.add(jsonEncode(pairingRequestEnvelope(payload, name).toJson()));
-    final message = await socket
-        .where((raw) => raw is String)
-        .map((raw) {
-          try {
-            final decoded = jsonDecode(raw as String);
-            if (decoded is Map) {
-              return RelayEnvelope.fromJson(Map<String, dynamic>.from(decoded));
-            }
-          } catch (_) {}
-          return const RelayEnvelope(type: '');
-        })
-        .where(
-          (message) =>
-              message.type == RemoteMessageType.pairingConfirmed ||
-              message.type == RemoteMessageType.pairingRejected,
-        )
-        .first
-        .timeout(timeout);
+    await pairingTransport.connect(pendingDevice);
+    final sent = await pairingTransport.send(
+      pairingRequestEnvelope(payload, name).toJson(),
+    );
+    if (!sent) {
+      throw Exception(tr('remote.waitTimeout', LocaleChoices.system.id));
+    }
+    final message = await completer.future.timeout(timeout);
     if (message.type == RemoteMessageType.pairingRejected) {
       throw const PairingRejectedException();
     }
-    return confirmedDevice(payload: payload, name: name, confirmed: message);
+    final device = confirmedDevice(
+      payload: payload,
+      name: name,
+      confirmed: message,
+    );
+    CoduxLog.info(
+      '[codux-flutter-pairing] iroh confirm accepted relay=${device.server} host=${device.hostId} device=${device.deviceId} transports=${_transportLogSummary(device.transports)}',
+    );
+    return device;
   } on TimeoutException {
     throw Exception(tr('remote.waitTimeout', LocaleChoices.system.id));
   } finally {
-    await socket.close();
+    await pairingTransport.close();
   }
+}
+
+StoredDevice pendingPairingDevice({
+  required PairingPayload payload,
+  required String name,
+}) {
+  return StoredDevice(
+    server: payload.server,
+    hostId: payload.hostId ?? '',
+    deviceId: payload.deviceId,
+    token: '',
+    name: name,
+    hostName: payload.hostName,
+    transports: payload.transports,
+  );
 }
 
 StoredDevice confirmedDevice({
@@ -243,20 +253,31 @@ StoredDevice confirmedDevice({
       break;
     }
   }
-  final server = relay?.url ?? '';
+  final server = relay?.url ?? payload.server;
   return StoredDevice(
     server: server,
     hostId: '${data['hostId']}',
     deviceId: '${data['deviceId']}',
     token: '${data['token']}',
     name: name,
-    hostPublicKey: payload.hostPublicKey,
-    devicePrivateKey: payload.devicePrivateKey,
-    devicePublicKey: payload.devicePublicKey,
-    cryptoVersion: payload.cryptoVersion,
     hostName: data['hostName']?.toString() ?? payload.hostName,
     transports: payload.transports,
   );
+}
+
+String _newDeviceId() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+  return bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+}
+
+String _transportLogSummary(List<RemoteTransportCandidate> transports) {
+  return transports
+      .map(
+        (item) =>
+            '${item.kind}:${item.url.trim().isEmpty ? 'empty' : item.url}',
+      )
+      .join(',');
 }
 
 class PairingCancelledException implements Exception {

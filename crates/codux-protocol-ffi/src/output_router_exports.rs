@@ -322,6 +322,8 @@ pub extern "C" fn codux_output_router_apply_host_scroll(
     router: *mut FfiOutputRouter,
     session_id: *const c_char,
     screen_data: *const c_char,
+    cols: i64,
+    rows: i64,
     display_offset: i64,
     total_lines: i64,
     margin_rows: i64,
@@ -337,6 +339,8 @@ pub extern "C" fn codux_output_router_apply_host_scroll(
     router.apply_host_scroll(
         &session_id,
         &screen_data,
+        usize::try_from(cols).unwrap_or(0),
+        usize::try_from(rows).unwrap_or(0),
         usize::try_from(display_offset).unwrap_or(0),
         usize::try_from(total_lines).unwrap_or(0),
         usize::try_from(margin_rows).unwrap_or(0),

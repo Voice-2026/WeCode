@@ -401,6 +401,20 @@ impl TerminalManager {
         Ok(self.session(session_id)?.scroll_screen_to_bottom())
     }
 
+    pub fn remote_viewport_snapshot(
+        &self,
+        session_id: &str,
+        display_offset: usize,
+        overscan_rows: usize,
+        max_lines: usize,
+    ) -> Result<TerminalScreenSnapshot> {
+        Ok(self.session(session_id)?.remote_viewport_snapshot(
+            display_offset,
+            overscan_rows,
+            max_lines,
+        ))
+    }
+
     pub fn release_viewport(
         &self,
         session_id: &str,
@@ -941,6 +955,20 @@ impl TerminalPtySession {
         self.screen_snapshot()
     }
 
+    pub fn remote_viewport_snapshot(
+        &self,
+        display_offset: usize,
+        overscan_rows: usize,
+        max_lines: usize,
+    ) -> TerminalScreenSnapshot {
+        let request = self.screen.lock().remote_viewport_snapshot_request(
+            display_offset,
+            overscan_rows,
+            max_lines,
+        );
+        request.snapshot()
+    }
+
     fn scrolled_view_snapshot(&self) -> TerminalScreenSnapshot {
         let viewport = self.screen_snapshot();
         let above_offset = viewport.display_offset + viewport.rows;
@@ -1045,7 +1073,7 @@ impl TerminalPtySessionHandle {
         let owner = terminal_viewport_owner(owner);
         let mut viewport = self.viewport.lock();
         let now = Instant::now();
-        if !force && viewport.state.owner != owner && now < viewport.expires_at {
+        if !force && viewport.state.owner != owner {
             return Ok(viewport.state.clone());
         }
         let state = &mut viewport.state;
@@ -3198,6 +3226,73 @@ mod tests {
             env.get("HISTFILE").map(String::as_str),
             Some("/tmp/history")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_visible_viewport_survives_expired_passive_desktop_claim() {
+        let manager = TerminalManager::new();
+        let temp =
+            std::env::temp_dir().join(format!("codux-terminal-viewport-lock-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp).unwrap();
+        let session_id = manager
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(temp.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        let session = manager.session(&session_id).expect("session");
+        let handle = session.clone_handle();
+
+        handle
+            .claim_viewport("remote:phone")
+            .expect("remote visible claim");
+        handle
+            .resize_viewport("remote:phone", 72, 18)
+            .expect("remote resize")
+            .expect("remote resize accepted");
+        {
+            let mut viewport = session.viewport.lock();
+            viewport.expires_at = Instant::now() - Duration::from_secs(1);
+        }
+
+        let passive = handle
+            .claim_viewport_passive(terminal_viewport_local_owner())
+            .expect("desktop passive claim");
+        assert_eq!(passive.owner, "remote:phone");
+        assert_eq!((passive.cols, passive.rows), (72, 18));
+
+        let ignored = handle
+            .resize_viewport(terminal_viewport_local_owner(), 100, 32)
+            .expect("desktop passive resize while remote visible");
+        assert!(ignored.is_none());
+        let state = handle.viewport_state();
+        assert_eq!(state.owner, "remote:phone");
+        assert_eq!((state.cols, state.rows), (72, 18));
+
+        handle
+            .release_viewport("remote:phone")
+            .expect("remote release")
+            .expect("release state");
+        let local = handle
+            .claim_viewport_passive(terminal_viewport_local_owner())
+            .expect("desktop passive claim after release");
+        assert_eq!(local.owner, terminal_viewport_local_owner());
+        let accepted = handle
+            .resize_viewport(terminal_viewport_local_owner(), 100, 32)
+            .expect("desktop resize after release")
+            .expect("desktop resize accepted");
+        assert_eq!((accepted.cols, accepted.rows), (100, 32));
+
+        let _ = session.kill();
+        fs::remove_dir_all(temp).ok();
     }
 
     #[cfg(unix)]

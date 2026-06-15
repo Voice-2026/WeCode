@@ -224,17 +224,17 @@ class RemoteTerminalBindingCoordinator {
     final hasCachedOutput =
         _outputController.hasCachedOutput(bindSessionId) &&
         !_outputController.hasSequenceGap(bindSessionId);
-    final needsFullBuffer = plan.bindFullBuffer && !hasCachedOutput;
+    final needsFullBuffer = !hasCachedOutput;
     if (selectedProjectId != null) {
-      replaceProjectSubscription(
+      baselineRequested = replaceProjectSubscription(
         projectId: selectedProjectId,
         reason: 'bind-$reason',
         capability: capability,
         activeSessionId: bindSessionId,
-        baseline: false,
+        baseline: needsFullBuffer,
       );
     }
-    if (needsFullBuffer) {
+    if (needsFullBuffer && !baselineRequested) {
       _outputController.bindSession(bindSessionId, requireBaseline: true);
       baselineRequested = subscribeSessionBaseline(
         sessionId: bindSessionId,

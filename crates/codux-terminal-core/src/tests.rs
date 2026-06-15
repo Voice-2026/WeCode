@@ -367,20 +367,20 @@ fn host_scroll_snapshot_overrides_view_and_offsets() {
 
     // Host-rendered scrolled viewport replaces the display and reports the
     // host's offsets through the snapshot.
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost history view", 12, 200, 0, 0);
+    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost history view", 20, 8, 12, 200, 0, 0);
     let scrolled = session.screen_snapshot();
     assert!(scrolled.data.contains("host history view"));
     assert_eq!(scrolled.display_offset, 12);
     assert_eq!(scrolled.total_lines, 200);
 
     // Returning to the bottom clears the host scroll state.
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hback to bottom", 0, 200, 0, 0);
+    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hback to bottom", 20, 8, 0, 200, 0, 0);
     let bottom = session.screen_snapshot();
     assert!(bottom.data.contains("back to bottom"));
     assert_eq!(bottom.display_offset, 0);
 
     // A new baseline resets any lingering host scroll override.
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hscrolled again", 5, 50, 0, 0);
+    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hscrolled again", 20, 8, 5, 50, 0, 0);
     session.replace_from_baseline_screen(
         "fresh",
         Some("\x1b[2J\x1b[Hfresh keyframe"),
@@ -395,11 +395,109 @@ fn scroll_to_bottom_clears_host_scroll_override() {
     let mut session = RemotePtySession::<String>::new("session-1", 512);
     session.resize_screen(20, 8);
     session.replace_from_baseline_screen("history", Some("\x1b[2J\x1b[Hlive"), Some(7), Some(1));
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost view", 9, 90, 0, 0);
+    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost view", 20, 8, 9, 90, 0, 0);
     assert_eq!(session.screen_snapshot().display_offset, 9);
 
     session.scroll_screen_to_bottom();
     assert_eq!(session.screen_snapshot().display_offset, 0);
+}
+
+#[test]
+fn host_scroll_snapshot_uses_host_grid_dimensions() {
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(40, 12);
+
+    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost sized view", 20, 11, 4, 200, 2, 1);
+    let snapshot = session.screen_snapshot();
+
+    assert_eq!(snapshot.cols, 20);
+    assert_eq!(snapshot.rows, 11);
+    assert_eq!(snapshot.margin_rows, 2);
+    assert_eq!(snapshot.margin_rows_below, 1);
+    assert!(snapshot.data.contains("host sized view"));
+}
+
+#[test]
+fn host_scroll_snapshot_rows_are_already_stacked_by_host() {
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(40, 12);
+
+    // The host sends `rows` from TerminalScreenSnapshot::rows. For remote
+    // viewport snapshots that value already includes marginRows and
+    // marginRowsBelow; the mobile-side core must not add them again.
+    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hstacked host view", 20, 11, 4, 200, 2, 1);
+    let snapshot = session.screen_snapshot();
+
+    assert_eq!(snapshot.cols, 20);
+    assert_eq!(snapshot.rows, 11);
+    assert_eq!(snapshot.margin_rows, 2);
+    assert_eq!(snapshot.margin_rows_below, 1);
+    assert!(snapshot.data.contains("stacked host view"));
+}
+
+#[test]
+fn bottom_host_scroll_snapshot_keeps_tail_overscan_for_mobile_scroll() {
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(20, 8);
+    session.replace_from_baseline_screen(
+        "history",
+        Some("\x1b[2J\x1b[Hlive bottom"),
+        Some(7),
+        Some(1),
+    );
+
+    session.apply_host_scroll_snapshot(
+        "\x1b[2J\x1b[Habove history\r\n\x1b[3;1Hlive bottom",
+        20,
+        10,
+        0,
+        200,
+        2,
+        0,
+    );
+    let snapshot = session.screen_snapshot();
+
+    assert_eq!(snapshot.display_offset, 0);
+    assert_eq!(snapshot.total_lines, 200);
+    assert_eq!(snapshot.rows, 10);
+    assert_eq!(snapshot.margin_rows, 2);
+    assert!(snapshot.data.contains("above history"));
+    assert!(snapshot.data.contains("live bottom"));
+}
+
+#[test]
+fn live_output_reclaims_tail_from_host_overscan_snapshot() {
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(20, 8);
+    session.replace_from_baseline_screen(
+        "history",
+        Some("\x1b[2J\x1b[Hlive bottom"),
+        Some(7),
+        Some(1),
+    );
+    session.apply_host_scroll_snapshot(
+        "\x1b[2J\x1b[Habove history\r\n\x1b[3;1Hlive bottom",
+        20,
+        10,
+        0,
+        200,
+        2,
+        0,
+    );
+    assert_eq!(session.screen_snapshot().margin_rows, 2);
+
+    session.append_live_screen(
+        "new raw",
+        Some("\x1b[2J\x1b[Hnew live screen"),
+        Some(14),
+        Some(2),
+    );
+    let snapshot = session.screen_snapshot();
+
+    assert_eq!(snapshot.display_offset, 0);
+    assert_eq!(snapshot.margin_rows, 0);
+    assert!(snapshot.data.contains("new live screen"));
+    assert!(!snapshot.data.contains("above history"));
 }
 
 #[test]
@@ -709,6 +807,24 @@ fn runtime_model_binds_terminal_when_delayed_list_arrives() {
     assert_eq!(
         runtime.snapshot().active_session_id.as_deref(),
         Some("session-2")
+    );
+}
+
+#[test]
+fn runtime_model_binds_existing_terminal_before_viewport_is_visible() {
+    let mut runtime = RemoteRuntimeModel::new();
+    let list = runtime.apply_terminal_list(vec![terminal("session-1", "project-1")], false, true);
+    assert_eq!(list.bind_session_id, None);
+
+    let project =
+        runtime.apply_project_list(projects(), Some("project-1".to_string()), None, false, true);
+
+    assert_eq!(project.bind_session_id.as_deref(), Some("session-1"));
+    assert!(!project.bind_full_buffer);
+    assert!(!project.reset_terminal_buffer);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("session-1")
     );
 }
 

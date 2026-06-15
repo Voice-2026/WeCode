@@ -7,7 +7,7 @@ Codux remote is organized as a layered runtime protocol, not as UI-specific term
 - **Desktop app (macOS / Windows)**: can act as a controller and a controlled host.
 - **Mobile app (Android / iOS)**: controller only. It does not own local projects, PTYs, Git state, or file state.
 - **Linux controlled agent**: planned headless host that exposes the same host-side runtime domains without a GUI.
-- **Relay service**: discovery, pairing-ticket exchange, signaling, and WebSocket fallback transport. It does not own runtime state.
+- **Service**: host registration, device records, and short-lived pairing-ticket exchange. It does not forward runtime messages or own runtime state.
 
 ## Target Layers
 
@@ -32,11 +32,10 @@ Protocol router
   sequence handling, requestId, error, and schema compatibility.
 
 Transport drivers
-  Move protocol envelopes over local memory, WebSocket relay, WebRTC
-  DataChannel, or future transports such as QUIC/WebTransport.
+  Move protocol envelopes over local memory or the Iroh QUIC transport.
 ```
 
-The UI must not branch on transport type. Git, file, terminal, worktree, and AI-stat features consume the same runtime API whether the active transport is local, WebRTC, WebSocket relay, or a future driver.
+The UI must not branch on transport type. Git, file, terminal, worktree, and AI-stat features consume the same runtime API whether the active transport is local memory or Iroh.
 
 ## Bidirectional Resource Model
 
@@ -80,7 +79,7 @@ The current Mac host and Flutter controller are being aligned to the target mode
 - Mac host owns the real local PTY session.
 - Flutter owns a `RemotePtySession` model for each subscribed remote session.
 - `resource.subscribe` with `resource=terminals` is the standard subscription entry point.
-- `terminal.subscribe` remains host-side legacy compatibility only.
+- `terminal.subscribe` remains host-side compatibility for older controller builds only.
 - `terminal.buffer` remains the baseline/hydration payload while the protocol migrates toward generic `resource.baseline`.
 - Live `terminal.output` deltas are written into `RemotePtySession`, not directly into UI.
 - UI/native terminal rendering only replays the model for the active session.
@@ -90,7 +89,7 @@ The current Mac host and Flutter controller are being aligned to the target mode
 The desktop repository now starts the shared Rust boundary inside the workspace:
 
 - `crates/codux-protocol`: protocol version, capabilities, shared secure/relay envelope DTOs, transport candidate DTOs, subscription helpers, a shared resource subscription registry, chunking, and baseline payload construction.
-- `crates/codux-remote-transport`: shared remote transport boundary. It owns host/controller WebSocket relay and WebRTC DataChannel direct/fallback drivers, local memory transport for tests/headless paths, URL/STUN normalization, transport path state callbacks, and transport factory rules. It does not know about terminal, Git, file, or UI state.
+- `crates/codux-remote-transport`: shared remote transport boundary. It owns the Iroh host/controller transport, local memory transport for tests/headless paths, relay URL normalization for pairing tickets, transport path state callbacks, and transport factory rules. It does not know about terminal, Git, file, or UI state.
 - `crates/codux-protocol-ffi`: C ABI for Flutter protocol and terminal-core bindings.
 - `crates/codux-runtime-core`: shared runtime domain boundary. It owns common host.info, project, file, Git, worktree, upload, and terminal payload rules, shared terminal domain interfaces, and `RuntimeSubscriptionRouter`; desktop host already delegates those protocol shapes and subscription routing to this crate.
 - `crates/codux-terminal-core`: platform-neutral terminal session semantics such as sequence, buffer-window restore, retained live output, and cache limits.
@@ -102,7 +101,7 @@ Flutter now uses the Rust-backed `codux_protocol_ffi` plugin for protocol envelo
 
 The desktop host now uses `codux-runtime-core::RuntimeSubscriptionRouter` for terminal viewers and project-scoped runtime resources such as Git status, worktrees, and AI stats. Project and terminal list refreshes also use the shared subscription route, with project list payloads rebuilt per device so each controller keeps its own selected-project scope.
 
-Desktop, headless, and Flutter controller targets now consume the shared transport crate instead of keeping WebSocket/WebRTC driver code inside app runtimes. Flutter controller code uses a Rust-backed opaque transport handle with event polling for state/message delivery. The desktop runtime still owns pairing settings, encryption, authorization, and runtime domain routing; the transport crate only moves protocol envelopes.
+Desktop, headless, and Flutter controller targets consume the shared Iroh transport crate instead of keeping transport driver code inside app runtimes. Flutter controller code uses a Rust-backed opaque transport handle with event polling for state/message delivery. The desktop runtime still owns pairing settings, encryption, authorization, and runtime domain routing; the transport crate only moves protocol envelopes.
 
 ## Terminal Driver Boundary
 

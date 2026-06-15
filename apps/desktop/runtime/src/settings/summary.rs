@@ -204,8 +204,8 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .unwrap_or(false),
         remote_relay_preset: remote
             .map(|remote| {
-                let server_url = remote
-                    .get("serverUrl")
+                let relay_url = remote
+                    .get("relayUrl")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
                 let preset = remote
@@ -216,12 +216,12 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
                     .unwrap_or_default();
                 match preset {
                     "global" | "china" | "custom" => preset.to_string(),
-                    _ => crate::remote::remote_relay_preset_for_url(server_url),
+                    _ => crate::remote::remote_relay_preset_for_url(relay_url),
                 }
             })
             .unwrap_or_else(|| crate::remote::remote_relay_preset_for_url("")),
-        remote_server_url: remote
-            .and_then(|remote| remote.get("serverUrl"))
+        remote_relay_url: remote
+            .and_then(|remote| remote.get("relayUrl"))
             .and_then(Value::as_str)
             .map(str::trim)
             .map(|value| {
@@ -232,6 +232,12 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
                 }
             })
             .unwrap_or_else(|| crate::remote::remote_relay_url_for_preset("", "")),
+        remote_relay_authentication: remote
+            .and_then(|remote| remote.get("relayAuthentication"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string(),
         remote_cached_devices: remote
             .and_then(|remote| remote.get("cachedDevices"))
             .and_then(Value::as_array)

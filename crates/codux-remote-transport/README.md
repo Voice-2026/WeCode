@@ -4,10 +4,9 @@ Shared remote transport drivers and transport selection rules.
 
 ## Owns
 
-- WebSocket relay host and controller transports.
-- WebRTC host and controller direct DataChannel paths with relay fallback.
+- Iroh host and controller transports.
 - Local memory transport for tests and headless paths.
-- Relay URL normalization, WebSocket URL building, STUN defaults, and transport preference rules.
+- Codux service URL normalization for pairing tickets and transport preference rules.
 - Transport state/message callbacks.
 
 ## Does Not Own

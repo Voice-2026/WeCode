@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:codux_flutter/main.dart';
 import 'package:codux_flutter/i18n.dart';
 import 'package:codux_flutter/models/remote_models.dart';
-import 'package:codux_flutter/services/e2e_crypto.dart';
 import 'package:codux_flutter/services/log_service.dart';
 import 'package:codux_flutter/services/remote_protocol_service.dart';
 import 'package:codux_flutter/services/remote_transport.dart';
@@ -95,6 +94,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
 
       expect(CoduxLog.snapshotText(), contains('terminal.list count=0'));
       await tester.tap(find.text('Mac'));
@@ -119,7 +120,8 @@ void main() {
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
       expect(subscribePayload?['chunkChars'], isA<int>());
-      expect(_sentTypes(sent), contains('terminal.viewport.claim'));
+      expect(_sentTypes(sent), isNot(contains('terminal.viewport.claim')));
+      expect(_sentTypes(sent), isNot(contains('terminal.viewport.resize')));
       expect(_sentTypes(sent), isNot(contains('terminal.resize')));
     },
   );
@@ -209,6 +211,12 @@ void main() {
       expect(log, contains('bind session=session-2 project=project-2'));
       expect(log, isNot(contains('request terminal.buffer session=session-2')));
       expect(sentTypes.where((type) => type == 'project.select'), isEmpty);
+      expect(
+        sentTypes
+            .where((type) => type == RemoteMessageType.resourceSubscribe)
+            .length,
+        1,
+      );
       final subscribePayload = _lastPayloadOf(
         sent,
         RemoteMessageType.resourceSubscribe,
@@ -218,7 +226,8 @@ void main() {
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
       expect(subscribePayload?['chunkChars'], isA<int>());
-      expect(sentTypes, contains('terminal.viewport.claim'));
+      expect(sentTypes, isNot(contains('terminal.viewport.claim')));
+      expect(sentTypes, isNot(contains('terminal.viewport.resize')));
       expect(sentTypes, isNot(contains('terminal.resize')));
     },
   );
@@ -359,7 +368,7 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 300));
       sent.clear();
-      await tester.tap(find.text('Project 2'));
+      await _tapProjectTab(tester, 'Project 2');
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -389,7 +398,8 @@ void main() {
       expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-2');
       expect(subscribePayload?['baseline'], isNot(isTrue));
-      expect(sentTypes, contains('terminal.viewport.claim'));
+      expect(sentTypes, isNot(contains('terminal.viewport.claim')));
+      expect(sentTypes, isNot(contains('terminal.viewport.resize')));
       expect(sentTypes, isNot(contains('terminal.resize')));
     },
   );
@@ -490,7 +500,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       sent.clear();
 
-      await tester.tap(find.text('Project 2'));
+      await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(milliseconds: 300));
 
       final log = CoduxLog.snapshotText();
@@ -505,18 +515,16 @@ void main() {
         1,
       );
       expect(
-        sent,
-        isNot(
-          anyElement((envelope) {
-            if (envelope['type'] != RemoteMessageType.resourceSubscribe) {
-              return false;
-            }
-            final payload = envelope['payload'];
-            return payload is Map &&
-                payload['projectId'] == 'project-2' &&
-                payload['baseline'] == true;
-          }),
-        ),
+        sent.where((envelope) {
+          if (envelope['type'] != RemoteMessageType.resourceSubscribe) {
+            return false;
+          }
+          final payload = envelope['payload'];
+          return payload is Map &&
+              payload['projectId'] == 'project-2' &&
+              payload['baseline'] == true;
+        }).length,
+        1,
       );
     },
   );
@@ -592,7 +600,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       sent.clear();
 
-      await tester.tap(find.text('Project 2'));
+      await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(milliseconds: 80));
       await tester.tap(find.text('Project 3'));
       await tester.pump(const Duration(milliseconds: 80));
@@ -621,7 +629,9 @@ void main() {
       expect(log, contains('user select project=project-3 previous=project-2'));
       expect(
         log,
-        contains('project.selected project=project-2 worktree= current=project-3'),
+        contains(
+          'project.selected project=project-2 worktree= current=project-3',
+        ),
       );
       expect(log, contains('bind session=session-3 project=project-3'));
       final staleAckOffset = log.indexOf(
@@ -1097,6 +1107,71 @@ void main() {
     },
   );
 
+  testWidgets('latency timeout and background keep last visible rtt', (
+    WidgetTester tester,
+  ) async {
+    CoduxLog.setLevelName('debug');
+    CoduxLog.clear();
+    final device = await _fakeDevice();
+    final fake = _FakeRemoteTransport(
+      device: device,
+      initialPath: 'direct',
+      onSent: (transport, envelope) {
+        final type = '${envelope['type'] ?? ''}';
+        if (type == 'host.info') {
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'project.list',
+              payload: {
+                'selectedProjectId': 'project-1',
+                'projects': [
+                  {'id': 'project-1', 'name': 'Project 1', 'path': '/tmp/p1'},
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'terminal.list',
+              payload: {
+                'terminals': [
+                  {
+                    'id': 'session-1',
+                    'title': 'Terminal',
+                    'projectId': 'project-1',
+                    'layoutKind': 'split',
+                  },
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mac'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    fake.emitState('latency:rtt=17;path=direct');
+    await tester.pump();
+    expect(find.text('17ms'), findsWidgets);
+
+    fake.emitState('latency:timeout=1;path=direct');
+    await tester.pump();
+    expect(find.text('17ms'), findsWidgets);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    await tester.pump();
+    expect(find.text('17ms'), findsWidgets);
+  });
+
   testWidgets(
     'pending project select is not resent after direct path degrades',
     (WidgetTester tester) async {
@@ -1184,7 +1259,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       sent.clear();
 
-      await tester.tap(find.text('Project 2'));
+      await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(milliseconds: 300));
       fake.emitState('latency:timeout=1;path=direct');
       fake.emitState('connected:path=relay');
@@ -1271,7 +1346,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       sent.clear();
 
-      await tester.tap(find.text('Project 2'));
+      await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(seconds: 4));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
@@ -1386,7 +1461,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
       sent.clear();
 
-      await tester.tap(find.text('Project 2'));
+      await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(milliseconds: 300));
       fake.emitState('connected:path=relay');
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
@@ -1550,6 +1625,71 @@ void main() {
     },
   );
 
+  testWidgets('unauthorized error stops reconnect loop and prompts repair', (
+    WidgetTester tester,
+  ) async {
+    CoduxLog.setLevelName('debug');
+    CoduxLog.clear();
+    final sent = <Map<String, dynamic>>[];
+    final device = await _fakeDevice();
+    late final _FakeRemoteTransport fake;
+    fake = _FakeRemoteTransport(
+      device: device,
+      onSent: (_, envelope) => sent.add(envelope),
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    expect(CoduxLog.snapshotText(), contains('request host.info'));
+
+    fake.emit(
+      const RelayEnvelope(
+        type: 'error',
+        payload: {'code': 'device_unauthorized'},
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(seconds: 20));
+
+    final log = CoduxLog.snapshotText();
+    expect(log, contains('authorization failed code=device_unauthorized'));
+    expect(log, isNot(contains('reconnect scheduled')));
+    expect(
+      log,
+      isNot(contains('host unavailable reason=host_response_timeout')),
+    );
+  });
+
+  testWidgets('startup auto connect waits until after first frame', (
+    WidgetTester tester,
+  ) async {
+    CoduxLog.setLevelName('debug');
+    CoduxLog.clear();
+    final device = await _fakeDevice();
+    var connectCount = 0;
+    final fake = _FakeRemoteTransport(
+      device: device,
+      onSent: (transport, envelope) {},
+      onConnect: (_) => connectCount += 1,
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pump();
+
+    expect(connectCount, 0);
+    expect(CoduxLog.snapshotText(), isNot(contains('connect start')));
+
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(connectCount, 1);
+    expect(CoduxLog.snapshotText(), contains('connect start'));
+  });
+
   test('mobile languages match Mac language count', () {
     expect(LocaleChoices.all.length, 11);
     expect(LocaleChoices.byId('zh-CN').id, 'simplifiedChinese');
@@ -1594,24 +1734,21 @@ typedef _FakeEnvelopeHandler =
       Map<String, dynamic> envelope,
     );
 typedef _FakeSendDecision = bool Function(Map<String, dynamic> envelope);
+typedef _FakeConnectHandler = void Function(StoredDevice device);
 
 Future<StoredDevice> _fakeDevice() async {
-  final keyPair = await RemoteE2ECrypto.newDeviceKeyPair();
-  final hostKeyPair = await RemoteE2ECrypto.newDeviceKeyPair();
-  return StoredDevice(
-    server: 'https://codux-service.dux.plus/v3',
+  return const StoredDevice(
+    server: 'https://relay.example',
     hostId: 'host-1',
     deviceId: 'device-1',
     token: 'token-1',
     name: 'Mac',
-    hostPublicKey: hostKeyPair.publicKey,
-    devicePrivateKey: keyPair.privateKey,
-    devicePublicKey: keyPair.publicKey,
-    cryptoVersion: 1,
-    transports: const [
+    transports: [
       RemoteTransportCandidate(
-        kind: RemoteTransportKind.websocketRelay,
-        url: 'https://codux-service.dux.plus/v3',
+        kind: RemoteTransportKind.iroh,
+        url: 'https://relay.example',
+        nodeId: 'node-1',
+        relayUrl: 'https://relay.example',
       ),
     ],
   );
@@ -1623,17 +1760,19 @@ final class _FakeRemoteTransport implements RemoteTransport {
     required this.onSent,
     this.initialPath = 'relay',
     this.onBeforeSend,
+    this.onConnect,
   });
 
   final StoredDevice device;
   final _FakeEnvelopeHandler onSent;
   final String initialPath;
   final _FakeSendDecision? onBeforeSend;
+  final _FakeConnectHandler? onConnect;
   RemoteTransportStateHandler? _onState;
   RemoteTransportEnvelopeHandler? _onEnvelope;
 
   @override
-  String get kind => RemoteTransportKind.websocketRelay;
+  String get kind => RemoteTransportKind.iroh;
 
   @override
   set onState(RemoteTransportStateHandler? handler) => _onState = handler;
@@ -1644,6 +1783,7 @@ final class _FakeRemoteTransport implements RemoteTransport {
 
   @override
   Future<void> connect(StoredDevice device) async {
+    onConnect?.call(device);
     _onState?.call('connecting');
     _onState?.call('connected:path=$initialPath');
     emit(const RelayEnvelope(type: 'hello'));
@@ -1651,22 +1791,10 @@ final class _FakeRemoteTransport implements RemoteTransport {
 
   @override
   Future<bool> send(Map<String, dynamic> envelope) async {
-    final decoded = await _decode(envelope);
-    final json = decoded.toJson();
-    final accepted = onBeforeSend?.call(json) ?? true;
-    onSent(this, json);
+    final accepted = onBeforeSend?.call(envelope) ?? true;
+    onSent(this, envelope);
     if (!accepted) return false;
     return true;
-  }
-
-  @override
-  Future<bool> probePreferredRoute(StoredDevice device) async {
-    return initialPath == 'direct';
-  }
-
-  @override
-  Future<bool> reportPingTimeout({required String path}) async {
-    return false;
   }
 
   @override
@@ -1681,17 +1809,7 @@ final class _FakeRemoteTransport implements RemoteTransport {
   }
 
   void emitEncrypted(RelayEnvelope envelope, {int? seq}) {
-    RemoteE2ECrypto.encryptEnvelope(
-      inner: envelope,
-      device: device,
-      seq: seq ?? DateTime.now().microsecondsSinceEpoch,
-    ).then((encrypted) => emit(encrypted));
-  }
-
-  Future<RelayEnvelope> _decode(Map<String, dynamic> envelope) async {
-    final outer = RelayEnvelope.fromJson(envelope);
-    if (outer.type != 'secure.message') return outer;
-    return RemoteE2ECrypto.decryptEnvelope(outer: outer, device: device);
+    emit(envelope.copyWith(seq: seq ?? DateTime.now().microsecondsSinceEpoch));
   }
 }
 
@@ -1758,6 +1876,33 @@ bool _isTerminalBaselineSubscribe(Map<String, dynamic> envelope) {
   return payload is Map && payload['baseline'] == true;
 }
 
+Future<void> _tapProjectTab(WidgetTester tester, String label) async {
+  await tester.pumpAndSettle(const Duration(milliseconds: 300));
+  if (find.text(label).evaluate().isEmpty &&
+      find.text('Mac').evaluate().isNotEmpty) {
+    await tester.tap(find.text('Mac').first);
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+  }
+  final finder = find.text(label);
+  if (finder.evaluate().isEmpty) {
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+  }
+  if (finder.evaluate().isEmpty) {
+    try {
+      await tester.scrollUntilVisible(
+        finder,
+        120,
+        scrollable: find.byType(Scrollable).first,
+        duration: const Duration(milliseconds: 16),
+      );
+    } catch (_) {
+      // Fall through to the final tap so the test failure keeps the standard
+      // finder diagnostics.
+    }
+  }
+  await tester.tap(finder);
+}
+
 Map<String, Object?> _hostInfoPayload({
   String runtimeInstanceId = 'runtime-1',
 }) => {
@@ -1770,5 +1915,6 @@ Map<String, Object?> _hostInfoPayload({
       'chunkChars': 16384,
       'requestId': true,
     },
+    'terminalViewport': {'ownership': true, 'scroll': true},
   },
 };

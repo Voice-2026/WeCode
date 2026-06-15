@@ -8,27 +8,14 @@ pub fn remote_relay_preset_for_url(url: &str) -> String {
     codux_remote_transport::remote_relay_preset_for_url(url)
 }
 
-pub(crate) fn remote_server_url(value: &str) -> String {
-    codux_remote_transport::remote_server_url(value)
+pub(crate) fn remote_relay_url(value: &str) -> String {
+    codux_remote_transport::remote_relay_url(value)
 }
 
-pub(crate) fn remote_stun_urls() -> Vec<String> {
-    codux_remote_transport::remote_stun_urls()
-}
-
-pub(crate) fn remote_url(
-    base: &str,
-    path: &str,
-    query: &[(&str, &str)],
-    websocket: bool,
-) -> Result<String, String> {
-    codux_remote_transport::remote_url(base, path, query, websocket)
-}
-
-pub(crate) fn remote_pairing_ticket_payload(base: &str, ticket: &str) -> Result<String, String> {
+pub(crate) fn remote_pairing_payload_url(payload: &serde_json::Value) -> Result<String, String> {
+    let bytes = serde_json::to_vec(payload).map_err(|error| error.to_string())?;
+    let encoded = crate::remote::crypto::remote_base64_url_encode(&bytes);
     let mut url = url::Url::parse("codux://pair").map_err(|error| error.to_string())?;
-    url.query_pairs_mut()
-        .append_pair("server", base.trim())
-        .append_pair("ticket", ticket.trim());
+    url.query_pairs_mut().append_pair("payload", &encoded);
     Ok(url.to_string())
 }

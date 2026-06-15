@@ -65,7 +65,7 @@ Codux Mobile (Flutter 主控端)
   ├─ UI 外壳：渲染 runtime 状态并发出用户意图
   ├─ Runtime store：选中项目、当前终端、同步状态
   ├─ 协议客户端：v3.1 envelope、capabilities、分片组包、ack/retry
-  ├─ Rust 传输 FFI：WebRTC DataChannel 和 WebSocket relay 回退
+  ├─ Rust 传输 FFI：Iroh QUIC 主控/被控链路
   └─ Rust terminal-core FFI：RemotePtySession + libghostty-vt 无头屏幕模型
 
 Codux Desktop host

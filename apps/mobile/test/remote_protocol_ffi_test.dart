@@ -19,14 +19,7 @@ void main() {
       codux_protocol_ffi.resourceType('terminals'),
       RemoteResourceType.terminals,
     );
-    expect(
-      codux_protocol_ffi.transportKind('websocketRelay'),
-      RemoteTransportKind.websocketRelay,
-    );
-    expect(
-      codux_protocol_ffi.transportKind('webRtc'),
-      RemoteTransportKind.webRtc,
-    );
+    expect(codux_protocol_ffi.transportKind('iroh'), RemoteTransportKind.iroh);
     expect(
       codux_protocol_ffi.messageType('terminalBuffer'),
       RemoteMessageType.terminalBuffer,
@@ -58,94 +51,60 @@ void main() {
 
   test('Rust FFI owns controller transport URL and selection rules', () {
     expect(
-      codux_protocol_ffi.transportServerUrl('https://relay.example'),
-      'https://relay.example/v3',
-    );
-    expect(
-      codux_protocol_ffi.transportPairingTicketUrl(
-        base: 'https://relay.example',
-        ticket: 'ticket-1',
-      ),
-      'https://relay.example/v3/api/tickets/ticket-1',
-    );
-    expect(
-      codux_protocol_ffi.transportPairingCodeUrl(
-        base: 'https://relay.example',
-        code: '123456',
-      ),
-      'https://relay.example/v3/api/pairings/code/123456',
+      codux_protocol_ffi.transportRelayUrl('https://relay.example'),
+      'https://relay.example',
     );
     expect(
       codux_protocol_ffi.transportRelayUrlForPreset(preset: 'china'),
-      'https://codux-service.dux.plus',
+      'https://iroh-service.dux.plus',
     );
-    expect(
-      codux_protocol_ffi.transportPairingWebSocketUrl(
-        base: 'https://relay.example',
-        hostId: 'host-1',
-        devicePublicKey: 'device-key',
-      ),
-      'wss://relay.example/v3/ws/client?hostId=host-1&deviceId=device-key',
-    );
-    expect(
-      codux_protocol_ffi.transportClientWebSocketUrl(
-        base: 'https://relay.example',
-        hostId: 'host-1',
-        deviceId: 'device-1',
-        token: 'token-1',
-      ),
-      'wss://relay.example/v3/ws/client?hostId=host-1&deviceId=device-1&token=token-1',
-    );
-
+    expect(codux_protocol_ffi.transportRelayUrlForPreset(preset: 'global'), '');
     final transports = [
       {
-        'kind': RemoteTransportKind.websocketRelay,
-        'url': 'https://relay.example/v3',
+        'kind': RemoteTransportKind.iroh,
+        'url': 'https://relay.example',
+        'nodeId': 'node-1',
+        'relayUrl': 'https://relay.example',
       },
-      {'kind': RemoteTransportKind.webRtc, 'url': 'https://relay.example/v3'},
     ];
     expect(
       codux_protocol_ffi.preferredTransportKind(transports, pairing: true),
-      RemoteTransportKind.websocketRelay,
+      RemoteTransportKind.iroh,
     );
     expect(
       codux_protocol_ffi.preferredTransportKind(transports, pairing: false),
-      RemoteTransportKind.webRtc,
+      RemoteTransportKind.iroh,
     );
     expect(
       codux_protocol_ffi.preferredTransportKind([
-        {'kind': RemoteTransportKind.webRtc, 'url': 'https://relay.example/v3'},
+        {'kind': RemoteTransportKind.iroh, 'ticket': 'endpointabc'},
       ], pairing: false),
-      '',
-    );
-    expect(
-      codux_protocol_ffi.transportDefaultIceServers().first['urls'],
-      contains('stun:stun.miwifi.com:3478'),
+      RemoteTransportKind.iroh,
     );
   });
 
   test('Rust FFI summarizes controller transport config', () {
     final summary = codux_protocol_ffi.controllerTransportConfigSummary({
-      'serverUrl': 'https://relay.example',
+      'relayUrl': 'https://relay.example',
       'hostId': 'host-1',
       'deviceId': 'device-1',
       'deviceToken': 'token-1',
       'transports': [
         {
-          'kind': RemoteTransportKind.websocketRelay,
-          'url': 'https://relay.example/v3',
+          'kind': RemoteTransportKind.iroh,
+          'url': 'https://relay.example',
+          'nodeId': 'node-1',
+          'relayUrl': 'https://relay.example',
         },
-        {'kind': RemoteTransportKind.webRtc, 'url': 'https://relay.example/v3'},
       ],
-      'stunUrls': ['stun:example.test:3478'],
     });
 
-    expect(summary['serverUrl'], 'https://relay.example/v3');
+    expect(summary['relayUrl'], 'https://relay.example');
     expect(summary['hostId'], 'host-1');
     expect(summary['deviceId'], 'device-1');
-    expect(summary['transportKind'], RemoteTransportKind.webRtc);
-    expect(summary['transportCount'], 2);
-    expect(summary['stunCount'], 1);
+    expect(summary['transportKind'], RemoteTransportKind.iroh);
+    expect(summary['transportCount'], 1);
+    expect(summary.containsKey('stunCount'), isFalse);
   });
 
   test('Rust FFI terminal input normalizes IME committed text', () {

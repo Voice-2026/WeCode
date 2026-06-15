@@ -119,6 +119,8 @@ class RemoteTerminalOutputController {
   void applyHostScroll(
     String sessionId, {
     required String screenData,
+    required int cols,
+    required int rows,
     required int displayOffset,
     required int totalLines,
     int marginRows = 0,
@@ -127,6 +129,8 @@ class RemoteTerminalOutputController {
     _router.applyHostScroll(
       sessionId,
       screenData: screenData,
+      cols: cols,
+      rows: rows,
       displayOffset: displayOffset,
       totalLines: totalLines,
       marginRows: marginRows,

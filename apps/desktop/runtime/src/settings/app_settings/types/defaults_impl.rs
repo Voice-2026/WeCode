@@ -3,11 +3,10 @@ impl Default for RemoteSettings {
         Self {
             is_enabled: false,
             relay_preset: String::new(),
-            server_url: String::new(),
+            relay_url: String::new(),
+            relay_authentication: String::new(),
             host_id: String::new(),
             host_token: String::new(),
-            host_private_key: String::new(),
-            host_public_key: String::new(),
             cached_devices: Vec::new(),
         }
     }

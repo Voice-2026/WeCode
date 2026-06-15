@@ -36,6 +36,9 @@ fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) 
 }
 
 fn load_settings(support_dir: &Path) -> SettingsSummary {
+    let store = AppSettingsStore::from_support_dir(support_dir.to_path_buf());
+    let settings = store.snapshot();
+    sync_process_locale_preference(&settings);
     SettingsService::new(support_dir.to_path_buf()).summary()
 }
 

@@ -1,30 +1,26 @@
 class PairingPayload {
   const PairingPayload({
+    required this.server,
     required this.code,
     required this.secret,
-    required this.hostPublicKey,
-    required this.devicePrivateKey,
-    required this.devicePublicKey,
+    required this.deviceId,
     required this.transports,
-    this.cryptoVersion = 1,
     this.hostName,
     this.hostId,
     this.pairingId,
   });
+  final String server;
   final String code;
   final String secret;
-  final String hostPublicKey;
-  final String devicePrivateKey;
-  final String devicePublicKey;
+  final String deviceId;
   final List<RemoteTransportCandidate> transports;
-  final int cryptoVersion;
   final String? hostName;
   final String? hostId;
   final String? pairingId;
 
   RemoteTransportCandidate? transportByKind(String kind) {
     for (final candidate in transports) {
-      if (candidate.kind == kind && candidate.url.trim().isNotEmpty) {
+      if (candidate.kind == kind) {
         return candidate;
       }
     }
@@ -33,8 +29,7 @@ class PairingPayload {
 }
 
 abstract final class RemoteTransportKind {
-  static const websocketRelay = 'websocketRelay';
-  static const webRtc = 'webRtc';
+  static const iroh = 'iroh';
 }
 
 class RemoteTransportCandidate {
@@ -42,62 +37,41 @@ class RemoteTransportCandidate {
     required this.kind,
     this.role,
     this.url = '',
-    this.iceServers = const [],
+    this.nodeId = '',
+    this.relayUrl = '',
+    this.ticket = '',
+    this.relayAuthentication = '',
   });
 
   final String kind;
   final String? role;
   final String url;
-  final List<RemoteIceServer> iceServers;
+  final String nodeId;
+  final String relayUrl;
+  final String ticket;
+  final String relayAuthentication;
 
   factory RemoteTransportCandidate.fromJson(Map<String, dynamic> json) =>
       RemoteTransportCandidate(
         kind: '${json['kind'] ?? json['transport'] ?? ''}',
         role: json['role']?.toString(),
         url: '${json['url'] ?? ''}',
-        iceServers: remoteIceServersFromJson(json['iceServers']),
+        nodeId: '${json['nodeId'] ?? ''}',
+        relayUrl: '${json['relayUrl'] ?? ''}',
+        ticket: '${json['ticket'] ?? ''}',
+        relayAuthentication: '${json['relayAuthentication'] ?? ''}',
       );
 
   Map<String, dynamic> toJson() => {
     'kind': kind,
     if (role != null) 'role': role,
     if (url.isNotEmpty) 'url': url,
-    if (iceServers.isNotEmpty)
-      'iceServers': iceServers.map((item) => item.toJson()).toList(),
+    if (nodeId.isNotEmpty) 'nodeId': nodeId,
+    if (relayUrl.isNotEmpty) 'relayUrl': relayUrl,
+    if (ticket.isNotEmpty) 'ticket': ticket,
+    if (relayAuthentication.isNotEmpty)
+      'relayAuthentication': relayAuthentication,
   };
-}
-
-class RemoteIceServer {
-  const RemoteIceServer({required this.urls});
-
-  final List<String> urls;
-
-  factory RemoteIceServer.fromJson(Map<String, dynamic> json) {
-    final value = json['urls'];
-    return RemoteIceServer(
-      urls: value is List
-          ? value
-                .map((item) => '$item')
-                .where((item) => item.trim().isNotEmpty)
-                .toList()
-          : ['${value ?? ''}'].where((item) => item.trim().isNotEmpty).toList(),
-    );
-  }
-
-  Map<String, dynamic> toJson() => {'urls': urls};
-}
-
-List<RemoteIceServer> remoteIceServersFromJson(Object? value) {
-  if (value is List) {
-    return value
-        .whereType<Map>()
-        .map(
-          (item) => RemoteIceServer.fromJson(Map<String, dynamic>.from(item)),
-        )
-        .where((item) => item.urls.isNotEmpty)
-        .toList();
-  }
-  return const [];
 }
 
 List<RemoteTransportCandidate> remoteTransportCandidatesFromJson(
@@ -124,10 +98,6 @@ class StoredDevice {
     required this.deviceId,
     required this.token,
     required this.name,
-    this.hostPublicKey = '',
-    this.devicePrivateKey = '',
-    this.devicePublicKey = '',
-    this.cryptoVersion = 0,
     this.hostName,
     this.transports = const [],
   });
@@ -136,10 +106,6 @@ class StoredDevice {
   final String deviceId;
   final String token;
   final String name;
-  final String hostPublicKey;
-  final String devicePrivateKey;
-  final String devicePublicKey;
-  final int cryptoVersion;
   final String? hostName;
   final List<RemoteTransportCandidate> transports;
 
@@ -158,10 +124,6 @@ class StoredDevice {
     String? deviceId,
     String? token,
     String? name,
-    String? hostPublicKey,
-    String? devicePrivateKey,
-    String? devicePublicKey,
-    int? cryptoVersion,
     String? hostName,
     List<RemoteTransportCandidate>? transports,
   }) {
@@ -171,10 +133,6 @@ class StoredDevice {
       deviceId: deviceId ?? this.deviceId,
       token: token ?? this.token,
       name: name ?? this.name,
-      hostPublicKey: hostPublicKey ?? this.hostPublicKey,
-      devicePrivateKey: devicePrivateKey ?? this.devicePrivateKey,
-      devicePublicKey: devicePublicKey ?? this.devicePublicKey,
-      cryptoVersion: cryptoVersion ?? this.cryptoVersion,
       hostName: hostName ?? this.hostName,
       transports: transports ?? this.transports,
     );
@@ -188,12 +146,6 @@ class StoredDevice {
       deviceId: '${json['deviceId'] ?? ''}',
       token: '${json['token'] ?? ''}',
       name: '${json['name'] ?? ''}',
-      hostPublicKey: '${json['hostPublicKey'] ?? ''}',
-      devicePrivateKey: '${json['devicePrivateKey'] ?? ''}',
-      devicePublicKey: '${json['devicePublicKey'] ?? ''}',
-      cryptoVersion: json['cryptoVersion'] is num
-          ? (json['cryptoVersion'] as num).toInt()
-          : int.tryParse('${json['cryptoVersion'] ?? ''}') ?? 0,
       hostName: json['hostName'] == null ? null : '${json['hostName']}',
       transports: transports,
     );
@@ -205,10 +157,6 @@ class StoredDevice {
     'deviceId': deviceId,
     'token': token,
     'name': name,
-    if (hostPublicKey.isNotEmpty) 'hostPublicKey': hostPublicKey,
-    if (devicePrivateKey.isNotEmpty) 'devicePrivateKey': devicePrivateKey,
-    if (devicePublicKey.isNotEmpty) 'devicePublicKey': devicePublicKey,
-    if (cryptoVersion > 0) 'cryptoVersion': cryptoVersion,
     if (hostName != null) 'hostName': hostName,
     'transports': transports.map((item) => item.toJson()).toList(),
   };

@@ -259,6 +259,21 @@ impl HeadlessTerminalScreen {
         self.engine
             .snapshot_request(self.pending_scroll_pixels, include_data)
     }
+
+    /// Build a read-only viewport snapshot for a remote observer. The
+    /// requested offset and reported total are clamped to the trailing
+    /// `max_lines` window so mobile scrollback cannot expose an unbounded
+    /// virtual range, and the live terminal viewport is restored before the
+    /// command completes.
+    pub fn remote_viewport_snapshot_request(
+        &self,
+        display_offset: usize,
+        overscan_rows: usize,
+        max_lines: usize,
+    ) -> HeadlessTerminalSnapshotRequest {
+        self.engine
+            .remote_viewport_snapshot_request(display_offset, overscan_rows, max_lines)
+    }
 }
 
 #[derive(Clone)]
@@ -356,6 +371,22 @@ impl GhosttyTerminalScreenEngine {
         HeadlessTerminalSnapshotRequest { rx }
     }
 
+    fn remote_viewport_snapshot_request(
+        &self,
+        display_offset: usize,
+        overscan_rows: usize,
+        max_lines: usize,
+    ) -> HeadlessTerminalSnapshotRequest {
+        let (tx, rx) = mpsc::channel();
+        let _ = self.tx.send(GhosttyScreenCommand::RemoteViewportSnapshot {
+            display_offset,
+            overscan_rows,
+            max_lines,
+            reply: tx,
+        });
+        HeadlessTerminalSnapshotRequest { rx }
+    }
+
     fn has_history_above_viewport(&self) -> bool {
         self.request(GhosttyScreenCommand::HasHistoryAboveViewport)
     }
@@ -384,6 +415,12 @@ enum GhosttyScreenCommand {
     // observing the temporary position.
     SnapshotAtOffset {
         offset: usize,
+        reply: mpsc::Sender<TerminalScreenSnapshot>,
+    },
+    RemoteViewportSnapshot {
+        display_offset: usize,
+        overscan_rows: usize,
+        max_lines: usize,
         reply: mpsc::Sender<TerminalScreenSnapshot>,
     },
     Clear,
@@ -497,6 +534,18 @@ impl GhosttyScreenWorker {
                     self.scroll_to_offset(saved);
                     let _ = reply.send(snapshot);
                 }
+                GhosttyScreenCommand::RemoteViewportSnapshot {
+                    display_offset,
+                    overscan_rows,
+                    max_lines,
+                    reply,
+                } => {
+                    let saved = self.display_offset();
+                    let snapshot =
+                        self.remote_viewport_snapshot(display_offset, overscan_rows, max_lines);
+                    self.scroll_to_offset(saved);
+                    let _ = reply.send(snapshot);
+                }
                 GhosttyScreenCommand::Clear => {
                     self = Self::new(
                         self.cols,
@@ -550,6 +599,50 @@ impl GhosttyScreenWorker {
 
     fn has_history_above_viewport(&self) -> bool {
         self.display_offset() < self.terminal.scrollback_rows().unwrap_or(0)
+    }
+
+    fn remote_viewport_snapshot(
+        &mut self,
+        display_offset: usize,
+        overscan_rows: usize,
+        max_lines: usize,
+    ) -> TerminalScreenSnapshot {
+        let total = self.total_lines().max(self.rows);
+        let visible_total = if max_lines == 0 {
+            total
+        } else {
+            total.min(max_lines.max(self.rows))
+        };
+        let max_offset = visible_total.saturating_sub(self.rows);
+        let display_offset = display_offset.min(max_offset);
+        let above_offset = display_offset
+            .saturating_add(self.rows)
+            .saturating_add(overscan_rows)
+            .min(max_offset);
+        self.scroll_to_offset(above_offset);
+        let above = self.snapshot(0.0, true);
+        self.scroll_to_offset(display_offset);
+        let viewport = self.snapshot(0.0, true);
+        let below = if display_offset > 0 && overscan_rows > 0 {
+            let below_offset = display_offset.saturating_sub(self.rows + overscan_rows);
+            self.scroll_to_offset(below_offset);
+            Some(self.snapshot(0.0, true))
+        } else {
+            None
+        };
+        let mut snapshot = stack_scrolled_snapshots(&above, &viewport, below.as_ref());
+        snapshot.total_lines = visible_total;
+        snapshot.display_offset = display_offset;
+        snapshot
+    }
+
+    fn total_lines(&self) -> usize {
+        self.terminal
+            .scrollbar()
+            .ok()
+            .map(|scrollbar| scrollbar.total as usize)
+            .unwrap_or_else(|| self.terminal.total_rows().unwrap_or(self.rows))
+            .max(self.rows)
     }
 
     fn snapshot(&mut self, scroll_pixel_offset: f64, include_data: bool) -> TerminalScreenSnapshot {
@@ -1406,6 +1499,23 @@ mod tests {
 
         screen.settle_pixel_scroll();
         assert_eq!(screen.snapshot().scroll_pixel_offset, 3.0);
+    }
+
+    #[test]
+    fn remote_viewport_snapshot_is_read_only_and_line_limited() {
+        let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
+        screen.process(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\neight");
+        screen.scroll_lines(2);
+        let before = screen.snapshot().display_offset;
+        assert!(before > 0);
+
+        let snapshot = screen.remote_viewport_snapshot_request(0, 2, 6).snapshot();
+
+        assert_eq!(screen.snapshot().display_offset, before);
+        assert_eq!(snapshot.total_lines, 6);
+        assert_eq!(snapshot.display_offset, 0);
+        assert!(snapshot.rows >= 4);
+        assert!(snapshot.margin_rows > 0);
     }
 
     #[test]

@@ -6,7 +6,7 @@ pub(crate) fn remote_summary_show_pending_pairing(
     active_pairing: &RemotePairingInfo,
     pairing_id: String,
     device_name: String,
-    device_public_key: String,
+    device_id: String,
     pairing_code: String,
     _pairing_secret: String,
 ) -> RemoteSummary {
@@ -21,7 +21,7 @@ pub(crate) fn remote_summary_show_pending_pairing(
     summary.pending_pairing_list.push(RemotePendingPairing {
         id: pairing_id,
         device_name,
-        device_public_key,
+        device_id,
         code: pairing_code,
     });
     summary.pending_pairings = summary.pending_pairing_list.len();

@@ -6,7 +6,7 @@ void main() {
   const service = DeviceSelectionService();
 
   StoredDevice device(String id) => StoredDevice(
-    server: 'https://relay.example/v3',
+    server: 'https://relay.example',
     hostId: 'host-$id',
     deviceId: id,
     token: 'token-$id',

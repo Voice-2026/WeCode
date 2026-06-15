@@ -5,9 +5,8 @@ use crate::common::{
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportFactory,
-    preferred_controller_transport_kind, preferred_pairing_transport_kind,
-    remote_client_websocket_url, remote_pairing_code_url, remote_pairing_ticket_url,
-    remote_pairing_websocket_url, remote_relay_url_for_preset, remote_server_url, remote_stun_urls,
+    preferred_controller_transport_kind, preferred_pairing_transport_kind, remote_relay_url,
+    remote_relay_url_for_preset,
 };
 use serde_json::json;
 use std::collections::VecDeque;
@@ -18,11 +17,11 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn codux_transport_server_url(base: *const c_char) -> *mut c_char {
+pub extern "C" fn codux_transport_relay_url(base: *const c_char) -> *mut c_char {
     let Some(base) = c_to_string(base) else {
         return ptr::null_mut();
     };
-    string_to_c(remote_server_url(&base))
+    string_to_c(remote_relay_url(&base))
 }
 
 #[unsafe(no_mangle)]
@@ -35,82 +34,6 @@ pub extern "C" fn codux_transport_relay_url_for_preset(
     };
     let custom_url = c_to_string(custom_url).unwrap_or_default();
     string_to_c(remote_relay_url_for_preset(&preset, &custom_url))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_transport_pairing_ticket_url(
-    base: *const c_char,
-    ticket: *const c_char,
-) -> *mut c_char {
-    let Some(base) = c_to_string(base) else {
-        return ptr::null_mut();
-    };
-    let Some(ticket) = c_to_string(ticket) else {
-        return ptr::null_mut();
-    };
-    string_to_c(remote_pairing_ticket_url(&base, &ticket).unwrap_or_default())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_transport_pairing_code_url(
-    base: *const c_char,
-    code: *const c_char,
-) -> *mut c_char {
-    let Some(base) = c_to_string(base) else {
-        return ptr::null_mut();
-    };
-    let Some(code) = c_to_string(code) else {
-        return ptr::null_mut();
-    };
-    string_to_c(remote_pairing_code_url(&base, &code).unwrap_or_default())
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_transport_pairing_websocket_url(
-    base: *const c_char,
-    host_id: *const c_char,
-    device_public_key: *const c_char,
-) -> *mut c_char {
-    let Some(base) = c_to_string(base) else {
-        return ptr::null_mut();
-    };
-    let Some(host_id) = c_to_string(host_id) else {
-        return ptr::null_mut();
-    };
-    let Some(device_public_key) = c_to_string(device_public_key) else {
-        return ptr::null_mut();
-    };
-    string_to_c(
-        remote_pairing_websocket_url(&base, &host_id, &device_public_key).unwrap_or_default(),
-    )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_transport_client_websocket_url(
-    base: *const c_char,
-    host_id: *const c_char,
-    device_id: *const c_char,
-    token: *const c_char,
-) -> *mut c_char {
-    let Some(base) = c_to_string(base) else {
-        return ptr::null_mut();
-    };
-    let Some(host_id) = c_to_string(host_id) else {
-        return ptr::null_mut();
-    };
-    let Some(device_id) = c_to_string(device_id) else {
-        return ptr::null_mut();
-    };
-    let token = c_to_string(token).filter(|value| !value.trim().is_empty());
-    string_to_c(
-        remote_client_websocket_url(&base, &host_id, &device_id, token.as_deref())
-            .unwrap_or_default(),
-    )
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_transport_default_ice_servers_json() -> *mut c_char {
-    string_to_c(json!([{ "urls": remote_stun_urls() }]).to_string())
 }
 
 #[unsafe(no_mangle)]
@@ -165,12 +88,11 @@ pub extern "C" fn codux_controller_transport_config_summary_json(
     );
     string_to_c(
         json!({
-            "serverUrl": remote_server_url(&config.server_url),
+            "relayUrl": remote_relay_url(&config.relay_url),
             "hostId": config.host_id,
             "deviceId": config.device_id,
             "transportKind": preferred,
             "transportCount": config.transports.len(),
-            "stunCount": config.stun_urls.len(),
         })
         .to_string(),
     )
@@ -228,20 +150,32 @@ fn controller_transport_connect_json_inner(
         }),
     );
 
-    let connect_result =
-        runtime.block_on(connect_controller_transport(&config, Arc::clone(&events)));
-
-    match connect_result {
-        Ok(transport) => Box::into_raw(Box::new(FfiControllerTransport {
-            transport: Mutex::new(transport),
-            events,
-            runtime,
-        })),
-        Err(error) => {
-            set_last_error(format!("failed to connect controller transport: {error}"));
-            ptr::null_mut()
+    let transport = Arc::new(Mutex::new(None));
+    let handle = Box::into_raw(Box::new(FfiControllerTransport {
+        transport: Arc::clone(&transport),
+        events: Arc::clone(&events),
+        runtime: Arc::clone(&runtime),
+    }));
+    let config_for_connect = config.clone();
+    runtime.spawn(async move {
+        match connect_controller_transport(&config_for_connect, Arc::clone(&events)).await {
+            Ok(connected) => {
+                if let Ok(mut current) = transport.lock() {
+                    *current = Some(connected);
+                }
+            }
+            Err(error) => {
+                push_transport_event(
+                    &events,
+                    json!({
+                        "kind": "state",
+                        "state": format!("failed:failed to connect controller transport: {error}"),
+                    }),
+                );
+            }
         }
-    }
+    });
+    handle
 }
 
 async fn connect_controller_transport(
@@ -303,48 +237,8 @@ pub extern "C" fn codux_controller_transport_send_json(
             .transport
             .lock()
             .ok()
+            .and_then(|transport| transport.clone())
             .map(|transport| transport.send(envelope_json.into_bytes(), None))
-            .unwrap_or(false)
-    }))
-    .unwrap_or(false)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_controller_transport_report_ping_timeout(
-    transport: *mut FfiControllerTransport,
-    path: *const c_char,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        let Some(transport) = controller_transport_ref(transport) else {
-            return false;
-        };
-        let path = c_to_string(path).unwrap_or_default();
-        if path != "direct" {
-            return false;
-        }
-        transport
-            .transport
-            .lock()
-            .ok()
-            .map(|transport| transport.mark_direct_unhealthy())
-            .unwrap_or(false)
-    }))
-    .unwrap_or(false)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_controller_transport_probe_preferred_route(
-    transport: *mut FfiControllerTransport,
-) -> bool {
-    catch_unwind(AssertUnwindSafe(|| {
-        let Some(transport) = controller_transport_ref(transport) else {
-            return false;
-        };
-        transport
-            .transport
-            .lock()
-            .ok()
-            .map(|transport| transport.probe_preferred_route())
             .unwrap_or(false)
     }))
     .unwrap_or(false)
@@ -384,7 +278,7 @@ pub extern "C" fn codux_controller_transport_close(transport: *mut FfiController
                 .transport
                 .lock()
                 .ok()
-                .map(|transport| Arc::clone(&transport));
+                .and_then(|transport| transport.clone());
             if let Some(current) = current {
                 current.shutdown().await;
             }

@@ -1038,6 +1038,17 @@ mod tests {
     }
 
     #[test]
+    fn remote_viewport_event_does_not_resize_desktop_model() {
+        let mut state = TerminalModel::new_for_test(10, 4, 100);
+
+        assert!(state.apply_ui_event(TerminalUiEvent::Viewport {
+            remote_owner: true,
+        }));
+        assert_eq!(state.dimensions(), (10, 4));
+        assert!(state.remote_viewer);
+    }
+
+    #[test]
     fn input_viewport_preparation_discards_pending_history_scroll() {
         let mut state = TerminalModel::new_for_test(10, 4, 100);
         state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");

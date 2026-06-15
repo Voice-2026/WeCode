@@ -1,6 +1,5 @@
 mod config;
 mod hub;
-mod stats;
 mod store;
 
 use anyhow::Context;
@@ -29,18 +28,16 @@ async fn main() -> anyhow::Result<()> {
     info!(
         addr = %config.addr,
         db = %config.db_path.display(),
-        stats = config.stats_enabled,
         version = env!("CARGO_PKG_VERSION"),
-        "codux rust relay listening"
+        "codux service listening"
     );
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(hub))
+        .with_graceful_shutdown(shutdown_signal())
         .await
-        .context("serve relay")
+        .context("serve codux service")
 }
 
-async fn shutdown_signal(hub: Arc<Hub>) {
+async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
-    hub.close().await;
 }

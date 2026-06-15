@@ -144,6 +144,39 @@ void main() {
     expect(timers.first.isActive, isFalse);
     expect(timers.last.isActive, isTrue);
   });
+
+  test('baseline retry waits while the active request is still pending', () {
+    final timers = <_FakeTimer>[];
+    final sent = <String>[];
+    var pending = true;
+    final retry = TerminalBufferRetryCoordinator(
+      timerFactory: (delay, callback) {
+        final timer = _FakeTimer(callback);
+        timers.add(timer);
+        return timer;
+      },
+    );
+
+    retry.trackWhilePending(
+      'session-1',
+      send: (sessionId) {
+        sent.add(sessionId);
+        return true;
+      },
+      hasPendingRequest: (_) => pending,
+    );
+
+    timers[0].fire();
+    timers[1].fire();
+    expect(sent, isEmpty);
+    expect(retry.pendingSessionId, 'session-1');
+
+    pending = false;
+    timers[2].fire();
+
+    expect(sent, ['session-1']);
+    expect(retry.pendingSessionId, 'session-1');
+  });
 }
 
 final class _FakeTimer implements Timer {

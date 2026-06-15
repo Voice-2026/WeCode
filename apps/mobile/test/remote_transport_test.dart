@@ -6,61 +6,111 @@ void main() {
   test('factory creates unified Rust controller transport', () {
     final transport = createRemoteTransport(
       const StoredDevice(
-        server: 'https://codux-service.dux.plus/v3',
+        server: 'https://relay.example',
         hostId: 'host-1',
         deviceId: 'device-1',
         token: 'token-1',
         name: 'Phone',
         transports: [
           RemoteTransportCandidate(
-            kind: RemoteTransportKind.websocketRelay,
-            url: 'https://codux-service.dux.plus/v3',
+            kind: RemoteTransportKind.iroh,
+            url: 'https://relay.example',
+            nodeId: 'node-1',
+            relayUrl: 'https://relay.example',
           ),
         ],
       ),
     );
 
     expect(transport, isA<RustControllerTransport>());
-    expect(transport.kind, RemoteTransportKind.websocketRelay);
+    expect(transport.kind, RemoteTransportKind.iroh);
   });
 
-  test(
-    'Rust controller transport keeps webRtc as protocol when relay is only signaling',
-    () async {
-      final transport = RustControllerTransport(
-        handleFactory: (_) => _FakeControllerHandle([]),
-      );
+  test('Rust controller transport uses iroh as the only protocol', () async {
+    final seenConfigs = <Map<String, dynamic>>[];
+    final transport = RustControllerTransport(
+      handleFactory: (config) {
+        seenConfigs.add(config);
+        return _FakeControllerHandle([
+          {'kind': 'state', 'state': 'connected:path=relay'},
+        ]);
+      },
+    );
 
-      await transport.connect(
-        const StoredDevice(
-          server: 'https://codux-service.dux.plus/v3',
-          hostId: 'host-1',
-          deviceId: 'device-1',
-          token: 'token-1',
-          name: 'Phone',
-          transports: [
-            RemoteTransportCandidate(
-              kind: RemoteTransportKind.websocketRelay,
-              url: 'https://codux-service.dux.plus/v3',
-            ),
-            RemoteTransportCandidate(
-              kind: RemoteTransportKind.webRtc,
-              url: 'https://codux-service.dux.plus/v3',
-            ),
-          ],
-        ),
-      );
+    await transport.connect(
+      const StoredDevice(
+        server: 'https://relay.example',
+        hostId: 'host-1',
+        deviceId: 'device-1',
+        token: 'token-1',
+        name: 'Phone',
+        transports: [
+          RemoteTransportCandidate(
+            kind: RemoteTransportKind.iroh,
+            url: 'https://relay.example',
+            nodeId: 'node-1',
+            relayUrl: 'https://relay.example',
+            relayAuthentication: 'relay-token',
+          ),
+        ],
+      ),
+    );
 
-      expect(transport.kind, RemoteTransportKind.webRtc);
-      await transport.close();
-    },
-  );
+    expect(transport.kind, RemoteTransportKind.iroh);
+    expect(seenConfigs.single['transports'], [
+      {
+        'kind': RemoteTransportKind.iroh,
+        'url': 'https://relay.example',
+        'nodeId': 'node-1',
+        'relayUrl': 'https://relay.example',
+        'relayAuthentication': 'relay-token',
+      },
+    ]);
+    expect(seenConfigs.single.containsKey('stunUrls'), isFalse);
+    await transport.close();
+  });
+
+  test('connect waits for native connected state before returning', () async {
+    late _FakeControllerHandle handle;
+    final transport = RustControllerTransport(
+      handleFactory: (_) {
+        handle = _FakeControllerHandle([]);
+        return handle;
+      },
+    );
+    final states = <String>[];
+    transport.onState = states.add;
+
+    final connected = transport.connect(_storedDevice());
+    await Future<void>.delayed(Duration.zero);
+
+    expect(states, ['connecting']);
+    expect(handle.pollCount, greaterThanOrEqualTo(1));
+
+    handle.addEvent({'kind': 'state', 'state': 'connected:path=relay'});
+    await connected;
+
+    expect(states, ['connecting', 'connected:path=relay']);
+    await transport.close();
+  });
+
+  test('connect fails when native transport reports failure', () async {
+    final transport = RustControllerTransport(
+      handleFactory: (_) => _FakeControllerHandle([
+        {'kind': 'state', 'state': 'failed:iroh controller connect failed'},
+      ]),
+    );
+
+    await expectLater(transport.connect(_storedDevice()), throwsStateError);
+    await transport.close();
+  });
 
   test('drain stops when state callback closes the active handle', () async {
     late _FakeControllerHandle handle;
     final transport = RustControllerTransport(
       handleFactory: (_) {
         handle = _FakeControllerHandle([
+          {'kind': 'state', 'state': 'connected:path=relay'},
           {'kind': 'state', 'state': 'closed'},
           {'kind': 'state', 'state': 'connected:path=direct'},
         ]);
@@ -77,24 +127,50 @@ void main() {
 
     await transport.connect(
       const StoredDevice(
-        server: 'https://codux-service.dux.plus/v3',
+        server: 'https://relay.example',
         hostId: 'host-1',
         deviceId: 'device-1',
         token: 'token-1',
         name: 'Phone',
         transports: [
           RemoteTransportCandidate(
-            kind: RemoteTransportKind.websocketRelay,
-            url: 'https://codux-service.dux.plus/v3',
+            kind: RemoteTransportKind.iroh,
+            url: 'https://relay.example',
+            nodeId: 'node-1',
+            relayUrl: 'https://relay.example',
           ),
         ],
       ),
     );
 
-    expect(states, ['connecting', 'closed']);
-    expect(handle.pollCount, 1);
+    expect(states, ['connecting', 'connected:path=relay', 'closed']);
+    expect(handle.pollCount, 2);
+  });
+
+  test('transport path updates do not masquerade as latency samples', () {
+    final event = RemoteTransportStateEvent.parse('latency:rtt=470;path=direct');
+
+    expect(event.isPathUpdate, isTrue);
+    expect(event.path, 'direct');
+    expect(event.detail, 'rtt=470;path=direct');
   });
 }
+
+StoredDevice _storedDevice() => const StoredDevice(
+  server: 'https://relay.example',
+  hostId: 'host-1',
+  deviceId: 'device-1',
+  token: 'token-1',
+  name: 'Phone',
+  transports: [
+    RemoteTransportCandidate(
+      kind: RemoteTransportKind.iroh,
+      url: 'https://relay.example',
+      nodeId: 'node-1',
+      relayUrl: 'https://relay.example',
+    ),
+  ],
+);
 
 final class _FakeControllerHandle implements ControllerTransportEventHandle {
   _FakeControllerHandle(this._events);
@@ -122,11 +198,9 @@ final class _FakeControllerHandle implements ControllerTransportEventHandle {
   }
 
   @override
-  bool probePreferredRoute() => false;
-
-  @override
-  bool reportPingTimeout({required String path}) => false;
-
-  @override
   bool send(Map<String, dynamic> envelope) => true;
+
+  void addEvent(Map<String, dynamic> event) {
+    _events.add(event);
+  }
 }

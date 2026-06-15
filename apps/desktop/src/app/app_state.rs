@@ -1,13 +1,18 @@
 use super::*;
 
-static ACTIVE_SETTINGS_SNAPSHOT: OnceLock<SettingsSummary> = OnceLock::new();
+static ACTIVE_SETTINGS_SNAPSHOT: OnceLock<std::sync::Mutex<SettingsSummary>> = OnceLock::new();
 
 pub(crate) fn set_active_settings_snapshot(settings: SettingsSummary) {
-    let _ = ACTIVE_SETTINGS_SNAPSHOT.set(settings);
+    let snapshot = ACTIVE_SETTINGS_SNAPSHOT.get_or_init(|| std::sync::Mutex::new(settings.clone()));
+    if let Ok(mut current) = snapshot.lock() {
+        *current = settings;
+    }
 }
 
 pub(crate) fn active_settings_snapshot() -> Option<SettingsSummary> {
-    ACTIVE_SETTINGS_SNAPSHOT.get().cloned()
+    ACTIVE_SETTINGS_SNAPSHOT
+        .get()
+        .and_then(|settings| settings.lock().ok().map(|settings| settings.clone()))
 }
 
 pub(in crate::app) fn settings_with_active_restart_locked_values(

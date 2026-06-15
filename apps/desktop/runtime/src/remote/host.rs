@@ -23,10 +23,9 @@ use super::protocol::{
     REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST,
     REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_SELECT, REMOTE_WORKTREE_UPDATED,
     RemoteTerminalBufferWindow, RemoteTerminalSubscriptionTarget, RemoteTerminalSubscriptions,
-    terminal_buffer_payloads, terminal_live_output_payload, webrtc_transport_candidate,
-    websocket_relay_transport_candidate,
+    terminal_buffer_payloads, terminal_live_output_payload,
 };
-use super::relay::{remote_pairing_ticket_payload, remote_server_url, remote_stun_urls};
+use super::relay::{remote_pairing_payload_url, remote_relay_url};
 use super::transport::RemoteTransport;
 use super::transport_factory::RemoteTransportFactory;
 use super::types::{
@@ -324,7 +323,7 @@ impl RemoteHostRuntime {
         let transport = self.take_transport();
         let mut summary = self.service().summary();
         summary.status = "connecting".to_string();
-        summary.message = "Connecting relay...".to_string();
+        summary.message = "Connecting remote transport...".to_string();
         summary.pairing = self.snapshot().pairing;
         self.update_snapshot(summary);
         self.spawn_transport_restart(transport, generation);
@@ -443,7 +442,7 @@ impl RemoteHostRuntime {
             return None;
         }
         status.status = "connecting".to_string();
-        status.message = "Relay disconnected. Reconnecting...".to_string();
+        status.message = "Remote transport disconnected. Reconnecting...".to_string();
         self.update_snapshot(status);
         Some((transport, restart_generation))
     }
@@ -458,7 +457,7 @@ impl RemoteHostRuntime {
         let generation = self.connection_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let transport = self.take_transport();
         status.status = "connecting".to_string();
-        status.message = "Connecting relay...".to_string();
+        status.message = "Connecting remote transport...".to_string();
         status.pairing = None;
         status.pending_pairing_list.clear();
         status.pending_pairings = 0;
@@ -482,6 +481,7 @@ impl RemoteHostRuntime {
                 self.update_device_online(Some(&device_id), false);
                 self.clear_remote_project_scope(Some(&device_id));
                 self.remove_terminal_viewer(Some(&device_id));
+                self.release_viewports_for_device(Some(&device_id));
             }
             return;
         }
@@ -490,6 +490,7 @@ impl RemoteHostRuntime {
                 "remote",
                 &format!("host_transport_disconnected state={state} generation={state_generation}"),
             );
+            self.release_all_remote_viewports();
             if let Some((transport, restart_generation)) =
                 self.prepare_transport_reconnect_after_disconnect(state_generation)
             {
@@ -532,7 +533,7 @@ impl RemoteHostRuntime {
             return Err("Remote Host is disabled.".to_string());
         }
         summary.status = "connecting".to_string();
-        summary.message = "Connecting relay...".to_string();
+        summary.message = "Connecting remote transport...".to_string();
         summary.pairing = self.snapshot().pairing;
         self.update_snapshot(summary);
 
@@ -546,11 +547,28 @@ impl RemoteHostRuntime {
             .lock()
             .ok()
             .and_then(|value| value.clone())
-            .unwrap_or_else(|| remote_server_url(&settings.server_url));
-        vec![
-            websocket_relay_transport_candidate(relay.clone()),
-            webrtc_transport_candidate(relay, remote_stun_urls()),
-        ]
+            .unwrap_or_else(|| remote_relay_url(&settings.relay_url));
+        let transport = self.transport.lock().ok().and_then(|value| value.clone());
+        transport
+            .as_ref()
+            .and_then(|transport| {
+                let ticket = transport.iroh_endpoint_ticket().unwrap_or_default();
+                transport
+                    .iroh_candidate()
+                    .map(|(node_id, relay_url)| (node_id, relay_url, ticket))
+            })
+            .map(|(node_id, relay_url, ticket)| {
+                vec![
+                    codux_protocol::iroh_transport_candidate_with_ticket_and_authentication(
+                        relay,
+                        node_id,
+                        relay_url,
+                        ticket,
+                        settings.relay_authentication.trim(),
+                    ),
+                ]
+            })
+            .unwrap_or_default()
     }
 
     async fn transport_candidates(&self) -> Vec<RemoteTransportCandidate> {
@@ -560,13 +578,13 @@ impl RemoteHostRuntime {
     async fn start_remote_transport(self: &Arc<Self>, generation: u64) -> Result<(), String> {
         crate::runtime_trace::runtime_trace(
             "remote",
-            &format!("transport_start kind=webRtc generation={generation}"),
+            &format!("transport_start kind=iroh generation={generation}"),
         );
         let mut raw = self.service().raw_settings();
         let settings = self.service().register_host_in_raw_async(&mut raw).await?;
         self.service().save_raw_settings(&raw)?;
         if let Ok(mut resolved) = self.resolved_relay.lock() {
-            *resolved = Some(settings.server_url.clone());
+            *resolved = Some(settings.relay_url.clone());
         }
         let _ = self.service().refresh_devices_async().await;
         if generation != self.connection_generation.load(Ordering::SeqCst) {
@@ -607,7 +625,7 @@ impl RemoteHostRuntime {
         }
         let mut connected = self.service().summary();
         connected.status = "connected".to_string();
-        connected.message = "Relay connected.".to_string();
+        connected.message = "Remote transport connected.".to_string();
         connected.pairing = self.snapshot().pairing;
         self.update_snapshot(connected);
         crate::runtime_trace::runtime_trace(
@@ -618,7 +636,7 @@ impl RemoteHostRuntime {
     }
 
     fn handle_transport_message(self: Arc<Self>, device_id: String, data: Vec<u8>) {
-        let Ok(raw) = serde_json::from_slice::<RemoteEnvelope>(&data) else {
+        let Ok(mut raw) = serde_json::from_slice::<RemoteEnvelope>(&data) else {
             crate::runtime_trace::runtime_trace(
                 "remote",
                 &format!(
@@ -628,46 +646,43 @@ impl RemoteHostRuntime {
             );
             return;
         };
-        let raw_kind = raw.kind.clone();
-        let raw_device_id = raw.device_id.clone().unwrap_or_default();
+        if raw
+            .device_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+            && !device_id.trim().is_empty()
+        {
+            raw.device_id = Some(device_id.clone());
+        }
         let envelope = {
-            let Ok(mut received) = self.receive_seq_by_device.lock() else {
-                crate::runtime_trace::runtime_trace(
-                    "remote",
-                    &format!(
-                        "drop incoming reason=sequence_lock device={device_id} kind={}",
-                        raw.kind
-                    ),
-                );
-                return;
-            };
-            match self
-                .service()
-                .decrypt_envelope_if_needed(raw, &mut received)
-            {
-                Ok(Some(envelope)) => Some(envelope),
-                Ok(None) => {
+            if let Some(seq) = raw.seq {
+                let Ok(mut received) = self.receive_seq_by_device.lock() else {
                     crate::runtime_trace::runtime_trace(
                         "remote",
                         &format!(
-                            "drop incoming reason=decrypt_empty transport_device={device_id} envelope_device={raw_device_id} kind={raw_kind}"
+                            "drop incoming reason=sequence_lock device={device_id} kind={}",
+                            raw.kind
                         ),
                     );
-                    None
-                }
-                Err(error) => {
+                    return;
+                };
+                let guard = received
+                    .entry(device_id.clone())
+                    .or_insert_with(|| RemoteSequenceGuard::new(128));
+                if !guard.accept(&raw.kind, raw.session_id.as_deref(), Some(seq)) {
                     crate::runtime_trace::runtime_trace(
                         "remote",
                         &format!(
-                            "drop incoming reason=decrypt_failed device={device_id} error={error}"
+                            "drop incoming reason=duplicate_seq device={device_id} kind={} seq={seq}",
+                            raw.kind
                         ),
                     );
-                    None
+                    return;
                 }
             }
-        };
-        let Some(envelope) = envelope else {
-            return;
+            raw
         };
         if !self.is_authorized_device(envelope.device_id.as_deref()) {
             crate::runtime_trace::runtime_trace(
@@ -677,6 +692,7 @@ impl RemoteHostRuntime {
                     envelope.device_id.as_deref().unwrap_or("")
                 ),
             );
+            self.send_device_unauthorized(envelope.device_id.as_deref());
             return;
         }
         crate::runtime_trace::runtime_trace(
@@ -704,6 +720,7 @@ impl RemoteHostRuntime {
                 self.update_device_online(envelope.device_id.as_deref(), false);
                 self.clear_remote_project_scope(envelope.device_id.as_deref());
                 self.remove_terminal_viewer(envelope.device_id.as_deref());
+                self.release_viewports_for_device(envelope.device_id.as_deref());
             }
             REMOTE_PROJECT_LIST => self.send_project_list(envelope.device_id.as_deref()),
             REMOTE_PROJECT_SELECT => self.handle_project_select(&envelope),
@@ -795,7 +812,7 @@ impl RemoteHostRuntime {
         crate::runtime_trace::runtime_trace(
             "remote",
             &format!(
-                "pairing_request received device={} pair={} code_present={} secret_present={} public_key_present={}",
+                "pairing_request received device={} pair={} code_present={} secret_present={}",
                 handshake.device_id,
                 handshake.pairing_id.as_deref().unwrap_or(""),
                 handshake
@@ -805,8 +822,7 @@ impl RemoteHostRuntime {
                 handshake
                     .pairing_secret
                     .as_deref()
-                    .is_some_and(|value| !value.trim().is_empty()),
-                !handshake.device_public_key.trim().is_empty()
+                    .is_some_and(|value| !value.trim().is_empty())
             ),
         );
         let active_pairing = self
@@ -817,35 +833,41 @@ impl RemoteHostRuntime {
         let Some(active_pairing) = active_pairing else {
             crate::runtime_trace::runtime_trace(
                 "remote",
-                "pairing_request reject reason=no_active_pairing",
+                &format!(
+                    "pairing_request reject reason=no_active_pairing pair={}",
+                    handshake.pairing_id.as_deref().unwrap_or("")
+                ),
             );
             return;
         };
         if handshake.pairing_id.as_deref() != Some(active_pairing.pairing_id.as_str()) {
             crate::runtime_trace::runtime_trace(
                 "remote",
-                "pairing_request reject reason=pairing_id_mismatch",
+                &format!(
+                    "pairing_request reject reason=pairing_id_mismatch expected={} received={}",
+                    active_pairing.pairing_id,
+                    handshake.pairing_id.as_deref().unwrap_or("")
+                ),
             );
             return;
         }
         if handshake.pairing_code.as_deref() != Some(active_pairing.code.as_str()) {
             crate::runtime_trace::runtime_trace(
                 "remote",
-                "pairing_request reject reason=code_mismatch",
+                &format!(
+                    "pairing_request reject reason=code_mismatch pair={}",
+                    active_pairing.pairing_id
+                ),
             );
             return;
         }
         if handshake.pairing_secret.as_deref() != Some(active_pairing.secret.as_str()) {
             crate::runtime_trace::runtime_trace(
                 "remote",
-                "pairing_request reject reason=secret_mismatch",
-            );
-            return;
-        }
-        if handshake.device_public_key.trim().is_empty() {
-            crate::runtime_trace::runtime_trace(
-                "remote",
-                "pairing_request reject reason=missing_device_public_key",
+                &format!(
+                    "pairing_request reject reason=secret_mismatch pair={}",
+                    active_pairing.pairing_id
+                ),
             );
             return;
         }
@@ -858,7 +880,7 @@ impl RemoteHostRuntime {
             &active_pairing,
             active_pairing.pairing_id.clone(),
             handshake.device_name,
-            handshake.device_public_key,
+            handshake.device_id.clone(),
             active_pairing.code.clone(),
             active_pairing.secret.clone(),
         );
@@ -889,28 +911,24 @@ impl RemoteHostRuntime {
         self.start_remote_transport(generation).await?;
         let raw = self.service().raw_settings();
         let settings = super::remote_settings_from_raw(&raw);
-        if settings.host_public_key.trim().is_empty() {
-            return Err("Remote Host encryption identity is not ready.".to_string());
-        }
         let mut pairing = RemotePairingInfo {
             pairing_id: uuid::Uuid::new_v4().to_string(),
             code: remote_pairing_code(),
             secret: super::crypto::remote_random_token(),
-            host_public_key: (!settings.host_public_key.trim().is_empty())
-                .then(|| settings.host_public_key.clone()),
-            crypto_version: Some(1),
             expires_at: (chrono::Utc::now() + chrono::Duration::minutes(10)).to_rfc3339(),
             qr_payload: String::new(),
         };
         let transports = self.transport_candidates().await;
         let payload =
             super::crypto::remote_pairing_payload(&settings, &pairing, transports.clone());
-        pairing.qr_payload = self
-            .create_pairing_ticket_payload(&settings.server_url, payload)
-            .await?;
+        pairing.qr_payload = self.create_pairing_ticket_payload(payload)?;
         crate::runtime_trace::runtime_trace(
             "remote",
-            &format!("pairing_qr transports={}", transports.len()),
+            &format!(
+                "pairing_qr relay={} transports={}",
+                super::relay::remote_relay_url(&settings.relay_url),
+                transports.len()
+            ),
         );
         if let Ok(mut active) = self.active_pairing.lock() {
             *active = Some(pairing.clone());
@@ -932,35 +950,8 @@ impl RemoteHostRuntime {
         Ok(summary)
     }
 
-    async fn create_pairing_ticket_payload(
-        &self,
-        relay: &str,
-        payload: Value,
-    ) -> Result<String, String> {
-        let relay = remote_server_url(relay);
-        let url = super::relay::remote_url(&relay, "/api/tickets", &[], false)?;
-        let response = reqwest::Client::new()
-            .post(url)
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "ticket request failed status={}",
-                response.status()
-            ));
-        }
-        let value = response
-            .json::<Value>()
-            .await
-            .map_err(|error| error.to_string())?;
-        let ticket = value
-            .get("ticket")
-            .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| "ticket response missing ticket".to_string())?;
-        remote_pairing_ticket_payload(&relay, ticket)
+    fn create_pairing_ticket_payload(&self, payload: Value) -> Result<String, String> {
+        remote_pairing_payload_url(&payload)
     }
 
     pub fn poll_pairing_status(
@@ -979,7 +970,7 @@ impl RemoteHostRuntime {
                 pairing,
                 pairing.pairing_id.clone(),
                 handshake.device_name,
-                handshake.device_public_key,
+                handshake.device_id.clone(),
                 pairing.code.clone(),
                 pairing.secret.clone(),
             );
@@ -1071,7 +1062,7 @@ impl RemoteHostRuntime {
             id: device_id.clone(),
             host_id: settings.host_id.clone(),
             name: handshake.device_name.clone(),
-            public_key: handshake.device_public_key.clone(),
+            public_key: String::new(),
             created_at: now.clone(),
             last_seen: now,
             revoked_at: None,
@@ -1895,6 +1886,58 @@ impl RemoteHostRuntime {
         };
         let owner = self.remote_viewport_owner(envelope);
         self.terminals.touch_viewport_lease(session_id, &owner);
+        let viewport_request_id = envelope.payload.get("viewportRequestId").and_then(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value.as_u64().map(|number| number.to_string()))
+        });
+        let max_lines = envelope
+            .payload
+            .get("maxLines")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(0);
+        let overscan_rows = envelope
+            .payload
+            .get("overscanRows")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+            .unwrap_or(0);
+        if let Some(display_offset) = envelope
+            .payload
+            .get("displayOffset")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+        {
+            let Ok(snapshot) = self.terminals.remote_viewport_snapshot(
+                session_id,
+                display_offset,
+                overscan_rows,
+                max_lines,
+            ) else {
+                return;
+            };
+            let mut payload = json!({
+                "displayOffset": snapshot.display_offset,
+                "totalLines": snapshot.total_lines,
+                "cols": snapshot.cols,
+                "rows": snapshot.rows,
+                "marginRows": snapshot.margin_rows,
+                "marginRowsBelow": snapshot.margin_rows_below,
+                "screenData": snapshot.data,
+            });
+            if let Some(request_id) = viewport_request_id {
+                payload["viewportRequestId"] = Value::String(request_id);
+            }
+            self.send_terminal_data(
+                REMOTE_TERMINAL_VIEWPORT_SCROLLED,
+                envelope.device_id.as_deref(),
+                Some(session_id),
+                payload,
+            );
+            return;
+        }
         let to_bottom = envelope
             .payload
             .get("toBottom")
@@ -2591,6 +2634,18 @@ impl RemoteHostRuntime {
             return false;
         };
         transport.send(data, device_id)
+    }
+
+    fn send_device_unauthorized(&self, device_id: Option<&str>) -> bool {
+        self.send_plain(
+            REMOTE_ERROR,
+            device_id,
+            None,
+            json!({
+                "code": "device_unauthorized",
+                "message": "This mobile device is no longer authorized. Please pair it again."
+            }),
+        )
     }
 
     fn send_terminal_data(
@@ -3572,6 +3627,30 @@ impl RemoteHostRuntime {
         self.terminal_subscriptions.remove_device(device_id);
     }
 
+    fn release_viewports_for_device(&self, device_id: Option<&str>) {
+        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return;
+        };
+        let owner = terminal_viewport_remote_owner(device_id);
+        for terminal in self.terminals.list() {
+            if let Ok(Some(state)) = self.terminals.release_viewport(&terminal.id, &owner) {
+                self.send_terminal_viewport_state_payload(&terminal.id, Some(device_id), &state);
+            }
+        }
+    }
+
+    fn release_all_remote_viewports(&self) {
+        for terminal in self.terminals.list() {
+            let Ok(state) = self.terminals.viewport_state(&terminal.id) else {
+                continue;
+            };
+            if state.owner == crate::terminal_pty::terminal_viewport_local_owner() {
+                continue;
+            }
+            let _ = self.terminals.release_viewport(&terminal.id, &state.owner);
+        }
+    }
+
     fn handle_terminal_event(self: &Arc<Self>, event: TerminalEvent) {
         match event {
             TerminalEvent::Output {
@@ -4011,12 +4090,11 @@ fn remote_default_worktree_base_branch(git: &crate::git::GitSummary) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::crypto::remote_base64_url_encode;
     use crate::remote::transport::RemoteTransport;
+    use crate::remote::types::RemoteOutgoingEnvelope;
     use crate::terminal_layout::TerminalPaneSummary;
     use async_trait::async_trait;
     use codux_remote_transport::RemoteTransportKind;
-    use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
     fn temp_support_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("{name}-{}", uuid::Uuid::new_v4()));
@@ -4041,7 +4119,7 @@ mod tests {
     #[async_trait]
     impl RemoteTransport for CapturingTransport {
         fn kind(&self) -> RemoteTransportKind {
-            RemoteTransportKind::WebSocketRelay
+            RemoteTransportKind::Iroh
         }
 
         fn send(&self, data: Vec<u8>, device_id: Option<&str>) -> bool {
@@ -4073,7 +4151,10 @@ mod tests {
         assert!(runtime.transport.lock().expect("transport lock").is_none());
         let snapshot = runtime.snapshot();
         assert_eq!(snapshot.status, "connecting");
-        assert_eq!(snapshot.message, "Relay disconnected. Reconnecting...");
+        assert_eq!(
+            snapshot.message,
+            "Remote transport disconnected. Reconnecting..."
+        );
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -4117,36 +4198,93 @@ mod tests {
         assert!(runtime.transport.lock().expect("transport lock").is_none());
         let snapshot = runtime.snapshot();
         assert_eq!(snapshot.status, "connecting");
-        assert_eq!(snapshot.message, "Connecting relay...");
+        assert_eq!(snapshot.message, "Connecting remote transport...");
         assert!(snapshot.pairing.is_none());
 
         fs::remove_dir_all(support_dir).ok();
     }
 
-    fn write_paired_remote_settings(support_dir: &Path) {
-        let host_secret = StaticSecret::from([21_u8; 32]);
-        let host_public = X25519PublicKey::from(&host_secret);
-        let device_secret = StaticSecret::from([22_u8; 32]);
-        let device_public = X25519PublicKey::from(&device_secret);
-        let host_private_key = remote_base64_url_encode(host_secret.to_bytes().as_slice());
-        let host_public_key = remote_base64_url_encode(host_public.as_bytes());
-        let device_public_key = remote_base64_url_encode(device_public.as_bytes());
+    #[test]
+    fn unauthorized_remote_message_gets_repair_response() {
+        let support_dir = temp_support_dir("codux-remote-unauthorized-repair");
+        write_paired_remote_settings(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
 
+        let raw = RemoteOutgoingEnvelope {
+            kind: REMOTE_HOST_INFO.to_string(),
+            device_id: Some("unknown-device".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({}),
+        };
+        runtime.clone().handle_transport_message(
+            "unknown-device".to_string(),
+            serde_json::to_vec(&raw).unwrap(),
+        );
+
+        let messages = transport.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].0.as_deref(), Some("unknown-device"));
+        let envelope: RemoteEnvelope =
+            serde_json::from_slice(&messages[0].1).expect("unauthorized envelope");
+        assert_eq!(envelope.kind, REMOTE_ERROR);
+        assert_eq!(envelope.device_id.as_deref(), Some("unknown-device"));
+        assert_eq!(envelope.payload["code"], "device_unauthorized");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn unauthorized_message_without_envelope_device_uses_transport_device_for_repair() {
+        let support_dir = temp_support_dir("codux-remote-unauthorized-transport-device-repair");
+        write_paired_remote_settings(&support_dir);
+        let runtime = Arc::new(RemoteHostRuntime::new(support_dir.clone()));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+
+        let raw = RemoteOutgoingEnvelope {
+            kind: REMOTE_HOST_INFO.to_string(),
+            device_id: None,
+            session_id: None,
+            seq: None,
+            payload: json!({}),
+        };
+        runtime.clone().handle_transport_message(
+            "unknown-device".to_string(),
+            serde_json::to_vec(&raw).unwrap(),
+        );
+
+        let messages = transport.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].0.as_deref(), Some("unknown-device"));
+        let envelope: RemoteEnvelope =
+            serde_json::from_slice(&messages[0].1).expect("unauthorized envelope");
+        assert_eq!(envelope.kind, REMOTE_ERROR);
+        assert_eq!(envelope.device_id.as_deref(), Some("unknown-device"));
+        assert_eq!(envelope.payload["code"], "device_unauthorized");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    fn write_paired_remote_settings(support_dir: &Path) {
         fs::write(
             support_dir.join("settings.json"),
             serde_json::to_string_pretty(&json!({
                 "remote": {
                     "isEnabled": true,
-                    "serverUrl": "http://relay.example",
+                    "relayUrl": "http://relay.example",
                     "hostID": "host-1",
-                    "hostPrivateKey": host_private_key,
-                    "hostPublicKey": host_public_key,
                     "cachedDevices": [
                         {
                             "id": "device-1",
                             "hostId": "host-1",
-                            "name": "Phone",
-                            "publicKey": device_public_key
+                            "name": "Phone"
                         }
                     ]
                 }
@@ -4348,13 +4486,7 @@ mod tests {
                 .service()
                 .parse_incoming_envelope(&text)
                 .expect("parse outgoing envelope");
-            if let Some(inner) = runtime
-                .service()
-                .decrypt_envelope_if_needed(envelope, &mut HashMap::new())
-                .expect("decrypt outgoing envelope")
-            {
-                kinds.push(inner.kind);
-            }
+            kinds.push(envelope.kind);
         }
 
         assert_eq!(kinds, vec!["terminal.viewport.state"]);
@@ -4714,8 +4846,7 @@ mod tests {
             .filter_map(|(device_id, data)| {
                 let value: Value = serde_json::from_slice(data).ok()?;
                 let kind = value.get("type").and_then(Value::as_str);
-                (kind == Some("secure.message") || kind == Some("secure.required"))
-                    .then(|| device_id.clone())
+                (kind == Some(REMOTE_GIT_STATUS)).then(|| device_id.clone())
             })
             .collect::<Vec<_>>();
 
@@ -4826,15 +4957,10 @@ mod tests {
                 .service()
                 .parse_incoming_envelope(&text)
                 .expect("parse outgoing envelope");
-            let Some(inner) = runtime
-                .service()
-                .decrypt_envelope_if_needed(envelope, &mut HashMap::new())
-                .expect("decrypt outgoing envelope")
-            else {
-                continue;
-            };
-            if inner.kind == "terminal.output" && inner.session_id.as_deref() == Some(&session_id) {
-                baseline = Some(inner.payload);
+            if envelope.kind == "terminal.output"
+                && envelope.session_id.as_deref() == Some(&session_id)
+            {
+                baseline = Some(envelope.payload);
                 break;
             }
         }
@@ -5569,15 +5695,10 @@ mod tests {
                 .service()
                 .parse_incoming_envelope(&text)
                 .expect("parse outgoing envelope");
-            let Some(inner) = runtime
-                .service()
-                .decrypt_envelope_if_needed(envelope, &mut HashMap::new())
-                .expect("decrypt outgoing envelope")
-            else {
-                continue;
-            };
-            if inner.kind == "terminal.output" && inner.session_id.as_deref() == Some(&session_id) {
-                live = Some(inner.payload);
+            if envelope.kind == "terminal.output"
+                && envelope.session_id.as_deref() == Some(&session_id)
+            {
+                live = Some(envelope.payload);
                 break;
             }
         }
@@ -5766,8 +5887,107 @@ mod tests {
     }
 
     #[test]
-    fn legacy_terminal_resize_claims_remote_viewport_for_compatibility() {
-        let support_dir = temp_support_dir("codux-remote-terminal-legacy-resize");
+    fn device_disconnect_releases_owned_terminal_viewport() {
+        let support_dir = temp_support_dir("codux-remote-terminal-viewport-disconnect");
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        runtime.handle_terminal_viewport_resize(&RemoteEnvelope {
+            kind: "terminal.viewport.resize".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({
+                "cols": 72,
+                "rows": 18,
+            }),
+        });
+        assert_eq!(
+            terminals
+                .viewport_state(&session_id)
+                .expect("viewport state")
+                .owner,
+            "remote:device-1"
+        );
+
+        runtime.handle_remote_envelope(RemoteEnvelope {
+            kind: "device.disconnected".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({}),
+        });
+
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_eq!(state.owner, "desktop");
+        assert_eq!((state.cols, state.rows), (72, 18));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn host_transport_disconnect_releases_remote_terminal_viewports() {
+        let support_dir = temp_support_dir("codux-remote-terminal-viewport-transport-disconnect");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        runtime.connection_generation.store(7, Ordering::SeqCst);
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(Arc::new(CapturingTransport::default()));
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        terminals
+            .claim_viewport(&session_id, "remote:device-1")
+            .expect("remote claim");
+
+        runtime.handle_transport_state(7, String::new(), "closed".to_string());
+
+        let state = terminals
+            .viewport_state(&session_id)
+            .expect("viewport state");
+        assert_eq!(state.owner, "desktop");
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_resize_without_owner_claims_remote_viewport_for_compatibility() {
+        let support_dir = temp_support_dir("codux-remote-terminal-resize-without-owner");
         let terminals = Arc::new(TerminalManager::new());
         let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
             support_dir.clone(),

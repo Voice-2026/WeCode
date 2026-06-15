@@ -2,10 +2,10 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 
-class RemoteNetworkRouteProbeController {
-  RemoteNetworkRouteProbeController({
+class RemoteNetworkRouteRefreshController {
+  RemoteNetworkRouteRefreshController({
     required this.onPauseLatency,
-    required this.onProbeRoute,
+    required this.onRefreshRoute,
     this.onInitialSignature,
     this.onSignatureChanged,
     this.onInitialCheckFailed,
@@ -14,7 +14,7 @@ class RemoteNetworkRouteProbeController {
   });
 
   final RemoteNetworkPauseHandler onPauseLatency;
-  final RemoteNetworkProbeHandler onProbeRoute;
+  final RemoteNetworkRefreshHandler onRefreshRoute;
   final RemoteNetworkInitialSignatureHandler? onInitialSignature;
   final RemoteNetworkChangedHandler? onSignatureChanged;
   final RemoteNetworkErrorHandler? onInitialCheckFailed;
@@ -59,7 +59,7 @@ class RemoteNetworkRouteProbeController {
       return;
     }
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(debounce, () => onProbeRoute('network-change'));
+    _debounceTimer = Timer(debounce, () => onRefreshRoute('network-change'));
   }
 
   void dispose() {
@@ -81,7 +81,7 @@ String connectivitySignature(List<ConnectivityResult> results) {
 }
 
 typedef RemoteNetworkPauseHandler = void Function();
-typedef RemoteNetworkProbeHandler = void Function(String reason);
+typedef RemoteNetworkRefreshHandler = void Function(String reason);
 typedef RemoteNetworkInitialSignatureHandler = void Function(String signature);
 typedef RemoteNetworkChangedHandler =
     void Function(String previous, String next);

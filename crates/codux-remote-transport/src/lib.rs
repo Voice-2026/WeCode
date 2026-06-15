@@ -1,31 +1,29 @@
 use async_trait::async_trait;
 pub use codux_protocol::RemoteTransportKind;
 use codux_protocol::{RemoteEnvelope, RemoteTransportPairingRequest};
+#[cfg(target_os = "android")]
+use std::ffi::c_void;
+#[cfg(target_os = "android")]
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::Once;
+#[cfg(target_os = "android")]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod control_messages;
-mod health;
+mod iroh_link;
 mod local_memory;
 mod url_rules;
-mod webrtc;
-mod websocket;
 
-use health::{ControllerHealthState, ControllerHealthTransport};
+pub use iroh_link::{CODUX_REMOTE_ALPN, RemoteIrohControllerTransport, RemoteIrohHostTransport};
 pub use local_memory::{LocalMemoryTransport, LocalMemoryTransportHub};
-pub use webrtc::RemoteWebRtcHostTransport;
-use webrtc::{
-    DirectRouteState, RelayRouteState, RemoteControllerCompositeTransport,
-    controller_relay_state_handler,
-};
-pub use websocket::{RemoteWebSocketControllerTransport, RemoteWebSocketHostTransport};
 
 pub use url_rules::{
-    CHINA_RELAY_SERVER_URL, DEFAULT_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, RemoteTurnConfig,
-    preferred_controller_transport_kind, preferred_pairing_transport_kind,
-    remote_client_websocket_url, remote_pairing_code_url, remote_pairing_ticket_url,
-    remote_pairing_websocket_url, remote_relay_preset_for_url, remote_relay_url_for_preset,
-    remote_server_url, remote_stun_urls, remote_turn_config_from_env, remote_url,
+    CHINA_IROH_RELAY_SERVER_URL, CHINA_RELAY_SERVER_URL, DEFAULT_RELAY_SERVER_URL,
+    GLOBAL_IROH_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, iroh_relay_preset_for_url,
+    iroh_relay_url_for_preset, preferred_controller_transport_kind,
+    preferred_pairing_transport_kind, remote_relay_preset_for_url, remote_relay_url,
+    remote_relay_url_for_preset, remote_url,
 };
 
 pub type RemoteTransportMessageHandler = Arc<dyn Fn(String, Vec<u8>) + Send + Sync + 'static>;
@@ -36,41 +34,73 @@ pub type RemoteTransportControlHandler =
     Arc<dyn Fn(String, RemoteEnvelope) -> bool + Send + Sync + 'static>;
 pub type RemoteTransportLogHandler = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
+#[cfg(target_os = "android")]
+static ANDROID_JNI_CONTEXT_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "android")]
+pub unsafe fn install_android_jni_context(
+    java_vm: *mut c_void,
+    application_context: *mut c_void,
+) -> Result<(), String> {
+    if java_vm.is_null() {
+        return Err("missing Android JavaVM".to_string());
+    }
+    if application_context.is_null() {
+        return Err("missing Android application context".to_string());
+    }
+    if ANDROID_JNI_CONTEXT_INSTALLED.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+        iroh_dns::install_android_jni_context(java_vm, application_context);
+    }));
+    if result.is_err() {
+        ANDROID_JNI_CONTEXT_INSTALLED.store(false, Ordering::SeqCst);
+        return Err("failed to initialize Android JNI context for Iroh DNS".to_string());
+    }
+    Ok(())
+}
+
 #[async_trait]
 pub trait RemoteTransport: Send + Sync {
     fn kind(&self) -> RemoteTransportKind;
     fn send(&self, data: Vec<u8>, device_id: Option<&str>) -> bool;
-    fn mark_direct_unhealthy(&self) -> bool {
-        false
+    fn iroh_candidate(&self) -> Option<(String, String)> {
+        None
     }
-    fn probe_preferred_route(&self) -> bool {
-        false
+    fn iroh_endpoint_ticket(&self) -> Option<String> {
+        None
     }
     async fn shutdown(&self);
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RemoteControllerTransportConfig {
-    pub server_url: String,
+    pub relay_url: String,
     pub host_id: String,
     pub device_id: String,
     pub device_token: String,
     pub transports: Vec<RemoteTransportCandidate>,
-    pub stun_urls: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RemoteTransportCandidate {
     pub kind: String,
     pub url: String,
+    pub node_id: String,
+    pub relay_url: String,
+    pub ticket: String,
+    pub relay_authentication: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RemoteHostTransportConfig {
-    pub server_url: String,
+    pub relay_url: String,
+    pub relay_preset: String,
+    pub iroh_relay_url: String,
+    pub iroh_relay_authentication: String,
     pub host_id: String,
     pub host_token: String,
-    pub stun_urls: Vec<String>,
 }
 
 pub struct RemoteTransportFactory;
@@ -84,21 +114,9 @@ impl RemoteTransportFactory {
         on_log: Option<RemoteTransportLogHandler>,
     ) -> Result<Arc<dyn RemoteTransport>, String> {
         install_rustls_crypto_provider();
-        let relay = remote_server_url(&config.server_url);
-        let ws_url = remote_url(
-            &relay,
-            "/ws/host",
-            &[
-                ("hostId", config.host_id.as_str()),
-                ("token", config.host_token.as_str()),
-            ],
-            true,
-        )?;
-        let transport = RemoteWebRtcHostTransport::connect(
-            config, ws_url, on_message, on_state, on_pairing, on_log,
-        )
-        .await?;
-        Ok(transport)
+        RemoteIrohHostTransport::connect(config, on_message, on_state, on_pairing, on_log)
+            .await
+            .map(|transport| transport as Arc<dyn RemoteTransport>)
     }
 
     pub async fn connect_controller(
@@ -108,80 +126,18 @@ impl RemoteTransportFactory {
         on_log: Option<RemoteTransportLogHandler>,
     ) -> Result<Arc<dyn RemoteTransport>, String> {
         install_rustls_crypto_provider();
-        let health_state = Arc::new(ControllerHealthState::new(
-            config.device_id.clone(),
-            Arc::clone(&on_message),
-            Arc::clone(&on_state),
-            on_log.clone(),
-        ));
-        let on_message = {
-            let health_state = Arc::clone(&health_state);
-            Arc::new(move |device_id, data| health_state.handle_message(device_id, data))
-                as RemoteTransportMessageHandler
-        };
-        let on_state = {
-            let health_state = Arc::clone(&health_state);
-            Arc::new(move |device_id, state| health_state.handle_state(device_id, state))
-                as RemoteTransportStateHandler
-        };
         let kind = preferred_controller_transport_kind(
             config
                 .transports
                 .iter()
                 .map(|candidate| (candidate.kind.as_str(), candidate.url.as_str())),
         );
-        let relay = config
-            .transports
-            .iter()
-            .find(|candidate| {
-                candidate.kind == "websocketRelay" && !candidate.url.trim().is_empty()
-            })
-            .map(|candidate| candidate.url.as_str())
-            .unwrap_or(config.server_url.as_str());
-        let ws_url = remote_client_websocket_url(
-            relay,
-            &config.host_id,
-            &config.device_id,
-            Some(&config.device_token),
-        )?;
-        let transport: Arc<dyn RemoteTransport> = match kind {
-            "webRtc" => {
-                let direct_route = DirectRouteState::default();
-                let relay_route = RelayRouteState::default();
-                let relay_state = controller_relay_state_handler(
-                    relay_route.clone(),
-                    direct_route.clone(),
-                    Arc::clone(&on_state),
-                );
-                let relay_transport = RemoteWebSocketControllerTransport::connect(
-                    ws_url,
-                    Arc::clone(&on_message),
-                    relay_state,
-                    on_log.clone(),
-                )
-                .await?;
-                RemoteControllerCompositeTransport::connect(
-                    config,
-                    relay_transport,
-                    direct_route,
-                    relay_route,
-                    on_message,
-                    Arc::clone(&on_state),
-                )
-                .await
-                .map(|transport| transport as Arc<dyn RemoteTransport>)
-            }
-            "websocketRelay" => RemoteWebSocketControllerTransport::connect(
-                ws_url,
-                Arc::clone(&on_message),
-                Arc::clone(&on_state),
-                on_log.clone(),
-            )
+        if kind != codux_protocol::REMOTE_TRANSPORT_IROH {
+            return Err("missing iroh controller transport candidate".to_string());
+        }
+        RemoteIrohControllerTransport::connect(config, on_message, on_state, on_log)
             .await
-            .map(|transport| transport as Arc<dyn RemoteTransport>),
-            _ => Err("missing supported controller transport candidate".to_string()),
-        }?;
-        Ok(ControllerHealthTransport::start(transport, health_state))
+            .map(|transport| transport as Arc<dyn RemoteTransport>)
     }
 }
 

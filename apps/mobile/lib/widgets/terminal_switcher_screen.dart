@@ -290,9 +290,7 @@ class _TerminalList extends StatelessWidget {
             leadingIcon: Icons.add_rounded,
             active: true,
             onTap: creating ? null : onAdd,
-            trailing: creating
-                ? _InlineLoader(color: accent)
-                : null,
+            trailing: creating ? _InlineLoader(color: accent) : null,
           ),
         ],
       );
@@ -309,9 +307,7 @@ class _TerminalList extends StatelessWidget {
             leadingIcon: Icons.add_rounded,
             active: true,
             onTap: creating ? null : onAdd,
-            trailing: creating
-                ? _InlineLoader(color: accent)
-                : null,
+            trailing: creating ? _InlineLoader(color: accent) : null,
           );
         }
         final terminal = terminals[index];
@@ -382,9 +378,7 @@ class _WorktreeList extends StatelessWidget {
             leadingIcon: Icons.add_rounded,
             active: true,
             onTap: creating ? null : onCreate,
-            trailing: creating
-                ? _InlineLoader(color: accent)
-                : null,
+            trailing: creating ? _InlineLoader(color: accent) : null,
           ),
         ],
       );
@@ -403,9 +397,7 @@ class _WorktreeList extends StatelessWidget {
             leadingIcon: Icons.add_rounded,
             active: true,
             onTap: creating ? null : onCreate,
-            trailing: creating
-                ? _InlineLoader(color: accent)
-                : null,
+            trailing: creating ? _InlineLoader(color: accent) : null,
           );
         }
         final item = worktrees[index];
@@ -470,10 +462,7 @@ class _InlineLoader extends StatelessWidget {
     return SizedBox(
       width: 18,
       height: 18,
-      child: CircularProgressIndicator(
-        strokeWidth: 2,
-        color: color,
-      ),
+      child: CircularProgressIndicator(strokeWidth: 2, color: color),
     );
   }
 }

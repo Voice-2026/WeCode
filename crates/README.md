@@ -7,7 +7,7 @@ This directory contains cross-platform Rust crates used by desktop, mobile FFI, 
 | Crate | Role |
 | --- | --- |
 | `codux-protocol` | v3.1 protocol constants, relay envelope DTOs, transport candidates, capabilities, resource subscription helpers, and terminal buffer payload rules. |
-| `codux-remote-transport` | Shared transport layer: WebSocket relay, WebRTC host/controller direct and fallback paths, local memory transport, URL/STUN normalization, and transport factory rules. |
+| `codux-remote-transport` | Shared transport layer: Iroh host/controller links, local memory transport, relay URL normalization for pairing tickets, and transport factory rules. |
 | `codux-protocol-ffi` | C ABI consumed by Flutter. Exposes protocol helpers, controller transport handles, terminal-core session state, and output sequencing. |
 | `codux-runtime-core` | Shared runtime-domain payload rules and subscription router for host.info, project, file, Git, worktree, upload, and terminal domains. |
 | `codux-terminal-core` | Platform-neutral terminal traits and remote terminal state: sequence, baseline restore, cache trimming, and held-live replay. |

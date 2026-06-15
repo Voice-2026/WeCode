@@ -4,7 +4,7 @@ default:
     just --list
 
 desktop *args:
-    cargo run -p codux -- {{args}}
+    sh tools/run-desktop-dev.sh {{args}}
 
 server *args:
     cargo run -p codux-server -- {{args}}

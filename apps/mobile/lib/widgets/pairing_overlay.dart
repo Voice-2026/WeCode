@@ -202,7 +202,7 @@ class PairingOverlay extends StatelessWidget {
 
 String _pairingTransportKind(PairingPayload payload) {
   final kind = remotePreferredTransportKind(payload.transports, pairing: true);
-  return kind.isEmpty ? RemoteTransportKind.websocketRelay : kind;
+  return kind.isEmpty ? RemoteTransportKind.iroh : kind;
 }
 
 class _InfoRow extends StatelessWidget {

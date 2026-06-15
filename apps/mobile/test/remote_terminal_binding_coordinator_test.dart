@@ -86,7 +86,7 @@ void main() {
   );
 
   test(
-    'bind session subscribes project without baseline before session baseline',
+    'bind session subscribes project baseline without duplicate session request',
     () {
       final sent = <RelayEnvelope>[];
       final output = RemoteTerminalOutputController();
@@ -109,10 +109,11 @@ void main() {
       );
 
       expect(result.baselineRequested, isTrue);
-      expect(sent, hasLength(2));
-      expect(sent.first.payload, isNot(containsPair('baseline', true)));
-      expect(sent.last.sessionId, 'term-1');
-      expect(sent.last.payload, containsPair('baseline', true));
+      expect(sent, hasLength(1));
+      expect(sent.single.type, RemoteMessageType.resourceSubscribe);
+      expect(sent.single.sessionId, isNull);
+      expect(sent.single.payload, containsPair('projectId', 'project-1'));
+      expect(sent.single.payload, containsPair('baseline', true));
     },
   );
 }

@@ -1,7 +1,7 @@
-use codux_protocol::REMOTE_PROTOCOL_VERSION;
+use codux_protocol::{REMOTE_HOST_INFO, REMOTE_PROTOCOL_VERSION};
 use codux_remote_transport::{
-    LocalMemoryTransportHub, RemoteHostTransportConfig, RemoteTransport, RemoteTransportKind,
-    remote_server_url, remote_stun_urls, remote_url,
+    RemoteControllerTransportConfig, RemoteHostTransportConfig, RemoteTransportCandidate,
+    RemoteTransportFactory,
 };
 use codux_runtime_core::terminal::terminal_snapshot_payload;
 use codux_terminal_core::{TerminalDriver, TerminalLaunchConfig, TerminalSessionHandle};
@@ -11,6 +11,7 @@ use std::{
     sync::{Arc, Mutex},
     thread, time,
 };
+use tokio::sync::oneshot;
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -79,55 +80,80 @@ fn run_pty_smoke() -> Result<String, String> {
 }
 
 fn run_transport_smoke() -> Result<String, String> {
+    tokio::runtime::Runtime::new()
+        .map_err(|error| error.to_string())?
+        .block_on(run_transport_smoke_async())
+}
+
+async fn run_transport_smoke_async() -> Result<String, String> {
     let config = RemoteHostTransportConfig {
-        server_url: "https://relay.example".to_string(),
+        relay_url: "https://relay.example".to_string(),
+        relay_preset: "global".to_string(),
+        iroh_relay_url: String::new(),
+        iroh_relay_authentication: String::new(),
         host_id: "host-smoke".to_string(),
         host_token: "token-smoke".to_string(),
-        stun_urls: remote_stun_urls(),
     };
-    let relay = remote_server_url(&config.server_url);
-    let url = remote_url(
-        &relay,
-        "/ws/host",
-        &[
-            ("hostId", config.host_id.as_str()),
-            ("token", config.host_token.as_str()),
-        ],
-        true,
-    )?;
-    let hub = LocalMemoryTransportHub::new();
-    let received = Arc::new(Mutex::new(Vec::<String>::new()));
-    let host = hub.connect(
-        "host-smoke",
-        RemoteTransportKind::WebSocketRelay,
+    let (received_tx, received_rx) = oneshot::channel::<String>();
+    let received_tx = Arc::new(Mutex::new(Some(received_tx)));
+    let host = RemoteTransportFactory::connect_host(
+        &config,
         {
-            let received = Arc::clone(&received);
+            let received_tx = Arc::clone(&received_tx);
             Arc::new(move |source, data| {
+                let Ok(mut guard) = received_tx.lock() else {
+                    return;
+                };
+                let Some(tx) = guard.take() else {
+                    return;
+                };
                 let text = String::from_utf8(data).unwrap_or_default();
-                received.lock().unwrap().push(format!("{source}:{text}"));
+                let _ = tx.send(format!("{source}:{text}"));
             })
         },
         Arc::new(|_, _| {}),
-    );
-    let controller = hub.connect(
-        "device-smoke",
-        RemoteTransportKind::WebSocketRelay,
+        Arc::new(|_| {}),
+        None,
+    )
+    .await?;
+    let (node_id, relay_url) = host
+        .iroh_candidate()
+        .ok_or_else(|| "iroh host candidate missing".to_string())?;
+    let controller_config = RemoteControllerTransportConfig {
+        relay_url: config.relay_url,
+        host_id: config.host_id,
+        device_id: "device-smoke".to_string(),
+        device_token: "token-smoke".to_string(),
+        transports: vec![RemoteTransportCandidate {
+            kind: codux_protocol::REMOTE_TRANSPORT_IROH.to_string(),
+            url: "https://relay.example/v3".to_string(),
+            node_id,
+            relay_url,
+            ticket: host.iroh_endpoint_ticket().unwrap_or_default(),
+            relay_authentication: String::new(),
+        }],
+    };
+    let controller = RemoteTransportFactory::connect_controller(
+        &controller_config,
         Arc::new(|_, _| {}),
         Arc::new(|_, _| {}),
-    );
-    if !controller.send(b"codux-agent-transport-ok".to_vec(), Some(host.id())) {
-        return Err("local memory transport send failed".to_string());
+        None,
+    )
+    .await?;
+    let envelope = serde_json::json!({
+        "type": REMOTE_HOST_INFO,
+        "deviceId": controller_config.device_id,
+        "payload": { "smoke": "codux-agent-transport-ok" },
+    });
+    let data = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
+    if !controller.send(data, None) {
+        return Err("iroh transport send failed".to_string());
     }
-    let observed = received
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|line| line == "device-smoke:codux-agent-transport-ok");
-    if !observed {
-        return Err("local memory transport message not observed".to_string());
-    }
-    Ok(format!(
-        "codux-agent-transport-ok\nrelay={relay}\nurl={url}\nstun={}\nlocal=ok",
-        config.stun_urls.len()
-    ))
+    let observed = tokio::time::timeout(time::Duration::from_secs(5), received_rx)
+        .await
+        .map_err(|_| "iroh transport message timeout".to_string())?
+        .map_err(|_| "iroh transport message receiver closed".to_string())?;
+    host.shutdown().await;
+    controller.shutdown().await;
+    Ok(format!("codux-agent-transport-ok\nreceived={observed}"))
 }

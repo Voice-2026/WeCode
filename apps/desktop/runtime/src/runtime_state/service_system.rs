@@ -254,25 +254,25 @@ impl RuntimeService {
         }
     }
 
-    pub fn set_remote_server_url(
+    pub fn set_remote_relay_url(
         &self,
-        server_url: &str,
+        relay_url: &str,
     ) -> Result<(SettingsSummary, RemoteSummary), String> {
-        self.set_remote_server_url_with_device_reset(server_url, false)
+        self.set_remote_relay_url_with_device_reset(relay_url, false)
     }
 
-    pub fn set_remote_server_url_with_device_reset(
+    pub fn set_remote_relay_url_with_device_reset(
         &self,
-        server_url: &str,
+        relay_url: &str,
         reset_devices: bool,
     ) -> Result<(SettingsSummary, RemoteSummary), String> {
-        let server_url = server_url.trim();
-        let relay_preset = if server_url.is_empty() {
-            crate::remote::remote_relay_preset_for_url(server_url)
+        let relay_url = relay_url.trim();
+        let relay_preset = if relay_url.is_empty() {
+            crate::remote::remote_relay_preset_for_url(relay_url)
         } else {
             "custom".to_string()
         };
-        self.update_remote_relay_settings(relay_preset, server_url.to_string(), reset_devices)
+        self.update_remote_relay_settings(relay_preset, relay_url.to_string(), reset_devices)
     }
 
     pub fn set_remote_relay_preset(
@@ -294,20 +294,44 @@ impl RuntimeService {
             _ => "global",
         };
         let current = self.reload_settings();
-        let server_url =
-            crate::remote::remote_relay_url_for_preset(relay_preset, &current.remote_server_url);
-        self.update_remote_relay_settings(relay_preset.to_string(), server_url, reset_devices)
+        let relay_url =
+            crate::remote::remote_relay_url_for_preset(relay_preset, &current.remote_relay_url);
+        self.update_remote_relay_settings(relay_preset.to_string(), relay_url, reset_devices)
+    }
+
+    pub fn set_remote_relay_authentication_with_device_reset(
+        &self,
+        relay_authentication: &str,
+        reset_devices: bool,
+    ) -> Result<(SettingsSummary, RemoteSummary), String> {
+        let relay_authentication = relay_authentication.trim().to_string();
+        let app_settings = self.update_app_settings(|settings| {
+            settings.remote.relay_authentication = relay_authentication;
+            if reset_devices {
+                settings.remote.cached_devices.clear();
+            }
+        })?;
+        if reset_devices {
+            self.remote_host.clear_pairing_state();
+        }
+        let remote = if app_settings.remote.is_enabled {
+            self.remote_host.reconnect()
+        } else {
+            self.remote_host.reload_snapshot_from_settings()
+        };
+        let settings = self.reload_settings();
+        Ok((settings, remote))
     }
 
     fn update_remote_relay_settings(
         &self,
         relay_preset: String,
-        server_url: String,
+        relay_url: String,
         reset_devices: bool,
     ) -> Result<(SettingsSummary, RemoteSummary), String> {
         let app_settings = self.update_app_settings(|settings| {
             settings.remote.relay_preset = relay_preset;
-            settings.remote.server_url = server_url;
+            settings.remote.relay_url = relay_url;
             if reset_devices {
                 settings.remote.cached_devices.clear();
             }

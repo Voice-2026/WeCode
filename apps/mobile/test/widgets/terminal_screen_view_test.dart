@@ -231,6 +231,331 @@ void main() {
     },
   );
 
+  testWidgets(
+    'remote terminal scrolls locally inside the confirmed host window',
+    (tester) async {
+      final scrollPixels = <double>[];
+      final snapshot = _snapshot(
+        totalLines: 200,
+        displayOffset: 8,
+        marginRows: 8,
+        marginRowsBelow: 4,
+      );
+
+      await tester.pumpWidget(
+        _terminalHarness(
+          snapshot: snapshot,
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      final initialOffset = scrollable.position.pixels;
+
+      await tester.drag(find.byType(TerminalScreenView), const Offset(0, 40));
+      await tester.pump();
+      expect(scrollable.position.pixels, lessThan(initialOffset));
+      expect(scrollPixels, isEmpty);
+
+      // Rebuilding before a new host snapshot arrives keeps the local
+      // scroll position; it does not jump back to the previous confirmed
+      // edge or emit another remote request.
+      await tester.pumpWidget(
+        _terminalHarness(
+          snapshot: snapshot,
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+      expect(scrollable.position.pixels, lessThan(initialOffset));
+      expect(scrollPixels, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'remote terminal paints only the confirmed host snapshot window',
+    (tester) async {
+      final scrollPixels = <double>[];
+      final snapshot = _snapshot(
+        totalLines: 200,
+        displayOffset: 8,
+        marginRows: 4,
+        marginRowsBelow: 2,
+      );
+
+      await tester.pumpWidget(
+        _terminalHarness(
+          snapshot: snapshot,
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+
+      await tester.drag(find.byType(TerminalScreenView), const Offset(0, 400));
+      await tester.pump();
+
+      expect(scrollPixels.fold<double>(0, (sum, value) => sum + value), 400);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('remote terminal with no history cannot scroll past the prompt', (
+    tester,
+  ) async {
+    final scrollPixels = <double>[];
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: _snapshot(totalLines: 1, rows: 1),
+        remoteScroll: true,
+        onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(TerminalScreenView), const Offset(0, 160));
+    await tester.pump();
+    await tester.pump();
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.pixels, 0);
+    expect(scrollPixels, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'remote terminal ignores empty host rows when only the prompt has content',
+    (tester) async {
+      final scrollPixels = <double>[];
+
+      await tester.pumpWidget(
+        _terminalHarness(
+          snapshot: _snapshot(
+            totalLines: 24,
+            rows: 24,
+            cursorRow: 0,
+            cellRow: 0,
+          ),
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+
+      await tester.drag(find.byType(TerminalScreenView), const Offset(0, 160));
+      await tester.pump();
+      await tester.pump();
+
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      expect(scrollable.position.pixels, 0);
+      expect(scrollPixels, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('remote terminal with no history ignores upward drags too', (
+    tester,
+  ) async {
+    final scrollPixels = <double>[];
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: _snapshot(totalLines: 24, rows: 24, cursorRow: 0, cellRow: 0),
+        remoteScroll: true,
+        onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(TerminalScreenView), const Offset(0, -160));
+    await tester.pump();
+    await tester.pump();
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.pixels, 0);
+    expect(scrollPixels, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'remote terminal does not pin to bottom when total lines are only screen rows',
+    (tester) async {
+      final scrollPixels = <double>[];
+
+      await tester.pumpWidget(
+        _terminalHarness(
+          height: 240,
+          snapshot: _snapshot(totalLines: 80, rows: 80),
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      expect(scrollable.position.pixels, 0);
+      expect(scrollPixels, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('remote terminal row guard handles invalid host margins', (
+    tester,
+  ) async {
+    final scrollPixels = <double>[];
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: _snapshot(
+          totalLines: 24,
+          rows: 10,
+          marginRows: 10,
+          marginRowsBelow: 10,
+        ),
+        remoteScroll: true,
+        onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(TerminalScreenView), const Offset(0, 160));
+    await tester.pump();
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote terminal requests host data when leaving confirmed window', (
+    tester,
+  ) async {
+    final scrollPixels = <double>[];
+    final snapshot = _snapshot(
+      totalLines: 200,
+      displayOffset: 8,
+      marginRows: 4,
+      marginRowsBelow: 2,
+    );
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: snapshot,
+        remoteScroll: true,
+        onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(TerminalScreenView), const Offset(0, 400));
+    await tester.pump();
+    await tester.pump();
+
+    expect(scrollPixels.fold<double>(0, (sum, value) => sum + value), 400);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote terminal prefetches before reaching snapshot edge', (
+    tester,
+  ) async {
+    final scrollPixels = <double>[];
+    final snapshot = _snapshot(
+      totalLines: 200,
+      displayOffset: 24,
+      rows: 60,
+      marginRows: 24,
+      marginRowsBelow: 24,
+    );
+
+    await tester.pumpWidget(
+      _terminalHarness(
+        snapshot: snapshot,
+        remoteScroll: true,
+        onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(TerminalScreenView), const Offset(0, 120));
+    await tester.pump();
+    expect(scrollPixels, isEmpty);
+
+    await tester.drag(find.byType(TerminalScreenView), const Offset(0, 180));
+    await tester.pump();
+    expect(scrollPixels.fold<double>(0, (sum, value) => sum + value), 300);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'remote terminal prefetches history from live-tail snapshot',
+    (tester) async {
+      final scrollPixels = <double>[];
+      final snapshot = _snapshot(
+        totalLines: 200,
+        displayOffset: 0,
+        rows: 48,
+        marginRows: 24,
+        marginRowsBelow: 0,
+      );
+
+      await tester.pumpWidget(
+        _terminalHarness(
+          snapshot: snapshot,
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+
+      await tester.drag(find.byType(TerminalScreenView), const Offset(0, 120));
+      await tester.pump();
+      expect(scrollPixels.fold<double>(0, (sum, value) => sum + value), 120);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'remote terminal clamps only at the full scrollback boundary',
+    (tester) async {
+      final scrollPixels = <double>[];
+      final snapshot = _snapshot(
+        totalLines: 200,
+        displayOffset: 8,
+        marginRows: 4,
+        marginRowsBelow: 2,
+      );
+
+      await tester.pumpWidget(
+        _terminalHarness(
+          snapshot: snapshot,
+          remoteScroll: true,
+          onScrollPixels: (pixels, _) => scrollPixels.add(pixels),
+        ),
+      );
+      await tester.pump();
+
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      final initialOffset = scrollable.position.pixels;
+
+      await tester.drag(find.byType(TerminalScreenView), const Offset(0, 5000));
+      await tester.pump();
+
+      expect(scrollable.position.pixels, 0);
+      expect(scrollable.position.pixels, lessThan(initialOffset));
+      // Only the actual movement from the current viewport to the top of
+      // scrollback is sent to the host. Extra drag distance is ScrollView
+      // boundary overscroll, not terminal history.
+      expect(
+        scrollPixels.fold<double>(0, (sum, value) => sum + value),
+        closeTo(initialOffset, 0.01),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('native terminal defers follow-tail scroll until after build', (
     tester,
   ) async {
@@ -348,6 +673,41 @@ void main() {
     await tester.pump();
     expect(tester.testTextInput.hasAnyClients, isFalse);
   });
+
+  testWidgets('long press selects terminal text for copy', (tester) async {
+    String? selectedText;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: SizedBox(
+          width: 320,
+          height: 24,
+          child: TerminalScreenView(
+            snapshot: _textSnapshot('hello'),
+            keyboardRequested: false,
+            scrollEnabled: true,
+            onInput: (_) {},
+            onResize: (_, _) {},
+            onScrollPixels: (_, _) {},
+            onSettleScroll: () {},
+            onScrollToBottom: () {},
+            onCursorBottom: (_) {},
+            onSelectionChanged: (text) => selectedText = text,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final terminal = find.byType(TerminalScreenView);
+    final topLeft = tester.getTopLeft(terminal);
+    final gesture = await tester.startGesture(topLeft + const Offset(4, 590));
+    await tester.pump(const Duration(milliseconds: 650));
+    await gesture.up();
+    await tester.pump();
+
+    expect(selectedText, 'h');
+  });
 }
 
 Future<void> _sendTextInputSelectors(
@@ -374,7 +734,10 @@ int _currentTextInputClient(WidgetTester tester) {
 Widget _terminalHarness({
   TerminalScreenSnapshot? snapshot,
   bool keyboardRequested = false,
+  bool remoteScroll = false,
+  double height = 240,
   ValueChanged<String>? onInput,
+  ValueChanged<String?>? onSelectionChanged,
   required void Function(double pixels, double cellHeight) onScrollPixels,
   VoidCallback? onScrollToBottom,
 }) {
@@ -382,18 +745,56 @@ Widget _terminalHarness({
     theme: buildAppTheme(),
     home: SizedBox(
       width: 320,
-      height: 240,
+      height: height,
       child: TerminalScreenView(
         snapshot: snapshot ?? _snapshot(),
         keyboardRequested: keyboardRequested,
         scrollEnabled: true,
+        remoteScroll: remoteScroll,
         onInput: onInput ?? (_) {},
         onResize: (_, _) {},
         onScrollPixels: onScrollPixels,
         onSettleScroll: () {},
         onScrollToBottom: onScrollToBottom ?? () {},
         onCursorBottom: (_) {},
+        onSelectionChanged: onSelectionChanged,
       ),
+    ),
+  );
+}
+
+TerminalScreenSnapshot _textSnapshot(String text) {
+  return TerminalScreenSnapshot(
+    data: text,
+    cols: 80,
+    rows: 1,
+    totalLines: 1,
+    displayOffset: 0,
+    scrollPixelOffset: 0,
+    applicationCursor: false,
+    cells: [
+      for (var i = 0; i < text.length; i++)
+        TerminalScreenCell(
+          row: 0,
+          col: i,
+          text: text[i],
+          width: 1,
+          fg: {'kind': 'default'},
+          bg: {'kind': 'default'},
+          bold: false,
+          dim: false,
+          italic: false,
+          underline: false,
+          inverse: false,
+          hidden: false,
+          strikeout: false,
+        ),
+    ],
+    cursor: const TerminalScreenCursor(
+      row: 0,
+      col: 5,
+      visible: true,
+      shape: TerminalScreenCursorShape.block,
     ),
   );
 }
@@ -403,18 +804,25 @@ TerminalScreenSnapshot _snapshot({
   double scrollPixelOffset = 0,
   String data = 'ready',
   int totalLines = 24,
+  int rows = 24,
+  int cursorRow = 0,
+  int cellRow = 0,
+  int marginRows = 0,
+  int marginRowsBelow = 0,
 }) {
   return TerminalScreenSnapshot(
     data: data,
     cols: 80,
-    rows: 24,
+    rows: rows,
     totalLines: totalLines,
     displayOffset: displayOffset,
+    marginRows: marginRows,
+    marginRowsBelow: marginRowsBelow,
     scrollPixelOffset: scrollPixelOffset,
     applicationCursor: false,
     cells: [
       TerminalScreenCell(
-        row: 0,
+        row: cellRow,
         col: 0,
         text: 'r',
         width: 1,
@@ -430,7 +838,7 @@ TerminalScreenSnapshot _snapshot({
       ),
     ],
     cursor: TerminalScreenCursor(
-      row: 0,
+      row: cursorRow,
       col: 1,
       visible: true,
       shape: TerminalScreenCursorShape.block,

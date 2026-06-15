@@ -1,83 +1,91 @@
 import 'dart:convert';
-import 'dart:io';
-
 import 'package:codux_flutter/models/remote_models.dart';
 import 'package:codux_flutter/services/remote_protocol_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('stored device reads v3 transport candidates', () {
+  test('stored device reads iroh transport candidates', () {
     final device = StoredDevice.fromJson({
-      'server': 'https://codux-service.dux.plus/v3',
+      'server': 'https://relay.example',
       'hostId': 'host-1',
       'deviceId': 'device-1',
       'token': '',
       'name': 'Phone',
-      'transports': [
-        {
-          'kind': 'websocketRelay',
-          'role': 'host',
-          'url': 'https://codux-service.dux.plus/v3',
-        },
-      ],
+      'transports': [irohCandidate(url: 'https://relay.example')],
     });
 
     expect(
       remotePreferredTransportKind(device.transports, pairing: false),
-      RemoteTransportKind.websocketRelay,
+      RemoteTransportKind.iroh,
     );
     expect(
-      device.transportByKind(RemoteTransportKind.websocketRelay)?.url,
-      'https://codux-service.dux.plus/v3',
+      device.transportByKind(RemoteTransportKind.iroh)?.url,
+      'https://relay.example',
     );
+    expect(device.transportByKind(RemoteTransportKind.iroh)?.nodeId, 'node-1');
   });
 
   test(
-    'v3 pairing ticket fetches payload and confirmation uses transport candidates',
+    'embedded iroh ticket pairing payload parses without relay ticket fetch',
     () async {
-      final qr = await pairingTicketQr({
+      final qr = embeddedPairingQr({
         'protocolVersion': remoteProtocolVersion,
         'code': '205503D6',
         'secret': 'pairing-secret',
         'pairingId': 'pair-1',
         'hostId': 'host-1',
-        'hostPublicKey': 'host-public-key',
-        'cryptoVersion': 1,
         'hostName': 'Mac',
         'transports': [
-          {
-            'kind': 'websocketRelay',
-            'role': 'host',
-            'url': 'https://codux-service.dux.plus/v3',
-          },
-          {
-            'kind': 'webRtc',
-            'role': 'host',
-            'url': 'https://codux-service.dux.plus/v3',
-          },
+          irohCandidate(
+            url: 'https://relay.example',
+            ticket: 'endpointabc',
+            relayAuthentication: 'relay-token',
+          ),
         ],
+      });
+
+      final payload = await parsePairingPayload(qr);
+      final transport = payload.transportByKind(RemoteTransportKind.iroh);
+      expect(payload.server, 'https://relay.example');
+      expect(transport?.ticket, 'endpointabc');
+      expect(transport?.relayAuthentication, 'relay-token');
+    },
+  );
+
+  test(
+    'embedded iroh token payload and confirmation use transport candidates',
+    () async {
+      final qr = embeddedPairingQr({
+        'protocolVersion': remoteProtocolVersion,
+        'code': '205503D6',
+        'secret': 'pairing-secret',
+        'pairingId': 'pair-1',
+        'hostId': 'host-1',
+        'hostName': 'Mac',
+        'transports': [irohCandidate(url: 'https://relay.example')],
       });
 
       final payload = await parsePairingPayload(qr);
       expect(
         remotePreferredTransportKind(payload.transports, pairing: true),
-        RemoteTransportKind.websocketRelay,
+        RemoteTransportKind.iroh,
       );
       expect(payload.hostId, 'host-1');
       expect(payload.pairingId, 'pair-1');
       expect(
-        payload.transportByKind(RemoteTransportKind.websocketRelay)?.url,
-        'https://codux-service.dux.plus/v3',
+        payload.transportByKind(RemoteTransportKind.iroh)?.url,
+        'https://relay.example',
+      );
+      expect(
+        payload.transportByKind(RemoteTransportKind.iroh)?.nodeId,
+        'node-1',
       );
 
       final request = pairingRequestEnvelope(payload, 'Phone');
       expect(request.type, 'pairing.request');
       expect((request.payload as Map)['pairingId'], 'pair-1');
       expect((request.payload as Map)['deviceName'], 'Phone');
-      expect(
-        (request.payload as Map)['devicePublicKey'],
-        payload.devicePublicKey,
-      );
+      expect((request.payload as Map)['deviceId'], payload.deviceId);
 
       final confirmed = confirmedDevice(
         payload: payload,
@@ -94,83 +102,55 @@ void main() {
       );
       expect(
         remotePreferredTransportKind(confirmed.transports, pairing: false),
-        RemoteTransportKind.webRtc,
+        RemoteTransportKind.iroh,
       );
-      expect(confirmed.server, 'https://codux-service.dux.plus/v3');
-      expect(confirmed.devicePublicKey, payload.devicePublicKey);
+      expect(confirmed.server, 'https://relay.example');
+      expect(confirmed.deviceId, 'device-1');
       expect(confirmed.toJson()['transports'], [
-        {
-          'kind': 'websocketRelay',
-          'role': 'host',
-          'url': 'https://codux-service.dux.plus/v3',
-        },
-        {
-          'kind': 'webRtc',
-          'role': 'host',
-          'url': 'https://codux-service.dux.plus/v3',
-        },
+        irohCandidate(url: 'https://relay.example'),
       ]);
     },
   );
 
-  test('manual pairing code fetches the same v3 payload shape', () async {
-    final manual = await manualPairingCodeUri({
+  test('pasted bare token parses like a scanned qr payload', () async {
+    final manual = embeddedPairingToken({
       'protocolVersion': remoteProtocolVersion,
       'code': '123456',
       'secret': 'pairing-secret',
       'pairingId': 'pair-1',
       'hostId': 'host-1',
-      'hostPublicKey': 'host-public-key',
-      'cryptoVersion': 1,
       'hostName': 'Mac',
-      'transports': [
-        {
-          'kind': 'websocketRelay',
-          'role': 'host',
-          'url': 'https://codux-service.dux.plus/v3',
-        },
-      ],
+      'transports': [irohCandidate(url: 'https://relay.example')],
     });
 
     final payload = await parsePairingPayload(manual);
+    expect(payload.server, 'https://relay.example');
     expect(payload.code, '123456');
     expect(payload.hostId, 'host-1');
     expect(payload.pairingId, 'pair-1');
     expect(
-      payload.transportByKind(RemoteTransportKind.websocketRelay)?.url,
-      'https://codux-service.dux.plus/v3',
+      payload.transportByKind(RemoteTransportKind.iroh)?.url,
+      'https://relay.example',
     );
   });
 
-  test('manual pairing code must be six digits', () {
-    expect(normalizePairingCode('123456'), '123456');
-    expect(normalizePairingCode('123 456'), '123456');
-    expect(normalizePairingCode('12345'), isNull);
-    expect(normalizePairingCode('1234567'), isNull);
-  });
-
-  test('pairing payload rejects missing supported transport', () async {
-    final qr = await pairingTicketQr({
+  test('pairing payload rejects missing iroh transport', () async {
+    final qr = embeddedPairingQr({
       'protocolVersion': remoteProtocolVersion,
       'code': '205503D6',
       'secret': 'pairing-secret',
       'pairingId': 'pair-1',
       'hostId': 'host-1',
-      'hostPublicKey': 'host-public-key',
-      'cryptoVersion': 1,
-      'transports': [
-        {'kind': 'webRtc'},
-      ],
+      'transports': const [],
     });
 
     expect(() => parsePairingPayload(qr), throwsException);
   });
 
-  test('pairing payload reports missing encrypted fields', () async {
-    final qr = await pairingTicketQr({
+  test('pairing payload reports missing required fields', () async {
+    final qr = embeddedPairingQr({
       'protocolVersion': remoteProtocolVersion,
       'code': '205503D6',
-      'cryptoVersion': 1,
     });
 
     expect(
@@ -187,12 +167,7 @@ void main() {
             .having(
               (error) => error.toString(),
               'message',
-              contains('hostPublicKey'),
-            )
-            .having(
-              (error) => error.toString(),
-              'message',
-              contains('transports.websocketRelay.url'),
+              contains('transports.iroh.ticket'),
             ),
       ),
     );
@@ -200,20 +175,13 @@ void main() {
 
   test('confirmation rejects incomplete device credentials', () async {
     final payload = await parsePairingPayload(
-      await pairingTicketQr({
+      embeddedPairingQr({
         'protocolVersion': remoteProtocolVersion,
         'code': '205503D6',
         'secret': 'pairing-secret',
         'pairingId': 'pair-1',
         'hostId': 'host-1',
-        'hostPublicKey': 'host-public-key',
-        'cryptoVersion': 1,
-        'transports': [
-          {
-            'kind': 'websocketRelay',
-            'url': 'https://codux-service.dux.plus/v3',
-          },
-        ],
+        'transports': [irohCandidate(url: 'https://relay.example')],
       }),
     );
     expect(
@@ -235,22 +203,14 @@ void main() {
     );
   });
 
-  test('pairing payload requires host id for stateless v3 relay', () async {
-    final qr = await pairingTicketQr({
+  test('pairing payload requires host id for iroh ticket pairing', () async {
+    final qr = embeddedPairingQr({
       'protocolVersion': remoteProtocolVersion,
       'code': '205503D6',
       'secret': 'pairing-secret',
       'pairingId': 'pair-1',
-      'hostPublicKey': 'host-public-key',
-      'cryptoVersion': 1,
       'hostName': 'Mac',
-      'transports': [
-        {
-          'kind': 'websocketRelay',
-          'role': 'host',
-          'url': 'https://codux-service.dux.plus',
-        },
-      ],
+      'transports': [irohCandidate(url: 'https://relay.example')],
     });
 
     expect(
@@ -264,50 +224,80 @@ void main() {
       ),
     );
   });
+
+  test(
+    'embedded payload keeps its iroh candidate url as connection authority',
+    () async {
+      final qr = embeddedPairingQr({
+        'protocolVersion': remoteProtocolVersion,
+        'code': '205503D6',
+        'secret': 'pairing-secret',
+        'pairingId': 'pair-1',
+        'hostId': 'host-1',
+        'hostName': 'Mac',
+        'transports': [irohCandidate(url: 'https://stale-relay.example')],
+      });
+
+      final payload = await parsePairingPayload(qr);
+
+      expect(payload.server, 'https://stale-relay.example');
+      expect(
+        payload.transportByKind(RemoteTransportKind.iroh)?.url,
+        'https://stale-relay.example',
+      );
+      expect(
+        payload.transportByKind(RemoteTransportKind.iroh)?.relayUrl,
+        'https://relay.example',
+      );
+
+      final confirmed = confirmedDevice(
+        payload: payload,
+        name: 'Phone',
+        confirmed: const RelayEnvelope(
+          type: 'pairing.confirmed',
+          payload: {
+            'hostId': 'host-1',
+            'deviceId': 'device-1',
+            'token': '',
+            'hostName': 'Mac',
+          },
+        ),
+      );
+
+      expect(confirmed.server, 'https://stale-relay.example');
+      expect(
+        confirmed.transportByKind(RemoteTransportKind.iroh)?.url,
+        'https://stale-relay.example',
+      );
+    },
+  );
 }
 
-Future<String> pairingTicketQr(Map<String, dynamic> payload) async {
-  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-  final ticket = 'ticket-1';
-  final uri = Uri.parse('http://${server.address.host}:${server.port}/v3');
-  server.listen((request) {
-    if (request.method == 'GET' &&
-        request.uri.path == '/v3/api/tickets/$ticket') {
-      request.response.headers.contentType = ContentType.json;
-      request.response.write(jsonEncode(payload));
-      request.response.close();
-      return;
-    }
-    request.response.statusCode = HttpStatus.notFound;
-    request.response.close();
-  });
-  addTearDown(server.close);
+Map<String, dynamic> irohCandidate({
+  required String url,
+  String ticket = '',
+  String relayAuthentication = '',
+}) =>
+    {
+      'kind': RemoteTransportKind.iroh,
+      'role': 'host',
+      'url': url,
+      'nodeId': 'node-1',
+      'relayUrl': 'https://relay.example',
+      if (ticket.isNotEmpty) 'ticket': ticket,
+      if (relayAuthentication.isNotEmpty)
+        'relayAuthentication': relayAuthentication,
+    };
+
+String embeddedPairingQr(Map<String, dynamic> payload) {
+  final encoded = base64Url.encode(utf8.encode(jsonEncode(payload)));
   return Uri(
     scheme: 'codux',
     host: 'pair',
-    queryParameters: {'server': uri.toString(), 'ticket': ticket},
+    queryParameters: {'payload': encoded},
   ).toString();
 }
 
-Future<String> manualPairingCodeUri(Map<String, dynamic> payload) async {
-  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-  const code = '123456';
-  final uri = Uri.parse('http://${server.address.host}:${server.port}/v3');
-  server.listen((request) {
-    if (request.method == 'GET' &&
-        request.uri.path == '/v3/api/pairings/code/$code') {
-      request.response.headers.contentType = ContentType.json;
-      request.response.write(jsonEncode(payload));
-      request.response.close();
-      return;
-    }
-    request.response.statusCode = HttpStatus.notFound;
-    request.response.close();
-  });
-  addTearDown(server.close);
-  return Uri(
-    scheme: 'codux',
-    host: 'manual-pair',
-    queryParameters: {'server': uri.toString(), 'code': code},
-  ).toString();
+String embeddedPairingToken(Map<String, dynamic> payload) {
+  return base64Url.encode(utf8.encode(jsonEncode(payload)));
 }

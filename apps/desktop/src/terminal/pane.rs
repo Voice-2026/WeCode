@@ -22,12 +22,8 @@ impl TerminalPane {
                 .send(TerminalUiEvent::Error(message))
                 .is_ok(),
             TerminalEvent::Output { .. } => session_event_tx.send(TerminalUiEvent::Wakeup).is_ok(),
-            TerminalEvent::Viewport {
-                cols, rows, owner, ..
-            } => session_event_tx
+            TerminalEvent::Viewport { owner, .. } => session_event_tx
                 .send(TerminalUiEvent::Viewport {
-                    cols,
-                    rows,
                     remote_owner: owner != terminal_viewport_local_owner(),
                 })
                 .is_ok(),
@@ -160,12 +156,8 @@ impl TerminalPane {
                 .send(TerminalUiEvent::Error(message))
                 .is_ok(),
             TerminalEvent::Output { .. } => session_event_tx.send(TerminalUiEvent::Wakeup).is_ok(),
-            TerminalEvent::Viewport {
-                cols, rows, owner, ..
-            } => session_event_tx
+            TerminalEvent::Viewport { owner, .. } => session_event_tx
                 .send(TerminalUiEvent::Viewport {
-                    cols,
-                    rows,
                     remote_owner: owner != terminal_viewport_local_owner(),
                 })
                 .is_ok(),

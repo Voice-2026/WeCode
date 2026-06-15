@@ -9,10 +9,10 @@ impl RemoteService {
 }
 
 pub(crate) fn remote_summary_from_settings(mut settings: RemoteSettings) -> RemoteSummary {
-    settings.server_url = if settings.server_url.trim().is_empty() {
+    settings.relay_url = if settings.relay_url.trim().is_empty() {
         super::relay::remote_relay_url_for_preset("", "")
     } else {
-        settings.server_url.trim().to_string()
+        settings.relay_url.trim().to_string()
     };
     settings.cached_devices.retain(|device| {
         !device.id.trim().is_empty()
@@ -42,18 +42,16 @@ pub(crate) fn remote_summary_from_settings(mut settings: RemoteSettings) -> Remo
         .count();
     RemoteSummary {
         enabled,
-        relay: settings.server_url,
+        relay: settings.relay_url,
         devices: device_list.len(),
-        encryption: if enabled && !settings.host_public_key.trim().is_empty() {
+        encryption: if enabled {
             "configured".to_string()
-        } else if enabled {
-            "pending".to_string()
         } else {
             "disabled".to_string()
         },
         status: if enabled { "connecting" } else { "stopped" }.to_string(),
         message: if enabled {
-            "Connecting relay...".to_string()
+            "Connecting remote transport...".to_string()
         } else {
             "Remote Host stopped.".to_string()
         },

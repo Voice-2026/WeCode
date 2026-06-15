@@ -4,7 +4,7 @@ import '../models/remote_models.dart';
 
 class StorageService {
   static const devicesKey = 'codux.mobile.devices';
-  static const legacyDeviceKey = 'codux.mobile.device';
+  static const singleDeviceKey = 'codux.mobile.device';
   static const lastDeviceIdKey = 'codux.mobile.last_device_id';
   static const settingsKey = 'codux.mobile.settings';
   static const projectCachePrefix = 'codux.mobile.projects';
@@ -14,19 +14,44 @@ class StorageService {
     final value = prefs.getString(devicesKey);
     if (value != null && value.isNotEmpty) {
       final list = jsonDecode(value) as List<dynamic>;
-      return list
+      final devices = list
           .map((item) => StoredDevice.fromJson(item as Map<String, dynamic>))
           .toList();
+      return _normalizeAndPersistDevices(prefs, devices);
     }
-    final legacy = prefs.getString(legacyDeviceKey);
-    if (legacy != null && legacy.isNotEmpty) {
+    final singleDevice = prefs.getString(singleDeviceKey);
+    if (singleDevice != null && singleDevice.isNotEmpty) {
       final migrated = [
-        StoredDevice.fromJson(jsonDecode(legacy) as Map<String, dynamic>),
+        StoredDevice.fromJson(jsonDecode(singleDevice) as Map<String, dynamic>),
       ];
       await saveDevices(migrated);
       return migrated;
     }
     return [];
+  }
+
+  Future<List<StoredDevice>> _normalizeAndPersistDevices(
+    SharedPreferences prefs,
+    List<StoredDevice> devices,
+  ) async {
+    final normalized = devices.map(_normalizeDeviceTransport).toList();
+    if (jsonEncode(normalized.map((item) => item.toJson()).toList()) !=
+        jsonEncode(devices.map((item) => item.toJson()).toList())) {
+      await prefs.setString(
+        devicesKey,
+        jsonEncode(normalized.map((item) => item.toJson()).toList()),
+      );
+    }
+    return normalized;
+  }
+
+  StoredDevice _normalizeDeviceTransport(StoredDevice device) {
+    final transports = device.transports
+        .where((candidate) => candidate.kind == RemoteTransportKind.iroh)
+        .toList();
+    return transports.length == device.transports.length
+        ? device
+        : device.copyWith(transports: transports);
   }
 
   Future<void> saveDevices(List<StoredDevice> devices) async {

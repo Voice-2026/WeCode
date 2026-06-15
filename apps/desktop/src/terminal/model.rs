@@ -298,48 +298,36 @@ impl TerminalModel {
     fn process_pending_events(&mut self, _cx: &mut Context<Self>) -> bool {
         let mut should_notify = false;
         while let Ok(event) = self.session_event_rx.try_recv() {
-            match event {
-                TerminalUiEvent::Wakeup => {
-                    if !self.output_flush_pending {
-                        should_notify = true;
-                    }
-                }
-                TerminalUiEvent::Viewport {
-                    cols,
-                    rows,
-                    remote_owner,
-                } => {
-                    let scheme_changed = self.remote_viewer != remote_owner
-                        && self.effective_scheme_is_dark() != scheme_is_dark(remote_owner, &self.colors);
-                    self.remote_viewer = remote_owner;
-                    if scheme_changed && self.color_scheme_state.updates_enabled {
-                        // Let the TUI re-adapt to the renderer that now owns
-                        // the viewport (mobile is always dark).
-                        self.write_color_scheme_report();
-                    }
-                    self.resize(
-                        cols as usize,
-                        rows as usize,
-                        TerminalWindowSize {
-                            num_lines: rows,
-                            num_cols: cols,
-                            cell_width: self.window_size.cell_width,
-                            cell_height: self.window_size.cell_height,
-                        },
-                    );
-                    should_notify = true;
-                }
-                TerminalUiEvent::Exit => {
-                    self.exited = true;
-                    should_notify = true;
-                }
-                TerminalUiEvent::Error(message) => {
-                    self.title = Some(format!("Terminal error: {message}"));
-                    should_notify = true;
-                }
+            if self.apply_ui_event(event) {
+                should_notify = true;
             }
         }
         should_notify
+    }
+
+    fn apply_ui_event(&mut self, event: TerminalUiEvent) -> bool {
+        match event {
+            TerminalUiEvent::Wakeup => !self.output_flush_pending,
+            TerminalUiEvent::Viewport { remote_owner } => {
+                let scheme_changed = self.remote_viewer != remote_owner
+                    && self.effective_scheme_is_dark() != scheme_is_dark(remote_owner, &self.colors);
+                self.remote_viewer = remote_owner;
+                if scheme_changed && self.color_scheme_state.updates_enabled {
+                    // Let the TUI re-adapt to the renderer that now owns
+                    // the viewport (mobile is always dark).
+                    self.write_color_scheme_report();
+                }
+                true
+            }
+            TerminalUiEvent::Exit => {
+                self.exited = true;
+                true
+            }
+            TerminalUiEvent::Error(message) => {
+                self.title = Some(format!("Terminal error: {message}"));
+                true
+            }
+        }
     }
 
     fn process_bytes(&mut self, bytes: &[u8]) {

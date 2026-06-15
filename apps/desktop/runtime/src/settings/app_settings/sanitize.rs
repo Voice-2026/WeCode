@@ -42,13 +42,14 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.icon_style.trim().is_empty() {
         settings.icon_style = default_icon_style();
     }
-    let remote_server_url = settings.remote.server_url.trim().to_string();
+    let remote_relay_url = settings.remote.relay_url.trim().to_string();
     settings.remote.relay_preset =
-        sanitize_remote_relay_preset(&settings.remote.relay_preset, &remote_server_url);
-    settings.remote.server_url = crate::remote::remote_relay_url_for_preset(
+        sanitize_remote_relay_preset(&settings.remote.relay_preset, &remote_relay_url);
+    settings.remote.relay_url = crate::remote::remote_relay_url_for_preset(
         &settings.remote.relay_preset,
-        &remote_server_url,
+        &remote_relay_url,
     );
+    settings.remote.relay_authentication = settings.remote.relay_authentication.trim().to_string();
     settings
         .remote
         .cached_devices
@@ -85,12 +86,12 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     settings
 }
 
-fn sanitize_remote_relay_preset(preset: &str, server_url: &str) -> String {
+fn sanitize_remote_relay_preset(preset: &str, relay_url: &str) -> String {
     match preset.trim() {
         "global" => "global".to_string(),
         "china" => "china".to_string(),
         "custom" => "custom".to_string(),
-        _ => crate::remote::remote_relay_preset_for_url(server_url),
+        _ => crate::remote::remote_relay_preset_for_url(relay_url),
     }
 }
 

@@ -1,21 +1,19 @@
 # Codux Server
 
-Codux Server is the Rust relay service for Codux desktop, mobile, and headless peers. It handles persisted pairing, device authorization, v3 ticket exchange, WebSocket fallback routing, and WebRTC signaling support.
+Codux Server is an optional Rust service for Codux host registration, device records, and deployment health checks. Pairing and runtime traffic are carried directly by Iroh transport tickets and streams, not by this service.
 
 ## Responsibilities
 
-- Persist host registrations, paired devices, and pairing state in SQLite.
-- Issue and prune v3 pairing tickets, including short six-digit pairing codes.
-- Route host and controller WebSocket messages for legacy `/api` clients and v3 stateless relay clients.
-- Record optional JSONL relay statistics for deployment diagnostics.
-- Support v3 protocol relay paths without owning business runtime state.
-- Keep relay behavior aligned with `crates/codux-protocol` and `crates/codux-remote-transport`.
+- Persist host registrations and paired device records in SQLite.
+- Expose health checks for deployments that still run a service process.
 
 ## Non-Responsibilities
 
+- It does not issue pairing tickets or short pairing codes.
 - It does not decrypt or own terminal, file, project, Git, worktree, or AI stats payloads.
+- It does not proxy runtime messages.
 - It does not run PTYs.
-- It does not decrypt endpoint-to-endpoint secure messages.
+- It does not participate in endpoint-to-endpoint secure messages.
 
 ## Commands
 
@@ -35,10 +33,6 @@ The server accepts TOML, environment variables, and CLI flags:
 - `CODEX_SERVICE_CONFIG` / `--config`
 - `CODEX_SERVER_ADDR` / `--addr`
 - `CODEX_SERVER_DB` / `--db`
-- `CODEX_STATS_ENABLED` / `--stats`
-- `CODEX_STATS_PATH` / `--stats-path`
-- `CODEX_STATS_FLUSH_INTERVAL` / `--stats-flush-interval`
-- `CODEX_PAIRING_TTL` / `--pairing-ttl`
 - `CODEX_SHUTDOWN_TIMEOUT` / `--shutdown-timeout`
 - `CODEX_READ_HEADER_TIMEOUT` / `--read-header-timeout`
 

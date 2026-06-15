@@ -638,7 +638,59 @@ fn settings_remote_relay_url_editor(
                 false,
                 cx,
                 move |app, _event, window, cx| {
-                    app.set_remote_server_url(input_state.read(cx).value().to_string(), window, cx)
+                    app.set_remote_relay_url(input_state.read(cx).value().to_string(), window, cx)
+                },
+            ))
+        })
+        .into_any_element()
+}
+
+fn settings_remote_relay_authentication_editor(
+    value: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let value = value.to_string();
+    let state_key = SharedString::from(format!(
+        "settings-remote-relay-authentication-draft-{}",
+        value.len()
+    ));
+    let state = window.use_keyed_state(state_key, cx, |window, cx| {
+        InputState::new(window, cx)
+            .default_value(value.clone())
+            .masked(true)
+    });
+    cx.subscribe_in(&state, window, |app, _state, event, _window, cx| {
+        if matches!(event, InputEvent::Change) {
+            app.invalidate_remote_panel(cx);
+        }
+    })
+    .detach();
+    let has_changes = state.read(cx).value().as_ref() != value.as_str();
+    let input_state = state.clone();
+    div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(
+            Input::new(&state)
+                .with_size(gpui_component::Size::Medium)
+                .w_full(),
+        )
+        .when(has_changes, |this| {
+            this.child(settings_icon_button_state(
+                "settings-remote-relay-authentication-apply",
+                HeroIconName::Check,
+                false,
+                cx,
+                move |app, _event, window, cx| {
+                    app.set_remote_relay_authentication(
+                        input_state.read(cx).value().to_string(),
+                        window,
+                        cx,
+                    )
                 },
             ))
         })
@@ -2942,28 +2994,49 @@ fn settings_remote_pane(
                     )
                     .into_any_element(),
                     if settings.remote_relay_preset == "custom" {
-                        settings_row(
-                            settings_text(
-                                language,
-                                "settings.remote.server_url",
-                                "Custom Relay URL",
-                            ),
-                            Some(settings_text(
-                                language,
-                                "settings.remote.server_url.help",
-                                "Leave empty to use the public network. Pair again after changing it",
-                            )),
-                            settings_remote_relay_url_editor(
-                                settings.remote_server_url.as_str(),
-                                _window,
-                                cx,
-                                language,
-                            ),
-                        )
-                        .into_any_element()
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.0))
+                            .child(settings_row(
+                                settings_text(
+                                    language,
+                                    "settings.remote.relay_url",
+                                    "Custom Relay URL",
+                                ),
+                                Some(settings_text(
+                                    language,
+                                    "settings.remote.relay_url.help",
+                                    "Leave empty to use the public network. Pair again after changing it",
+                                )),
+                                settings_remote_relay_url_editor(
+                                    settings.remote_relay_url.as_str(),
+                                    _window,
+                                    cx,
+                                    language,
+                                ),
+                            ))
+                            .child(settings_row(
+                                settings_text(
+                                    language,
+                                    "settings.remote.relay_authentication",
+                                    "Relay Authentication",
+                                ),
+                                Some(settings_text(
+                                    language,
+                                    "settings.remote.relay_authentication.help",
+                                    "Optional Bearer token for custom Iroh relays. Pair again after changing it",
+                                )),
+                                settings_remote_relay_authentication_editor(
+                                    settings.remote_relay_authentication.as_str(),
+                                    _window,
+                                    cx,
+                                ),
+                            ))
+                            .into_any_element()
                     } else {
                         settings_row(
-                            settings_text(language, "settings.remote.server_url", "Relay Server"),
+                            settings_text(language, "settings.remote.relay_url", "Relay Server"),
                             None,
                             div()
                                 .w_full()
@@ -4517,9 +4590,9 @@ fn remote_relay_preset_options(language: &str) -> Vec<(String, SharedString)> {
 
 fn remote_relay_display_url(preset: &str) -> String {
     match preset {
-        "global" => codux_runtime::remote::GLOBAL_RELAY_SERVER_URL.to_string(),
+        "global" => "Iroh default relay map".to_string(),
         "china" => codux_runtime::remote::CHINA_RELAY_SERVER_URL.to_string(),
-        _ => codux_runtime::remote::GLOBAL_RELAY_SERVER_URL.to_string(),
+        _ => "Iroh default relay map".to_string(),
     }
 }
 

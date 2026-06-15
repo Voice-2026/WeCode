@@ -165,15 +165,13 @@ class _DeviceRow extends StatelessWidget {
 }
 
 String _deviceProtocolLabel(BuildContext context, String transport) {
-  final prefs = AppPreferences.of(context);
   return switch (transport.toLowerCase()) {
-    'websocketrelay' => prefs.t('connection.protocol.relay'),
-    'webrtc' => prefs.t('connection.protocol.webrtc'),
+    RemoteTransportKind.iroh => 'Iroh',
     _ => transport.toUpperCase(),
   };
 }
 
 String _deviceTransportKind(StoredDevice device) {
   final kind = remotePreferredTransportKind(device.transports, pairing: false);
-  return kind.isEmpty ? RemoteTransportKind.websocketRelay : kind;
+  return kind.isEmpty ? RemoteTransportKind.iroh : kind;
 }

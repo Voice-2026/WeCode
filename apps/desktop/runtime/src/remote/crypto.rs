@@ -1,16 +1,9 @@
 use super::types::{RemotePairingInfo, RemoteSettings, RemoteTransportCandidate};
-// E2E crypto (key derivation, encrypt/decrypt, base64url) lives in the shared
-// codux-remote-crypto crate so the host and the mobile device (via FFI) stay
-// byte-compatible. Re-exported here so existing call sites are unchanged.
-pub(crate) use codux_remote_crypto::{
-    remote_base64_url_decode, remote_base64_url_encode, remote_e2e_decrypt, remote_e2e_encrypt,
-    remote_e2e_symmetric_key,
-};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::Value;
 use serde_json::json;
 #[cfg(unix)]
 use std::ffi::CStr;
-use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 pub(crate) fn remote_host_name() -> String {
     display_host_name(platform_host_name(), platform_user_name())
@@ -122,23 +115,12 @@ pub(crate) fn remote_random_token() -> String {
     )
 }
 
-pub(crate) fn ensure_remote_host_identity(settings: &mut RemoteSettings) {
-    if let Some(private_key) = remote_e2e_private_key(&settings.host_private_key) {
-        let public_key = X25519PublicKey::from(&private_key);
-        let derived_public = remote_base64_url_encode(public_key.as_bytes());
-        if settings.host_public_key.trim().is_empty() || settings.host_public_key == derived_public
-        {
-            settings.host_public_key = derived_public;
-            return;
-        }
-    }
-    let mut bytes = [0_u8; 32];
-    bytes[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-    bytes[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-    let private_key = StaticSecret::from(bytes);
-    let public_key = X25519PublicKey::from(&private_key);
-    settings.host_private_key = remote_base64_url_encode(private_key.to_bytes().as_slice());
-    settings.host_public_key = remote_base64_url_encode(public_key.as_bytes());
+pub(crate) fn remote_base64_url_encode(bytes: &[u8]) -> String {
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+pub(crate) fn remote_base64_url_decode(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    URL_SAFE_NO_PAD.decode(value)
 }
 
 pub(crate) fn remote_pairing_payload(
@@ -152,15 +134,7 @@ pub(crate) fn remote_pairing_payload(
         "pairingId": pairing.pairing_id,
         "hostId": settings.host_id,
         "hostName": remote_host_name(),
-        "hostPublicKey": settings.host_public_key,
-        "cryptoVersion": 1,
         "protocolVersion": super::protocol::REMOTE_PROTOCOL_VERSION,
         "transports": transports,
     })
-}
-
-fn remote_e2e_private_key(value: &str) -> Option<StaticSecret> {
-    let bytes = remote_base64_url_decode(value).ok()?;
-    let array: [u8; 32] = bytes.as_slice().try_into().ok()?;
-    Some(StaticSecret::from(array))
 }

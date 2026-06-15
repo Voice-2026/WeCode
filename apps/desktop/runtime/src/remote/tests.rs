@@ -1,7 +1,4 @@
-use super::crypto::{
-    display_host_name, ensure_remote_host_identity, remote_base64_url_encode, remote_e2e_decrypt,
-    remote_e2e_encrypt, remote_e2e_symmetric_key, remote_pairing_payload,
-};
+use super::crypto::{display_host_name, remote_pairing_payload};
 use super::host::{
     remote_ai_stats_payload, remote_file_list, remote_file_read, remote_file_rename,
     remote_file_write, remote_terminal_upload_directory, remote_terminal_upload_kind,
@@ -9,30 +6,24 @@ use super::host::{
 };
 use super::pairing::remote_summary_show_pending_pairing;
 use super::summary::remote_summary_from_settings;
-use super::types::{
-    RemoteDeviceSettings, RemoteHostEvent, RemoteOutgoingEnvelope, RemotePairingInfo,
-    RemoteSettings,
-};
+use super::transport_factory::host_transport_config;
+use super::types::{RemoteDeviceSettings, RemoteHostEvent, RemotePairingInfo, RemoteSettings};
 use super::{RemoteHostRuntime, RemoteService};
 use crate::ai_history_indexer::AIHistoryProjectState;
 use crate::config::flush_all_config_writes;
 use crate::terminal_pty::{TerminalManager, TerminalSessionSnapshot};
-use codux_protocol::{webrtc_transport_candidate, websocket_relay_transport_candidate};
 use codux_runtime_core::upload::quote_terminal_path;
 use serde_json::json;
-use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
-use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
 
 #[test]
 fn summary_matches_tauri_remote_status_shape_from_settings() {
     let summary = remote_summary_from_settings(RemoteSettings {
         is_enabled: true,
         relay_preset: "custom".to_string(),
-        server_url: " http://relay.example ".to_string(),
+        relay_url: " http://relay.example ".to_string(),
         host_id: "host-1".to_string(),
-        host_public_key: "pub".to_string(),
         cached_devices: vec![
             RemoteDeviceSettings {
                 id: "device-1".to_string(),
@@ -68,11 +59,40 @@ fn summary_matches_tauri_remote_status_shape_from_settings() {
 }
 
 #[test]
+fn host_transport_config_uses_iroh_relay_preset_mapping() {
+    let custom = host_transport_config(&RemoteSettings {
+        relay_preset: "custom".to_string(),
+        relay_url: "https://relay.example".to_string(),
+        relay_authentication: " relay-token ".to_string(),
+        host_id: "host-1".to_string(),
+        host_token: "token-1".to_string(),
+        ..Default::default()
+    });
+    assert_eq!(custom.relay_preset, "custom");
+    assert_eq!(custom.iroh_relay_url, "https://relay.example");
+    assert_eq!(custom.iroh_relay_authentication, " relay-token ");
+
+    let china = host_transport_config(&RemoteSettings {
+        relay_preset: "china".to_string(),
+        relay_url: "https://ignored.example".to_string(),
+        ..Default::default()
+    });
+    assert_eq!(china.iroh_relay_url, "https://iroh-service.dux.plus");
+
+    let global = host_transport_config(&RemoteSettings {
+        relay_preset: "global".to_string(),
+        relay_url: "https://ignored.example".to_string(),
+        ..Default::default()
+    });
+    assert_eq!(global.iroh_relay_url, "");
+}
+
+#[test]
 fn disabled_remote_keeps_empty_relay_and_disabled_encryption() {
     let summary = remote_summary_from_settings(RemoteSettings {
         is_enabled: false,
         relay_preset: String::new(),
-        server_url: String::new(),
+        relay_url: String::new(),
         ..Default::default()
     });
 
@@ -80,22 +100,6 @@ fn disabled_remote_keeps_empty_relay_and_disabled_encryption() {
     assert_eq!(summary.relay, super::relay::GLOBAL_RELAY_SERVER_URL);
     assert_eq!(summary.status, "stopped");
     assert_eq!(summary.encryption, "disabled");
-}
-
-#[test]
-fn remote_identity_and_pairing_payload_match_tauri_shape() {
-    let mut settings = RemoteSettings {
-        is_enabled: true,
-        relay_preset: "custom".to_string(),
-        server_url: "http://relay.example".to_string(),
-        host_id: "host-1".to_string(),
-        ..Default::default()
-    };
-    ensure_remote_host_identity(&mut settings);
-    assert!(!settings.host_private_key.is_empty());
-    assert!(!settings.host_public_key.is_empty());
-
-    assert_eq!(settings.host_public_key.trim().is_empty(), false);
 }
 
 #[test]
@@ -117,23 +121,20 @@ fn display_host_name_replaces_generic_apple_name_with_user_name() {
 }
 
 #[test]
-fn remote_pairing_payload_contains_v3_transport_candidates() {
+fn remote_pairing_payload_contains_iroh_transport_candidates() {
     let settings = RemoteSettings {
         is_enabled: true,
         relay_preset: "custom".to_string(),
-        server_url: "http://relay.example".to_string(),
+        relay_url: "http://relay.example".to_string(),
+        relay_authentication: "relay-token".to_string(),
         host_id: "host-1".to_string(),
         host_token: "token".to_string(),
-        host_private_key: "host-private".to_string(),
-        host_public_key: "host-public".to_string(),
         cached_devices: Vec::new(),
     };
     let pairing = RemotePairingInfo {
         pairing_id: "pair-1".to_string(),
         code: "123456".to_string(),
         secret: "secret".to_string(),
-        host_public_key: Some("host-public".to_string()),
-        crypto_version: Some(1),
         expires_at: "later".to_string(),
         qr_payload: String::new(),
     };
@@ -141,75 +142,60 @@ fn remote_pairing_payload_contains_v3_transport_candidates() {
         &settings,
         &pairing,
         vec![
-            websocket_relay_transport_candidate("https://relay.example"),
-            webrtc_transport_candidate(
+            codux_protocol::iroh_transport_candidate_with_ticket_and_authentication(
                 "https://relay.example",
-                vec![
-                    "stun:stun.miwifi.com:3478".to_string(),
-                    "stun:stun.l.google.com:19302".to_string(),
-                ],
+                "node-1",
+                "https://relay.example",
+                "endpoint-ticket",
+                settings.relay_authentication.clone(),
             ),
         ],
     );
     assert_eq!(value["code"], "123456");
     assert_eq!(value["secret"], "secret");
     assert_eq!(value["pairingId"], "pair-1");
-    assert_eq!(value["hostPublicKey"], "host-public");
-    assert_eq!(value["cryptoVersion"], 1);
     assert_eq!(
         value["protocolVersion"],
         super::protocol::REMOTE_PROTOCOL_VERSION
     );
     assert!(value.get("transport").is_none());
     assert!(value.get("iroh").is_none());
-    assert_eq!(value["transports"][0]["kind"], "websocketRelay");
+    assert_eq!(value["transports"][0]["kind"], "iroh");
     assert_eq!(value["transports"][0]["role"], "host");
     assert_eq!(value["transports"][0]["url"], "https://relay.example");
-    assert_eq!(value["transports"][1]["kind"], "webRtc");
-    assert_eq!(value["transports"][1]["url"], "https://relay.example");
+    assert_eq!(value["transports"][0]["nodeId"], "node-1");
+    assert_eq!(value["transports"][0]["relayUrl"], "https://relay.example");
+    assert_eq!(value["transports"][0]["relayAuthentication"], "relay-token");
 }
 
 #[test]
-fn remote_pairing_ticket_payload_is_the_only_qr_shape() {
-    let payload =
-        super::relay::remote_pairing_ticket_payload("https://relay.example/v3", "ticket-1")
-            .expect("ticket payload");
-    assert_eq!(
-        payload,
-        "codux://pair?server=https%3A%2F%2Frelay.example%2Fv3&ticket=ticket-1"
-    );
+fn remote_pairing_payload_url_embeds_pairing_payload_without_http_ticket_service() {
+    let value = json!({
+        "code": "123456",
+        "transports": [{
+            "kind": "iroh",
+            "ticket": "endpointabc"
+        }]
+    });
+    let payload = super::relay::remote_pairing_payload_url(&value).expect("payload url");
+    let url = url::Url::parse(&payload).expect("qr url");
+    assert_eq!(url.scheme(), "codux");
+    assert_eq!(url.host_str(), Some("pair"));
+    assert!(url.query_pairs().any(|(key, _)| key == "payload"));
+    assert!(!url.query_pairs().any(|(key, _)| key == "ticket"));
 }
 
 #[test]
-fn remote_relay_urls_use_v3_prefix_for_plain_domains() {
-    let relay = super::relay::remote_server_url("https://codux-service.dux.plus");
-    assert_eq!(relay, "https://codux-service.dux.plus/v3");
-    assert_eq!(
-        super::relay::remote_url(&relay, "/api/hosts/register", &[], false).unwrap(),
-        "https://codux-service.dux.plus/v3/api/hosts/register"
-    );
-    assert_eq!(
-        super::relay::remote_url(
-            &relay,
-            "/ws/host",
-            &[("hostId", "host-1"), ("token", "token-1")],
-            true,
-        )
-        .unwrap(),
-        "wss://codux-service.dux.plus/v3/ws/host?hostId=host-1&token=token-1"
-    );
-    assert_eq!(
-        super::relay::remote_server_url("https://codux-service.dux.plus/v3"),
-        "https://codux-service.dux.plus/v3"
-    );
+fn remote_relay_presets_use_iroh_relay_urls() {
     assert_eq!(super::relay::remote_relay_preset_for_url(""), "global");
     assert_eq!(
-        super::relay::remote_relay_preset_for_url("https://codux-service.dux.plus"),
+        super::relay::remote_relay_preset_for_url("https://iroh-service.dux.plus"),
         "china"
     );
+    assert_eq!(super::relay::remote_relay_url_for_preset("global", ""), "");
     assert_eq!(
-        super::relay::remote_relay_preset_for_url("https://codux-node.dux.plus"),
-        "global"
+        super::relay::remote_relay_url_for_preset("china", ""),
+        "https://iroh-service.dux.plus"
     );
     assert_eq!(
         super::relay::remote_relay_preset_for_url("https://relay.example"),
@@ -222,18 +208,15 @@ fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
     let settings = RemoteSettings {
         is_enabled: true,
         relay_preset: "custom".to_string(),
-        server_url: "http://relay.example".to_string(),
+        relay_url: "http://relay.example".to_string(),
         host_id: "host-1".to_string(),
         host_token: "host-token".to_string(),
-        host_public_key: "host-public".to_string(),
         ..Default::default()
     };
     let active_pairing = RemotePairingInfo {
         pairing_id: "pair-1".to_string(),
         code: "123456".to_string(),
         secret: "secret".to_string(),
-        host_public_key: Some("host-public".to_string()),
-        crypto_version: Some(1),
         expires_at: "2026-01-01T00:00:00Z".to_string(),
         qr_payload: "payload".to_string(),
     };
@@ -243,7 +226,7 @@ fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
         &active_pairing,
         "pair-1".to_string(),
         "iPhone".to_string(),
-        "device-public".to_string(),
+        "device-1".to_string(),
         "654321".to_string(),
         "secret".to_string(),
     );
@@ -269,283 +252,6 @@ fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
 }
 
 #[test]
-fn remote_e2e_crypto_matches_tauri_envelope_shape() {
-    let host_secret = StaticSecret::from([7_u8; 32]);
-    let host_public = X25519PublicKey::from(&host_secret);
-    let device_secret = StaticSecret::from([9_u8; 32]);
-    let device_public = X25519PublicKey::from(&device_secret);
-
-    let host_private_key = remote_base64_url_encode(host_secret.to_bytes().as_slice());
-    let host_public_key = remote_base64_url_encode(host_public.as_bytes());
-    let device_private_key = remote_base64_url_encode(device_secret.to_bytes().as_slice());
-    let device_public_key = remote_base64_url_encode(device_public.as_bytes());
-
-    let host_key =
-        remote_e2e_symmetric_key(&host_private_key, &device_public_key, "host-1", "device-1")
-            .expect("host key");
-    let device_key =
-        remote_e2e_symmetric_key(&device_private_key, &host_public_key, "host-1", "device-1")
-            .expect("device key");
-    assert_eq!(host_key, device_key);
-
-    let plaintext = br#"{"type":"terminal.input","payload":{"data":"ls\n"}}"#;
-    let encrypted =
-        remote_e2e_encrypt(plaintext, &host_key, "host-1", "device-1").expect("encrypt");
-
-    assert_eq!(
-        encrypted.get("v").and_then(serde_json::Value::as_i64),
-        Some(1)
-    );
-    assert_eq!(
-        encrypted.get("alg").and_then(serde_json::Value::as_str),
-        Some("X25519-HKDF-SHA256-AES-256-GCM")
-    );
-    assert!(
-        encrypted
-            .get("nonce")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
-    assert!(
-        encrypted
-            .get("ciphertext")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
-    assert!(
-        encrypted
-            .get("tag")
-            .and_then(serde_json::Value::as_str)
-            .is_some()
-    );
-
-    let decrypted =
-        remote_e2e_decrypt(&encrypted, &device_key, "host-1", "device-1").expect("decrypt");
-    assert_eq!(decrypted, plaintext);
-    assert!(remote_e2e_decrypt(&encrypted, &device_key, "host-1", "other-device").is_err());
-}
-
-#[test]
-fn remote_service_encrypts_and_decrypts_cached_device_payloads() {
-    let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-envelope-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    fs::create_dir_all(&dir).expect("create temp support");
-
-    let host_secret = StaticSecret::from([3_u8; 32]);
-    let host_public = X25519PublicKey::from(&host_secret);
-    let device_secret = StaticSecret::from([4_u8; 32]);
-    let device_public = X25519PublicKey::from(&device_secret);
-    let host_private_key = remote_base64_url_encode(host_secret.to_bytes().as_slice());
-    let host_public_key = remote_base64_url_encode(host_public.as_bytes());
-    let device_public_key = remote_base64_url_encode(device_public.as_bytes());
-
-    fs::write(
-        dir.join("settings.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "remote": {
-                "isEnabled": true,
-                "serverUrl": "http://relay.example",
-                "hostID": "host-1",
-                "hostPrivateKey": host_private_key,
-                "hostPublicKey": host_public_key,
-                "cachedDevices": [
-                    {
-                        "id": "device-1",
-                        "hostId": "host-1",
-                        "name": "Phone",
-                        "publicKey": device_public_key
-                    }
-                ]
-            }
-        }))
-        .unwrap(),
-    )
-    .expect("write settings");
-
-    let service = RemoteService::new(dir.clone());
-    let plaintext = br#"{"type":"secure.message","payload":{"ok":true}}"#;
-    let encrypted = service
-        .encrypt_device_payload("device-1", plaintext)
-        .expect("encrypt");
-    let decrypted = service
-        .decrypt_device_payload("device-1", &encrypted)
-        .expect("decrypt");
-
-    assert_eq!(decrypted, plaintext);
-    fs::remove_dir_all(dir).ok();
-}
-
-#[test]
-fn remote_service_wraps_and_unwraps_secure_envelopes_with_sequence_guard() {
-    let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-envelope-seq-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    fs::create_dir_all(&dir).expect("create temp support");
-
-    let host_secret = StaticSecret::from([11_u8; 32]);
-    let host_public = X25519PublicKey::from(&host_secret);
-    let device_secret = StaticSecret::from([12_u8; 32]);
-    let device_public = X25519PublicKey::from(&device_secret);
-    let host_private_key = remote_base64_url_encode(host_secret.to_bytes().as_slice());
-    let host_public_key = remote_base64_url_encode(host_public.as_bytes());
-    let device_public_key = remote_base64_url_encode(device_public.as_bytes());
-
-    fs::write(
-        dir.join("settings.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "remote": {
-                "isEnabled": true,
-                "serverUrl": "http://relay.example",
-                "hostID": "host-1",
-                "hostPrivateKey": host_private_key,
-                "hostPublicKey": host_public_key,
-                "cachedDevices": [
-                    {
-                        "id": "device-1",
-                        "hostId": "host-1",
-                        "name": "Phone",
-                        "publicKey": device_public_key
-                    }
-                ]
-            }
-        }))
-        .unwrap(),
-    )
-    .expect("write settings");
-
-    let service = RemoteService::new(dir.clone());
-    let mut send_seq = HashMap::new();
-    let secure = service
-        .encrypted_outgoing_envelope(
-            RemoteOutgoingEnvelope {
-                kind: "terminal.output".to_string(),
-                device_id: Some("device-1".to_string()),
-                session_id: Some("term-1".to_string()),
-                seq: None,
-                payload: json!({ "data": "hello" }),
-            },
-            &mut send_seq,
-        )
-        .expect("secure envelope");
-
-    assert_eq!(secure.kind, "secure.message");
-    assert_eq!(secure.device_id.as_deref(), Some("device-1"));
-    assert_eq!(secure.session_id.as_deref(), Some("term-1"));
-    assert_eq!(secure.seq, None);
-    assert_eq!(send_seq.get("device-1"), Some(&1));
-
-    let text = serde_json::to_string(&secure).expect("serialize secure envelope");
-    let parsed = service
-        .parse_incoming_envelope(&text)
-        .expect("parse secure envelope");
-    let mut receive_seq = HashMap::new();
-    let decrypted = service
-        .decrypt_envelope_if_needed(parsed.clone(), &mut receive_seq)
-        .expect("decrypt secure envelope")
-        .expect("inner envelope");
-
-    assert_eq!(decrypted.kind, "terminal.output");
-    assert_eq!(decrypted.device_id.as_deref(), Some("device-1"));
-    assert_eq!(decrypted.session_id.as_deref(), Some("term-1"));
-    assert_eq!(decrypted.seq, Some(1));
-    assert!(receive_seq.contains_key("device-1"));
-
-    let replay = service
-        .decrypt_envelope_if_needed(parsed, &mut receive_seq)
-        .expect("decrypt replay");
-    assert!(replay.is_none());
-
-    fs::remove_dir_all(dir).ok();
-}
-
-#[test]
-fn remote_service_accepts_out_of_order_secure_envelopes_across_channels() {
-    let dir = std::env::temp_dir().join(format!(
-        "codux-gpui-remote-envelope-out-of-order-test-{}",
-        uuid::Uuid::new_v4()
-    ));
-    fs::create_dir_all(&dir).expect("create temp support");
-
-    let host_secret = StaticSecret::from([13_u8; 32]);
-    let host_public = X25519PublicKey::from(&host_secret);
-    let device_secret = StaticSecret::from([14_u8; 32]);
-    let device_public = X25519PublicKey::from(&device_secret);
-    let host_private_key = remote_base64_url_encode(host_secret.to_bytes().as_slice());
-    let host_public_key = remote_base64_url_encode(host_public.as_bytes());
-    let device_public_key = remote_base64_url_encode(device_public.as_bytes());
-
-    fs::write(
-        dir.join("settings.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "remote": {
-                "isEnabled": true,
-                "serverUrl": "http://relay.example",
-                "hostID": "host-1",
-                "hostPrivateKey": host_private_key,
-                "hostPublicKey": host_public_key,
-                "cachedDevices": [
-                    {
-                        "id": "device-1",
-                        "hostId": "host-1",
-                        "name": "Phone",
-                        "publicKey": device_public_key
-                    }
-                ]
-            }
-        }))
-        .unwrap(),
-    )
-    .expect("write settings");
-
-    let service = RemoteService::new(dir.clone());
-    let mut receive_seq = HashMap::new();
-    let next_secure = |kind: &str, seq: i64| {
-        let payload = service
-            .encrypt_device_payload(
-                "device-1",
-                serde_json::to_vec(&RemoteOutgoingEnvelope {
-                    kind: kind.to_string(),
-                    device_id: Some("device-1".to_string()),
-                    session_id: None,
-                    seq: Some(seq),
-                    payload: json!({ "ok": true }),
-                })
-                .expect("serialize")
-                .as_slice(),
-            )
-            .expect("encrypt");
-        super::types::RemoteEnvelope {
-            kind: "secure.message".to_string(),
-            device_id: Some("device-1".to_string()),
-            session_id: None,
-            seq: None,
-            payload,
-        }
-    };
-
-    let second = service
-        .decrypt_envelope_if_needed(next_secure("terminal.list", 2), &mut receive_seq)
-        .expect("decrypt")
-        .expect("terminal list");
-    let first = service
-        .decrypt_envelope_if_needed(next_secure("project.select", 1), &mut receive_seq)
-        .expect("decrypt")
-        .expect("project select");
-    let duplicate = service
-        .decrypt_envelope_if_needed(next_secure("project.select", 1), &mut receive_seq)
-        .expect("decrypt");
-
-    assert_eq!(second.kind, "terminal.list");
-    assert_eq!(first.kind, "project.select");
-    assert!(duplicate.is_none());
-
-    fs::remove_dir_all(dir).ok();
-}
-
-#[test]
 fn remote_host_runtime_stops_without_enabled_remote_settings() {
     let dir = std::env::temp_dir().join(format!(
         "codux-gpui-remote-host-disabled-test-{}",
@@ -557,7 +263,7 @@ fn remote_host_runtime_stops_without_enabled_remote_settings() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "serverUrl": "http://relay.example"
+                "relayUrl": "http://relay.example"
             }
         }))
         .unwrap(),
@@ -975,7 +681,7 @@ fn refresh_devices_disabled_remote_is_noop() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "serverUrl": "http://relay.example",
+                "relayUrl": "http://relay.example",
                 "hostID": "",
                 "hostToken": "secret-token"
             }
@@ -1004,7 +710,7 @@ fn register_host_disabled_is_noop() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "serverUrl": "http://relay.example"
+                "relayUrl": "http://relay.example"
             }
         }))
         .unwrap(),
@@ -1031,7 +737,7 @@ fn sync_settings_background_is_noop_when_disabled() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "serverUrl": "http://relay.example",
+                "relayUrl": "http://relay.example",
                 "hostID": "host-1",
                 "hostToken": "secret-token"
             }
@@ -1058,10 +764,9 @@ fn reads_settings_json_without_exposing_tokens() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "serverUrl": "http://127.0.0.1:8088",
+                "relayUrl": "http://127.0.0.1:8088",
                 "hostID": "host-1",
                 "hostToken": "secret-token",
-                "hostPublicKey": "",
                 "cachedDevices": [
                     {"id": "device-1", "hostId": "host-1", "name": "Tablet", "online": false}
                 ]
@@ -1076,7 +781,7 @@ fn reads_settings_json_without_exposing_tokens() {
     assert!(summary.enabled);
     assert_eq!(summary.host_id, "host-1");
     assert_eq!(summary.devices, 1);
-    assert_eq!(summary.encryption, "pending");
+    assert_eq!(summary.encryption, "configured");
     assert!(!format!("{summary:?}").contains("secret-token"));
     fs::remove_dir_all(dir).ok();
 }
@@ -1093,7 +798,7 @@ fn toggles_remote_host_and_revokes_cached_device_preserving_secrets() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": false,
-                "serverUrl": "",
+                "relayUrl": "",
                 "hostID": "host-1",
                 "hostToken": "secret-token",
                 "cachedDevices": [
@@ -1139,7 +844,7 @@ fn refresh_devices_without_host_token_returns_local_cached_devices() {
         serde_json::to_string_pretty(&serde_json::json!({
             "remote": {
                 "isEnabled": true,
-                "serverUrl": "",
+                "relayUrl": "",
                 "hostID": "host-1",
                 "cachedDevices": [
                     {"id":"device-1","hostId":"host-1","name":"Phone","online":true}
@@ -1175,9 +880,8 @@ fn remote_host_runtime_apply_snapshot_queues_gpui_event() {
     let summary = remote_summary_from_settings(RemoteSettings {
         is_enabled: true,
         relay_preset: "custom".to_string(),
-        server_url: "http://relay.example".to_string(),
+        relay_url: "http://relay.example".to_string(),
         host_id: "host-1".to_string(),
-        host_public_key: "host-public".to_string(),
         ..Default::default()
     });
 

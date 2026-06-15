@@ -106,6 +106,46 @@ void main() {
     expect(nextSession.rows, 24);
   });
 
+  test('force flush does not repeat an already sent session size', () {
+    final controller = TerminalViewportController();
+
+    final first = controller.resize(
+      sessionId: 'session-1',
+      cols: 80,
+      rows: 24,
+      keyboardVisible: false,
+    );
+    controller.markSent('session-1', first!);
+
+    final duplicate = controller.flushPending(
+      sessionId: 'session-1',
+      force: true,
+    );
+
+    expect(duplicate, isNull);
+  });
+
+  test('force flush emits a pending resize that was not sent while hidden', () {
+    final controller = TerminalViewportController();
+
+    final hiddenResize = controller.resize(
+      sessionId: 'session-1',
+      cols: 90,
+      rows: 30,
+      keyboardVisible: false,
+    );
+    expect(hiddenResize, isNotNull);
+
+    final visibleFlush = controller.flushPending(
+      sessionId: 'session-1',
+      force: true,
+    );
+
+    expect(visibleFlush, isNotNull);
+    expect(visibleFlush!.cols, 90);
+    expect(visibleFlush.rows, 30);
+  });
+
   test('tracks remote viewport owner and ignores stale generations', () {
     final controller = TerminalViewportController();
 
@@ -167,5 +207,96 @@ void main() {
       ),
       isNotNull,
     );
+  });
+
+  test(
+    'builds absolute scroll requests with max lines and rejects stale responses',
+    () {
+      final controller = TerminalViewportController();
+
+      final first = controller.requestScrollPixels(
+        sessionId: 'session-1',
+        pixels: 48,
+        cellHeight: 16,
+        maxLines: 2000,
+        viewportRows: 24,
+        overscanRows: 24,
+      );
+      expect(first, isNotNull);
+      expect(first!.requestId, 1);
+      expect(first.displayOffset, 3);
+      expect(first.maxLines, 2000);
+      expect(first.overscanRows, 24);
+
+      final second = controller.requestScrollPixels(
+        sessionId: 'session-1',
+        pixels: 32,
+        cellHeight: 16,
+        maxLines: 2000,
+        viewportRows: 24,
+        overscanRows: 24,
+      );
+      expect(second, isNotNull);
+      expect(second!.requestId, 2);
+      expect(second.displayOffset, 5);
+
+      expect(
+        controller.acceptScrollResponse(
+          sessionId: 'session-1',
+          requestId: first.requestId,
+          displayOffset: first.displayOffset,
+        ),
+        isFalse,
+      );
+      expect(
+        controller.acceptScrollResponse(
+          sessionId: 'session-1',
+          requestId: second.requestId,
+          displayOffset: second.displayOffset,
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test('accumulates fractional remote scroll pixels into line requests', () {
+    final controller = TerminalViewportController();
+
+    final first = controller.requestScrollPixels(
+      sessionId: 'session-1',
+      pixels: 8,
+      cellHeight: 16,
+      maxLines: 2000,
+      viewportRows: 24,
+      overscanRows: 24,
+    );
+    expect(first, isNull);
+
+    final second = controller.requestScrollPixels(
+      sessionId: 'session-1',
+      pixels: 8,
+      cellHeight: 16,
+      maxLines: 2000,
+      viewportRows: 24,
+      overscanRows: 24,
+    );
+    expect(second, isNotNull);
+    expect(second!.requestId, 1);
+    expect(second.displayOffset, 1);
+  });
+
+  test('absolute scroll clamps to the mobile history window', () {
+    final controller = TerminalViewportController();
+
+    final request = controller.requestAbsoluteScroll(
+      sessionId: 'session-1',
+      displayOffset: 9000,
+      maxLines: 2000,
+      viewportRows: 24,
+      overscanRows: 24,
+    );
+
+    expect(request.displayOffset, 1976);
+    expect(request.maxLines, 2000);
   });
 }

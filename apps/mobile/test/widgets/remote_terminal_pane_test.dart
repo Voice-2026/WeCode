@@ -6,18 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('terminal content starts at top of terminal body', (tester) async {
+  testWidgets('terminal content starts at top of terminal body', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
         home: AppPreferences(
           accent: AccentChoices.cyan,
           locale: LocaleChoices.english,
-          child: SizedBox(
-            width: 360,
-            height: 720,
-            child: _pane(),
-          ),
+          child: SizedBox(width: 360, height: 720, child: _pane()),
         ),
       ),
     );
@@ -46,7 +44,6 @@ RemoteTerminalPane _pane() {
     pendingBufferSessionId: null,
     connectionStatusText: 'connecting',
     terminalHistoryLoadingText: 'loading',
-    maskOpacity: const AlwaysStoppedAnimation(0),
     keyboardRequested: false,
     keyboardVisible: false,
     terminalCursorBottom: 0,

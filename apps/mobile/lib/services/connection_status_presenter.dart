@@ -49,6 +49,9 @@ class ConnectionStatusPresenter {
       if (state.hasActiveDevice && state.backgroundConnect) {
         return 'app.connecting';
       }
+      if (state.status.isNotEmpty && state.status != state.connectedText) {
+        return '';
+      }
       return 'app.notConnected';
     }
     if (!state.hostResponsive ||
