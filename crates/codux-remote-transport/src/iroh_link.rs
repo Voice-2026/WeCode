@@ -458,22 +458,29 @@ fn publish_transport_state_for_addr(
     } else {
         "unknown"
     };
+    let addr = transport_addr_label(remote_addr);
+    let relay_url = match remote_addr {
+        TransportAddr::Relay(url) => Some(url.to_string()),
+        _ => None,
+    };
+    let relay_url_detail = relay_url
+        .as_deref()
+        .map(|url| format!(";relayUrl={url}"))
+        .unwrap_or_default();
     if let Some(rtt) = rtt {
         on_state(
             String::new(),
             format!(
-                "latency:rtt={};path={path};addr={}",
+                "latency:rtt={};path={path};addr={}{}",
                 rtt.as_millis(),
-                transport_addr_label(remote_addr)
+                addr,
+                relay_url_detail
             ),
         );
     }
     on_state(
         String::new(),
-        format!(
-            "connected:path={path};addr={}",
-            transport_addr_label(remote_addr)
-        ),
+        format!("connected:path={path};addr={}{}", addr, relay_url_detail),
     );
 }
 

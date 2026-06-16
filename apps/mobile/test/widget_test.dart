@@ -147,6 +147,41 @@ void main() {
     expect(find.text('Codux'), findsOneWidget);
   });
 
+  testWidgets('device row follows current relay url from Iroh path state', (
+    WidgetTester tester,
+  ) async {
+    final device = await _fakeDevice();
+    final fake = _FakeRemoteTransport(
+      device: device,
+      initialPath: 'relay',
+      onSent: (transport, envelope) {
+        if (envelope['type'] == RemoteMessageType.hostInfo) {
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mac'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    fake.emitState(
+      'connected:path=relay;addr=https://relay.example;relayUrl=https://iroh-service.dux.plus',
+    );
+    await tester.pump();
+
+    expect(
+      find.textContaining('https://iroh-service.dux.plus'),
+      findsOneWidget,
+    );
+    expect(find.text('Codux'), findsOneWidget);
+  });
+
   testWidgets(
     'opening terminal after list sync asks host to bind missing project terminal',
     (WidgetTester tester) async {

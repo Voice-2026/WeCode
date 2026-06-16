@@ -164,6 +164,15 @@ void main() {
     expect(event.isPathUpdate, isTrue);
     expect(event.path, 'none');
   });
+
+  test('relay url is parsed from transport state detail', () {
+    final event = RemoteTransportStateEvent.parse(
+      'connected:path=relay;addr=relay.example;relayUrl=https://iroh-service.dux.plus',
+    );
+
+    expect(event.path, 'relay');
+    expect(event.relayUrl, 'https://iroh-service.dux.plus');
+  });
 }
 
 StoredDevice _storedDevice() => const StoredDevice(

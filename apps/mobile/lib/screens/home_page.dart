@@ -256,6 +256,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String _lastTransportState = RemoteTransportKind.iroh;
   String _connectionPath = 'unknown';
   String _connectionEndpoint = '';
+  String _connectionRelayUrl = '';
   DateTime? _lastConnectedAt;
   DateTime? _connectionGraceUntil;
   DateTime? _lastTransportRefreshAt;
@@ -364,6 +365,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       device: device,
       path: isActive && _isDeviceListConnected ? _connectionPath : 'unknown',
       endpoint: isActive && _isDeviceListConnected ? _connectionEndpoint : '',
+      relayUrl: isActive && _isDeviceListConnected ? _connectionRelayUrl : '',
     );
   }
 
@@ -371,8 +373,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     required StoredDevice device,
     required String path,
     required String endpoint,
+    required String relayUrl,
   }) {
     final cleanedEndpoint = _cleanTransportEndpoint(endpoint);
+    final cleanedRelayUrl = _cleanTransportEndpoint(relayUrl);
+    if (path == 'relay' && cleanedRelayUrl.isNotEmpty) {
+      return cleanedRelayUrl;
+    }
     if (cleanedEndpoint.isNotEmpty) return cleanedEndpoint;
     final nodeId = _savedDeviceNodeId(device);
     if (path == 'direct' && nodeId.isNotEmpty) {
@@ -493,12 +500,21 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _markTransportPath(String path, {String? endpoint}) {
+    _markTransportPathDetail(path, endpoint: endpoint);
+  }
+
+  void _markTransportPathDetail(
+    String path, {
+    String? endpoint,
+    String? relayUrl,
+  }) {
     final connected = path != 'none';
     setState(() {
       _transportConnected = connected;
       if (!connected) {
         _transportReady = false;
         _connectionEndpoint = '';
+        _connectionRelayUrl = '';
       }
       if (connected) {
         _hasShownTerminal = true;
@@ -510,6 +526,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           _connectionEndpoint = cleanedEndpoint;
         } else if (path != _connectionPath) {
           _connectionEndpoint = '';
+        }
+        final cleanedRelayUrl = _cleanTransportEndpoint(relayUrl ?? '');
+        if (cleanedRelayUrl.isNotEmpty) {
+          _connectionRelayUrl = cleanedRelayUrl;
+        } else if (path != 'relay' && path != _connectionPath) {
+          _connectionRelayUrl = '';
         }
       }
       _connectionPath = path;
@@ -1458,7 +1480,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _nativeTerminalReplay.resetAll();
     }
     CoduxLog.info(
-      '[codux-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)}',
+      '[codux-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)} relay=${_savedDeviceRelayEndpoint(target)}',
     );
     _cancelHostResponseProbe();
     _reconnectTimer?.cancel();
@@ -1481,6 +1503,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _hostResponsive = false;
       _connectionPath = 'unknown';
       _connectionEndpoint = '';
+      _connectionRelayUrl = '';
       _latencyMs = null;
       if (!background) {
         _status = _t('app.connecting');
@@ -2507,7 +2530,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         }
         final previousPath = _connectionPath;
         final changed = path != _connectionPath;
-        _markTransportPath(path, endpoint: event.addr);
+        _markTransportPathDetail(
+          path,
+          endpoint: event.addr,
+          relayUrl: event.relayUrl,
+        );
         if (path != 'none') {
           _sendHostInfoRequest(
             force:
@@ -2562,7 +2589,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       }
     }
     if (pathValue != null && pathValue.isNotEmpty) {
-      _markTransportPath(pathValue, endpoint: event.addr);
+      _markTransportPathDetail(
+        pathValue,
+        endpoint: event.addr,
+        relayUrl: event.relayUrl,
+      );
     }
     if (rttValue != null) {
       final nextLatency = int.tryParse(rttValue);
@@ -2570,6 +2601,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       CoduxLog.debug(
         '[codux-flutter-remote] route rtt=${nextLatency}ms path=$_connectionPath',
       );
+      if (_latencyMs != nextLatency) {
+        setState(() => _latencyMs = nextLatency);
+      }
       return;
     }
     if (timeoutValue != null || detail == 'lost') {
