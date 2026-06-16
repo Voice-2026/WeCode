@@ -24,9 +24,9 @@ pub struct RemotePtySession<T> {
     history_screen: HeadlessTerminalScreen,
     keyframe_screen: HeadlessTerminalScreen,
     has_keyframe_screen: bool,
+    native_render_replay: Option<String>,
     screen_view: RemotePtyScreenView,
     awaiting_baseline: bool,
-    page_buffer: Option<RemotePtyPageBuffer>,
     held_sequenced_live: BTreeMap<TerminalSequence, T>,
     held_unsequenced_live: Vec<T>,
     // Scrollback state served by the host screen (display offset / total
@@ -63,9 +63,9 @@ impl<T> RemotePtySession<T> {
             history_screen: HeadlessTerminalScreen::new(80, 24, 2_000),
             keyframe_screen: HeadlessTerminalScreen::new(80, 24, 2_000),
             has_keyframe_screen: false,
+            native_render_replay: None,
             screen_view: RemotePtyScreenView::History,
             awaiting_baseline: false,
-            page_buffer: None,
             held_sequenced_live: BTreeMap::new(),
             held_unsequenced_live: Vec::new(),
             host_scroll: None,
@@ -84,6 +84,12 @@ impl<T> RemotePtySession<T> {
         &self.content
     }
 
+    pub fn native_render_content(&self) -> &str {
+        self.native_render_replay
+            .as_deref()
+            .unwrap_or(&self.content)
+    }
+
     pub fn buffer_length(&self) -> usize {
         self.buffer_length
     }
@@ -93,7 +99,7 @@ impl<T> RemotePtySession<T> {
     }
 
     pub fn is_restoring_baseline(&self) -> bool {
-        self.awaiting_baseline || self.page_buffer.is_some()
+        self.awaiting_baseline
     }
 
     pub fn snapshot(&self) -> RemotePtySnapshot {
@@ -158,6 +164,11 @@ impl<T> RemotePtySession<T> {
             self.keyframe_screen
                 .replace_with_keyframe(screen_data.as_bytes());
             self.has_keyframe_screen = true;
+            self.native_render_replay = Some(native_render_replay(
+                &self.content,
+                screen_data,
+                self.max_cached_chars,
+            ));
             self.screen_view = if self.has_keyframe_screen {
                 RemotePtyScreenView::Keyframe
             } else {
@@ -221,14 +232,12 @@ impl<T> RemotePtySession<T> {
 
     pub fn require_baseline(&mut self) {
         self.awaiting_baseline = true;
-        self.page_buffer = None;
         self.held_sequenced_live.clear();
         self.held_unsequenced_live.clear();
     }
 
     pub fn reset_transient(&mut self, reset_sequence: bool) {
         self.awaiting_baseline = false;
-        self.page_buffer = None;
         self.held_sequenced_live.clear();
         self.held_unsequenced_live.clear();
         if reset_sequence {
@@ -266,32 +275,6 @@ impl<T> RemotePtySession<T> {
         true
     }
 
-    pub fn accept_baseline_page(
-        &mut self,
-        data: &str,
-        offset: usize,
-        buffer_length: Option<usize>,
-        truncated: bool,
-    ) -> RemotePtyBaselinePageResult {
-        let mut page_buffer = if offset == 0 || self.page_buffer.is_none() {
-            RemotePtyPageBuffer::new(buffer_length, offset)
-        } else {
-            self.page_buffer.take().expect("page buffer exists")
-        };
-        let accepted = page_buffer.accept(data, offset, buffer_length, truncated);
-        if !accepted.accepted {
-            self.page_buffer = None;
-            return accepted;
-        }
-        if accepted.ready {
-            self.page_buffer = None;
-        } else {
-            self.buffer_length = accepted.next_offset;
-            self.page_buffer = Some(page_buffer);
-        }
-        accepted
-    }
-
     pub fn replace_from_baseline(
         &mut self,
         content: &str,
@@ -322,12 +305,12 @@ impl<T> RemotePtySession<T> {
             self.replace_keyframe_screen(screen_data);
         } else {
             self.has_keyframe_screen = false;
+            self.native_render_replay = None;
             self.screen_view = RemotePtyScreenView::History;
         }
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
         self.awaiting_baseline = false;
-        self.page_buffer = None;
 
         let mut replay = Vec::new();
         let held_sequenced_live = std::mem::take(&mut self.held_sequenced_live);
@@ -374,10 +357,11 @@ impl<T> RemotePtySession<T> {
             }
         }
         if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
-            self.replace_keyframe_screen(screen_data);
+            self.replace_keyframe_screen_for_live(screen_data);
         } else if !data.is_empty() && self.has_keyframe_screen {
             self.keyframe_screen.process(data.as_bytes());
             self.keyframe_screen.scroll_to_bottom();
+            self.append_native_render_replay(data);
         }
         if let Some(buffer_length) = buffer_length {
             self.buffer_length = buffer_length;
@@ -395,6 +379,7 @@ impl<T> RemotePtySession<T> {
         self.keyframe_screen.clear();
         self.scroll_screen.clear();
         self.has_keyframe_screen = false;
+        self.native_render_replay = None;
         self.host_scroll = None;
         self.screen_view = RemotePtyScreenView::History;
         self.reset_transient(false);
@@ -404,11 +389,40 @@ impl<T> RemotePtySession<T> {
         self.keyframe_screen
             .replace_with_keyframe(screen_data.as_bytes());
         self.has_keyframe_screen = true;
+        self.native_render_replay = Some(native_render_replay(
+            &self.content,
+            screen_data,
+            self.max_cached_chars,
+        ));
         if self.screen_view == RemotePtyScreenView::Keyframe
             || self.history_screen.display_offset() == 0
         {
             self.screen_view = RemotePtyScreenView::Keyframe;
         }
+    }
+
+    fn replace_keyframe_screen_for_live(&mut self, screen_data: &str) {
+        self.keyframe_screen
+            .replace_with_keyframe(screen_data.as_bytes());
+        self.has_keyframe_screen = true;
+        self.native_render_replay = Some(native_render_replay(
+            &self.content,
+            screen_data,
+            self.max_cached_chars,
+        ));
+        if self.screen_view == RemotePtyScreenView::Keyframe
+            || self.history_screen.display_offset() == 0
+        {
+            self.screen_view = RemotePtyScreenView::Keyframe;
+        }
+    }
+
+    fn append_native_render_replay(&mut self, data: &str) {
+        let Some(replay) = self.native_render_replay.as_mut() else {
+            return;
+        };
+        replay.push_str(data);
+        *replay = trim_to_char_limit(replay, self.max_cached_chars);
     }
 
     fn ensure_history_view_at_bottom(&mut self) {
@@ -427,83 +441,23 @@ impl<T> RemotePtySession<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct RemotePtyBaselinePageResult {
-    pub accepted: bool,
-    pub duplicate: bool,
-    pub ready: bool,
-    pub data: String,
-    pub next_offset: usize,
-    pub progress: Option<f64>,
-}
-
-#[derive(Debug, Clone)]
-struct RemotePtyPageBuffer {
-    buffer: String,
-    next_offset: usize,
-    buffer_length: Option<usize>,
-}
-
-impl RemotePtyPageBuffer {
-    fn new(buffer_length: Option<usize>, next_offset: usize) -> Self {
-        Self {
-            buffer: String::new(),
-            next_offset,
-            buffer_length,
-        }
-    }
-
-    fn accept(
-        &mut self,
-        data: &str,
-        offset: usize,
-        buffer_length: Option<usize>,
-        truncated: bool,
-    ) -> RemotePtyBaselinePageResult {
-        if self.buffer_length.is_none() {
-            self.buffer_length = buffer_length;
-        }
-        if offset != self.next_offset {
-            let data_chars = data.chars().count();
-            let duplicate = offset.saturating_add(data_chars) <= self.next_offset;
-            return RemotePtyBaselinePageResult {
-                accepted: false,
-                duplicate,
-                ready: false,
-                data: String::new(),
-                next_offset: self.next_offset,
-                progress: None,
-            };
-        }
-
-        self.buffer.push_str(data);
-        self.next_offset += data.chars().count();
-        let expected_length = buffer_length.or(self.buffer_length);
-        let complete_by_length = expected_length
-            .map(|length| self.next_offset >= length)
-            .unwrap_or(false);
-        let ready = !truncated || complete_by_length;
-        RemotePtyBaselinePageResult {
-            accepted: true,
-            duplicate: false,
-            ready,
-            data: if ready {
-                self.buffer.clone()
-            } else {
-                String::new()
-            },
-            next_offset: self.next_offset,
-            progress: expected_length
-                .filter(|length| *length > 0)
-                .map(|length| (self.next_offset as f64 / length as f64).clamp(0.0, 1.0)),
-        }
-    }
-}
-
 fn trim_to_char_limit(value: &str, max_chars: usize) -> String {
     let total = value.chars().count();
     if total <= max_chars {
         return value.to_string();
     }
     value.chars().skip(total - max_chars).collect()
+}
+
+fn native_render_replay(raw_history: &str, screen_data: &str, max_chars: usize) -> String {
+    if raw_history.is_empty() {
+        return trim_to_char_limit(screen_data, max_chars);
+    }
+    if screen_data.is_empty() {
+        return trim_to_char_limit(raw_history, max_chars);
+    }
+    let mut replay = String::with_capacity(raw_history.len() + screen_data.len());
+    replay.push_str(raw_history);
+    replay.push_str(screen_data);
+    trim_to_char_limit(&replay, max_chars)
 }

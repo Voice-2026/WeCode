@@ -28,39 +28,44 @@ void main() {
     );
   });
 
-  test('does not request baseline again when visible session has cache', () {
-    final output = RemoteTerminalOutputController();
-    final sent = <RelayEnvelope>[];
-    final coordinator = _coordinator(output: output, sent: sent);
-    output.accept(
-      RelayEnvelope(
-        type: RemoteMessageType.terminalBuffer,
-        sessionId: 'term-1',
-        payload: {
-          'buffer': true,
-          'data': 'ready',
-          'offset': 0,
-          'bufferLength': 5,
-          'truncated': false,
-          'outputSeq': 1,
-        },
-      ),
-      activeSessionId: 'term-1',
-    );
+  test(
+    'resubscribe cached session refreshes baseline through resource subscribe',
+    () {
+      final output = RemoteTerminalOutputController();
+      final sent = <RelayEnvelope>[];
+      final coordinator = _coordinator(output: output, sent: sent);
+      output.accept(
+        RelayEnvelope(
+          type: RemoteMessageType.terminalBuffer,
+          sessionId: 'term-1',
+          payload: {
+            'buffer': true,
+            'data': 'ready',
+            'offset': 0,
+            'bufferLength': 5,
+            'truncated': false,
+            'outputSeq': 1,
+          },
+        ),
+        activeSessionId: 'term-1',
+      );
 
-    coordinator.resubscribeVisibleTerminal(
-      transportConnected: true,
-      protocolReady: true,
-      activeSessionId: 'term-1',
-      selectedProjectId: 'project-1',
-      capability: TerminalBufferCapability.fallback,
-      reason: 'resume',
-      ensureBoundBaseline: (_, _) {},
-    );
+      coordinator.resubscribeVisibleTerminal(
+        transportConnected: true,
+        protocolReady: true,
+        activeSessionId: 'term-1',
+        selectedProjectId: 'project-1',
+        capability: TerminalBufferCapability.fallback,
+        reason: 'resume',
+        ensureBoundBaseline: (_, _) {},
+      );
 
-    expect(sent, hasLength(1));
-    expect(sent.single.payload, isNot(containsPair('baseline', true)));
-  });
+      expect(sent, hasLength(1));
+      expect(sent.single.type, RemoteMessageType.resourceSubscribe);
+      expect(sent.single.payload, containsPair('baseline', true));
+      expect(output.activeBufferRequestId('term-1'), 'req-session-term-1-1');
+    },
+  );
 
   test(
     'empty bound session marks project baseline stale and subscribes project',
@@ -116,6 +121,47 @@ void main() {
       expect(sent.single.payload, containsPair('baseline', true));
     },
   );
+
+  test('bind restored cached session still refreshes host baseline', () {
+    final sent = <RelayEnvelope>[];
+    final output = RemoteTerminalOutputController();
+    output.accept(
+      RelayEnvelope(
+        type: RemoteMessageType.terminalBuffer,
+        sessionId: 'term-1',
+        payload: const {
+          'buffer': true,
+          'data': 'cached',
+          'offset': 0,
+          'bufferLength': 6,
+          'truncated': false,
+          'outputSeq': 1,
+        },
+      ),
+      activeSessionId: 'term-1',
+    );
+    final coordinator = _coordinator(
+      output: output,
+      sent: sent,
+      terminals: {'term-1': _terminal('term-1', 'project-1')},
+    );
+
+    final result = coordinator.bindSession(
+      plan: const RemoteRuntimePlan(bindSessionId: 'term-1'),
+      bindSessionId: 'term-1',
+      reason: 'select',
+      selectedProjectId: 'project-1',
+      capability: TerminalBufferCapability.fallback,
+      restored: true,
+    );
+
+    expect(result.baselineRequested, isTrue);
+    expect(sent, hasLength(1));
+    expect(sent.single.type, RemoteMessageType.resourceSubscribe);
+    expect(sent.single.payload, containsPair('projectId', 'project-1'));
+    expect(sent.single.payload, containsPair('baseline', true));
+    expect(output.activeBufferRequestId('term-1'), isNotNull);
+  });
 }
 
 RemoteTerminalBindingCoordinator _coordinator({

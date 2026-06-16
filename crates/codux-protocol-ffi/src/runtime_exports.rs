@@ -253,13 +253,32 @@ pub extern "C" fn codux_remote_runtime_model_apply_git_status_json(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn codux_remote_runtime_model_set_terminal_creating_project(
+pub extern "C" fn codux_remote_runtime_model_begin_terminal_create_json(
     model: *mut FfiRemoteRuntimeModel,
-    project_id: *const c_char,
+    request_json: *const c_char,
 ) {
-    if let Some(model) = remote_runtime_model_mut(model) {
-        model.set_terminal_creating_project(c_to_string(project_id));
-    }
+    let Some(model) = remote_runtime_model_mut(model) else {
+        return;
+    };
+    let Some(request_json) = c_to_string(request_json) else {
+        return;
+    };
+    let Ok(request) = serde_json::from_str::<serde_json::Value>(&request_json) else {
+        return;
+    };
+    let project_id = request
+        .get("projectId")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let worktree_id = request
+        .get("worktreeId")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let layout_kind = request
+        .get("layoutKind")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    model.begin_terminal_create(project_id, worktree_id, layout_kind);
 }
 
 #[unsafe(no_mangle)]

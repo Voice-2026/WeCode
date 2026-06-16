@@ -161,18 +161,15 @@ class RemoteTerminalBindingCoordinator {
     if (!transportConnected || !protocolReady) return;
     final sessionId = activeSessionId;
     if (sessionId != null && sessionId.isNotEmpty) {
-      // While the cached output sequence is continuous the cache is already
-      // an exact mirror, so re-subscribing with baseline:false avoids holding
-      // live output for a baseline round-trip; a recorded gap means lost
-      // frames that only a baseline can repair.
-      final baseline =
-          !_outputController.hasCachedOutput(sessionId) ||
-          _outputController.hasSequenceGap(sessionId);
+      // Cache is only an instant paint source. Whenever the visible terminal
+      // is rebound after foreground/reconnect/path changes, refresh the host
+      // baseline so scrollback and native replay are authoritative even if
+      // the desktop window has not repainted.
       final requested = subscribeSessionBaseline(
         sessionId: sessionId,
         reason: reason,
         capability: capability,
-        baseline: baseline,
+        baseline: true,
       );
       ensureBoundBaseline(sessionId, requested);
       return;
@@ -224,7 +221,7 @@ class RemoteTerminalBindingCoordinator {
     final hasCachedOutput =
         _outputController.hasCachedOutput(bindSessionId) &&
         !_outputController.hasSequenceGap(bindSessionId);
-    final needsFullBuffer = !hasCachedOutput;
+    final needsFullBuffer = !hasCachedOutput || restored || plan.bindFullBuffer;
     if (selectedProjectId != null) {
       baselineRequested = replaceProjectSubscription(
         projectId: selectedProjectId,

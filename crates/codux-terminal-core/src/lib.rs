@@ -21,7 +21,7 @@ pub use remote_output_router::{
     RemoteTerminalBufferPhase, RemoteTerminalOutputEffect, RemoteTerminalOutputEffectKind,
     RemoteTerminalOutputRouter,
 };
-pub use remote_pty::{RemotePtyBaselinePageResult, RemotePtySession, RemotePtySnapshot};
+pub use remote_pty::{RemotePtySession, RemotePtySnapshot};
 pub use runtime_model::{
     RemoteRuntimeModel, RemoteRuntimePlan, RemoteRuntimeProject, RemoteRuntimeStateSnapshot,
     RemoteRuntimeTerminal, RemoteRuntimeTerminalScope, RemoteRuntimeWorktree,

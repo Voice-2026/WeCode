@@ -1056,8 +1056,9 @@ impl TerminalPtySessionHandle {
             .map(|_| ())
     }
 
-    /// Active claim: explicit user intent (mobile viewport envelopes,
-    /// desktop terminal input). Always takes ownership and renews the lease.
+    /// Active claim: explicit viewport ownership intent from a controller.
+    /// Ordinary desktop focus/input does not call this; the current owner is
+    /// the only endpoint allowed to resize the PTY.
     pub fn claim_viewport(&self, owner: &str) -> Result<TerminalViewportState> {
         self.claim_viewport_with(owner, true)
     }
@@ -3290,6 +3291,62 @@ mod tests {
             .expect("desktop resize after release")
             .expect("desktop resize accepted");
         assert_eq!((accepted.cols, accepted.rows), (100, 32));
+
+        let _ = session.kill();
+        fs::remove_dir_all(temp).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn desktop_resize_waits_for_remote_viewport_release() {
+        let manager = TerminalManager::new();
+        let temp = std::env::temp_dir().join(format!(
+            "codux-terminal-viewport-release-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        let session_id = manager
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(temp.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        let session = manager.session(&session_id).expect("session");
+        let handle = session.clone_handle();
+
+        handle.claim_viewport("remote:phone").expect("remote claim");
+        handle
+            .resize_viewport("remote:phone", 72, 18)
+            .expect("remote resize")
+            .expect("remote resize accepted");
+
+        let ignored = handle
+            .resize_viewport(terminal_viewport_local_owner(), 120, 40)
+            .expect("desktop resize while remote owns");
+        assert!(ignored.is_none());
+        assert_eq!(handle.viewport_state().owner, "remote:phone");
+        assert_eq!(
+            (handle.viewport_state().cols, handle.viewport_state().rows),
+            (72, 18)
+        );
+
+        handle
+            .release_viewport("remote:phone")
+            .expect("remote release")
+            .expect("release state");
+        let accepted = handle
+            .resize_viewport(terminal_viewport_local_owner(), 120, 40)
+            .expect("desktop resize after release")
+            .expect("desktop resize accepted");
+        assert_eq!(accepted.owner, terminal_viewport_local_owner());
+        assert_eq!((accepted.cols, accepted.rows), (120, 40));
 
         let _ = session.kill();
         fs::remove_dir_all(temp).ok();

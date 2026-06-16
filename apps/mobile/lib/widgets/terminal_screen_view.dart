@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
 import 'package:flutter/foundation.dart';
@@ -60,9 +61,16 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
   bool _scrollFlushScheduled = false;
   bool _scrollToBottomScheduled = false;
   bool _suppressScrollEmit = false;
+  final ValueNotifier<double> _paintScrollOffsetY = ValueNotifier<double>(0);
+  final ValueNotifier<bool> _cursorBlinkVisibleNotifier = ValueNotifier<bool>(
+    true,
+  );
+  final _TerminalScreenRenderCache _renderCache = _TerminalScreenRenderCache();
   double _pendingScrollPixels = 0;
   double _unrequestedRemoteScrollPixels = 0;
   double? _lastScrollOffset;
+  double _lastViewportHeight = 0;
+  double _lastCellHeight = 0;
   _ScrollOffsetBounds? _lastRemoteScrollBounds;
   bool _cursorBlinkVisible = true;
   Timer? _cursorBlinkTimer;
@@ -111,6 +119,9 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     _cursorBlinkTimer?.cancel();
     _longPressTimer?.cancel();
     _closeKeyboardConnection();
+    _paintScrollOffsetY.dispose();
+    _cursorBlinkVisibleNotifier.dispose();
+    _renderCache.dispose();
     _keyboardFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -122,17 +133,20 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
       final cursor = widget.snapshot?.cursor;
       if (cursor == null || !cursor.visible) {
         if (!_cursorBlinkVisible) {
-          setState(() => _cursorBlinkVisible = true);
+          _cursorBlinkVisible = true;
+          _cursorBlinkVisibleNotifier.value = true;
         }
         return;
       }
-      setState(() => _cursorBlinkVisible = !_cursorBlinkVisible);
+      _cursorBlinkVisible = !_cursorBlinkVisible;
+      _cursorBlinkVisibleNotifier.value = _cursorBlinkVisible;
     });
   }
 
   void _resetCursorBlink() {
     if (_cursorBlinkVisible) return;
-    setState(() => _cursorBlinkVisible = true);
+    _cursorBlinkVisible = true;
+    _cursorBlinkVisibleNotifier.value = true;
   }
 
   void _syncKeyboardFocus() {
@@ -214,6 +228,8 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
         final fontSize = _normalizeTerminalFontSize(widget.fontSize);
         final cellWidth = _terminalCellWidth(context, fontSize);
         final cellHeight = _terminalCellHeight(fontSize);
+        _lastViewportHeight = constraints.maxHeight;
+        _lastCellHeight = cellHeight;
         final cols = math.max(20, constraints.maxWidth ~/ cellWidth);
         final rows = math.max(8, constraints.maxHeight ~/ cellHeight);
         final snapshot = widget.snapshot;
@@ -259,6 +275,16 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
                 cellHeight,
                 remoteScroll: widget.remoteScroll,
               );
+        _setPaintScrollOffsetY(
+          snapshot == null
+              ? 0
+              : _painterScrollOffsetY(
+                  snapshot,
+                  scrollOffset,
+                  constraints.maxHeight,
+                  cellHeight,
+                ),
+        );
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           // Only emit a resize when the measured grid actually changed. The
@@ -338,15 +364,9 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
                           cellWidth: cellWidth,
                           cellHeight: cellHeight,
                           fontSize: fontSize,
-                          scrollOffsetY: snapshot == null
-                              ? 0
-                              : _painterScrollOffsetY(
-                                  snapshot,
-                                  scrollOffset,
-                                  constraints.maxHeight,
-                                  cellHeight,
-                                ),
+                          paintScrollOffsetY: _paintScrollOffsetY,
                           selection: _selection,
+                          renderCache: _renderCache,
                         ),
                       ),
                     ),
@@ -361,15 +381,8 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
                           cellWidth: cellWidth,
                           cellHeight: cellHeight,
                           fontSize: fontSize,
-                          scrollOffsetY: snapshot == null
-                              ? 0
-                              : _painterScrollOffsetY(
-                                  snapshot,
-                                  scrollOffset,
-                                  constraints.maxHeight,
-                                  cellHeight,
-                                ),
-                          cursorBlinkVisible: _cursorBlinkVisible,
+                          paintScrollOffsetY: _paintScrollOffsetY,
+                          cursorBlinkVisible: _cursorBlinkVisibleNotifier,
                         ),
                       ),
                     ),
@@ -410,7 +423,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     final rawOffset = position.pixels;
     _lastScrollOffset = rawOffset;
     _followTail = position.maxScrollExtent - rawOffset <= cellHeight / 2;
-    setState(() {});
+    _updatePaintScrollOffsetForRaw(rawOffset);
     if (_suppressScrollEmit || previous == null) return;
     // Offset grows downward from the top of history; the contract wants
     // positive pixels for scrolling up into history.
@@ -418,15 +431,50 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     if (delta == 0) return;
     if (widget.remoteScroll) {
       _unrequestedRemoteScrollPixels += delta;
-      if (!_remoteScrollNeedsHostSnapshot(position, rawOffset)) return;
-      if (_unrequestedRemoteScrollPixels == 0) return;
-      _pendingScrollPixels += _unrequestedRemoteScrollPixels;
-      _unrequestedRemoteScrollPixels = 0;
-      _scheduleScrollFlush();
+      if (_remoteScrollNeedsHostSnapshot(position, rawOffset)) {
+        _flushUnrequestedRemoteScroll();
+      }
       return;
     }
     _pendingScrollPixels += delta;
     _scheduleScrollFlush();
+  }
+
+  void _flushUnrequestedRemoteScroll() {
+    if (_unrequestedRemoteScrollPixels == 0) return;
+    _pendingScrollPixels += _unrequestedRemoteScrollPixels;
+    _unrequestedRemoteScrollPixels = 0;
+    _scheduleScrollFlush();
+  }
+
+  void _setPaintScrollOffsetY(double value) {
+    if ((_paintScrollOffsetY.value - value).abs() <= _terminalScrollEpsilon) {
+      return;
+    }
+    _paintScrollOffsetY.value = value;
+  }
+
+  void _updatePaintScrollOffsetForRaw(double rawScrollOffset) {
+    final screen = widget.snapshot;
+    if (screen == null || _lastViewportHeight <= 0 || _lastCellHeight <= 0) {
+      _setPaintScrollOffsetY(0);
+      return;
+    }
+    final scrollOffset = _confirmedSnapshotScrollOffset(
+      screen,
+      rawScrollOffset,
+      _lastViewportHeight,
+      _lastCellHeight,
+      remoteScroll: widget.remoteScroll,
+    );
+    _setPaintScrollOffsetY(
+      _painterScrollOffsetY(
+        screen,
+        scrollOffset,
+        _lastViewportHeight,
+        _lastCellHeight,
+      ),
+    );
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
@@ -439,6 +487,14 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
     } else if (notification is ScrollEndNotification) {
       _scrollIdle = true;
       if (!_suppressScrollEmit) {
+        if (widget.remoteScroll &&
+            _scrollController.hasClients &&
+            _remoteScrollNeedsHostSnapshot(
+              _scrollController.position,
+              _scrollController.position.pixels,
+            )) {
+          _flushUnrequestedRemoteScroll();
+        }
         _flushScrollPixels();
         widget.onSettleScroll();
       }
@@ -771,15 +827,11 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
       screen.rows - screen.marginRows - screen.marginRowsBelow,
     );
     final visibleTop =
-        (screen.totalLines - screen.displayOffset - viewportRows) *
-        cellHeight;
+        (screen.totalLines - screen.displayOffset - viewportRows) * cellHeight;
     return visibleTop.clamp(bounds.min, bounds.max).toDouble();
   }
 
-  bool _remoteScrollNeedsHostSnapshot(
-    ScrollPosition position,
-    double offset,
-  ) {
+  bool _remoteScrollNeedsHostSnapshot(ScrollPosition position, double offset) {
     if (!widget.remoteScroll) return true;
     final bounds = _lastRemoteScrollBounds;
     if (bounds == null) return true;
@@ -833,8 +885,7 @@ class _TerminalScreenViewState extends State<TerminalScreenView>
       return const _ScrollOffsetBounds(0, 0);
     }
     final visibleTop =
-        (screen.totalLines - screen.displayOffset - viewportRows) *
-        cellHeight;
+        (screen.totalLines - screen.displayOffset - viewportRows) * cellHeight;
     final minOffset = (visibleTop - screen.marginRows * cellHeight).clamp(
       0.0,
       double.infinity,
@@ -1005,7 +1056,8 @@ double _terminalRemotePrefetchDistance(double viewportHeight) {
 
 int _remoteVisibleRows(TerminalScreenSnapshot? snapshot) {
   if (snapshot == null) return 1;
-  final visible = snapshot.rows - snapshot.marginRows - snapshot.marginRowsBelow;
+  final visible =
+      snapshot.rows - snapshot.marginRows - snapshot.marginRowsBelow;
   return visible > 0 ? visible : math.max(1, snapshot.rows);
 }
 
@@ -1142,24 +1194,26 @@ class _TerminalScreenPainter extends CustomPainter {
     required this.cellWidth,
     required this.cellHeight,
     required this.fontSize,
-    required this.scrollOffsetY,
+    required this.paintScrollOffsetY,
     required this.selection,
-  });
+    required this.renderCache,
+  }) : super(repaint: paintScrollOffsetY);
 
   final TerminalScreenSnapshot? snapshot;
   final double cellWidth;
   final double cellHeight;
   final double fontSize;
-  final double scrollOffsetY;
+  final ValueListenable<double> paintScrollOffsetY;
   final _TerminalSelectionRange? selection;
+  final _TerminalScreenRenderCache renderCache;
 
   @override
   void paint(Canvas canvas, Size size) {
     final screen = snapshot;
+    final scrollOffsetY = paintScrollOffsetY.value;
     canvas.drawRect(Offset.zero & size, Paint()..color = AppColors.bgBase);
     if (screen == null) return;
 
-    final textPainter = TextPainter(textDirection: TextDirection.ltr);
     _paintSelection(
       canvas,
       size,
@@ -1170,72 +1224,20 @@ class _TerminalScreenPainter extends CustomPainter {
       scrollOffsetY,
     );
 
-    final cells = screen.cells;
-    for (final cell in cells) {
-      if (cell.hidden) continue;
-      final left = cell.col * cellWidth;
-      final top = cell.row * cellHeight + scrollOffsetY;
-      if (left >= size.width || top >= size.height || top + cellHeight <= 0) {
-        continue;
-      }
-      final colors = TerminalTheme.resolveCellColors(
-        fg: cell.fg,
-        bg: cell.bg,
-        inverse: cell.inverse,
-        bold: cell.bold,
-        dim: cell.dim,
-      );
-      if (colors.drawBackground) {
-        canvas.drawRect(
-          Rect.fromLTWH(left, top, cellWidth * cell.width, cellHeight),
-          Paint()..color = colors.bg,
-        );
-      }
-      // Background-only cells (TUI panel bands erased with a background
-      // color) carry no glyph; they still need the rect above.
-      if (cell.text.isEmpty) continue;
-    }
-
-    for (var i = 0; i < cells.length; i++) {
-      final cell = cells[i];
-      if (cell.hidden || cell.text.isEmpty) continue;
-      final left = cell.col * cellWidth;
-      final top = cell.row * cellHeight + scrollOffsetY;
-      if (left >= size.width || top >= size.height || top + cellHeight <= 0) {
-        continue;
-      }
-      final run = _terminalTextRun(cells, i);
-      if (run == null) continue;
-      final colors = TerminalTheme.resolveCellColors(
-        fg: cell.fg,
-        bg: cell.bg,
-        inverse: cell.inverse,
-        bold: cell.bold,
-        dim: cell.dim,
-      );
-      textPainter.text = TextSpan(
-        text: run.text,
-        style: _terminalTextStyle(
-          color: colors.fg,
-          fontSize: fontSize,
-          bold: cell.bold,
-          italic: cell.italic,
-          decoration: TextDecoration.combine([
-            if (cell.underline) TextDecoration.underline,
-            if (cell.strikeout) TextDecoration.lineThrough,
-          ]),
-        ),
-      );
-      _paintTerminalText(
-        canvas: canvas,
-        textPainter: textPainter,
-        left: left,
-        top: top,
-        width: cellWidth * run.width,
-        height: cellHeight,
-        fontSize: fontSize,
-        clipRight: size.width,
-      );
+    final rows = renderCache.rowsFor(
+      screen: screen,
+      cellWidth: cellWidth,
+      cellHeight: cellHeight,
+      fontSize: fontSize,
+    );
+    for (final row in rows) {
+      final top = row.index * cellHeight + scrollOffsetY;
+      if (top >= size.height || top + cellHeight <= 0) continue;
+      canvas
+        ..save()
+        ..translate(0, top)
+        ..drawPicture(row.picture)
+        ..restore();
     }
   }
 
@@ -1245,9 +1247,148 @@ class _TerminalScreenPainter extends CustomPainter {
         cellWidth != oldDelegate.cellWidth ||
         cellHeight != oldDelegate.cellHeight ||
         fontSize != oldDelegate.fontSize ||
-        scrollOffsetY != oldDelegate.scrollOffsetY ||
+        paintScrollOffsetY != oldDelegate.paintScrollOffsetY ||
         selection != oldDelegate.selection;
   }
+}
+
+class _TerminalScreenRenderCache {
+  TerminalScreenSnapshot? _snapshot;
+  double _cellWidth = 0;
+  double _cellHeight = 0;
+  double _fontSize = 0;
+  List<_TerminalCachedRow> _rows = const [];
+
+  List<_TerminalCachedRow> rowsFor({
+    required TerminalScreenSnapshot screen,
+    required double cellWidth,
+    required double cellHeight,
+    required double fontSize,
+  }) {
+    if (identical(_snapshot, screen) &&
+        _cellWidth == cellWidth &&
+        _cellHeight == cellHeight &&
+        _fontSize == fontSize) {
+      return _rows;
+    }
+    dispose();
+    _snapshot = screen;
+    _cellWidth = cellWidth;
+    _cellHeight = cellHeight;
+    _fontSize = fontSize;
+    _rows = _buildRows(screen, cellWidth, cellHeight, fontSize);
+    return _rows;
+  }
+
+  List<_TerminalCachedRow> _buildRows(
+    TerminalScreenSnapshot screen,
+    double cellWidth,
+    double cellHeight,
+    double fontSize,
+  ) {
+    final cellsByRow = <int, List<TerminalScreenCell>>{};
+    for (final cell in screen.cells) {
+      if (cell.hidden) continue;
+      cellsByRow.putIfAbsent(cell.row, () => <TerminalScreenCell>[]).add(cell);
+    }
+    final rows = <_TerminalCachedRow>[];
+    final width = math.max(1.0, screen.cols * cellWidth);
+    for (final entry in cellsByRow.entries) {
+      final picture = _recordTerminalRow(
+        cells: entry.value..sort((a, b) => a.col.compareTo(b.col)),
+        width: width,
+        cellWidth: cellWidth,
+        cellHeight: cellHeight,
+        fontSize: fontSize,
+      );
+      rows.add(_TerminalCachedRow(entry.key, picture));
+    }
+    rows.sort((a, b) => a.index.compareTo(b.index));
+    return rows;
+  }
+
+  void dispose() {
+    for (final row in _rows) {
+      row.picture.dispose();
+    }
+    _rows = const [];
+    _snapshot = null;
+  }
+}
+
+class _TerminalCachedRow {
+  const _TerminalCachedRow(this.index, this.picture);
+
+  final int index;
+  final ui.Picture picture;
+}
+
+ui.Picture _recordTerminalRow({
+  required List<TerminalScreenCell> cells,
+  required double width,
+  required double cellWidth,
+  required double cellHeight,
+  required double fontSize,
+}) {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, cellHeight));
+  final textPainter = TextPainter(textDirection: TextDirection.ltr);
+
+  for (final cell in cells) {
+    final left = cell.col * cellWidth;
+    final colors = TerminalTheme.resolveCellColors(
+      fg: cell.fg,
+      bg: cell.bg,
+      inverse: cell.inverse,
+      bold: cell.bold,
+      dim: cell.dim,
+    );
+    if (colors.drawBackground) {
+      canvas.drawRect(
+        Rect.fromLTWH(left, 0, cellWidth * cell.width, cellHeight),
+        Paint()..color = colors.bg,
+      );
+    }
+  }
+
+  for (var i = 0; i < cells.length; i++) {
+    final cell = cells[i];
+    if (cell.text.isEmpty) continue;
+    final run = _terminalTextRun(cells, i);
+    if (run == null) continue;
+    final colors = TerminalTheme.resolveCellColors(
+      fg: cell.fg,
+      bg: cell.bg,
+      inverse: cell.inverse,
+      bold: cell.bold,
+      dim: cell.dim,
+    );
+    textPainter.text = TextSpan(
+      text: run.text,
+      style: _terminalTextStyle(
+        color: colors.fg,
+        fontSize: fontSize,
+        bold: cell.bold,
+        italic: cell.italic,
+        decoration: TextDecoration.combine([
+          if (cell.underline) TextDecoration.underline,
+          if (cell.strikeout) TextDecoration.lineThrough,
+        ]),
+      ),
+    );
+    _paintTerminalText(
+      canvas: canvas,
+      textPainter: textPainter,
+      left: cell.col * cellWidth,
+      top: 0,
+      width: cellWidth * run.width,
+      height: cellHeight,
+      fontSize: fontSize,
+      clipRight: width,
+    );
+  }
+
+  return recorder.endRecording();
 }
 
 class _TerminalTextRun {
@@ -1430,22 +1571,25 @@ class _TerminalCursorPainter extends CustomPainter {
     required this.cellWidth,
     required this.cellHeight,
     required this.fontSize,
-    required this.scrollOffsetY,
+    required this.paintScrollOffsetY,
     required this.cursorBlinkVisible,
-  });
+  }) : super(
+         repaint: Listenable.merge([paintScrollOffsetY, cursorBlinkVisible]),
+       );
 
   final TerminalScreenSnapshot? snapshot;
   final double cellWidth;
   final double cellHeight;
   final double fontSize;
-  final double scrollOffsetY;
-  final bool cursorBlinkVisible;
+  final ValueListenable<double> paintScrollOffsetY;
+  final ValueListenable<bool> cursorBlinkVisible;
 
   @override
   void paint(Canvas canvas, Size size) {
     final screen = snapshot;
     if (screen == null) return;
-    if (!screen.cursor.visible || !cursorBlinkVisible) return;
+    if (!screen.cursor.visible || !cursorBlinkVisible.value) return;
+    final scrollOffsetY = paintScrollOffsetY.value;
 
     final cursorCell = _cursorCell(screen);
     final cursorTop = (screen.cursor.row * cellHeight + scrollOffsetY)
@@ -1489,7 +1633,7 @@ class _TerminalCursorPainter extends CustomPainter {
   bool shouldRepaint(covariant _TerminalCursorPainter oldDelegate) {
     return cursorBlinkVisible != oldDelegate.cursorBlinkVisible ||
         snapshot != oldDelegate.snapshot ||
-        scrollOffsetY != oldDelegate.scrollOffsetY ||
+        paintScrollOffsetY != oldDelegate.paintScrollOffsetY ||
         cellWidth != oldDelegate.cellWidth ||
         cellHeight != oldDelegate.cellHeight ||
         fontSize != oldDelegate.fontSize;

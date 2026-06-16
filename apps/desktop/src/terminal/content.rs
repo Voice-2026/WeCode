@@ -113,6 +113,18 @@ impl TerminalContent {
         self.viewport_start_line + row as i32 + self.visible_row_shift as i32
     }
 
+    fn line_in_snapshot(&self, line: i32) -> bool {
+        let start = self.viewport_start_line;
+        let end = self.last_snapshot_line().unwrap_or(start);
+        start <= line && line <= end
+    }
+
+    fn last_snapshot_line(&self) -> Option<i32> {
+        self.screen_lines
+            .checked_sub(1)
+            .map(|row| self.viewport_start_line + row as i32)
+    }
+
     fn display_cursor(&self) -> DisplayCursor {
         DisplayCursor {
             row: self.cursor.row as i32,

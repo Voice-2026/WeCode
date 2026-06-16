@@ -1804,9 +1804,11 @@ mod tests {
             .contains("summary content cannot be empty")
         );
 
-        let indexed =
-            crate::async_runtime::block_on(memory_index_now(&service)).expect("memory index now");
-        assert_eq!(indexed.running_count, 0);
+        assert!(
+            crate::async_runtime::block_on(memory_index_now(&service))
+                .expect_err("memory index without provider")
+                .contains("Memory needs an enabled AI provider")
+        );
 
         let _ = std::fs::remove_dir_all(support_dir);
     }

@@ -134,6 +134,7 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
             Expanded(
               child: switch (_section) {
                 TerminalSwitcherSection.splits => _TerminalList(
+                  listKey: 'split',
                   terminals: splits,
                   activeTerminalId: widget.activeTerminalId,
                   addLabel: prefs.t('switcher.newSplit'),
@@ -144,6 +145,7 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
                   onClose: widget.onCloseTerminal,
                 ),
                 TerminalSwitcherSection.tabs => _TerminalList(
+                  listKey: 'tab',
                   terminals: tabs,
                   activeTerminalId: widget.activeTerminalId,
                   addLabel: prefs.t('switcher.newTab'),
@@ -256,6 +258,7 @@ class _Segment extends StatelessWidget {
 
 class _TerminalList extends StatelessWidget {
   const _TerminalList({
+    required this.listKey,
     required this.terminals,
     required this.activeTerminalId,
     required this.addLabel,
@@ -266,6 +269,7 @@ class _TerminalList extends StatelessWidget {
     required this.onClose,
   });
 
+  final String listKey;
   final List<TerminalInfo> terminals;
   final String? activeTerminalId;
   final String addLabel;
@@ -285,10 +289,11 @@ class _TerminalList extends StatelessWidget {
         padding: EdgeInsets.zero,
         children: [
           SwipeListTile(
+            key: ValueKey('terminal-switcher-$listKey-add'),
             title: addLabel,
             subtitle: creating ? prefs.t('terminal.creating') : itemPrefix,
             leadingIcon: Icons.add_rounded,
-            active: true,
+            active: false,
             onTap: creating ? null : onAdd,
             trailing: creating ? _InlineLoader(color: accent) : null,
           ),
@@ -302,10 +307,11 @@ class _TerminalList extends StatelessWidget {
       itemBuilder: (context, index) {
         if (index == terminals.length) {
           return SwipeListTile(
+            key: ValueKey('terminal-switcher-$listKey-add'),
             title: addLabel,
             subtitle: creating ? prefs.t('terminal.creating') : itemPrefix,
             leadingIcon: Icons.add_rounded,
-            active: true,
+            active: false,
             onTap: creating ? null : onAdd,
             trailing: creating ? _InlineLoader(color: accent) : null,
           );
@@ -313,6 +319,7 @@ class _TerminalList extends StatelessWidget {
         final terminal = terminals[index];
         final active = terminal.id == activeTerminalId;
         return SwipeListTile(
+          key: ValueKey('terminal-switcher-$listKey-terminal-${terminal.id}'),
           title: '$itemPrefix ${index + 1}',
           subtitle: _terminalSubtitle(terminal),
           leadingIcon: Icons.terminal_rounded,
@@ -371,12 +378,13 @@ class _WorktreeList extends StatelessWidget {
         padding: EdgeInsets.zero,
         children: [
           SwipeListTile(
+            key: const ValueKey('terminal-switcher-worktree-add'),
             title: prefs.t('worktree.new'),
             subtitle: creating
                 ? prefs.t('worktree.creating')
                 : prefs.t('switcher.worktrees'),
             leadingIcon: Icons.add_rounded,
-            active: true,
+            active: false,
             onTap: creating ? null : onCreate,
             trailing: creating ? _InlineLoader(color: accent) : null,
           ),
@@ -390,12 +398,13 @@ class _WorktreeList extends StatelessWidget {
       itemBuilder: (context, index) {
         if (index == worktrees.length) {
           return SwipeListTile(
+            key: const ValueKey('terminal-switcher-worktree-add'),
             title: prefs.t('worktree.new'),
             subtitle: creating
                 ? prefs.t('worktree.creating')
                 : prefs.t('switcher.worktrees'),
             leadingIcon: Icons.add_rounded,
-            active: true,
+            active: false,
             onTap: creating ? null : onCreate,
             trailing: creating ? _InlineLoader(color: accent) : null,
           );
@@ -411,6 +420,7 @@ class _WorktreeList extends StatelessWidget {
           onDelete: onDelete,
         );
         return SwipeListTile(
+          key: ValueKey('terminal-switcher-worktree-${item.id}'),
           title: _worktreeTitle(item),
           subtitle: _worktreeSubtitle(item),
           leadingIcon: Icons.account_tree_outlined,

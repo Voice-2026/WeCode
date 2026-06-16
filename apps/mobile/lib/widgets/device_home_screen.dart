@@ -14,6 +14,7 @@ class DeviceHomeScreen extends StatelessWidget {
     required this.ready,
     required this.status,
     required this.latencyMs,
+    required this.deviceSubtitle,
     required this.topInset,
     required this.bottomInset,
     required this.onOpen,
@@ -33,6 +34,7 @@ class DeviceHomeScreen extends StatelessWidget {
   final bool ready;
   final String status;
   final int? latencyMs;
+  final String Function(StoredDevice device) deviceSubtitle;
   final double topInset;
   final double bottomInset;
   final ValueChanged<StoredDevice> onOpen;
@@ -81,6 +83,8 @@ class DeviceHomeScreen extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       prefs.t('device.homeHint'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: AppColors.textMuted,
                         fontSize: 12,
@@ -138,10 +142,7 @@ class DeviceHomeScreen extends StatelessWidget {
                             : device.name;
                         return SwipeListTile(
                           title: title,
-                          subtitle: _deviceProtocolLabel(
-                            context,
-                            _deviceTransportKind(device),
-                          ),
+                          subtitle: deviceSubtitle(device),
                           leadingIcon: Icons.desktop_mac_outlined,
                           active: isActive,
                           onTap: isReady

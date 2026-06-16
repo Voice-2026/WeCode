@@ -154,18 +154,18 @@ fn remote_pairing_payload_contains_iroh_transport_candidates() {
     assert_eq!(value["code"], "123456");
     assert_eq!(value["secret"], "secret");
     assert_eq!(value["pairingId"], "pair-1");
-    assert_eq!(
-        value["protocolVersion"],
-        super::protocol::REMOTE_PROTOCOL_VERSION
-    );
+    assert!(value.get("hostId").is_none());
+    assert!(value.get("hostName").is_none());
+    assert!(value.get("protocolVersion").is_none());
     assert!(value.get("transport").is_none());
     assert!(value.get("iroh").is_none());
     assert_eq!(value["transports"][0]["kind"], "iroh");
-    assert_eq!(value["transports"][0]["role"], "host");
-    assert_eq!(value["transports"][0]["url"], "https://relay.example");
-    assert_eq!(value["transports"][0]["nodeId"], "node-1");
-    assert_eq!(value["transports"][0]["relayUrl"], "https://relay.example");
+    assert_eq!(value["transports"][0]["ticket"], "endpoint-ticket");
     assert_eq!(value["transports"][0]["relayAuthentication"], "relay-token");
+    assert!(value["transports"][0].get("role").is_none());
+    assert!(value["transports"][0].get("url").is_none());
+    assert!(value["transports"][0].get("nodeId").is_none());
+    assert!(value["transports"][0].get("relayUrl").is_none());
 }
 
 #[test]

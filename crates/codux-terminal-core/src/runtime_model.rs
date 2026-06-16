@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -178,6 +178,14 @@ pub struct RemoteRuntimeStateSnapshot {
 }
 
 #[derive(Debug, Clone, Default)]
+struct PendingTerminalCreateRequest {
+    project_id: String,
+    worktree_id: Option<String>,
+    layout_kind: String,
+    existing_terminal_ids: HashSet<String>,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct RemoteRuntimeModel {
     projects: Vec<RemoteRuntimeProject>,
     terminals: Vec<RemoteRuntimeTerminal>,
@@ -190,6 +198,9 @@ pub struct RemoteRuntimeModel {
     pending_project_select_sent: bool,
     project_select_acknowledged_id: Option<String>,
     creating_terminal_project_id: Option<String>,
+    pending_terminal_create_request: Option<PendingTerminalCreateRequest>,
+    pending_created_terminal: Option<RemoteRuntimeTerminal>,
+    pending_created_terminal_confirmed: bool,
     last_terminal_id_by_project: HashMap<String, String>,
     selected_worktree_id_by_project: HashMap<String, String>,
     base_branches_by_project: HashMap<String, Vec<String>>,
@@ -407,6 +418,9 @@ impl RemoteRuntimeModel {
         if project_changed {
             self.active_session_id = None;
             self.pending_worktree_terminal_request_key = None;
+            self.clear_pending_created_terminal();
+            self.pending_terminal_create_request = None;
+            self.creating_terminal_project_id = None;
         }
         if confirms_pending_project_select {
             self.project_select_acknowledged_id = self.pending_project_select_id.clone();
@@ -432,10 +446,73 @@ impl RemoteRuntimeModel {
 
     pub fn apply_terminal_list(
         &mut self,
-        terminals: Vec<RemoteRuntimeTerminal>,
+        mut terminals: Vec<RemoteRuntimeTerminal>,
         terminal_visible: bool,
         terminal_list_loaded: bool,
     ) -> RemoteRuntimePlan {
+        let created_from_list = self.pending_terminal_create_candidate(&terminals).cloned();
+        let created_should_bind = created_from_list.as_ref().is_some_and(|terminal| {
+            let worktree_id = normalize_terminal_worktree_scope(
+                &terminal.project_id,
+                terminal.worktree_id.clone(),
+            );
+            !active_terminal_matches_scope_in(
+                self.active_session_id.as_deref(),
+                &terminals,
+                &terminal.project_id,
+                worktree_id.as_deref(),
+            )
+        });
+        if let Some(terminal) = created_from_list.as_ref() {
+            self.terminals.retain(|item| item.id != terminal.id);
+            self.pending_created_terminal = Some((*terminal).clone());
+            self.pending_created_terminal_confirmed = true;
+            self.pending_worktree_terminal_request_key = None;
+            if created_should_bind {
+                self.focus_created_terminal(terminal);
+            }
+            self.pending_project_select_id = None;
+            self.pending_project_select_sent = false;
+            self.project_select_acknowledged_id = None;
+            self.creating_terminal_project_id = None;
+            self.pending_terminal_create_request = None;
+        }
+        if let Some(pending) = self.pending_created_terminal.clone() {
+            if let Some(confirmed) = terminals
+                .iter()
+                .find(|item| item.id == pending.id && is_accessible_terminal(item))
+                .cloned()
+            {
+                if self.active_session_id.as_deref() == Some(confirmed.id.as_str()) {
+                    self.selected_worktree_id = normalize_terminal_worktree_scope(
+                        &confirmed.project_id,
+                        confirmed.worktree_id.clone(),
+                    );
+                    self.remember_worktree_selection(
+                        &confirmed.project_id,
+                        self.selected_worktree_id.clone(),
+                    );
+                    self.last_terminal_id_by_project.insert(
+                        terminal_memory_key(
+                            &confirmed.project_id,
+                            self.selected_worktree_id.as_deref(),
+                        ),
+                        confirmed.id.clone(),
+                    );
+                    self.selected_project_id = Some(confirmed.project_id.clone());
+                }
+                self.pending_created_terminal = Some(confirmed);
+                self.pending_created_terminal_confirmed = true;
+            } else if is_accessible_terminal(&pending)
+                && (!self.pending_created_terminal_confirmed
+                    || self.active_session_id.as_deref() == Some(pending.id.as_str()))
+            {
+                terminals.retain(|item| item.id != pending.id);
+                terminals.insert(0, pending);
+            } else {
+                self.clear_pending_created_terminal();
+            }
+        }
         let active_missing = self.active_session_id.as_ref().is_some_and(|active_id| {
             !terminals
                 .iter()
@@ -454,18 +531,21 @@ impl RemoteRuntimeModel {
         self.terminals = terminals;
         let bind =
             self.ensure_terminal_for_selected_project(terminal_visible, terminal_list_loaded);
+        let created_bind_session_id =
+            created_from_list.and_then(|terminal| created_should_bind.then_some(terminal.id));
         RemoteRuntimePlan {
             state_changed: true,
+            clear_terminal: terminal_visible && created_should_bind,
             reset_terminal_input: terminal_visible && active_missing,
             reset_terminal_buffer: terminal_visible
-                && (active_missing || bind.reset_terminal_buffer),
+                && (active_missing || created_should_bind || bind.reset_terminal_buffer),
             removed_session_id,
             request_terminal_list: bind.request_terminal_list,
             request_project_select_id: bind.request_project_select_id,
-            bind_session_id: bind.bind_session_id,
-            bind_full_buffer: terminal_visible && bind.bind_full_buffer,
-            flush_terminal_input: terminal_visible && bind.flush_terminal_input,
-            clear_terminal: false,
+            bind_session_id: bind.bind_session_id.or(created_bind_session_id),
+            bind_full_buffer: terminal_visible && (created_should_bind || bind.bind_full_buffer),
+            flush_terminal_input: terminal_visible
+                && (created_should_bind || bind.flush_terminal_input),
         }
     }
 
@@ -530,6 +610,9 @@ impl RemoteRuntimeModel {
         if project_changed {
             self.selected_worktree_id = selected_worktree_id;
             self.pending_worktree_terminal_request_key = None;
+            self.clear_pending_created_terminal();
+            self.pending_terminal_create_request = None;
+            self.creating_terminal_project_id = None;
         }
         self.active_session_id = terminal.as_ref().map(|item| item.id.clone()).or_else(|| {
             if project_changed && terminal_visible {
@@ -583,6 +666,9 @@ impl RemoteRuntimeModel {
         if project_changed {
             self.active_session_id = None;
             self.pending_worktree_terminal_request_key = None;
+            self.clear_pending_created_terminal();
+            self.pending_terminal_create_request = None;
+            self.creating_terminal_project_id = None;
         }
         self.selected_worktree_id = selected_worktree_id;
         self.remember_current_worktree_selection();
@@ -621,6 +707,21 @@ impl RemoteRuntimeModel {
                         self.selected_worktree_id.as_deref(),
                     )
                     && is_accessible_terminal(item)
+            })
+        {
+            return RemoteRuntimePlan::default();
+        }
+        if self
+            .pending_created_terminal
+            .as_ref()
+            .is_some_and(|terminal| {
+                self.active_session_id.as_deref() == Some(terminal.id.as_str())
+                    && terminal.project_id == project_id
+                    && terminal_matches_selected_worktree(
+                        terminal,
+                        self.selected_worktree_id.as_deref(),
+                    )
+                    && is_accessible_terminal(terminal)
             })
         {
             return RemoteRuntimePlan::default();
@@ -711,10 +812,18 @@ impl RemoteRuntimeModel {
         );
         self.selected_project_id = Some(terminal.project_id.clone());
         self.active_session_id = Some(terminal.id.clone());
+        if self
+            .pending_created_terminal
+            .as_ref()
+            .is_some_and(|pending| pending.id != terminal.id)
+        {
+            self.clear_pending_created_terminal();
+        }
         self.pending_project_select_id = None;
         self.pending_project_select_sent = false;
         self.project_select_acknowledged_id = None;
         self.creating_terminal_project_id = None;
+        self.pending_terminal_create_request = None;
         RemoteRuntimePlan {
             state_changed: true,
             reset_terminal_input: true,
@@ -730,6 +839,16 @@ impl RemoteRuntimeModel {
         self.terminals.retain(|item| item.id != terminal_id);
         self.last_terminal_id_by_project
             .retain(|_, id| id != terminal_id);
+        if self
+            .pending_created_terminal
+            .as_ref()
+            .is_some_and(|terminal| terminal.id == terminal_id)
+        {
+            self.clear_pending_created_terminal();
+        }
+        if let Some(request) = self.pending_terminal_create_request.as_mut() {
+            request.existing_terminal_ids.remove(terminal_id);
+        }
         if closing_active {
             self.active_session_id = None;
         }
@@ -743,37 +862,74 @@ impl RemoteRuntimeModel {
         }
     }
 
-    pub fn set_terminal_creating_project(&mut self, project_id: Option<String>) {
-        self.creating_terminal_project_id = clean_optional_string(project_id);
+    pub fn begin_terminal_create(
+        &mut self,
+        project_id: Option<String>,
+        worktree_id: Option<String>,
+        layout_kind: Option<String>,
+    ) {
+        let Some(project_id) = clean_optional_string(project_id) else {
+            self.creating_terminal_project_id = None;
+            self.pending_terminal_create_request = None;
+            return;
+        };
+        let requested_worktree_id =
+            if self.selected_project_id.as_deref() == Some(project_id.as_str()) {
+                worktree_id.or_else(|| self.selected_worktree_id.clone())
+            } else {
+                worktree_id
+            };
+        let normalized_worktree_id = normalize_worktree_scope(&project_id, requested_worktree_id);
+        let layout_kind = normalize_terminal_layout_kind(layout_kind.as_deref());
+        let existing_terminal_ids = self
+            .terminals
+            .iter()
+            .filter(|terminal| is_accessible_terminal(terminal))
+            .map(|terminal| terminal.id.clone())
+            .collect();
+        self.creating_terminal_project_id = Some(project_id.clone());
+        self.pending_created_terminal = None;
+        self.pending_created_terminal_confirmed = false;
+        self.pending_terminal_create_request = Some(PendingTerminalCreateRequest {
+            project_id,
+            worktree_id: normalized_worktree_id,
+            layout_kind,
+            existing_terminal_ids,
+        });
     }
 
     pub fn terminal_created(&mut self, terminal: RemoteRuntimeTerminal) -> RemoteRuntimePlan {
         if !is_accessible_terminal(&terminal) {
             return RemoteRuntimePlan::default();
         }
+        let worktree_id =
+            normalize_terminal_worktree_scope(&terminal.project_id, terminal.worktree_id.clone());
+        let created_should_bind = !active_terminal_matches_scope_in(
+            self.active_session_id.as_deref(),
+            &self.terminals,
+            &terminal.project_id,
+            worktree_id.as_deref(),
+        );
         self.terminals.retain(|item| item.id != terminal.id);
         self.terminals.insert(0, terminal.clone());
-        self.selected_worktree_id =
-            normalize_terminal_worktree_scope(&terminal.project_id, terminal.worktree_id.clone());
-        self.remember_worktree_selection(&terminal.project_id, self.selected_worktree_id.clone());
+        self.pending_created_terminal = Some(terminal.clone());
+        self.pending_created_terminal_confirmed = false;
         self.pending_worktree_terminal_request_key = None;
-        self.last_terminal_id_by_project.insert(
-            terminal_memory_key(&terminal.project_id, self.selected_worktree_id.as_deref()),
-            terminal.id.clone(),
-        );
-        self.selected_project_id = Some(terminal.project_id);
-        self.active_session_id = Some(terminal.id.clone());
+        if created_should_bind {
+            self.focus_created_terminal(&terminal);
+        }
         self.pending_project_select_id = None;
         self.pending_project_select_sent = false;
         self.project_select_acknowledged_id = None;
         self.creating_terminal_project_id = None;
+        self.pending_terminal_create_request = None;
         RemoteRuntimePlan {
             state_changed: true,
-            clear_terminal: true,
-            reset_terminal_buffer: true,
-            bind_session_id: Some(terminal.id),
-            bind_full_buffer: true,
-            flush_terminal_input: true,
+            clear_terminal: created_should_bind,
+            reset_terminal_buffer: created_should_bind,
+            bind_session_id: created_should_bind.then_some(terminal.id),
+            bind_full_buffer: created_should_bind,
+            flush_terminal_input: created_should_bind,
             ..RemoteRuntimePlan::default()
         }
     }
@@ -839,6 +995,9 @@ impl RemoteRuntimeModel {
             || self.selected_worktree_id != next_worktree_id
         {
             self.pending_worktree_terminal_request_key = None;
+            self.clear_pending_created_terminal();
+            self.pending_terminal_create_request = None;
+            self.creating_terminal_project_id = None;
         }
         self.selected_project_id = Some(project_id);
         self.selected_worktree_id = next_worktree_id;
@@ -1096,6 +1255,50 @@ impl RemoteRuntimeModel {
         self.selected_worktree_id_by_project
             .retain(|project_id, _| valid_projects.contains(project_id.as_str()));
     }
+
+    fn pending_terminal_create_candidate<'a>(
+        &self,
+        terminals: &'a [RemoteRuntimeTerminal],
+    ) -> Option<&'a RemoteRuntimeTerminal> {
+        let request = self.pending_terminal_create_request.as_ref()?;
+        let selected_worktree_id = request.worktree_id.as_deref();
+        let mut candidates = terminals
+            .iter()
+            .filter(|terminal| {
+                is_accessible_terminal(terminal)
+                    && terminal.project_id == request.project_id
+                    && terminal_matches_selected_worktree(terminal, selected_worktree_id)
+                    && !request.existing_terminal_ids.contains(&terminal.id)
+            })
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return None;
+        }
+        candidates.sort_by(|left, right| compare_remote_terminals(left, right));
+        candidates
+            .iter()
+            .rev()
+            .find(|terminal| terminal_layout_kind(terminal) == request.layout_kind)
+            .copied()
+            .or_else(|| candidates.last().copied())
+    }
+
+    fn focus_created_terminal(&mut self, terminal: &RemoteRuntimeTerminal) {
+        self.selected_worktree_id =
+            normalize_terminal_worktree_scope(&terminal.project_id, terminal.worktree_id.clone());
+        self.remember_worktree_selection(&terminal.project_id, self.selected_worktree_id.clone());
+        self.last_terminal_id_by_project.insert(
+            terminal_memory_key(&terminal.project_id, self.selected_worktree_id.as_deref()),
+            terminal.id.clone(),
+        );
+        self.selected_project_id = Some(terminal.project_id.clone());
+        self.active_session_id = Some(terminal.id.clone());
+    }
+
+    fn clear_pending_created_terminal(&mut self) {
+        self.pending_created_terminal = None;
+        self.pending_created_terminal_confirmed = false;
+    }
 }
 
 fn default_terminal_layout_kind() -> String {
@@ -1233,6 +1436,23 @@ fn accessible_terminals_for_project_and_worktree<'a>(
         .collect()
 }
 
+fn active_terminal_matches_scope_in(
+    active_session_id: Option<&str>,
+    terminals: &[RemoteRuntimeTerminal],
+    project_id: &str,
+    worktree_id: Option<&str>,
+) -> bool {
+    let Some(active_session_id) = active_session_id else {
+        return false;
+    };
+    terminals.iter().any(|item| {
+        item.id == active_session_id
+            && item.project_id == project_id
+            && terminal_matches_selected_worktree(item, worktree_id)
+            && is_accessible_terminal(item)
+    })
+}
+
 fn preferred_terminal_for_project<'a>(
     last_terminal_id_by_project: &HashMap<String, String>,
     project_id: &str,
@@ -1277,6 +1497,18 @@ fn terminal_layout_kind(terminal: &RemoteRuntimeTerminal) -> &str {
         "tab"
     } else {
         "split"
+    }
+}
+
+fn normalize_terminal_layout_kind(layout_kind: Option<&str>) -> String {
+    if layout_kind
+        .unwrap_or_default()
+        .trim()
+        .eq_ignore_ascii_case("tab")
+    {
+        "tab".to_string()
+    } else {
+        "split".to_string()
     }
 }
 

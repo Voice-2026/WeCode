@@ -2,6 +2,11 @@ import 'package:codux_flutter/services/remote_capabilities.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('mobile default terminal buffer window matches host default', () {
+    expect(TerminalBufferCapability.mobileMaxChars, 200000);
+    expect(TerminalBufferCapability.fallback.maxChars, 200000);
+  });
+
   test('parses terminal buffer capability from host info', () {
     final capability = TerminalBufferCapability.fromHostInfo({
       'protocolVersion': 'v3.1',
@@ -42,7 +47,7 @@ void main() {
       'capabilities': {
         'terminalBuffer': {
           'chunking': true,
-          'maxChars': 180000,
+          'maxChars': 250000,
           'chunkChars': 32768,
         },
       },

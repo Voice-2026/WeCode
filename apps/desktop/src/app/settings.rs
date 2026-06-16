@@ -24,6 +24,7 @@ use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    spinner::Spinner,
     switch::Switch,
 };
 use qrcode::{QrCode, types::Color as QrColor};
@@ -922,7 +923,7 @@ fn remote_pairing_overlay(
                         .child(if let Some(pairing) = pairing.as_ref() {
                             remote_pairing_qr(&pairing.qr_payload)
                         } else {
-                            remote_pairing_placeholder(language, cx)
+                            remote_pairing_placeholder(cx)
                         })
                         .child(remote_pairing_detail(
                             pairing.as_ref(),
@@ -943,7 +944,7 @@ fn remote_pairing_overlay(
         .into_any_element()
 }
 
-fn remote_pairing_placeholder(language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+fn remote_pairing_placeholder(cx: &mut Context<CoduxApp>) -> AnyElement {
     div()
         .size(px(242.0))
         .rounded(px(14.0))
@@ -953,14 +954,20 @@ fn remote_pairing_placeholder(language: &str, cx: &mut Context<CoduxApp>) -> Any
         .flex()
         .items_center()
         .justify_center()
-        .text_size(rems(0.75))
-        .line_height(rems(1.0))
-        .text_color(cx.theme().muted_foreground)
-        .child(settings_text(
-            language,
-            "settings.remote.creating_pairing",
-            "Creating pairing QR...",
-        ))
+        .child(
+            div()
+                .size(px(64.0))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(color(0xF3F4F6))
+                .child(
+                    Spinner::new()
+                        .with_size(px(34.0))
+                        .color(color(theme::TEXT_DIM)),
+                ),
+        )
         .into_any_element()
 }
 

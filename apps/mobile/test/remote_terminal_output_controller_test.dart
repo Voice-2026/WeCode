@@ -33,7 +33,7 @@ void main() {
     expect(controller.bufferOffset('session-1'), 104);
   });
 
-  test('stale historical page after retained window is acked and ignored', () {
+  test('historical offset after retained window is acked and ignored', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 4);
 
     controller.bindSession('session-1', requireBaseline: true);
@@ -52,7 +52,7 @@ void main() {
     expect(controller.bufferOffset('session-1'), 8);
   });
 
-  test('stale baseline page is acked without restarting history restore', () {
+  test('historical offset is acked without restarting history restore', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
 
     controller.bindSession('session-1', requireBaseline: true);
@@ -84,7 +84,7 @@ void main() {
     expect(controller.bufferOffset('session-1'), 150000);
   });
 
-  test('future baseline page is acked without a fresh restore loop', () {
+  test('future baseline offset is acked without a fresh restore loop', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 4);
 
     controller.bindSession('session-1', requireBaseline: true);
@@ -102,7 +102,7 @@ void main() {
     expect(controller.cachedOutput('session-1'), 'abcd');
   });
 
-  test('live output is held until the full baseline is restored', () {
+  test('live output is held until baseline is restored', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 4);
 
     controller.bindSession('session-1', requireBaseline: true);
@@ -262,15 +262,65 @@ void main() {
     expect(controller.cachedOutput('session-1'), 'next');
   });
 
-  test('empty active baseline stays pending for retry', () {
-    final controller = RemoteTerminalOutputController(maxBufferChars: 4);
+  test(
+    'empty active baseline stays pending for retry without clearing replay',
+    () {
+      final controller = RemoteTerminalOutputController(maxBufferChars: 4);
 
-    controller.bindSession('session-1', requireBaseline: true);
+      controller.bindSession('session-1', requireBaseline: true);
+      expect(
+        controller.startBufferRequest(
+          'session-1',
+          'request-empty',
+          requireBaseline: true,
+        ),
+        isTrue,
+      );
+
+      final empty = controller.accept(
+        _terminalBuffer(
+          '',
+          offset: 0,
+          bufferLength: 0,
+          truncated: false,
+          requestId: 'request-empty',
+        ),
+        activeSessionId: 'session-1',
+      );
+
+      expect(_kinds(empty), [
+        RemoteTerminalOutputEffectKind.loading,
+        RemoteTerminalOutputEffectKind.ack,
+      ]);
+      expect(controller.activeBufferRequestId('session-1'), 'request-empty');
+      expect(controller.cachedOutput('session-1'), isNull);
+    },
+  );
+
+  test('empty refresh baseline preserves cached native replay', () {
+    final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
+
+    controller.bindSession('session-1', requireBaseline: false);
+    controller.accept(
+      _terminalBuffer(
+        'history',
+        offset: 0,
+        bufferLength: 7,
+        truncated: false,
+        screenData: '\u001b[2J\u001b[Hscreen',
+      ),
+      activeSessionId: 'session-1',
+    );
+    expect(
+      controller.nativeRenderOutput('session-1'),
+      'history\u001b[2J\u001b[Hscreen',
+    );
     expect(
       controller.startBufferRequest(
         'session-1',
-        'request-empty',
+        'refresh-empty',
         requireBaseline: true,
+        replaceActive: true,
       ),
       isTrue,
     );
@@ -281,18 +331,19 @@ void main() {
         offset: 0,
         bufferLength: 0,
         truncated: false,
-        requestId: 'request-empty',
+        requestId: 'refresh-empty',
       ),
       activeSessionId: 'session-1',
     );
 
     expect(_kinds(empty), [
       RemoteTerminalOutputEffectKind.loading,
-      RemoteTerminalOutputEffectKind.sessionUpdated,
       RemoteTerminalOutputEffectKind.ack,
     ]);
-    expect(controller.activeBufferRequestId('session-1'), 'request-empty');
-    expect(controller.cachedOutput('session-1'), isNull);
+    expect(
+      controller.nativeRenderOutput('session-1'),
+      'history\u001b[2J\u001b[Hscreen',
+    );
   });
 
   test(
@@ -439,12 +490,12 @@ void main() {
         activeSessionId: 'session-1',
       );
 
-      final screen = controller.screenSnapshot('session-1');
-
       expect(_kinds(result), [..._activeBufferUpdate]);
       expect(controller.cachedOutput('session-1'), 'raw tail fragment');
-      expect(screen?.data, contains('visible tui'));
-      expect(screen?.data, isNot(contains('raw tail fragment')));
+      expect(
+        controller.nativeRenderOutput('session-1'),
+        'raw tail fragment\u001b[2J\u001b[Hvisible tui',
+      );
     },
   );
 
@@ -463,7 +514,6 @@ void main() {
         ),
         activeSessionId: 'session-1',
       );
-      final screen = controller.screenSnapshot('session-1');
 
       expect(_kinds(result), [
         RemoteTerminalOutputEffectKind.loading,
@@ -471,9 +521,10 @@ void main() {
         RemoteTerminalOutputEffectKind.ack,
       ]);
       expect(controller.cachedOutput('session-1'), 'partial live raw');
-      expect(screen?.data, contains('restored tui'));
-      expect(screen?.data, contains('input box'));
-      expect(screen?.data, isNot(contains('partial live raw')));
+      expect(
+        controller.nativeRenderOutput('session-1'),
+        'partial live raw\u001b[2J\u001b[Hrestored tui\n\u001b[3;1Hinput box',
+      );
     },
   );
 
@@ -503,7 +554,6 @@ void main() {
         ),
         activeSessionId: 'session-1',
       );
-      final screen = controller.screenSnapshot('session-1');
 
       expect(_kinds(live), [
         RemoteTerminalOutputEffectKind.loading,
@@ -512,8 +562,6 @@ void main() {
       ]);
       expect(_kinds(stale), [RemoteTerminalOutputEffectKind.ack]);
       expect(controller.cachedOutput('session-1'), 'partial live raw');
-      expect(screen?.data, contains('restored tui'));
-      expect(screen?.data, isNot(contains('old screen')));
     },
   );
 
@@ -767,7 +815,7 @@ void main() {
     },
   );
 
-  test('duplicate baseline page is acked without replaying cached session', () {
+  test('duplicate baseline is acked without replaying cached session', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
     controller.bindSession('session-1', requireBaseline: false);
     controller.accept(
@@ -827,7 +875,7 @@ void main() {
   });
 
   test(
-    'duplicate chunked baseline is acked before assembly without replaying cache',
+    'duplicate chunked transfer is acked before assembly without replaying cache',
     () {
       final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
       controller.bindSession('session-1', requireBaseline: false);
@@ -880,7 +928,7 @@ void main() {
     },
   );
 
-  test('stale page from completed restore is ignored', () {
+  test('stale offset from completed restore is ignored', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 4);
     controller.bindSession('session-1', requireBaseline: true);
     controller.startBufferRequest(

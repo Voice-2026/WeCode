@@ -72,6 +72,7 @@ void main() {
               'url': 'https://relay.example',
               'nodeId': 'node-1',
               'relayUrl': 'https://relay.example',
+              'ticket': 'endpoint-ticket',
             },
           ],
         },
@@ -84,5 +85,6 @@ void main() {
     final iroh = devices.single.transportByKind(RemoteTransportKind.iroh);
     expect(iroh?.nodeId, 'node-1');
     expect(iroh?.relayUrl, 'https://relay.example');
+    expect(iroh?.ticket, isEmpty);
   });
 }

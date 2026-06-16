@@ -698,12 +698,12 @@ List<T> _listOf<T>(Object? value, T Function(Map<String, dynamic>) mapper) {
 
 class MobileSettings {
   static const defaultAppTextScale = 1.0;
-  static const defaultTerminalFontSize = 12.0;
+  static const defaultTerminalFontSize = 14.0;
   static const standardTerminalFontSize = 14.0;
   static const List<double> appTextScaleSteps = [0.875, 1.0, 1.125];
   static const List<double> terminalFontSizeSteps = [
-    10.0,
     12.0,
+    13.0,
     14.0,
     16.0,
     18.0,

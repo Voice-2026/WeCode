@@ -254,6 +254,13 @@ impl RemoteTerminalOutputRouter {
             .filter(|content| !content.is_empty())
     }
 
+    pub fn native_render_content(&self, session_id: &str) -> Option<&str> {
+        self.sessions
+            .get(session_id)
+            .map(|session| session.native_render_content())
+            .filter(|content| !content.is_empty())
+    }
+
     pub fn has_cached_output(&self, session_id: &str) -> bool {
         self.content(session_id).is_some()
     }
@@ -685,30 +692,13 @@ impl RemoteTerminalOutputRouter {
                 || self.session(session_id).is_restoring_baseline()
                 || is_restore_request
                 || local_cache_empty;
-            if is_baseline_restore {
-                held_live = self.replace_session_from_baseline(
-                    session_id,
-                    &raw,
-                    decoded.screen_data.as_deref(),
-                    decoded.buffer_length,
-                    output_seq,
-                );
-            }
             let baseline_has_renderable_data = !raw.is_empty() || decoded.screen_data.is_some();
-            if is_baseline_restore
-                && active_request_id.is_some()
-                && local_cache_empty
-                && !baseline_has_renderable_data
-            {
-                if is_active_session {
+            if is_baseline_restore && !baseline_has_renderable_data {
+                if is_active_session && active_request_id.is_some() {
                     effects.push(RemoteTerminalOutputEffect::loading(
                         true,
                         RemoteTerminalBufferPhase::Requesting,
                         None,
-                    ));
-                    effects.push(RemoteTerminalOutputEffect::simple(
-                        RemoteTerminalOutputEffectKind::SessionUpdated,
-                        session_id,
                     ));
                 }
                 effects.push(RemoteTerminalOutputEffect::ack(
@@ -717,6 +707,15 @@ impl RemoteTerminalOutputRouter {
                     decoded.buffer_length,
                 ));
                 return effects;
+            }
+            if is_baseline_restore {
+                held_live = self.replace_session_from_baseline(
+                    session_id,
+                    &raw,
+                    decoded.screen_data.as_deref(),
+                    decoded.buffer_length,
+                    output_seq,
+                );
             }
 
             if is_baseline_restore || self.content(session_id).is_none() {
@@ -974,6 +973,27 @@ mod tests {
         })
     }
 
+    fn buffer_with_screen_data(
+        session: &str,
+        data: &str,
+        screen_data: &str,
+        output_seq: i64,
+    ) -> Value {
+        json!({
+            "type": "terminal.output",
+            "sessionId": session,
+            "payload": {
+                "data": data,
+                "screenData": screen_data,
+                "buffer": true,
+                "offset": 0,
+                "bufferLength": data.len(),
+                "tail": true,
+                "outputSeq": output_seq,
+            },
+        })
+    }
+
     #[test]
     fn truncated_baseline_renders_retained_window() {
         let mut router = RemoteTerminalOutputRouter::new(4, 65536);
@@ -1014,6 +1034,154 @@ mod tests {
             ]
         );
         assert_eq!(router.content("session-1"), Some("old-new"));
+    }
+
+    #[test]
+    fn native_render_content_refreshes_current_screen_from_live_keyframe() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", true);
+
+        router.accept(
+            &buffer_with_screen_data("session-1", "raw-history", "\x1b[2J\x1b[Hkeyframe", 10),
+            Some("session-1"),
+        );
+
+        assert_eq!(router.content("session-1"), Some("raw-history"));
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("raw-history\x1b[2J\x1b[Hkeyframe")
+        );
+
+        router.accept(&live("session-1", "\nlive", 11), Some("session-1"));
+
+        assert_eq!(router.content("session-1"), Some("raw-history\nlive"));
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("raw-history\x1b[2J\x1b[Hkeyframe\nlive")
+        );
+
+        router.accept(
+            &json!({
+                "type": "terminal.output",
+                "sessionId": "session-1",
+                "payload": {
+                    "data": "\nworking",
+                    "screenData": "\x1b[2J\x1b[Hupdated keyframe",
+                    "outputSeq": 12,
+                },
+            }),
+            Some("session-1"),
+        );
+
+        assert_eq!(
+            router.content("session-1"),
+            Some("raw-history\nlive\nworking")
+        );
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("raw-history\nlive\nworking\x1b[2J\x1b[Hupdated keyframe")
+        );
+    }
+
+    #[test]
+    fn empty_live_screen_keyframe_refreshes_native_render_content() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", true);
+
+        router.accept(
+            &buffer_with_screen_data("session-1", "raw-history", "\x1b[2J\x1b[Hold", 10),
+            Some("session-1"),
+        );
+
+        let effects = router.accept(
+            &json!({
+                "type": "terminal.output",
+                "sessionId": "session-1",
+                "payload": {
+                    "data": "",
+                    "screenData": "\x1b[2J\x1b[Hnew",
+                    "bufferLength": 11,
+                    "outputSeq": 11,
+                },
+            }),
+            Some("session-1"),
+        );
+
+        assert_eq!(kinds(&effects), ["loading", "sessionUpdated", "ack"]);
+        assert_eq!(router.content("session-1"), Some("raw-history"));
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("raw-history\x1b[2J\x1b[Hnew")
+        );
+    }
+
+    #[test]
+    fn empty_refresh_baseline_preserves_cached_native_render_content() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", false);
+        router.accept(
+            &buffer_with_screen_data("session-1", "history", "\x1b[2J\x1b[Hscreen", 10),
+            Some("session-1"),
+        );
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("history\x1b[2J\x1b[Hscreen")
+        );
+
+        assert!(router.start_buffer_request("session-1", "refresh-empty", true, true, true));
+        let empty = router.accept(
+            &buffer("session-1", "", 0, 0, false, 11, Some("refresh-empty")),
+            Some("session-1"),
+        );
+
+        assert_eq!(kinds(&empty), ["loading", "ack"]);
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("history\x1b[2J\x1b[Hscreen")
+        );
+        assert_eq!(
+            router.active_buffer_request_id("session-1"),
+            Some("refresh-empty")
+        );
+    }
+
+    #[test]
+    fn tail_refresh_updates_native_keyframe_for_cached_session() {
+        let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
+        router.bind_session("session-1", true);
+        router.accept(
+            &buffer_with_screen_data("session-1", "raw-history", "\x1b[2J\x1b[Hold", 10),
+            Some("session-1"),
+        );
+
+        assert!(router.start_buffer_request("session-1", "tail-refresh", false, true, true));
+        let refresh = router.accept(
+            &json!({
+                "type": "terminal.output",
+                "sessionId": "session-1",
+                "payload": {
+                    "data": "raw-history\nnew",
+                    "screenData": "\x1b[2J\x1b[Hnew",
+                    "buffer": true,
+                    "offset": 0,
+                    "bufferLength": 15,
+                    "tail": true,
+                    "outputSeq": 10,
+                    "requestId": "tail-refresh",
+                },
+            }),
+            Some("session-1"),
+        );
+
+        assert_eq!(
+            kinds(&refresh),
+            ["sessionUpdated", "markBufferReceived", "ack"]
+        );
+        assert_eq!(router.content("session-1"), Some("raw-history\nnew"));
+        assert_eq!(
+            router.native_render_content("session-1"),
+            Some("raw-history\nnew\x1b[2J\x1b[Hnew")
+        );
     }
 
     #[test]

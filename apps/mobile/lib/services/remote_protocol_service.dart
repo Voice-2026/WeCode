@@ -33,7 +33,6 @@ Future<PairingPayload> _pairingPayloadFromJson(
   final missingFields = <String>[
     if (code == null || code.isEmpty) 'code',
     if (secret == null || secret.isEmpty) 'secret',
-    if (hostId == null || hostId.isEmpty) 'hostId',
     if (parsed['pairingId']?.toString().trim().isEmpty != false) 'pairingId',
     if (!hasSupportedTransport) 'transports.iroh.ticket',
   ];
@@ -75,6 +74,27 @@ List<RemoteTransportCandidate> _normalizedPairingTransports(
       nodeId: candidate.nodeId,
       relayUrl: candidate.relayUrl,
       ticket: candidate.ticket,
+      relayAuthentication: candidate.relayAuthentication,
+    );
+  }).toList();
+}
+
+List<RemoteTransportCandidate> _confirmedTransports(
+  Object? value,
+  String fallbackServer,
+) {
+  final transports = remoteTransportCandidatesFromJson(value);
+  if (transports.isEmpty) return const [];
+  return transports.map((candidate) {
+    if (candidate.kind != RemoteTransportKind.iroh) {
+      return candidate;
+    }
+    return RemoteTransportCandidate(
+      kind: candidate.kind,
+      role: candidate.role,
+      url: candidate.url.trim().isEmpty ? fallbackServer : candidate.url,
+      nodeId: candidate.nodeId,
+      relayUrl: candidate.relayUrl,
       relayAuthentication: candidate.relayAuthentication,
     );
   }).toList();
@@ -242,18 +262,19 @@ StoredDevice confirmedDevice({
       data['token'] == null) {
     throw Exception('Pairing confirmed without device credentials');
   }
-  RemoteTransportCandidate? relay;
-  final preferred = remotePreferredTransportKind(
-    payload.transports,
-    pairing: true,
+  final confirmedTransports = _confirmedTransports(
+    data['transports'],
+    payload.server,
   );
-  for (final candidate in payload.transports) {
-    if (candidate.kind == preferred && candidate.url.trim().isNotEmpty) {
-      relay = candidate;
-      break;
-    }
+  if (confirmedTransports.isEmpty) {
+    throw Exception('Pairing confirmed without device transport');
   }
-  final server = relay?.url ?? payload.server;
+  final server = confirmedTransports
+      .firstWhere(
+        (candidate) => candidate.url.trim().isNotEmpty,
+        orElse: () => confirmedTransports.first,
+      )
+      .url;
   return StoredDevice(
     server: server,
     hostId: '${data['hostId']}',
@@ -261,7 +282,7 @@ StoredDevice confirmedDevice({
     token: '${data['token']}',
     name: name,
     hostName: data['hostName']?.toString() ?? payload.hostName,
-    transports: payload.transports,
+    transports: confirmedTransports,
   );
 }
 

@@ -36,17 +36,18 @@ void main() {
 
     expect(settings.localName, 'iPhone');
     expect(settings.appTextScale, 1);
-    expect(settings.terminalFontSize, 12);
+    expect(settings.terminalFontSize, 14);
   });
 
-  test('uses smaller terminal text by default', () {
+  test('uses standard terminal text by default', () {
     final settings = MobileSettings.fromJson({'localName': 'Phone'});
 
     expect(settings.appTextScale, MobileSettings.defaultAppTextScale);
     expect(MobileSettings.appTextScaleSteps, [0.875, 1.0, 1.125]);
     expect(settings.terminalFontSize, MobileSettings.defaultTerminalFontSize);
-    expect(MobileSettings.defaultTerminalFontSize, 12);
+    expect(MobileSettings.defaultTerminalFontSize, 14);
     expect(MobileSettings.standardTerminalFontSize, 14);
+    expect(MobileSettings.terminalFontSizeSteps, [12, 13, 14, 16, 18]);
   });
 
   test('normalizes local name when saving settings', () {

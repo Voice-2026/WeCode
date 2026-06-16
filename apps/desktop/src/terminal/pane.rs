@@ -196,9 +196,7 @@ impl TerminalPane {
             ),
         }
         let output_tx = pending.output_tx;
-        let output_terminal_id = terminal_id
-            .clone()
-            .unwrap_or_else(|| attached_id.clone());
+        let output_terminal_id = terminal_id.clone().unwrap_or_else(|| attached_id.clone());
         codux_runtime::async_runtime::spawn(async move {
             let mut first_output = true;
             while let Ok(bytes) = output_rx.recv_async().await {
@@ -392,30 +390,14 @@ impl TerminalSessionBinding {
         Ok(())
     }
 
-    // Passive claim from prepaint: respects an unexpired remote lease, so a
-    // painting desktop pane no longer revokes a mobile claim every frame.
     fn claim_local_viewport(&self) -> Result<()> {
-        self.claim_local_viewport_with(false)
-    }
-
-    // Active claim on explicit local input: the user is typing into this
-    // pane, so take the viewport back immediately regardless of leases.
-    fn claim_local_viewport_active(&self) -> Result<()> {
-        self.claim_local_viewport_with(true)
-    }
-
-    fn claim_local_viewport_with(&self, force: bool) -> Result<()> {
         let (session, last_resize) = {
             let inner = self.inner.lock();
             (inner.session.clone(), inner.last_resize)
         };
         if let Some(session) = session {
             let handle = session.clone_handle();
-            let state = if force {
-                handle.claim_viewport(terminal_viewport_local_owner())?
-            } else {
-                handle.claim_viewport_passive(terminal_viewport_local_owner())?
-            };
+            let state = handle.claim_viewport_passive(terminal_viewport_local_owner())?;
             if state.owner == terminal_viewport_local_owner()
                 && let Some((cols, rows)) = last_resize
                 && (state.cols, state.rows) != (cols, rows)

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
 
 import '../models/remote_models.dart';
-import 'remote_pty_session.dart' show RemoteTerminalScreenSnapshot;
 
 enum RemoteTerminalBufferPhase { idle, requesting, receiving, rendering }
 
@@ -61,22 +60,11 @@ class RemoteTerminalOutputController {
        );
 
   final RemoteOutputRouter _router;
-  final Map<String, _CachedScreenSnapshot> _snapshotCache = {};
 
   String? cachedOutput(String sessionId) => _router.content(sessionId);
 
-  /// The decoded screen snapshot, cached by the router's render generation so
-  /// it only re-decodes (and returns a new instance) after a real mutation.
-  RemoteTerminalScreenSnapshot? screenSnapshot(String sessionId) {
-    final generation = _router.renderGeneration(sessionId);
-    final cached = _snapshotCache[sessionId];
-    if (cached != null && cached.generation == generation) {
-      return cached.snapshot;
-    }
-    final snapshot = _router.screenSnapshot(sessionId);
-    _snapshotCache[sessionId] = _CachedScreenSnapshot(generation, snapshot);
-    return snapshot;
-  }
+  String? nativeRenderOutput(String sessionId) =>
+      _router.nativeRenderContent(sessionId);
 
   bool hasCachedOutput(String sessionId) => _router.hasCachedOutput(sessionId);
 
@@ -87,56 +75,6 @@ class RemoteTerminalOutputController {
   /// True when a live output gap was observed for [sessionId] and no baseline
   /// has repaired it yet; such a session must not skip its baseline request.
   bool hasSequenceGap(String sessionId) => _router.hasSequenceGap(sessionId);
-
-  void resizeScreen(String sessionId, {required int cols, required int rows}) {
-    _router.resizeScreen(sessionId, cols: cols, rows: rows);
-  }
-
-  void scrollScreenLines(String sessionId, int lines) {
-    _router.scrollScreenLines(sessionId, lines);
-  }
-
-  void scrollScreenPixels(
-    String sessionId, {
-    required double pixels,
-    required double cellHeight,
-  }) {
-    _router.scrollScreenPixels(
-      sessionId,
-      pixels: pixels,
-      cellHeight: cellHeight,
-    );
-  }
-
-  void settleScreenPixelScroll(String sessionId) {
-    _router.settleScreenPixelScroll(sessionId);
-  }
-
-  void scrollScreenToBottom(String sessionId) {
-    _router.scrollScreenToBottom(sessionId);
-  }
-
-  void applyHostScroll(
-    String sessionId, {
-    required String screenData,
-    required int cols,
-    required int rows,
-    required int displayOffset,
-    required int totalLines,
-    int marginRows = 0,
-    int marginRowsBelow = 0,
-  }) {
-    _router.applyHostScroll(
-      sessionId,
-      screenData: screenData,
-      cols: cols,
-      rows: rows,
-      displayOffset: displayOffset,
-      totalLines: totalLines,
-      marginRows: marginRows,
-      marginRowsBelow: marginRowsBelow,
-    );
-  }
 
   String? activeBufferRequestId(String sessionId) =>
       _router.activeBufferRequestId(sessionId);
@@ -166,7 +104,6 @@ class RemoteTerminalOutputController {
 
   void removeSession(String sessionId) {
     _router.removeSession(sessionId);
-    _snapshotCache.remove(sessionId);
   }
 
   /// Bound live remote pty sessions so worker threads from previously visited
@@ -179,9 +116,6 @@ class RemoteTerminalOutputController {
       activeSessionId,
       maxSessions: maxSessions,
     );
-    for (final sessionId in evicted) {
-      _snapshotCache.remove(sessionId);
-    }
     return evicted;
   }
 
@@ -191,17 +125,14 @@ class RemoteTerminalOutputController {
 
   void resetSessionTransient(String sessionId, {bool resetSequence = false}) {
     _router.resetSessionTransient(sessionId, resetSequence: resetSequence);
-    _snapshotCache.remove(sessionId);
   }
 
   void resetAll() {
     _router.resetAll();
-    _snapshotCache.clear();
   }
 
   void dispose() {
     _router.dispose();
-    _snapshotCache.clear();
   }
 
   List<RemoteTerminalOutputEffect> accept(
@@ -220,13 +151,6 @@ class RemoteTerminalOutputController {
         )
         .toList();
   }
-}
-
-class _CachedScreenSnapshot {
-  const _CachedScreenSnapshot(this.generation, this.snapshot);
-
-  final int generation;
-  final RemoteTerminalScreenSnapshot? snapshot;
 }
 
 RemoteTerminalOutputEffectKind _kindFromName(String name) {

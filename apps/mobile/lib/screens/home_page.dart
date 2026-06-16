@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
@@ -23,6 +22,7 @@ import '../services/remote_device_controller.dart';
 import '../services/remote_envelope_send_queue.dart';
 import '../services/remote_capabilities.dart';
 import '../services/remote_connection_sync_controller.dart';
+import '../services/native_terminal_replay_controller.dart';
 import '../services/remote_project_controller.dart';
 import '../services/remote_network_route_refresh_controller.dart';
 import '../services/remote_protocol_service.dart';
@@ -31,7 +31,6 @@ import '../services/remote_runtime_store.dart';
 import '../services/remote_sequence_guard.dart';
 import '../services/remote_sync_state.dart';
 import '../services/remote_project_file_controller.dart';
-import '../services/remote_pty_session.dart';
 import '../services/remote_terminal_binding_coordinator.dart';
 import '../services/remote_terminal_output_controller.dart';
 import '../services/remote_terminal_scope.dart';
@@ -98,9 +97,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   static const int _terminalBufferMaxChars =
       TerminalBufferCapability.mobileMaxChars;
-  static const int _terminalViewportMaxLines = 2000;
-  static const int _terminalViewportFallbackRows = 24;
-  static const int _terminalViewportOverscanScreens = 2;
 
   final _storage = StorageService();
   final _deviceSelection = const DeviceSelectionService();
@@ -115,6 +111,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   final _worktreeController = const RemoteWorktreeController();
   final _remoteSyncController = RemoteConnectionSyncController();
   final _remoteRuntime = RemoteRuntimeStore();
+  final _nativeTerminalReplay = NativeTerminalReplayController();
   final _settingsNameController = TextEditingController();
   final _fileEditorController = CodeEditingController();
   final _projectNameController = TextEditingController();
@@ -136,8 +133,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   late final RemoteTerminalBindingCoordinator _terminalBindingCoordinator;
   final Set<String> _protocolBlockedHostIds = {};
   int _terminalBufferRequestCounter = 0;
-  double _terminalCursorBottom = 0;
   bool _keyboardRequested = false;
+  int _keyboardRequestSerial = 0;
   bool _keyboardShownSinceRequest = false;
   bool _keyboardVisible = false;
 
@@ -145,10 +142,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   List<ProjectInfo> _projects = [];
   List<TerminalInfo> _terminals = [];
   StoredDevice? _activeDevice;
-  bool _hostViewportScroll = false;
-  Timer? _hostScrollFlushTimer;
-  TerminalViewportScrollRequest? _pendingHostScrollRequest;
-  String? _pendingHostScrollSessionId;
   Timer? _viewportLeaseKeepalive;
   TerminalBufferCapability _terminalBufferCapability =
       TerminalBufferCapability.fallback;
@@ -178,10 +171,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String _terminalUploadStatus = '';
   RemoteSyncState get _remoteSync => _remoteSyncController.syncState;
   bool get _terminalListLoaded => _remoteSync.terminalListLoaded;
-  RemoteTerminalScreenSnapshot? get _activeTerminalScreen {
+  NativeTerminalReplay get _activeTerminalReplay {
     final sessionId = _sessionId;
-    if (sessionId == null) return null;
-    return _terminalOutputController.screenSnapshot(sessionId);
+    if (sessionId == null) {
+      return NativeTerminalReplay.empty(sessionId: '');
+    }
+    return _nativeTerminalReplay.replay(sessionId);
   }
 
   bool get _terminalViewportClaimable =>
@@ -192,6 +187,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       !_showProjectForm &&
       !_showFilePicker &&
       _workspaceMode == 'terminal';
+
+  bool get _terminalDataVisible =>
+      _showTerminal && _workspaceMode == 'terminal';
 
   bool get _terminalViewportReady =>
       _terminalReady && _terminalViewportClaimable;
@@ -257,6 +255,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   double _edgeBackDragDeltaY = 0;
   String _lastTransportState = RemoteTransportKind.iroh;
   String _connectionPath = 'unknown';
+  String _connectionEndpoint = '';
   DateTime? _lastConnectedAt;
   DateTime? _connectionGraceUntil;
   DateTime? _lastTransportRefreshAt;
@@ -359,6 +358,65 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     return _t('status.offline');
   }
 
+  String _deviceSubtitle(StoredDevice device) {
+    final isActive = device.deviceId == _activeDevice?.deviceId;
+    return _deviceEndpointText(
+      device: device,
+      path: isActive && _isDeviceListConnected ? _connectionPath : 'unknown',
+      endpoint: isActive && _isDeviceListConnected ? _connectionEndpoint : '',
+    );
+  }
+
+  String _deviceEndpointText({
+    required StoredDevice device,
+    required String path,
+    required String endpoint,
+  }) {
+    final cleanedEndpoint = _cleanTransportEndpoint(endpoint);
+    if (cleanedEndpoint.isNotEmpty) return cleanedEndpoint;
+    final nodeId = _savedDeviceNodeId(device);
+    if (path == 'direct' && nodeId.isNotEmpty) {
+      return nodeId;
+    }
+    final savedRelay = _savedDeviceRelayEndpoint(device);
+    if (savedRelay.isNotEmpty) return savedRelay;
+    return _t('device.globalNetwork');
+  }
+
+  String _savedDeviceRelayEndpoint(StoredDevice device) {
+    for (final candidate in device.transports) {
+      if (candidate.relayUrl.trim().isNotEmpty) {
+        return _cleanTransportEndpoint(candidate.relayUrl);
+      }
+    }
+    for (final candidate in device.transports) {
+      if (candidate.url.trim().isNotEmpty) {
+        return _cleanTransportEndpoint(candidate.url);
+      }
+    }
+    return _cleanTransportEndpoint(device.server);
+  }
+
+  String _savedDeviceNodeId(StoredDevice device) {
+    for (final candidate in device.transports) {
+      final nodeId = candidate.nodeId.trim();
+      if (nodeId.isNotEmpty) return nodeId;
+    }
+    return '';
+  }
+
+  String _cleanTransportEndpoint(String value) {
+    var endpoint = value.trim();
+    if (endpoint.startsWith('relay:')) {
+      endpoint = endpoint.substring('relay:'.length).trim();
+    } else if (endpoint.startsWith('ip:')) {
+      endpoint = endpoint.substring('ip:'.length).trim();
+    } else if (endpoint.startsWith('custom:')) {
+      endpoint = endpoint.substring('custom:'.length).trim();
+    }
+    return endpoint;
+  }
+
   void _clearConnectionGrace() {
     _connectionGraceTimer?.cancel();
     _connectionGraceTimer = null;
@@ -434,17 +492,24 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     });
   }
 
-  void _markTransportPath(String path) {
+  void _markTransportPath(String path, {String? endpoint}) {
     final connected = path != 'none';
     setState(() {
       _transportConnected = connected;
       if (!connected) {
         _transportReady = false;
+        _connectionEndpoint = '';
       }
       if (connected) {
         _hasShownTerminal = true;
         if (!_backgroundConnect && !_transportReady) {
           _status = _t('app.connecting');
+        }
+        final cleanedEndpoint = _cleanTransportEndpoint(endpoint ?? '');
+        if (cleanedEndpoint.isNotEmpty) {
+          _connectionEndpoint = cleanedEndpoint;
+        } else if (path != _connectionPath) {
+          _connectionEndpoint = '';
         }
       }
       _connectionPath = path;
@@ -530,6 +595,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _remoteSyncController.resetProtocolReady();
       _hostResponsive = false;
       _backgroundConnect = false;
+      _leaveTerminalUi();
       _status = _t('pair.repairRequired');
       _terminalOutputController.resetTransient();
       _setTerminalBufferLoading(false);
@@ -666,7 +732,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _remoteRuntimeEpoch += 1;
     _disconnectTransport(
       status: _t('connection.failedRetry'),
-      closeTerminal: false,
+      closeTerminal: true,
       notifyHost: false,
     );
     if (_appSuspended || !_appInForeground) {
@@ -686,7 +752,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _terminalBindingCoordinator.reset();
     _terminalViewportController.resetScroll();
     _terminalViewportInteractive = false;
-    _clearPendingHostViewportScroll();
     _syncRuntimeViewState();
   }
 
@@ -696,7 +761,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _terminalBindingCoordinator.reset();
     _terminalViewportController.resetScroll();
     _terminalViewportInteractive = false;
-    _clearPendingHostViewportScroll();
     _syncRuntimeViewState();
   }
 
@@ -711,15 +775,14 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _terminalInputSender.clear();
     _terminalBufferRetry.reset();
     _terminalOutputController.resetAll();
+    _nativeTerminalReplay.resetAll();
     _terminalViewportController.resetScroll();
     _terminalViewportInteractive = false;
-    _clearPendingHostViewportScroll();
     _receiveSequenceGuard.reset();
     _receiveChain = Future<void>.value();
     _hostResponsive = false;
     _remoteRuntime.reset(keepProjects: true);
     _syncRuntimeViewState();
-    _terminalCursorBottom = 0;
     _setTerminalBufferLoading(false);
     _clearTerminal();
   }
@@ -748,6 +811,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _projectSelectAckTimers.clear();
   }
 
+  void _leaveTerminalUi() {
+    _showTerminal = false;
+    _workspaceMode = 'terminal';
+    _showTerminalSwitcher = false;
+    _keyboardRequested = false;
+    _keyboardRequestSerial += 1;
+    _keyboardShownSinceRequest = false;
+    _keyboardVisible = false;
+  }
+
   void _disconnectTransport({
     required String status,
     bool closeTerminal = false,
@@ -769,6 +842,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _terminalInputSender.clear();
     if (resetRuntime) {
       _terminalOutputController.resetAll();
+      _nativeTerminalReplay.resetAll();
       _terminalBindingCoordinator.reset();
     }
     setState(() {
@@ -779,8 +853,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _hostResponsive = false;
       _backgroundConnect = false;
       if (closeTerminal) {
-        _showTerminal = false;
-        _workspaceMode = 'terminal';
+        _leaveTerminalUi();
       }
       _status = status;
       _terminalBufferRetry.reset();
@@ -808,13 +881,24 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _mountVisibleTerminal({required String reason}) {
     final sessionId = _sessionId;
     if (sessionId == null || _workspaceMode != 'terminal') return;
-    if (!_terminalViewportReady) return;
+    if (!_terminalViewportClaimable) return;
     final restored = _restoreTerminalSessionFromCache(sessionId);
     CoduxLog.debug(
       '[codux-flutter-terminal] mount session=$sessionId reason=$reason cached=$restored',
     );
-    _syncTerminalViewportSnapshot(sessionId);
+    _focusTerminalViewSoon();
     if (restored) {
+      if (_transportConnected && _remoteProtocolReady) {
+        final requested = _terminalBindingCoordinator.subscribeSessionBaseline(
+          sessionId: sessionId,
+          reason: 'mount-$reason',
+          capability: _terminalBufferCapability,
+          replaceActive: true,
+        );
+        if (requested) {
+          _trackTerminalBaselineRequest(sessionId);
+        }
+      }
       return;
     }
     final projectId = _selectedProjectId;
@@ -828,8 +912,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   bool _restoreTerminalSessionFromCache(String sessionId) {
-    final cached = _terminalOutputController.cachedOutput(sessionId);
-    if (cached == null || cached.isEmpty) return false;
+    final cached = _terminalOutputController.nativeRenderOutput(sessionId);
+    if (cached == null || cached.isEmpty) {
+      return _nativeTerminalReplay.replay(sessionId).content.isNotEmpty;
+    }
+    _nativeTerminalReplay.replaceSession(sessionId, cached);
     if (mounted) setState(() {});
     return true;
   }
@@ -876,7 +963,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       // Renew only: a phone left idle on the terminal screen must not
       // steal the viewport back from an actively-used desktop. Explicit
       // interaction (scroll, input) reclaims instead.
-      if (!_terminalViewportInteractive || _viewportOwnedByDesktop) return;
+      if (!_terminalViewportInteractive) return;
       _claimTerminalViewport();
     });
     WidgetsBinding.instance.addObserver(this);
@@ -954,12 +1041,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _notifyHostBeforeTransportClose();
     }
     _viewportLeaseKeepalive?.cancel();
-    _clearPendingHostViewportScroll();
     WidgetsBinding.instance.removeObserver(this);
     _disposing = true;
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _healthTimer?.cancel();
+    _clearLatencyProbe();
     _connectionGraceTimer?.cancel();
     _transportCloseTimer?.cancel();
     _networkRouteRefreshController.dispose();
@@ -1368,6 +1455,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _hostRuntimeInstanceId = null;
       _resetRemoteRuntime(keepProjects: false);
       _terminalOutputController.resetAll();
+      _nativeTerminalReplay.resetAll();
     }
     CoduxLog.info(
       '[codux-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)}',
@@ -1392,6 +1480,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _remoteSyncController.resetProtocolReady();
       _hostResponsive = false;
       _connectionPath = 'unknown';
+      _connectionEndpoint = '';
       _latencyMs = null;
       if (!background) {
         _status = _t('app.connecting');
@@ -1709,7 +1798,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _resubscribeVisibleTerminal({required String reason}) {
-    if (!_terminalViewportReady) return;
+    if (!_terminalViewportClaimable) return;
     _terminalBindingCoordinator.resubscribeVisibleTerminal(
       transportConnected: _transportConnected,
       protocolReady: _remoteProtocolReady,
@@ -1768,6 +1857,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _applyRuntimePlan(RemoteRuntimePlan plan, {String reason = ''}) {
+    final previousSessionId = _sessionId;
+    final previousProjectId = _selectedProjectId;
+    final previousWorktreeId = _selectedWorktreeId;
     if (plan.stateChanged ||
         plan.clearTerminal ||
         plan.resetTerminalBuffer ||
@@ -1776,12 +1868,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         plan.bindSessionId != null ||
         plan.removedSessionId != null) {
       CoduxLog.info(
-        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} pending=${_remoteRuntime.pendingProjectSelect(includeSent: true) ?? ''} bind=${plan.bindSessionId ?? ''} selected=${_selectedProjectId ?? ''} session=${_sessionId ?? ''}',
+        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} pending=${_remoteRuntime.pendingProjectSelect(includeSent: true) ?? ''} bind=${plan.bindSessionId ?? ''} beforeProject=${previousProjectId ?? ''} beforeWorktree=${previousWorktreeId ?? ''} beforeSession=${previousSessionId ?? ''}',
       );
     }
     if (plan.removedSessionId != null) {
       final removed = plan.removedSessionId!;
       _terminalOutputController.removeSession(removed);
+      _nativeTerminalReplay.removeSession(removed);
       _terminalInputSender.clear(sessionId: removed);
     }
     if (plan.resetTerminalInput) {
@@ -1791,12 +1884,23 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _terminalBufferRetry.reset();
       _terminalOutputController.resetTransient();
       _setTerminalBufferLoading(false);
-      _terminalCursorBottom = 0;
     }
     if (plan.stateChanged && mounted) {
       setState(_syncRuntimeViewState);
     } else {
       _syncRuntimeViewState();
+    }
+    if (previousSessionId != _sessionId ||
+        previousProjectId != _selectedProjectId ||
+        previousWorktreeId != _selectedWorktreeId) {
+      CoduxLog.info(
+        '[codux-flutter-runtime] state reason=$reason project=${previousProjectId ?? ''}->${_selectedProjectId ?? ''} worktree=${previousWorktreeId ?? ''}->${_selectedWorktreeId ?? ''} session=${previousSessionId ?? ''}->${_sessionId ?? ''}',
+      );
+    }
+    if (plan.bindSessionId != null &&
+        previousSessionId != null &&
+        previousSessionId != plan.bindSessionId) {
+      _releaseTerminalViewport(sessionId: previousSessionId);
     }
     if (plan.clearTerminal) {
       _clearTerminal();
@@ -1831,24 +1935,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _terminalSelectedText = null;
       final restored = _restoreTerminalSessionFromCache(bindSessionId);
       if (restored) {
-        // A cached session may have been left scrolled into history (the
-        // history view is a raw replay and can be stale/corrupted); rebind
-        // always lands at the live bottom so fresh keyframes are shown.
-        _terminalOutputController.scrollScreenToBottom(bindSessionId);
         _closeTerminalSwitcherAfterPendingWorktreeBuffer(bindSessionId);
-      }
-      _syncTerminalViewportSnapshot(bindSessionId);
-      // Guarantee the local screen matches the measured viewport before the
-      // baseline is replayed, so scrollback reflows at the correct width even
-      // when the host resize is gated (viewport owned by desktop) or deduped.
-      final pendingCols = _terminalViewportController.pendingCols;
-      final pendingRows = _terminalViewportController.pendingRows;
-      if (pendingCols != null && pendingRows != null) {
-        _terminalOutputController.resizeScreen(
-          bindSessionId,
-          cols: pendingCols,
-          rows: pendingRows,
-        );
       }
       final bindResult = _terminalBindingCoordinator.bindSession(
         plan: plan,
@@ -1861,6 +1948,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       CoduxLog.info(
         '[codux-flutter-terminal] bind session=$bindSessionId project=${_selectedProjectId ?? ''} cached=${bindResult.restored}',
       );
+      _focusTerminalViewSoon();
       // Bound live sessions so headless-screen worker threads from previously
       // visited projects do not accumulate across switches and stall the app.
       final evicted = _terminalOutputController.evictInactiveSessions(
@@ -2042,10 +2130,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             _transportReady = false;
             _remoteSyncController.resetProtocolReady();
             _hostResponsive = false;
-            _showTerminal = false;
-            _workspaceMode = 'terminal';
+            _leaveTerminalUi();
             _resetRemoteSyncState();
-            _showTerminalSwitcher = false;
             _status = messageText;
             _terminalBufferRetry.reset();
             _terminalOutputController.resetTransient();
@@ -2075,7 +2161,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             _terminalBufferCapability = TerminalBufferCapability.fromHostInfo(
               payload,
             );
-            _hostViewportScroll = _hostSupportsViewportScroll(payload);
             if (payload['name'] != null) {
               _updateDevice(
                 target.deviceId,
@@ -2101,8 +2186,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           _handleTerminalClosed(message);
         case final type when type == RemoteMessageType.terminalViewportState:
           _handleTerminalViewportState(message);
-        case 'terminal.viewport.scrolled':
-          _handleTerminalViewportScrolled(message);
         case final type when type == RemoteMessageType.worktreeList:
           _handleWorktreeList(message);
         case final type when type == RemoteMessageType.worktreeUpdated:
@@ -2194,7 +2277,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       projects: next,
       remoteSelectedProjectId: remoteSelectedProjectId,
       remoteSelectedWorktreeId: remoteSelectedWorktreeId,
-      terminalVisible: _terminalViewportReady,
+      terminalVisible: _terminalDataVisible,
       terminalListLoaded: _terminalListLoaded,
     );
     _applyRuntimePlan(plan, reason: 'missing-terminal');
@@ -2206,7 +2289,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         baseBranches: const [],
         defaultBaseBranch: null,
         allowRuntimeSelection: false,
-        terminalVisible: _terminalViewportReady,
+        terminalVisible: _terminalDataVisible,
         terminalListLoaded: _terminalListLoaded,
       );
       if (mounted) setState(_syncRuntimeViewState);
@@ -2229,11 +2312,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       '[codux-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} worktree=${_selectedWorktreeId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')}',
     );
     CoduxLog.debug(
-      '[codux-flutter-terminal] terminal.list items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}').join('|')}',
+      '[codux-flutter-terminal] terminal.list items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}:${item.layoutKind}:${item.layoutOrder ?? -1}').join('|')}',
     );
     final plan = _remoteRuntime.applyTerminalList(
       terminals: next,
-      terminalVisible: _terminalViewportReady,
+      terminalVisible: _terminalDataVisible,
       terminalListLoaded: _terminalListLoaded,
     );
     if (_creatingTerminalProjectId != null) {
@@ -2249,7 +2332,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final terminal = remoteTerminalFromPayload(message.payload);
     if (terminal == null) return;
     CoduxLog.info(
-      '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId}',
+      '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId} worktree=${terminal.worktreeId ?? ''} kind=${terminal.layoutKind} order=${terminal.layoutOrder ?? -1}',
     );
     final plan = _remoteRuntime.terminalCreated(terminal);
     if (_creatingTerminalProjectId != null) {
@@ -2315,7 +2398,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       baseBranches: worktreeState.baseBranches,
       defaultBaseBranch: worktreeState.defaultBaseBranch,
       allowRuntimeSelection: canApplyRuntimeSelection,
-      terminalVisible: _terminalViewportReady,
+      terminalVisible: _terminalDataVisible,
       terminalListLoaded: _terminalListLoaded,
     );
     setState(() {
@@ -2418,9 +2501,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (event.isPathUpdate) {
       final path = event.path;
       if (path != null) {
+        if (path == 'none') {
+          _handleTransportClosed('path:none');
+          return;
+        }
         final previousPath = _connectionPath;
         final changed = path != _connectionPath;
-        _markTransportPath(path);
+        _markTransportPath(path, endpoint: event.addr);
         if (path != 'none') {
           _sendHostInfoRequest(
             force:
@@ -2459,6 +2546,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _handleTransportLatencyState(String detail) {
+    final event = RemoteTransportStateEvent.parse('latency:$detail');
     final parts = detail.split(';');
     String? rttValue;
     String? timeoutValue;
@@ -2474,7 +2562,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       }
     }
     if (pathValue != null && pathValue.isNotEmpty) {
-      _markTransportPath(pathValue);
+      _markTransportPath(pathValue, endpoint: event.addr);
     }
     if (rttValue != null) {
       final nextLatency = int.tryParse(rttValue);
@@ -2558,6 +2646,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _transportReady = false;
       _hostResponsive = false;
       _status = _t('app.reconnecting');
+      _leaveTerminalUi();
       _terminalBufferRetry.reset();
       _setTerminalBufferLoading(false);
     });
@@ -2592,15 +2681,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       message,
       activeSessionId: _sessionId,
     );
-    // Passive-viewing mode: while the desktop owns the viewport, the phone
-    // is a live mirror — always follow the tail so new keyframes (and the
-    // TUI composer) stay visible instead of a stale scrolled history view.
-    final sessionId = message.sessionId;
-    if (sessionId != null &&
-        sessionId == _sessionId &&
-        _viewportOwnedByDesktop) {
-      _terminalOutputController.scrollScreenToBottom(sessionId);
-    }
     _applyTerminalOutputEffects(effects);
   }
 
@@ -2636,8 +2716,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           _markTerminalBufferReceived(effect.sessionId);
         case RemoteTerminalOutputEffectKind.sessionUpdated:
           final sessionId = effect.sessionId;
-          if (sessionId != null && sessionId == _sessionId && mounted) {
-            setState(() {});
+          if (sessionId != null) {
+            _syncNativeTerminalReplay(sessionId);
           }
         case RemoteTerminalOutputEffectKind.requestBaselineResync:
           final sessionId = effect.sessionId;
@@ -2645,6 +2725,15 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             _requestTerminalGapResync(sessionId);
           }
       }
+    }
+  }
+
+  void _syncNativeTerminalReplay(String sessionId) {
+    final content = _terminalOutputController.nativeRenderOutput(sessionId);
+    if (content == null) return;
+    final changed = _nativeTerminalReplay.syncSession(sessionId, content);
+    if (changed && sessionId == _sessionId && mounted) {
+      setState(() {});
     }
   }
 
@@ -2726,153 +2815,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     return updated;
   }
 
-  bool get _viewportOwnedByDesktop =>
-      (_terminalViewportController.owner ?? '') == 'desktop';
-
-  bool _hostSupportsViewportScroll(Map<dynamic, dynamic> payload) {
-    final capabilities = payload['capabilities'];
-    if (capabilities is! Map) return false;
-    final viewport = capabilities['terminalViewport'];
-    return viewport is Map && viewport['scroll'] == true;
-  }
-
-  int _terminalViewportRows(RemoteTerminalScreenSnapshot? snapshot) {
-    if (snapshot == null) return _terminalViewportFallbackRows;
-    final visibleRows =
-        snapshot.rows - snapshot.marginRows - snapshot.marginRowsBelow;
-    return visibleRows > 0 ? visibleRows : snapshot.rows.clamp(1, 2000);
-  }
-
-  int _terminalViewportOverscanRows(RemoteTerminalScreenSnapshot? snapshot) {
-    final rows = _terminalViewportRows(snapshot);
-    return math.max(
-      _terminalViewportFallbackRows,
-      rows * _terminalViewportOverscanScreens,
-    );
-  }
-
-  // Coalesce scroll gestures into absolute, read-only viewport snapshot
-  // requests. The host must not mutate the live terminal viewport for
-  // mobile observation scrolls; it only returns the requested snapshot.
-  void _queueHostViewportScroll(
-    String sessionId,
-    double pixels,
-    double cellHeight,
-  ) {
-    if (cellHeight <= 0) return;
-    final snapshot = _terminalOutputController.screenSnapshot(sessionId);
-    final request = _terminalViewportController.requestScrollPixels(
-      sessionId: sessionId,
-      pixels: pixels,
-      cellHeight: cellHeight,
-      maxLines: _terminalViewportMaxLines,
-      viewportRows: _terminalViewportRows(snapshot),
-      overscanRows: _terminalViewportOverscanRows(snapshot),
-    );
-    if (request == null) return;
-    _pendingHostScrollRequest = request;
-    _pendingHostScrollSessionId = sessionId;
-    _hostScrollFlushTimer ??= Timer(const Duration(milliseconds: 50), () {
-      _hostScrollFlushTimer = null;
-      final id = _sessionId;
-      if (id != null) _flushHostViewportScroll(id);
-    });
-  }
-
-  void _clearPendingHostViewportScroll() {
-    _hostScrollFlushTimer?.cancel();
-    _hostScrollFlushTimer = null;
-    _pendingHostScrollRequest = null;
-    _pendingHostScrollSessionId = null;
-  }
-
-  void _flushHostViewportScroll(String sessionId) {
-    final pending = _pendingHostScrollRequest;
-    if (pending == null) return;
-    if (_pendingHostScrollSessionId != sessionId) {
-      _clearPendingHostViewportScroll();
-      return;
-    }
-    _pendingHostScrollRequest = null;
-    _pendingHostScrollSessionId = null;
-    _sendHostViewportSnapshotRequest(sessionId, request: pending);
-  }
-
-  void _syncTerminalViewportSnapshot(String sessionId) {
-    if (!_hostViewportScroll) return;
-    if (!_terminalViewportReady) return;
-    _sendHostViewportSnapshotRequest(sessionId, displayOffset: 0);
-  }
-
-  void _sendHostViewportSnapshotRequest(
-    String sessionId, {
-    int? displayOffset,
-    TerminalViewportScrollRequest? request,
-  }) {
-    final snapshot = _terminalOutputController.screenSnapshot(sessionId);
-    final viewportRows = _terminalViewportRows(snapshot);
-    final overscanRows = _terminalViewportOverscanRows(snapshot);
-    final viewportRequest =
-        request ??
-        _terminalViewportController.requestAbsoluteScroll(
-          sessionId: sessionId,
-          displayOffset: displayOffset ?? snapshot?.displayOffset ?? 0,
-          maxLines: _terminalViewportMaxLines,
-          viewportRows: viewportRows,
-          overscanRows: overscanRows,
-        );
-    _sendTerminalEnvelope(
-      RelayEnvelope(
-        type: 'terminal.viewport.scroll',
-        sessionId: sessionId,
-        payload: {
-          'viewportRequestId': viewportRequest.requestId,
-          'displayOffset': viewportRequest.displayOffset,
-          'maxLines': viewportRequest.maxLines,
-          'viewportRows': viewportRows,
-          'overscanRows': viewportRequest.overscanRows,
-        },
-      ),
-      terminal: _terminalById(sessionId),
-    );
-  }
-
-  void _handleTerminalViewportScrolled(RelayEnvelope message) {
-    final sessionId = message.sessionId;
-    final payload = message.payload;
-    if (sessionId == null || payload is! Map) return;
-    final screenData = payload['screenData']?.toString() ?? '';
-    if (screenData.isEmpty) return;
-    final cols = _intPayloadValue(payload['cols']) ?? 0;
-    final rows = _intPayloadValue(payload['rows']) ?? 0;
-    final displayOffset = _intPayloadValue(payload['displayOffset']) ?? 0;
-    final totalLines = _intPayloadValue(payload['totalLines']) ?? 0;
-    final marginRows = _intPayloadValue(payload['marginRows']) ?? 0;
-    final marginRowsBelow = _intPayloadValue(payload['marginRowsBelow']) ?? 0;
-    final requestId = _intPayloadValue(payload['viewportRequestId']) ?? 0;
-    if (!_terminalViewportController.acceptScrollResponse(
-      sessionId: sessionId,
-      requestId: requestId,
-      displayOffset: displayOffset,
-    )) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] drop stale viewport.scrolled request=$requestId session=$sessionId',
-      );
-      return;
-    }
-    _terminalOutputController.applyHostScroll(
-      sessionId,
-      screenData: screenData,
-      cols: cols,
-      rows: rows,
-      displayOffset: displayOffset,
-      totalLines: totalLines,
-      marginRows: marginRows,
-      marginRowsBelow: marginRowsBelow,
-    );
-    if (sessionId == _sessionId && mounted) setState(() {});
-  }
-
   bool _retryTerminalBaseline(String sessionId) {
     if (!mounted || _sessionId != sessionId) return false;
     CoduxLog.info('[codux-flutter-terminal] baseline retry session=$sessionId');
@@ -2952,7 +2894,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       rows: rows,
       keyboardVisible: _keyboardVisible,
     );
-    _terminalOutputController.resizeScreen(id, cols: cols, rows: rows);
     if (!_terminalViewportClaimable || !_terminalViewportInteractive) return;
     final terminal = _terminalById(id);
     if (!_canResizeTerminal(terminal)) return;
@@ -2988,11 +2929,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       force: force,
     );
     if (resize == null) return;
-    _terminalOutputController.resizeScreen(
-      id,
-      cols: resize.cols,
-      rows: resize.rows,
-    );
     CoduxLog.info(
       '[codux-flutter-terminal] flush viewport.resize size=${resize.cols}x${resize.rows} force=$force session=$id',
     );
@@ -3021,9 +2957,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       ),
       terminal: terminal,
     );
-    if (_hostViewportScroll) {
-      _syncTerminalViewportSnapshot(id);
-    }
   }
 
   void _releaseTerminalViewport({String? sessionId}) {
@@ -3075,8 +3008,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       setState(() => _status = _t('terminal.createOrSelectFirst'));
       return;
     }
-    // Typing on the phone is explicit intent: take the viewport so the PTY
-    // follows this screen's dimensions. Plain viewing/scrolling never does.
     _claimTerminalViewport(sessionId: id);
     _flushPendingTerminalResize(force: true, sessionId: id);
     _terminalInputSender.send(sessionId: id, data: data, source: source);
@@ -3119,12 +3050,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       return;
     }
     if (_creatingTerminalProjectId == target) return;
-    _remoteRuntime.setTerminalCreatingProject(target);
-    _creatingTerminalLayoutKind = layoutKind.trim().toLowerCase() == 'tab'
+    final normalizedLayoutKind = layoutKind.trim().toLowerCase() == 'tab'
         ? 'tab'
         : 'split';
-    setState(_syncRuntimeViewState);
     final scope = _remoteRuntime.terminalScopeForProject(target);
+    _remoteRuntime.beginTerminalCreate(
+      projectId: target,
+      worktreeId: scope?.worktreeId,
+      layoutKind: normalizedLayoutKind,
+    );
+    _creatingTerminalLayoutKind = normalizedLayoutKind;
+    setState(_syncRuntimeViewState);
     _send(
       RelayEnvelope(
         type: RemoteMessageType.terminalCreate,
@@ -3295,7 +3231,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final plan = _remoteRuntime.worktreeSelected(
       projectId: project.id,
       worktreeId: worktree.id,
-      terminalVisible: _terminalViewportReady,
+      terminalVisible: _terminalDataVisible,
       terminalListLoaded: _terminalListLoaded,
     );
     setState(() {
@@ -3501,7 +3437,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   void _ensureTerminalForSelectedProject() {
     final plan = _remoteRuntime.ensureTerminalForSelectedProject(
-      terminalVisible: _terminalViewportReady,
+      terminalVisible: _terminalDataVisible,
       terminalListLoaded: _terminalListLoaded,
     );
     _applyRuntimePlan(plan, reason: 'missing-terminal');
@@ -3620,9 +3556,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _syncTerminalToSelectedProject({bool requestListIfMissing = true}) {
-    if (!_terminalViewportReady) return;
+    if (!_terminalDataVisible) return;
     final plan = _remoteRuntime.ensureTerminalForSelectedProject(
-      terminalVisible: _terminalViewportReady,
+      terminalVisible: _terminalDataVisible,
       terminalListLoaded: requestListIfMissing && _terminalListLoaded,
     );
     _applyRuntimePlan(plan, reason: 'missing-terminal');
@@ -3790,6 +3726,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       if (!mounted) return;
       setState(() {
         _keyboardRequested = true;
+        _keyboardRequestSerial += 1;
         _keyboardShownSinceRequest = false;
       });
     });
@@ -3799,8 +3736,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (_keyboardRequested || _keyboardVisible) {
       setState(() {
         _keyboardRequested = false;
+        _keyboardRequestSerial += 1;
         _keyboardShownSinceRequest = false;
-        _keyboardVisible = false;
       });
       return;
     }
@@ -3810,9 +3747,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   void _focusTerminalViewSoon() {
     Future<void>.delayed(const Duration(milliseconds: 80), () {
       if (!mounted) return;
-      if (_terminalViewportInteractive) {
-        _flushPendingTerminalResize(force: true);
-      }
+      if (_workspaceMode != 'terminal' || !_hasShownTerminal) return;
+      _claimTerminalViewport();
+      _flushPendingTerminalResize(force: true);
     });
   }
 
@@ -3950,29 +3887,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   String _visibleTerminalText() {
-    final screen = _activeTerminalScreen;
-    if (screen == null || screen.cells.isEmpty) return '';
-    final rows = <int, List<RemoteTerminalScreenCell>>{};
-    for (final cell in screen.cells) {
-      rows.putIfAbsent(cell.row, () => []).add(cell);
-    }
-    final output = StringBuffer();
-    final rowKeys = rows.keys.toList()..sort();
-    for (final row in rowKeys) {
-      final cells = rows[row]!..sort((a, b) => a.col.compareTo(b.col));
-      var col = 0;
-      final line = StringBuffer();
-      for (final cell in cells) {
-        while (col < cell.col) {
-          line.write(' ');
-          col += 1;
-        }
-        line.write(cell.text);
-        col += cell.width;
-      }
-      output.writeln(line.toString().trimRight());
-    }
-    return output.toString().trimRight();
+    final sessionId = _sessionId;
+    if (sessionId == null) return '';
+    return _terminalOutputController.cachedOutput(sessionId)?.trimRight() ?? '';
   }
 
   Future<void> _startVoiceInput() async {
@@ -4510,6 +4427,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       ready: _isDeviceListConnected,
       status: _deviceListStatusText,
       latencyMs: _isConnected ? _latencyMs : null,
+      deviceSubtitle: _deviceSubtitle,
       topInset: topInset,
       bottomInset: bottomInset,
       onOpen: _openDeviceTerminal,
@@ -4616,14 +4534,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       terminalUploadStatus: _terminalUploadStatus,
       terminalBufferLoading: _terminalBufferLoading,
       sessionId: _sessionId,
-      remoteScroll: _hostViewportScroll,
       pendingBufferSessionId: _terminalBufferRetry.pendingSessionId,
       connectionStatusText: _connectionStatusText,
       terminalHistoryLoadingText: _terminalHistoryLoadingText(),
-      keyboardRequested: _keyboardRequested,
       keyboardVisible: _keyboardVisible,
-      terminalCursorBottom: _terminalCursorBottom,
-      terminalScreen: _activeTerminalScreen,
+      keyboardRequested: _keyboardRequested,
+      keyboardRequestSerial: _keyboardRequestSerial,
+      terminalReplay: _activeTerminalReplay,
       terminalFontSize: _settings.terminalFontSize,
       onConnect: () => _connect(),
       onInput: _queueTerminalTyping,
@@ -4641,48 +4558,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             _mountVisibleTerminal(reason: 'first-resize');
           });
         }
-      },
-      onScrollPixels: (pixels, cellHeight) {
-        final sessionId = _sessionId;
-        if (sessionId == null || pixels == 0) return;
-        if (_hostViewportScroll) {
-          // Architecture: scrollback is served by the host screen (the
-          // authoritative grid + scrollback). Local raw-byte replay views
-          // are only a fallback for older hosts.
-          _queueHostViewportScroll(sessionId, pixels, cellHeight);
-          return;
-        }
-        _terminalOutputController.scrollScreenPixels(
-          sessionId,
-          pixels: pixels,
-          cellHeight: cellHeight,
-        );
-        if (mounted) setState(() {});
-      },
-      onSettleScroll: () {
-        final sessionId = _sessionId;
-        if (sessionId == null) return;
-        if (_hostViewportScroll) {
-          _flushHostViewportScroll(sessionId);
-          return;
-        }
-        _terminalOutputController.settleScreenPixelScroll(sessionId);
-        if (mounted) setState(() {});
-      },
-      onScrollToBottom: () {
-        final sessionId = _sessionId;
-        if (sessionId == null) return;
-        _terminalOutputController.scrollScreenToBottom(sessionId);
-        if (_hostViewportScroll) {
-          _syncTerminalViewportSnapshot(sessionId);
-        }
-        if (mounted) setState(() {});
-      },
-      onMetricsCursorBottom: (cursorBottom) {
-        if (_terminalCursorBottom == cursorBottom) return;
-        setState(() {
-          _terminalCursorBottom = cursorBottom;
-        });
       },
       onSelectionChanged: (text) {
         if (_terminalSelectedText == text) return;
@@ -4741,10 +4616,4 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onDeleteProjectFile: _deleteProjectFile,
     );
   }
-}
-
-int? _intPayloadValue(Object? value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  return int.tryParse('${value ?? ''}');
 }

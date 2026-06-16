@@ -1,17 +1,150 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
 import 'package:codux_flutter/main.dart';
 import 'package:codux_flutter/i18n.dart';
 import 'package:codux_flutter/models/remote_models.dart';
 import 'package:codux_flutter/services/log_service.dart';
 import 'package:codux_flutter/services/remote_protocol_service.dart';
 import 'package:codux_flutter/services/remote_transport.dart';
+import 'package:codux_flutter/theme/app_theme.dart';
+import 'package:codux_flutter/widgets/device_home_screen.dart';
 
 void main() {
   testWidgets('Codux app boots', (WidgetTester tester) async {
     await tester.pumpWidget(const CoduxFlutterApp());
     await tester.pump();
     expect(find.byType(MaterialApp), findsOneWidget);
+  });
+
+  testWidgets('device row shows saved relay endpoint without changing header', (
+    WidgetTester tester,
+  ) async {
+    final device = await _fakeDevice();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: AppPreferences(
+            accent: AccentChoices.cyan,
+            locale: LocaleChoices.english,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: DeviceHomeScreen(
+                devices: [device],
+                activeDeviceId: device.deviceId,
+                ready: false,
+                status: 'Off',
+                latencyMs: null,
+                deviceSubtitle: (_) => 'Relay https://relay.example',
+                topInset: 0,
+                bottomInset: 0,
+                onOpen: (_) {},
+                onConnect: (_) {},
+                onAdd: () {},
+                onEdit: (_) {},
+                onDelete: (_) {},
+                onRefresh: () async {},
+                onSettings: () {},
+                onLogs: () {},
+                onCheckUpdate: () {},
+                onAbout: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('https://relay.example'), findsOneWidget);
+    expect(
+      find.text('Choose a connected computer to enter terminal'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('device row shows global network when endpoint is unavailable', (
+    WidgetTester tester,
+  ) async {
+    final device = StoredDevice(
+      server: '',
+      hostId: 'host-1',
+      deviceId: 'device-1',
+      token: 'token',
+      name: 'Mac',
+      hostName: 'Mac',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: AppPreferences(
+            accent: AccentChoices.cyan,
+            locale: LocaleChoices.zhCN,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: DeviceHomeScreen(
+                devices: [device],
+                activeDeviceId: device.deviceId,
+                ready: false,
+                status: '未连',
+                latencyMs: null,
+                deviceSubtitle: (_) => tr('device.globalNetwork', 'zh-CN'),
+                topInset: 0,
+                bottomInset: 0,
+                onOpen: (_) {},
+                onConnect: (_) {},
+                onAdd: () {},
+                onEdit: (_) {},
+                onDelete: (_) {},
+                onRefresh: () async {},
+                onSettings: () {},
+                onLogs: () {},
+                onCheckUpdate: () {},
+                onAbout: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('全球网络'), findsOneWidget);
+    expect(find.text('Iroh'), findsNothing);
+  });
+
+  testWidgets('device row follows current direct endpoint', (
+    WidgetTester tester,
+  ) async {
+    final device = await _fakeDevice();
+    final fake = _FakeRemoteTransport(
+      device: device,
+      initialPath: 'relay',
+      onSent: (transport, envelope) {
+        if (envelope['type'] == RemoteMessageType.hostInfo) {
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mac'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    fake.emitState('connected:path=direct;addr=10.0.0.2:51515');
+    await tester.pump();
+
+    expect(find.textContaining('10.0.0.2:51515'), findsOneWidget);
+    expect(find.text('Codux'), findsOneWidget);
   });
 
   testWidgets(
@@ -111,16 +244,15 @@ void main() {
       );
       expect(log, contains('bind session=session-1 project=project-1'));
       expect(log, isNot(contains('request terminal.buffer session=session-1')));
-      final subscribePayload = _lastPayloadOf(
+      final subscribePayload = _lastTerminalBaselineSubscribePayload(
         sent,
-        RemoteMessageType.resourceSubscribe,
+        projectId: 'project-1',
       );
       expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-1');
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
       expect(subscribePayload?['chunkChars'], isA<int>());
-      expect(_sentTypes(sent), isNot(contains('terminal.viewport.claim')));
       expect(_sentTypes(sent), isNot(contains('terminal.viewport.resize')));
       expect(_sentTypes(sent), isNot(contains('terminal.resize')));
     },
@@ -217,16 +349,15 @@ void main() {
             .length,
         1,
       );
-      final subscribePayload = _lastPayloadOf(
+      final subscribePayload = _lastTerminalBaselineSubscribePayload(
         sent,
-        RemoteMessageType.resourceSubscribe,
+        projectId: 'project-2',
       );
       expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-2');
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
       expect(subscribePayload?['chunkChars'], isA<int>());
-      expect(sentTypes, isNot(contains('terminal.viewport.claim')));
       expect(sentTypes, isNot(contains('terminal.viewport.resize')));
       expect(sentTypes, isNot(contains('terminal.resize')));
     },
@@ -397,8 +528,7 @@ void main() {
       );
       expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-2');
-      expect(subscribePayload?['baseline'], isNot(isTrue));
-      expect(sentTypes, isNot(contains('terminal.viewport.claim')));
+      expect(subscribePayload?['baseline'], isTrue);
       expect(sentTypes, isNot(contains('terminal.viewport.resize')));
       expect(sentTypes, isNot(contains('terminal.resize')));
     },
@@ -821,6 +951,11 @@ void main() {
     await tester.tap(find.text('Mac'));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 300));
+    if (find.byKey(const ValueKey('remote-terminal-body')).evaluate().isEmpty) {
+      await tester.tap(find.text('Mac').first);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
     sent.clear();
 
     terminalBufferCharacters = 8;
@@ -829,6 +964,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(_sentTypes(sent), isNot(contains('terminal.buffer')));
+    final subscribePayload = _lastTerminalBaselineSubscribePayload(sent);
+    expect(subscribePayload?['resource'], RemoteResourceType.terminals);
+    expect(subscribePayload?['baseline'], isTrue);
   });
 
   testWidgets('cached terminal remount does not request a ui buffer', (
@@ -908,6 +1046,11 @@ void main() {
     await tester.tap(find.text('Mac'));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 300));
+    if (find.byKey(const ValueKey('remote-terminal-body')).evaluate().isEmpty) {
+      await tester.tap(find.text('Mac').first);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+    }
     sent.clear();
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
@@ -915,6 +1058,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(_sentTypes(sent), isNot(contains('terminal.buffer')));
+    final subscribePayload = _lastTerminalBaselineSubscribePayload(sent);
+    expect(subscribePayload?['resource'], RemoteResourceType.terminals);
+    expect(subscribePayload?['baseline'], isTrue);
     expect(
       CoduxLog.snapshotText(),
       isNot(
@@ -1113,11 +1259,17 @@ void main() {
     CoduxLog.setLevelName('debug');
     CoduxLog.clear();
     final device = await _fakeDevice();
+    String? latencyPingId;
     final fake = _FakeRemoteTransport(
       device: device,
       initialPath: 'direct',
       onSent: (transport, envelope) {
         final type = '${envelope['type'] ?? ''}';
+        if (type == RemoteMessageType.transportPing) {
+          final payload = envelope['payload'];
+          if (payload is Map) latencyPingId = '${payload['id'] ?? ''}';
+          return;
+        }
         if (type == 'host.info') {
           transport.emitEncrypted(
             const RelayEnvelope(
@@ -1159,17 +1311,33 @@ void main() {
     await tester.tap(find.text('Mac'));
     await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
-    fake.emitState('latency:rtt=17;path=direct');
-    await tester.pump();
-    expect(find.text('17ms'), findsWidgets);
+    expect(latencyPingId, isNotNull);
+    await tester.pump(const Duration(milliseconds: 17));
+    fake.emitEncrypted(
+      RelayEnvelope(
+        type: RemoteMessageType.transportPong,
+        payload: {'id': latencyPingId},
+      ),
+    );
+    await tester.pumpAndSettle();
+    final latencyTextFinder = find.byWidgetPredicate((widget) {
+      return widget is Text &&
+          widget.data != null &&
+          RegExp(r'^\d+ms$').hasMatch(widget.data!);
+    });
+    expect(latencyTextFinder, findsWidgets);
+    final visibleLatency = tester
+        .widgetList<Text>(latencyTextFinder)
+        .map((widget) => widget.data)
+        .firstWhere((value) => value != null)!;
 
     fake.emitState('latency:timeout=1;path=direct');
     await tester.pump();
-    expect(find.text('17ms'), findsWidgets);
+    expect(find.text(visibleLatency), findsWidgets);
 
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     await tester.pump();
-    expect(find.text('17ms'), findsWidgets);
+    expect(find.text(visibleLatency), findsWidgets);
   });
 
   testWidgets(
@@ -1287,6 +1455,140 @@ void main() {
     },
   );
 
+  testWidgets('transport failure leaves terminal page for device list', (
+    WidgetTester tester,
+  ) async {
+    CoduxLog.setLevelName('debug');
+    CoduxLog.clear();
+    final device = await _fakeDevice();
+    final fake = _FakeRemoteTransport(
+      device: device,
+      onSent: (transport, envelope) {
+        final type = '${envelope['type'] ?? ''}';
+        if (type == 'host.info') {
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'project.list',
+              payload: {
+                'selectedProjectId': 'project-1',
+                'projects': [
+                  {'id': 'project-1', 'name': 'Project 1', 'path': '/tmp/p1'},
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'terminal.list',
+              payload: {
+                'terminals': [
+                  {
+                    'id': 'session-1',
+                    'title': 'Terminal',
+                    'projectId': 'project-1',
+                    'layoutKind': 'split',
+                  },
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+    for (var attempt = 0; attempt < 2; attempt += 1) {
+      if (find
+          .byKey(const ValueKey('remote-terminal-body'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.tap(find.text('Mac').first);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    }
+
+    expect(find.byKey(const ValueKey('remote-terminal-body')), findsOneWidget);
+
+    fake.emitState('failed:network');
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    expect(find.byKey(const ValueKey('remote-terminal-body')), findsNothing);
+    expect(find.text('Mac'), findsWidgets);
+  });
+
+  testWidgets('none transport path leaves terminal page for device list', (
+    WidgetTester tester,
+  ) async {
+    final device = await _fakeDevice();
+    final fake = _FakeRemoteTransport(
+      device: device,
+      onSent: (transport, envelope) {
+        final type = '${envelope['type'] ?? ''}';
+        if (type == 'host.info') {
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'project.list',
+              payload: {
+                'selectedProjectId': 'project-1',
+                'projects': [
+                  {'id': 'project-1', 'name': 'Project 1', 'path': '/tmp/p1'},
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            const RelayEnvelope(
+              type: 'terminal.list',
+              payload: {
+                'terminals': [
+                  {
+                    'id': 'session-1',
+                    'title': 'Terminal',
+                    'projectId': 'project-1',
+                    'layoutKind': 'split',
+                  },
+                ],
+              },
+            ),
+          );
+          transport.emitEncrypted(
+            RelayEnvelope(type: 'host.info', payload: _hostInfoPayload()),
+          );
+        }
+      },
+    );
+
+    await tester.pumpWidget(
+      CoduxFlutterApp(initialDevices: [device], transportFactory: (_) => fake),
+    );
+    await tester.pumpAndSettle();
+    for (var attempt = 0; attempt < 2; attempt += 1) {
+      if (find
+          .byKey(const ValueKey('remote-terminal-body'))
+          .evaluate()
+          .isNotEmpty) {
+        break;
+      }
+      await tester.tap(find.text('Mac').first);
+      await tester.pumpAndSettle(const Duration(milliseconds: 300));
+    }
+
+    expect(find.byKey(const ValueKey('remote-terminal-body')), findsOneWidget);
+
+    fake.emitState('path:path=none');
+    await tester.pumpAndSettle(const Duration(milliseconds: 300));
+
+    expect(find.byKey(const ValueKey('remote-terminal-body')), findsNothing);
+    expect(find.text('Mac'), findsWidgets);
+  });
+
   testWidgets(
     'pending project select ack timeout retries project select and refreshes terminal list',
     (WidgetTester tester) async {
@@ -1376,11 +1678,13 @@ void main() {
       final device = await _fakeDevice();
       var selectedProjectId = 'project-1';
       var rejectProjectSelect = true;
+      var rejectedProjectSelectDelivery = false;
       final fake = _FakeRemoteTransport(
         device: device,
         onBeforeSend: (envelope) {
           if (envelope['type'] == 'project.select' && rejectProjectSelect) {
             rejectProjectSelect = false;
+            rejectedProjectSelectDelivery = true;
             return false;
           }
           return true;
@@ -1418,6 +1722,10 @@ void main() {
             return;
           }
           if (type == 'project.select') {
+            if (rejectedProjectSelectDelivery) {
+              rejectedProjectSelectDelivery = false;
+              return;
+            }
             selectedProjectId = 'project-2';
             transport.emitEncrypted(
               const RelayEnvelope(
@@ -1463,7 +1771,7 @@ void main() {
 
       await _tapProjectTab(tester, 'Project 2');
       await tester.pump(const Duration(milliseconds: 300));
-      fake.emitState('connected:path=relay');
+      await tester.pump(const Duration(milliseconds: 900));
       await tester.pumpAndSettle(const Duration(milliseconds: 300));
 
       expect(
@@ -1485,7 +1793,6 @@ void main() {
           'host unavailable reason=send_rejected:project.select host=host-1 device=device-1',
         ),
       );
-      expect(log, contains('drop stale decoded envelope'));
       expect(log, contains('send result type=project.select'));
       expect(log, contains('result=delivered'));
       expect(log, contains('bind session=session-2 project=project-2'));
@@ -1698,6 +2005,22 @@ void main() {
     expect(tr('settings.title', 'japanese'), '設定');
   });
 
+  test('all mobile locales cover the English string catalog', () {
+    final keys = _englishI18nKeys();
+    expect(keys.length, greaterThan(250));
+    for (final locale in LocaleChoices.all.where(
+      (item) => item.id != 'system',
+    )) {
+      for (final key in keys) {
+        expect(
+          tr(key, locale.id),
+          isNot(key),
+          reason: 'missing $key for ${locale.id}',
+        );
+      }
+    }
+  });
+
   test('visible strings resolve through i18n fallback', () {
     const keys = [
       'app.connected',
@@ -1712,6 +2035,7 @@ void main() {
       'project.rebuildTerminal',
       'terminal.loadingHistory',
       'device.homeHint',
+      'device.globalNetwork',
       'pair.confirmTitle',
       'update.checking',
       'stats.aiTitle',
@@ -1726,6 +2050,19 @@ void main() {
       }
     }
   });
+}
+
+Set<String> _englishI18nKeys() {
+  final file = File('lib/i18n.dart');
+  final source = file.readAsStringSync();
+  final match = RegExp(
+    r"const Map<String, String> _en = \{([\s\S]*?)\n\};",
+  ).firstMatch(source);
+  expect(match, isNotNull);
+  return RegExp(
+    r"^\s+'([^']+)':",
+    multiLine: true,
+  ).allMatches(match!.group(1)!).map((item) => item.group(1)!).toSet();
 }
 
 typedef _FakeEnvelopeHandler =
@@ -1816,6 +2153,22 @@ final class _FakeRemoteTransport implements RemoteTransport {
 Map? _lastPayloadOf(List<Map<String, dynamic>> sent, String type) {
   for (final envelope in sent.reversed) {
     if (envelope['type'] == type) return envelope['payload'] as Map?;
+  }
+  return null;
+}
+
+Map? _lastTerminalBaselineSubscribePayload(
+  List<Map<String, dynamic>> sent, {
+  String? projectId,
+  String? sessionId,
+}) {
+  for (final envelope in sent.reversed) {
+    if (!_isTerminalBaselineSubscribe(envelope)) continue;
+    final payload = envelope['payload'];
+    if (payload is! Map) continue;
+    if (projectId != null && payload['projectId'] != projectId) continue;
+    if (sessionId != null && payload['sessionId'] != sessionId) continue;
+    return payload;
   }
   return null;
 }

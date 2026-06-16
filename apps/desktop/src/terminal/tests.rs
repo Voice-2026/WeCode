@@ -448,6 +448,19 @@ mod tests {
     }
 
     #[test]
+    fn marked_text_filters_escape_sequences_from_navigation_keys() {
+        assert_eq!(terminal_input_marked_text("\x1bOA"), "");
+        assert_eq!(terminal_input_marked_text("^[OA"), "");
+        assert_eq!(terminal_input_marked_text("␛OA"), "");
+    }
+
+    #[test]
+    fn marked_text_keeps_printable_composition_text() {
+        assert_eq!(terminal_input_marked_text("pin"), "pin");
+        assert_eq!(terminal_input_marked_text("拼"), "拼");
+    }
+
+    #[test]
     fn maps_modified_navigation_and_function_keys() {
         assert_eq!(
             bytes(
@@ -685,6 +698,45 @@ mod tests {
                 end: TerminalSelectionPoint { line: 1, col: 5 },
             }),
             "hello\nworld"
+        );
+    }
+
+    #[test]
+    fn selects_text_across_scrollback_outside_visible_snapshot() {
+        let mut state = TerminalModel::new_for_test(10, 3, 100);
+        state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
+        state.handle.publish_snapshot();
+
+        assert_eq!(
+            state.handle.selected_text_for_range(SelectionRange {
+                start: TerminalSelectionPoint { line: 1, col: 0 },
+                end: TerminalSelectionPoint { line: 5, col: 3 },
+            }),
+            "two\nthree\nfour\nfive\nsix"
+        );
+    }
+
+    #[test]
+    fn selection_autoscroll_updates_head_against_scrolled_viewport() {
+        let mut state = TerminalModel::new_for_test(10, 3, 100);
+        state.process_bytes(b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
+        state.handle.publish_snapshot();
+        state.start_selection(TerminalSelectionPoint { line: 6, col: 5 });
+
+        assert!(state.scroll_display(2));
+        let (did_scroll, content) = state.apply_pending_scroll_for_selection();
+        assert!(did_scroll);
+        assert_eq!(content.display_offset, 2);
+
+        let scrolled_top = selection_point_from_cell(
+            TerminalCellPoint { row: 0, col: 0 },
+            &content,
+        );
+        state.update_selection(scrolled_top);
+
+        assert_eq!(
+            state.selected_text(),
+            Some("three\nfour\nfive\nsix\nseven".to_string())
         );
     }
 
@@ -928,6 +980,15 @@ mod tests {
             text.starts_with("\x1b[200~") && text.ends_with("\x1b[201~"),
             "paste was not bracketed: {text:?}"
         );
+    }
+
+    #[test]
+    fn key_input_uses_live_cursor_mode_before_snapshot_publish() {
+        let mut state = TerminalModel::new_for_test(20, 4, 100);
+        state.process_output_bytes_for_test(b"\x1b[?1h");
+        assert!(!state.handle.input_mode().application_cursor);
+
+        assert!(state.mode().application_cursor);
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use super::types::{RemotePairingInfo, RemoteSettings, RemoteTransportCandidate};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use serde_json::Value;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 #[cfg(unix)]
 use std::ffi::CStr;
 
@@ -124,17 +123,32 @@ pub(crate) fn remote_base64_url_decode(value: &str) -> Result<Vec<u8>, base64::D
 }
 
 pub(crate) fn remote_pairing_payload(
-    settings: &RemoteSettings,
+    _settings: &RemoteSettings,
     pairing: &RemotePairingInfo,
     transports: Vec<RemoteTransportCandidate>,
 ) -> Value {
+    let transports = transports
+        .into_iter()
+        .map(|transport| {
+            let mut item = Map::new();
+            item.insert("kind".to_string(), json!(transport.kind));
+            if let Some(ticket) = transport.ticket.filter(|value| !value.trim().is_empty()) {
+                item.insert("ticket".to_string(), json!(ticket));
+            }
+            if let Some(authentication) = transport
+                .relay_authentication
+                .filter(|value| !value.trim().is_empty())
+            {
+                item.insert("relayAuthentication".to_string(), json!(authentication));
+            }
+            Value::Object(item)
+        })
+        .collect::<Vec<_>>();
+
     json!({
         "code": pairing.code,
         "secret": pairing.secret,
         "pairingId": pairing.pairing_id,
-        "hostId": settings.host_id,
-        "hostName": remote_host_name(),
-        "protocolVersion": super::protocol::REMOTE_PROTOCOL_VERSION,
         "transports": transports,
     })
 }

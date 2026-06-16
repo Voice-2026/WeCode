@@ -148,11 +148,21 @@ void main() {
   });
 
   test('transport path updates do not masquerade as latency samples', () {
-    final event = RemoteTransportStateEvent.parse('latency:rtt=470;path=direct');
+    final event = RemoteTransportStateEvent.parse(
+      'latency:rtt=470;path=direct;addr=10.0.0.2:51515',
+    );
 
     expect(event.isPathUpdate, isTrue);
     expect(event.path, 'direct');
-    expect(event.detail, 'rtt=470;path=direct');
+    expect(event.addr, '10.0.0.2:51515');
+    expect(event.detail, 'rtt=470;path=direct;addr=10.0.0.2:51515');
+  });
+
+  test('none transport path is parsed as an explicit path update', () {
+    final event = RemoteTransportStateEvent.parse('path:path=none');
+
+    expect(event.isPathUpdate, isTrue);
+    expect(event.path, 'none');
   });
 }
 

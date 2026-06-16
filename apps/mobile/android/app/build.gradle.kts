@@ -82,3 +82,7 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.termux.termux-app:terminal-view:0.118.0")
+}

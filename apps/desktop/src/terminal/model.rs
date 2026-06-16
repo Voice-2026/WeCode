@@ -670,7 +670,7 @@ impl TerminalModel {
     }
 
     fn mode(&self) -> TerminalInputMode {
-        self.handle.input_mode()
+        self.handle.live_input_mode()
     }
 
     fn snapshot(&self) -> TerminalContent {
@@ -693,6 +693,15 @@ impl TerminalModel {
         self.events
             .push_back(TerminalInternalEvent::Scroll { lines });
         true
+    }
+
+    fn apply_pending_scroll_for_selection(&mut self) -> (bool, TerminalContent) {
+        let before = self.handle.live_display_offset();
+        if self.apply_model_events() {
+            self.snapshot_dirty = true;
+        }
+        let content = self.live_snapshot();
+        (content.display_offset != before, content)
     }
 
     // Absolute scrollbar targets: the delta is resolved on the engine
@@ -884,6 +893,10 @@ impl TerminalStateHandle {
         self.screen.lock().input_mode()
     }
 
+    fn live_display_offset(&self) -> usize {
+        self.screen.lock().display_offset()
+    }
+
     fn snapshot(&self) -> TerminalContent {
         self.snapshot.lock().clone()
     }
@@ -930,13 +943,17 @@ impl TerminalStateHandle {
         if lines == 0 {
             return false;
         }
-        self.screen.lock().scroll_lines(lines);
-        true
+        let mut screen = self.screen.lock();
+        let before = screen.display_offset();
+        screen.scroll_lines(lines);
+        before != screen.display_offset()
     }
 
     fn scroll_to_offset(&self, offset: usize) -> bool {
-        self.screen.lock().scroll_to_offset(offset);
-        true
+        let mut screen = self.screen.lock();
+        let before = screen.display_offset();
+        screen.scroll_to_offset(offset);
+        before != screen.display_offset()
     }
 
     fn scroll_to_bottom(&self) -> bool {
@@ -947,7 +964,11 @@ impl TerminalStateHandle {
 
     fn selected_text_for_range(&self, range: SelectionRange) -> String {
         let content = self.snapshot();
-        selected_text_from_content(&content, range)
+        if content_covers_selection_range(&content, range) {
+            selected_text_from_content(&content, range)
+        } else {
+            selected_text_from_screen_range(&self.screen, &content, range)
+        }
     }
 }
 
@@ -991,6 +1012,77 @@ fn selected_text_from_content(content: &TerminalContent, range: SelectionRange) 
         lines.push(selected_line_text(content, line, start_col, end_col));
     }
     lines.join("\n")
+}
+
+fn selected_text_from_screen_range(
+    screen: &Arc<Mutex<HeadlessTerminalScreen>>,
+    fallback_content: &TerminalContent,
+    range: SelectionRange,
+) -> String {
+    let mut lines = Vec::new();
+    let mut line = range.start.line;
+    let mut content = fallback_content.clone();
+    while line <= range.end.line {
+        if !content.line_in_snapshot(line) {
+            let offset = display_offset_for_line(
+                line,
+                content.total_lines,
+                content.screen_lines,
+            );
+            let request = { screen.lock().snapshot_at_offset_request(offset) };
+            content = TerminalContent::from_screen_snapshot(request.snapshot());
+        }
+        if !content.line_in_snapshot(line) {
+            lines.push(String::new());
+            line = line.saturating_add(1);
+            continue;
+        }
+        let chunk_end = content
+            .last_snapshot_line()
+            .unwrap_or(line)
+            .min(range.end.line);
+        for selected_line in line..=chunk_end {
+            let start_col = if selected_line == range.start.line {
+                range.start.col
+            } else {
+                0
+            };
+            let end_col = if selected_line == range.end.line {
+                range.end.col
+            } else {
+                content.columns
+            };
+            lines.push(selected_line_text(
+                &content,
+                selected_line,
+                start_col,
+                end_col,
+            ));
+        }
+        line = chunk_end.saturating_add(1);
+    }
+    lines.join("\n")
+}
+
+fn content_covers_selection_range(content: &TerminalContent, range: SelectionRange) -> bool {
+    content.line_in_snapshot(range.start.line) && content.line_in_snapshot(range.end.line)
+}
+
+fn display_offset_for_line(line: i32, total_lines: usize, rows: usize) -> usize {
+    let line = usize::try_from(line).unwrap_or(0);
+    total_lines
+        .saturating_sub(rows)
+        .saturating_sub(line)
+}
+
+fn selection_point_from_cell(
+    point: TerminalCellPoint,
+    content: &TerminalContent,
+) -> TerminalSelectionPoint {
+    TerminalSelectionPoint {
+        line: content.line_for_display_row(point.row),
+        col: point.col,
+    }
 }
 
 fn selected_line_text(

@@ -7,11 +7,13 @@ use async_trait::async_trait;
 use codux_protocol::{RemoteEnvelope, RemoteTransportKind};
 use futures_util::StreamExt;
 use iroh::{
-    Endpoint, EndpointAddr, RelayMap, RelayMode, RelayUrl, TransportAddr,
+    Endpoint, EndpointAddr, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
     endpoint::{Connection, PathEvent, RecvStream, SendStream, presets},
 };
 use iroh_tickets::endpoint::EndpointTicket;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -47,11 +49,15 @@ impl RemoteIrohHostTransport {
     ) -> Result<Arc<Self>, String> {
         let configured_relay_url = iroh_relay_url(config)?;
         let relay_authentication = config.iroh_relay_authentication.trim().to_string();
-        let endpoint = endpoint_builder(configured_relay_url.as_ref(), &relay_authentication)
-            .alpns(vec![CODUX_REMOTE_ALPN.to_vec()])
-            .bind()
-            .await
-            .map_err(|error| format!("iroh host bind failed: {error}"))?;
+        let endpoint = endpoint_builder(
+            configured_relay_url.as_ref(),
+            &relay_authentication,
+            host_secret_key(config).as_ref(),
+        )
+        .alpns(vec![CODUX_REMOTE_ALPN.to_vec()])
+        .bind()
+        .await
+        .map_err(|error| format!("iroh host bind failed: {error}"))?;
         if tokio::time::timeout(IROH_ONLINE_TIMEOUT, endpoint.online())
             .await
             .is_err()
@@ -272,7 +278,7 @@ impl RemoteIrohControllerTransport {
             .cloned()
             .or_else(|| parse_relay_url(&candidate.relay_url).ok());
         let relay_authentication = candidate.relay_authentication.trim().to_string();
-        let endpoint = endpoint_builder(relay_url.as_ref(), &relay_authentication)
+        let endpoint = endpoint_builder(relay_url.as_ref(), &relay_authentication, None)
             .bind()
             .await
             .map_err(|error| format!("iroh controller bind failed: {error}"))?;
@@ -455,17 +461,47 @@ fn publish_transport_state_for_addr(
     if let Some(rtt) = rtt {
         on_state(
             String::new(),
-            format!("latency:rtt={};path={path}", rtt.as_millis()),
+            format!(
+                "latency:rtt={};path={path};addr={}",
+                rtt.as_millis(),
+                transport_addr_label(remote_addr)
+            ),
         );
     }
-    on_state(String::new(), format!("connected:path={path}"));
+    on_state(
+        String::new(),
+        format!(
+            "connected:path={path};addr={}",
+            transport_addr_label(remote_addr)
+        ),
+    );
+}
+
+fn transport_addr_label(remote_addr: &TransportAddr) -> String {
+    match remote_addr {
+        TransportAddr::Ip(addr) => socket_addr_label(addr),
+        TransportAddr::Relay(url) => url.to_string(),
+        TransportAddr::Custom(addr) => addr.to_string(),
+        _ => remote_addr.to_string(),
+    }
+}
+
+fn socket_addr_label(addr: &SocketAddr) -> String {
+    match addr {
+        SocketAddr::V4(addr) => addr.to_string(),
+        SocketAddr::V6(addr) => format!("[{}]:{}", addr.ip(), addr.port()),
+    }
 }
 
 fn endpoint_builder(
     relay_url: Option<&RelayUrl>,
     relay_authentication: &str,
+    secret_key: Option<&SecretKey>,
 ) -> iroh::endpoint::Builder {
     let mut builder = Endpoint::builder(presets::N0);
+    if let Some(secret_key) = secret_key {
+        builder = builder.secret_key(secret_key.clone());
+    }
     if let Some(relay_url) = relay_url {
         let mut relay_map = RelayMap::from(relay_url.clone());
         let relay_authentication = relay_authentication.trim();
@@ -475,6 +511,20 @@ fn endpoint_builder(
         builder = builder.relay_mode(RelayMode::Custom(relay_map));
     }
     builder
+}
+
+pub(crate) fn host_secret_key(config: &RemoteHostTransportConfig) -> Option<SecretKey> {
+    let host_token = config.host_token.trim();
+    if host_token.is_empty() {
+        return None;
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"codux-iroh-host-secret-key-v1");
+    hasher.update(config.host_id.trim().as_bytes());
+    hasher.update([0]);
+    hasher.update(host_token.as_bytes());
+    let bytes: [u8; 32] = hasher.finalize().into();
+    Some(SecretKey::from_bytes(&bytes))
 }
 
 fn iroh_relay_url(config: &RemoteHostTransportConfig) -> Result<Option<RelayUrl>, String> {

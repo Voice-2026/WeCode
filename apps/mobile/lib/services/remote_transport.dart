@@ -19,11 +19,13 @@ class RemoteTransportStateEvent {
     required this.state,
     required this.detail,
     required this.path,
+    required this.addr,
   });
 
   final String state;
   final String detail;
   final String? path;
+  final String? addr;
 
   bool get isPathUpdate => state == 'path' || path != null;
   bool get isConnected => state == 'connected';
@@ -38,6 +40,7 @@ class RemoteTransportStateEvent {
       state: state,
       detail: detail,
       path: parseTransportPath(detail),
+      addr: parseTransportAddress(detail),
     );
   }
 }
@@ -63,9 +66,22 @@ String? parseTransportPath(String detail) {
     final trimmed = part.trim();
     if (!trimmed.startsWith('path=')) continue;
     final value = trimmed.substring(5).trim();
-    if (value == 'direct' || value == 'relay' || value == 'unknown') {
+    if (value == 'direct' ||
+        value == 'relay' ||
+        value == 'unknown' ||
+        value == 'none') {
       return value;
     }
+  }
+  return null;
+}
+
+String? parseTransportAddress(String detail) {
+  for (final part in detail.split(';')) {
+    final trimmed = part.trim();
+    if (!trimmed.startsWith('addr=')) continue;
+    final value = trimmed.substring(5).trim();
+    return value.isEmpty ? null : value;
   }
   return null;
 }

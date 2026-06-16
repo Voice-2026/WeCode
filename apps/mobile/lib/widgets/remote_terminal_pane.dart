@@ -3,10 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../i18n.dart';
-import '../services/remote_pty_session.dart';
+import '../services/native_terminal_replay_controller.dart';
 import '../theme/app_theme.dart';
 import 'connect_hint.dart';
-import 'terminal_screen_view.dart';
+import 'native_terminal_view.dart';
 import 'toolbar.dart';
 
 class RemoteTerminalPane extends StatelessWidget {
@@ -26,20 +26,15 @@ class RemoteTerminalPane extends StatelessWidget {
     required this.pendingBufferSessionId,
     required this.connectionStatusText,
     required this.terminalHistoryLoadingText,
-    required this.keyboardRequested,
     required this.keyboardVisible,
-    required this.terminalCursorBottom,
-    required this.terminalScreen,
+    required this.keyboardRequested,
+    required this.keyboardRequestSerial,
+    required this.terminalReplay,
     required this.terminalFontSize,
-    this.remoteScroll = false,
     required this.onConnect,
     required this.onInput,
     required this.onResize,
-    required this.onScrollPixels,
-    required this.onSettleScroll,
-    required this.onScrollToBottom,
-    required this.onMetricsCursorBottom,
-    this.onSelectionChanged,
+    required this.onSelectionChanged,
     required this.onSendKey,
     required this.onToggleKeyboard,
     required this.onPaste,
@@ -62,20 +57,15 @@ class RemoteTerminalPane extends StatelessWidget {
   final String? pendingBufferSessionId;
   final String connectionStatusText;
   final String terminalHistoryLoadingText;
-  final bool keyboardRequested;
   final bool keyboardVisible;
-  final double terminalCursorBottom;
-  final RemoteTerminalScreenSnapshot? terminalScreen;
+  final bool keyboardRequested;
+  final int keyboardRequestSerial;
+  final NativeTerminalReplay terminalReplay;
   final double terminalFontSize;
-  final bool remoteScroll;
   final VoidCallback onConnect;
   final ValueChanged<String> onInput;
   final void Function(int cols, int rows) onResize;
-  final void Function(double pixels, double cellHeight) onScrollPixels;
-  final VoidCallback onSettleScroll;
-  final VoidCallback onScrollToBottom;
-  final ValueChanged<double> onMetricsCursorBottom;
-  final ValueChanged<String?>? onSelectionChanged;
+  final ValueChanged<String?> onSelectionChanged;
   final ValueChanged<String> onSendKey;
   final VoidCallback onToggleKeyboard;
   final VoidCallback onPaste;
@@ -95,11 +85,10 @@ class RemoteTerminalPane extends StatelessWidget {
     final toolbarBottom = effectiveKeyboardHeight > 0
         ? effectiveKeyboardHeight
         : bottomInset;
-    final keyboardOverlap = (toolbarBottom - bottomInset).clamp(
-      0.0,
-      double.infinity,
-    );
-    final toolbarSafeInset = toolbarBottom.clamp(0.0, bottomInset);
+    const toolbarBaseHeight = 76.0;
+    final keyboardLift = effectiveKeyboardHeight > 0
+        ? (effectiveKeyboardHeight - bottomInset).clamp(0.0, double.infinity)
+        : 0.0;
     final terminalPadding = Platform.isIOS
         ? EdgeInsets.zero
         : const EdgeInsets.symmetric(horizontal: 8);
@@ -110,8 +99,7 @@ class RemoteTerminalPane extends StatelessWidget {
       child: ClipRect(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            const toolbarBaseHeight = 76.0;
-            final terminalToolbarHeight = toolbarBaseHeight + toolbarSafeInset;
+            final terminalToolbarHeight = toolbarBaseHeight + bottomInset;
             final viewportHeight = constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : MediaQuery.sizeOf(context).height;
@@ -119,22 +107,6 @@ class RemoteTerminalPane extends StatelessWidget {
                 (viewportHeight -
                         (showTerminalToolbar ? terminalToolbarHeight : 0.0))
                     .clamp(120.0, viewportHeight);
-            final terminalViewHeight =
-                (terminalHeight - terminalPadding.vertical).clamp(
-                  0.0,
-                  terminalHeight,
-                );
-            final visibleTerminalBottom = (terminalViewHeight - keyboardOverlap)
-                .clamp(0.0, terminalViewHeight);
-            final terminalShift =
-                showTerminalToolbar &&
-                    effectiveKeyboardHeight > 0 &&
-                    terminalCursorBottom > visibleTerminalBottom
-                ? (terminalCursorBottom - visibleTerminalBottom).clamp(
-                    0.0,
-                    keyboardOverlap,
-                  )
-                : 0.0;
             final showHostSyncOverlay =
                 connected && !projectListLoaded && projectCount == 0;
             final showUploadOverlay =
@@ -159,34 +131,31 @@ class RemoteTerminalPane extends StatelessWidget {
                   top: 0,
                   height: terminalHeight,
                   child: Transform.translate(
-                    offset: Offset(0, -terminalShift),
+                    offset: Offset(0, -keyboardLift),
                     child: ColoredBox(
+                      key: const ValueKey('remote-terminal-body'),
                       color: AppColors.bgBase,
                       child: Padding(
                         padding: terminalPadding,
                         child: Stack(
                           children: [
-                            if (showTerminal)
-                              TerminalScreenView(
-                                // Session-scoped key: a project switch gives
-                                // the new session a fresh view state (scroll
-                                // position, follow-tail, blink, resize-emit
-                                // dedupe) instead of inheriting the previous
-                                // session's in-flight scroll/anchor.
-                                key: ValueKey('terminal-${sessionId ?? ''}'),
-                                snapshot: terminalScreen,
-                                keyboardRequested: keyboardRequested,
-                                scrollEnabled: !keyboardVisible,
-                                remoteScroll: remoteScroll,
+                            if (showTerminal && NativeTerminalView.supported)
+                              NativeTerminalView(
+                                key: Platform.isIOS
+                                    ? ValueKey(
+                                        'native-terminal-view-ios-${terminalReplay.sessionId}',
+                                      )
+                                    : const ValueKey('native-terminal-view'),
+                                replay: terminalReplay,
                                 fontSize: terminalFontSize,
+                                keyboardRequested: keyboardRequested,
+                                keyboardRequestSerial: keyboardRequestSerial,
                                 onInput: onInput,
                                 onResize: onResize,
-                                onScrollPixels: onScrollPixels,
-                                onSettleScroll: onSettleScroll,
-                                onScrollToBottom: onScrollToBottom,
-                                onCursorBottom: onMetricsCursorBottom,
                                 onSelectionChanged: onSelectionChanged,
                               )
+                            else if (showTerminal)
+                              const _TerminalUnavailable()
                             else
                               ConnectHint(
                                 status: status.isEmpty
@@ -223,8 +192,7 @@ class RemoteTerminalPane extends StatelessWidget {
                     bottom: toolbarBottom,
                     child: Toolbar(
                       onSendKey: onSendKey,
-                      applicationCursor:
-                          terminalScreen?.applicationCursor ?? false,
+                      applicationCursor: false,
                       keyboardVisible: keyboardVisible,
                       bottomInset: 0,
                       onToggleKeyboard: onToggleKeyboard,
@@ -241,6 +209,15 @@ class RemoteTerminalPane extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _TerminalUnavailable extends StatelessWidget {
+  const _TerminalUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(color: AppColors.bgBase);
   }
 }
 

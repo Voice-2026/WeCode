@@ -265,8 +265,17 @@ class RemoteRuntimeStore {
     return _planFromCore(_core.removeTerminal(terminalId));
   }
 
-  void setTerminalCreatingProject(String? projectId) {
-    _core.setTerminalCreatingProject(projectId);
+  void beginTerminalCreate({
+    required String projectId,
+    String? worktreeId,
+    required String layoutKind,
+  }) {
+    _core.beginTerminalCreate({
+      'projectId': projectId,
+      if (worktreeId != null && worktreeId.trim().isNotEmpty)
+        'worktreeId': worktreeId,
+      'layoutKind': layoutKind,
+    });
   }
 
   RemoteRuntimePlan terminalCreated(TerminalInfo terminal) {

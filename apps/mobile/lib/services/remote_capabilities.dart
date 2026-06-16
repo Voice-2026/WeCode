@@ -6,7 +6,7 @@ class TerminalBufferCapability {
     this.requestId = false,
   });
 
-  static const int mobileMaxChars = 65536;
+  static const int mobileMaxChars = 200000;
 
   final bool chunking;
   final int maxChars;

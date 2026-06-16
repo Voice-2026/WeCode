@@ -805,14 +805,16 @@ impl CoduxApp {
         }
 
         let mut live_windows = Vec::with_capacity(self.child_windows.len());
-        let mut activated = 0usize;
+        let mut ordered = 0usize;
         for handle in self.child_windows.iter().copied() {
             if handle
-                .update(cx, |_view, window, _cx| window.activate_window())
+                .update(cx, |_view, window, _cx| {
+                    macos_window::order_window_front_without_focus(window)
+                })
                 .is_ok()
             {
                 live_windows.push(handle);
-                activated += 1;
+                ordered += 1;
             }
         }
         let removed = self.child_windows.len().saturating_sub(live_windows.len());
@@ -820,7 +822,7 @@ impl CoduxApp {
         self.clear_dead_child_window_slots();
         self.runtime_trace(
             "window",
-            &format!("bring_children_to_front activated={activated} removed={removed}"),
+            &format!("bring_children_to_front ordered={ordered} removed={removed}"),
         );
     }
 

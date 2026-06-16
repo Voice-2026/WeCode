@@ -48,10 +48,18 @@ class StorageService {
   StoredDevice _normalizeDeviceTransport(StoredDevice device) {
     final transports = device.transports
         .where((candidate) => candidate.kind == RemoteTransportKind.iroh)
+        .map(
+          (candidate) => RemoteTransportCandidate(
+            kind: candidate.kind,
+            role: candidate.role,
+            url: candidate.url,
+            nodeId: candidate.nodeId,
+            relayUrl: candidate.relayUrl,
+            relayAuthentication: candidate.relayAuthentication,
+          ),
+        )
         .toList();
-    return transports.length == device.transports.length
-        ? device
-        : device.copyWith(transports: transports);
+    return device.copyWith(transports: transports);
   }
 
   Future<void> saveDevices(List<StoredDevice> devices) async {

@@ -349,8 +349,8 @@ impl RuntimeService {
     }
 
     pub fn revoke_remote_device(&self, device_id: &str) -> Result<RemoteSummary, String> {
-        let summary = RemoteService::new(self.support_dir.clone()).revoke_device(device_id)?;
-        Ok(self.remote_host.apply_snapshot(summary))
+        RemoteService::new(self.support_dir.clone()).revoke_device(device_id)?;
+        Ok(self.remote_host.reload_snapshot_from_settings())
     }
 
     pub fn refresh_remote_devices(&self) -> Result<RemoteSummary, String> {

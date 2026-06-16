@@ -274,16 +274,8 @@ fn restores_baseline_before_replaying_held_live_output() {
     assert!(session.hold_live(Some(11), "stale"));
     assert!(session.hold_live(Some(12), "new"));
 
-    let page = session.accept_baseline_page("abcd", 0, Some(8), true);
-    assert!(page.accepted);
-    assert!(!page.ready);
-    assert_eq!(page.next_offset, 4);
-
-    let page = session.accept_baseline_page("efgh", 4, Some(8), false);
-    assert!(page.ready);
-
-    let replay = session.replace_from_baseline(&page.data, Some(8), Some(11));
-    assert_eq!(session.content(), "abcdefgh");
+    let replay = session.replace_from_baseline("abcd", Some(8), Some(11));
+    assert_eq!(session.content(), "abcd");
     assert_eq!(replay, vec!["new"]);
 }
 
@@ -524,6 +516,9 @@ fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
     assert!(screen.data.contains("new input"));
     assert!(!screen.data.contains("old screen"));
     assert!(!screen.data.contains("history 01"));
+    assert!(session.native_render_content().contains("new screen"));
+    assert!(session.native_render_content().contains("new input"));
+    assert!(!session.native_render_content().contains("old screen"));
 
     session.scroll_screen_lines(8);
     let scrolled = session.screen_snapshot();
@@ -540,16 +535,37 @@ fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
 }
 
 #[test]
-fn rejects_out_of_order_baseline_pages() {
-    let mut session = RemotePtySession::<String>::new("session-1", 64);
-    session.require_baseline();
+fn empty_live_screen_keyframe_refreshes_native_replay_current_screen() {
+    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    session.resize_screen(20, 8);
+    let history = scrollable_history("history");
+    session.replace_from_baseline_screen(
+        &history,
+        Some("\x1b[2J\x1b[Hold screen\r\nold input"),
+        Some(50),
+        Some(3),
+    );
 
-    let page = session.accept_baseline_page("abcd", 0, Some(8), true);
-    assert!(page.accepted);
+    session.append_live_screen(
+        "",
+        Some("\x1b[2J\x1b[Hfresh screen\r\n\x1b[3;1Hfresh input"),
+        Some(50),
+        Some(4),
+    );
 
-    let page = session.accept_baseline_page("gh", 6, Some(8), false);
-    assert!(!page.accepted);
-    assert_eq!(page.next_offset, 4);
+    assert_eq!(session.content(), history);
+    assert!(
+        session
+            .native_render_content()
+            .contains("fresh screen\r\n\x1b[3;1Hfresh input")
+    );
+    assert!(!session.native_render_content().contains("old screen"));
+    assert!(!session.native_render_content().contains("old input"));
+
+    let screen = session.screen_snapshot();
+    assert!(screen.data.contains("fresh screen"));
+    assert!(screen.data.contains("fresh input"));
+    assert!(!screen.data.contains("old screen"));
 }
 
 #[test]
@@ -807,6 +823,292 @@ fn runtime_model_binds_terminal_when_delayed_list_arrives() {
     assert_eq!(
         runtime.snapshot().active_session_id.as_deref(),
         Some("session-2")
+    );
+}
+
+#[test]
+fn runtime_model_keeps_active_terminal_when_split_is_created() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    let created = RemoteRuntimeTerminal {
+        layout_order: Some(1),
+        ..terminal("new-split", "project-2")
+    };
+    let created_plan = runtime.terminal_created(created.clone());
+    assert_eq!(created_plan.bind_session_id, None);
+    assert!(!created_plan.clear_terminal);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+
+    let stale = runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    assert_eq!(stale.removed_session_id, None);
+    assert_eq!(stale.bind_session_id, None);
+    assert!(!stale.reset_terminal_input);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+    assert!(
+        runtime
+            .current_project_terminals()
+            .iter()
+            .any(|terminal| terminal.id == "new-split")
+    );
+
+    let confirmed = runtime.apply_terminal_list(
+        vec![terminal("old-split", "project-2"), created],
+        true,
+        true,
+    );
+
+    assert_eq!(confirmed.bind_session_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+}
+
+#[test]
+fn runtime_model_keeps_active_terminal_after_confirming_created_split() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    let created = RemoteRuntimeTerminal {
+        layout_order: Some(1),
+        ..terminal("new-split", "project-2")
+    };
+    let created_plan = runtime.terminal_created(created.clone());
+    assert_eq!(created_plan.bind_session_id, None);
+
+    let confirmed = runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                layout_order: Some(0),
+                ..terminal("old-split", "project-2")
+            },
+            created,
+        ],
+        true,
+        true,
+    );
+
+    assert_eq!(confirmed.bind_session_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+    assert_eq!(
+        runtime
+            .current_project_terminals()
+            .first()
+            .map(|terminal| terminal.id.as_str()),
+        Some("old-split")
+    );
+}
+
+#[test]
+fn runtime_model_does_not_switch_worktree_when_created_split_is_confirmed_elsewhere() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    let created_plan = runtime.terminal_created(terminal("new-split", "project-2"));
+    assert_eq!(created_plan.bind_session_id, None);
+
+    let confirmed = runtime.apply_terminal_list(
+        vec![
+            RemoteRuntimeTerminal {
+                layout_order: Some(0),
+                worktree_id: Some("project-2".to_string()),
+                ..terminal("old-split", "project-2")
+            },
+            RemoteRuntimeTerminal {
+                layout_order: Some(1),
+                worktree_id: Some("worktree-2".to_string()),
+                ..terminal("new-split", "project-2")
+            },
+        ],
+        true,
+        true,
+    );
+
+    assert_eq!(confirmed.bind_session_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+    assert_eq!(
+        runtime.snapshot().selected_worktree_id.as_deref(),
+        Some("project-2")
+    );
+    assert_eq!(
+        runtime
+            .current_project_terminals()
+            .into_iter()
+            .map(|terminal| terminal.id)
+            .collect::<Vec<_>>(),
+        vec!["old-split".to_string()]
+    );
+}
+
+#[test]
+fn runtime_model_keeps_active_terminal_when_created_split_arrives_from_terminal_list() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    runtime.begin_terminal_create(
+        Some("project-2".to_string()),
+        None,
+        Some("split".to_string()),
+    );
+
+    let new_terminal = RemoteRuntimeTerminal {
+        layout_order: Some(1),
+        ..terminal("new-split", "project-2")
+    };
+    let created = runtime.apply_terminal_list(
+        vec![terminal("old-split", "project-2"), new_terminal.clone()],
+        true,
+        true,
+    );
+
+    assert_eq!(created.bind_session_id, None);
+    assert!(!created.clear_terminal);
+    assert!(!created.reset_terminal_buffer);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+
+    let stale = runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    assert_eq!(stale.bind_session_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+    assert!(
+        !runtime
+            .current_project_terminals()
+            .iter()
+            .any(|terminal| terminal.id == "new-split")
+    );
+
+    let confirmed = runtime.apply_terminal_list(
+        vec![terminal("old-split", "project-2"), new_terminal],
+        true,
+        true,
+    );
+
+    assert_eq!(confirmed.bind_session_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+}
+
+#[test]
+fn runtime_model_keeps_immediately_selected_created_split_across_stale_list() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    runtime.begin_terminal_create(
+        Some("project-2".to_string()),
+        None,
+        Some("split".to_string()),
+    );
+
+    let new_terminal = RemoteRuntimeTerminal {
+        layout_order: Some(1),
+        ..terminal("new-split", "project-2")
+    };
+    runtime.apply_terminal_list(
+        vec![terminal("old-split", "project-2"), new_terminal.clone()],
+        true,
+        true,
+    );
+
+    let selected = runtime.select_terminal(new_terminal);
+    assert_eq!(selected.bind_session_id.as_deref(), Some("new-split"));
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("new-split")
+    );
+
+    let stale = runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    assert_eq!(stale.removed_session_id, None);
+    assert_eq!(stale.bind_session_id, None);
+    assert!(!stale.reset_terminal_input);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("new-split")
+    );
+    assert!(
+        runtime
+            .current_project_terminals()
+            .iter()
+            .any(|terminal| terminal.id == "new-split")
+    );
+}
+
+#[test]
+fn runtime_model_drops_created_terminal_after_authoritative_list_removes_it() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+    runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    let created = RemoteRuntimeTerminal {
+        layout_order: Some(1),
+        ..terminal("new-split", "project-2")
+    };
+    runtime.terminal_created(created.clone());
+    runtime.apply_terminal_list(
+        vec![terminal("old-split", "project-2"), created],
+        true,
+        true,
+    );
+
+    let removed = runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
+
+    assert_eq!(removed.bind_session_id, None);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("old-split")
+    );
+    assert!(
+        !runtime
+            .current_project_terminals()
+            .iter()
+            .any(|terminal| terminal.id == "new-split")
+    );
+}
+
+#[test]
+fn runtime_model_binds_created_terminal_when_no_active_terminal_exists() {
+    let mut runtime = RemoteRuntimeModel::new();
+    runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
+
+    let created = RemoteRuntimeTerminal {
+        layout_order: Some(0),
+        ..terminal("new-split", "project-2")
+    };
+    let created_plan = runtime.terminal_created(created);
+
+    assert_eq!(created_plan.bind_session_id.as_deref(), Some("new-split"));
+    assert!(created_plan.clear_terminal);
+    assert!(created_plan.reset_terminal_buffer);
+    assert_eq!(
+        runtime.snapshot().active_session_id.as_deref(),
+        Some("new-split")
     );
 }
 

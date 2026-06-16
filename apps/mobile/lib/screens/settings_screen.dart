@@ -771,7 +771,7 @@ String _fontSizeValueLabel(
   double value,
   double standard,
 ) {
-  if (value <= 10) return prefs.t('settings.fontSmall');
+  if (value <= 12) return prefs.t('settings.fontSmall');
   if (value < standard) return prefs.t('settings.fontSmaller');
   if (value >= 18) return prefs.t('settings.fontExtraLarge');
   if (value > standard) return prefs.t('settings.fontLarge');

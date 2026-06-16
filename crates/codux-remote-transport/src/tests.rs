@@ -81,6 +81,36 @@ fn controller_config_prefers_iroh_candidate() {
     );
 }
 
+#[test]
+fn host_secret_key_keeps_iroh_endpoint_id_stable() {
+    let config = RemoteHostTransportConfig {
+        host_id: "host-1".to_string(),
+        host_token: "host-token-1".to_string(),
+        ..Default::default()
+    };
+    let first = crate::iroh_link::host_secret_key(&config)
+        .expect("host secret")
+        .public()
+        .to_string();
+    let second = crate::iroh_link::host_secret_key(&config)
+        .expect("host secret")
+        .public()
+        .to_string();
+
+    assert_eq!(first, second);
+
+    let changed = crate::iroh_link::host_secret_key(&RemoteHostTransportConfig {
+        host_id: "host-1".to_string(),
+        host_token: "host-token-2".to_string(),
+        ..Default::default()
+    })
+    .expect("changed host secret")
+    .public()
+    .to_string();
+
+    assert_ne!(first, changed);
+}
+
 #[tokio::test]
 async fn local_memory_transport_broadcasts_and_targets_messages() {
     let hub = LocalMemoryTransportHub::new();

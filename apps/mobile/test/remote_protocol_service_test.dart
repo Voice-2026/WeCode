@@ -29,15 +29,11 @@ void main() {
     'embedded iroh ticket pairing payload parses without relay ticket fetch',
     () async {
       final qr = embeddedPairingQr({
-        'protocolVersion': remoteProtocolVersion,
         'code': '205503D6',
         'secret': 'pairing-secret',
         'pairingId': 'pair-1',
-        'hostId': 'host-1',
-        'hostName': 'Mac',
         'transports': [
           irohCandidate(
-            url: 'https://relay.example',
             ticket: 'endpointabc',
             relayAuthentication: 'relay-token',
           ),
@@ -46,9 +42,13 @@ void main() {
 
       final payload = await parsePairingPayload(qr);
       final transport = payload.transportByKind(RemoteTransportKind.iroh);
-      expect(payload.server, 'https://relay.example');
+      expect(payload.server, '');
+      expect(payload.hostId, isNull);
+      expect(payload.hostName, isNull);
       expect(transport?.ticket, 'endpointabc');
       expect(transport?.relayAuthentication, 'relay-token');
+      expect(transport?.nodeId, isEmpty);
+      expect(transport?.relayUrl, isEmpty);
     },
   );
 
@@ -56,13 +56,10 @@ void main() {
     'embedded iroh token payload and confirmation use transport candidates',
     () async {
       final qr = embeddedPairingQr({
-        'protocolVersion': remoteProtocolVersion,
         'code': '205503D6',
         'secret': 'pairing-secret',
         'pairingId': 'pair-1',
-        'hostId': 'host-1',
-        'hostName': 'Mac',
-        'transports': [irohCandidate(url: 'https://relay.example')],
+        'transports': [irohCandidate(ticket: 'endpoint-ticket')],
       });
 
       final payload = await parsePairingPayload(qr);
@@ -70,15 +67,11 @@ void main() {
         remotePreferredTransportKind(payload.transports, pairing: true),
         RemoteTransportKind.iroh,
       );
-      expect(payload.hostId, 'host-1');
+      expect(payload.hostId, isNull);
       expect(payload.pairingId, 'pair-1');
       expect(
-        payload.transportByKind(RemoteTransportKind.iroh)?.url,
-        'https://relay.example',
-      );
-      expect(
-        payload.transportByKind(RemoteTransportKind.iroh)?.nodeId,
-        'node-1',
+        payload.transportByKind(RemoteTransportKind.iroh)?.ticket,
+        'endpoint-ticket',
       );
 
       final request = pairingRequestEnvelope(payload, 'Phone');
@@ -90,13 +83,14 @@ void main() {
       final confirmed = confirmedDevice(
         payload: payload,
         name: 'Phone',
-        confirmed: const RelayEnvelope(
+        confirmed: RelayEnvelope(
           type: 'pairing.confirmed',
           payload: {
             'hostId': 'host-1',
             'deviceId': 'device-1',
             'token': '',
             'hostName': 'Mac',
+            'transports': [irohCandidate(url: 'https://relay.example')],
           },
         ),
       );
@@ -114,33 +108,28 @@ void main() {
 
   test('pasted bare token parses like a scanned qr payload', () async {
     final manual = embeddedPairingToken({
-      'protocolVersion': remoteProtocolVersion,
       'code': '123456',
       'secret': 'pairing-secret',
       'pairingId': 'pair-1',
-      'hostId': 'host-1',
-      'hostName': 'Mac',
-      'transports': [irohCandidate(url: 'https://relay.example')],
+      'transports': [irohCandidate(ticket: 'endpoint-ticket')],
     });
 
     final payload = await parsePairingPayload(manual);
-    expect(payload.server, 'https://relay.example');
+    expect(payload.server, '');
     expect(payload.code, '123456');
-    expect(payload.hostId, 'host-1');
+    expect(payload.hostId, isNull);
     expect(payload.pairingId, 'pair-1');
     expect(
-      payload.transportByKind(RemoteTransportKind.iroh)?.url,
-      'https://relay.example',
+      payload.transportByKind(RemoteTransportKind.iroh)?.ticket,
+      'endpoint-ticket',
     );
   });
 
   test('pairing payload rejects missing iroh transport', () async {
     final qr = embeddedPairingQr({
-      'protocolVersion': remoteProtocolVersion,
       'code': '205503D6',
       'secret': 'pairing-secret',
       'pairingId': 'pair-1',
-      'hostId': 'host-1',
       'transports': const [],
     });
 
@@ -148,10 +137,7 @@ void main() {
   });
 
   test('pairing payload reports missing required fields', () async {
-    final qr = embeddedPairingQr({
-      'protocolVersion': remoteProtocolVersion,
-      'code': '205503D6',
-    });
+    final qr = embeddedPairingQr({'code': '205503D6'});
 
     expect(
       () => parsePairingPayload(qr),
@@ -163,7 +149,6 @@ void main() {
               'message',
               contains('pairingId'),
             )
-            .having((error) => error.toString(), 'message', contains('hostId'))
             .having(
               (error) => error.toString(),
               'message',
@@ -176,12 +161,10 @@ void main() {
   test('confirmation rejects incomplete device credentials', () async {
     final payload = await parsePairingPayload(
       embeddedPairingQr({
-        'protocolVersion': remoteProtocolVersion,
         'code': '205503D6',
         'secret': 'pairing-secret',
         'pairingId': 'pair-1',
-        'hostId': 'host-1',
-        'transports': [irohCandidate(url: 'https://relay.example')],
+        'transports': [irohCandidate(ticket: 'endpoint-ticket')],
       }),
     );
     expect(
@@ -203,25 +186,19 @@ void main() {
     );
   });
 
-  test('pairing payload requires host id for iroh ticket pairing', () async {
+  test('pairing payload accepts iroh ticket without host id', () async {
     final qr = embeddedPairingQr({
-      'protocolVersion': remoteProtocolVersion,
       'code': '205503D6',
       'secret': 'pairing-secret',
       'pairingId': 'pair-1',
-      'hostName': 'Mac',
-      'transports': [irohCandidate(url: 'https://relay.example')],
+      'transports': [irohCandidate(ticket: 'endpoint-ticket')],
     });
 
+    final payload = await parsePairingPayload(qr);
+    expect(payload.hostId, isNull);
     expect(
-      () => parsePairingPayload(qr),
-      throwsA(
-        isA<Exception>().having(
-          (error) => error.toString(),
-          'message',
-          contains('hostId'),
-        ),
-      ),
+      payload.transportByKind(RemoteTransportKind.iroh)?.ticket,
+      'endpoint-ticket',
     );
   });
 
@@ -229,25 +206,55 @@ void main() {
     'embedded payload keeps its iroh candidate url as connection authority',
     () async {
       final qr = embeddedPairingQr({
-        'protocolVersion': remoteProtocolVersion,
         'code': '205503D6',
         'secret': 'pairing-secret',
         'pairingId': 'pair-1',
-        'hostId': 'host-1',
-        'hostName': 'Mac',
-        'transports': [irohCandidate(url: 'https://stale-relay.example')],
+        'transports': [irohCandidate(ticket: 'endpoint-ticket')],
       });
 
       final payload = await parsePairingPayload(qr);
 
-      expect(payload.server, 'https://stale-relay.example');
+      expect(payload.server, '');
       expect(
-        payload.transportByKind(RemoteTransportKind.iroh)?.url,
-        'https://stale-relay.example',
+        payload.transportByKind(RemoteTransportKind.iroh)?.ticket,
+        'endpoint-ticket',
       );
+
+      final confirmed = confirmedDevice(
+        payload: payload,
+        name: 'Phone',
+        confirmed: RelayEnvelope(
+          type: 'pairing.confirmed',
+          payload: {
+            'hostId': 'host-1',
+            'deviceId': 'device-1',
+            'token': '',
+            'hostName': 'Mac',
+            'transports': [
+              irohCandidate(url: 'https://confirmed-relay.example'),
+            ],
+          },
+        ),
+      );
+
+      expect(confirmed.server, 'https://confirmed-relay.example');
       expect(
-        payload.transportByKind(RemoteTransportKind.iroh)?.relayUrl,
-        'https://relay.example',
+        confirmed.transportByKind(RemoteTransportKind.iroh)?.url,
+        'https://confirmed-relay.example',
+      );
+    },
+  );
+
+  test(
+    'confirmed device strips ephemeral iroh ticket before persistence',
+    () async {
+      final payload = await parsePairingPayload(
+        embeddedPairingQr({
+          'code': '205503D6',
+          'secret': 'pairing-secret',
+          'pairingId': 'pair-1',
+          'transports': [irohCandidate(ticket: 'endpoint-ticket')],
+        }),
       );
 
       final confirmed = confirmedDevice(
@@ -259,35 +266,39 @@ void main() {
             'hostId': 'host-1',
             'deviceId': 'device-1',
             'token': '',
-            'hostName': 'Mac',
+            'transports': [
+              {
+                'kind': RemoteTransportKind.iroh,
+                'url': 'https://relay.example',
+                'nodeId': 'node-1',
+                'relayUrl': 'https://relay.example',
+              },
+            ],
           },
         ),
       );
 
-      expect(confirmed.server, 'https://stale-relay.example');
-      expect(
-        confirmed.transportByKind(RemoteTransportKind.iroh)?.url,
-        'https://stale-relay.example',
-      );
+      expect(confirmed.transports.single.ticket, isEmpty);
+      expect(confirmed.toJson()['transports'], [
+        irohCandidate(url: 'https://relay.example'),
+      ]);
     },
   );
 }
 
 Map<String, dynamic> irohCandidate({
-  required String url,
+  String url = '',
   String ticket = '',
   String relayAuthentication = '',
-}) =>
-    {
-      'kind': RemoteTransportKind.iroh,
-      'role': 'host',
-      'url': url,
-      'nodeId': 'node-1',
-      'relayUrl': 'https://relay.example',
-      if (ticket.isNotEmpty) 'ticket': ticket,
-      if (relayAuthentication.isNotEmpty)
-        'relayAuthentication': relayAuthentication,
-    };
+}) => {
+  'kind': RemoteTransportKind.iroh,
+  if (url.isNotEmpty) 'url': url,
+  if (url.isNotEmpty) 'nodeId': 'node-1',
+  if (url.isNotEmpty) 'relayUrl': 'https://relay.example',
+  if (ticket.isNotEmpty) 'ticket': ticket,
+  if (relayAuthentication.isNotEmpty)
+    'relayAuthentication': relayAuthentication,
+};
 
 String embeddedPairingQr(Map<String, dynamic> payload) {
   final encoded = base64Url.encode(utf8.encode(jsonEncode(payload)));

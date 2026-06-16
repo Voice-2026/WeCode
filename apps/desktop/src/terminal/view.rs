@@ -247,11 +247,6 @@ impl TerminalView {
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        // Typing into this pane is explicit intent to use it here: take the
-        // viewport back from a remote owner (mobile handoff) immediately.
-        if !self.session.local_viewport_owns() {
-            let _ = self.session.claim_local_viewport_active();
-        }
         if is_copy_keystroke(&event.keystroke) {
             if let Some(text) = self.selected_text(cx) {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -305,7 +300,6 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus_handle, cx);
-        let _ = self.session.claim_local_viewport_active();
         let point = self.layout.lock().cell_at(event.position);
         let model_point = self.layout.lock().model_cell_at(event.position);
         if event.button == MouseButton::Left
@@ -390,7 +384,11 @@ impl TerminalView {
                 return;
             }
             if selection_dragging {
-                let point = self.layout.lock().model_cell_at(event.position).unwrap_or(point);
+                let point = self
+                    .layout
+                    .lock()
+                    .model_cell_at(event.position)
+                    .unwrap_or(point);
                 let selection_point = self.selection_point_from_cell(point, cx);
                 self.selection.lock().finish(selection_point);
                 self.model
@@ -483,7 +481,8 @@ impl TerminalView {
         if lines != 0 {
             self.scroll_input.pending_pixels -= lines as f32 * 20.0;
             let point = self.layout.lock().cell_at(event.position);
-            if let Some(point) = point.filter(|_| self.should_report_mouse(event.modifiers.shift, cx))
+            if let Some(point) =
+                point.filter(|_| self.should_report_mouse(event.modifiers.shift, cx))
             {
                 let button = if lines > 0 {
                     MouseButton::Navigate(NavigationDirection::Back)
@@ -568,16 +567,26 @@ impl TerminalView {
             return None;
         }
 
-        let did_scroll = self
+        let queued_scroll = self
             .model
             .update(cx, |model, _| model.scroll_display(lines));
-        if did_scroll
+        if queued_scroll
             && let Some(autoscroll) = self.selection_autoscroll
             && self.selection.lock().dragging
         {
-            let point = self.selection_point_from_cell(autoscroll.edge_cell, cx);
+            let (did_scroll, content) = self
+                .model
+                .update(cx, |model, _| model.apply_pending_scroll_for_selection());
+            if !did_scroll {
+                return Some(ScrollFlushResult {
+                    did_scroll: false,
+                    next_lines: None,
+                });
+            }
+            let point = selection_point_from_cell(autoscroll.edge_cell, &content);
             let _ = self.selection.lock().update(point);
-            self.model.update(cx, |model, _| model.update_selection(point));
+            self.model
+                .update(cx, |model, _| model.update_selection(point));
             return Some(ScrollFlushResult {
                 did_scroll,
                 next_lines: Some(autoscroll.lines),
@@ -585,7 +594,7 @@ impl TerminalView {
         }
 
         Some(ScrollFlushResult {
-            did_scroll,
+            did_scroll: queued_scroll,
             next_lines: None,
         })
     }
@@ -633,7 +642,6 @@ impl TerminalView {
     }
 
     fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        let _ = self.session.claim_local_viewport_active();
         self.blink_manager
             .update(cx, TerminalBlinkManager::pause_blinking);
         self.clear_pending_view_scroll();
@@ -678,7 +686,8 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let mode = self.model.read(cx).mode();
-        let Some(sequence) = terminal_mouse_ui_event_bytes(button, point, kind, modifiers, mode) else {
+        let Some(sequence) = terminal_mouse_ui_event_bytes(button, point, kind, modifiers, mode)
+        else {
             return;
         };
         self.write_bytes(&sequence, cx);
@@ -721,10 +730,7 @@ impl TerminalView {
         cx: &App,
     ) -> TerminalSelectionPoint {
         let content = self.model.read(cx).snapshot();
-        TerminalSelectionPoint {
-            line: content.line_for_display_row(point.row),
-            col: point.col,
-        }
+        selection_point_from_cell(point, &content)
     }
 
     fn set_marked_text(&mut self, text: String, cx: &mut Context<Self>) {

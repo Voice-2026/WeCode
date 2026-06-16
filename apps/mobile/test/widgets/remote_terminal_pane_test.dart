@@ -1,7 +1,7 @@
 import 'package:codux_flutter/i18n.dart';
+import 'package:codux_flutter/services/native_terminal_replay_controller.dart';
 import 'package:codux_flutter/theme/app_theme.dart';
 import 'package:codux_flutter/widgets/remote_terminal_pane.dart';
-import 'package:codux_flutter/widgets/terminal_screen_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,7 +22,9 @@ void main() {
     await tester.pump();
 
     final paneTop = tester.getTopLeft(find.byType(RemoteTerminalPane)).dy;
-    final terminalTop = tester.getTopLeft(find.byType(TerminalScreenView)).dy;
+    final terminalTop = tester
+        .getTopLeft(find.byKey(const ValueKey('remote-terminal-body')))
+        .dy;
 
     expect(terminalTop, paneTop);
   });
@@ -44,18 +46,15 @@ RemoteTerminalPane _pane() {
     pendingBufferSessionId: null,
     connectionStatusText: 'connecting',
     terminalHistoryLoadingText: 'loading',
-    keyboardRequested: false,
     keyboardVisible: false,
-    terminalCursorBottom: 0,
-    terminalScreen: null,
+    keyboardRequested: false,
+    keyboardRequestSerial: 0,
+    terminalReplay: NativeTerminalReplay.empty(sessionId: 'session-1'),
     terminalFontSize: 16,
     onConnect: () {},
     onInput: (_) {},
     onResize: (_, _) {},
-    onScrollPixels: (_, _) {},
-    onSettleScroll: () {},
-    onScrollToBottom: () {},
-    onMetricsCursorBottom: (_) {},
+    onSelectionChanged: (_) {},
     onSendKey: (_) {},
     onToggleKeyboard: () {},
     onPaste: () {},

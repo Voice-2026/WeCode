@@ -152,7 +152,10 @@ pub(crate) fn controller_transport_config_from_json(
                         .to_string(),
                 })
                 .filter(|candidate| {
-                    !candidate.kind.trim().is_empty() && !candidate.url.trim().is_empty()
+                    !candidate.kind.trim().is_empty()
+                        && (!candidate.ticket.trim().is_empty()
+                            || (!candidate.node_id.trim().is_empty()
+                                && !candidate.relay_url.trim().is_empty()))
                 })
                 .collect::<Vec<_>>()
         })

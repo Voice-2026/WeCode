@@ -78,7 +78,7 @@ impl InputHandler for TerminalInputHandler {
             .update(cx, |model, cx| model.prepare_input_viewport(cx));
         let _ = self.terminal_view.update(cx, |view, cx| {
             view.clear_pending_view_scroll();
-            view.set_marked_text(new_text.to_string(), cx)
+            view.set_marked_text(terminal_input_marked_text(new_text), cx)
         });
         window.invalidate_character_coordinates();
     }
@@ -120,6 +120,28 @@ impl InputHandler for TerminalInputHandler {
     fn prefers_ime_for_printable_keys(&mut self, _window: &mut Window, _cx: &mut App) -> bool {
         true
     }
+}
+
+fn terminal_input_marked_text(text: &str) -> String {
+    if terminal_marked_text_looks_like_escape_sequence(text) {
+        return String::new();
+    }
+    text.chars()
+        .filter(|ch| {
+            !ch.is_control()
+                && !('\u{F700}'..='\u{F8FF}').contains(ch)
+                && !('\u{2400}'..='\u{2426}').contains(ch)
+        })
+        .collect()
+}
+
+fn terminal_marked_text_looks_like_escape_sequence(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with('\u{1b}')
+        || trimmed.starts_with("^[")
+        || trimmed.starts_with("␛")
+        || trimmed.starts_with("\\e")
+        || trimmed.starts_with("\\x1b")
 }
 
 fn ime_bounds_for_range(

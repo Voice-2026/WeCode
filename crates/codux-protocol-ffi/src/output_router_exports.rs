@@ -167,6 +167,20 @@ pub extern "C" fn codux_output_router_content(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn codux_output_router_native_render_content(
+    router: *const FfiOutputRouter,
+    session_id: *const c_char,
+) -> *mut c_char {
+    let (Some(router), Some(session_id)) = (router_ref(router), c_to_string(session_id)) else {
+        return ptr::null_mut();
+    };
+    match router.native_render_content(&session_id) {
+        Some(content) => string_to_c(content),
+        None => ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn codux_output_router_has_cached_output(
     router: *const FfiOutputRouter,
     session_id: *const c_char,

@@ -56,7 +56,7 @@ use codux_terminal_core::{
     RemoteSequenceGuard, TerminalDriver, TerminalSequence, TerminalSessionHandle,
     runtime_scope_parts,
 };
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs,
@@ -1076,6 +1076,32 @@ impl RemoteHostRuntime {
         if let Ok(mut active) = self.active_pairing.lock() {
             *active = None;
         }
+        let transports = self
+            .transport_candidates_snapshot()
+            .into_iter()
+            .map(|transport| {
+                let mut item = Map::new();
+                item.insert("kind".to_string(), json!(transport.kind));
+                if let Some(url) = transport.url.filter(|value| !value.trim().is_empty()) {
+                    item.insert("url".to_string(), json!(url));
+                }
+                if let Some(node_id) = transport.node_id.filter(|value| !value.trim().is_empty()) {
+                    item.insert("nodeId".to_string(), json!(node_id));
+                }
+                if let Some(relay_url) =
+                    transport.relay_url.filter(|value| !value.trim().is_empty())
+                {
+                    item.insert("relayUrl".to_string(), json!(relay_url));
+                }
+                if let Some(authentication) = transport
+                    .relay_authentication
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    item.insert("relayAuthentication".to_string(), json!(authentication));
+                }
+                Value::Object(item)
+            })
+            .collect::<Vec<_>>();
         self.send_plain(
             REMOTE_PAIRING_CONFIRMED,
             Some(&device_id),
@@ -1085,6 +1111,7 @@ impl RemoteHostRuntime {
                 "deviceId": device_id,
                 "token": "",
                 "hostName": remote_host_name(),
+                "transports": transports,
             }),
         );
         let mut summary = self.service().summary();
@@ -1339,6 +1366,7 @@ impl RemoteHostRuntime {
             Ok(RemoteTerminalSubscriptionTarget::Session { session_id }) => {
                 self.register_terminal_viewer(&session_id, Some(device_id));
                 self.send_terminal_viewport_state(&session_id, Some(device_id));
+                self.send_terminal_viewport_keyframe(&session_id, Some(device_id));
                 if RemoteTerminalSubscriptionTarget::baseline_requested(&envelope.payload) {
                     self.send_terminal_baseline(&session_id, Some(device_id), envelope);
                 }
@@ -1391,6 +1419,7 @@ impl RemoteHostRuntime {
                 } else if let Some(session_id) = change.session_id.as_deref() {
                     self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
                     self.send_terminal_viewport_state(session_id, envelope.device_id.as_deref());
+                    self.send_terminal_viewport_keyframe(session_id, envelope.device_id.as_deref());
                     if change.baseline {
                         self.send_terminal_baseline(
                             session_id,
@@ -2002,11 +2031,14 @@ impl RemoteHostRuntime {
             .terminals
             .resize_viewport(session_id, &owner, cols, rows)
         {
-            Ok(Some(state)) => self.send_terminal_viewport_state_payload(
-                session_id,
-                envelope.device_id.as_deref(),
-                &state,
-            ),
+            Ok(Some(state)) => {
+                self.send_terminal_viewport_state_payload(
+                    session_id,
+                    envelope.device_id.as_deref(),
+                    &state,
+                );
+                self.send_terminal_viewport_keyframe(session_id, envelope.device_id.as_deref());
+            }
             Ok(None) => {
                 self.send_terminal_viewport_state(session_id, envelope.device_id.as_deref())
             }
@@ -2017,6 +2049,27 @@ impl RemoteHostRuntime {
                 json!({ "message": error.to_string() }),
             ),
         }
+    }
+
+    fn send_terminal_viewport_keyframe(&self, session_id: &str, device_id: Option<&str>) {
+        let Some(screen_data) = self
+            .terminals
+            .screen_snapshot(session_id)
+            .ok()
+            .map(|snapshot| snapshot.data)
+            .filter(|data| !data.is_empty())
+        else {
+            return;
+        };
+        let buffer_length = self.terminals.buffer_characters(session_id).unwrap_or(0);
+        let output_seq = self.next_terminal_output_seq(session_id);
+        let payload = terminal_live_output_payload(
+            String::new(),
+            buffer_length,
+            output_seq,
+            Some(screen_data),
+        );
+        self.send_terminal_data(REMOTE_TERMINAL_OUTPUT, device_id, Some(session_id), payload);
     }
 
     fn remote_viewport_owner(&self, envelope: &RemoteEnvelope) -> String {
@@ -4857,6 +4910,86 @@ mod tests {
     }
 
     #[test]
+    fn terminal_resource_subscription_sends_full_raw_baseline() {
+        let support_dir = temp_support_dir("codux-remote-resource-terminal-full-baseline");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf abcdef".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    project_id: Some("project-a".to_string()),
+                    terminal_id: Some("terminal-a".to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        TerminalLayoutService::new(support_dir.clone())
+            .save_from_gpui(
+                &terminal_layout_storage_key("project-a", "project-a"),
+                Vec::new(),
+                session_id.clone(),
+                vec![TerminalPaneSummary {
+                    title: "Main".to_string(),
+                    terminal_id: session_id.clone(),
+                }],
+                vec![1.0],
+                0.24,
+            )
+            .expect("save layout");
+
+        let mut baseline = None;
+        for _ in 0..20 {
+            runtime.handle_resource_subscribe(&RemoteEnvelope {
+                kind: REMOTE_RESOURCE_SUBSCRIBE.to_string(),
+                device_id: Some("phone-a".to_string()),
+                session_id: None,
+                seq: None,
+                payload: json!({
+                    "resource": REMOTE_RESOURCE_TERMINALS,
+                    "projectId": "project-a",
+                    "baseline": true,
+                    "maxChars": 3,
+                    "requestId": "request-1",
+                }),
+            });
+            for (_, data) in transport.take_messages() {
+                let value: Value = serde_json::from_slice(&data).expect("json");
+                if value.get("type").and_then(Value::as_str) == Some(REMOTE_TERMINAL_OUTPUT)
+                    && value.get("sessionId").and_then(Value::as_str) == Some(&session_id)
+                {
+                    baseline = value.get("payload").cloned();
+                    break;
+                }
+            }
+            if baseline.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let baseline = baseline.expect("terminal baseline");
+        assert_eq!(baseline["data"], "abc");
+        assert_eq!(baseline["offset"], 0);
+        assert_eq!(baseline["tail"], false);
+        assert_eq!(baseline["hasPrevious"], false);
+        assert_eq!(baseline["truncated"], true);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     fn project_list_broadcast_preserves_per_device_project_scope() {
         let support_dir = temp_support_dir("codux-remote-project-list-subscriptions");
         write_two_project_state(&support_dir);
@@ -5645,6 +5778,97 @@ mod tests {
     }
 
     #[test]
+    fn terminal_resource_subscribe_baseline_includes_tail_screen_keyframe() {
+        let support_dir = temp_support_dir("codux-resource-subscribe-terminal-screen-baseline");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf 'old line\\n\\033[2J\\033[Hvisible tui'".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        for _ in 0..20 {
+            if terminals
+                .screen_snapshot(&session_id)
+                .map(|snapshot| snapshot.data.contains("visible tui"))
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        runtime.handle_resource_subscribe(&RemoteEnvelope {
+            kind: REMOTE_RESOURCE_SUBSCRIBE.to_string(),
+            device_id: Some("phone-a".to_string()),
+            session_id: None,
+            seq: None,
+            payload: json!({
+                "resource": REMOTE_RESOURCE_TERMINALS,
+                "sessionId": session_id,
+                "baseline": true,
+                "maxChars": 16,
+                "requestId": "request-1",
+            }),
+        });
+
+        let mut baseline = None;
+        for (_, data) in transport.take_messages() {
+            let text = String::from_utf8(data).expect("utf8 transport");
+            let envelope = runtime
+                .service()
+                .parse_incoming_envelope(&text)
+                .expect("parse outgoing envelope");
+            if envelope.kind == REMOTE_TERMINAL_OUTPUT
+                && envelope.payload.get("buffer").and_then(Value::as_bool) == Some(true)
+            {
+                baseline = Some(envelope.payload);
+                break;
+            }
+        }
+        let baseline = baseline.expect("terminal baseline");
+
+        assert_eq!(baseline["requestId"], "request-1");
+        assert_eq!(baseline["tail"], true);
+        assert!(
+            baseline["data"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("visible tui")
+        );
+        assert!(
+            baseline["screenData"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("visible tui")
+        );
+        assert!(
+            !baseline["screenData"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("old line")
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
     fn remote_terminal_live_output_includes_headless_screen_keyframe() {
         let support_dir = temp_support_dir("codux-remote-terminal-live-screen-keyframe");
         write_paired_remote_settings(&support_dir);
@@ -5882,6 +6106,181 @@ mod tests {
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
         assert_eq!(state.rows, 18);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_viewport_resize_pushes_screen_keyframe() {
+        let support_dir = temp_support_dir("codux-remote-terminal-viewport-keyframe");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        for _ in 0..20 {
+            if terminals
+                .screen_snapshot(&session_id)
+                .map(|snapshot| snapshot.data.contains("ready"))
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        transport.take_messages();
+        runtime.handle_terminal_viewport_claim(&RemoteEnvelope {
+            kind: "terminal.viewport.claim".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({}),
+        });
+        transport.take_messages();
+        runtime.handle_terminal_viewport_resize(&RemoteEnvelope {
+            kind: "terminal.viewport.resize".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({
+                "cols": 72,
+                "rows": 18,
+            }),
+        });
+
+        let mut saw_state = false;
+        let mut keyframe = None;
+        for (device_id, data) in transport.take_messages() {
+            let text = String::from_utf8(data).expect("utf8 transport");
+            let envelope = runtime
+                .service()
+                .parse_incoming_envelope(&text)
+                .expect("parse outgoing envelope");
+            match envelope.kind.as_str() {
+                REMOTE_TERMINAL_VIEWPORT_STATE
+                    if device_id.as_deref() == Some("device-1")
+                        && envelope.session_id.as_deref() == Some(&session_id) =>
+                {
+                    saw_state = true
+                }
+                REMOTE_TERMINAL_OUTPUT => {
+                    if device_id.as_deref() == Some("device-1")
+                        && envelope.session_id.as_deref() == Some(&session_id)
+                    {
+                        keyframe = Some(envelope.payload);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert!(saw_state);
+        let keyframe = keyframe.expect("viewport keyframe");
+        assert_eq!(keyframe["data"], "");
+        assert_eq!(keyframe["bufferLength"], 5);
+        assert_eq!(keyframe["outputSeq"], 1);
+        assert!(
+            keyframe["screenData"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("ready")
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn terminal_subscribe_pushes_screen_keyframe() {
+        let support_dir = temp_support_dir("codux-remote-terminal-subscribe-keyframe");
+        write_paired_remote_settings(&support_dir);
+        let terminals = Arc::new(TerminalManager::new());
+        let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
+            support_dir.clone(),
+            Default::default(),
+            Arc::clone(&terminals),
+        ));
+        let transport = Arc::new(CapturingTransport::default());
+        if let Ok(mut current) = runtime.transport.lock() {
+            *current = Some(transport.clone());
+        }
+        let session_id = terminals
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(support_dir.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+
+        for _ in 0..20 {
+            if terminals
+                .screen_snapshot(&session_id)
+                .map(|snapshot| snapshot.data.contains("ready"))
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        transport.take_messages();
+        runtime.handle_terminal_subscribe(&RemoteEnvelope {
+            kind: "terminal.subscribe".to_string(),
+            device_id: Some("device-1".to_string()),
+            session_id: Some(session_id.clone()),
+            seq: None,
+            payload: json!({}),
+        });
+
+        let mut keyframe = None;
+        for (device_id, data) in transport.take_messages() {
+            let text = String::from_utf8(data).expect("utf8 transport");
+            let envelope = runtime
+                .service()
+                .parse_incoming_envelope(&text)
+                .expect("parse outgoing envelope");
+            if device_id.as_deref() == Some("device-1")
+                && envelope.kind == "terminal.output"
+                && envelope.session_id.as_deref() == Some(&session_id)
+            {
+                keyframe = Some(envelope.payload);
+                break;
+            }
+        }
+        let keyframe = keyframe.expect("subscribe keyframe");
+        assert_eq!(keyframe["data"], "");
+        assert!(
+            keyframe["screenData"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("ready")
+        );
 
         fs::remove_dir_all(support_dir).ok();
     }

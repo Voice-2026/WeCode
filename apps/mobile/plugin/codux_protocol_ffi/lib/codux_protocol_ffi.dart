@@ -134,6 +134,9 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
         Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)
       >
     >('codux_remote_runtime_model_terminal_scope_for_session_json');
+    library.lookup<NativeFunction<Void Function(Pointer<Void>, Pointer<Utf8>)>>(
+      'codux_remote_runtime_model_begin_terminal_create_json',
+    );
     return true;
   } catch (_) {
     return false;
@@ -429,11 +432,11 @@ final _remoteRuntimeModelApplyGitStatusJson = _dylib
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_remote_runtime_model_apply_git_status_json');
-final _remoteRuntimeModelSetTerminalCreatingProject = _dylib
+final _remoteRuntimeModelBeginTerminalCreateJson = _dylib
     .lookupFunction<
       Void Function(Pointer<Void>, Pointer<Utf8>),
       void Function(Pointer<Void>, Pointer<Utf8>)
-    >('codux_remote_runtime_model_set_terminal_creating_project');
+    >('codux_remote_runtime_model_begin_terminal_create_json');
 final _remoteRuntimeModelTerminalCreatedJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
@@ -676,7 +679,6 @@ String terminalInsertInput(String text) {
     malloc.free(textPtr);
   }
 }
-
 
 String terminalKeyInput({
   required String key,
@@ -1368,12 +1370,12 @@ class RemoteRuntimeCore {
     }
   }
 
-  void setTerminalCreatingProject(String? projectId) {
-    final projectPtr = (projectId ?? '').toNativeUtf8();
+  void beginTerminalCreate(Map<String, dynamic> request) {
+    final requestPtr = jsonEncode(request).toNativeUtf8();
     try {
-      _remoteRuntimeModelSetTerminalCreatingProject(_liveHandle(), projectPtr);
+      _remoteRuntimeModelBeginTerminalCreateJson(_liveHandle(), requestPtr);
     } finally {
-      malloc.free(projectPtr);
+      malloc.free(requestPtr);
     }
   }
 
@@ -1602,6 +1604,11 @@ final _outputRouterContent = _dylib
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_output_router_content');
+final _outputRouterNativeRenderContent = _dylib
+    .lookupFunction<
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
+      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
+    >('codux_output_router_native_render_content');
 final _outputRouterHasCachedOutput = _dylib
     .lookupFunction<
       Bool Function(Pointer<Void>, Pointer<Utf8>),
@@ -1807,6 +1814,12 @@ class RemoteOutputRouter {
   String? content(String sessionId) => _withSession(
     sessionId,
     (ptr) => _takeStringOrNull(_outputRouterContent(_liveHandle(), ptr)),
+  );
+
+  String? nativeRenderContent(String sessionId) => _withSession(
+    sessionId,
+    (ptr) =>
+        _takeStringOrNull(_outputRouterNativeRenderContent(_liveHandle(), ptr)),
   );
 
   bool hasCachedOutput(String sessionId) => _withSession(
