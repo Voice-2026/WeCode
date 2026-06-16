@@ -177,10 +177,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(
-      find.textContaining('https://iroh-service.dux.plus'),
-      findsOneWidget,
-    );
+    expect(find.text('China (Tencent Cloud)'), findsOneWidget);
+    expect(find.textContaining('https://iroh-service.dux.plus'), findsNothing);
     expect(find.text('Codux'), findsOneWidget);
   });
 

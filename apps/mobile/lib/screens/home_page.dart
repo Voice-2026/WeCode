@@ -373,7 +373,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     final cleanedEndpoint = _cleanTransportEndpoint(endpoint);
     final cleanedRelayUrl = _cleanTransportEndpoint(relayUrl);
     if (path == 'relay' && cleanedRelayUrl.isNotEmpty) {
-      return cleanedRelayUrl;
+      return _relayEndpointDisplayName(cleanedRelayUrl);
     }
     if (cleanedEndpoint.isNotEmpty) return cleanedEndpoint;
     final nodeId = _savedDeviceNodeId(device);
@@ -381,8 +381,23 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       return nodeId;
     }
     final savedRelay = _savedDeviceRelayEndpoint(device);
-    if (savedRelay.isNotEmpty) return savedRelay;
+    if (savedRelay.isNotEmpty) return _relayEndpointDisplayName(savedRelay);
     return _t('device.globalNetwork');
+  }
+
+  String _relayEndpointDisplayName(String value) {
+    final endpoint = _cleanTransportEndpoint(value);
+    if (endpoint.isEmpty) return '';
+    final normalized = endpoint.replaceFirst(RegExp(r'/+$'), '');
+    for (final preset in remoteTransportRelayPresets()) {
+      final url = '${preset['url'] ?? ''}'.trim();
+      if (url.isEmpty) continue;
+      if (url.replaceFirst(RegExp(r'/+$'), '') == normalized) {
+        final name = '${preset['name'] ?? ''}'.trim();
+        if (name.isNotEmpty) return name;
+      }
+    }
+    return endpoint;
   }
 
   String _savedDeviceRelayEndpoint(StoredDevice device) {
