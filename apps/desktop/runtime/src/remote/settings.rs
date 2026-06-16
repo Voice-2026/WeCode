@@ -28,12 +28,8 @@ pub(crate) fn remote_settings_from_raw(raw: &Map<String, Value>) -> RemoteSettin
         .cloned()
         .and_then(|remote| serde_json::from_value::<RemoteSettings>(remote).ok())
         .unwrap_or_default();
-    settings.relay_preset = match settings.relay_preset.trim() {
-        "global" => "global".to_string(),
-        "china" => "china".to_string(),
-        "custom" => "custom".to_string(),
-        _ => super::relay::remote_relay_preset_for_url(&settings.relay_url),
-    };
+    settings.relay_preset =
+        super::relay::normalize_remote_relay_preset(&settings.relay_preset, &settings.relay_url);
     settings.relay_url =
         super::relay::remote_relay_url_for_preset(&settings.relay_preset, &settings.relay_url);
     settings

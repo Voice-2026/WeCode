@@ -58,7 +58,18 @@ void main() {
       codux_protocol_ffi.transportRelayUrlForPreset(preset: 'china'),
       'https://iroh-service.dux.plus',
     );
+    expect(
+      codux_protocol_ffi.transportRelayUrlForPreset(preset: 'china-aliyun'),
+      'https://aliyun-1.iroh.dux.plus',
+    );
     expect(codux_protocol_ffi.transportRelayUrlForPreset(preset: 'global'), '');
+    expect(
+      codux_protocol_ffi
+          .transportRelayPresets()
+          .map((preset) => preset['key'])
+          .toList(),
+      containsAll(['global', 'china-tencent', 'china-aliyun', 'custom']),
+    );
     final transports = [
       {
         'kind': RemoteTransportKind.iroh,

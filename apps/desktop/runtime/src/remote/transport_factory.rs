@@ -31,11 +31,15 @@ impl RemoteTransportFactory {
 }
 
 pub(crate) fn host_transport_config(settings: &RemoteSettings) -> RemoteHostTransportConfig {
+    let relay_preset = codux_remote_transport::normalize_remote_relay_preset(
+        &settings.relay_preset,
+        &settings.relay_url,
+    );
     RemoteHostTransportConfig {
         relay_url: settings.relay_url.clone(),
-        relay_preset: settings.relay_preset.clone(),
+        relay_preset: relay_preset.clone(),
         iroh_relay_url: codux_remote_transport::iroh_relay_url_for_preset(
-            &settings.relay_preset,
+            &relay_preset,
             &settings.relay_url,
         ),
         iroh_relay_authentication: settings.relay_authentication.clone(),

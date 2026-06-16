@@ -6,7 +6,7 @@ use crate::common::{
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportFactory,
     RemoteTransportUpload, preferred_controller_transport_kind, preferred_pairing_transport_kind,
-    remote_relay_url, remote_relay_url_for_preset,
+    remote_relay_presets_json, remote_relay_url, remote_relay_url_for_preset,
 };
 use serde_json::json;
 use std::collections::VecDeque;
@@ -34,6 +34,11 @@ pub extern "C" fn codux_transport_relay_url_for_preset(
     };
     let custom_url = c_to_string(custom_url).unwrap_or_default();
     string_to_c(remote_relay_url_for_preset(&preset, &custom_url))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn codux_transport_relay_presets_json() -> *mut c_char {
+    string_to_c(remote_relay_presets_json())
 }
 
 #[unsafe(no_mangle)]

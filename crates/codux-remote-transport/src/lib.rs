@@ -20,9 +20,10 @@ pub use local_memory::{LocalMemoryTransport, LocalMemoryTransportHub};
 
 pub use url_rules::{
     CHINA_IROH_RELAY_SERVER_URL, CHINA_RELAY_SERVER_URL, DEFAULT_RELAY_SERVER_URL,
-    GLOBAL_IROH_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, iroh_relay_preset_for_url,
-    iroh_relay_url_for_preset, preferred_controller_transport_kind,
-    preferred_pairing_transport_kind, remote_relay_preset_for_url, remote_relay_url,
+    GLOBAL_IROH_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, RemoteRelayPreset,
+    iroh_relay_preset_for_url, iroh_relay_url_for_preset, normalize_remote_relay_preset,
+    preferred_controller_transport_kind, preferred_pairing_transport_kind,
+    remote_relay_preset_for_url, remote_relay_presets, remote_relay_presets_json, remote_relay_url,
     remote_relay_url_for_preset, remote_url,
 };
 

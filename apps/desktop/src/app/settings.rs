@@ -2994,72 +2994,11 @@ fn settings_remote_pane(
                             _window,
                             cx,
                             language,
-                            |app, value, window, cx| {
-                                app.set_remote_relay_preset(value, window, cx)
-                            },
+                            |app, value, window, cx| app.set_remote_relay_preset(value, window, cx),
                         ),
                     )
                     .into_any_element(),
-                    if settings.remote_relay_preset == "custom" {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(8.0))
-                            .child(settings_row(
-                                settings_text(
-                                    language,
-                                    "settings.remote.relay_url",
-                                    "Custom Relay URL",
-                                ),
-                                Some(settings_text(
-                                    language,
-                                    "settings.remote.relay_url.help",
-                                    "Leave empty to use the public network. Pair again after changing it",
-                                )),
-                                settings_remote_relay_url_editor(
-                                    settings.remote_relay_url.as_str(),
-                                    _window,
-                                    cx,
-                                    language,
-                                ),
-                            ))
-                            .child(settings_row(
-                                settings_text(
-                                    language,
-                                    "settings.remote.relay_authentication",
-                                    "Relay Authentication",
-                                ),
-                                Some(settings_text(
-                                    language,
-                                    "settings.remote.relay_authentication.help",
-                                    "Optional Bearer token for custom Iroh relays. Pair again after changing it",
-                                )),
-                                settings_remote_relay_authentication_editor(
-                                    settings.remote_relay_authentication.as_str(),
-                                    _window,
-                                    cx,
-                                ),
-                            ))
-                            .into_any_element()
-                    } else {
-                        settings_row(
-                            settings_text(language, "settings.remote.relay_url", "Relay Server"),
-                            None,
-                            div()
-                                .w_full()
-                                .min_w_0()
-                                .text_align(gpui::TextAlign::Right)
-                                .text_size(rems(0.75))
-                                .line_height(rems(1.0))
-                                .text_color(color(theme::TEXT_DIM))
-                                .truncate()
-                                .child(remote_relay_display_url(
-                                    settings.remote_relay_preset.as_str(),
-                                ))
-                                .into_any_element(),
-                        )
-                        .into_any_element()
-                    },
+                    settings_remote_relay_custom_fields(settings, _window, cx, language),
                     div()
                         .py(px(10.0))
                         .flex()
@@ -4564,43 +4503,58 @@ fn runtime_tool_permission_options(language: &str) -> Vec<(String, SharedString)
 }
 
 fn remote_relay_preset_options(language: &str) -> Vec<(String, SharedString)> {
-    vec![
-        (
-            "global",
-            settings_text(
-                language,
-                "settings.remote.relay_preset.global",
-                "Global Public",
-            ),
-        ),
-        (
-            "china",
-            settings_text(
-                language,
-                "settings.remote.relay_preset.china",
-                "China Service",
-            ),
-        ),
-        (
-            "custom",
-            settings_text(
-                language,
-                "settings.remote.relay_preset.custom",
-                "Custom Relay",
-            ),
-        ),
-    ]
-    .into_iter()
-    .map(|(value, label)| (value.to_string(), SharedString::from(label)))
-    .collect()
+    let _ = language;
+    codux_runtime::remote::remote_relay_presets()
+        .iter()
+        .map(|preset| (preset.key.clone(), SharedString::from(preset.name.clone())))
+        .collect()
 }
 
-fn remote_relay_display_url(preset: &str) -> String {
-    match preset {
-        "global" => "Iroh default relay map".to_string(),
-        "china" => codux_runtime::remote::CHINA_RELAY_SERVER_URL.to_string(),
-        _ => "Iroh default relay map".to_string(),
+fn settings_remote_relay_custom_fields(
+    settings: &SettingsSummary,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+    language: &str,
+) -> AnyElement {
+    if settings.remote_relay_preset != "custom" {
+        return div().into_any_element();
     }
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .child(settings_row(
+            settings_text(language, "settings.remote.relay_url", "Custom Relay URL"),
+            Some(settings_text(
+                language,
+                "settings.remote.relay_url.help",
+                "Leave empty to use the public network. Pair again after changing it",
+            )),
+            settings_remote_relay_url_editor(
+                settings.remote_relay_url.as_str(),
+                window,
+                cx,
+                language,
+            ),
+        ))
+        .child(settings_row(
+            settings_text(
+                language,
+                "settings.remote.relay_authentication",
+                "Relay Authentication",
+            ),
+            Some(settings_text(
+                language,
+                "settings.remote.relay_authentication.help",
+                "Optional Bearer token for custom Iroh relays. Pair again after changing it",
+            )),
+            settings_remote_relay_authentication_editor(
+                settings.remote_relay_authentication.as_str(),
+                window,
+                cx,
+            ),
+        ))
+        .into_any_element()
 }
 
 fn codex_effort_options() -> Vec<(String, SharedString)> {

@@ -185,6 +185,10 @@ String remoteTransportRelayUrlForPreset({
   );
 }
 
+List<Map<String, dynamic>> remoteTransportRelayPresets() {
+  return codux_protocol_ffi.transportRelayPresets();
+}
+
 String remotePreferredTransportKind(
   List<RemoteTransportCandidate> transports, {
   required bool pairing,

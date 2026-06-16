@@ -202,7 +202,10 @@ fn iroh_broadcast_deduplicates_peer_alias_senders() {
 
 #[test]
 fn relay_preset_round_trip_matches_default_servers() {
-    assert_eq!(remote_relay_preset_for_url(CHINA_RELAY_SERVER_URL), "china");
+    assert_eq!(
+        remote_relay_preset_for_url(CHINA_RELAY_SERVER_URL),
+        "china-tencent"
+    );
     assert_eq!(
         remote_relay_url_for_preset("global", ""),
         GLOBAL_RELAY_SERVER_URL
@@ -217,13 +220,27 @@ fn iroh_relay_presets_are_separate_from_pairing_servers() {
         CHINA_IROH_RELAY_SERVER_URL
     );
     assert_eq!(
+        iroh_relay_url_for_preset("china-tencent", ""),
+        CHINA_IROH_RELAY_SERVER_URL
+    );
+    assert_eq!(
+        iroh_relay_url_for_preset("china-aliyun", ""),
+        "https://aliyun-1.iroh.dux.plus"
+    );
+    assert_eq!(
         iroh_relay_url_for_preset("custom", "https://relay.example"),
         "https://relay.example"
     );
     assert_eq!(iroh_relay_preset_for_url(""), "global");
     assert_eq!(
         iroh_relay_preset_for_url("https://iroh-service.dux.plus/"),
-        "china"
+        "china-tencent"
     );
     assert_eq!(iroh_relay_preset_for_url("https://relay.example"), "custom");
+    assert_eq!(normalize_remote_relay_preset("china", ""), "china-tencent");
+    assert!(
+        remote_relay_presets()
+            .iter()
+            .any(|preset| preset.key == "china-aliyun")
+    );
 }

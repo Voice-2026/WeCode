@@ -622,7 +622,7 @@ mod tests {
         .expect("settings");
 
         let summary = SettingsService::new(support_dir.clone()).summary();
-        assert_eq!(summary.remote_relay_preset, "china");
+        assert_eq!(summary.remote_relay_preset, "china-tencent");
         assert_eq!(summary.remote_relay_url, "https://iroh-service.dux.plus");
 
         fs::remove_dir_all(support_dir).ok();

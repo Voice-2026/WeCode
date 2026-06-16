@@ -8,6 +8,14 @@ pub fn remote_relay_preset_for_url(url: &str) -> String {
     codux_remote_transport::remote_relay_preset_for_url(url)
 }
 
+pub fn normalize_remote_relay_preset(preset: &str, relay_url: &str) -> String {
+    codux_remote_transport::normalize_remote_relay_preset(preset, relay_url)
+}
+
+pub fn remote_relay_presets() -> &'static [codux_remote_transport::RemoteRelayPreset] {
+    codux_remote_transport::remote_relay_presets()
+}
+
 pub(crate) fn remote_relay_url(value: &str) -> String {
     codux_remote_transport::remote_relay_url(value)
 }

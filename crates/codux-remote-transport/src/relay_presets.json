@@ -1,0 +1,22 @@
+[
+  {
+    "key": "global",
+    "name": "Global Network",
+    "url": ""
+  },
+  {
+    "key": "china-tencent",
+    "name": "China (Tencent Cloud)",
+    "url": "https://iroh-service.dux.plus"
+  },
+  {
+    "key": "china-aliyun",
+    "name": "China (Alibaba Cloud)",
+    "url": "https://aliyun-1.iroh.dux.plus"
+  },
+  {
+    "key": "custom",
+    "name": "Custom Relay",
+    "url": ""
+  }
+]

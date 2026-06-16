@@ -77,7 +77,15 @@ fn host_transport_config_uses_iroh_relay_preset_mapping() {
         relay_url: "https://ignored.example".to_string(),
         ..Default::default()
     });
+    assert_eq!(china.relay_preset, "china-tencent");
     assert_eq!(china.iroh_relay_url, "https://iroh-service.dux.plus");
+
+    let aliyun = host_transport_config(&RemoteSettings {
+        relay_preset: "china-aliyun".to_string(),
+        relay_url: "https://ignored.example".to_string(),
+        ..Default::default()
+    });
+    assert_eq!(aliyun.iroh_relay_url, "https://aliyun-1.iroh.dux.plus");
 
     let global = host_transport_config(&RemoteSettings {
         relay_preset: "global".to_string(),
@@ -190,12 +198,16 @@ fn remote_relay_presets_use_iroh_relay_urls() {
     assert_eq!(super::relay::remote_relay_preset_for_url(""), "global");
     assert_eq!(
         super::relay::remote_relay_preset_for_url("https://iroh-service.dux.plus"),
-        "china"
+        "china-tencent"
     );
     assert_eq!(super::relay::remote_relay_url_for_preset("global", ""), "");
     assert_eq!(
         super::relay::remote_relay_url_for_preset("china", ""),
         "https://iroh-service.dux.plus"
+    );
+    assert_eq!(
+        super::relay::remote_relay_url_for_preset("china-aliyun", ""),
+        "https://aliyun-1.iroh.dux.plus"
     );
     assert_eq!(
         super::relay::remote_relay_preset_for_url("https://relay.example"),

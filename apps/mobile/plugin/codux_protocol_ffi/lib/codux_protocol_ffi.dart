@@ -79,6 +79,9 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
     library.lookup<
       NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)>
     >('codux_transport_relay_url_for_preset');
+    library.lookup<NativeFunction<Pointer<Utf8> Function()>>(
+      'codux_transport_relay_presets_json',
+    );
     library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>)>>(
       'codux_controller_transport_config_summary_json',
     );
@@ -210,6 +213,10 @@ final _transportRelayUrlForPreset = _dylib
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>)
     >('codux_transport_relay_url_for_preset');
+final _transportRelayPresetsJson = _dylib
+    .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+      'codux_transport_relay_presets_json',
+    );
 final _transportPreferredKind = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(Pointer<Utf8>, Bool),
@@ -582,6 +589,15 @@ String transportRelayUrlForPreset({
     malloc.free(presetPtr);
     malloc.free(customPtr);
   }
+}
+
+List<Map<String, dynamic>> transportRelayPresets() {
+  final decoded = jsonDecode(_takeString(_transportRelayPresetsJson()));
+  if (decoded is! List) return const [];
+  return decoded
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList(growable: false);
 }
 
 String preferredTransportKind(

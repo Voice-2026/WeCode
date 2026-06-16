@@ -87,12 +87,7 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
 }
 
 fn sanitize_remote_relay_preset(preset: &str, relay_url: &str) -> String {
-    match preset.trim() {
-        "global" => "global".to_string(),
-        "china" => "china".to_string(),
-        "custom" => "custom".to_string(),
-        _ => crate::remote::remote_relay_preset_for_url(relay_url),
-    }
+    crate::remote::normalize_remote_relay_preset(preset, relay_url)
 }
 
 fn sanitize_ai_settings(mut ai: AISettings) -> AISettings {

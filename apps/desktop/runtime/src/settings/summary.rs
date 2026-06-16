@@ -214,10 +214,7 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .unwrap_or_default();
-                match preset {
-                    "global" | "china" | "custom" => preset.to_string(),
-                    _ => crate::remote::remote_relay_preset_for_url(relay_url),
-                }
+                crate::remote::normalize_remote_relay_preset(preset, relay_url)
             })
             .unwrap_or_else(|| crate::remote::remote_relay_preset_for_url("")),
         remote_relay_url: remote

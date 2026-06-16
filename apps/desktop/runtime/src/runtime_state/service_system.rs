@@ -287,16 +287,12 @@ impl RuntimeService {
         relay_preset: &str,
         reset_devices: bool,
     ) -> Result<(SettingsSummary, RemoteSummary), String> {
-        let relay_preset = match relay_preset.trim() {
-            "global" => "global",
-            "custom" => "custom",
-            "china" => "china",
-            _ => "global",
-        };
         let current = self.reload_settings();
+        let relay_preset =
+            crate::remote::normalize_remote_relay_preset(relay_preset, &current.remote_relay_url);
         let relay_url =
-            crate::remote::remote_relay_url_for_preset(relay_preset, &current.remote_relay_url);
-        self.update_remote_relay_settings(relay_preset.to_string(), relay_url, reset_devices)
+            crate::remote::remote_relay_url_for_preset(&relay_preset, &current.remote_relay_url);
+        self.update_remote_relay_settings(relay_preset, relay_url, reset_devices)
     }
 
     pub fn set_remote_relay_authentication_with_device_reset(

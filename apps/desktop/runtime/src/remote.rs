@@ -18,8 +18,8 @@ use std::path::PathBuf;
 pub use host::RemoteHostRuntime;
 pub use protocol::REMOTE_PROTOCOL_VERSION;
 pub use relay::{
-    CHINA_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, remote_relay_preset_for_url,
-    remote_relay_url_for_preset,
+    CHINA_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL, normalize_remote_relay_preset,
+    remote_relay_preset_for_url, remote_relay_presets, remote_relay_url_for_preset,
 };
 pub(crate) use settings::{remote_settings_from_raw, remote_settings_mut};
 pub use types::{
