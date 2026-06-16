@@ -4,10 +4,8 @@ use std::sync::OnceLock;
 const RELAY_PRESETS_JSON: &str = include_str!("relay_presets.json");
 
 pub const GLOBAL_RELAY_SERVER_URL: &str = GLOBAL_IROH_RELAY_SERVER_URL;
-pub const CHINA_RELAY_SERVER_URL: &str = CHINA_IROH_RELAY_SERVER_URL;
 pub const DEFAULT_RELAY_SERVER_URL: &str = GLOBAL_RELAY_SERVER_URL;
 pub const GLOBAL_IROH_RELAY_SERVER_URL: &str = "";
-pub const CHINA_IROH_RELAY_SERVER_URL: &str = "https://iroh-service.dux.plus";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct RemoteRelayPreset {

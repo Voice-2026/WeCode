@@ -447,12 +447,9 @@ impl CoduxApp {
                     return;
                 }
                 app.main_window_lost_to_external_app = false;
-                app.runtime_trace(
-                    "window",
-                    "main_window_reactivated bring_children_to_front queued",
-                );
+                app.runtime_trace("window", "main_window_reactivated");
                 cx.defer_in(window, move |app, _window, cx| {
-                    app.bring_child_windows_to_front(cx);
+                    app.prune_child_window_handles(cx);
                 });
             },
         ));

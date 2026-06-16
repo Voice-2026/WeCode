@@ -872,7 +872,7 @@ fn ai_session_compact_row(
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap_3()
+                .gap_2()
                 .min_w_0()
                 .child(
                     div()
@@ -885,7 +885,6 @@ fn ai_session_compact_row(
                 )
                 .child(
                     div()
-                        .w(px(76.0))
                         .flex_shrink_0()
                         .text_right()
                         .text_size(rems(0.75))
@@ -898,14 +897,13 @@ fn ai_session_compact_row(
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap_3()
+                .gap_2()
                 .min_w_0()
                 .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
                 .child(div().min_w_0().flex_1().truncate().child(session.source))
                 .child(
                     div()
-                        .w(px(76.0))
                         .flex_shrink_0()
                         .text_right()
                         .child(compact_number(session.total_tokens)),

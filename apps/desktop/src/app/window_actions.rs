@@ -799,31 +799,21 @@ impl CoduxApp {
         has_active
     }
 
-    pub(super) fn bring_child_windows_to_front(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn prune_child_window_handles(&mut self, cx: &mut Context<Self>) {
         if self.child_windows.is_empty() {
             return;
         }
 
         let mut live_windows = Vec::with_capacity(self.child_windows.len());
-        let mut ordered = 0usize;
         for handle in self.child_windows.iter().copied() {
-            if handle
-                .update(cx, |_view, window, _cx| {
-                    macos_window::order_window_front_without_focus(window)
-                })
-                .is_ok()
-            {
+            if handle.update(cx, |_view, _window, _cx| ()).is_ok() {
                 live_windows.push(handle);
-                ordered += 1;
             }
         }
         let removed = self.child_windows.len().saturating_sub(live_windows.len());
         self.child_windows = live_windows;
         self.clear_dead_child_window_slots();
-        self.runtime_trace(
-            "window",
-            &format!("bring_children_to_front ordered={ordered} removed={removed}"),
-        );
+        self.runtime_trace("window", &format!("child_window_prune removed={removed}"));
     }
 
     fn clear_dead_child_window_slots(&mut self) {

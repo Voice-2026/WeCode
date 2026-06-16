@@ -1776,7 +1776,7 @@ mod app_runtime_ready_tests {
             serde_json::to_string_pretty(&serde_json::json!({
                 "remote": {
                     "isEnabled": true,
-                    "relayUrl": "https://iroh-service.dux.plus",
+                    "relayUrl": crate::remote::remote_relay_url_for_preset("china-tencent", ""),
                     "hostID": "host-1",
                     "hostToken": "secret-token",
                     "cachedDevices": [

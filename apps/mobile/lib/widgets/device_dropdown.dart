@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../i18n.dart';
 import '../models/remote_models.dart';
-import '../services/remote_protocol.dart';
+import '../services/remote_path_utils.dart';
 import '../theme/app_theme.dart';
 import 'dropdown_overlay.dart';
 
@@ -170,47 +170,20 @@ String _deviceProtocolLabel(BuildContext context, String transport) {
 
 String _deviceConnectionLabel(BuildContext context, StoredDevice device) {
   final relay = _deviceRelayEndpoint(device);
-  if (relay.isNotEmpty) return _relayEndpointDisplayName(relay);
+  if (relay.isNotEmpty) return remoteRelayDisplayName(relay);
   return _deviceProtocolLabel(context, _deviceTransportKind(device));
 }
 
 String _deviceRelayEndpoint(StoredDevice device) {
   for (final candidate in device.transports) {
     final relayUrl = candidate.relayUrl.trim();
-    if (relayUrl.isNotEmpty) return _cleanTransportEndpoint(relayUrl);
+    if (relayUrl.isNotEmpty) return cleanRemoteTransportEndpoint(relayUrl);
   }
   for (final candidate in device.transports) {
     final url = candidate.url.trim();
-    if (url.isNotEmpty) return _cleanTransportEndpoint(url);
+    if (url.isNotEmpty) return cleanRemoteTransportEndpoint(url);
   }
-  return _cleanTransportEndpoint(device.server);
-}
-
-String _relayEndpointDisplayName(String value) {
-  final endpoint = _cleanTransportEndpoint(value);
-  if (endpoint.isEmpty) return '';
-  final normalized = endpoint.replaceFirst(RegExp(r'/+$'), '');
-  for (final preset in remoteTransportRelayPresets()) {
-    final url = '${preset['url'] ?? ''}'.trim();
-    if (url.isEmpty) continue;
-    if (url.replaceFirst(RegExp(r'/+$'), '') == normalized) {
-      final name = '${preset['name'] ?? ''}'.trim();
-      if (name.isNotEmpty) return name;
-    }
-  }
-  return endpoint;
-}
-
-String _cleanTransportEndpoint(String value) {
-  var endpoint = value.trim();
-  if (endpoint.startsWith('relay:')) {
-    endpoint = endpoint.substring('relay:'.length).trim();
-  } else if (endpoint.startsWith('ip:')) {
-    endpoint = endpoint.substring('ip:'.length).trim();
-  } else if (endpoint.startsWith('custom:')) {
-    endpoint = endpoint.substring('custom:'.length).trim();
-  }
-  return endpoint;
+  return cleanRemoteTransportEndpoint(device.server);
 }
 
 String _deviceTransportKind(StoredDevice device) {

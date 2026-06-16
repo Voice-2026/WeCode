@@ -576,31 +576,31 @@ mod tests {
     #[test]
     fn remote_relay_preset_is_not_overridden_by_existing_relay_url() {
         let support_dir = temp_dir("settings-remote-preset-primary");
+        let relay_url = relay_url_for_test_preset("china-tencent");
         fs::write(
             support_dir.join("settings.json"),
-            r#"
-            {
-              "remote": {
-                "isEnabled": true,
-                "relayPreset": "custom",
-                "relayUrl": "https://iroh-service.dux.plus"
-              }
-            }
-            "#,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "remote": {
+                    "isEnabled": true,
+                    "relayPreset": "custom",
+                    "relayUrl": relay_url
+                }
+            }))
+            .expect("settings json"),
         )
         .expect("settings");
 
         let summary = SettingsService::new(support_dir.clone()).summary();
         assert_eq!(summary.remote_relay_preset, "custom");
-        assert_eq!(summary.remote_relay_url, "https://iroh-service.dux.plus");
+        assert_eq!(summary.remote_relay_url, relay_url);
 
         let service = crate::runtime_state::RuntimeService::new(support_dir.clone());
         let (updated, remote) = service
             .set_remote_relay_preset("custom")
             .expect("set custom relay");
         assert_eq!(updated.remote_relay_preset, "custom");
-        assert_eq!(updated.remote_relay_url, "https://iroh-service.dux.plus");
-        assert_eq!(remote.relay, "https://iroh-service.dux.plus");
+        assert_eq!(updated.remote_relay_url, relay_url);
+        assert_eq!(remote.relay, relay_url);
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -608,22 +608,22 @@ mod tests {
     #[test]
     fn remote_relay_preset_migrates_from_url_when_missing() {
         let support_dir = temp_dir("settings-remote-preset-migration");
+        let relay_url = relay_url_for_test_preset("china-tencent");
         fs::write(
             support_dir.join("settings.json"),
-            r#"
-            {
-              "remote": {
-                "isEnabled": true,
-                "relayUrl": "https://iroh-service.dux.plus"
-              }
-            }
-            "#,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "remote": {
+                    "isEnabled": true,
+                    "relayUrl": relay_url
+                }
+            }))
+            .expect("settings json"),
         )
         .expect("settings");
 
         let summary = SettingsService::new(support_dir.clone()).summary();
         assert_eq!(summary.remote_relay_preset, "china-tencent");
-        assert_eq!(summary.remote_relay_url, "https://iroh-service.dux.plus");
+        assert_eq!(summary.remote_relay_url, relay_url);
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -672,5 +672,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("codux-gpui-{label}-{nanos}"));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
+    }
+
+    fn relay_url_for_test_preset(key: &str) -> &'static str {
+        crate::remote::remote_relay_presets()
+            .iter()
+            .find(|preset| preset.key == key)
+            .expect("relay preset")
+            .url
+            .as_str()
     }
 }

@@ -46,6 +46,7 @@ mobile *args:
                     flutter run -d "$device_id" "$@"; \
                 fi; \
             else \
+                ./plugin/codux_protocol_ffi/scripts/build-android.sh; \
                 adb shell am force-stop com.duxweb.codux.dev >/dev/null 2>&1 || true; \
                 adb shell am force-stop com.duxweb.codux >/dev/null 2>&1 || true; \
                 flutter run -d "$device_id" "$@"; \

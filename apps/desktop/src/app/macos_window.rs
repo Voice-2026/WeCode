@@ -141,23 +141,6 @@ pub(in crate::app) fn configure_document_child_window_controls(_window: &mut Win
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-pub(in crate::app) fn order_window_front_without_focus(window: &mut Window) {
-    let Some(ns_window) = appkit_window(window) else {
-        return;
-    };
-
-    unsafe {
-        let _: () = msg_send![ns_window, orderFront: nil];
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(in crate::app) fn order_window_front_without_focus(window: &mut Window) {
-    window.activate_window();
-}
-
-#[cfg(target_os = "macos")]
-#[allow(unexpected_cfgs)]
 fn configure_native_window_buttons(window: &mut Window, close_only: bool) {
     let Some(ns_window) = appkit_window(window) else {
         return;

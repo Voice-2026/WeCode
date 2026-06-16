@@ -31,6 +31,7 @@ import '../services/remote_runtime_store.dart';
 import '../services/remote_sequence_guard.dart';
 import '../services/remote_sync_state.dart';
 import '../services/remote_project_file_controller.dart';
+import '../services/remote_path_utils.dart';
 import '../services/remote_terminal_binding_coordinator.dart';
 import '../services/remote_terminal_output_controller.dart';
 import '../services/remote_terminal_scope.dart';
@@ -370,10 +371,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     required String endpoint,
     required String relayUrl,
   }) {
-    final cleanedEndpoint = _cleanTransportEndpoint(endpoint);
-    final cleanedRelayUrl = _cleanTransportEndpoint(relayUrl);
+    final cleanedEndpoint = cleanRemoteTransportEndpoint(endpoint);
+    final cleanedRelayUrl = cleanRemoteTransportEndpoint(relayUrl);
     if (path == 'relay' && cleanedRelayUrl.isNotEmpty) {
-      return _relayEndpointDisplayName(cleanedRelayUrl);
+      return remoteRelayDisplayName(cleanedRelayUrl);
     }
     if (cleanedEndpoint.isNotEmpty) return cleanedEndpoint;
     final nodeId = _savedDeviceNodeId(device);
@@ -381,37 +382,22 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       return nodeId;
     }
     final savedRelay = _savedDeviceRelayEndpoint(device);
-    if (savedRelay.isNotEmpty) return _relayEndpointDisplayName(savedRelay);
+    if (savedRelay.isNotEmpty) return remoteRelayDisplayName(savedRelay);
     return _t('device.globalNetwork');
-  }
-
-  String _relayEndpointDisplayName(String value) {
-    final endpoint = _cleanTransportEndpoint(value);
-    if (endpoint.isEmpty) return '';
-    final normalized = endpoint.replaceFirst(RegExp(r'/+$'), '');
-    for (final preset in remoteTransportRelayPresets()) {
-      final url = '${preset['url'] ?? ''}'.trim();
-      if (url.isEmpty) continue;
-      if (url.replaceFirst(RegExp(r'/+$'), '') == normalized) {
-        final name = '${preset['name'] ?? ''}'.trim();
-        if (name.isNotEmpty) return name;
-      }
-    }
-    return endpoint;
   }
 
   String _savedDeviceRelayEndpoint(StoredDevice device) {
     for (final candidate in device.transports) {
       if (candidate.relayUrl.trim().isNotEmpty) {
-        return _cleanTransportEndpoint(candidate.relayUrl);
+        return cleanRemoteTransportEndpoint(candidate.relayUrl);
       }
     }
     for (final candidate in device.transports) {
       if (candidate.url.trim().isNotEmpty) {
-        return _cleanTransportEndpoint(candidate.url);
+        return cleanRemoteTransportEndpoint(candidate.url);
       }
     }
-    return _cleanTransportEndpoint(device.server);
+    return cleanRemoteTransportEndpoint(device.server);
   }
 
   String _savedDeviceNodeId(StoredDevice device) {
@@ -420,18 +406,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       if (nodeId.isNotEmpty) return nodeId;
     }
     return '';
-  }
-
-  String _cleanTransportEndpoint(String value) {
-    var endpoint = value.trim();
-    if (endpoint.startsWith('relay:')) {
-      endpoint = endpoint.substring('relay:'.length).trim();
-    } else if (endpoint.startsWith('ip:')) {
-      endpoint = endpoint.substring('ip:'.length).trim();
-    } else if (endpoint.startsWith('custom:')) {
-      endpoint = endpoint.substring('custom:'.length).trim();
-    }
-    return endpoint;
   }
 
   void _clearConnectionGrace() {
@@ -527,13 +501,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         if (!_backgroundConnect && !_transportReady) {
           _status = _t('app.connecting');
         }
-        final cleanedEndpoint = _cleanTransportEndpoint(endpoint ?? '');
+        final cleanedEndpoint = cleanRemoteTransportEndpoint(endpoint ?? '');
         if (cleanedEndpoint.isNotEmpty) {
           _connectionEndpoint = cleanedEndpoint;
         } else if (path != _connectionPath) {
           _connectionEndpoint = '';
         }
-        final cleanedRelayUrl = _cleanTransportEndpoint(relayUrl ?? '');
+        final cleanedRelayUrl = cleanRemoteTransportEndpoint(relayUrl ?? '');
         if (cleanedRelayUrl.isNotEmpty) {
           _connectionRelayUrl = cleanedRelayUrl;
         } else if (path != 'relay' && path != _connectionPath) {

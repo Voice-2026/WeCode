@@ -1,4 +1,4 @@
-pub use codux_remote_transport::{CHINA_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL};
+pub use codux_remote_transport::GLOBAL_RELAY_SERVER_URL;
 
 pub fn remote_relay_url_for_preset(preset: &str, custom_url: &str) -> String {
     codux_remote_transport::remote_relay_url_for_preset(preset, custom_url)

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:codux_flutter/models/remote_models.dart';
+import 'package:codux_flutter/services/remote_protocol.dart';
 import 'package:codux_flutter/services/remote_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -168,12 +169,15 @@ void main() {
   });
 
   test('relay url is parsed from transport state detail', () {
+    final relayUrl = remoteTransportRelayPresets().firstWhere(
+      (preset) => preset['key'] == 'china-tencent',
+    )['url'];
     final event = RemoteTransportStateEvent.parse(
-      'connected:path=relay;addr=relay.example;relayUrl=https://iroh-service.dux.plus',
+      'connected:path=relay;addr=relay.example;relayUrl=$relayUrl',
     );
 
     expect(event.path, 'relay');
-    expect(event.relayUrl, 'https://iroh-service.dux.plus');
+    expect(event.relayUrl, relayUrl);
   });
 
   test('terminal envelopes use native terminal stream', () async {

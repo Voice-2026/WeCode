@@ -50,24 +50,29 @@ void main() {
   });
 
   test('Rust FFI owns controller transport URL and selection rules', () {
+    final relayPresets = codux_protocol_ffi.transportRelayPresets();
+    final tencentRelayUrl = relayPresets.firstWhere(
+      (preset) => preset['key'] == 'china-tencent',
+    )['url'];
+    final aliyunRelayUrl = relayPresets.firstWhere(
+      (preset) => preset['key'] == 'china-aliyun',
+    )['url'];
+
     expect(
       codux_protocol_ffi.transportRelayUrl('https://relay.example'),
       'https://relay.example',
     );
     expect(
       codux_protocol_ffi.transportRelayUrlForPreset(preset: 'china'),
-      'https://iroh-service.dux.plus',
+      tencentRelayUrl,
     );
     expect(
       codux_protocol_ffi.transportRelayUrlForPreset(preset: 'china-aliyun'),
-      'https://aliyun-1.iroh.dux.plus',
+      aliyunRelayUrl,
     );
     expect(codux_protocol_ffi.transportRelayUrlForPreset(preset: 'global'), '');
     expect(
-      codux_protocol_ffi
-          .transportRelayPresets()
-          .map((preset) => preset['key'])
-          .toList(),
+      relayPresets.map((preset) => preset['key']).toList(),
       containsAll(['global', 'china-tencent', 'china-aliyun', 'custom']),
     );
     final transports = [

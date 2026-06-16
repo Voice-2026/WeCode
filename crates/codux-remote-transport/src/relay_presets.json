@@ -1,7 +1,7 @@
 [
   {
     "key": "global",
-    "name": "Global Network",
+    "name": "Global",
     "url": ""
   },
   {
@@ -12,11 +12,11 @@
   {
     "key": "china-aliyun",
     "name": "China (Alibaba Cloud)",
-    "url": "https://aliyun-1.iroh.dux.plus"
+    "url": "https://aliyun-1.iroh.jujiang.me"
   },
   {
     "key": "custom",
-    "name": "Custom Relay",
+    "name": "Custom",
     "url": ""
   }
 ]
