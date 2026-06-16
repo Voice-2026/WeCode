@@ -9,6 +9,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Added right-click copy for selected desktop terminal text, clearing the selection after copying so Windows users can copy terminal output without sending `Ctrl+C` to the running process.
+- Fixed mobile terminal `Ctrl+C` delivery so interrupt input is sent once immediately and is not retried as stale terminal input.
+- Fixed mobile native terminal replay so Android and iOS no longer forward emulator-generated OSC/DSR replies back into the remote host input stream.
+- Improved mobile keyboard lift behavior by using native cursor metrics instead of resizing the terminal viewport blindly when the software keyboard is shown.
+- Improved Android terminal text selection handles by reusing the Termux material handle assets and aligning the handle anchors with selected terminal cells.
+- Added iOS bundle localization declarations so native terminal selection menus can follow the app/device language instead of defaulting to English-only metadata.
 
 ## [1.8.1] - 2026-06-16
 

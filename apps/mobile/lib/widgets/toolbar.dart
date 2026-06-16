@@ -130,7 +130,7 @@ class _ToolbarState extends State<Toolbar> {
         label: '^C',
         kind: _ToolKind.danger,
         onTap: () {
-          widget.onSendKey(terminalKeyInput(key: 'c', control: true));
+          widget.onSendKey('\u0003');
           _clearModifiers();
         },
       ),

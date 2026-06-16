@@ -128,6 +128,8 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
   private var terminalView: CoduxSwiftTermTerminalView
   private var fontSize: CGFloat
   private var pendingReplayText: String?
+  private var applyingReplay = false
+  private var lastCursorMetrics: CoduxTerminalCursorMetrics?
 #if canImport(MetalKit)
   private var metalEnabled = false
 #endif
@@ -160,7 +162,7 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
       pendingReplayText = (pendingReplayText ?? "") + text
       return
     }
-    terminalView.feed(text: text)
+    feedReplay(text)
   }
 
   func replace(_ text: String) {
@@ -211,6 +213,7 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
     enableMetalIfReady()
 #endif
     applyPendingReplayIfReady()
+    emitCursorMetrics()
   }
 
   private var isLayoutReady: Bool {
@@ -231,7 +234,7 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
     terminalView.getTerminal().resetToInitialState()
     applyTerminalTheme()
     if !text.isEmpty {
-      terminalView.feed(text: text)
+      feedReplay(text)
     } else {
       terminalView.setNeedsDisplay(terminalView.bounds)
     }
@@ -239,6 +242,7 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
     if wasFirstResponder {
       terminalView.becomeFirstResponder()
     }
+    emitCursorMetrics()
   }
 
   private func applyTerminalTheme() {
@@ -252,6 +256,34 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
   private func scrollReplayToBottom() {
     terminalView.layoutIfNeeded()
     terminalView.scrollToBottom(notifyAccessibility: false)
+  }
+
+  private func feedReplay(_ text: String) {
+    applyingReplay = true
+    terminalView.feed(text: text)
+    applyingReplay = false
+    emitCursorMetrics()
+  }
+
+  private func emitCursorMetrics() {
+    let terminal = terminalView.getTerminal()
+    let cursor = terminal.getCursorLocation()
+    let lineHeight = Double(terminalView.bounds.height) / Double(max(terminal.rows, 1))
+    guard lineHeight > 0 else { return }
+    let metrics = CoduxTerminalCursorMetrics(
+      row: cursor.y,
+      col: cursor.x,
+      lineHeight: lineHeight
+    )
+    guard metrics != lastCursorMetrics else { return }
+    lastCursorMetrics = metrics
+    CoduxNativeTerminalPlugin.emit([
+      "id": id,
+      "type": "cursor",
+      "cursorRow": metrics.row,
+      "cursorCol": metrics.col,
+      "lineHeight": metrics.lineHeight,
+    ])
   }
 
 #if canImport(MetalKit)
@@ -289,6 +321,8 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
   }
 
   func showKeyboard() {
+    terminalView.scrollToBottom(notifyAccessibility: false)
+    emitCursorMetrics()
     terminalView.showSystemKeyboard()
   }
 
@@ -297,6 +331,7 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
   }
 
   func send(source: TerminalView, data: ArraySlice<UInt8>) {
+    guard !applyingReplay else { return }
     let text = String(decoding: data, as: UTF8.self)
     CoduxNativeTerminalPlugin.emit(["id": id, "type": "input", "data": text])
   }
@@ -308,6 +343,7 @@ private final class CoduxNativeTerminalView: NSObject, FlutterPlatformView, Term
       "cols": newCols,
       "rows": newRows,
     ])
+    emitCursorMetrics()
   }
 
   func setTerminalTitle(source: TerminalView, title: String) {}
@@ -367,6 +403,12 @@ private final class CoduxSwiftTermTerminalView: TerminalView {
     inputAccessoryView = nil
     reloadInputViews()
   }
+}
+
+private struct CoduxTerminalCursorMetrics: Equatable {
+  let row: Int
+  let col: Int
+  let lineHeight: Double
 }
 
 private final class CoduxSuppressedKeyboardView: UIView {

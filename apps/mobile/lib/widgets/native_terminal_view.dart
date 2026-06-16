@@ -18,6 +18,7 @@ class NativeTerminalView extends StatefulWidget {
     required this.onInput,
     required this.onResize,
     required this.onSelectionChanged,
+    required this.onCursorMetrics,
   });
 
   final NativeTerminalReplay replay;
@@ -27,6 +28,7 @@ class NativeTerminalView extends StatefulWidget {
   final ValueChanged<String> onInput;
   final void Function(int cols, int rows) onResize;
   final ValueChanged<String?> onSelectionChanged;
+  final ValueChanged<NativeTerminalCursorMetrics?> onCursorMetrics;
 
   static bool get supported => Platform.isAndroid || Platform.isIOS;
 
@@ -77,6 +79,7 @@ class _NativeTerminalViewState extends State<NativeTerminalView> {
   void dispose() {
     _viewGeneration += 1;
     _viewId = null;
+    widget.onCursorMetrics(null);
     _events?.cancel();
     super.dispose();
   }
@@ -217,6 +220,42 @@ class _NativeTerminalViewState extends State<NativeTerminalView> {
       case 'selection':
         final data = event.data;
         widget.onSelectionChanged(data == null || data.isEmpty ? null : data);
+      case 'cursor':
+        final row = event.cursorRow;
+        final col = event.cursorCol;
+        final lineHeight = event.lineHeight;
+        if (row != null && col != null && lineHeight != null) {
+          widget.onCursorMetrics(
+            NativeTerminalCursorMetrics(
+              row: row,
+              col: col,
+              lineHeight: lineHeight,
+            ),
+          );
+        }
     }
   }
+}
+
+class NativeTerminalCursorMetrics {
+  const NativeTerminalCursorMetrics({
+    required this.row,
+    required this.col,
+    required this.lineHeight,
+  });
+
+  final int row;
+  final int col;
+  final double lineHeight;
+
+  @override
+  bool operator ==(Object other) {
+    return other is NativeTerminalCursorMetrics &&
+        other.row == row &&
+        other.col == col &&
+        other.lineHeight == lineHeight;
+  }
+
+  @override
+  int get hashCode => Object.hash(row, col, lineHeight);
 }

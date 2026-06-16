@@ -116,6 +116,22 @@ object CoduxNativeTerminalPlugin {
                             ),
                         )
                     }
+
+                    override fun onCursorMetrics(
+                        cursorRow: Int,
+                        cursorCol: Int,
+                        lineHeight: Double,
+                    ) {
+                        emit(
+                            mapOf(
+                                "id" to viewId,
+                                "type" to "cursor",
+                                "cursorRow" to cursorRow,
+                                "cursorCol" to cursorCol,
+                                "lineHeight" to lineHeight,
+                            ),
+                        )
+                    }
                 },
             )
             views[viewId] = nativeView

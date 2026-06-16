@@ -9,6 +9,9 @@ class NativeTerminalEvent {
     this.data,
     this.cols,
     this.rows,
+    this.cursorRow,
+    this.cursorCol,
+    this.lineHeight,
   });
 
   final int viewId;
@@ -16,6 +19,9 @@ class NativeTerminalEvent {
   final String? data;
   final int? cols;
   final int? rows;
+  final int? cursorRow;
+  final int? cursorCol;
+  final double? lineHeight;
 
   static NativeTerminalEvent? fromPlatform(Object? value) {
     if (value is! Map) return null;
@@ -28,6 +34,9 @@ class NativeTerminalEvent {
       data: value['data']?.toString(),
       cols: _intValue(value['cols']),
       rows: _intValue(value['rows']),
+      cursorRow: _intValue(value['cursorRow']),
+      cursorCol: _intValue(value['cursorCol']),
+      lineHeight: _doubleValue(value['lineHeight']),
     );
   }
 }
@@ -91,4 +100,10 @@ int? _intValue(Object? value) {
   if (value is int) return value;
   if (value is num) return value.toInt();
   return int.tryParse(value?.toString() ?? '');
+}
+
+double? _doubleValue(Object? value) {
+  if (value is double) return value;
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '');
 }

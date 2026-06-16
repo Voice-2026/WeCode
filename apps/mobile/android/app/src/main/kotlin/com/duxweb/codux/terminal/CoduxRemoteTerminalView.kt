@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -34,11 +35,14 @@ class CoduxRemoteTerminalView(
         fun onInput(data: String)
         fun onSelectionChanged(text: String?)
         fun onResize(cols: Int, rows: Int)
+        fun onCursorMetrics(cursorRow: Int, cursorCol: Int, lineHeight: Double)
     }
 
     private val terminalOutput = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
-            callbacks.onInput(String(data, offset, count, StandardCharsets.UTF_8))
+            // This view renders remote output only. TerminalEmulator may answer
+            // OSC/DSR queries while replaying host output; those replies belong
+            // to a local PTY, not to the remote host input stream.
         }
 
         override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -56,6 +60,7 @@ class CoduxRemoteTerminalView(
     private var topRow = 0
     private var lastCols = 0
     private var lastRows = 0
+    private var lastCursorMetrics: TerminalCursorMetrics? = null
     private val scroller = OverScroller(context)
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val maxFlingVelocity = ViewConfiguration.get(context).scaledMaximumFlingVelocity
@@ -70,8 +75,17 @@ class CoduxRemoteTerminalView(
     private var selectionStartRow = -1
     private var selectionEndCol = -1
     private var selectionEndRow = -1
+    private var activeSelectionHandle: SelectionHandle? = null
     private var downX = 0f
     private var downY = 0f
+    private val selectionStartHandle = loadTermuxSelectionHandle(
+        context,
+        "text_select_handle_left_material",
+    )
+    private val selectionEndHandle = loadTermuxSelectionHandle(
+        context,
+        "text_select_handle_right_material",
+    )
     private val longPressRunnable = Runnable {
         startSelection(downX, downY)
     }
@@ -99,6 +113,7 @@ class CoduxRemoteTerminalView(
             topRow - scrollCounter
         }
         clampTopRow()
+        emitCursorMetrics()
         invalidate()
     }
 
@@ -109,6 +124,7 @@ class CoduxRemoteTerminalView(
         clearSelection(invalidateView = false)
         requestResize(invalidateView = false)
         applyPendingReplay()
+        emitCursorMetrics()
         invalidate()
     }
 
@@ -120,6 +136,8 @@ class CoduxRemoteTerminalView(
         terminalTextSizePx = logicalPxToPhysicalPx(sizePx)
         renderer = TerminalRenderer(terminalTextSizePx, terminalTypeface)
         requestResize()
+        lastCursorMetrics = null
+        emitCursorMetrics()
         invalidate()
     }
 
@@ -237,15 +255,20 @@ class CoduxRemoteTerminalView(
             MotionEvent.ACTION_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
                 scroller.forceFinished(true)
-                clearSelection()
                 velocityTracker?.recycle()
                 velocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
                 lastTouchY = event.y
                 downX = event.x
                 downY = event.y
                 dragging = false
-                selectionDragging = false
-                postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                activeSelectionHandle = hitSelectionHandle(event.x, event.y)
+                selectionDragging = activeSelectionHandle != null
+                if (selectionDragging) {
+                    removeCallbacks(longPressRunnable)
+                } else {
+                    clearSelection()
+                    postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -280,6 +303,7 @@ class CoduxRemoteTerminalView(
                 velocityTracker = null
                 dragging = false
                 selectionDragging = false
+                activeSelectionHandle = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
@@ -315,6 +339,9 @@ class CoduxRemoteTerminalView(
             selection?.startCol ?: -1,
             selection?.endCol ?: -1,
         )
+        if (selection != null) {
+            drawSelectionHandles(canvas, selection)
+        }
     }
 
     private fun requestResize(invalidateView: Boolean = true) {
@@ -346,6 +373,7 @@ class CoduxRemoteTerminalView(
         }
         topRow = 0
         if (sizeChanged) callbacks.onResize(cols, rows)
+        emitCursorMetrics()
         if (invalidateView) invalidate()
     }
 
@@ -364,11 +392,24 @@ class CoduxRemoteTerminalView(
         }
         topRow = 0
         clampTopRow()
+        emitCursorMetrics()
     }
 
     private fun appendToTerminal(terminal: TerminalEmulator, text: String) {
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
         terminal.append(bytes, bytes.size)
+    }
+
+    private fun emitCursorMetrics() {
+        val terminal = emulator ?: return
+        val metrics = TerminalCursorMetrics(
+            row = terminal.getCursorRow(),
+            col = terminal.getCursorCol(),
+            lineHeight = renderer.fontLineSpacing.toDouble(),
+        )
+        if (metrics == lastCursorMetrics) return
+        lastCursorMetrics = metrics
+        callbacks.onCursorMetrics(metrics.row, metrics.col, metrics.lineHeight)
     }
 
     private fun clampTopRow() {
@@ -385,6 +426,7 @@ class CoduxRemoteTerminalView(
         selectionStartRow = point.row
         selectionEndCol = point.col
         selectionEndRow = point.row
+        activeSelectionHandle = SelectionHandle.End
         callbacks.onSelectionChanged(terminal.getSelectedText(point.col, point.row, point.col, point.row))
         invalidate()
     }
@@ -392,8 +434,16 @@ class CoduxRemoteTerminalView(
     private fun updateSelection(x: Float, y: Float) {
         if (!selectionActive) return
         val point = terminalCellAt(x, y) ?: return
-        selectionEndCol = point.col
-        selectionEndRow = point.row
+        when (activeSelectionHandle) {
+            SelectionHandle.Start -> {
+                selectionStartCol = point.col
+                selectionStartRow = point.row
+            }
+            SelectionHandle.End, null -> {
+                selectionEndCol = point.col
+                selectionEndRow = point.row
+            }
+        }
         callbacks.onSelectionChanged(selectedText())
         invalidate()
     }
@@ -406,6 +456,7 @@ class CoduxRemoteTerminalView(
         selectionStartRow = -1
         selectionEndCol = -1
         selectionEndRow = -1
+        activeSelectionHandle = null
         callbacks.onSelectionChanged(null)
         if (invalidateView) invalidate()
     }
@@ -438,6 +489,89 @@ class CoduxRemoteTerminalView(
         val col = (x / renderer.fontWidth).toInt().coerceIn(0, lastCols - 1)
         val row = topRow + (y / renderer.fontLineSpacing).toInt().coerceIn(0, lastRows - 1)
         return TerminalCell(col, row)
+    }
+
+    private fun hitSelectionHandle(x: Float, y: Float): SelectionHandle? {
+        val selection = normalizedSelection() ?: return null
+        val radius = selectionHandleRadius()
+        val start = selectionHandleAnchor(selection.startCol, selection.startRow, SelectionHandle.Start)
+        val end = selectionHandleAnchor(selection.endCol, selection.endRow, SelectionHandle.End)
+        return when {
+            end != null && distanceSquared(x, y, end.x, end.y) <= radius * radius * 2.25f ->
+                SelectionHandle.End
+            start != null && distanceSquared(x, y, start.x, start.y) <= radius * radius * 2.25f ->
+                SelectionHandle.Start
+            else -> null
+        }
+    }
+
+    private fun drawSelectionHandles(canvas: Canvas, selection: TerminalSelection) {
+        drawSelectionHandle(canvas, selection.startCol, selection.startRow, SelectionHandle.Start)
+        drawSelectionHandle(canvas, selection.endCol, selection.endRow, SelectionHandle.End)
+    }
+
+    private fun drawSelectionHandle(
+        canvas: Canvas,
+        col: Int,
+        row: Int,
+        handle: SelectionHandle,
+    ) {
+        val anchor = selectionHandleAnchor(col, row, handle) ?: return
+        val drawable = when (handle) {
+            SelectionHandle.Start -> selectionStartHandle
+            SelectionHandle.End -> selectionEndHandle
+        } ?: return
+        val width = selectionHandleWidth()
+        val height = selectionHandleHeight()
+        val left = when (handle) {
+            SelectionHandle.Start -> (anchor.x - width).roundToInt()
+            SelectionHandle.End -> anchor.x.roundToInt()
+        }
+        val top = when (handle) {
+            SelectionHandle.Start -> (anchor.y - height).roundToInt()
+            SelectionHandle.End -> anchor.y.roundToInt()
+        }
+        drawable.setBounds(left, top, left + width, top + height)
+        drawable.draw(canvas)
+    }
+
+    private fun selectionHandleAnchor(
+        col: Int,
+        row: Int,
+        handle: SelectionHandle,
+    ): TerminalPoint? {
+        val visibleRow = row - topRow
+        if (visibleRow < 0 || visibleRow >= lastRows) return null
+        val x = when (handle) {
+            SelectionHandle.Start -> (col + 1) * renderer.fontWidth
+            SelectionHandle.End -> col * renderer.fontWidth
+        }.coerceIn(0f, width.toFloat())
+        val handleHeight = selectionHandleHeight().toFloat()
+        val y = when (handle) {
+            SelectionHandle.Start -> (visibleRow + 1) * renderer.fontLineSpacing + handleHeight * 0.12f
+            SelectionHandle.End -> (visibleRow + 1) * renderer.fontLineSpacing - handleHeight * 0.88f
+        }.coerceIn(0f, height.toFloat())
+        return TerminalPoint(x, y)
+    }
+
+    private fun selectionHandleRadius(): Float {
+        return max(18f * resources.displayMetrics.density, renderer.fontLineSpacing * 0.5f)
+    }
+
+    private fun selectionHandleWidth(): Int {
+        return max(28f * resources.displayMetrics.density, renderer.fontLineSpacing * 0.9f)
+            .roundToInt()
+    }
+
+    private fun selectionHandleHeight(): Int {
+        return max(14f * resources.displayMetrics.density, renderer.fontLineSpacing * 0.45f)
+            .roundToInt()
+    }
+
+    private fun distanceSquared(x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        val dx = x1 - x2
+        val dy = y1 - y2
+        return dx * dx + dy * dy
     }
 
     private fun scrollByPixels(delta: Float) {
@@ -488,7 +622,10 @@ class CoduxRemoteTerminalView(
 
     override fun onTerminalCursorStateChange(state: Boolean) = invalidate()
     override fun getTerminalCursorStyle(): Int? = TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK
-    override fun onTextChanged(changedSession: TerminalSession?) = invalidate()
+    override fun onTextChanged(changedSession: TerminalSession?) {
+        emitCursorMetrics()
+        invalidate()
+    }
     override fun onTitleChanged(changedSession: TerminalSession?) = Unit
     override fun onSessionFinished(finishedSession: TerminalSession?) = Unit
     override fun onCopyTextToClipboard(session: TerminalSession?, text: String?) = Unit
@@ -515,11 +652,29 @@ private fun chooseNativeTerminalTypeface(context: Context): Typeface {
     }
 }
 
+private fun loadTermuxSelectionHandle(context: Context, name: String): Drawable? {
+    val id = context.resources.getIdentifier(
+        name,
+        "drawable",
+        context.packageName,
+    )
+    if (id == 0) return null
+    return context.getDrawable(id)
+}
+
 private fun applyTerminalBackground(terminal: TerminalEmulator) {
     terminal.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND] = TERMINAL_BACKGROUND_COLOR
 }
 
 private data class TerminalCell(val col: Int, val row: Int)
+
+private data class TerminalPoint(val x: Float, val y: Float)
+
+private data class TerminalCursorMetrics(
+    val row: Int,
+    val col: Int,
+    val lineHeight: Double,
+)
 
 private data class TerminalSelection(
     val startCol: Int,
@@ -527,3 +682,8 @@ private data class TerminalSelection(
     val endCol: Int,
     val endRow: Int,
 )
+
+private enum class SelectionHandle {
+    Start,
+    End,
+}

@@ -86,6 +86,36 @@ void main() {
     expect(sender.pendingCount, 0);
     expect(timers.single.isActive, isFalse);
   });
+
+  test('non retrying control input is sent once and not retained', () {
+    final timers = <_FakeTimer>[];
+    final sent = <RelayEnvelope>[];
+    final sender = TerminalInputReliableSender(
+      activeSessionId: () => 'session-1',
+      send: (message) {
+        sent.add(message);
+        return true;
+      },
+      timerFactory: (delay, callback) {
+        final timer = _FakeTimer(callback);
+        timers.add(timer);
+        return timer;
+      },
+    );
+
+    final ok = sender.send(
+      sessionId: 'session-1',
+      data: '\u0003',
+      source: 'key',
+      retry: false,
+    );
+
+    expect(ok, isTrue);
+    expect(sent, hasLength(1));
+    expect((sent.single.payload as Map)['data'], '\u0003');
+    expect(sender.pendingCount, 0);
+    expect(timers, isEmpty);
+  });
 }
 
 final class _FakeTimer implements Timer {

@@ -3010,7 +3010,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     }
     _claimTerminalViewport(sessionId: id);
     _flushPendingTerminalResize(force: true, sessionId: id);
-    _terminalInputSender.send(sessionId: id, data: data, source: source);
+    _terminalInputSender.send(
+      sessionId: id,
+      data: data,
+      source: source,
+      retry: data != '\u0003',
+    );
   }
 
   void _sendTerminalOutputAck(

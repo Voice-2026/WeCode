@@ -4,6 +4,16 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-06-17
+
+### Fixed
+
+- Fixed terminal `Ctrl+C` from the mobile toolbar so it sends a raw ETX once and does not retry stale interrupt input.
+- Fixed native terminal replay on Android and iOS so local emulator-generated OSC/DSR responses are not echoed back into the remote host input stream.
+- Improved software-keyboard lifting by using native terminal cursor metrics, keeping the cursor visible without forcing a terminal viewport resize.
+- Improved Android terminal text selection with Termux material handle assets and cell-aligned handle anchors.
+- Added iOS bundle localization metadata so native terminal selection controls can follow the app/device language.
+
 ## [1.8.1] - 2026-06-16
 
 ### Changed

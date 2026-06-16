@@ -35,6 +35,7 @@ class TerminalInputReliableSender {
     required String sessionId,
     required String data,
     required String source,
+    bool retry = true,
   }) {
     if (sessionId.isEmpty || data.isEmpty) return false;
     final inputId = '${DateTime.now().microsecondsSinceEpoch}-${++_seq}';
@@ -46,6 +47,7 @@ class TerminalInputReliableSender {
       sessionId: sessionId,
       data: data,
       source: source,
+      retry: retry,
     );
     _sendPending(inputId);
     return true;
@@ -100,6 +102,10 @@ class TerminalInputReliableSender {
     if (!sent) {
       CoduxLog.warn('[codux-flutter-input] send failed id=$inputId');
     }
+    if (!pending.retry) {
+      _pending.remove(inputId);
+      return;
+    }
     pending.attempt += 1;
     if (pending.attempt >= maxAttempts) {
       _pending.remove(inputId);
@@ -119,12 +125,14 @@ class _PendingTerminalInput {
     required this.sessionId,
     required this.data,
     required this.source,
+    required this.retry,
   });
 
   final String inputId;
   final String sessionId;
   final String data;
   final String source;
+  final bool retry;
   int attempt = 0;
   Timer? retryTimer;
 }

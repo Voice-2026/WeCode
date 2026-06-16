@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -9,7 +10,7 @@ import 'connect_hint.dart';
 import 'native_terminal_view.dart';
 import 'toolbar.dart';
 
-class RemoteTerminalPane extends StatelessWidget {
+class RemoteTerminalPane extends StatefulWidget {
   const RemoteTerminalPane({
     super.key,
     required this.connected,
@@ -74,8 +75,24 @@ class RemoteTerminalPane extends StatelessWidget {
   final VoidCallback onVoiceInput;
 
   @override
+  State<RemoteTerminalPane> createState() => _RemoteTerminalPaneState();
+}
+
+class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
+  NativeTerminalCursorMetrics? _cursorMetrics;
+
+  @override
+  void didUpdateWidget(covariant RemoteTerminalPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.sessionId != oldWidget.sessionId) {
+      _cursorMetrics = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final showTerminalToolbar = workspaceMode == 'terminal' && connected;
+    final showTerminalToolbar =
+        widget.workspaceMode == 'terminal' && widget.connected;
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     final keyboardActiveThreshold = bottomInset + 8.0;
@@ -107,20 +124,27 @@ class RemoteTerminalPane extends StatelessWidget {
                 (viewportHeight -
                         (showTerminalToolbar ? terminalToolbarHeight : 0.0))
                     .clamp(120.0, viewportHeight);
+            final terminalLift = _terminalLiftForKeyboard(
+              terminalHeight: terminalHeight,
+              keyboardLift: keyboardLift,
+              cursorMetrics: _cursorMetrics,
+            );
             final showHostSyncOverlay =
-                connected && !projectListLoaded && projectCount == 0;
+                widget.connected &&
+                !widget.projectListLoaded &&
+                widget.projectCount == 0;
             final showUploadOverlay =
-                showTerminal &&
-                workspaceMode == 'terminal' &&
-                terminalUploadLoading &&
-                terminalUploadStatus.isNotEmpty;
+                widget.showTerminal &&
+                widget.workspaceMode == 'terminal' &&
+                widget.terminalUploadLoading &&
+                widget.terminalUploadStatus.isNotEmpty;
             final showHistoryOverlay =
-                showTerminal &&
-                workspaceMode == 'terminal' &&
-                !terminalUploadLoading &&
-                terminalBufferLoading &&
-                sessionId != null &&
-                pendingBufferSessionId == sessionId;
+                widget.showTerminal &&
+                widget.workspaceMode == 'terminal' &&
+                !widget.terminalUploadLoading &&
+                widget.terminalBufferLoading &&
+                widget.sessionId != null &&
+                widget.pendingBufferSessionId == widget.sessionId;
 
             return Stack(
               clipBehavior: Clip.none,
@@ -131,7 +155,7 @@ class RemoteTerminalPane extends StatelessWidget {
                   top: 0,
                   height: terminalHeight,
                   child: Transform.translate(
-                    offset: Offset(0, -keyboardLift),
+                    offset: Offset(0, -terminalLift),
                     child: ColoredBox(
                       key: const ValueKey('remote-terminal-body'),
                       color: AppColors.bgBase,
@@ -139,44 +163,52 @@ class RemoteTerminalPane extends StatelessWidget {
                         padding: terminalPadding,
                         child: Stack(
                           children: [
-                            if (showTerminal && NativeTerminalView.supported)
+                            if (widget.showTerminal &&
+                                NativeTerminalView.supported)
                               NativeTerminalView(
                                 key: Platform.isIOS
                                     ? ValueKey(
-                                        'native-terminal-view-ios-${terminalReplay.sessionId}',
+                                        'native-terminal-view-ios-${widget.terminalReplay.sessionId}',
                                       )
                                     : const ValueKey('native-terminal-view'),
-                                replay: terminalReplay,
-                                fontSize: terminalFontSize,
-                                keyboardRequested: keyboardRequested,
-                                keyboardRequestSerial: keyboardRequestSerial,
-                                onInput: onInput,
-                                onResize: onResize,
-                                onSelectionChanged: onSelectionChanged,
+                                replay: widget.terminalReplay,
+                                fontSize: widget.terminalFontSize,
+                                keyboardRequested: widget.keyboardRequested,
+                                keyboardRequestSerial:
+                                    widget.keyboardRequestSerial,
+                                onInput: widget.onInput,
+                                onResize: widget.onResize,
+                                onSelectionChanged: widget.onSelectionChanged,
+                                onCursorMetrics: (metrics) {
+                                  if (_cursorMetrics == metrics) return;
+                                  setState(() => _cursorMetrics = metrics);
+                                },
                               )
-                            else if (showTerminal)
+                            else if (widget.showTerminal)
                               const _TerminalUnavailable()
                             else
                               ConnectHint(
-                                status: status.isEmpty
+                                status: widget.status.isEmpty
                                     ? AppPreferences.of(
                                         context,
                                       ).t('app.notConnected')
-                                    : status,
-                                hasDevice: hasDevice,
-                                onConnect: onConnect,
+                                    : widget.status,
+                                hasDevice: widget.hasDevice,
+                                onConnect: widget.onConnect,
                               ),
-                            if (showTerminal &&
+                            if (widget.showTerminal &&
                                 showHostSyncOverlay &&
-                                !terminalUploadLoading &&
-                                !terminalBufferLoading)
-                              _TerminalOverlay(message: connectionStatusText),
-                            if (showTerminal &&
+                                !widget.terminalUploadLoading &&
+                                !widget.terminalBufferLoading)
+                              _TerminalOverlay(
+                                message: widget.connectionStatusText,
+                              ),
+                            if (widget.showTerminal &&
                                 (showUploadOverlay || showHistoryOverlay))
                               _TerminalOverlay(
                                 message: showUploadOverlay
-                                    ? terminalUploadStatus
-                                    : terminalHistoryLoadingText,
+                                    ? widget.terminalUploadStatus
+                                    : widget.terminalHistoryLoadingText,
                                 opacity: 0.72,
                               ),
                           ],
@@ -191,16 +223,16 @@ class RemoteTerminalPane extends StatelessWidget {
                     right: 0,
                     bottom: toolbarBottom,
                     child: Toolbar(
-                      onSendKey: onSendKey,
+                      onSendKey: widget.onSendKey,
                       applicationCursor: false,
-                      keyboardVisible: keyboardVisible,
+                      keyboardVisible: widget.keyboardVisible,
                       bottomInset: 0,
-                      onToggleKeyboard: onToggleKeyboard,
-                      uploading: terminalUploadLoading,
-                      onPaste: onPaste,
-                      onCopy: onCopy,
-                      onUpload: onUpload,
-                      onVoiceInput: onVoiceInput,
+                      onToggleKeyboard: widget.onToggleKeyboard,
+                      uploading: widget.terminalUploadLoading,
+                      onPaste: widget.onPaste,
+                      onCopy: widget.onCopy,
+                      onUpload: widget.onUpload,
+                      onVoiceInput: widget.onVoiceInput,
                     ),
                   ),
               ],
@@ -210,6 +242,35 @@ class RemoteTerminalPane extends StatelessWidget {
       ),
     );
   }
+}
+
+double _terminalLiftForKeyboard({
+  required double terminalHeight,
+  required double keyboardLift,
+  required NativeTerminalCursorMetrics? cursorMetrics,
+}) {
+  if (keyboardLift <= 0) return 0;
+  final safeBottom = terminalHeight - keyboardLift;
+  if (safeBottom <= 0) return keyboardLift;
+  final metrics = cursorMetrics;
+  if (metrics == null) return keyboardLift;
+  final cursorBottom = (metrics.row + 1) * math.max(1.0, metrics.lineHeight);
+  final overflow = cursorBottom - safeBottom;
+  if (overflow <= 0) return 0;
+  return overflow.clamp(0.0, keyboardLift);
+}
+
+@visibleForTesting
+double terminalLiftForKeyboardForTest({
+  required double terminalHeight,
+  required double keyboardLift,
+  required NativeTerminalCursorMetrics? cursorMetrics,
+}) {
+  return _terminalLiftForKeyboard(
+    terminalHeight: terminalHeight,
+    keyboardLift: keyboardLift,
+    cursorMetrics: cursorMetrics,
+  );
 }
 
 class _TerminalUnavailable extends StatelessWidget {
