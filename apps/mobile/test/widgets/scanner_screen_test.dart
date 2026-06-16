@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('manual pairing exposes custom server input and submits it', (
+  testWidgets('manual pairing accepts pasted iroh token payload', (
     tester,
   ) async {
     String? payload;
@@ -33,22 +33,56 @@ void main() {
 
     await tester.tap(find.text('手动连接'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('自定义'));
-    await tester.pumpAndSettle();
 
-    final serverField = find.widgetWithText(
-      TextField,
-      'https://your-relay.example',
-    );
-    expect(serverField, findsOneWidget);
+    final tokenField = find.widgetWithText(TextField, '粘贴电脑端显示的配对 Token');
+    expect(tokenField, findsOneWidget);
 
-    await tester.enterText(serverField, 'https://relay.example');
-    await tester.enterText(find.widgetWithText(TextField, '6 位配对码'), '123456');
+    await tester.enterText(tokenField, 'iroh-ticket-token');
     await tester.pump();
     await tester.tap(find.text('配对'));
     await tester.pump();
 
-    expect(payload, contains('server=https%3A%2F%2Frelay.example'));
-    expect(payload, contains('code=123456'));
+    expect(payload, 'codux://pair?payload=iroh-ticket-token');
+  });
+
+  testWidgets('manual pairing submits full codux pair link unchanged', (
+    tester,
+  ) async {
+    String? payload;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: AppPreferences(
+            accent: AccentChoices.cyan,
+            locale: LocaleChoices.simplifiedChinese,
+            child: Stack(
+              children: [
+                ScannerScreen(
+                  bottomInset: 0,
+                  onDetected: (value) => payload = value,
+                  onClose: () {},
+                  scannerBuilder: (_) => const ColoredBox(color: Colors.black),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('手动连接'));
+    await tester.pumpAndSettle();
+
+    const pairLink = 'codux://pair?payload=embedded-iroh-ticket';
+    await tester.enterText(
+      find.widgetWithText(TextField, '粘贴电脑端显示的配对 Token'),
+      pairLink,
+    );
+    await tester.pump();
+    await tester.tap(find.text('配对'));
+    await tester.pump();
+
+    expect(payload, pairLink);
   });
 }
