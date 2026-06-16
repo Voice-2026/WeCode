@@ -156,13 +156,11 @@ impl RuntimeService {
         }
 
         let projects = self.memory_project_workspaces();
+        self.refresh_global_ai_history_index();
         let _ = self.ai_runtime.poll_runtime_state();
         let runtime_state = self.ai_runtime.runtime_state_snapshot();
-        let history_sessions = indexed_sessions_since_at(
-            self.ai_usage_database_path(),
-            Some(memory_history_cutoff_seconds(&settings.memory)),
-        )
-        .map_err(|error| error.to_string())?;
+        let history_sessions = indexed_sessions_since_at(self.ai_usage_database_path(), None)
+            .map_err(|error| error.to_string())?;
         memory_service.enqueue_automatic_extraction_candidates(
             &settings.memory,
             &projects,
@@ -177,16 +175,7 @@ impl RuntimeService {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
-        let root_projects = ProjectStore::new(self.support_dir.clone())
-            .project_summaries()
-            .into_iter()
-            .map(|project| AIHistoryProjectRequest {
-                id: project.id,
-                name: project.name,
-                path: project.path,
-            })
-            .collect();
-        let _ = self.ai_history_indexer.global_summary(root_projects);
+        self.refresh_global_ai_history_index();
         let _ = self.ai_runtime.poll_runtime_state();
         let runtime_state = self.ai_runtime.runtime_state_snapshot();
         let history_sessions = indexed_sessions_since_at(self.ai_usage_database_path(), None)
@@ -255,6 +244,22 @@ impl RuntimeService {
 
     fn memory_project_workspaces(&self) -> Vec<crate::project_store::ProjectWorkspaceRecord> {
         ProjectStore::new(self.support_dir.clone()).project_workspaces_snapshot()
+    }
+
+    fn refresh_global_ai_history_index(&self) {
+        let root_projects = ProjectStore::new(self.support_dir.clone())
+            .project_summaries()
+            .into_iter()
+            .map(|project| AIHistoryProjectRequest {
+                id: project.id,
+                name: project.name,
+                path: project.path,
+            })
+            .collect();
+        let _ = index_global_history_fresh_at(
+            root_projects,
+            crate::ai_usage_store::AIUsageStore::at_path(self.ai_usage_database_path()),
+        );
     }
 
     pub fn reload_notifications(&self) -> NotificationSummary {
@@ -403,12 +408,4 @@ impl RuntimeService {
             .await
             .ok_or_else(|| "Unable to refresh project profile.".to_string())
     }
-}
-
-fn memory_history_cutoff_seconds(settings: &crate::settings::AIMemorySettings) -> f64 {
-    let window = settings
-        .session_extraction_cooldown_seconds
-        .max(settings.extraction_idle_delay_seconds)
-        .max(900) as f64;
-    crate::memory::now_seconds() - window
 }

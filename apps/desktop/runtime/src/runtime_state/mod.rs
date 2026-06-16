@@ -6,7 +6,8 @@ use crate::{
     ai_history_indexer::{AIHistoryEvent, AIHistoryIndexer, AIHistoryProjectState},
     ai_history_normalized::{
         AIGlobalHistorySnapshot, AIHistoryProjectRequest, global_today_normalized_tokens_at,
-        indexed_sessions_since_at, normalized_project_totals_since_at,
+        index_global_history_fresh_at, indexed_sessions_since_at,
+        normalized_project_totals_since_at,
     },
     ai_runtime::{
         AIRuntimeBridge, AIRuntimeBridgeSnapshot, AIRuntimeContextSnapshot, AIRuntimeProbeRequest,

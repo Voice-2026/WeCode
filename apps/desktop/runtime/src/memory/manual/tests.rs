@@ -202,6 +202,52 @@ fn automatic_enqueue_respects_idle_delay_and_enabled_flag() {
 }
 
 #[test]
+fn automatic_enqueue_keeps_older_ready_runtime_candidates() {
+    let support_dir = temp_support_dir();
+    let transcript_dir = support_dir.join("project-a");
+    fs::create_dir_all(&transcript_dir).unwrap();
+    let old = transcript_dir.join("old.jsonl");
+    let newer = transcript_dir.join("newer.jsonl");
+    fs::write(&old, "user old\nassistant old\n").unwrap();
+    fs::write(&newer, "user newer\nassistant newer\n").unwrap();
+
+    let service = MemoryService::new(support_dir.clone());
+    let project = project(&transcript_dir.display().to_string());
+    let settings = AIMemorySettings {
+        enabled: true,
+        automatic_extraction_enabled: true,
+        extraction_idle_delay_seconds: 300,
+        max_index_sessions: 20,
+        ..Default::default()
+    };
+    let now = now_seconds();
+    let sessions = vec![
+        runtime_session(
+            "term-old",
+            "session-old",
+            &old.display().to_string(),
+            now - 7_200.0,
+        ),
+        runtime_session(
+            "term-newer",
+            "session-newer",
+            &newer.display().to_string(),
+            now - 600.0,
+        ),
+    ];
+
+    let result = service
+        .enqueue_automatic_extraction_candidates(&settings, &[project], &sessions, &[])
+        .unwrap();
+
+    assert_eq!(result.checked_count, 2);
+    assert_eq!(result.enqueued_count, 2);
+    assert_eq!(result.status.pending_count, 2);
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
 fn automatic_enqueue_skips_session_with_active_pending_task() {
     let support_dir = temp_support_dir();
     let transcript_dir = support_dir.join("project-a");
@@ -252,7 +298,7 @@ fn automatic_enqueue_skips_session_with_active_pending_task() {
 }
 
 #[test]
-fn automatic_enqueue_limits_batch_and_stores_only_task_metadata() {
+fn automatic_enqueue_uses_configured_candidate_limit_and_stores_only_task_metadata() {
     let support_dir = temp_support_dir();
     let transcript_dir = support_dir.join("project-a");
     fs::create_dir_all(&transcript_dir).unwrap();
@@ -287,9 +333,9 @@ fn automatic_enqueue_limits_batch_and_stores_only_task_metadata() {
         .enqueue_automatic_extraction_candidates(&settings, &[project], &sessions, &[])
         .unwrap();
 
-    assert_eq!(result.checked_count, 10);
-    assert_eq!(result.enqueued_count, 10);
-    assert_eq!(result.status.pending_count, 10);
+    assert_eq!(result.checked_count, 12);
+    assert_eq!(result.enqueued_count, 12);
+    assert_eq!(result.status.pending_count, 12);
 
     let conn = Connection::open(support_dir.join("memory.sqlite3")).unwrap();
     let schema = conn
@@ -326,7 +372,7 @@ fn automatic_enqueue_limits_batch_and_stores_only_task_metadata() {
             .collect::<Result<Vec<_>, _>>()
             .unwrap()
     };
-    assert_eq!(stored_paths.len(), 10);
+    assert_eq!(stored_paths.len(), 12);
     assert!(stored_paths.iter().all(|path| path.ends_with(".jsonl")));
     assert!(
         stored_paths

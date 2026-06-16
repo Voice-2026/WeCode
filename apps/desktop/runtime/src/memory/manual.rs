@@ -16,8 +16,6 @@ use crate::{
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-const MAX_AUTOMATIC_EXTRACTION_ENQUEUE: usize = 10;
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryExtractionEnqueueResult {
@@ -77,8 +75,7 @@ impl MemoryService {
             projects,
             history_sessions,
         ));
-        let mut sessions = deduplicate_manual_candidates(sessions);
-        sessions.truncate(MAX_AUTOMATIC_EXTRACTION_ENQUEUE);
+        let sessions = deduplicate_manual_candidates(sessions);
         self.enqueue_extraction_candidates(projects, &sessions)
     }
 
