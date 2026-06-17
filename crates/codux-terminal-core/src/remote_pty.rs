@@ -251,7 +251,7 @@ impl<T> RemotePtySession<T> {
         // scrollback and is therefore absent from the raw history above; without
         // the keyframe a fresh restore renders blank until the host happens to
         // emit a full repaint. The keyframe carries the active DEC modes and its
-        // \x1b[2J clears only the visible screen (libghostty keeps scrollback),
+        // \x1b[2J clears only the visible screen (alacritty keeps scrollback),
         // so the raw history above stays scrollable.
         if let Some(screen_data) = screen_data {
             if !screen_data.is_empty() {

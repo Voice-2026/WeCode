@@ -35,32 +35,15 @@ if ! command -v cargo-ndk >/dev/null 2>&1; then
 fi
 
 cd "$REPO_ROOT"
+# Drop any stale ghostty shared library from the previous VT engine; the engine
+# is now alacritty_terminal (pure Rust), linked straight into the FFI .so, so no
+# separate native library needs to be bundled.
 rm -f \
   "$PLUGIN_DIR/android/src/main/jniLibs/arm64-v8a/libc++_shared.so" \
+  "$PLUGIN_DIR/android/src/main/jniLibs/arm64-v8a/libghostty-vt.so" \
   "$PLUGIN_DIR/android/src/main/jniLibs/arm64-v8a/libghostty-vt.so.0"
 
 cargo ndk \
   -t arm64-v8a \
   -o "$PLUGIN_DIR/android/src/main/jniLibs" \
   build -p codux-protocol-ffi --release
-
-copy_ghostty_vt() {
-  local target="$1"
-  local abi="$2"
-  local ghostty_lib
-  ghostty_lib="$(
-    find "$REPO_ROOT/target/$target/release/build" \
-      -path '*/out/android-link-lib/libghostty-vt.so' \
-      -size +1M \
-      -print \
-      | sort \
-      | tail -1
-  )"
-  if [[ -z "$ghostty_lib" || ! -f "$ghostty_lib" ]]; then
-    echo "libghostty-vt.so not found for $target under $REPO_ROOT/target" >&2
-    exit 2
-  fi
-  cp "$ghostty_lib" "$PLUGIN_DIR/android/src/main/jniLibs/$abi/libghostty-vt.so"
-}
-
-copy_ghostty_vt "aarch64-linux-android" "arm64-v8a"

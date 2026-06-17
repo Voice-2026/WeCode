@@ -951,7 +951,7 @@ impl TerminalPtySession {
             // (which is why re-entering the terminal "fixed" it). Append the
             // live screen keyframe -- it carries the active DEC modes
             // (alt-screen, mouse) and its ESC[2J clears only the visible screen
-            // (libghostty keeps scrollback) -- so the current screen and its
+            // (alacritty keeps scrollback) -- so the current screen and its
             // modes are reconstructed immediately. Normal-screen sessions
             // reconstruct fully from the raw history and skip this.
             let screen = self.screen_snapshot();

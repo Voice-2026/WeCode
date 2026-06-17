@@ -18,8 +18,8 @@ use crate::TerminalInputMode;
 pub type TerminalPtyResponder = Arc<dyn Fn(&[u8]) + Send + Sync>;
 
 const PROCESS_CHUNK_BYTES: usize = 64 * 1024;
-const GHOSTTY_CELL_WIDTH_PX: u32 = 10;
-const GHOSTTY_CELL_HEIGHT_PX: u32 = 20;
+const TERMINAL_CELL_WIDTH_PX: u32 = 10;
+const TERMINAL_CELL_HEIGHT_PX: u32 = 20;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,7 +91,7 @@ pub enum TerminalScreenColor {
 }
 
 pub struct HeadlessTerminalScreen {
-    engine: GhosttyTerminalScreenEngine,
+    engine: TerminalScreenEngine,
     pending_scroll_pixels: f64,
 }
 
@@ -120,7 +120,7 @@ impl HeadlessTerminalScreen {
         responder: Option<TerminalPtyResponder>,
     ) -> Self {
         Self {
-            engine: GhosttyTerminalScreenEngine::new(cols, rows, scrollback, responder),
+            engine: TerminalScreenEngine::new(cols, rows, scrollback, responder),
             pending_scroll_pixels: 0.0,
         }
     }
@@ -142,7 +142,7 @@ impl HeadlessTerminalScreen {
         for chunk in bytes.chunks(PROCESS_CHUNK_BYTES) {
             if !chunk.is_empty() {
                 self.engine
-                    .send(GhosttyScreenCommand::ProcessReplay(chunk.to_vec()));
+                    .send(TerminalScreenCommand::ProcessReplay(chunk.to_vec()));
             }
         }
     }
@@ -229,7 +229,7 @@ impl HeadlessTerminalScreen {
         let _ = self
             .engine
             .tx
-            .send(GhosttyScreenCommand::SnapshotAtOffset { offset, reply: tx });
+            .send(TerminalScreenCommand::SnapshotAtOffset { offset, reply: tx });
         HeadlessTerminalSnapshotRequest { rx }
     }
 
@@ -272,11 +272,11 @@ impl HeadlessTerminalScreen {
 }
 
 #[derive(Clone)]
-struct GhosttyTerminalScreenEngine {
-    tx: mpsc::Sender<GhosttyScreenCommand>,
+struct TerminalScreenEngine {
+    tx: mpsc::Sender<TerminalScreenCommand>,
 }
 
-impl GhosttyTerminalScreenEngine {
+impl TerminalScreenEngine {
     fn new(
         cols: usize,
         rows: usize,
@@ -285,25 +285,25 @@ impl GhosttyTerminalScreenEngine {
     ) -> Self {
         let (tx, rx) = mpsc::channel();
         thread::Builder::new()
-            .name("codux-ghostty-screen".to_string())
+            .name("codux-terminal-screen".to_string())
             .spawn(move || {
-                GhosttyScreenWorker::new(cols, rows, scrollback, responder).run(rx);
+                TerminalScreenWorker::new(cols, rows, scrollback, responder).run(rx);
             })
-            .expect("failed to spawn ghostty screen worker");
+            .expect("failed to spawn terminal screen worker");
         Self { tx }
     }
 
     fn clear(&mut self) {
-        self.send(GhosttyScreenCommand::Clear);
+        self.send(TerminalScreenCommand::Clear);
     }
 
-    fn send(&self, command: GhosttyScreenCommand) {
+    fn send(&self, command: TerminalScreenCommand) {
         let _ = self.tx.send(command);
     }
 
     fn request<R: Default>(
         &self,
-        build: impl FnOnce(mpsc::Sender<R>) -> GhosttyScreenCommand,
+        build: impl FnOnce(mpsc::Sender<R>) -> TerminalScreenCommand,
     ) -> R {
         let (tx, rx) = mpsc::channel();
         if self.tx.send(build(tx)).is_err() {
@@ -314,38 +314,38 @@ impl GhosttyTerminalScreenEngine {
 
     fn process(&mut self, bytes: &[u8]) {
         if !bytes.is_empty() {
-            self.send(GhosttyScreenCommand::Process(bytes.to_vec()));
+            self.send(TerminalScreenCommand::Process(bytes.to_vec()));
         }
     }
 
     fn resize(&mut self, cols: usize, rows: usize) {
-        self.send(GhosttyScreenCommand::Resize { cols, rows });
+        self.send(TerminalScreenCommand::Resize { cols, rows });
     }
 
     fn scroll_lines(&mut self, lines: i32) {
         if lines != 0 {
-            self.send(GhosttyScreenCommand::ScrollLines(lines));
+            self.send(TerminalScreenCommand::ScrollLines(lines));
         }
     }
 
     fn scroll_to_bottom(&mut self) {
-        self.send(GhosttyScreenCommand::ScrollToBottom);
+        self.send(TerminalScreenCommand::ScrollToBottom);
     }
 
     fn scroll_to_offset(&mut self, offset: usize) {
-        self.send(GhosttyScreenCommand::ScrollToOffset(offset));
+        self.send(TerminalScreenCommand::ScrollToOffset(offset));
     }
 
     fn display_offset(&self) -> usize {
-        self.request(GhosttyScreenCommand::DisplayOffset)
+        self.request(TerminalScreenCommand::DisplayOffset)
     }
 
     fn input_mode(&self) -> TerminalInputMode {
-        self.request(GhosttyScreenCommand::InputMode)
+        self.request(TerminalScreenCommand::InputMode)
     }
 
     fn snapshot(&self, scroll_pixel_offset: f64) -> TerminalScreenSnapshot {
-        self.request(|reply| GhosttyScreenCommand::Snapshot {
+        self.request(|reply| TerminalScreenCommand::Snapshot {
             scroll_pixel_offset,
             include_data: true,
             reply,
@@ -358,7 +358,7 @@ impl GhosttyTerminalScreenEngine {
         include_data: bool,
     ) -> HeadlessTerminalSnapshotRequest {
         let (tx, rx) = mpsc::channel();
-        let _ = self.tx.send(GhosttyScreenCommand::Snapshot {
+        let _ = self.tx.send(TerminalScreenCommand::Snapshot {
             scroll_pixel_offset,
             include_data,
             reply: tx,
@@ -373,7 +373,7 @@ impl GhosttyTerminalScreenEngine {
         max_lines: usize,
     ) -> HeadlessTerminalSnapshotRequest {
         let (tx, rx) = mpsc::channel();
-        let _ = self.tx.send(GhosttyScreenCommand::RemoteViewportSnapshot {
+        let _ = self.tx.send(TerminalScreenCommand::RemoteViewportSnapshot {
             display_offset,
             overscan_rows,
             max_lines,
@@ -383,11 +383,11 @@ impl GhosttyTerminalScreenEngine {
     }
 
     fn has_history_above_viewport(&self) -> bool {
-        self.request(GhosttyScreenCommand::HasHistoryAboveViewport)
+        self.request(TerminalScreenCommand::HasHistoryAboveViewport)
     }
 }
 
-enum GhosttyScreenCommand {
+enum TerminalScreenCommand {
     Process(Vec<u8>),
     ProcessReplay(Vec<u8>),
     Resize {
@@ -463,7 +463,7 @@ impl EventListener for HeadlessEventProxy {
     }
 }
 
-struct GhosttyScreenWorker {
+struct TerminalScreenWorker {
     term: Term<HeadlessEventProxy>,
     parser: Processor,
     events: Rc<RefCell<Vec<Event>>>,
@@ -473,7 +473,7 @@ struct GhosttyScreenWorker {
     responder: Option<TerminalPtyResponder>,
 }
 
-impl GhosttyScreenWorker {
+impl TerminalScreenWorker {
     fn new(
         cols: usize,
         rows: usize,
@@ -534,12 +534,12 @@ impl GhosttyScreenWorker {
         WindowSize {
             num_lines: self.rows.try_into().unwrap_or(u16::MAX),
             num_cols: self.cols.try_into().unwrap_or(u16::MAX),
-            cell_width: GHOSTTY_CELL_WIDTH_PX as u16,
-            cell_height: GHOSTTY_CELL_HEIGHT_PX as u16,
+            cell_width: TERMINAL_CELL_WIDTH_PX as u16,
+            cell_height: TERMINAL_CELL_HEIGHT_PX as u16,
         }
     }
 
-    fn run(mut self, rx: mpsc::Receiver<GhosttyScreenCommand>) {
+    fn run(mut self, rx: mpsc::Receiver<TerminalScreenCommand>) {
         let mut deferred = None;
         loop {
             let command = match deferred.take() {
@@ -550,16 +550,16 @@ impl GhosttyScreenWorker {
                 },
             };
             match command {
-                GhosttyScreenCommand::Process(bytes) => self.feed(&bytes, true),
-                GhosttyScreenCommand::ProcessReplay(bytes) => self.feed(&bytes, false),
-                GhosttyScreenCommand::Resize { mut cols, mut rows } => {
+                TerminalScreenCommand::Process(bytes) => self.feed(&bytes, true),
+                TerminalScreenCommand::ProcessReplay(bytes) => self.feed(&bytes, false),
+                TerminalScreenCommand::Resize { mut cols, mut rows } => {
                     // Layout settling queues resizes back-to-back, and every
                     // column change reflows the whole scrollback. Collapse a
                     // consecutive run of resizes into the final one; ordering
                     // relative to other commands is preserved.
                     while let Ok(following) = rx.try_recv() {
                         match following {
-                            GhosttyScreenCommand::Resize {
+                            TerminalScreenCommand::Resize {
                                 cols: next_cols,
                                 rows: next_rows,
                             } => {
@@ -574,35 +574,35 @@ impl GhosttyScreenWorker {
                     }
                     self.resize(cols, rows);
                 }
-                GhosttyScreenCommand::ScrollLines(lines) => self.scroll_lines(lines),
-                GhosttyScreenCommand::ScrollToBottom => {
+                TerminalScreenCommand::ScrollLines(lines) => self.scroll_lines(lines),
+                TerminalScreenCommand::ScrollToBottom => {
                     self.term.scroll_display(Scroll::Bottom);
                 }
-                GhosttyScreenCommand::ScrollToOffset(offset) => self.scroll_to_offset(offset),
-                GhosttyScreenCommand::DisplayOffset(reply) => {
+                TerminalScreenCommand::ScrollToOffset(offset) => self.scroll_to_offset(offset),
+                TerminalScreenCommand::DisplayOffset(reply) => {
                     let _ = reply.send(self.display_offset());
                 }
-                GhosttyScreenCommand::InputMode(reply) => {
+                TerminalScreenCommand::InputMode(reply) => {
                     let _ = reply.send(terminal_input_mode(&self.term));
                 }
-                GhosttyScreenCommand::HasHistoryAboveViewport(reply) => {
+                TerminalScreenCommand::HasHistoryAboveViewport(reply) => {
                     let _ = reply.send(self.has_history_above_viewport());
                 }
-                GhosttyScreenCommand::Snapshot {
+                TerminalScreenCommand::Snapshot {
                     scroll_pixel_offset,
                     include_data,
                     reply,
                 } => {
                     let _ = reply.send(self.snapshot(scroll_pixel_offset, include_data));
                 }
-                GhosttyScreenCommand::SnapshotAtOffset { offset, reply } => {
+                TerminalScreenCommand::SnapshotAtOffset { offset, reply } => {
                     let saved = self.display_offset();
                     self.scroll_to_offset(offset);
                     let snapshot = self.snapshot(0.0, true);
                     self.scroll_to_offset(saved);
                     let _ = reply.send(snapshot);
                 }
-                GhosttyScreenCommand::RemoteViewportSnapshot {
+                TerminalScreenCommand::RemoteViewportSnapshot {
                     display_offset,
                     overscan_rows,
                     max_lines,
@@ -614,7 +614,7 @@ impl GhosttyScreenWorker {
                     self.scroll_to_offset(saved);
                     let _ = reply.send(snapshot);
                 }
-                GhosttyScreenCommand::Clear => {
+                TerminalScreenCommand::Clear => {
                     self = Self::new(
                         self.cols,
                         self.rows,
