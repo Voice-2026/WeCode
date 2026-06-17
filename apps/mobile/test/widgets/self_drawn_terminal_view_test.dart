@@ -69,4 +69,63 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('long-press then drag selects text and reports it', (
+    tester,
+  ) async {
+    final controller = RemoteTerminalOutputController();
+    addTearDown(controller.dispose);
+    controller.bindSession('session-1', requireBaseline: true);
+    controller.accept(
+      const RelayEnvelope(
+        type: 'terminal.output',
+        sessionId: 'session-1',
+        payload: {
+          'data': 'hello world',
+          'buffer': true,
+          'offset': 0,
+          'bufferLength': 11,
+          'tail': true,
+          'outputSeq': 1,
+        },
+      ),
+      activeSessionId: 'session-1',
+    );
+
+    final signal = ValueNotifier<int>(0);
+    addTearDown(signal.dispose);
+    String? selected = '';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 480,
+            child: SelfDrawnTerminalView(
+              sessionId: 'session-1',
+              controller: controller,
+              repaintSignal: signal,
+              fontSize: 14,
+              onSelectionChanged: (text) => selected = text,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final origin = tester.getTopLeft(find.byType(SelfDrawnTerminalView));
+    final gesture = await tester.startGesture(origin + const Offset(6, 8));
+    await tester.pump(const Duration(milliseconds: 600)); // long-press fires
+    await gesture.moveBy(const Offset(90, 0)); // extend across the first line
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(selected, isNotNull);
+    expect(selected, isNotEmpty);
+  });
 }

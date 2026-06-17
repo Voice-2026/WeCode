@@ -179,6 +179,7 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
                                 onResize: widget.onResize,
                                 onInput: widget.onInput,
                                 onSendKey: widget.onSendKey,
+                                onSelectionChanged: widget.onSelectionChanged,
                                 keyboardRequested: widget.keyboardRequested,
                                 keyboardRequestSerial: widget.keyboardRequestSerial,
                                 onCursorMetrics: (metrics) {

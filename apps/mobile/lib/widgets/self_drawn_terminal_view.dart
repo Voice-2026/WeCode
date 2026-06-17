@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:codux_protocol_ffi/codux_protocol_ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/services.dart';
 
 import '../services/remote_terminal_output_controller.dart';
 import '../theme/app_theme.dart';
@@ -32,6 +34,7 @@ class SelfDrawnTerminalView extends StatefulWidget {
     this.onInput,
     this.onSendKey,
     this.onCursorMetrics,
+    this.onSelectionChanged,
     this.keyboardRequested = false,
     this.keyboardRequestSerial = 0,
   });
@@ -51,6 +54,9 @@ class SelfDrawnTerminalView extends StatefulWidget {
   /// Pre-encoded key bytes (enter, backspace, ...), sent immediately.
   final ValueChanged<String>? onSendKey;
   final ValueChanged<NativeTerminalCursorMetrics?>? onCursorMetrics;
+
+  /// Selected text (null when the selection is cleared), for the copy action.
+  final ValueChanged<String?>? onSelectionChanged;
   final bool keyboardRequested;
   final int keyboardRequestSerial;
 
@@ -94,6 +100,19 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   );
   double _flingLast = 0;
 
+  // Text selection. Endpoints are anchored to the scrollback as "lines from
+  // the bottom" (lfb) + column, so they stay on the same content while the
+  // view scrolls. `_selCells` accumulates the cells the user scrolls over
+  // during a selection so a multi-screen selection can still be copied.
+  final GlobalKey _termKey = GlobalKey();
+  ({int lfb, int col})? _selAnchor;
+  ({int lfb, int col})? _selFocus;
+  final Map<int, Map<int, TerminalScreenCell>> _selCells = {};
+  Timer? _autoScrollTimer;
+  int _autoScrollDir = 0;
+  Offset? _lastSelectLocal;
+  bool _lastSelectMovesAnchor = false;
+
   @override
   void initState() {
     super.initState();
@@ -125,14 +144,32 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     if (widget.sessionId != oldWidget.sessionId) {
       _appliedGen = -1;
       _lastCursorMetrics = null;
-      // Force a resize for the newly-active session: the viewport pixel size is
-      // unchanged across a session switch, so _syncGrid would otherwise not
-      // re-fire, and the new session's host PTY would never be told the mobile
-      // size (repaint apps then paint at the host's old row count, leaving the
-      // bottom blank).
-      _cols = 0;
-      _rows = 0;
-      _scheduleRefresh();
+      _selAnchor = null;
+      _selFocus = null;
+      _selCells.clear();
+      final sessionId = widget.sessionId;
+      if (sessionId == null) {
+        _snapshot = null;
+      } else {
+        // The viewport pixel size is unchanged across a switch, so resize the
+        // new session's screen to the known grid and read its snapshot
+        // synchronously here: the build that follows paints the new session at
+        // the correct size on the very first frame -- no stale content and no
+        // resize-reflow flashing through.
+        if (_cols > 0 && _rows > 0) {
+          widget.controller.resizeScreen(sessionId, cols: _cols, rows: _rows);
+        }
+        _snapshot = widget.controller.screenSnapshot(sessionId);
+        _appliedGen = widget.controller.renderGeneration(sessionId);
+        // Sync the host PTY to this session's viewport after the frame (so a
+        // repaint/TUI app paints at the mobile row count, not the host's old
+        // size). Deduped by the viewport controller if already in sync.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || widget.sessionId != sessionId) return;
+          if (_cols > 0 && _rows > 0) widget.onResize?.call(_cols, _rows);
+          _refresh(force: true);
+        });
+      }
     }
     if (widget.keyboardRequestSerial != oldWidget.keyboardRequestSerial ||
         widget.keyboardRequested != oldWidget.keyboardRequested) {
@@ -147,6 +184,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     _inputController.dispose();
     _focusNode.dispose();
     _fling.dispose();
+    _autoScrollTimer?.cancel();
     super.dispose();
   }
 
@@ -164,9 +202,20 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   void _applyKeyboard() {
     if (!mounted) return;
     if (widget.keyboardRequested) {
-      _focusNode.requestFocus();
+      _showKeyboard();
     } else if (_focusNode.hasFocus) {
       _focusNode.unfocus();
+    }
+  }
+
+  /// Show the soft keyboard. When the field is already focused (e.g. the
+  /// keyboard was dismissed by the system or after a selection) `requestFocus`
+  /// is a no-op and the IME would not reappear, so re-open it explicitly.
+  void _showKeyboard() {
+    if (_focusNode.hasFocus) {
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    } else {
+      _focusNode.requestFocus();
     }
   }
 
@@ -243,6 +292,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final snapshot = widget.controller.screenSnapshot(sessionId);
     _appliedGen = gen;
     if (mounted) setState(() => _snapshot = snapshot);
+    _captureSelectionCells();
     _emitCursorMetrics();
   }
 
@@ -321,9 +371,261 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     _refresh(force: true);
   }
 
+  // ---- selection -----------------------------------------------------------
+
+  double _scrollShift() {
+    final snapshot = _snapshot;
+    if (snapshot == null) return 0;
+    return snapshot.scrollPixelOffset - snapshot.marginRows * _cellHeight;
+  }
+
+  /// Lines-from-bottom of a viewport row (row 0 = top). Stable under scrolling.
+  int _rowToLfb(int viewportRow) {
+    final snapshot = _snapshot;
+    if (snapshot == null) return viewportRow;
+    return snapshot.displayOffset + (snapshot.rows - 1 - viewportRow);
+  }
+
+  /// Inverse of [_rowToLfb] for the current snapshot (may be off-screen).
+  int _lfbToRow(int lfb) {
+    final snapshot = _snapshot;
+    if (snapshot == null) return lfb;
+    return snapshot.displayOffset + snapshot.rows - 1 - lfb;
+  }
+
+  ({int lfb, int col}) _cellAt(Offset local) {
+    final shift = _scrollShift();
+    final rows = _snapshot?.rows ?? 1;
+    final col = _cellWidth > 0 ? (local.dx / _cellWidth).floor() : 0;
+    var row = _cellHeight > 0 ? ((local.dy - shift) / _cellHeight).floor() : 0;
+    row = row.clamp(0, rows - 1);
+    return (lfb: _rowToLfb(row), col: col < 0 ? 0 : col);
+  }
+
+  /// Record the currently-visible cells (keyed by their scrollback line) so a
+  /// selection that scrolls across more than one screen can still be copied.
+  void _captureSelectionCells() {
+    if (_selAnchor == null) return;
+    final snapshot = _snapshot;
+    if (snapshot == null) return;
+    for (final cell in snapshot.cells) {
+      if (cell.row < 0 || cell.row >= snapshot.rows) continue;
+      (_selCells[_rowToLfb(cell.row)] ??= {})[cell.col] = cell;
+    }
+  }
+
+  void _onLongPressStart(LongPressStartDetails details) {
+    _fling.stop();
+    _selCells.clear();
+    final cell = _cellAt(details.localPosition);
+    setState(() {
+      _selAnchor = cell;
+      _selFocus = cell;
+    });
+    _captureSelectionCells();
+  }
+
+  void _onLongPressMove(LongPressMoveUpdateDetails details) {
+    if (_selAnchor == null) return;
+    _extendSelection(details.localPosition, moveAnchor: false);
+  }
+
+  void _onLongPressEnd(LongPressEndDetails details) {
+    _stopAutoScroll();
+    _emitSelection();
+  }
+
+  void _extendSelection(Offset local, {required bool moveAnchor}) {
+    final cell = _cellAt(local);
+    setState(() {
+      if (moveAnchor) {
+        _selAnchor = cell;
+      } else {
+        _selFocus = cell;
+      }
+    });
+    _lastSelectLocal = local;
+    _lastSelectMovesAnchor = moveAnchor;
+    _captureSelectionCells();
+    _maybeAutoScroll(local);
+  }
+
+  void _maybeAutoScroll(Offset local) {
+    final height = _termKey.currentContext?.size?.height ?? context.size?.height;
+    const zone = 48.0;
+    var dir = 0;
+    if (local.dy < zone) {
+      dir = -1;
+    } else if (height != null && local.dy > height - zone) {
+      dir = 1;
+    }
+    if (dir == 0) {
+      _stopAutoScroll();
+      return;
+    }
+    if (_autoScrollTimer != null && _autoScrollDir == dir) return;
+    _autoScrollDir = dir;
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = Timer.periodic(
+      const Duration(milliseconds: 40),
+      (_) => _autoScrollTick(),
+    );
+  }
+
+  void _autoScrollTick() {
+    if (_selAnchor == null || _cellHeight <= 0) {
+      _stopAutoScroll();
+      return;
+    }
+    // Dragging toward the top scrolls into history (positive pixels); toward
+    // the bottom scrolls back toward the live tail.
+    _scrollBy(_autoScrollDir < 0 ? _cellHeight : -_cellHeight);
+    final local = _lastSelectLocal;
+    if (local == null) return;
+    final cell = _cellAt(local);
+    setState(() {
+      if (_lastSelectMovesAnchor) {
+        _selAnchor = cell;
+      } else {
+        _selFocus = cell;
+      }
+    });
+    _captureSelectionCells();
+  }
+
+  void _stopAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+    _autoScrollDir = 0;
+  }
+
+  void _onHandlePanStart(bool isStart) {
+    _fling.stop();
+    final range = _normalizedSelection();
+    if (range == null) return;
+    final (start, end) = range;
+    setState(() {
+      // The dragged handle becomes the moving focus; the other end is fixed.
+      _selAnchor = isStart ? end : start;
+      _selFocus = isStart ? start : end;
+    });
+  }
+
+  void _onHandlePanUpdate(DragUpdateDetails details) {
+    final box = _termKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    _extendSelection(box.globalToLocal(details.globalPosition), moveAnchor: false);
+  }
+
+  void _onHandlePanEnd(DragEndDetails details) {
+    _stopAutoScroll();
+    _emitSelection();
+  }
+
+  void _emitSelection() {
+    final text = _selectedText();
+    widget.onSelectionChanged?.call(text.isEmpty ? null : text);
+  }
+
+  void _clearSelection() {
+    _stopAutoScroll();
+    if (_selAnchor == null && _selFocus == null) return;
+    setState(() {
+      _selAnchor = null;
+      _selFocus = null;
+    });
+    _selCells.clear();
+    widget.onSelectionChanged?.call(null);
+  }
+
+  /// Normalize anchor/focus into (start, end) in reading order. Larger lfb is
+  /// higher up the scrollback, so the start endpoint has the larger lfb.
+  (({int lfb, int col}), ({int lfb, int col}))? _normalizedSelection() {
+    final a = _selAnchor;
+    final b = _selFocus;
+    if (a == null || b == null) return null;
+    final aFirst = a.lfb > b.lfb || (a.lfb == b.lfb && a.col <= b.col);
+    return aFirst ? (a, b) : (b, a);
+  }
+
+  String _selectedText() {
+    final range = _normalizedSelection();
+    if (range == null) return '';
+    final (start, end) = range;
+    final cols = _snapshot?.cols ?? 0;
+    final buffer = StringBuffer();
+    for (var lfb = start.lfb; lfb >= end.lfb; lfb--) {
+      final lo = lfb == start.lfb ? start.col : 0;
+      final hi = lfb == end.lfb ? end.col : cols - 1;
+      final cells = _selCells[lfb] ?? const {};
+      final line = StringBuffer();
+      var col = lo;
+      while (col <= hi) {
+        final cell = cells[col];
+        if (cell != null && !cell.hidden && cell.text.isNotEmpty) {
+          line.write(cell.text);
+          col += cell.width < 1 ? 1 : cell.width;
+        } else {
+          line.write(' ');
+          col += 1;
+        }
+      }
+      buffer.write(line.toString().replaceAll(RegExp(r'[ \t]+$'), ''));
+      if (lfb > end.lfb) buffer.write('\n');
+    }
+    return buffer.toString();
+  }
+
+  /// Pixel position (in the painter's coordinate space) of a selection corner.
+  Offset _selectionCorner(({int lfb, int col}) endpoint, {required bool end}) {
+    final shift = _scrollShift();
+    final row = _lfbToRow(endpoint.lfb);
+    final x = (endpoint.col + (end ? 1 : 0)) * _cellWidth;
+    final y = (row + (end ? 1 : 0)) * _cellHeight + shift;
+    return Offset(x, y);
+  }
+
+  Widget? _buildHandle({required bool isStart}) {
+    final range = _normalizedSelection();
+    if (range == null || _cellWidth <= 0 || _cellHeight <= 0) return null;
+    final endpoint = isStart ? range.$1 : range.$2;
+    final row = _lfbToRow(endpoint.lfb);
+    final rows = _snapshot?.rows ?? 0;
+    if (row < 0 || row >= rows) return null; // endpoint scrolled off-screen
+    final corner = _selectionCorner(endpoint, end: !isStart);
+    const target = 24.0;
+    return Positioned(
+      left: corner.dx - target / 2,
+      top: isStart ? corner.dy - target : corner.dy,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (_) => _onHandlePanStart(isStart),
+        onPanUpdate: _onHandlePanUpdate,
+        onPanEnd: _onHandlePanEnd,
+        child: SizedBox(
+          width: target,
+          height: target,
+          child: Center(
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: const BoxDecoration(
+                color: Color(0xFF409CFF),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final startHandle = _buildHandle(isStart: true);
+    final endHandle = _buildHandle(isStart: false);
     return Stack(
+      key: _termKey,
       fit: StackFit.expand,
       children: [
         // Hidden input anchor for the soft keyboard / IME. It fills the area
@@ -353,13 +655,26 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
         ),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: _focusNode.requestFocus,
+          // Tapping the terminal only clears any selection; the keyboard is
+          // shown/hidden exclusively via the toolbar key button so it never
+          // pops up unexpectedly.
+          onTap: _clearSelection,
           onVerticalDragStart: _onDragStart,
           onVerticalDragUpdate: _onDragUpdate,
           onVerticalDragEnd: _onDragEnd,
+          onLongPressStart: _onLongPressStart,
+          onLongPressMoveUpdate: _onLongPressMove,
+          onLongPressEnd: _onLongPressEnd,
           child: LayoutBuilder(
             builder: (context, constraints) {
               _syncGrid(constraints);
+              final selection = _normalizedSelection();
+              final selStart = selection == null
+                  ? null
+                  : (row: _lfbToRow(selection.$1.lfb), col: selection.$1.col);
+              final selEnd = selection == null
+                  ? null
+                  : (row: _lfbToRow(selection.$2.lfb), col: selection.$2.col);
               return ColoredBox(
                 color: AppColors.bgBase,
                 child: CustomPaint(
@@ -372,12 +687,16 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
                     fontSize: widget.fontSize,
                     fontFamily: _fontFamily,
                     glyphCache: _glyphCache,
+                    selectionStart: selStart,
+                    selectionEnd: selEnd,
                   ),
                 ),
               );
             },
           ),
         ),
+        ?startHandle,
+        ?endHandle,
       ],
     );
   }
@@ -392,6 +711,8 @@ class _TerminalGridPainter extends CustomPainter {
     required this.fontSize,
     required this.fontFamily,
     required this.glyphCache,
+    this.selectionStart,
+    this.selectionEnd,
   });
 
   final TerminalScreenSnapshot? snapshot;
@@ -401,6 +722,8 @@ class _TerminalGridPainter extends CustomPainter {
   final double fontSize;
   final String fontFamily;
   final Map<String, ui.Paragraph> glyphCache;
+  final ({int row, int col})? selectionStart;
+  final ({int row, int col})? selectionEnd;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -450,8 +773,30 @@ class _TerminalGridPainter extends CustomPainter {
       canvas.drawParagraph(paragraph, Offset(x, y + glyphTop));
     }
 
+    _paintSelection(canvas, snapshot);
     _paintCursor(canvas, snapshot);
     canvas.restore();
+  }
+
+  void _paintSelection(Canvas canvas, TerminalScreenSnapshot snapshot) {
+    final start = selectionStart;
+    final end = selectionEnd;
+    if (start == null || end == null) return;
+    // Translucent tint over selected cells; text stays readable underneath.
+    final paint = Paint()..color = const Color(0x55409CFF);
+    final lastRow = snapshot.rows - 1;
+    for (var row = start.row; row <= end.row; row++) {
+      if (row < 0 || row > lastRow) continue;
+      final lo = row == start.row ? start.col : 0;
+      final hi = row == end.row ? end.col : snapshot.cols - 1;
+      if (hi < lo) continue;
+      final x = lo * cellWidth;
+      final width = (hi - lo + 1) * cellWidth;
+      canvas.drawRect(
+        Rect.fromLTWH(x, row * cellHeight, width, cellHeight),
+        paint,
+      );
+    }
   }
 
   void _paintCursor(Canvas canvas, TerminalScreenSnapshot snapshot) {
@@ -552,6 +897,8 @@ class _TerminalGridPainter extends CustomPainter {
   bool shouldRepaint(covariant _TerminalGridPainter old) {
     return !identical(old.snapshot, snapshot) ||
         old.cellWidth != cellWidth ||
-        old.cellHeight != cellHeight;
+        old.cellHeight != cellHeight ||
+        old.selectionStart != selectionStart ||
+        old.selectionEnd != selectionEnd;
   }
 }
