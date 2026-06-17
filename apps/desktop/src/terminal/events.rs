@@ -13,6 +13,8 @@ enum TerminalUiEvent {
     Viewport {
         remote_owner: bool,
         generation: u64,
+        cols: u16,
+        rows: u16,
     },
     Exit,
 }

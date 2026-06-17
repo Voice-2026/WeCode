@@ -1099,14 +1099,20 @@ mod tests {
     }
 
     #[test]
-    fn remote_viewport_event_does_not_resize_desktop_model() {
+    fn remote_viewport_event_adopts_remote_grid_size() {
         let mut state = TerminalModel::new_for_test(10, 4, 100);
 
+        // A remote client owning the viewport sizes the PTY to its own grid;
+        // the desktop model adopts that grid so the running TUI's repaint
+        // renders at the size it was drawn for, rather than being misplaced in
+        // the larger desktop grid.
         assert!(state.apply_ui_event(TerminalUiEvent::Viewport {
             remote_owner: true,
             generation: 1,
+            cols: 40,
+            rows: 30,
         }));
-        assert_eq!(state.dimensions(), (10, 4));
+        assert_eq!(state.dimensions(), (40, 30));
         assert!(state.remote_viewer);
     }
 

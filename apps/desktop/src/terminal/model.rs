@@ -313,11 +313,30 @@ impl TerminalModel {
             TerminalUiEvent::Viewport {
                 remote_owner,
                 generation,
+                cols,
+                rows,
             } => {
                 let scheme_changed = self.remote_viewer != remote_owner
                     && self.effective_scheme_is_dark() != scheme_is_dark(remote_owner, &self.colors);
                 self.remote_viewer = remote_owner;
                 self.viewport_generation = generation;
+                // While a remote client owns the viewport, the PTY is sized to
+                // its grid and the running TUI repaints for that size. Adopt the
+                // remote grid for our own screen so the TUI's repaint renders at
+                // the size it was drawn for, instead of being misplaced in our
+                // larger desktop grid (input box pushed mid-screen, the rows
+                // below it blank). The desktop prepaint keeps our screen at this
+                // size while the remote owns (it is no longer the local owner);
+                // on release it reclaims and resizes back to the desktop grid.
+                if remote_owner && cols > 0 && rows > 0 {
+                    let (cols, rows) = (cols as usize, rows as usize);
+                    if self.dimensions() != (cols, rows) {
+                        self.window_size.num_cols = cols as u16;
+                        self.window_size.num_lines = rows as u16;
+                        self.events
+                            .push_back(TerminalInternalEvent::Resize { cols, rows });
+                    }
+                }
                 if scheme_changed && self.color_scheme_state.updates_enabled {
                     // Let the TUI re-adapt to the renderer that now owns
                     // the viewport (mobile is always dark).

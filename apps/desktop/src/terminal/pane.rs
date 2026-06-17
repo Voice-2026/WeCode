@@ -23,11 +23,17 @@ impl TerminalPane {
                 .is_ok(),
             TerminalEvent::Output { .. } => session_event_tx.send(TerminalUiEvent::Wakeup).is_ok(),
             TerminalEvent::Viewport {
-                owner, generation, ..
+                owner,
+                generation,
+                cols,
+                rows,
+                ..
             } => session_event_tx
                 .send(TerminalUiEvent::Viewport {
                     remote_owner: owner != terminal_viewport_local_owner(),
                     generation,
+                    cols,
+                    rows,
                 })
                 .is_ok(),
         });
@@ -160,11 +166,17 @@ impl TerminalPane {
                 .is_ok(),
             TerminalEvent::Output { .. } => session_event_tx.send(TerminalUiEvent::Wakeup).is_ok(),
             TerminalEvent::Viewport {
-                owner, generation, ..
+                owner,
+                generation,
+                cols,
+                rows,
+                ..
             } => session_event_tx
                 .send(TerminalUiEvent::Viewport {
                     remote_owner: owner != terminal_viewport_local_owner(),
                     generation,
+                    cols,
+                    rows,
                 })
                 .is_ok(),
         });
