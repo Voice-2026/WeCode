@@ -149,12 +149,10 @@ function appleNotaryConfigured() {
 
 function packageWindows() {
   const exePath = releaseBinaryPath(".exe");
-  const ghosttyVtDllPath = releaseDependencyPath("ghostty-vt.dll");
   withTempDir("codux-windows-", (tempDir) => {
     const packageDir = path.join(tempDir, appName);
     fs.mkdirSync(packageDir, { recursive: true });
     fs.copyFileSync(exePath, path.join(packageDir, `${appName}.exe`));
-    fs.copyFileSync(ghosttyVtDllPath, path.join(packageDir, "ghostty-vt.dll"));
     fs.copyFileSync(path.join(desktopAssetsRoot, "icons", "icon.ico"), path.join(packageDir, "icon.ico"));
     stageRuntimeAssets(path.join(packageDir, "runtime-root"));
 
