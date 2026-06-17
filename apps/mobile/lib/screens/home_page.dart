@@ -49,6 +49,7 @@ import '../widgets/codux_home_shell.dart';
 import '../widgets/device_home_screen.dart';
 import '../widgets/project_files_panel.dart';
 import '../widgets/remote_terminal_pane.dart';
+import '../widgets/self_drawn_terminal_view.dart' show kUseSelfDrawnTerminal;
 import '../widgets/remote_workspace_view.dart';
 import '../widgets/terminal_switcher_screen.dart';
 import '../widgets/worktree_create_dialog.dart';
@@ -2722,6 +2723,13 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _syncNativeTerminalReplay(String sessionId) {
+    if (kUseSelfDrawnTerminal) {
+      // The self-drawn renderer reads the Rust cell snapshot directly; just
+      // tick the shared notifier so it repaints, skipping the native ANSI
+      // replay computation entirely.
+      _nativeTerminalReplay.notifyRenderTick();
+      return;
+    }
     final content = _terminalOutputController.nativeRenderOutput(sessionId);
     if (content == null) return;
     // The terminal view listens to `_nativeTerminalReplay` directly, so this
@@ -2887,6 +2895,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       rows: rows,
       keyboardVisible: _keyboardVisible,
     );
+    // The self-drawn terminal renders the host's grid, so the host PTY must
+    // match the mobile viewport. Claim the viewport when the terminal is the
+    // active view (rather than waiting for explicit input) so this resize
+    // actually reaches the host; otherwise a repaint/TUI app keeps painting at
+    // the host's old row count and leaves the bottom of the screen blank.
+    if (kUseSelfDrawnTerminal &&
+        !_terminalViewportInteractive &&
+        _terminalViewportClaimable) {
+      _claimTerminalViewport(sessionId: id);
+    }
     if (!_terminalViewportClaimable || !_terminalViewportInteractive) return;
     final terminal = _terminalById(id);
     if (!_canResizeTerminal(terminal)) return;
@@ -4550,6 +4568,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       keyboardRequested: _keyboardRequested,
       keyboardRequestSerial: _keyboardRequestSerial,
       replayController: _nativeTerminalReplay,
+      outputController: _terminalOutputController,
       terminalFontSize: _settings.terminalFontSize,
       onConnect: () => _connect(),
       onInput: _queueTerminalTyping,

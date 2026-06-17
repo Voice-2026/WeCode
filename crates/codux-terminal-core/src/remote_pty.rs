@@ -22,9 +22,6 @@ pub struct RemotePtySession<T> {
     buffer_length: usize,
     sequence: TerminalSequence,
     history_screen: HeadlessTerminalScreen,
-    keyframe_screen: HeadlessTerminalScreen,
-    has_keyframe_screen: bool,
-    screen_view: RemotePtyScreenView,
     awaiting_baseline: bool,
     held_sequenced_live: BTreeMap<TerminalSequence, T>,
     held_unsequenced_live: Vec<T>,
@@ -33,22 +30,14 @@ pub struct RemotePtySession<T> {
     // snapshot). When set, the scroll screen shows a host-rendered history
     // viewport instead of the local raw-byte replay.
     host_scroll: Option<(usize, usize, usize, usize)>,
-    // Authoritative scrollback length reported by the host; the local
-    // keyframe screen has no scrollback of its own, so this drives the
-    // client scroll range even at the live bottom.
+    // Authoritative scrollback length reported by the host; the local history
+    // screen's own scrollback is bounded, so this drives the client scroll
+    // range even at the live bottom.
     host_total_lines: Option<usize>,
     // Dedicated screen for host-served scroll snapshots: they can be taller
-    // than the viewport (overscan margin above) and must not disturb the
-    // live keyframe screen.
+    // than the viewport (overscan margins) and must not disturb the live
+    // history screen.
     scroll_screen: HeadlessTerminalScreen,
-    screen_cols: usize,
-    screen_rows: usize,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RemotePtyScreenView {
-    Keyframe,
-    History,
 }
 
 impl<T> RemotePtySession<T> {
@@ -60,17 +49,12 @@ impl<T> RemotePtySession<T> {
             buffer_length: 0,
             sequence: 0,
             history_screen: HeadlessTerminalScreen::new(80, 24, 2_000),
-            keyframe_screen: HeadlessTerminalScreen::new(80, 24, 2_000),
-            has_keyframe_screen: false,
-            screen_view: RemotePtyScreenView::History,
             awaiting_baseline: false,
             held_sequenced_live: BTreeMap::new(),
             held_unsequenced_live: Vec::new(),
             host_scroll: None,
             host_total_lines: None,
             scroll_screen: HeadlessTerminalScreen::new(80, 24, 0),
-            screen_cols: 80,
-            screen_rows: 24,
         }
     }
 
@@ -125,15 +109,17 @@ impl<T> RemotePtySession<T> {
             snapshot.margin_rows_below = margin_rows_below;
             return snapshot;
         }
-        if self.screen_view == RemotePtyScreenView::Keyframe && self.has_keyframe_screen {
-            let mut snapshot = self.keyframe_screen.snapshot();
-            if let Some(total) = self.host_total_lines {
-                snapshot.total_lines = total.max(snapshot.total_lines);
-            }
-            snapshot
-        } else {
-            self.history_screen.snapshot()
+        // The live view renders the raw-byte history screen, which is reflowed
+        // to the consumer's own grid size. The screen `screenData` keyframe is
+        // rendered at the *host's* grid size and, when the host viewport differs
+        // (e.g. the consumer hasn't claimed/resized the host yet), would paint
+        // into only the top rows and leave the rest blank. Rendering the raw
+        // history avoids that and matches what the native emulator did.
+        let mut snapshot = self.history_screen.snapshot();
+        if let Some(total) = self.host_total_lines {
+            snapshot.total_lines = total.max(snapshot.total_lines);
         }
+        snapshot
     }
 
     /// Apply a host-rendered scrolled viewport (terminal.viewport.scrolled).
@@ -161,14 +147,12 @@ impl<T> RemotePtySession<T> {
         let rows = rows.max(1);
         self.host_total_lines = Some(total_lines);
         if display_offset == 0 && margin_rows == 0 && margin_rows_below == 0 {
-            // At the live bottom the keyframe screen stays in charge so
-            // live output keeps rendering.
-            self.keyframe_screen.resize(cols, rows);
-            self.keyframe_screen
-                .replace_with_keyframe(screen_data.as_bytes());
-            self.has_keyframe_screen = true;
-            self.screen_view = RemotePtyScreenView::Keyframe;
+            // Returning to the live bottom: drop any host scroll override and
+            // let the raw history screen (reflowed to the consumer's own size)
+            // show the live tail. The host-rendered snapshot is only needed for
+            // scrolled-back viewports, which keep using `scroll_screen` below.
             self.host_scroll = None;
+            self.history_screen.scroll_to_bottom();
             return;
         }
         self.scroll_screen.resize(cols, rows);
@@ -178,50 +162,30 @@ impl<T> RemotePtySession<T> {
     }
 
     pub fn resize_screen(&mut self, cols: usize, rows: usize) {
-        self.screen_cols = cols;
-        self.screen_rows = rows;
         self.history_screen.resize(cols, rows);
-        self.keyframe_screen.resize(cols, rows);
     }
 
     pub fn scroll_screen_lines(&mut self, lines: i32) {
-        if lines == 0 {
-            return;
+        if lines != 0 {
+            self.history_screen.scroll_lines(lines);
         }
-        if lines > 0 {
-            self.ensure_history_view_at_bottom();
-        }
-        self.history_screen.scroll_lines(lines);
-        self.sync_view_after_history_scroll();
     }
 
     pub fn scroll_screen_pixels(&mut self, pixels: f64, cell_height: f64) {
         if !pixels.is_finite() || pixels == 0.0 || !cell_height.is_finite() || cell_height <= 0.0 {
             return;
         }
-        if pixels > 0.0 {
-            self.ensure_history_view_at_bottom();
-        }
         self.history_screen.scroll_pixels(pixels, cell_height);
-        self.sync_view_after_history_scroll();
     }
 
     pub fn settle_screen_pixel_scroll(&mut self) {
         self.history_screen.settle_pixel_scroll();
-        self.keyframe_screen.settle_pixel_scroll();
-        self.sync_view_after_history_scroll();
     }
 
     pub fn scroll_screen_to_bottom(&mut self) {
         self.history_screen.scroll_to_bottom();
-        self.keyframe_screen.scroll_to_bottom();
         self.scroll_screen.clear();
         self.host_scroll = None;
-        self.screen_view = if self.has_keyframe_screen {
-            RemotePtyScreenView::Keyframe
-        } else {
-            RemotePtyScreenView::History
-        };
     }
 
     pub fn require_baseline(&mut self) {
@@ -275,16 +239,11 @@ impl<T> RemotePtySession<T> {
         buffer_length: Option<usize>,
         sequence: Option<TerminalSequence>,
     ) -> Vec<T> {
-        self.replace_from_baseline_screen(content, None, buffer_length, sequence)
-    }
-
-    pub fn replace_from_baseline_screen(
-        &mut self,
-        content: &str,
-        screen_data: Option<&str>,
-        buffer_length: Option<usize>,
-        sequence: Option<TerminalSequence>,
-    ) -> Vec<T> {
+        // Preserve the user's scroll position across a baseline replace: a
+        // resync (e.g. after a dropped frame) rebuilds the buffer, and snapping
+        // back to the bottom mid-scroll is jarring. If the user was scrolled up
+        // by N lines, restore that distance from the new bottom.
+        let prev_offset = self.history_screen.display_offset();
         self.content.clear();
         self.content.push_str(content);
         trim_cache_buffer(&mut self.content, self.max_cached_chars);
@@ -295,14 +254,11 @@ impl<T> RemotePtySession<T> {
         if !content.is_empty() {
             self.history_screen.process(content.as_bytes());
             self.history_screen.scroll_to_bottom();
+            if prev_offset > 0 {
+                self.history_screen.scroll_to_offset(prev_offset);
+            }
         }
         self.host_scroll = None;
-        if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
-            self.apply_keyframe_screen(screen_data);
-        } else {
-            self.has_keyframe_screen = false;
-            self.screen_view = RemotePtyScreenView::History;
-        }
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
         self.awaiting_baseline = false;
@@ -324,45 +280,21 @@ impl<T> RemotePtySession<T> {
         buffer_length: Option<usize>,
         sequence: Option<TerminalSequence>,
     ) {
-        self.append_live_screen(data, None, buffer_length, sequence);
-    }
-
-    pub fn append_live_screen(
-        &mut self,
-        data: &str,
-        screen_data: Option<&str>,
-        buffer_length: Option<usize>,
-        sequence: Option<TerminalSequence>,
-    ) {
         if matches!(self.host_scroll, Some((0, _, _, _))) {
             self.host_scroll = None;
             self.scroll_screen.clear();
-            self.screen_view = if self.has_keyframe_screen {
-                RemotePtyScreenView::Keyframe
-            } else {
-                RemotePtyScreenView::History
-            };
         }
         if !data.is_empty() {
-            // The native render content is the raw PTY history; live output
-            // only ever appends its bytes. The screen keyframe is never
-            // spliced in (see `native_render_content`), so the stream stays a
-            // clean scrollback that the emulator extends, and the consumer
-            // feeds only the delta instead of re-rendering the whole buffer.
+            // The live view is the raw PTY history reflowed to the consumer's
+            // grid; live output only appends bytes. Follow the bottom only if
+            // we were already there, so a user scrolled up into history stays
+            // put instead of snapping down.
+            let was_at_bottom = self.history_screen.display_offset() == 0;
             push_cache_buffer(&mut self.content, data, self.max_cached_chars);
             self.history_screen.process(data.as_bytes());
-            if self.screen_view == RemotePtyScreenView::Keyframe && !self.has_keyframe_screen {
+            if was_at_bottom {
                 self.history_screen.scroll_to_bottom();
             }
-        }
-        if let Some(screen_data) = screen_data.filter(|data| !data.is_empty()) {
-            // Refresh only the cell-grid keyframe screen (consumed by the
-            // scroll / snapshot path); the raw native render stream above is
-            // left untouched.
-            self.apply_keyframe_screen(screen_data);
-        } else if !data.is_empty() && self.has_keyframe_screen {
-            self.keyframe_screen.process(data.as_bytes());
-            self.keyframe_screen.scroll_to_bottom();
         }
         if let Some(buffer_length) = buffer_length {
             self.buffer_length = buffer_length;
@@ -377,41 +309,9 @@ impl<T> RemotePtySession<T> {
         self.buffer_length = 0;
         self.sequence = 0;
         self.history_screen.clear();
-        self.keyframe_screen.clear();
         self.scroll_screen.clear();
-        self.has_keyframe_screen = false;
         self.host_scroll = None;
-        self.screen_view = RemotePtyScreenView::History;
         self.reset_transient(false);
-    }
-
-    /// Apply a screen keyframe to the cell-grid `keyframe_screen` used by the
-    /// scroll/snapshot path. It is never spliced into `native_render_content`
-    /// (the raw history stream), so it cannot erase the emulator's scrollback.
-    fn apply_keyframe_screen(&mut self, screen_data: &str) {
-        self.keyframe_screen
-            .replace_with_keyframe(screen_data.as_bytes());
-        self.has_keyframe_screen = true;
-        if self.screen_view == RemotePtyScreenView::Keyframe
-            || self.history_screen.display_offset() == 0
-        {
-            self.screen_view = RemotePtyScreenView::Keyframe;
-        }
-    }
-
-    fn ensure_history_view_at_bottom(&mut self) {
-        if self.screen_view == RemotePtyScreenView::Keyframe {
-            self.history_screen.scroll_to_bottom();
-            self.screen_view = RemotePtyScreenView::History;
-        }
-    }
-
-    fn sync_view_after_history_scroll(&mut self) {
-        if self.history_screen.display_offset() == 0 && self.has_keyframe_screen {
-            self.screen_view = RemotePtyScreenView::Keyframe;
-        } else {
-            self.screen_view = RemotePtyScreenView::History;
-        }
     }
 }
 

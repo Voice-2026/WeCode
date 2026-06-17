@@ -71,6 +71,40 @@ class RemoteTerminalOutputController {
   String? nativeRenderOutput(String sessionId) =>
       _router.nativeRenderContent(sessionId);
 
+  // ---- self-drawn terminal render path -------------------------------------
+  // The cell grid is owned by the shared Rust core; the self-drawn Flutter
+  // terminal reads these instead of feeding ANSI to a native emulator.
+
+  /// Decoded cell-grid snapshot for [sessionId], or null if none yet.
+  TerminalScreenSnapshot? screenSnapshot(String sessionId) =>
+      _router.screenSnapshot(sessionId);
+
+  /// Monotonic render generation; bumps whenever the screen could change, so
+  /// the renderer can skip re-decoding a snapshot that has not mutated.
+  int renderGeneration(String sessionId) => _router.renderGeneration(sessionId);
+
+  void resizeScreen(String sessionId, {required int cols, required int rows}) =>
+      _router.resizeScreen(sessionId, cols: cols, rows: rows);
+
+  void scrollScreenLines(String sessionId, int lines) =>
+      _router.scrollScreenLines(sessionId, lines);
+
+  void scrollScreenPixels(
+    String sessionId, {
+    required double pixels,
+    required double cellHeight,
+  }) => _router.scrollScreenPixels(
+    sessionId,
+    pixels: pixels,
+    cellHeight: cellHeight,
+  );
+
+  void settleScreenPixelScroll(String sessionId) =>
+      _router.settleScreenPixelScroll(sessionId);
+
+  void scrollScreenToBottom(String sessionId) =>
+      _router.scrollScreenToBottom(sessionId);
+
   bool hasCachedOutput(String sessionId) => _router.hasCachedOutput(sessionId);
 
   int bufferOffset(String sessionId) => _router.bufferOffset(sessionId);

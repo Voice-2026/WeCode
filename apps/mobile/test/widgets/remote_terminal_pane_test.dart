@@ -1,5 +1,6 @@
 import 'package:codux_flutter/i18n.dart';
 import 'package:codux_flutter/services/native_terminal_replay_controller.dart';
+import 'package:codux_flutter/services/remote_terminal_output_controller.dart';
 import 'package:codux_flutter/theme/app_theme.dart';
 import 'package:codux_flutter/widgets/native_terminal_view.dart';
 import 'package:codux_flutter/widgets/remote_terminal_pane.dart';
@@ -102,6 +103,7 @@ RemoteTerminalPane _pane({ValueChanged<String>? onSendKey}) {
     keyboardRequested: false,
     keyboardRequestSerial: 0,
     replayController: NativeTerminalReplayController(),
+    outputController: RemoteTerminalOutputController(),
     terminalFontSize: 16,
     onConnect: () {},
     onInput: (_) {},

@@ -51,6 +51,14 @@ class NativeTerminalReplayController extends ChangeNotifier {
     return true;
   }
 
+  /// Bump the revision and notify listeners without touching replay state.
+  /// Used as a cheap repaint signal for the self-drawn renderer, which reads
+  /// the cell snapshot directly and does not need the native ANSI replay.
+  void notifyRenderTick() {
+    _revision += 1;
+    notifyListeners();
+  }
+
   void removeSession(String sessionId) {
     if (_replayBySession.remove(sessionId) != null) {
       _contentLengthBySession.remove(sessionId);

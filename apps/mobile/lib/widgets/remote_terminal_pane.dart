@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 
 import '../i18n.dart';
 import '../services/native_terminal_replay_controller.dart';
+import '../services/remote_terminal_output_controller.dart';
 import '../theme/app_theme.dart';
 import 'connect_hint.dart';
 import 'native_terminal_view.dart';
+import 'self_drawn_terminal_view.dart';
 import 'toolbar.dart';
 
 class RemoteTerminalPane extends StatefulWidget {
@@ -31,6 +33,7 @@ class RemoteTerminalPane extends StatefulWidget {
     required this.keyboardRequested,
     required this.keyboardRequestSerial,
     required this.replayController,
+    required this.outputController,
     required this.terminalFontSize,
     required this.onConnect,
     required this.onInput,
@@ -62,6 +65,7 @@ class RemoteTerminalPane extends StatefulWidget {
   final bool keyboardRequested;
   final int keyboardRequestSerial;
   final NativeTerminalReplayController replayController;
+  final RemoteTerminalOutputController outputController;
   final double terminalFontSize;
   final VoidCallback onConnect;
   final ValueChanged<String> onInput;
@@ -163,7 +167,26 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
                         padding: terminalPadding,
                         child: Stack(
                           children: [
-                            if (widget.showTerminal &&
+                            if (widget.showTerminal && kUseSelfDrawnTerminal)
+                              // Self-drawn renderer: reads the Rust cell grid
+                              // directly (single source of truth), no native
+                              // emulator. Listens to the same per-output signal.
+                              SelfDrawnTerminalView(
+                                sessionId: widget.sessionId,
+                                controller: widget.outputController,
+                                repaintSignal: widget.replayController,
+                                fontSize: widget.terminalFontSize,
+                                onResize: widget.onResize,
+                                onInput: widget.onInput,
+                                onSendKey: widget.onSendKey,
+                                keyboardRequested: widget.keyboardRequested,
+                                keyboardRequestSerial: widget.keyboardRequestSerial,
+                                onCursorMetrics: (metrics) {
+                                  if (_cursorMetrics == metrics) return;
+                                  setState(() => _cursorMetrics = metrics);
+                                },
+                              )
+                            else if (widget.showTerminal &&
                                 NativeTerminalView.supported)
                               // Subscribe to the replay controller here so a
                               // live output frame rebuilds only this subtree,

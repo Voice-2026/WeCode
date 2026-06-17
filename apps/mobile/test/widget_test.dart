@@ -327,8 +327,9 @@ void main() {
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
       expect(subscribePayload?['chunkChars'], isA<int>());
-      expect(_sentTypes(sent), isNot(contains('terminal.viewport.resize')));
-      expect(_sentTypes(sent), isNot(contains('terminal.resize')));
+      // The self-drawn terminal view reports its viewport size on layout, so a
+      // resize is expected on open; the meaningful guarantee (bind via
+      // subscription baseline, no terminal.buffer request) is asserted above.
     },
   );
 
@@ -432,8 +433,9 @@ void main() {
       expect(subscribePayload?['baseline'], isTrue);
       expect(subscribePayload?['maxChars'], isA<int>());
       expect(subscribePayload?['chunkChars'], isA<int>());
-      expect(sentTypes, isNot(contains('terminal.viewport.resize')));
-      expect(sentTypes, isNot(contains('terminal.resize')));
+      // The self-drawn terminal view reports its viewport size on layout, so a
+      // resize is expected here; the meaningful guarantee (bind to the host
+      // selected terminal, no terminal.buffer request) is asserted above.
     },
   );
 
@@ -603,8 +605,9 @@ void main() {
       expect(subscribePayload?['resource'], RemoteResourceType.terminals);
       expect(subscribePayload?['projectId'], 'project-2');
       expect(subscribePayload?['baseline'], isTrue);
-      expect(sentTypes, isNot(contains('terminal.viewport.resize')));
-      expect(sentTypes, isNot(contains('terminal.resize')));
+      // The self-drawn terminal view reports its viewport size on layout, so a
+      // resize is expected on remount; the meaningful guarantee (remount from
+      // the local pty pool, no terminal.buffer request) is asserted above.
     },
   );
 
