@@ -68,9 +68,6 @@ class RemoteTerminalOutputController {
 
   String? cachedOutput(String sessionId) => _router.content(sessionId);
 
-  String? nativeRenderOutput(String sessionId) =>
-      _router.nativeRenderContent(sessionId);
-
   // ---- self-drawn terminal render path -------------------------------------
   // The cell grid is owned by the shared Rust core; the self-drawn Flutter
   // terminal reads these instead of feeding ANSI to a native emulator.

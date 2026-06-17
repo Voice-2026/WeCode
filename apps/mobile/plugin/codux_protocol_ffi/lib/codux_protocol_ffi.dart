@@ -1760,11 +1760,6 @@ final _outputRouterContent = _dylib
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
       Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_output_router_content');
-final _outputRouterNativeRenderContent = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>),
-      Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)
-    >('codux_output_router_native_render_content');
 final _outputRouterHasCachedOutput = _dylib
     .lookupFunction<
       Bool Function(Pointer<Void>, Pointer<Utf8>),
@@ -1970,12 +1965,6 @@ class RemoteOutputRouter {
   String? content(String sessionId) => _withSession(
     sessionId,
     (ptr) => _takeStringOrNull(_outputRouterContent(_liveHandle(), ptr)),
-  );
-
-  String? nativeRenderContent(String sessionId) => _withSession(
-    sessionId,
-    (ptr) =>
-        _takeStringOrNull(_outputRouterNativeRenderContent(_liveHandle(), ptr)),
   );
 
   bool hasCachedOutput(String sessionId) => _withSession(

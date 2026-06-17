@@ -920,8 +920,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     // The self-drawn renderer reads the cell snapshot straight from the output
     // controller, so a cached session just needs a repaint. Report whether any
     // local content exists so the caller can decide whether to show it.
-    final cached = _terminalOutputController.nativeRenderOutput(sessionId);
-    if (cached == null || cached.isEmpty) return false;
+    if (!_terminalOutputController.hasCachedOutput(sessionId)) return false;
     _terminalRepaint.tick();
     if (mounted) setState(() {});
     return true;

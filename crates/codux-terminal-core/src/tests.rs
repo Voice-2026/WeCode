@@ -495,9 +495,9 @@ fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
     assert!(screen.data.contains("live raw"));
     assert!(!screen.data.contains("new screen"));
     assert!(!screen.data.contains("old screen"));
-    assert!(session.native_render_content().contains("live raw"));
-    assert!(!session.native_render_content().contains("new screen"));
-    assert!(!session.native_render_content().contains("old screen"));
+    assert!(session.content().contains("live raw"));
+    assert!(!session.content().contains("new screen"));
+    assert!(!session.content().contains("old screen"));
 
     session.scroll_screen_lines(8);
     let scrolled = session.screen_snapshot();
@@ -524,8 +524,8 @@ fn empty_live_screen_keyframe_leaves_live_view_unchanged() {
     // to advance on, so both the content and the live view are unchanged; the
     // host-sized keyframe ("fresh screen") is not rendered.
     assert_eq!(session.content(), history);
-    assert!(!session.native_render_content().contains("fresh screen"));
-    assert!(!session.native_render_content().contains("old screen"));
+    assert!(!session.content().contains("fresh screen"));
+    assert!(!session.content().contains("old screen"));
 
     let screen = session.screen_snapshot();
     assert!(screen.data.contains("history 12"));

@@ -254,13 +254,6 @@ impl RemoteTerminalOutputRouter {
             .filter(|content| !content.is_empty())
     }
 
-    pub fn native_render_content(&self, session_id: &str) -> Option<&str> {
-        self.sessions
-            .get(session_id)
-            .map(|session| session.native_render_content())
-            .filter(|content| !content.is_empty())
-    }
-
     pub fn has_cached_output(&self, session_id: &str) -> bool {
         self.content(session_id).is_some()
     }
@@ -1036,7 +1029,7 @@ mod tests {
     }
 
     #[test]
-    fn native_render_content_is_raw_history_without_keyframe() {
+    fn cached_content_is_raw_history_without_keyframe() {
         let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
         router.bind_session("session-1", true);
 
@@ -1050,7 +1043,7 @@ mod tests {
 
         assert_eq!(router.content("session-1"), Some("raw-history"));
         assert_eq!(
-            router.native_render_content("session-1"),
+            router.content("session-1"),
             Some("raw-history")
         );
 
@@ -1060,7 +1053,7 @@ mod tests {
 
         assert_eq!(router.content("session-1"), Some("raw-history\nlive"));
         assert_eq!(
-            router.native_render_content("session-1"),
+            router.content("session-1"),
             Some("raw-history\nlive")
         );
 
@@ -1084,13 +1077,13 @@ mod tests {
             Some("raw-history\nlive\nworking")
         );
         assert_eq!(
-            router.native_render_content("session-1"),
+            router.content("session-1"),
             Some("raw-history\nlive\nworking")
         );
     }
 
     #[test]
-    fn empty_live_screen_keyframe_leaves_native_render_content_untouched() {
+    fn empty_live_screen_keyframe_leaves_cached_content_untouched() {
         let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
         router.bind_session("session-1", true);
 
@@ -1118,20 +1111,20 @@ mod tests {
         assert_eq!(kinds(&effects), ["loading", "sessionUpdated", "ack"]);
         assert_eq!(router.content("session-1"), Some("raw-history"));
         assert_eq!(
-            router.native_render_content("session-1"),
+            router.content("session-1"),
             Some("raw-history")
         );
     }
 
     #[test]
-    fn empty_refresh_baseline_preserves_cached_native_render_content() {
+    fn empty_refresh_baseline_preserves_cached_content() {
         let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
         router.bind_session("session-1", false);
         router.accept(
             &buffer_with_screen_data("session-1", "history", "\x1b[2J\x1b[Hscreen", 10),
             Some("session-1"),
         );
-        assert_eq!(router.native_render_content("session-1"), Some("history"));
+        assert_eq!(router.content("session-1"), Some("history"));
 
         assert!(router.start_buffer_request("session-1", "refresh-empty", true, true, true));
         let empty = router.accept(
@@ -1140,7 +1133,7 @@ mod tests {
         );
 
         assert_eq!(kinds(&empty), ["loading", "ack"]);
-        assert_eq!(router.native_render_content("session-1"), Some("history"));
+        assert_eq!(router.content("session-1"), Some("history"));
         assert_eq!(
             router.active_buffer_request_id("session-1"),
             Some("refresh-empty")
@@ -1148,7 +1141,7 @@ mod tests {
     }
 
     #[test]
-    fn tail_refresh_replaces_raw_native_render_content_for_cached_session() {
+    fn tail_refresh_replaces_raw_cached_content_for_cached_session() {
         let mut router = RemoteTerminalOutputRouter::new(65536, 65536);
         router.bind_session("session-1", true);
         router.accept(
@@ -1181,7 +1174,7 @@ mod tests {
         );
         assert_eq!(router.content("session-1"), Some("raw-history\nnew"));
         assert_eq!(
-            router.native_render_content("session-1"),
+            router.content("session-1"),
             Some("raw-history\nnew")
         );
     }

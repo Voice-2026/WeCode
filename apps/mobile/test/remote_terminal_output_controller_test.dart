@@ -297,7 +297,7 @@ void main() {
     },
   );
 
-  test('empty refresh baseline preserves cached native replay', () {
+  test('empty refresh baseline preserves cached content', () {
     final controller = RemoteTerminalOutputController(maxBufferChars: 65536);
 
     controller.bindSession('session-1', requireBaseline: false);
@@ -312,7 +312,7 @@ void main() {
       activeSessionId: 'session-1',
     );
     expect(
-      controller.nativeRenderOutput('session-1'),
+      controller.cachedOutput('session-1'),
       'history',
     );
     expect(
@@ -341,7 +341,7 @@ void main() {
       RemoteTerminalOutputEffectKind.ack,
     ]);
     expect(
-      controller.nativeRenderOutput('session-1'),
+      controller.cachedOutput('session-1'),
       'history',
     );
   });
@@ -493,7 +493,7 @@ void main() {
       expect(_kinds(result), [..._activeBufferUpdate]);
       expect(controller.cachedOutput('session-1'), 'raw tail fragment');
       expect(
-        controller.nativeRenderOutput('session-1'),
+        controller.cachedOutput('session-1'),
         'raw tail fragment',
       );
     },
@@ -522,7 +522,7 @@ void main() {
       ]);
       expect(controller.cachedOutput('session-1'), 'partial live raw');
       expect(
-        controller.nativeRenderOutput('session-1'),
+        controller.cachedOutput('session-1'),
         'partial live raw',
       );
     },

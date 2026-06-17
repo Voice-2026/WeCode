@@ -66,17 +66,6 @@ impl<T> RemotePtySession<T> {
         &self.content
     }
 
-    /// The byte stream fed to the native terminal emulator: the raw PTY
-    /// history only. The screen `screenData` keyframe is deliberately NOT
-    /// spliced in here -- it is a synthetic full-screen repaint (it begins
-    /// with `ESC[H ESC[2J` and paints by absolute cursor positioning), so
-    /// replaying it mid-stream erases the scrollback rendered above it. The
-    /// keyframe updates only the cell-grid `keyframe_screen` used by the
-    /// scroll/snapshot path.
-    pub fn native_render_content(&self) -> &str {
-        &self.content
-    }
-
     pub fn buffer_length(&self) -> usize {
         self.buffer_length
     }
