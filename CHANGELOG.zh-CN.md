@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-06-17
+
+### 修复
+
+- 修复移动端大历史会话的终端 scrollback 恢复，原生回放只使用 raw terminal history，不再混入会清屏或移动光标的 screen snapshot。
+- 优化移动端终端输出性能，实时输出走 append，基线恢复走 replace，并将恢复历史限制在移动端 scrollback 窗口内。
+- 稳定桌面端终端 viewport ownership，避免远程 resize 与 scrollback 状态和当前终端渲染器互相抢占。
+
 ## [1.8.2] - 2026-06-17
 
 ### 修复

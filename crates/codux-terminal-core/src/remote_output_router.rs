@@ -1132,10 +1132,7 @@ mod tests {
             &buffer_with_screen_data("session-1", "history", "\x1b[2J\x1b[Hscreen", 10),
             Some("session-1"),
         );
-        assert_eq!(
-            router.native_render_content("session-1"),
-            Some("history")
-        );
+        assert_eq!(router.native_render_content("session-1"), Some("history"));
 
         assert!(router.start_buffer_request("session-1", "refresh-empty", true, true, true));
         let empty = router.accept(
@@ -1144,10 +1141,7 @@ mod tests {
         );
 
         assert_eq!(kinds(&empty), ["loading", "ack"]);
-        assert_eq!(
-            router.native_render_content("session-1"),
-            Some("history")
-        );
+        assert_eq!(router.native_render_content("session-1"), Some("history"));
         assert_eq!(
             router.active_buffer_request_id("session-1"),
             Some("refresh-empty")

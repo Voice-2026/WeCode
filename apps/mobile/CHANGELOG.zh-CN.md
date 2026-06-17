@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-06-17
+
+### 修复
+
+- 修复大历史会话恢复时原生终端回放混入 screen snapshot 后可能清屏、跳光标或出现空白区域的问题，现在只回放 raw terminal history。
+- 优化实时终端输出性能，working 输出走 append，baseline、restore 和 screen-only refresh 才走 replace。
+- 将移动端恢复历史对齐到 500 行 scrollback 目标，同时保留大终端 buffer 的有界传输保护。
+
 ## [1.8.2] - 2026-06-17
 
 ### 修复

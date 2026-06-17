@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-06-17
+
+### Fixed
+
+- Fixed mobile terminal scrollback recovery for large sessions by sending native replay data from raw terminal history without mixing in screen snapshots that can clear or reposition the terminal viewport.
+- Improved mobile terminal output performance by separating live append output from baseline replace output and keeping restored history bounded to the mobile scrollback window.
+- Stabilized desktop terminal viewport ownership so remote resize and scrollback state do not fight the active terminal renderer.
+
 ## [1.8.2] - 2026-06-17
 
 ### Fixed

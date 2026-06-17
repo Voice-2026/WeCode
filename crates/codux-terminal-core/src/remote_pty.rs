@@ -489,4 +489,3 @@ fn trim_cache_buffer(buffer: &mut String, max_chars: usize) {
         buffer.drain(..cut);
     }
 }
-

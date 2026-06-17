@@ -4,6 +4,14 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-06-17
+
+### Fixed
+
+- Fixed large-session terminal restore so the native terminal replays raw terminal history without appending screen snapshots that can clear the viewport or jump the cursor.
+- Improved live terminal output performance by routing working output through append updates and reserving replace updates for baselines, restores, and screen-only refreshes.
+- Kept mobile restore history aligned with the 500-line scrollback target while preserving a bounded transfer size for large terminal buffers.
+
 ## [1.8.2] - 2026-06-17
 
 ### Fixed

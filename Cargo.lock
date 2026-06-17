@@ -1154,7 +1154,7 @@ dependencies = [
 
 [[package]]
 name = "codux"
-version = "1.8.2"
+version = "1.8.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1238,7 +1238,7 @@ dependencies = [
 
 [[package]]
 name = "codux-runtime"
-version = "1.8.2"
+version = "1.8.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
