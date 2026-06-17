@@ -4,11 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../i18n.dart';
-import '../services/native_terminal_replay_controller.dart';
 import '../services/remote_terminal_output_controller.dart';
+import '../services/terminal_repaint_signal.dart';
 import '../theme/app_theme.dart';
 import 'connect_hint.dart';
-import 'native_terminal_view.dart';
 import 'self_drawn_terminal_view.dart';
 import 'toolbar.dart';
 
@@ -32,7 +31,7 @@ class RemoteTerminalPane extends StatefulWidget {
     required this.keyboardVisible,
     required this.keyboardRequested,
     required this.keyboardRequestSerial,
-    required this.replayController,
+    required this.repaintSignal,
     required this.outputController,
     required this.terminalFontSize,
     required this.onConnect,
@@ -64,7 +63,7 @@ class RemoteTerminalPane extends StatefulWidget {
   final bool keyboardVisible;
   final bool keyboardRequested;
   final int keyboardRequestSerial;
-  final NativeTerminalReplayController replayController;
+  final TerminalRepaintSignal repaintSignal;
   final RemoteTerminalOutputController outputController;
   final double terminalFontSize;
   final VoidCallback onConnect;
@@ -83,7 +82,7 @@ class RemoteTerminalPane extends StatefulWidget {
 }
 
 class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
-  NativeTerminalCursorMetrics? _cursorMetrics;
+  TerminalCursorMetrics? _cursorMetrics;
 
   @override
   void didUpdateWidget(covariant RemoteTerminalPane oldWidget) {
@@ -167,14 +166,16 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
                         padding: terminalPadding,
                         child: Stack(
                           children: [
-                            if (widget.showTerminal && kUseSelfDrawnTerminal)
+                            if (widget.showTerminal)
                               // Self-drawn renderer: reads the Rust cell grid
-                              // directly (single source of truth), no native
-                              // emulator. Listens to the same per-output signal.
+                              // directly (single source of truth). Repaints on
+                              // the per-output signal so a live frame rebuilds
+                              // only this subtree, not the whole page (toolbar,
+                              // overlays, keyboard inset / layout recompute).
                               SelfDrawnTerminalView(
                                 sessionId: widget.sessionId,
                                 controller: widget.outputController,
-                                repaintSignal: widget.replayController,
+                                repaintSignal: widget.repaintSignal,
                                 fontSize: widget.terminalFontSize,
                                 onResize: widget.onResize,
                                 onInput: widget.onInput,
@@ -187,46 +188,6 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
                                   setState(() => _cursorMetrics = metrics);
                                 },
                               )
-                            else if (widget.showTerminal &&
-                                NativeTerminalView.supported)
-                              // Subscribe to the replay controller here so a
-                              // live output frame rebuilds only this subtree,
-                              // not the whole page (toolbar, overlays, keyboard
-                              // inset / layout recompute).
-                              ListenableBuilder(
-                                listenable: widget.replayController,
-                                builder: (context, _) {
-                                  final sessionId = widget.sessionId;
-                                  final replay = sessionId == null
-                                      ? NativeTerminalReplay.empty(
-                                          sessionId: '',
-                                        )
-                                      : widget.replayController.replay(
-                                          sessionId,
-                                        );
-                                  return NativeTerminalView(
-                                    key: Platform.isIOS
-                                        ? ValueKey(
-                                            'native-terminal-view-ios-${replay.sessionId}',
-                                          )
-                                        : const ValueKey('native-terminal-view'),
-                                    replay: replay,
-                                    fontSize: widget.terminalFontSize,
-                                    keyboardRequested: widget.keyboardRequested,
-                                    keyboardRequestSerial:
-                                        widget.keyboardRequestSerial,
-                                    onInput: widget.onInput,
-                                    onResize: widget.onResize,
-                                    onSelectionChanged: widget.onSelectionChanged,
-                                    onCursorMetrics: (metrics) {
-                                      if (_cursorMetrics == metrics) return;
-                                      setState(() => _cursorMetrics = metrics);
-                                    },
-                                  );
-                                },
-                              )
-                            else if (widget.showTerminal)
-                              const _TerminalUnavailable()
                             else
                               ConnectHint(
                                 status: widget.status.isEmpty
@@ -288,7 +249,7 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
 double _terminalLiftForKeyboard({
   required double terminalHeight,
   required double keyboardLift,
-  required NativeTerminalCursorMetrics? cursorMetrics,
+  required TerminalCursorMetrics? cursorMetrics,
 }) {
   if (keyboardLift <= 0) return 0;
   final safeBottom = terminalHeight - keyboardLift;
@@ -305,22 +266,13 @@ double _terminalLiftForKeyboard({
 double terminalLiftForKeyboardForTest({
   required double terminalHeight,
   required double keyboardLift,
-  required NativeTerminalCursorMetrics? cursorMetrics,
+  required TerminalCursorMetrics? cursorMetrics,
 }) {
   return _terminalLiftForKeyboard(
     terminalHeight: terminalHeight,
     keyboardLift: keyboardLift,
     cursorMetrics: cursorMetrics,
   );
-}
-
-class _TerminalUnavailable extends StatelessWidget {
-  const _TerminalUnavailable();
-
-  @override
-  Widget build(BuildContext context) {
-    return const ColoredBox(color: AppColors.bgBase);
-  }
 }
 
 class _TerminalOverlay extends StatelessWidget {

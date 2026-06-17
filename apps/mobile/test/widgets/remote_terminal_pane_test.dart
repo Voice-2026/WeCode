@@ -1,9 +1,9 @@
 import 'package:codux_flutter/i18n.dart';
-import 'package:codux_flutter/services/native_terminal_replay_controller.dart';
 import 'package:codux_flutter/services/remote_terminal_output_controller.dart';
+import 'package:codux_flutter/services/terminal_repaint_signal.dart';
 import 'package:codux_flutter/theme/app_theme.dart';
-import 'package:codux_flutter/widgets/native_terminal_view.dart';
 import 'package:codux_flutter/widgets/remote_terminal_pane.dart';
+import 'package:codux_flutter/widgets/self_drawn_terminal_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -60,7 +60,7 @@ void main() {
       terminalLiftForKeyboardForTest(
         terminalHeight: 600,
         keyboardLift: 260,
-        cursorMetrics: const NativeTerminalCursorMetrics(
+        cursorMetrics: const TerminalCursorMetrics(
           row: 4,
           col: 0,
           lineHeight: 20,
@@ -72,7 +72,7 @@ void main() {
       terminalLiftForKeyboardForTest(
         terminalHeight: 600,
         keyboardLift: 260,
-        cursorMetrics: const NativeTerminalCursorMetrics(
+        cursorMetrics: const TerminalCursorMetrics(
           row: 20,
           col: 0,
           lineHeight: 20,
@@ -102,7 +102,7 @@ RemoteTerminalPane _pane({ValueChanged<String>? onSendKey}) {
     keyboardVisible: false,
     keyboardRequested: false,
     keyboardRequestSerial: 0,
-    replayController: NativeTerminalReplayController(),
+    repaintSignal: TerminalRepaintSignal(),
     outputController: RemoteTerminalOutputController(),
     terminalFontSize: 16,
     onConnect: () {},

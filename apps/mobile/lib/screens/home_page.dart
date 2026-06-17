@@ -22,7 +22,7 @@ import '../services/remote_device_controller.dart';
 import '../services/remote_envelope_send_queue.dart';
 import '../services/remote_capabilities.dart';
 import '../services/remote_connection_sync_controller.dart';
-import '../services/native_terminal_replay_controller.dart';
+import '../services/terminal_repaint_signal.dart';
 import '../services/remote_project_controller.dart';
 import '../services/remote_network_route_refresh_controller.dart';
 import '../services/remote_protocol_service.dart';
@@ -49,7 +49,6 @@ import '../widgets/codux_home_shell.dart';
 import '../widgets/device_home_screen.dart';
 import '../widgets/project_files_panel.dart';
 import '../widgets/remote_terminal_pane.dart';
-import '../widgets/self_drawn_terminal_view.dart' show kUseSelfDrawnTerminal;
 import '../widgets/remote_workspace_view.dart';
 import '../widgets/terminal_switcher_screen.dart';
 import '../widgets/worktree_create_dialog.dart';
@@ -112,7 +111,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   final _worktreeController = const RemoteWorktreeController();
   final _remoteSyncController = RemoteConnectionSyncController();
   final _remoteRuntime = RemoteRuntimeStore();
-  final _nativeTerminalReplay = NativeTerminalReplayController();
+  final _terminalRepaint = TerminalRepaintSignal();
   final _settingsNameController = TextEditingController();
   final _fileEditorController = CodeEditingController();
   final _projectNameController = TextEditingController();
@@ -770,7 +769,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _terminalInputSender.clear();
     _terminalBufferRetry.reset();
     _terminalOutputController.resetAll();
-    _nativeTerminalReplay.resetAll();
+    _terminalRepaint.tick();
     _terminalViewportController.resetScroll();
     _terminalViewportInteractive = false;
     _receiveSequenceGuard.reset();
@@ -837,7 +836,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _terminalInputSender.clear();
     if (resetRuntime) {
       _terminalOutputController.resetAll();
-      _nativeTerminalReplay.resetAll();
+      _terminalRepaint.tick();
       _terminalBindingCoordinator.reset();
     }
     setState(() {
@@ -918,11 +917,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   bool _restoreTerminalSessionFromCache(String sessionId) {
+    // The self-drawn renderer reads the cell snapshot straight from the output
+    // controller, so a cached session just needs a repaint. Report whether any
+    // local content exists so the caller can decide whether to show it.
     final cached = _terminalOutputController.nativeRenderOutput(sessionId);
-    if (cached == null || cached.isEmpty) {
-      return _nativeTerminalReplay.replay(sessionId).content.isNotEmpty;
-    }
-    _nativeTerminalReplay.replaceSession(sessionId, cached);
+    if (cached == null || cached.isEmpty) return false;
+    _terminalRepaint.tick();
     if (mounted) setState(() {});
     return true;
   }
@@ -1069,7 +1069,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     );
     _terminalUploadCompletion = null;
     _voiceService.dispose();
-    _nativeTerminalReplay.dispose();
+    _terminalRepaint.dispose();
     _terminalOutputController.dispose();
     unawaited(_closeActiveTransport());
     _settingsNameController.dispose();
@@ -1457,7 +1457,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       _hostRuntimeInstanceId = null;
       _resetRemoteRuntime(keepProjects: false);
       _terminalOutputController.resetAll();
-      _nativeTerminalReplay.resetAll();
+      _terminalRepaint.tick();
     }
     CoduxLog.info(
       '[codux-flutter-remote] connect start gen=$generation background=$background host=${target.hostId} device=${target.deviceId} transport=${_deviceTransportKind(target)} relay=${_savedDeviceRelayEndpoint(target)}',
@@ -1877,7 +1877,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (plan.removedSessionId != null) {
       final removed = plan.removedSessionId!;
       _terminalOutputController.removeSession(removed);
-      _nativeTerminalReplay.removeSession(removed);
+      _terminalRepaint.tick();
       _terminalInputSender.clear(sessionId: removed);
     }
     if (plan.resetTerminalInput) {
@@ -2720,10 +2720,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         case RemoteTerminalOutputEffectKind.markBufferReceived:
           _markTerminalBufferReceived(effect.sessionId);
         case RemoteTerminalOutputEffectKind.sessionUpdated:
-          final sessionId = effect.sessionId;
-          if (sessionId != null) {
-            _syncNativeTerminalReplay(sessionId);
-          }
+          // The self-drawn renderer reads the Rust cell snapshot directly; tick
+          // the shared notifier so it repaints only that subtree (no full-page
+          // setState / keyboard-inset / layout recompute per live frame).
+          _terminalRepaint.tick();
         case RemoteTerminalOutputEffectKind.requestBaselineResync:
           final sessionId = effect.sessionId;
           if (sessionId != null) {
@@ -2731,22 +2731,6 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           }
       }
     }
-  }
-
-  void _syncNativeTerminalReplay(String sessionId) {
-    if (kUseSelfDrawnTerminal) {
-      // The self-drawn renderer reads the Rust cell snapshot directly; just
-      // tick the shared notifier so it repaints, skipping the native ANSI
-      // replay computation entirely.
-      _nativeTerminalReplay.notifyRenderTick();
-      return;
-    }
-    final content = _terminalOutputController.nativeRenderOutput(sessionId);
-    if (content == null) return;
-    // The terminal view listens to `_nativeTerminalReplay` directly, so this
-    // rebuilds only that subtree on output -- no full-page setState (and no
-    // keyboard-inset / layout recompute) per live frame.
-    _nativeTerminalReplay.syncSession(sessionId, content);
   }
 
   /// A live-output sequence gap was detected for [sessionId]: lost frames can
@@ -2911,9 +2895,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     // active view (rather than waiting for explicit input) so this resize
     // actually reaches the host; otherwise a repaint/TUI app keeps painting at
     // the host's old row count and leaves the bottom of the screen blank.
-    if (kUseSelfDrawnTerminal &&
-        !_terminalViewportInteractive &&
-        _terminalViewportClaimable) {
+    if (!_terminalViewportInteractive && _terminalViewportClaimable) {
       _claimTerminalViewport(sessionId: id);
     }
     if (!_terminalViewportClaimable || !_terminalViewportInteractive) return;
@@ -4578,7 +4560,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       keyboardVisible: _keyboardVisible,
       keyboardRequested: _keyboardRequested,
       keyboardRequestSerial: _keyboardRequestSerial,
-      replayController: _nativeTerminalReplay,
+      repaintSignal: _terminalRepaint,
       outputController: _terminalOutputController,
       terminalFontSize: _settings.terminalFontSize,
       onConnect: () => _connect(),

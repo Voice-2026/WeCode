@@ -10,13 +10,6 @@ import 'package:flutter/services.dart';
 import '../services/remote_terminal_output_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/terminal_theme.dart';
-import 'native_terminal_view.dart' show NativeTerminalCursorMetrics;
-
-/// Feature flag: render the terminal with the self-drawn Flutter renderer
-/// (single source of truth = the Rust cell grid) instead of the native
-/// SwiftTerm / Termux emulator. Off by default until paint performance and the
-/// input/scroll/selection layers are validated on device.
-const bool kUseSelfDrawnTerminal = true;
 
 /// Self-drawn terminal that renders the shared Rust core's cell grid directly,
 /// instead of feeding an ANSI byte stream to a native emulator (SwiftTerm /
@@ -53,7 +46,7 @@ class SelfDrawnTerminalView extends StatefulWidget {
 
   /// Pre-encoded key bytes (enter, backspace, ...), sent immediately.
   final ValueChanged<String>? onSendKey;
-  final ValueChanged<NativeTerminalCursorMetrics?>? onCursorMetrics;
+  final ValueChanged<TerminalCursorMetrics?>? onCursorMetrics;
 
   /// Selected text (null when the selection is cleared), for the copy action.
   final ValueChanged<String?>? onSelectionChanged;
@@ -91,7 +84,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   double _glyphTop = 0;
   int _cols = 0;
   int _rows = 0;
-  NativeTerminalCursorMetrics? _lastCursorMetrics;
+  TerminalCursorMetrics? _lastCursorMetrics;
 
   // Momentum (fling) scrolling: a friction simulation drives scroll-pixel
   // deltas after the finger lifts, decelerating to a stop.
@@ -300,7 +293,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final callback = widget.onCursorMetrics;
     final snapshot = _snapshot;
     if (callback == null || snapshot == null || _cellHeight <= 0) return;
-    final metrics = NativeTerminalCursorMetrics(
+    final metrics = TerminalCursorMetrics(
       row: snapshot.cursor.row,
       col: snapshot.cursor.col,
       lineHeight: _cellHeight,
@@ -956,4 +949,29 @@ class _TerminalGridPainter extends CustomPainter {
         old.selectionStart != selectionStart ||
         old.selectionEnd != selectionEnd;
   }
+}
+
+/// Cursor position and line height reported by the terminal renderer so the
+/// page can lift the view above the keyboard to keep the cursor visible.
+class TerminalCursorMetrics {
+  const TerminalCursorMetrics({
+    required this.row,
+    required this.col,
+    required this.lineHeight,
+  });
+
+  final int row;
+  final int col;
+  final double lineHeight;
+
+  @override
+  bool operator ==(Object other) {
+    return other is TerminalCursorMetrics &&
+        other.row == row &&
+        other.col == col &&
+        other.lineHeight == lineHeight;
+  }
+
+  @override
+  int get hashCode => Object.hash(row, col, lineHeight);
 }
