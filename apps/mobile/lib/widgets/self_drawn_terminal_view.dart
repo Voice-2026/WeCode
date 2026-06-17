@@ -328,9 +328,29 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
 
   // ---- scroll --------------------------------------------------------------
 
+  double _wheelAccum = 0;
+
   void _scrollBy(double pixels) {
     final sessionId = widget.sessionId;
     if (sessionId == null || _cellHeight <= 0 || pixels == 0) return;
+    final mode = _snapshot?.inputMode;
+    // Forward the gesture to the app only when it owns scrolling:
+    //  - mouse tracking on  -> send wheel events (Claude Code, vim, ...);
+    //  - alternate screen + alternate-scroll -> translate to arrow keys
+    //    (pagers like less). NOTE: the alternate-scroll mode bit is often set
+    //    even on the normal screen, so it must be gated by alternateScreen --
+    //    otherwise scrolling at a shell prompt sends arrows and cycles command
+    //    history instead of scrolling the scrollback.
+    if (mode != null) {
+      if (mode.mouseTracking) {
+        _forwardScroll(pixels, mode, useWheel: true);
+        return;
+      }
+      if (mode.alternateScreen && mode.alternateScroll) {
+        _forwardScroll(pixels, mode, useWheel: false);
+        return;
+      }
+    }
     widget.controller.scrollScreenPixels(
       sessionId,
       pixels: pixels,
@@ -339,7 +359,42 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     _refresh(force: true);
   }
 
-  void _onDragStart(DragStartDetails details) => _fling.stop();
+  void _forwardScroll(
+    double pixels,
+    TerminalScreenInputMode mode, {
+    required bool useWheel,
+  }) {
+    final snapshot = _snapshot;
+    if (snapshot == null) return;
+    _wheelAccum += pixels;
+    // One tick per cell-height of drag; dragging down (positive) reveals older
+    // content, i.e. a wheel-up / up-arrow.
+    while (_wheelAccum.abs() >= _cellHeight) {
+      final up = _wheelAccum > 0;
+      _wheelAccum += up ? -_cellHeight : _cellHeight;
+      final bytes = useWheel
+          ? terminalMouseInput(
+              action: 'press',
+              button: up ? 'wheelUp' : 'wheelDown',
+              row: (snapshot.rows / 2).floor(),
+              col: (snapshot.cols / 2).floor(),
+              mouseMotion: mode.mouseMotion,
+              mouseDrag: mode.mouseDrag,
+              sgrMouse: mode.sgrMouse,
+              utf8Mouse: mode.utf8Mouse,
+            )
+          : terminalKeyInput(
+              key: up ? 'up' : 'down',
+              applicationCursor: mode.applicationCursor,
+            );
+      if (bytes.isNotEmpty) widget.onSendKey?.call(bytes);
+    }
+  }
+
+  void _onDragStart(DragStartDetails details) {
+    _fling.stop();
+    _wheelAccum = 0;
+  }
 
   void _onDragUpdate(DragUpdateDetails details) => _scrollBy(details.delta.dy);
 

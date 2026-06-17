@@ -671,7 +671,14 @@ impl GhosttyScreenWorker {
         let cursor = ghostty_cursor_snapshot(&snapshot);
         let cells = ghostty_snapshot_cells(&snapshot, cols, rows);
         let data = if include_data {
-            terminal_snapshot_data(cols, rows, &cells, &cursor)
+            // Prefix the painted cells with the active DEC modes so a fresh
+            // viewer that replays this keyframe restores the *state*, not just
+            // the glyphs: an alt-screen TUI must re-enter the alternate buffer
+            // before the repaint paints into it, and a mouse-tracking app needs
+            // its tracking mode back so wheel scrolling is forwarded.
+            let mut data = terminal_keyframe_mode_prefix(terminal);
+            data.push_str(&terminal_snapshot_data(cols, rows, &cells, &cursor));
+            data
         } else {
             String::new()
         };
@@ -731,6 +738,47 @@ fn install_terminal_query_effects(
         // Query replies degrade gracefully when the effect cannot be
         // installed; the terminal itself keeps working.
     }
+}
+
+/// DEC-mode prefix for a keyframe so a viewer that replays it restores the
+/// active modes alongside the painted cells. Emitted before the repaint: the
+/// alt-screen enter must precede the paint so it lands in the alternate buffer,
+/// and the mouse / cursor-key modes make the viewer forward wheel and arrow
+/// input instead of scrolling its local history.
+fn terminal_keyframe_mode_prefix(terminal: &Terminal<'_, '_>) -> String {
+    let mode = ghostty_input_mode(terminal);
+    let mut out = String::new();
+    if mode.alternate_screen {
+        out.push_str("\x1b[?1049h");
+    }
+    if mode.application_cursor {
+        out.push_str("\x1b[?1h");
+    }
+    if mode.bracketed_paste {
+        out.push_str("\x1b[?2004h");
+    }
+    if mode.focus_in_out {
+        out.push_str("\x1b[?1004h");
+    }
+    // Pick the highest-granularity mouse tracking that is active; the coarser
+    // modes are subsumed by it on the receiving terminal.
+    if mode.mouse_motion {
+        out.push_str("\x1b[?1003h");
+    } else if mode.mouse_drag {
+        out.push_str("\x1b[?1002h");
+    } else if mode.mouse_tracking {
+        out.push_str("\x1b[?1000h");
+    }
+    if mode.utf8_mouse {
+        out.push_str("\x1b[?1005h");
+    }
+    if mode.sgr_mouse {
+        out.push_str("\x1b[?1006h");
+    }
+    if mode.alternate_scroll {
+        out.push_str("\x1b[?1007h");
+    }
+    out
 }
 
 fn ghostty_input_mode(terminal: &Terminal<'_, '_>) -> TerminalInputMode {

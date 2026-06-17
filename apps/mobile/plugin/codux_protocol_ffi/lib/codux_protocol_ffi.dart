@@ -925,6 +925,7 @@ class TerminalScreenSnapshot {
     required this.applicationCursor,
     required this.cells,
     required this.cursor,
+    this.inputMode = const TerminalScreenInputMode(),
   });
 
   final String data;
@@ -944,6 +945,11 @@ class TerminalScreenSnapshot {
   final bool applicationCursor;
   final List<TerminalScreenCell> cells;
   final TerminalScreenCursor cursor;
+
+  /// Active terminal modes (mouse tracking, alternate screen/scroll, ...),
+  /// used to decide whether a scroll gesture scrolls the local scrollback or
+  /// is forwarded to the app as wheel / arrow input (TUIs like Claude Code).
+  final TerminalScreenInputMode inputMode;
 
   factory TerminalScreenSnapshot.fromJson(Map<String, dynamic> json) {
     final cells = json['cells'];
@@ -968,6 +974,46 @@ class TerminalScreenSnapshot {
             ? Map<String, dynamic>.from(json['cursor'] as Map)
             : const {},
       ),
+      inputMode: json['inputMode'] is Map
+          ? TerminalScreenInputMode.fromJson(
+              Map<String, dynamic>.from(json['inputMode'] as Map),
+            )
+          : const TerminalScreenInputMode(),
+    );
+  }
+}
+
+class TerminalScreenInputMode {
+  const TerminalScreenInputMode({
+    this.applicationCursor = false,
+    this.alternateScreen = false,
+    this.alternateScroll = false,
+    this.mouseTracking = false,
+    this.mouseMotion = false,
+    this.mouseDrag = false,
+    this.sgrMouse = false,
+    this.utf8Mouse = false,
+  });
+
+  final bool applicationCursor;
+  final bool alternateScreen;
+  final bool alternateScroll;
+  final bool mouseTracking;
+  final bool mouseMotion;
+  final bool mouseDrag;
+  final bool sgrMouse;
+  final bool utf8Mouse;
+
+  factory TerminalScreenInputMode.fromJson(Map<String, dynamic> json) {
+    return TerminalScreenInputMode(
+      applicationCursor: json['applicationCursor'] == true,
+      alternateScreen: json['alternateScreen'] == true,
+      alternateScroll: json['alternateScroll'] == true,
+      mouseTracking: json['mouseTracking'] == true,
+      mouseMotion: json['mouseMotion'] == true,
+      mouseDrag: json['mouseDrag'] == true,
+      sgrMouse: json['sgrMouse'] == true,
+      utf8Mouse: json['utf8Mouse'] == true,
     );
   }
 }

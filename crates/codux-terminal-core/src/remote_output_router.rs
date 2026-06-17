@@ -712,6 +712,7 @@ impl RemoteTerminalOutputRouter {
                 held_live = self.replace_session_from_baseline(
                     session_id,
                     &raw,
+                    decoded.screen_data.as_deref(),
                     decoded.buffer_length,
                     output_seq,
                 );
@@ -722,6 +723,7 @@ impl RemoteTerminalOutputRouter {
                     self.replace_session_from_baseline(
                         session_id,
                         &raw,
+                        decoded.screen_data.as_deref(),
                         decoded.buffer_length,
                         output_seq,
                     );
@@ -822,12 +824,14 @@ impl RemoteTerminalOutputRouter {
         &mut self,
         session_id: &str,
         data: &str,
+        screen_data: Option<&str>,
         buffer_length: Option<i64>,
         output_seq: Option<TerminalSequence>,
     ) -> Vec<String> {
         self.gap_sessions.remove(session_id);
         let replay = self.session(session_id).replace_from_baseline(
             data,
+            screen_data,
             buffer_length.and_then(|value| usize::try_from(value).ok()),
             output_seq,
         );
@@ -855,7 +859,7 @@ impl RemoteTerminalOutputRouter {
             let combined = format!("{existing}{data}");
             let replay = self
                 .session(session_id)
-                .replace_from_baseline(&combined, buffer_len, output_seq);
+                .replace_from_baseline(&combined, screen_data, buffer_len, output_seq);
             self.bump_render(session_id);
             return replay;
         }

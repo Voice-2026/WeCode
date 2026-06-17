@@ -236,6 +236,7 @@ impl<T> RemotePtySession<T> {
     pub fn replace_from_baseline(
         &mut self,
         content: &str,
+        screen_data: Option<&str>,
         buffer_length: Option<usize>,
         sequence: Option<TerminalSequence>,
     ) -> Vec<T> {
@@ -251,8 +252,25 @@ impl<T> RemotePtySession<T> {
             self.buffer_length = buffer_length;
         }
         self.history_screen.clear();
+        let mut rendered = false;
         if !content.is_empty() {
             self.history_screen.process(content.as_bytes());
+            rendered = true;
+        }
+        // Reconstruct the current screen from the host keyframe. An alt-screen
+        // TUI (e.g. Claude) keeps its UI in the alternate buffer, which has no
+        // scrollback and is therefore absent from the raw history above; without
+        // the keyframe a fresh restore renders blank until the host happens to
+        // emit a full repaint. The keyframe carries the active DEC modes and its
+        // \x1b[2J clears only the visible screen (libghostty keeps scrollback),
+        // so the raw history above stays scrollable.
+        if let Some(screen_data) = screen_data {
+            if !screen_data.is_empty() {
+                self.history_screen.process_replay(screen_data.as_bytes());
+                rendered = true;
+            }
+        }
+        if rendered {
             self.history_screen.scroll_to_bottom();
             if prev_offset > 0 {
                 self.history_screen.scroll_to_offset(prev_offset);

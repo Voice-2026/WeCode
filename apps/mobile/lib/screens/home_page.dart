@@ -883,7 +883,18 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     );
     _focusTerminalViewSoon();
     if (restored) {
-      if (_transportConnected && _remoteProtocolReady) {
+      // Re-request a baseline on foreground resume (output may have been
+      // missed while backgrounded) or when live frames were actually dropped.
+      // A cached, in-sync session being switched back to must NOT be reloaded:
+      // replaying the trimmed raw history would clobber the live screen -- for
+      // a TUI it loses the alt-screen / mouse-tracking modes set long ago (now
+      // trimmed off the front), so the input border vanishes and scrolling
+      // stops. The viewport re-claim/resize on mount triggers a fresh repaint,
+      // so a gap-free switch stays current without a reload.
+      final needsBaseline =
+          reason == 'foreground' ||
+          _terminalOutputController.hasSequenceGap(sessionId);
+      if (_transportConnected && _remoteProtocolReady && needsBaseline) {
         final requested = _terminalBindingCoordinator.subscribeSessionBaseline(
           sessionId: sessionId,
           reason: 'mount-$reason',
