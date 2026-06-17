@@ -943,7 +943,21 @@ impl TerminalPtySession {
     pub fn subscribe_output(&self, replay_snapshot: bool) -> flume::Receiver<Vec<u8>> {
         let (tx, rx) = flume::unbounded();
         if replay_snapshot {
-            let snapshot = self.snapshot();
+            let mut snapshot = self.snapshot();
+            // An alt-screen TUI (e.g. Claude Code) keeps its UI in the alternate
+            // buffer, which has no scrollback and so never reaches the raw
+            // history above. A re-attaching viewer that only replays the raw
+            // history therefore renders blank until the TUI happens to repaint
+            // (which is why re-entering the terminal "fixed" it). Append the
+            // live screen keyframe -- it carries the active DEC modes
+            // (alt-screen, mouse) and its ESC[2J clears only the visible screen
+            // (libghostty keeps scrollback) -- so the current screen and its
+            // modes are reconstructed immediately. Normal-screen sessions
+            // reconstruct fully from the raw history and skip this.
+            let screen = self.screen_snapshot();
+            if screen.input_mode.alternate_screen && !screen.data.is_empty() {
+                snapshot.push_str(&screen.data);
+            }
             if !snapshot.is_empty() {
                 let _ = tx.send(snapshot.into_bytes());
             }
@@ -3478,6 +3492,61 @@ mod tests {
         );
 
         let _ = first_session.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reattach_appends_keyframe_only_for_alt_screen_session() {
+        let manager = TerminalManager::new();
+        let emit: EventSink = Arc::new(|_| true);
+        let config = TerminalPtyConfig {
+            terminal_id: Some(format!("test-altscreen-{}", Uuid::new_v4())),
+            shell: Some("/bin/cat".to_string()),
+            cols: Some(80),
+            rows: Some(24),
+            scrollback_lines: Some(100),
+            ..Default::default()
+        };
+
+        let (session, first_rx) = manager
+            .attach_or_create_with_context(config.clone(), None, emit.clone())
+            .expect("terminal should start");
+
+        // Normal screen: a re-attach replays only the raw history; it never
+        // appends the keyframe (identified by its cursor-hide repaint prefix).
+        session.write(b"normal-line\n").expect("write should succeed");
+        assert!(
+            recv_until_contains(&first_rx, "normal-line", Duration::from_secs(2))
+                .contains("normal-line")
+        );
+        let (_normal_session, normal_rx) = manager
+            .attach_or_create_with_context(config.clone(), None, emit.clone())
+            .expect("terminal should attach");
+        let normal_replay = recv_until_contains(&normal_rx, "normal-line", Duration::from_secs(2));
+        assert!(normal_replay.contains("normal-line"));
+        assert!(!normal_replay.contains("\x1b[?25l"));
+
+        // Enter the alternate screen and let it apply to the live screen.
+        session
+            .write(b"\x1b[?1049h\x1b[2J\x1b[HALT_SCREEN_MARKER\n")
+            .expect("write should succeed");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !session.screen_snapshot().input_mode.alternate_screen {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(session.screen_snapshot().input_mode.alternate_screen);
+
+        // Alt screen: the re-attach replay now carries the live keyframe, so the
+        // current screen and its alt-screen mode are reconstructed even though
+        // the alternate buffer never reached the raw history.
+        let (_alt_session, alt_rx) = manager
+            .attach_or_create_with_context(config, None, emit)
+            .expect("terminal should attach");
+        let alt_replay = recv_until_contains(&alt_rx, "\x1b[?25l", Duration::from_secs(2));
+        assert!(alt_replay.contains("\x1b[?25l"));
+        assert!(alt_replay.contains("\x1b[?1049h"));
+
+        let _ = session.kill();
     }
 
     #[cfg(unix)]
