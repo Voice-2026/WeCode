@@ -1112,8 +1112,14 @@ mod tests {
         assert_eq!(kinds(&effects), ["loading", "sessionUpdated", "ack"]);
 
         let after = router.screen_snapshot_json("session-1").unwrap();
-        assert!(after.contains("fresh-screen"), "screen adopts keyframe: {after}");
-        assert!(!after.contains("old-screen"), "stale screen cleared: {after}");
+        assert!(
+            after.contains("fresh-screen"),
+            "screen adopts keyframe: {after}"
+        );
+        assert!(
+            !after.contains("old-screen"),
+            "stale screen cleared: {after}"
+        );
         // Raw history (native render content / scrollback) is left intact.
         assert_eq!(router.content("session-1"), Some("raw-history"));
     }

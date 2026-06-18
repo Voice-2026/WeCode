@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-06-18
+
+### Changed
+
+- Refreshed the desktop and mobile README positioning and linked downloads to the latest release pages.
+
+### Fixed
+
+- Fixed desktop/mobile terminal viewport handoff so remote viewer ownership does not leave stale sizing or history state behind.
+- Fixed missing or overlapping glyphs in the self-drawn mobile terminal renderer.
+- Fixed several AI runtime probes so Claude, CodeWhale, Kiro, and related wrappers report running/loading state reliably.
+
 ## [1.9.0] - 2026-06-18
 
 ### Changed

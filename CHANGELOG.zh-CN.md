@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-06-18
+
+### 调整
+
+- 刷新桌面端和移动端 README 表达，并将下载入口指向最新 release 页面。
+
+### 修复
+
+- 修复桌面端 / 移动端终端 viewport handoff，远程 viewer ownership 不再留下过期尺寸或历史状态。
+- 修复移动端自绘终端中部分字符缺失或重叠的问题。
+- 修复多类 AI runtime probe，Claude、CodeWhale、Kiro 以及相关 wrapper 的 running / loading 状态现在能更稳定显示。
+
 ## [1.9.0] - 2026-06-18
 
 ### 调整

@@ -4,6 +4,17 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-06-18
+
+### Changed
+
+- Updated README copy and release links for the current mobile release flow.
+
+### Fixed
+
+- Fixed mobile terminal glyph measurement so self-drawn terminal text no longer drops or overlaps characters.
+- Fixed terminal viewport handoff from desktop to mobile so controller-driven sizing stays consistent.
+
 ## [1.9.0] - 2026-06-18
 
 ### Changed

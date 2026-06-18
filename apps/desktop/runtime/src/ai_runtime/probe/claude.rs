@@ -399,7 +399,10 @@ fn normalized_plan_status(value: &str) -> String {
 /// session showed no running state even while Claude was clearly working.
 fn is_claude_interrupted_row(row: &Value) -> bool {
     claude_user_message_text(row)
-        .map(|text| text.trim_start().starts_with("[Request interrupted by user"))
+        .map(|text| {
+            text.trim_start()
+                .starts_with("[Request interrupted by user")
+        })
         .unwrap_or(false)
 }
 
@@ -533,8 +536,7 @@ mod tests {
         .unwrap();
         drop(file);
 
-        let aggregate =
-            parse_claude_log_runtime_state(&path, "/tmp/p", "s1").expect("aggregate");
+        let aggregate = parse_claude_log_runtime_state(&path, "/tmp/p", "s1").expect("aggregate");
         assert_eq!(aggregate.response_state().as_deref(), Some("responding"));
         assert!(!aggregate.was_interrupted());
         let _ = std::fs::remove_dir_all(dir);
