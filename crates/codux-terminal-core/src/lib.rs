@@ -21,7 +21,7 @@ pub use remote_output_router::{
     RemoteTerminalBufferPhase, RemoteTerminalOutputEffect, RemoteTerminalOutputEffectKind,
     RemoteTerminalOutputRouter,
 };
-pub use remote_pty::{RemotePtySession, RemotePtySnapshot};
+pub use remote_pty::RemotePtySession;
 pub use runtime_model::{
     RemoteRuntimeModel, RemoteRuntimePlan, RemoteRuntimeProject, RemoteRuntimeStateSnapshot,
     RemoteRuntimeTerminal, RemoteRuntimeTerminalScope, RemoteRuntimeWorktree,
@@ -39,8 +39,7 @@ pub use terminal_input::{
     TerminalMouseButton, TerminalMouseInput, terminal_insert_input, terminal_insert_input_bytes,
     terminal_is_copy_shortcut, terminal_is_paste_shortcut, terminal_key_input,
     terminal_key_input_bytes, terminal_mouse_input_bytes, terminal_paste_input_bytes,
-    terminal_selector_input, terminal_selector_input_bytes, terminal_text_input,
-    terminal_text_input_bytes,
+    terminal_text_input, terminal_text_input_bytes,
 };
 
 pub type TerminalSequence = i64;

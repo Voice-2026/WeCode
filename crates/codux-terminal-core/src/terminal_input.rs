@@ -141,26 +141,6 @@ pub fn terminal_key_input(input: TerminalKeyInput<'_>) -> Option<String> {
     String::from_utf8(terminal_key_input_bytes(input)?).ok()
 }
 
-pub fn terminal_selector_input(selector: &str, mode: TerminalInputMode) -> Option<String> {
-    let key = terminal_selector_key(selector)?;
-    terminal_key_input(TerminalKeyInput {
-        key,
-        key_char: None,
-        modifiers: TerminalKeyInputModifiers::default(),
-        mode,
-    })
-}
-
-pub fn terminal_selector_input_bytes(selector: &str, mode: TerminalInputMode) -> Option<Vec<u8>> {
-    let key = terminal_selector_key(selector)?;
-    terminal_key_input_bytes(TerminalKeyInput {
-        key,
-        key_char: None,
-        modifiers: TerminalKeyInputModifiers::default(),
-        mode,
-    })
-}
-
 pub fn terminal_key_input_bytes(input: TerminalKeyInput<'_>) -> Option<Vec<u8>> {
     if terminal_should_keep_platform_shortcut(input) {
         return None;
@@ -389,21 +369,6 @@ pub fn terminal_is_paste_shortcut(input: TerminalKeyInput<'_>) -> bool {
         && input.modifiers.platform
         && !input.modifiers.control
         && !input.modifiers.alt
-}
-
-fn terminal_selector_key(selector: &str) -> Option<&'static str> {
-    match selector {
-        "deleteBackward:" => Some("backspace"),
-        "deleteForward:" => Some("delete"),
-        "insertNewline:" => Some("enter"),
-        "moveLeft:" => Some("left"),
-        "moveRight:" => Some("right"),
-        "moveUp:" => Some("up"),
-        "moveDown:" => Some("down"),
-        "moveToBeginningOfLine:" => Some("home"),
-        "moveToEndOfLine:" => Some("end"),
-        _ => None,
-    }
 }
 
 fn terminal_should_keep_platform_shortcut(input: TerminalKeyInput<'_>) -> bool {

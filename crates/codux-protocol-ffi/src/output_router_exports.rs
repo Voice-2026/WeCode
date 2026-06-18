@@ -275,17 +275,6 @@ pub extern "C" fn codux_output_router_resize_screen(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn codux_output_router_scroll_screen_lines(
-    router: *mut FfiOutputRouter,
-    session_id: *const c_char,
-    lines: i64,
-) {
-    if let (Some(router), Some(session_id)) = (router_mut(router), c_to_string(session_id)) {
-        router.scroll_screen_lines(&session_id, lines as i32);
-    }
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn codux_output_router_scroll_screen_pixels(
     router: *mut FfiOutputRouter,
     session_id: *const c_char,
@@ -305,45 +294,4 @@ pub extern "C" fn codux_output_router_settle_screen_pixel_scroll(
     if let (Some(router), Some(session_id)) = (router_mut(router), c_to_string(session_id)) {
         router.settle_screen_pixel_scroll(&session_id);
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_output_router_scroll_screen_to_bottom(
-    router: *mut FfiOutputRouter,
-    session_id: *const c_char,
-) {
-    if let (Some(router), Some(session_id)) = (router_mut(router), c_to_string(session_id)) {
-        router.scroll_screen_to_bottom(&session_id);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_output_router_apply_host_scroll(
-    router: *mut FfiOutputRouter,
-    session_id: *const c_char,
-    screen_data: *const c_char,
-    cols: i64,
-    rows: i64,
-    display_offset: i64,
-    total_lines: i64,
-    margin_rows: i64,
-    margin_rows_below: i64,
-) {
-    let (Some(router), Some(session_id), Some(screen_data)) = (
-        router_mut(router),
-        c_to_string(session_id),
-        c_to_string(screen_data),
-    ) else {
-        return;
-    };
-    router.apply_host_scroll(
-        &session_id,
-        &screen_data,
-        usize::try_from(cols).unwrap_or(0),
-        usize::try_from(rows).unwrap_or(0),
-        usize::try_from(display_offset).unwrap_or(0),
-        usize::try_from(total_lines).unwrap_or(0),
-        usize::try_from(margin_rows).unwrap_or(0),
-        usize::try_from(margin_rows_below).unwrap_or(0),
-    );
 }

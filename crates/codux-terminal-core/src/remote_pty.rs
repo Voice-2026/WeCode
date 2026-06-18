@@ -7,16 +7,7 @@ use crate::{HeadlessTerminalScreen, TerminalScreenSnapshot, TerminalSequence};
 /// buffers grow without limit; past the cap we drop the oldest held frames.
 const MAX_HELD_LIVE: usize = 2048;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemotePtySnapshot {
-    pub session_id: String,
-    pub content: String,
-    pub buffer_length: usize,
-    pub sequence: TerminalSequence,
-}
-
 pub struct RemotePtySession<T> {
-    session_id: String,
     max_cached_chars: usize,
     content: String,
     buffer_length: usize,
@@ -25,25 +16,11 @@ pub struct RemotePtySession<T> {
     awaiting_baseline: bool,
     held_sequenced_live: BTreeMap<TerminalSequence, T>,
     held_unsequenced_live: Vec<T>,
-    // Scrollback state served by the host screen (display offset / total
-    // lines / overscan margins above and below of the last host-scrolled
-    // snapshot). When set, the scroll screen shows a host-rendered history
-    // viewport instead of the local raw-byte replay.
-    host_scroll: Option<(usize, usize, usize, usize)>,
-    // Authoritative scrollback length reported by the host; the local history
-    // screen's own scrollback is bounded, so this drives the client scroll
-    // range even at the live bottom.
-    host_total_lines: Option<usize>,
-    // Dedicated screen for host-served scroll snapshots: they can be taller
-    // than the viewport (overscan margins) and must not disturb the live
-    // history screen.
-    scroll_screen: HeadlessTerminalScreen,
 }
 
 impl<T> RemotePtySession<T> {
-    pub fn new(session_id: impl Into<String>, max_cached_chars: usize) -> Self {
+    pub fn new(max_cached_chars: usize) -> Self {
         Self {
-            session_id: session_id.into(),
             max_cached_chars,
             content: String::new(),
             buffer_length: 0,
@@ -52,14 +29,7 @@ impl<T> RemotePtySession<T> {
             awaiting_baseline: false,
             held_sequenced_live: BTreeMap::new(),
             held_unsequenced_live: Vec::new(),
-            host_scroll: None,
-            host_total_lines: None,
-            scroll_screen: HeadlessTerminalScreen::new(80, 24, 0),
         }
-    }
-
-    pub fn session_id(&self) -> &str {
-        &self.session_id
     }
 
     pub fn content(&self) -> &str {
@@ -78,86 +48,18 @@ impl<T> RemotePtySession<T> {
         self.awaiting_baseline
     }
 
-    pub fn snapshot(&self) -> RemotePtySnapshot {
-        RemotePtySnapshot {
-            session_id: self.session_id.clone(),
-            content: self.content.clone(),
-            buffer_length: self.buffer_length,
-            sequence: self.sequence,
-        }
-    }
-
     pub fn screen_snapshot(&self) -> TerminalScreenSnapshot {
-        if let Some((display_offset, total_lines, margin_rows, margin_rows_below)) =
-            self.host_scroll
-        {
-            let mut snapshot = self.scroll_screen.snapshot();
-            snapshot.display_offset = display_offset;
-            snapshot.total_lines = total_lines.max(snapshot.rows);
-            snapshot.margin_rows = margin_rows;
-            snapshot.margin_rows_below = margin_rows_below;
-            return snapshot;
-        }
         // The live view renders the raw-byte history screen, which is reflowed
         // to the consumer's own grid size. The screen `screenData` keyframe is
         // rendered at the *host's* grid size and, when the host viewport differs
         // (e.g. the consumer hasn't claimed/resized the host yet), would paint
         // into only the top rows and leave the rest blank. Rendering the raw
         // history avoids that and matches what the native emulator did.
-        let mut snapshot = self.history_screen.snapshot();
-        if let Some(total) = self.host_total_lines {
-            snapshot.total_lines = total.max(snapshot.total_lines);
-        }
-        snapshot
-    }
-
-    /// Apply a host-rendered scrolled viewport (terminal.viewport.scrolled).
-    /// The host screen owns the authoritative scrollback at the live grid
-    /// size; rendering it replaces the fragile local raw-byte history
-    /// replay entirely. `margin_rows` rows at the top of the data are
-    /// pre-rendered overscan context above the viewport;
-    /// `margin_rows_below` rows at the bottom are context below it. `rows`
-    /// is the full host-rendered snapshot height, already including those
-    /// margins.
-    pub fn apply_host_scroll_snapshot(
-        &mut self,
-        screen_data: &str,
-        cols: usize,
-        rows: usize,
-        display_offset: usize,
-        total_lines: usize,
-        margin_rows: usize,
-        margin_rows_below: usize,
-    ) {
-        if screen_data.is_empty() {
-            return;
-        }
-        let cols = cols.max(1);
-        let rows = rows.max(1);
-        self.host_total_lines = Some(total_lines);
-        if display_offset == 0 && margin_rows == 0 && margin_rows_below == 0 {
-            // Returning to the live bottom: drop any host scroll override and
-            // let the raw history screen (reflowed to the consumer's own size)
-            // show the live tail. The host-rendered snapshot is only needed for
-            // scrolled-back viewports, which keep using `scroll_screen` below.
-            self.host_scroll = None;
-            self.history_screen.scroll_to_bottom();
-            return;
-        }
-        self.scroll_screen.resize(cols, rows);
-        self.scroll_screen
-            .replace_with_keyframe(screen_data.as_bytes());
-        self.host_scroll = Some((display_offset, total_lines, margin_rows, margin_rows_below));
+        self.history_screen.snapshot()
     }
 
     pub fn resize_screen(&mut self, cols: usize, rows: usize) {
         self.history_screen.resize(cols, rows);
-    }
-
-    pub fn scroll_screen_lines(&mut self, lines: i32) {
-        if lines != 0 {
-            self.history_screen.scroll_lines(lines);
-        }
     }
 
     pub fn scroll_screen_pixels(&mut self, pixels: f64, cell_height: f64) {
@@ -169,12 +71,6 @@ impl<T> RemotePtySession<T> {
 
     pub fn settle_screen_pixel_scroll(&mut self) {
         self.history_screen.settle_pixel_scroll();
-    }
-
-    pub fn scroll_screen_to_bottom(&mut self) {
-        self.history_screen.scroll_to_bottom();
-        self.scroll_screen.clear();
-        self.host_scroll = None;
     }
 
     pub fn require_baseline(&mut self) {
@@ -190,10 +86,6 @@ impl<T> RemotePtySession<T> {
         if reset_sequence {
             self.sequence = 0;
         }
-    }
-
-    pub fn set_sequence(&mut self, sequence: TerminalSequence) {
-        self.sequence = sequence;
     }
 
     pub fn hold_live(&mut self, sequence: Option<TerminalSequence>, output: T) -> bool {
@@ -265,7 +157,6 @@ impl<T> RemotePtySession<T> {
                 self.history_screen.scroll_to_offset(prev_offset);
             }
         }
-        self.host_scroll = None;
         let base_sequence = sequence.unwrap_or(self.sequence);
         self.sequence = base_sequence;
         self.awaiting_baseline = false;
@@ -287,10 +178,6 @@ impl<T> RemotePtySession<T> {
         buffer_length: Option<usize>,
         sequence: Option<TerminalSequence>,
     ) {
-        if matches!(self.host_scroll, Some((0, _, _, _))) {
-            self.host_scroll = None;
-            self.scroll_screen.clear();
-        }
         if !data.is_empty() {
             // The live view is the raw PTY history reflowed to the consumer's
             // grid; live output only appends bytes. Follow the bottom only if
@@ -316,8 +203,6 @@ impl<T> RemotePtySession<T> {
         self.buffer_length = 0;
         self.sequence = 0;
         self.history_screen.clear();
-        self.scroll_screen.clear();
-        self.host_scroll = None;
         self.reset_transient(false);
     }
 }
@@ -329,8 +214,7 @@ impl<T> RemotePtySession<T> {
 /// full re-feed on a session switch needlessly large (the emulator parses it
 /// all and then discards everything past its scrollback). Bounding the cache
 /// a little above that scrollback keeps a switch's `replace` small while still
-/// fully repopulating the emulator. Deeper history is served by the host on
-/// demand (`apply_host_scroll`), not from this cache.
+/// fully repopulating the emulator.
 const MAX_CACHED_LINES: usize = 600;
 
 /// Append `data` to `buffer`, then trim the front to the cache budget. Appends

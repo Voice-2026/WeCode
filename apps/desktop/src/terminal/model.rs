@@ -929,6 +929,7 @@ impl TerminalStateHandle {
         self.snapshot.lock().display_offset
     }
 
+    #[cfg(test)]
     fn input_mode(&self) -> TerminalInputMode {
         self.snapshot.lock().input_mode
     }

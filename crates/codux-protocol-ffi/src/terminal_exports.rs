@@ -4,8 +4,7 @@ use crate::common::{
 use codux_terminal_core::{
     RemoteSequenceGuard, TerminalInputMode, TerminalKeyInput, TerminalKeyInputModifiers,
     TerminalMouseAction, TerminalMouseButton, TerminalMouseInput, terminal_insert_input_bytes,
-    terminal_key_input_bytes, terminal_mouse_input_bytes, terminal_selector_input_bytes,
-    terminal_text_input_bytes,
+    terminal_key_input_bytes, terminal_mouse_input_bytes, terminal_text_input_bytes,
 };
 use serde_json::json;
 use std::ffi::c_char;
@@ -57,25 +56,6 @@ pub extern "C" fn codux_terminal_key_input_json(
             ..Default::default()
         },
     })
-    .unwrap_or_default();
-    terminal_input_json(bytes)
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn codux_terminal_selector_input_json(
-    selector: *const c_char,
-    application_cursor: bool,
-) -> *mut c_char {
-    let Some(selector) = c_to_string(selector) else {
-        return ptr::null_mut();
-    };
-    let bytes = terminal_selector_input_bytes(
-        &selector,
-        TerminalInputMode {
-            application_cursor,
-            ..Default::default()
-        },
-    )
     .unwrap_or_default();
     terminal_input_json(bytes)
 }

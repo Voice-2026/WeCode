@@ -184,11 +184,6 @@ impl RemoteTerminalOutputRouter {
         self.bump_render(session_id);
     }
 
-    pub fn scroll_screen_lines(&mut self, session_id: &str, lines: i32) {
-        self.ensure_session(session_id).scroll_screen_lines(lines);
-        self.bump_render(session_id);
-    }
-
     pub fn scroll_screen_pixels(&mut self, session_id: &str, pixels: f64, cell_height: f64) {
         self.ensure_session(session_id)
             .scroll_screen_pixels(pixels, cell_height);
@@ -197,35 +192,6 @@ impl RemoteTerminalOutputRouter {
 
     pub fn settle_screen_pixel_scroll(&mut self, session_id: &str) {
         self.ensure_session(session_id).settle_screen_pixel_scroll();
-        self.bump_render(session_id);
-    }
-
-    pub fn scroll_screen_to_bottom(&mut self, session_id: &str) {
-        self.ensure_session(session_id).scroll_screen_to_bottom();
-        self.bump_render(session_id);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn apply_host_scroll(
-        &mut self,
-        session_id: &str,
-        screen_data: &str,
-        cols: usize,
-        rows: usize,
-        display_offset: usize,
-        total_lines: usize,
-        margin_rows: usize,
-        margin_rows_below: usize,
-    ) {
-        self.ensure_session(session_id).apply_host_scroll_snapshot(
-            screen_data,
-            cols,
-            rows,
-            display_offset,
-            total_lines,
-            margin_rows,
-            margin_rows_below,
-        );
         self.bump_render(session_id);
     }
 
@@ -240,7 +206,7 @@ impl RemoteTerminalOutputRouter {
         if !self.sessions.contains_key(session_id) {
             self.sessions.insert(
                 session_id.to_string(),
-                RemotePtySession::new(session_id, self.max_cached_chars),
+                RemotePtySession::new(self.max_cached_chars),
             );
             self.order.push(session_id.to_string());
         }

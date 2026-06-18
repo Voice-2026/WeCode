@@ -87,32 +87,6 @@ fn terminal_key_input_maps_control_and_navigation_sequences() {
 }
 
 #[test]
-fn terminal_selector_input_maps_platform_edit_commands() {
-    let normal = TerminalInputMode {
-        application_cursor: false,
-        ..Default::default()
-    };
-    let app_cursor = TerminalInputMode {
-        application_cursor: true,
-        ..Default::default()
-    };
-
-    assert_eq!(
-        terminal_selector_input("deleteBackward:", normal),
-        Some("\u{7f}".to_string())
-    );
-    assert_eq!(
-        terminal_selector_input("moveLeft:", normal),
-        Some("\u{1b}[D".to_string())
-    );
-    assert_eq!(
-        terminal_selector_input("moveLeft:", app_cursor),
-        Some("\u{1b}OD".to_string())
-    );
-    assert_eq!(terminal_selector_input("unknown:", normal), None);
-}
-
-#[test]
 fn terminal_key_input_keeps_app_shortcuts_out_of_terminal() {
     assert!(terminal_key_input(key_input("q", None, false, false, false, true, false)).is_none());
     assert!(terminal_is_copy_shortcut(key_input(
@@ -266,9 +240,20 @@ fn scrollable_history(prefix: &str) -> String {
         .join("\r\n")
 }
 
+/// Scroll the session's history view up by `lines` rows via the live
+/// pixel-scroll API (the only scroll path the mobile view uses).
+fn scroll_history_up(session: &mut RemotePtySession<String>, lines: i32) {
+    session.scroll_screen_pixels(lines as f64 * 20.0, 20.0);
+}
+
+/// Scroll the session's history view back to the live bottom.
+fn scroll_history_bottom(session: &mut RemotePtySession<String>) {
+    session.scroll_screen_pixels(-100_000.0, 20.0);
+}
+
 #[test]
 fn restores_baseline_before_replaying_held_live_output() {
-    let mut session = RemotePtySession::new("session-1", 64);
+    let mut session = RemotePtySession::new(64);
     session.require_baseline();
 
     assert!(session.hold_live(Some(11), "stale"));
@@ -281,7 +266,7 @@ fn restores_baseline_before_replaying_held_live_output() {
 
 #[test]
 fn restores_raw_history_screen_from_baseline() {
-    let mut session = RemotePtySession::<String>::new("session-1", 256);
+    let mut session = RemotePtySession::<String>::new(256);
     session.resize_screen(20, 8);
     let history = scrollable_history("raw history");
 
@@ -296,12 +281,12 @@ fn restores_raw_history_screen_from_baseline() {
     assert!(screen.data.contains("raw history 12"));
     assert!(!screen.data.contains("raw history 01"));
 
-    session.scroll_screen_lines(8);
+    scroll_history_up(&mut session, 8);
     let scrolled = session.screen_snapshot();
     assert!(scrolled.display_offset > 0);
     assert!(scrolled.data.contains("raw history 01") || scrolled.data.contains("raw history 02"));
 
-    session.scroll_screen_to_bottom();
+    scroll_history_bottom(&mut session);
     let bottom = session.screen_snapshot();
     assert_eq!(bottom.display_offset, 0);
     assert!(bottom.data.contains("raw history 12"));
@@ -310,7 +295,7 @@ fn restores_raw_history_screen_from_baseline() {
 
 #[test]
 fn baseline_keyframe_reconstructs_current_screen_over_raw_history() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    let mut session = RemotePtySession::<String>::new(512);
     session.resize_screen(20, 8);
     let history = scrollable_history("scrollback");
     // A keyframe whose content is absent from the raw history -- as with an
@@ -328,7 +313,7 @@ fn baseline_keyframe_reconstructs_current_screen_over_raw_history() {
     // scrolls the previously-visible rows into scrollback rather than erasing
     // them in place, so the full raw history is preserved above the current
     // screen; scroll to the top to reach the oldest line.)
-    session.scroll_screen_lines(100);
+    scroll_history_up(&mut session, 100);
     let scrolled = session.screen_snapshot();
     assert!(scrolled.display_offset > 0);
     assert!(scrolled.data.contains("scrollback 01") || scrolled.data.contains("scrollback 02"));
@@ -336,7 +321,7 @@ fn baseline_keyframe_reconstructs_current_screen_over_raw_history() {
 
 #[test]
 fn live_output_appends_to_raw_history_screen() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    let mut session = RemotePtySession::<String>::new(512);
     session.resize_screen(20, 8);
     let history = scrollable_history("cached raw history");
     session.replace_from_baseline(&history, None, Some(18), Some(3));
@@ -352,139 +337,15 @@ fn live_output_appends_to_raw_history_screen() {
     assert!(screen.data.contains("partial live raw"));
     assert!(!screen.data.contains("restored tui"));
 
-    session.scroll_screen_lines(8);
+    scroll_history_up(&mut session, 8);
     let scrolled = session.screen_snapshot();
     assert!(scrolled.display_offset > 0);
     assert!(scrolled.data.contains("cached raw history"));
 }
 
 #[test]
-fn host_scroll_snapshot_overrides_view_and_offsets() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
-    session.resize_screen(20, 8);
-    session.replace_from_baseline("history", None, Some(7), Some(1));
-
-    // Host-rendered scrolled viewport replaces the display and reports the
-    // host's offsets through the snapshot.
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost history view", 20, 8, 12, 200, 0, 0);
-    let scrolled = session.screen_snapshot();
-    assert!(scrolled.data.contains("host history view"));
-    assert_eq!(scrolled.display_offset, 12);
-    assert_eq!(scrolled.total_lines, 200);
-
-    // Returning to the live bottom clears the host scroll state and shows the
-    // raw history screen (not the host-rendered snapshot).
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hback to bottom", 20, 8, 0, 200, 0, 0);
-    let bottom = session.screen_snapshot();
-    assert!(bottom.data.contains("history"));
-    assert_eq!(bottom.display_offset, 0);
-
-    // A new baseline resets any lingering host scroll override.
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hscrolled again", 20, 8, 5, 50, 0, 0);
-    session.replace_from_baseline("fresh", None, Some(5), Some(2));
-    assert_eq!(session.screen_snapshot().display_offset, 0);
-}
-
-#[test]
-fn scroll_to_bottom_clears_host_scroll_override() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
-    session.resize_screen(20, 8);
-    session.replace_from_baseline("history", None, Some(7), Some(1));
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost view", 20, 8, 9, 90, 0, 0);
-    assert_eq!(session.screen_snapshot().display_offset, 9);
-
-    session.scroll_screen_to_bottom();
-    assert_eq!(session.screen_snapshot().display_offset, 0);
-}
-
-#[test]
-fn host_scroll_snapshot_uses_host_grid_dimensions() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
-    session.resize_screen(40, 12);
-
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hhost sized view", 20, 11, 4, 200, 2, 1);
-    let snapshot = session.screen_snapshot();
-
-    assert_eq!(snapshot.cols, 20);
-    assert_eq!(snapshot.rows, 11);
-    assert_eq!(snapshot.margin_rows, 2);
-    assert_eq!(snapshot.margin_rows_below, 1);
-    assert!(snapshot.data.contains("host sized view"));
-}
-
-#[test]
-fn host_scroll_snapshot_rows_are_already_stacked_by_host() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
-    session.resize_screen(40, 12);
-
-    // The host sends `rows` from TerminalScreenSnapshot::rows. For remote
-    // viewport snapshots that value already includes marginRows and
-    // marginRowsBelow; the mobile-side core must not add them again.
-    session.apply_host_scroll_snapshot("\x1b[2J\x1b[Hstacked host view", 20, 11, 4, 200, 2, 1);
-    let snapshot = session.screen_snapshot();
-
-    assert_eq!(snapshot.cols, 20);
-    assert_eq!(snapshot.rows, 11);
-    assert_eq!(snapshot.margin_rows, 2);
-    assert_eq!(snapshot.margin_rows_below, 1);
-    assert!(snapshot.data.contains("stacked host view"));
-}
-
-#[test]
-fn bottom_host_scroll_snapshot_keeps_tail_overscan_for_mobile_scroll() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
-    session.resize_screen(20, 8);
-    session.replace_from_baseline("history", None, Some(7), Some(1));
-
-    session.apply_host_scroll_snapshot(
-        "\x1b[2J\x1b[Habove history\r\n\x1b[3;1Hlive bottom",
-        20,
-        10,
-        0,
-        200,
-        2,
-        0,
-    );
-    let snapshot = session.screen_snapshot();
-
-    assert_eq!(snapshot.display_offset, 0);
-    assert_eq!(snapshot.total_lines, 200);
-    assert_eq!(snapshot.rows, 10);
-    assert_eq!(snapshot.margin_rows, 2);
-    assert!(snapshot.data.contains("above history"));
-    assert!(snapshot.data.contains("live bottom"));
-}
-
-#[test]
-fn live_output_reclaims_tail_from_host_overscan_snapshot() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
-    session.resize_screen(20, 8);
-    session.replace_from_baseline("history", None, Some(7), Some(1));
-    session.apply_host_scroll_snapshot(
-        "\x1b[2J\x1b[Habove history\r\n\x1b[3;1Hlive bottom",
-        20,
-        10,
-        0,
-        200,
-        2,
-        0,
-    );
-    assert_eq!(session.screen_snapshot().margin_rows, 2);
-
-    session.append_live("new raw", Some(14), Some(2));
-    let snapshot = session.screen_snapshot();
-
-    assert_eq!(snapshot.display_offset, 0);
-    assert_eq!(snapshot.margin_rows, 0);
-    // Live output reclaims the bottom: the raw history screen shows the new
-    // bytes; the host overscan snapshot is dropped.
-    assert!(snapshot.data.contains("new raw"));
-    assert!(!snapshot.data.contains("above history"));
-}
-
-#[test]
 fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    let mut session = RemotePtySession::<String>::new(512);
     session.resize_screen(20, 8);
     let history = scrollable_history("history");
     session.replace_from_baseline(&history, None, Some(50), Some(3));
@@ -502,13 +363,13 @@ fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
     assert!(!session.content().contains("new screen"));
     assert!(!session.content().contains("old screen"));
 
-    session.scroll_screen_lines(8);
+    scroll_history_up(&mut session, 8);
     let scrolled = session.screen_snapshot();
     assert!(scrolled.display_offset > 0);
     assert!(scrolled.data.contains("history 01") || scrolled.data.contains("history 02"));
     assert!(!scrolled.data.contains("new screen"));
 
-    session.scroll_screen_to_bottom();
+    scroll_history_bottom(&mut session);
     let bottom = session.screen_snapshot();
     assert!(bottom.data.contains("live raw"));
     assert!(!bottom.data.contains("history 01"));
@@ -516,7 +377,7 @@ fn live_screen_keyframe_replaces_current_screen_without_polluting_history() {
 
 #[test]
 fn empty_live_screen_keyframe_leaves_live_view_unchanged() {
-    let mut session = RemotePtySession::<String>::new("session-1", 512);
+    let mut session = RemotePtySession::<String>::new(512);
     session.resize_screen(20, 8);
     let history = scrollable_history("history");
     session.replace_from_baseline(&history, None, Some(50), Some(3));
@@ -538,7 +399,7 @@ fn empty_live_screen_keyframe_leaves_live_view_unchanged() {
 
 #[test]
 fn trims_cache_on_character_boundaries() {
-    let mut session = RemotePtySession::<String>::new("session-1", 4);
+    let mut session = RemotePtySession::<String>::new(4);
 
     session.append_live("a你好bcd", Some(7), Some(2));
 
@@ -551,7 +412,7 @@ fn trims_cache_on_character_boundaries() {
 fn caches_only_the_trailing_line_budget() {
     // A generous char ceiling so the trailing-line budget is what bounds the
     // cache, matching the native emulator's scrollback rather than 2M chars.
-    let mut session = RemotePtySession::<String>::new("session-1", 10_000_000);
+    let mut session = RemotePtySession::<String>::new(10_000_000);
     let mut output = String::new();
     for index in 0..800 {
         output.push_str(&format!("line {index}\n"));
