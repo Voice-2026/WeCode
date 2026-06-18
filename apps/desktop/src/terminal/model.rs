@@ -236,6 +236,16 @@ impl TerminalModel {
     }
 
     fn process_output_bytes(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        // Apply any pending viewport resize before parsing this output. A mobile
+        // handoff resizes the PTY and the running TUI repaints for the new grid,
+        // but the viewport event and the output bytes arrive on separate
+        // channels. alacritty does not reflow the alt screen, so a repaint
+        // parsed while our screen is still the old size lands misplaced (the
+        // intermittently garbled TUI input box). Draining the viewport event and
+        // flushing the resize first keeps our grid in lockstep with the PTY
+        // before the bytes are parsed.
+        let pending_event_notify = self.process_pending_events(cx);
+        self.apply_model_events();
         self.replace_restored_bootstrap_before_output(bytes.len());
         let sync_update = self.update_synchronized_output_state(bytes);
         let color_scheme_update =
@@ -251,7 +261,7 @@ impl TerminalModel {
             self.color_scheme_state.updates_enabled,
         );
         self.trace_terminal_state_after_output(bytes.len());
-        let event_should_notify = self.process_pending_events(cx);
+        let event_should_notify = pending_event_notify | self.process_pending_events(cx);
 
         if self.sync_output_depth > 0 {
             self.sync_output_pending_notify = true;
