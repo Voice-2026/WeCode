@@ -75,7 +75,10 @@ fn pet_speech_decode_unwraps_json_text_in_any_shape() {
     // Alternate text-bearing key.
     assert_eq!(decode_pet_speech_response(r#"{"line":"hi"}"#), "hi");
     // Plain text with no JSON wrapper passes through unchanged.
-    assert_eq!(decode_pet_speech_response("just a plain line"), "just a plain line");
+    assert_eq!(
+        decode_pet_speech_response("just a plain line"),
+        "just a plain line"
+    );
 }
 
 #[test]

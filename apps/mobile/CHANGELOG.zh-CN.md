@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-18
+
+### 调整
+
+- 移动端终端从 Termux / SwiftTerm 原生 view 切换为自绘终端，直接渲染远程终端模型中的共享 cell grid。
+- 移除旧 native-rendering 路径才需要的移动端 native-terminal bridge、replay controller、平台插件和孤立 protocol FFI facade。
+
+### 修复
+
+- 修复移动端大历史会话恢复和滚动行为，改为使用共享 raw-history / screen-keyframe 模型，不再依赖原生 replay snapshot。
+- 修复远程 viewport ownership，移动端可以驱动终端列数，同时不会把过期 host rows 强塞进 alt-screen TUI 会话。
+- 修复终端输入可能通过 IME commit 文本误发送 escape notation 的问题，输入通道诊断 trace 改为显式开启。
+
 ## [1.8.3] - 2026-06-17
 
 ### 修复

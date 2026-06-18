@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-18
+
+### Changed
+
+- Reworked mobile terminal rendering to use the shared self-drawn cell-grid renderer instead of the native Termux/SwiftTerm platform views, keeping desktop and mobile on the same terminal state model.
+- Migrated the shared terminal VT engine from the vendored Ghostty bindings to `alacritty_terminal`, and removed the old Ghostty/Zig release build remnants.
+- Simplified mobile terminal, protocol FFI, and remote output layers by removing dead native-terminal, host-served-scroll, and orphaned input APIs.
+
+### Fixed
+
+- Fixed remote terminal viewport ownership across desktop and mobile so remote viewers drive columns while the host preserves normal-screen rows, with alt-screen sessions restored from keyframes instead of stale host rows.
+- Fixed terminal input handling that could deliver escape-notation text through the IME commit path, and kept diagnostic tracing behind `CODUX_TERMINAL_TRACE`.
+- Fixed memory extraction queue lock contention by broadening retry classification, reducing hot-path database work, and applying extracted memory in one connection/transaction.
+- Fixed AI usage accounting bugs that undercounted Claude cache tokens or inflated Codex totals, then re-indexed usage history after the parser fixes.
+- Fixed desktop pet LLM response races and JSON-shaped bubble text so pet messages show the intended plain text.
+
 ## [1.8.3] - 2026-06-17
 
 ### Fixed

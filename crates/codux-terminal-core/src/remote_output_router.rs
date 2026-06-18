@@ -809,9 +809,12 @@ impl RemoteTerminalOutputRouter {
                 .map(str::to_string)
                 .unwrap_or_default();
             let combined = format!("{existing}{data}");
-            let replay = self
-                .session(session_id)
-                .replace_from_baseline(&combined, screen_data, buffer_len, output_seq);
+            let replay = self.session(session_id).replace_from_baseline(
+                &combined,
+                screen_data,
+                buffer_len,
+                output_seq,
+            );
             self.bump_render(session_id);
             return replay;
         }
@@ -1001,20 +1004,14 @@ mod tests {
         );
 
         assert_eq!(router.content("session-1"), Some("raw-history"));
-        assert_eq!(
-            router.content("session-1"),
-            Some("raw-history")
-        );
+        assert_eq!(router.content("session-1"), Some("raw-history"));
 
         // Live output appends its raw bytes; native render content tracks the
         // raw history exactly.
         router.accept(&live("session-1", "\nlive", 11), Some("session-1"));
 
         assert_eq!(router.content("session-1"), Some("raw-history\nlive"));
-        assert_eq!(
-            router.content("session-1"),
-            Some("raw-history\nlive")
-        );
+        assert_eq!(router.content("session-1"), Some("raw-history\nlive"));
 
         // A live frame that also carries a fresh screen keyframe still only
         // appends its raw bytes -- the keyframe never enters the stream.
@@ -1069,10 +1066,7 @@ mod tests {
 
         assert_eq!(kinds(&effects), ["loading", "sessionUpdated", "ack"]);
         assert_eq!(router.content("session-1"), Some("raw-history"));
-        assert_eq!(
-            router.content("session-1"),
-            Some("raw-history")
-        );
+        assert_eq!(router.content("session-1"), Some("raw-history"));
     }
 
     #[test]
@@ -1132,10 +1126,7 @@ mod tests {
             ["sessionUpdated", "markBufferReceived", "ack"]
         );
         assert_eq!(router.content("session-1"), Some("raw-history\nnew"));
-        assert_eq!(
-            router.content("session-1"),
-            Some("raw-history\nnew")
-        );
+        assert_eq!(router.content("session-1"), Some("raw-history\nnew"));
     }
 
     #[test]

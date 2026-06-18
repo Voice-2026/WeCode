@@ -99,7 +99,8 @@ impl MemoryService {
             ],
         )
         .map_err(|error| error.to_string())?;
-        self.insert_summary_version(conn, 
+        self.insert_summary_version(
+            conn,
             &summary.id,
             summary.version,
             &summary.content,

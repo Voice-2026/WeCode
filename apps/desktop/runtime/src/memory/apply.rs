@@ -45,13 +45,16 @@ impl MemoryService {
                 continue;
             };
             if let Some(reason) = item.skip_reason.as_deref().and_then(normalized_non_empty) {
-                self.record_memory_decision(conn, MemoryDecisionLog {
-                    kind: MemoryWriteDecisionKind::Skip,
-                    entry_id: None,
-                    target_entry_id: None,
-                    reason,
-                    created_at: now_seconds(),
-                })?;
+                self.record_memory_decision(
+                    conn,
+                    MemoryDecisionLog {
+                        kind: MemoryWriteDecisionKind::Skip,
+                        entry_id: None,
+                        target_entry_id: None,
+                        reason,
+                        created_at: now_seconds(),
+                    },
+                )?;
                 continue;
             }
             let scope = item.scope.unwrap_or(MemoryScope::Project);
@@ -81,15 +84,19 @@ impl MemoryService {
                 .collect::<Vec<_>>();
             for archive_id in &archive_ids {
                 self.archive_entries(conn, std::slice::from_ref(archive_id))?;
-                self.record_memory_decision(conn, MemoryDecisionLog {
-                    kind: MemoryWriteDecisionKind::Archive,
-                    entry_id: None,
-                    target_entry_id: Some(archive_id.clone()),
-                    reason: "provider marked existing memory as stale or duplicate".to_string(),
-                    created_at: now_seconds(),
-                })?;
+                self.record_memory_decision(
+                    conn,
+                    MemoryDecisionLog {
+                        kind: MemoryWriteDecisionKind::Archive,
+                        entry_id: None,
+                        target_entry_id: Some(archive_id.clone()),
+                        reason: "provider marked existing memory as stale or duplicate".to_string(),
+                        created_at: now_seconds(),
+                    },
+                )?;
             }
-            let _ = self.write_candidate_with_decision(conn, 
+            let _ = self.write_candidate_with_decision(
+                conn,
                 MemoryCandidate {
                     scope,
                     project_id,
@@ -119,7 +126,8 @@ impl MemoryService {
 
         if let Some(content) = valid_summary_content(response.user_summary.as_deref().unwrap_or(""))
         {
-            let summary = self.upsert_summary(conn, 
+            let summary = self.upsert_summary(
+                conn,
                 MemoryScope::User,
                 None,
                 None,
@@ -128,7 +136,8 @@ impl MemoryService {
                 settings.max_summary_versions,
             )?;
             self.mark_entries_merged(conn, &merged_ids, &summary.id)?;
-            self.merge_stale_working_entries(conn, 
+            self.merge_stale_working_entries(
+                conn,
                 MemoryScope::User,
                 None,
                 settings.max_active_working_entries,
@@ -141,8 +150,14 @@ impl MemoryService {
             .filter_map(|value| parse_uuid_string(value))
             .collect::<Vec<_>>();
         self.archive_entries(conn, &archive_ids)?;
-        self.trim_working_entries(conn, MemoryScope::User, None, settings.max_active_working_entries)?;
-        self.trim_working_entries(conn,
+        self.trim_working_entries(
+            conn,
+            MemoryScope::User,
+            None,
+            settings.max_active_working_entries,
+        )?;
+        self.trim_working_entries(
+            conn,
             MemoryScope::Project,
             Some(&task.project_id),
             settings.max_active_working_entries,

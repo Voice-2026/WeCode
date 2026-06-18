@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-18
+
+### 调整
+
+- 移动端终端渲染改为共享自绘 cell-grid renderer，不再依赖 Termux / SwiftTerm 原生平台 view，使桌面端和移动端使用同一套终端状态模型。
+- 共享终端 VT 引擎从 vendored Ghostty bindings 迁移到 `alacritty_terminal`，并清理旧 Ghostty / Zig 发布构建残留。
+- 清理移动端终端、protocol FFI 和远程输出层中已经废弃的 native-terminal、host-served-scroll 和孤立输入 API。
+
+### 修复
+
+- 修复桌面端和移动端远程终端 viewport ownership，远程 viewer 只驱动列数，Host 保留 normal-screen 行数，alt-screen 会话通过 keyframe 恢复而不是复用过期 host rows。
+- 修复终端输入中 escape-notation 文本可能通过 IME commit 路径误发送的问题，并将诊断 trace 限定在 `CODUX_TERMINAL_TRACE` 下。
+- 修复记忆提取队列锁竞争，扩大可重试错误识别，减少热路径数据库操作，并在同一个连接 / 事务中应用提取结果。
+- 修复 AI 用量统计中 Claude cache token 低估和 Codex token 膨胀的问题，并在解析器修复后重新索引用量历史。
+- 修复桌面宠物 LLM 消息竞态和 JSON 形态气泡文本，气泡现在显示预期的纯文本内容。
+
 ## [1.8.3] - 2026-06-17
 
 ### 修复

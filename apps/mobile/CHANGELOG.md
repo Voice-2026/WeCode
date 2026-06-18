@@ -4,6 +4,19 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-18
+
+### Changed
+
+- Replaced the native Termux/SwiftTerm terminal views with a self-drawn mobile terminal that renders from the shared cell grid used by the remote terminal model.
+- Removed the mobile native-terminal bridge, replay controller, platform plugins, and orphaned protocol FFI facades that were only needed by the previous native-rendering path.
+
+### Fixed
+
+- Fixed mobile terminal restore and scrolling around large sessions by using the shared raw-history/screen-keyframe model instead of native replay snapshots.
+- Fixed remote viewport ownership so mobile can drive terminal columns without forcing stale host rows into alt-screen TUI sessions.
+- Fixed terminal input delivery that could send escaped notation through IME commit text, keeping diagnostic channel tracing opt-in.
+
 ## [1.8.3] - 2026-06-17
 
 ### Fixed

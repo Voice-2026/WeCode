@@ -600,8 +600,7 @@ impl CoduxApp {
         }
         match result {
             Ok(response) => {
-                let text =
-                    normalized_desktop_pet_preview(Some(&response.text)).unwrap_or_default();
+                let text = normalized_desktop_pet_preview(Some(&response.text)).unwrap_or_default();
                 if text.is_empty() {
                     // Empty line: don't hold the cooldown/requested slot for a
                     // key that produced nothing -- allow a retry.

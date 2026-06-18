@@ -3536,7 +3536,9 @@ mod tests {
 
         // Normal screen: a re-attach replays only the raw history; it never
         // appends the keyframe (identified by its cursor-hide repaint prefix).
-        session.write(b"normal-line\n").expect("write should succeed");
+        session
+            .write(b"normal-line\n")
+            .expect("write should succeed");
         assert!(
             recv_until_contains(&first_rx, "normal-line", Duration::from_secs(2))
                 .contains("normal-line")

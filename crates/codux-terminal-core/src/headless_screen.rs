@@ -759,7 +759,9 @@ impl TerminalScreenWorker {
             // snapshot and into selection/URL reconstruction. Middle spaces are
             // rebuilt from cell-column gaps by consumers; styled/colored spaces
             // (non-default bg or visuals) are kept.
-            if text.trim().is_empty() && bg == TerminalScreenColor::Default && !cell_has_visuals(cell)
+            if text.trim().is_empty()
+                && bg == TerminalScreenColor::Default
+                && !cell_has_visuals(cell)
             {
                 continue;
             }
@@ -1230,8 +1232,14 @@ mod tests {
         let mut src = HeadlessTerminalScreen::new(20, 6, 100);
         src.process(b"\x1b[?1049h\x1b[H\x1b[2JCONVERSATION\r\nmore lines\x1b[6;1H> input box");
         let src_snap = src.snapshot();
-        assert!(src_snap.input_mode.alternate_screen, "source should be in alt screen");
-        assert!(src_snap.data.contains("CONVERSATION"), "source keyframe should hold content");
+        assert!(
+            src_snap.input_mode.alternate_screen,
+            "source should be in alt screen"
+        );
+        assert!(
+            src_snap.data.contains("CONVERSATION"),
+            "source keyframe should hold content"
+        );
 
         let mut dst = HeadlessTerminalScreen::new(20, 6, 100);
         dst.process_replay(src_snap.data.as_bytes());
