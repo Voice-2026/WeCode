@@ -316,25 +316,34 @@ impl TerminalModel {
                 cols,
                 rows,
             } => {
-                let scheme_changed = self.remote_viewer != remote_owner
+                let ownership_changed = self.remote_viewer != remote_owner;
+                let scheme_changed = ownership_changed
                     && self.effective_scheme_is_dark() != scheme_is_dark(remote_owner, &self.colors);
                 self.remote_viewer = remote_owner;
                 self.viewport_generation = generation;
-                // While a remote client owns the viewport, the PTY is sized to
-                // its grid and the running TUI repaints for that size. Adopt the
-                // remote grid for our own screen so the TUI's repaint renders at
-                // the size it was drawn for, instead of being misplaced in our
-                // larger desktop grid (input box pushed mid-screen, the rows
-                // below it blank). The desktop prepaint keeps our screen at this
-                // size while the remote owns (it is no longer the local owner);
-                // on release it reclaims and resizes back to the desktop grid.
-                if remote_owner && cols > 0 && rows > 0 {
+                // A viewport ownership *change* resizes the PTY (a remote claims
+                // a smaller grid; on release the desktop reclaims its own) and
+                // the running TUI repaints via SIGWINCH. Sync our screen to the
+                // PTY grid the event reports, and apply it *immediately* rather
+                // than through the throttled resize queue. The throttle, armed
+                // by the resize that just accompanied the ownership flip, would
+                // otherwise defer this resize so the SIGWINCH repaint is parsed
+                // while our screen is still at the old grid; alacritty does not
+                // reflow the alt screen, so that misplaced repaint sticks (a
+                // garbled / blank TUI box) instead of self-correcting the way
+                // ghostty's reflow did. Only on the ownership change -- ordinary
+                // desktop window drags keep the throttle (avoid reflowing the
+                // scrollback every frame).
+                if ownership_changed && cols > 0 && rows > 0 {
                     let (cols, rows) = (cols as usize, rows as usize);
                     if self.dimensions() != (cols, rows) {
                         self.window_size.num_cols = cols as u16;
                         self.window_size.num_lines = rows as u16;
-                        self.events
-                            .push_back(TerminalInternalEvent::Resize { cols, rows });
+                        let applied = self.handle.resize(cols, rows);
+                        if applied {
+                            self.last_engine_resize_at = Some(Instant::now());
+                        }
+                        self.snapshot_dirty |= applied;
                     }
                 }
                 if scheme_changed && self.color_scheme_state.updates_enabled {
