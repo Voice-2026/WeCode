@@ -1201,19 +1201,27 @@ impl TerminalPtySessionHandle {
         let owner = terminal_viewport_owner(owner);
         let cols = cols.max(20);
         let mut rows = rows.max(8);
+        // On the *normal* screen a remote viewer drives the column count (so its
+        // narrow viewport does not force horizontal scrolling) but the row count
+        // stays the host's: a phone in portrait reports many more rows than the
+        // desktop window has, and adopting them would make the desktop render a
+        // grid taller than its own viewport, pushing the bottom (prompt) out of
+        // view. The shorter viewer scrolls vertically instead.
+        //
+        // An *alt screen* TUI is the exception: it repaints its whole screen on
+        // a row change but only partially on a column-only change (it assumes
+        // the terminal reflows the body, which the alt screen does not). So a
+        // column-only takeover leaves its conversation behind -> a blank box.
+        // Let an alt-screen session adopt the remote's rows too, so the row
+        // change forces a full repaint. Its content fills the grid, so the
+        // taller-than-window case renders fine (it just scrolls).
+        let keep_host_rows = owner != terminal_viewport_local_owner()
+            && !self.screen.lock().input_mode().alternate_screen;
         let mut viewport = self.viewport.lock();
         if viewport.state.owner != owner {
             return Ok(None);
         }
-        // A remote viewer drives the column count (so its narrow viewport does
-        // not force the shared session into horizontal scrolling) but the row
-        // count stays the host's. A phone in portrait reports many more rows
-        // than the desktop window has; adopting them would make the desktop
-        // render a grid taller than its own viewport and push the bottom
-        // (prompt / TUI input box) out of view -- the blank/garbled desktop on
-        // takeover. Keeping the host rows means the desktop always renders
-        // full-height; the shorter viewer scrolls vertically instead.
-        if owner != terminal_viewport_local_owner() && viewport.state.rows >= 8 {
+        if keep_host_rows && viewport.state.rows >= 8 {
             rows = viewport.state.rows;
         }
         viewport.expires_at = Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL;
