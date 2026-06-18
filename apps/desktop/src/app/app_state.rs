@@ -78,6 +78,11 @@ pub struct CoduxApp {
     pub(in crate::app) desktop_pet_active_llm_key: String,
     pub(in crate::app) desktop_pet_requested_llm_key: String,
     pub(in crate::app) desktop_pet_last_llm_requested_at: f64,
+    // Monotonic dispatch id: only the response from the latest dispatch may
+    // paint, so a slower earlier request can't land out of order. Paired with
+    // an in-flight flag that suppresses overlapping concurrent requests.
+    pub(in crate::app) desktop_pet_llm_generation: u64,
+    pub(in crate::app) desktop_pet_llm_in_flight: bool,
     pub(in crate::app) desktop_pet_next_hydration_reminder_at: f64,
     pub(in crate::app) desktop_pet_next_sedentary_reminder_at: f64,
     pub(in crate::app) desktop_pet_next_late_night_reminder_at: f64,

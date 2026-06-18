@@ -162,6 +162,8 @@ impl CoduxApp {
             desktop_pet_active_llm_key: String::new(),
             desktop_pet_requested_llm_key: String::new(),
             desktop_pet_last_llm_requested_at: 0.0,
+            desktop_pet_llm_generation: 0,
+            desktop_pet_llm_in_flight: false,
             desktop_pet_next_hydration_reminder_at: 0.0,
             desktop_pet_next_sedentary_reminder_at: 0.0,
             desktop_pet_next_late_night_reminder_at: 0.0,

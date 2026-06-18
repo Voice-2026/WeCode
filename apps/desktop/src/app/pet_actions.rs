@@ -534,9 +534,19 @@ impl CoduxApp {
         if now - self.desktop_pet_last_llm_requested_at < cooldown {
             return;
         }
+        // Suppress overlapping requests: the cooldown can be as low as ~30s, so
+        // a slow provider could otherwise have a second request launched on top
+        // of the first. One in flight at a time; the next tick re-requests once
+        // it lands.
+        if self.desktop_pet_llm_in_flight {
+            return;
+        }
 
         self.desktop_pet_requested_llm_key = key.clone();
         self.desktop_pet_last_llm_requested_at = now;
+        self.desktop_pet_llm_generation = self.desktop_pet_llm_generation.wrapping_add(1);
+        self.desktop_pet_llm_in_flight = true;
+        let generation = self.desktop_pet_llm_generation;
         let service = self.runtime_service.clone();
         let event = context.event.to_string();
         let facts = context.facts.clone();
@@ -551,7 +561,7 @@ impl CoduxApp {
             .and_then(|result| result);
 
             let _ = this.update(cx, |app, cx| {
-                app.apply_desktop_pet_llm_line(key, tone, result, cx);
+                app.apply_desktop_pet_llm_line(key, tone, generation, result, cx);
             });
         })
         .detach();
@@ -571,16 +581,39 @@ impl CoduxApp {
         &mut self,
         key: String,
         tone: DesktopPetActivityTone,
+        generation: u64,
         result: Result<codux_runtime::llm::PetIdleSpeechResponse, String>,
         cx: &mut Context<Self>,
     ) {
-        if self.desktop_pet_active_llm_key != key {
+        // Drop a response that a newer dispatch has superseded -- it must not
+        // overwrite a fresher line, and it must not clear the newer request's
+        // in-flight flag.
+        if generation != self.desktop_pet_llm_generation {
             return;
         }
-        if let Ok(response) = result {
-            let text = normalized_desktop_pet_preview(Some(&response.text)).unwrap_or_default();
-            if !text.is_empty() {
-                self.set_desktop_pet_activity_line(text, tone, cx);
+        self.desktop_pet_llm_in_flight = false;
+        if self.desktop_pet_active_llm_key != key {
+            // The desired key changed while this was in flight; let the next
+            // tick request the current key.
+            self.desktop_pet_requested_llm_key.clear();
+            return;
+        }
+        match result {
+            Ok(response) => {
+                let text =
+                    normalized_desktop_pet_preview(Some(&response.text)).unwrap_or_default();
+                if text.is_empty() {
+                    // Empty line: don't hold the cooldown/requested slot for a
+                    // key that produced nothing -- allow a retry.
+                    self.desktop_pet_requested_llm_key.clear();
+                } else {
+                    self.set_desktop_pet_activity_line(text, tone, cx);
+                }
+            }
+            Err(_) => {
+                // Transient failure: clear the requested key so the next tick
+                // can retry instead of waiting out the full cooldown.
+                self.desktop_pet_requested_llm_key.clear();
             }
         }
     }
