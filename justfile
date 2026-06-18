@@ -70,3 +70,4 @@ ffi:
 smoke:
     cargo run -p codux-agent -- --pty-smoke
     cargo run -p codux-agent -- --transport-smoke
+    cargo run -p codux-agent -- --serve-smoke

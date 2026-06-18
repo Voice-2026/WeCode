@@ -13,6 +13,8 @@ use std::{
 };
 use tokio::sync::oneshot;
 
+mod host;
+
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--version" || arg == "-V") {
@@ -45,9 +47,61 @@ fn main() {
         }
     }
 
+    if args.iter().any(|arg| arg == "--serve-smoke") {
+        match run_serve_smoke() {
+            Ok(output) => {
+                println!("{output}");
+                return;
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+    }
+    if args.iter().any(|arg| arg == "--serve") {
+        let cfg = host::AgentHostConfig {
+            host_id: flag_value(&args, "--host-id").unwrap_or_else(|| "codux-agent".to_string()),
+            host_token: flag_value(&args, "--host-token")
+                .unwrap_or_else(|| "codux-agent-token".to_string()),
+            name: flag_value(&args, "--name").unwrap_or_else(|| "codux-agent".to_string()),
+            relay_preset: flag_value(&args, "--relay").unwrap_or_else(|| "global".to_string()),
+            relay_url: String::new(),
+        };
+        match tokio::runtime::Runtime::new() {
+            Ok(rt) => {
+                if let Err(error) = rt.block_on(host::run_host(cfg)) {
+                    eprintln!("{error}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     println!("codux-agent {}", env!("CARGO_PKG_VERSION"));
     println!("protocol {}", REMOTE_PROTOCOL_VERSION);
-    println!("usage: codux-agent [--version] [--pty-smoke] [--transport-smoke]");
+    println!(
+        "usage: codux-agent [--version] [--pty-smoke] [--transport-smoke] [--serve-smoke] \\\n  [--serve [--host-id <id>] [--host-token <token>] [--name <name>] [--relay <preset>]]"
+    );
+}
+
+/// Read the value following `flag` in the argument list (`--flag value`).
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|index| args.get(index + 1))
+        .cloned()
+}
+
+fn run_serve_smoke() -> Result<String, String> {
+    tokio::runtime::Runtime::new()
+        .map_err(|error| error.to_string())?
+        .block_on(host::run_serve_smoke_async())
 }
 
 fn run_pty_smoke() -> Result<String, String> {
