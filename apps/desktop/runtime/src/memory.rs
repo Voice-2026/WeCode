@@ -41,15 +41,42 @@ impl MemoryService {
         if !self.database_path.is_file() {
             return Err("memory.sqlite3 not found".to_string());
         }
-        Connection::open(&self.database_path).map_err(|error| error.to_string())
+        let connection =
+            Connection::open(&self.database_path).map_err(|error| error.to_string())?;
+        initialize_memory_connection(&connection)?;
+        Ok(connection)
     }
 
     pub(super) fn open_or_create_connection(&self) -> Result<Connection, String> {
         if let Some(parent) = self.database_path.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        Connection::open(&self.database_path).map_err(|error| error.to_string())
+        let connection =
+            Connection::open(&self.database_path).map_err(|error| error.to_string())?;
+        initialize_memory_connection(&connection)?;
+        Ok(connection)
     }
+}
+
+/// Concurrency-safe connection setup, mirroring the AI-usage store
+/// (`ai_usage_store/connection.rs`). The memory DB has several in-process
+/// accessors at once -- the 300ms status poller (reader), the queue worker
+/// (writer), enqueue-on-completion (writer), and the profile refresh (writer).
+/// With the SQLite defaults (rollback journal + `busy_timeout = 0`) any
+/// contention returns `database is locked` immediately. WAL lets a reader and a
+/// writer proceed without blocking each other, and the busy_timeout makes a
+/// contended writer wait briefly instead of failing.
+fn initialize_memory_connection(connection: &Connection) -> Result<(), String> {
+    connection
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|error| error.to_string())?;
+    connection
+        .pragma_update(None, "journal_mode", "WAL")
+        .map_err(|error| error.to_string())?;
+    connection
+        .pragma_update(None, "synchronous", "NORMAL")
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 include!("memory/service_summary.rs");

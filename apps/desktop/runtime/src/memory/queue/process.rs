@@ -35,6 +35,13 @@ impl MemoryService {
         self.update_task_status(task_id, "failed", Some(error), false)
     }
 
+    /// Reset a task to pending without counting an attempt -- used when the
+    /// failure was a transient SQLite lock, which is not the task's fault and
+    /// must not become a permanent failed record.
+    pub fn requeue_extraction_task(&self, task_id: &str) -> Result<(), String> {
+        self.update_task_status(task_id, "pending", None, false)
+    }
+
     pub fn resolve_extraction_task_transcript(
         &self,
         projects: &[ProjectWorkspaceRecord],
@@ -65,7 +72,14 @@ impl MemoryService {
         match result {
             Ok(()) => self.mark_extraction_task_done(&task.id)?,
             Err(error) => {
-                self.mark_extraction_task_failed(&task.id, &error)?;
+                // A transient SQLite lock must not become a permanent failed
+                // record -- requeue so the next pass retries it. (busy_timeout +
+                // WAL should usually keep the lock from surfacing at all.)
+                if is_retryable_memory_lock_error(&error) {
+                    self.requeue_extraction_task(&task.id)?;
+                } else {
+                    self.mark_extraction_task_failed(&task.id, &error)?;
+                }
                 return Err(error);
             }
         }
@@ -262,6 +276,14 @@ fn is_transient_memory_provider_error(error: &str) -> bool {
         "eof",
         "connection reset",
         "connection closed",
+        // Connect/DNS-level reqwest failures (e.g. "Reqwest error: error sending
+        // request for url ..."): the request never reached the provider, which
+        // is a transient transport blip, not a permanent task failure.
+        "error sending request",
+        "reqwest error",
+        "dns error",
+        "connect",
+        "network",
         "temporarily unavailable",
         "too many requests",
         "rate limit",
@@ -274,9 +296,18 @@ fn is_transient_memory_provider_error(error: &str) -> bool {
     .any(|needle| message.contains(needle))
 }
 
+/// A transient SQLite lock (`database is locked` / `SQLITE_BUSY`) that should
+/// requeue the task rather than record a permanent failure.
+fn is_retryable_memory_lock_error(error: &str) -> bool {
+    let message = error.to_lowercase();
+    message.contains("database is locked")
+        || message.contains("database table is locked")
+        || message.contains("sqlite_busy")
+}
+
 #[cfg(test)]
 mod process_tests {
-    use super::is_transient_memory_provider_error;
+    use super::{is_retryable_memory_lock_error, is_transient_memory_provider_error};
 
     #[test]
     fn classifies_only_transport_like_memory_provider_errors_as_transient() {
@@ -289,9 +320,25 @@ mod process_tests {
         assert!(is_transient_memory_provider_error(
             "request failed with status 503"
         ));
+        // Connect/DNS-level reqwest blips must be retryable (the deepseek case).
+        assert!(is_transient_memory_provider_error(
+            "ds request failed for model deepseek-v4-flash: Web call failed ... Cause: Reqwest error: error sending request for url (https://api.deepseek.com/v1/chat/completions)"
+        ));
+        assert!(is_transient_memory_provider_error("dns error: failed to lookup address"));
+        assert!(is_transient_memory_provider_error("tcp connect error: connection refused"));
         assert!(!is_transient_memory_provider_error("invalid api key"));
         assert!(!is_transient_memory_provider_error(
             "Memory extraction provider returned malformed memory JSON."
         ));
+    }
+
+    #[test]
+    fn classifies_sqlite_lock_errors_as_retryable() {
+        assert!(is_retryable_memory_lock_error("database is locked"));
+        assert!(is_retryable_memory_lock_error(
+            "failed to apply extraction: database is locked"
+        ));
+        assert!(!is_retryable_memory_lock_error("invalid api key"));
+        assert!(!is_retryable_memory_lock_error("no such table"));
     }
 }
