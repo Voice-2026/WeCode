@@ -189,17 +189,6 @@ pub extern "C" fn codux_output_router_buffer_offset(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn codux_output_router_sequence_for(
-    router: *const FfiOutputRouter,
-    session_id: *const c_char,
-) -> i64 {
-    match (router_ref(router), c_to_string(session_id)) {
-        (Some(router), Some(session_id)) => router.sequence_for(&session_id),
-        _ => 0,
-    }
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn codux_output_router_has_sequence_gap(
     router: *const FfiOutputRouter,
     session_id: *const c_char,

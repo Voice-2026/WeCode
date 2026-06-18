@@ -231,13 +231,6 @@ impl RemoteTerminalOutputRouter {
             .unwrap_or(0)
     }
 
-    pub fn sequence_for(&self, session_id: &str) -> TerminalSequence {
-        self.sessions
-            .get(session_id)
-            .map(|session| session.sequence())
-            .unwrap_or(0)
-    }
-
     pub fn has_sequence_gap(&self, session_id: &str) -> bool {
         self.gap_sessions.contains(session_id)
     }

@@ -811,41 +811,6 @@ String terminalKeyInput({
   }
 }
 
-List<int> terminalKeyInputBytes({
-  required String key,
-  String keyChar = '',
-  bool shift = false,
-  bool alt = false,
-  bool control = false,
-  bool platform = false,
-  bool applicationCursor = false,
-}) {
-  final keyPtr = key.toNativeUtf8();
-  final keyCharPtr = keyChar.toNativeUtf8();
-  try {
-    final decoded = _decodeEnvelope(
-      _terminalKeyInputJson(
-        keyPtr,
-        keyCharPtr,
-        shift,
-        alt,
-        control,
-        platform,
-        applicationCursor,
-      ),
-    );
-    final bytes = decoded['bytes'];
-    return [
-      if (bytes is List)
-        for (final byte in bytes)
-          if (byte is num) byte.toInt(),
-    ];
-  } finally {
-    malloc.free(keyPtr);
-    malloc.free(keyCharPtr);
-  }
-}
-
 String terminalMouseInput({
   required String action,
   String button = '',
@@ -1748,11 +1713,6 @@ final _outputRouterBufferOffset = _dylib
       Int64 Function(Pointer<Void>, Pointer<Utf8>),
       int Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_output_router_buffer_offset');
-final _outputRouterSequenceFor = _dylib
-    .lookupFunction<
-      Int64 Function(Pointer<Void>, Pointer<Utf8>),
-      int Function(Pointer<Void>, Pointer<Utf8>)
-    >('codux_output_router_sequence_for');
 final _outputRouterHasSequenceGap = _dylib
     .lookupFunction<
       Bool Function(Pointer<Void>, Pointer<Utf8>),
@@ -1918,11 +1878,6 @@ class RemoteOutputRouter {
   int bufferOffset(String sessionId) => _withSession(
     sessionId,
     (ptr) => _outputRouterBufferOffset(_liveHandle(), ptr),
-  );
-
-  int sequenceFor(String sessionId) => _withSession(
-    sessionId,
-    (ptr) => _outputRouterSequenceFor(_liveHandle(), ptr),
   );
 
   bool hasSequenceGap(String sessionId) => _withSession(

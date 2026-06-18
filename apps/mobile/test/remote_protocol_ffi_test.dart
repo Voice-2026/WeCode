@@ -144,9 +144,5 @@ void main() {
       codux_protocol_ffi.terminalKeyInput(key: 'up', applicationCursor: true),
       '\u001bOA',
     );
-    expect(
-      codux_protocol_ffi.terminalKeyInputBytes(key: 'space', control: true),
-      [0],
-    );
   });
 }
