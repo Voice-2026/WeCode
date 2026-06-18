@@ -1222,6 +1222,52 @@ mod tests {
     }
 
     #[test]
+    fn alt_screen_keyframe_reconstructs_into_fresh_screen() {
+        // The desktop re-attach path (subscribe_output) replays a session's
+        // screen keyframe to rebuild an alt-screen TUI. Verify the alacritty
+        // keyframe round-trips: enter alt, paint, snapshot -> replay into a
+        // fresh screen -> alt mode + content restored.
+        let mut src = HeadlessTerminalScreen::new(20, 6, 100);
+        src.process(b"\x1b[?1049h\x1b[H\x1b[2JCONVERSATION\r\nmore lines\x1b[6;1H> input box");
+        let src_snap = src.snapshot();
+        assert!(src_snap.input_mode.alternate_screen, "source should be in alt screen");
+        assert!(src_snap.data.contains("CONVERSATION"), "source keyframe should hold content");
+
+        let mut dst = HeadlessTerminalScreen::new(20, 6, 100);
+        dst.process_replay(src_snap.data.as_bytes());
+        let dst_snap = dst.snapshot();
+        assert!(
+            dst_snap.input_mode.alternate_screen,
+            "reconstructed screen should be in alt screen"
+        );
+        assert!(
+            dst_snap.data.contains("CONVERSATION"),
+            "alt-screen content should survive keyframe reconstruction, got: {:?}",
+            dst_snap.data
+        );
+        assert!(dst_snap.data.contains("input box"));
+    }
+
+    #[test]
+    fn alt_screen_content_survives_resize_roundtrip() {
+        // Mobile claims (small grid) then desktop reclaims (large grid). The
+        // alt-screen content must still be in the snapshot after the round-trip
+        // (alacritty does not reflow the alt screen, but must not drop it).
+        let mut screen = HeadlessTerminalScreen::new(40, 10, 100);
+        screen.process(b"\x1b[?1049h\x1b[H\x1b[2J");
+        screen.process(b"alpha\r\nbravo\r\ncharlie\x1b[10;1H> prompt");
+        screen.resize(24, 20); // mobile-ish (narrow/tall)
+        screen.resize(80, 10); // desktop reclaim
+        let snap = screen.snapshot();
+        assert!(snap.input_mode.alternate_screen);
+        assert!(
+            snap.data.contains("prompt"),
+            "prompt line should survive resize round-trip, got: {:?}",
+            snap.data
+        );
+    }
+
+    #[test]
     fn resize_bursts_settle_on_final_dimensions() {
         let mut screen = HeadlessTerminalScreen::new(20, 4, 100);
         screen.process(b"ready");
