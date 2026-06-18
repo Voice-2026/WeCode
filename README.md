@@ -5,8 +5,8 @@
 <h1 align="center">Codux AI</h1>
 
 <p align="center">
-  <b>A Rust + GPUI native control plane for AI coding CLIs.</b><br/>
-  Run Codex, Claude Code, Gemini CLI, OpenCode, Kiro CLI, Kimi Code, CodeWhale, and Agy across projects, worktrees, terminals, Git, memory, tokens, SSH, and mobile handoff.
+  <b>The native terminal built for AI coding agents.</b><br/>
+  Run Codex, Claude Code, and 6 more AI coding CLIs in one project-aware terminal — live agent state, token analytics, durable memory, agent-safe SSH, and phone handoff.
 </p>
 
 <p align="center">
@@ -27,58 +27,23 @@
 
 ## Why Codux AI
 
-AI coding CLIs are powerful, but serious work quickly spreads across projects, Git worktrees, terminals, sessions, tokens, remote shells, and half-remembered context. Codux AI turns that scattered workflow into one durable desktop workspace.
+AI coding CLIs are incredibly powerful — and incredibly easy to lose control of. Real work sprawls across projects, Git worktrees, terminals, sessions, tokens, remote shells, and context you half-remember. **Codux AI turns that chaos into one durable, native workspace built for serious AI coding.**
 
 | When AI coding gets messy | Codux AI gives you |
 | :------------------------ | :----------------- |
-| Every AI CLI has its own state | One project-aware runtime view for Codex, Claude Code, Gemini CLI, OpenCode, Kiro CLI, Kimi Code, CodeWhale, and Agy. |
-| Long sessions are hard to resume | Live AI runtime status, local history indexing, session restore, and per-worktree context. |
-| Parallel tasks collide | A worktree-first task model where each task keeps its own terminal layout, Git state, files, and AI sessions. |
-| Token usage is vague | Usage by tool, model, project, worktree, and day, without maintaining spreadsheets. |
-| Project context gets lost | Local memory for user habits, project profiles, module notes, and app-managed context injection. |
-| Server access is fragile | Saved SSH profiles, connection testing, and a `codux-ssh` command that AI tools can use without seeing credentials. |
-| You leave the desk mid-run | Codux Mobile pairs with the desktop host over Iroh so you can continue sessions remotely. |
+| Every AI CLI has its own state | One project-aware view across Codex, Claude Code, Gemini CLI, OpenCode, Kiro CLI, Kimi Code, CodeWhale, and Agy. |
+| Long agent runs are hard to resume | Live runtime status, local history indexing, session restore, and per-worktree context. |
+| Parallel tasks collide | A worktree-first model where every task keeps its own terminals, Git state, files, and AI sessions. |
+| Token spend is a black box | Usage by tool, model, project, worktree, and day — no spreadsheets. |
+| Context evaporates between sessions | Local memory for habits, project profiles, and module notes, injected back into supported CLIs automatically. |
+| Server access is fragile | Saved, tested SSH profiles and a `codux-ssh` command agents can use **without ever seeing your credentials**. |
+| You walk away mid-run | Pair your phone over Iroh and keep driving the session from anywhere. |
 
-Codux AI is not an editor replacement. It is a control plane for developers who already use AI coding CLIs heavily and need a stable way to manage multi-project, long-running AI work.
+Codux AI is **not** another editor. It's the control plane for developers who live in AI coding CLIs and need a rock-solid way to run multi-project, long-running agent work.
 
-## Repository Layout
+## One runtime, every AI CLI
 
-This repository is the Codux monorepo:
-
-- `apps/desktop`: Rust + GPUI desktop app, desktop runtime, desktop assets, and desktop release scripts.
-- `apps/agent`: headless controlled-agent app that links protocol, terminal core, and the shared local PTY driver without GPUI.
-- `apps/mobile`: Flutter mobile controller.
-- `crates/codux-protocol`: shared remote protocol helpers, capabilities, envelope DTOs, transport candidates, and relay rules.
-- `crates/codux-protocol-ffi`: Flutter-facing C ABI for shared protocol and terminal core bindings.
-- `crates/codux-runtime-core`: shared runtime domain payload rules for host info, project, file, Git, worktree, upload, and terminal shapes.
-- `crates/codux-terminal-core`: shared terminal session, sequence, baseline restore, and remote PTY model primitives.
-- `crates/codux-terminal-pty`: shared `portable_pty` local PTY driver for host/headless targets.
-
-Flutter keeps its own native build system. The old in-repository relay server app has been removed because remote connectivity now uses the shared Iroh transport.
-
-## Rust + GPUI Native Foundation
-
-Codux AI is a native desktop app built with Rust and GPUI. GPUI comes from the same high-performance UI technology stack used by Zed, giving Codux a fast native foundation for terminal rendering, project switching, Git views, file previews, and long-running runtime updates.
-
-- Rust owns the runtime, project state, terminal PTY management, remote protocol, settings, Git integration, SSH profile handling, and local indexing.
-- GPUI powers the desktop interface, windowing, input handling, canvas rendering, native dialogs, and high-frequency UI updates.
-- The terminal model is backed by the shared `codux-terminal-core` Ghostty VT headless screen, so desktop and mobile consume the same viewport, scrollback, cursor, input, and remote PTY semantics while each UI only renders snapshots and sends user input.
-- The architecture is cross-platform by design: current desktop releases target macOS and Windows, and the remote protocol is shaped so future Linux headless hosts can expose the same runtime domains without a GUI.
-
-## Worktree-first Workflow
-
-Codux models real AI work as **Project -> Worktree / Task -> Terminals, Files, Git, AI Sessions**.
-
-- Create Git worktrees for parallel tasks without mixing branch state.
-- Switch tasks while preserving terminal tabs, splits, bottom-panel height, active AI sessions, file context, and Git state.
-- Review worktree changes, compare against the base branch, merge back to the mainline, and clean up finished worktrees.
-- Keep AI history and runtime activity tied to the current worktree while project-level memory remains shared.
-
-This is the main difference from a plain terminal multiplexer: Codux knows which project and worktree each terminal belongs to, then restores the workspace around that relationship.
-
-## AI Tool Support
-
-Codux detects supported CLIs from managed terminals, reads local session history where available, and installs app-managed hooks or memory files for tools that support them.
+Codux detects supported CLIs from managed terminals, reads their local session history, and installs app-managed hooks or memory files where the tool allows it.
 
 | Tool | Runtime Status | History Index | Resume | Memory Injection |
 | :--- | :------------- | :------------ | :----- | :--------------- |
@@ -91,92 +56,69 @@ Codux detects supported CLIs from managed terminals, reads local session history
 | CodeWhale | Full | Full | Tool-dependent | Yes |
 | Agy | Full | Full | Tool-dependent | Yes |
 
-`Full` means Codux can track that capability from the normal terminal workflow. `Tool-dependent` means Codux can preserve the workspace and history, while the exact resume behavior still depends on the CLI itself.
+`Full` means Codux tracks that capability from the normal terminal workflow. `Tool-dependent` means Codux preserves the workspace and history while exact resume behavior is up to the CLI.
 
-## Runtime Driver Architecture
-
-Codux is not just wrapping a shell. Each supported AI tool is represented by a runtime driver that keeps the integration path consistent:
+Under the hood, each tool is a **runtime driver** with a consistent integration path, so sessions never cross state and new tools are easy to add:
 
 - **Hooks** capture starts, completions, interruptions, permission waits, and model/session metadata.
-- **Probes** detect current running sessions, tools, models, and accumulated usage.
+- **Probes** detect running sessions, tools, models, and accumulated usage.
 - **History sources** normalize local CLI transcripts into one timeline.
-- **Memory injection** gives supported CLIs project context without duplicating wrapper logic.
+- **Memory injection** feeds project context to supported CLIs without wrapper hacks.
 
-This keeps multiple Codex, Claude, Kimi Code, CodeWhale, or other sessions from crossing state, and makes new tool support easier to add without rewriting the whole runtime.
+## Built for long agent runs
 
-## AI CLI Optimizations
+Codux isn't a terminal with tabs — it's an AI-aware control layer that keeps long-running agent work **visible, recoverable, and safe to continue**.
 
-Codux is not just a terminal with tabs. It adds an AI-aware control layer around the terminal so long-running agent work stays visible, recoverable, and safe to continue:
+- **Live agent state, not just scrollback.** Running, completed, interrupted, permission-waiting, and plan-updating sessions — each tied to the right project and worktree, with the task plan surfaced when the CLI exposes it.
+- **A terminal tuned for AI.** Scrollback, selection, ANSI/alt-screen apps, modified keys, mouse reporting, and scrollbars, all handled in the managed terminal layer.
+- **Token spend, made visible.** Usage by tool, model, project, worktree, and day — no spreadsheets.
+- **Memory that follows the work — and stays local.** Codux mines durable preferences, project profiles, and module notes from local transcripts and injects only what's relevant. History and memory never leave your machine.
+- **Project surfaces beside the terminal.** File browsing, Markdown/image preview, and focused Git review/diff windows keep review work next to the running CLI.
+- **Prompt-safe clipboard & paths.** Pasted images become temp files with local paths instead of base64 blobs; dragged files insert shell-quoted paths agents can use instantly.
+- **SSH that agents can't leak.** `codux-ssh <profile>` runs remote commands through saved, tested profiles — passwords, passphrases, and key paths never reach the prompt.
 
-- **Live agent state, not just text output**: Codux tracks running, completed, interrupted, permission-waiting, and plan-updating sessions, then ties each session back to the correct project and worktree.
-- **Task plans when the CLI exposes them**: Codux can surface the current plan and completion state, so desktop pets and runtime views can show what the agent is actually working through.
-- **A terminal tuned for long AI runs**: Scrollback, selection, ANSI color state, alternate-screen apps, modified key sequences, mouse reporting, and terminal scrollbars are handled in the managed terminal layer.
-- **Prompt-safe clipboard and path handling**: Pasted images can become temporary files with local paths instead of base64 payloads; dragged files insert shell-quoted paths that AI tools can use immediately.
-- **Project surfaces beside the terminal**: Text editing, Markdown preview, image preview, external-open fallbacks, and focused Git diff windows keep review work close to the running CLI.
-- **Remote handoff without losing terminal state**: The shared runtime protocol uses bounded baselines, sequence guards, chunking, progress, and subscriptions so mobile can recover large Codex or Claude histories safely.
-- **SSH profiles built for agents**: `codux-ssh <profile>` lets AI CLIs run remote commands through saved, tested profiles without exposing passwords, passphrases, or private-key paths.
-- **Local memory that follows the work**: Codux extracts durable user preferences, project profiles, and module notes from local transcripts, filters noisy boundaries, and injects only relevant context for the active project or worktree.
+## Phone-to-desktop handoff
 
-## AI History, Tokens, and Memory
+Pair your phone over the shared **Iroh** transport and keep driving the session from anywhere.
 
-Codux indexes AI session history locally and turns it into durable project context.
+- Pair in seconds with a short-lived QR ticket; Iroh picks the best direct path and falls back to a relay when needed.
+- Projects, terminals, files, and AI sessions keep running on the desktop — your phone just controls them, with large histories recovered safely over bounded baselines and sequence guards.
 
-- See recent sessions by project and worktree.
-- Track token usage by day, model, tool, project, and workspace.
-- Extract user preferences, project profiles, and module notes into local memory.
-- Queue memory extraction in the runtime so the UI stays responsive.
-- Inject relevant context back into supported AI CLIs when launching them.
+## Desktop pets
 
-Memory and history are stored locally. Codux treats project lists and memory as the durable assets; AI history can be rebuilt from supported local CLI transcripts.
+Optional companions that grow with your AI coding habits — they react to usage, reminders, and agent activity. Import Codex-style custom pet packs from Petdex with a flat `pet.json` + `spritesheet.png` format.
 
-## Project Surfaces and Secure Connections
+## Worktree-first workflow
 
-Codux keeps the terminal next to the project surfaces you need during AI work:
+Codux models real AI work the way it actually happens: **Project → Worktree / Task → Terminals, Files, Git, AI Sessions.**
 
-- Browse files, preview assets, and drag file paths into the terminal.
-- Review Git changes, stage diffs, inspect history, pull, push, and handle worktree merges.
-- Save SSH profiles with password or private-key credentials.
-- Test SSH connectivity before saving.
-- Connect from the SSH panel or let AI CLIs use the injected `codux-ssh <profile>` command.
+- Spin up Git worktrees for parallel tasks without tangling branch state.
+- Switch tasks and keep everything — terminal tabs, splits, panel sizes, active AI sessions, file context, and Git state.
+- Review worktree changes against the base branch, merge back, and clean up finished worktrees.
+- Keep AI history and runtime activity scoped to the worktree, while project memory stays shared.
 
-`codux-ssh` references a saved profile by id. It does not expose saved passwords, key passphrases, or raw connection details to the AI CLI prompt.
+This is what sets Codux apart from a plain terminal multiplexer: it *knows* which project and worktree each terminal belongs to, and rebuilds the whole workspace around that relationship.
 
-Database and other secure connection profiles are planned. Today, database access should be handled through your existing CLI tools, SSH tunnels, or remote shell workflow.
+## Native, not Electron
 
-## Mobile Handoff
-
-Codux Mobile connects to the desktop host through the shared Iroh remote transport.
-
-- Pair mobile with the desktop using a short-lived QR ticket.
-- Use the global Iroh network, choose a configured relay preset when needed, or configure a custom relay endpoint.
-- Iroh automatically uses the best available direct path and falls back to the selected Iroh relay when direct connectivity is unavailable.
-- Keep projects, terminals, files, and AI sessions running on the desktop host while mobile controls the session remotely.
-- Use one runtime protocol model across desktop, mobile, and future headless hosts. Project, terminal, file, Git/worktree, upload, and AI-stat state are handled by shared runtime crates instead of UI-specific transport code.
-
-Iroh provides the transport security for remote control traffic.
-
-## Custom Pets
-
-Codux includes optional desktop companions that grow with your AI coding habits. Pets can react to usage, reminders, and AI work patterns, and you can import Codex-style custom pet packages from Petdex using a flat `pet.json` + `spritesheet.png` format.
+Codux is a true native app in **Rust** on **GPUI** — the same stack that powers [Zed](https://zed.dev) — so terminal rendering, project switching, and long, noisy agent runs stay fast and smooth. Desktop and mobile share one pure-Rust `alacritty_terminal` engine (identical viewport, scrollback, cursor, and remote-PTY semantics), and the runtime is shaped so future headless Linux hosts can expose the same domains without a GUI.
 
 ## Getting Started
 
 1. Download Codux from [GitHub Releases](https://github.com/duxweb/codux/releases) or [codux.dux.cn](https://codux.dux.cn).
-2. Install it:
-   - macOS: open the `.dmg` and drag Codux to Applications.
-   - Windows: run the `setup.exe` installer.
+2. Install:
+   - **macOS** — open the `.dmg` and drag Codux to Applications.
+   - **Windows** — run the `setup.exe` installer.
 3. Open a project folder.
 4. Start an AI CLI in the integrated terminal.
-5. Optional: create a worktree task, connect an SSH profile, or pair Codux Mobile.
+5. Optional — create a worktree task, connect an SSH profile, or pair Codux Mobile.
 
-Recommended downloads:
-
-| Platform | File |
-| :------- | :--- |
+| Platform | Recommended download |
+| :------- | :------------------- |
 | macOS | `codux-*-macos-*.dmg` |
 | Windows | `codux-*-windows-x86_64-setup.exe` |
 
-Updater archives and `latest.json` are published for automatic updates, fallback testing, and automation. Most users should download one of the two installers above.
+Updater archives and `latest.json` are published for auto-updates and automation — most users just want one of the two installers above.
 
 ## Keyboard Shortcuts
 
@@ -186,21 +128,36 @@ Updater archives and `latest.json` are published for automatic updates, fallback
 | New Tab | `⌘D` |
 | Toggle Git Panel | `⌘G` |
 | Toggle AI Panel | `⌘Y` |
-| Switch Project | `⌘1` - `⌘9` |
+| Switch Project | `⌘1` – `⌘9` |
 
-All shortcuts can be customized in **Settings > Shortcuts**.
+Customize everything in **Settings → Shortcuts**.
 
 ## Demo Video
 
-GitHub README does not render third-party iframe players. Watch the demo on [Bilibili](https://www.bilibili.com/video/BV1mK9vBCEYD/).
+GitHub READMEs can't embed third-party players — watch the demo on [Bilibili](https://www.bilibili.com/video/BV1mK9vBCEYD/).
 
 ## WeChat
 
-Scan the QR code to add the author on WeChat and ask to join the DUXAI community group.
+Scan to add the author on WeChat and ask to join the DUXAI community group.
 
 <p align="center">
   <img src="docs/images/wechat-author.png" width="320" alt="Author WeChat QR code">
 </p>
+
+## Repository Layout
+
+This repo is the Codux monorepo:
+
+- `apps/desktop` — Rust + GPUI desktop app, runtime, assets, and release scripts.
+- `apps/agent` — headless controlled-agent app linking protocol, terminal core, and the shared local PTY driver without GPUI.
+- `apps/mobile` — Flutter mobile controller.
+- `crates/codux-protocol` — shared remote protocol: capabilities, envelope DTOs, transport candidates, and relay rules.
+- `crates/codux-protocol-ffi` — Flutter-facing C ABI for the protocol and terminal-core bindings.
+- `crates/codux-runtime-core` — shared runtime domain rules for host, project, file, Git, worktree, upload, and terminal shapes.
+- `crates/codux-terminal-core` — shared terminal session, sequencing, baseline restore, and remote-PTY model (pure-Rust `alacritty_terminal` engine).
+- `crates/codux-terminal-pty` — shared `portable_pty` local PTY driver for host/headless targets.
+
+Flutter keeps its own native build system. Remote connectivity runs entirely on the shared Iroh transport.
 
 ## Development
 
@@ -216,7 +173,7 @@ cargo test -p codux-runtime ssh::tests
 node apps/desktop/scripts/release/test-package-gpui.mjs
 ```
 
-Desktop releases are created by pushing a version tag such as `v1.6.2`. The release workflow builds Rust-native macOS and Windows artifacts, publishes the GitHub Release, and updates the configured updater channel.
+Desktop releases are cut by pushing a version tag such as `v1.6.2`. The release workflow builds native macOS and Windows artifacts, publishes the GitHub Release, and updates the configured updater channel.
 
 ## System Requirements
 
@@ -227,7 +184,7 @@ Desktop releases are created by pushing a version tag such as `v1.6.2`. The rele
 
 Found a bug or have a feature request? Open an [issue on GitHub](https://github.com/duxweb/codux/issues).
 
-For bug reports, use **Help -> Export Diagnostics** and attach the generated `.zip`. It includes runtime logs, rotated logs, performance summaries, saved app state, invalid state backups, and matching macOS diagnostic reports when available.
+For bug reports, use **Help → Export Diagnostics** and attach the generated `.zip` — it bundles runtime logs, rotated logs, performance summaries, saved app state, invalid-state backups, and matching macOS diagnostic reports when available.
 
 Manual log paths:
 
@@ -252,7 +209,7 @@ Thanks to everyone who has contributed code, issues, testing, and feedback to Co
 [![Star History Chart](https://api.star-history.com/svg?repos=duxweb/codux&type=Date)](https://star-history.com/#duxweb/codux&Date)
 
 <p align="center">
-  Wanted to be dmux, but that name was taken. So it's Codux now, which sounds like "Cool Dux" in Chinese.
+  Wanted to be dmux, but that name was taken. So it's Codux now — which sounds like "Cool Dux" in Chinese.
 </p>
 
 <p align="center">
