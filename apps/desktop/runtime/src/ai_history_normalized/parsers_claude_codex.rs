@@ -83,7 +83,13 @@ fn parse_claude_history_file_snapshot(
         let usage = message.get("usage").unwrap_or(&Value::Null);
         let input_tokens = json_i64(usage.get("input_tokens"));
         let output_tokens = json_i64(usage.get("output_tokens"));
-        let cached_input_tokens = json_i64(usage.get("cache_read_input_tokens"));
+        // Claude reports cache writes (cache_creation_input_tokens) and cache
+        // reads (cache_read_input_tokens) as separate categories from
+        // input_tokens. Both are cached input -- count both, matching the live
+        // runtime probe (ai_runtime/probe/claude.rs). Dropping cache-creation
+        // here undercounts Claude usage.
+        let cached_input_tokens = json_i64(usage.get("cache_read_input_tokens"))
+            + json_i64(usage.get("cache_creation_input_tokens"));
         let total_tokens = input_tokens + output_tokens + cached_input_tokens;
         if total_tokens <= 0 {
             last_processed_offset = end_offset;
@@ -235,10 +241,22 @@ fn parse_codex_history_file_snapshot(
         let last_usage = codex_history_usage(info.get("last_token_usage"));
         let total_usage = codex_history_usage(info.get("total_token_usage"));
         let usage = if let Some(total_usage) = total_usage {
-            let previous = *total_by_model.get(&resolved_model).unwrap_or(&0);
+            // codex's total_token_usage is a session-global cumulative counter
+            // shared across models, so the baseline must be tracked per session,
+            // NOT per model. Keying it by model meant a mid-session model switch
+            // saw a 0 baseline and re-attributed the entire accumulated total as
+            // one delta (the ~100M single-request inflation).
+            let previous = total_by_model.get(&session_id).copied().unwrap_or_else(|| {
+                // Migrate a pre-fix per-model checkpoint: the cumulative is
+                // monotonic, so the highest recorded value is the last
+                // cumulative seen -- using it avoids a one-time re-inflation on
+                // the first parse after this fix.
+                total_by_model.values().copied().max().unwrap_or(0)
+            });
             let current = total_usage.total_tokens();
             let delta = (current - previous).max(0);
-            total_by_model.insert(resolved_model.clone(), previous.max(current));
+            total_by_model.clear();
+            total_by_model.insert(session_id.clone(), previous.max(current));
             if delta <= 0 {
                 None
             } else if last_usage.as_ref().map(|usage| usage.total_tokens()) == Some(delta) {

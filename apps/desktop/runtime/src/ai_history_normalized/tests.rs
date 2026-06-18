@@ -278,6 +278,99 @@ runtime launch context
     }
 
     #[test]
+    fn claude_counts_cache_creation_and_read_tokens() {
+        let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
+        let project_path = "/tmp/project-cache";
+        let log_dir = root.join(".claude/projects/-tmp-project-cache");
+        fs::create_dir_all(&log_dir).unwrap();
+        fs::write(
+            log_dir.join("session.jsonl"),
+            r#"{"type":"user","sessionId":"s1","cwd":"/tmp/project-cache","timestamp":"2026-05-17T00:00:00Z","message":{"content":"hi"}}
+{"type":"assistant","sessionId":"s1","cwd":"/tmp/project-cache","timestamp":"2026-05-17T00:01:00Z","uuid":"a1","message":{"model":"claude-sonnet","usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":10,"cache_creation_input_tokens":40}}}
+"#,
+        )
+        .unwrap();
+
+        let snapshot = load_project_history_without_store(
+            AIHistoryProjectRequest {
+                id: "project-1".to_string(),
+                name: "Project".to_string(),
+                path: project_path.to_string(),
+            },
+            &root,
+            &mut |_, _| {},
+        );
+
+        // Both cache reads (10) and cache writes/creation (40) are cached input.
+        assert_eq!(snapshot.project_summary.project_cached_input_tokens, 50);
+        // project_total_tokens excludes cached: input(100) + output(50).
+        assert_eq!(snapshot.project_summary.project_total_tokens, 150);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn codex_model_switch_does_not_reinflate_cumulative_tokens() {
+        let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
+        let project_path = root.join("project-a").to_string_lossy().to_string();
+        let codex_dir = root.join(".codex/sessions");
+        fs::create_dir_all(&codex_dir).unwrap();
+        let rollout_path = codex_dir.join("rollout.jsonl");
+        fs::write(
+            &rollout_path,
+            format!(
+                "{}\n{}\n{}\n",
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:00:00Z",
+                    "type": "session_meta",
+                    "payload": { "cwd": project_path, "id": "s1" }
+                }),
+                // First model: the session-global cumulative input reaches 1000.
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:01:00Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "model": "gpt-5.5",
+                            "total_token_usage": { "input_tokens": 1000, "output_tokens": 0 }
+                        }
+                    }
+                }),
+                // Model SWITCH: the SAME session cumulative grows by 100 to 1100.
+                // The pre-fix per-model baseline saw 0 for gpt-5.4 and
+                // re-attributed the whole 1100 here (the ~100M inflation).
+                serde_json::json!({
+                    "timestamp": "2026-05-17T00:02:00Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "model": "gpt-5.4",
+                            "total_token_usage": { "input_tokens": 1100, "output_tokens": 0 }
+                        }
+                    }
+                }),
+            ),
+        )
+        .unwrap();
+
+        let snapshot = load_project_history_without_store(
+            AIHistoryProjectRequest {
+                id: "project-1".to_string(),
+                name: "Project".to_string(),
+                path: project_path,
+            },
+            &root,
+            &mut |_, _| {},
+        );
+
+        // Cumulative grew 1000 -> 1100, so the session used 1100 input total.
+        // The per-model-baseline bug would report 1000 + 1100 = 2100.
+        assert_eq!(snapshot.project_summary.project_total_tokens, 1100);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn matches_windows_extended_paths_without_matching_project_children() {
         assert!(paths_equivalent(
             Some(r"\\?\F:\codux-tauri"),
