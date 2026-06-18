@@ -65,8 +65,7 @@ impl MemoryService {
     pub fn extraction_status_snapshot(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
         self.ensure_queue_schema()?;
         let conn = self.open_connection()?;
-        let pending_count = queue_count(&conn, "pending")?;
-        let running_count = queue_count(&conn, "running")?;
+        let (pending_count, running_count) = queue_pending_running_counts(&conn)?;
         let last_error = latest_failed_error(&conn)?;
         let status = if running_count > 0 {
             MemoryExtractionStatus::Processing

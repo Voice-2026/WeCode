@@ -1,7 +1,25 @@
 use super::super::MemoryService;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+/// DB paths whose schema has already been ensured this process. `MemoryService`
+/// is created fresh on every call, so without this guard the full DDL batch
+/// (CREATE TABLEs + the migration ALTER, which fails-harmlessly once the column
+/// exists) ran on every call -- including the 300ms status poller. Schema is
+/// process-stable, so ensuring it once per path is enough.
+fn schema_ensured_paths() -> &'static Mutex<HashSet<PathBuf>> {
+    static PATHS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    PATHS.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 impl MemoryService {
     pub(crate) fn ensure_queue_schema(&self) -> Result<(), String> {
+        if let Ok(ensured) = schema_ensured_paths().lock() {
+            if ensured.contains(&self.database_path) {
+                return Ok(());
+            }
+        }
         let conn = self.open_or_create_connection()?;
         conn.execute_batch(
             r#"
@@ -93,6 +111,10 @@ impl MemoryService {
                 Err(error)
             }
         })
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+        if let Ok(mut ensured) = schema_ensured_paths().lock() {
+            ensured.insert(self.database_path.clone());
+        }
+        Ok(())
     }
 }

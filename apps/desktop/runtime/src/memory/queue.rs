@@ -31,7 +31,7 @@ mod types;
 use db::{
     active_extraction_tasks as db_active_extraction_tasks,
     failed_extraction_tasks as db_failed_extraction_tasks, latest_failed_error,
-    memory_task_from_row, queue_count,
+    memory_task_from_row, queue_count, queue_pending_running_counts,
 };
 use prompt_context::prompt_entries;
 pub use types::{

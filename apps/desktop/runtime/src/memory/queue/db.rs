@@ -10,6 +10,24 @@ pub(super) fn queue_count(conn: &rusqlite::Connection, status: &str) -> Result<i
     .map_err(|error| error.to_string())
 }
 
+/// Pending and running counts in a single scan -- the 300ms status poller
+/// previously issued these as two separate `COUNT(*)` queries.
+pub(super) fn queue_pending_running_counts(
+    conn: &rusqlite::Connection,
+) -> Result<(i64, i64), String> {
+    conn.query_row(
+        r#"
+        SELECT
+            COALESCE(SUM(status = 'pending'), 0),
+            COALESCE(SUM(status = 'running'), 0)
+        FROM memory_extraction_queue;
+        "#,
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .map_err(|error| error.to_string())
+}
+
 pub(super) fn latest_failed_error(conn: &rusqlite::Connection) -> Result<Option<String>, String> {
     conn.query_row(
         r#"
