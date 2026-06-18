@@ -144,21 +144,102 @@ fn pet_speech_prompt(request: &PetIdleSpeechRequest) -> String {
 }
 
 fn decode_pet_speech_response(raw: &str) -> String {
-    let value = serde_json::from_str::<Value>(raw)
+    // The model is asked for `{"text":"..."}`, but even in JSON mode it may
+    // wrap that in a markdown code fence or surround it with prose/reasoning.
+    // Strip fences, then try the whole text and any embedded JSON object before
+    // falling back to plain text -- otherwise the raw `{"text":"..."}` leaks
+    // into the bubble verbatim.
+    let stripped = strip_markdown_code_fences(raw);
+    if let Some(text) = pet_speech_text_from_json(&stripped) {
+        return text;
+    }
+    for candidate in json_object_candidates(&stripped) {
+        if let Some(text) = pet_speech_text_from_json(&candidate) {
+            return text;
+        }
+    }
+    // No JSON wrapper found: the model returned a plain line -- use it as-is.
+    stripped
+}
+
+/// Parse `candidate` as JSON (with repair) and pull the pet line out of the
+/// first recognized text-bearing key.
+fn pet_speech_text_from_json(candidate: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(candidate)
         .ok()
-        .or_else(|| llm_json_repair::parse::<Value>(raw).ok());
-    if let Some(text) = value
-        .as_ref()
-        .and_then(|value| value.as_object())
+        .or_else(|| llm_json_repair::parse::<Value>(candidate).ok())?;
+    value
+        .as_object()
         .and_then(|object| {
             ["text", "line", "message", "content", "response"]
                 .iter()
                 .find_map(|key| object.get(*key)?.as_str())
         })
-    {
-        return text.to_string();
+        .map(|text| text.to_string())
+}
+
+/// Drop surrounding ```` ``` ```` code-fence lines, returning the inner body.
+fn strip_markdown_code_fences(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
     }
-    raw.to_string()
+    trimmed
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("```"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Return every balanced `{...}` / `[...]` substring in `raw` (brace-matched,
+/// string-aware), so an object embedded in surrounding prose can be recovered.
+fn json_object_candidates(raw: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let bytes = raw.as_bytes();
+    for (start, byte) in bytes.iter().enumerate() {
+        if *byte != b'{' && *byte != b'[' {
+            continue;
+        }
+        let mut stack = Vec::new();
+        let mut in_string = false;
+        let mut escaped = false;
+        for (offset, current) in bytes[start..].iter().enumerate() {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if *current == b'\\' {
+                    escaped = true;
+                } else if *current == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match *current {
+                b'"' => in_string = true,
+                b'{' | b'[' => stack.push(*current),
+                b'}' => {
+                    if stack.pop() != Some(b'{') {
+                        break;
+                    }
+                    if stack.is_empty() {
+                        candidates.push(raw[start..=start + offset].to_string());
+                        break;
+                    }
+                }
+                b']' => {
+                    if stack.pop() != Some(b'[') {
+                        break;
+                    }
+                    if stack.is_empty() {
+                        candidates.push(raw[start..=start + offset].to_string());
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    candidates
 }
 
 fn sanitize_pet_speech_line(text: &str) -> String {

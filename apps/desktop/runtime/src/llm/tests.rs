@@ -56,6 +56,29 @@ fn pet_speech_prompt_requests_original_persona_line() {
 }
 
 #[test]
+fn pet_speech_decode_unwraps_json_text_in_any_shape() {
+    // Bare JSON object (the screenshot case): must not leak the raw JSON.
+    assert_eq!(
+        decode_pet_speech_response(r#"{"text":"代码在睡觉，我在数星星"}"#),
+        "代码在睡觉，我在数星星"
+    );
+    // Wrapped in a markdown code fence.
+    assert_eq!(
+        decode_pet_speech_response("```json\n{\"text\":\"代码在睡觉，我在数星星\"}\n```"),
+        "代码在睡觉，我在数星星"
+    );
+    // Embedded in surrounding prose / reasoning.
+    assert_eq!(
+        decode_pet_speech_response("Sure:\n{\"text\":\"代码在睡觉，我在数星星\"}\nDone."),
+        "代码在睡觉，我在数星星"
+    );
+    // Alternate text-bearing key.
+    assert_eq!(decode_pet_speech_response(r#"{"line":"hi"}"#), "hi");
+    // Plain text with no JSON wrapper passes through unchanged.
+    assert_eq!(decode_pet_speech_response("just a plain line"), "just a plain line");
+}
+
+#[test]
 fn json_schema_response_format_is_used_only_for_known_supported_providers() {
     let mut openai = provider("openai", 0, true);
     openai.kind = "openai".to_string();
