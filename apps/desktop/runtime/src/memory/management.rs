@@ -87,7 +87,9 @@ impl MemoryService {
         }
         self.ensure_queue_schema()?;
         let existing = self.summary_row_by_id(&request.summary_id)?;
+        let conn = self.open_connection()?;
         let updated = self.upsert_summary(
+            &conn,
             MemoryScope::from_str(&existing.scope),
             existing.project_id.as_deref(),
             existing.tool_id.as_deref(),

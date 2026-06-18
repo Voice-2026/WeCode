@@ -1,6 +1,9 @@
 impl MemoryService {
-    pub(super) fn record_memory_decision(&self, decision: MemoryDecisionLog) -> Result<(), String> {
-        let conn = self.open_connection()?;
+    pub(super) fn record_memory_decision(
+        &self,
+        conn: &Connection,
+        decision: MemoryDecisionLog,
+    ) -> Result<(), String> {
         conn.execute(
             r#"
             INSERT INTO memory_decision_logs (

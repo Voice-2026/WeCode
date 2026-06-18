@@ -1,10 +1,10 @@
 impl MemoryService {
     fn merge_candidate_into_entry(
         &self,
+        conn: &Connection,
         entry_id: &str,
         candidate: MemoryCandidate,
     ) -> Result<StoredMemoryEntry, String> {
-        let conn = self.open_connection()?;
         let existing = conn
             .query_row(
                 &format!(
@@ -22,7 +22,7 @@ impl MemoryService {
             .optional()
             .map_err(|error| error.to_string())?;
         let Some(mut entry) = existing else {
-            return self.upsert(candidate);
+            return self.upsert(conn, candidate);
         };
         let content = merge_memory_content(&entry.content, &candidate.content);
         let rationale =
@@ -69,12 +69,16 @@ impl MemoryService {
         Ok(entry)
     }
 
-    fn supersede_entry(&self, old_entry_id: &str, new_entry_id: &str) -> Result<(), String> {
+    fn supersede_entry(
+        &self,
+        conn: &Connection,
+        old_entry_id: &str,
+        new_entry_id: &str,
+    ) -> Result<(), String> {
         if old_entry_id == new_entry_id {
             return Ok(());
         }
         let now = now_seconds();
-        let conn = self.open_connection()?;
         conn.execute(
             r#"
             UPDATE memory_entries
@@ -87,10 +91,13 @@ impl MemoryService {
         Ok(())
     }
 
-    fn upsert(&self, candidate: MemoryCandidate) -> Result<StoredMemoryEntry, String> {
+    fn upsert(
+        &self,
+        conn: &Connection,
+        candidate: MemoryCandidate,
+    ) -> Result<StoredMemoryEntry, String> {
         let normalized_content = normalized_memory_content(&candidate.content);
         let normalized_hash = sha256_hex(&normalized_content);
-        let conn = self.open_connection()?;
         let existing = conn
             .query_row(
                 &format!(

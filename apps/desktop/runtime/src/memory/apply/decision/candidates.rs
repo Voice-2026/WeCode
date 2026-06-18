@@ -1,9 +1,11 @@
 impl MemoryService {
     fn write_decision_candidates(
         &self,
+        conn: &Connection,
         candidate: &MemoryCandidate,
     ) -> Result<Vec<StoredMemoryEntry>, String> {
         let mut entries = self.list_entries(
+            conn,
             candidate.scope.clone(),
             candidate.project_id.as_deref(),
             candidate.tool_id.as_deref(),
@@ -19,6 +21,7 @@ impl MemoryService {
 
     fn list_entries(
         &self,
+        conn: &Connection,
         scope: MemoryScope,
         project_id: Option<&str>,
         tool_id: Option<&str>,
@@ -50,7 +53,6 @@ impl MemoryService {
             stored_entry_select_columns(),
             placeholders
         );
-        let conn = self.open_connection()?;
         let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
         let mut values = vec![
             SqlValue::Text(scope.as_str().to_string()),

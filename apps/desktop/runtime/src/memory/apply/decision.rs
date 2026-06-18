@@ -9,7 +9,7 @@ use super::{
 };
 use crate::memory::extraction::{MemoryScope, MemoryTier};
 use crate::memory::{MemoryService, now_seconds};
-use rusqlite::{OptionalExtension, params, params_from_iter, types::Value as SqlValue};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value as SqlValue};
 use uuid::Uuid;
 
 include!("decision/write.rs");

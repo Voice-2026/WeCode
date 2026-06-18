@@ -30,12 +30,22 @@ impl MemoryService {
         settings: &AIMemorySettings,
     ) -> Result<(), String> {
         self.ensure_queue_schema()?;
+        // Open one connection and wrap the whole apply in a single transaction:
+        // every memory/summary/decision write below shares it instead of each
+        // helper opening its own connection (which multiplied lock-contention
+        // windows and was the bulk of the per-apply overhead). The apply is now
+        // atomic as a bonus.
+        let mut connection = self.open_or_create_connection()?;
+        let tx = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
+        let conn = &tx;
         for item in response.working_add {
             let Some(content) = normalized_non_empty(&item.content) else {
                 continue;
             };
             if let Some(reason) = item.skip_reason.as_deref().and_then(normalized_non_empty) {
-                self.record_memory_decision(MemoryDecisionLog {
+                self.record_memory_decision(conn, MemoryDecisionLog {
                     kind: MemoryWriteDecisionKind::Skip,
                     entry_id: None,
                     target_entry_id: None,
@@ -70,8 +80,8 @@ impl MemoryService {
                 .cloned()
                 .collect::<Vec<_>>();
             for archive_id in &archive_ids {
-                self.archive_entries(std::slice::from_ref(archive_id))?;
-                self.record_memory_decision(MemoryDecisionLog {
+                self.archive_entries(conn, std::slice::from_ref(archive_id))?;
+                self.record_memory_decision(conn, MemoryDecisionLog {
                     kind: MemoryWriteDecisionKind::Archive,
                     entry_id: None,
                     target_entry_id: Some(archive_id.clone()),
@@ -79,7 +89,7 @@ impl MemoryService {
                     created_at: now_seconds(),
                 })?;
             }
-            let _ = self.write_candidate_with_decision(
+            let _ = self.write_candidate_with_decision(conn, 
                 MemoryCandidate {
                     scope,
                     project_id,
@@ -109,7 +119,7 @@ impl MemoryService {
 
         if let Some(content) = valid_summary_content(response.user_summary.as_deref().unwrap_or(""))
         {
-            let summary = self.upsert_summary(
+            let summary = self.upsert_summary(conn, 
                 MemoryScope::User,
                 None,
                 None,
@@ -117,8 +127,8 @@ impl MemoryService {
                 &merged_ids,
                 settings.max_summary_versions,
             )?;
-            self.mark_entries_merged(&merged_ids, &summary.id)?;
-            self.merge_stale_working_entries(
+            self.mark_entries_merged(conn, &merged_ids, &summary.id)?;
+            self.merge_stale_working_entries(conn, 
                 MemoryScope::User,
                 None,
                 settings.max_active_working_entries,
@@ -130,13 +140,14 @@ impl MemoryService {
             .iter()
             .filter_map(|value| parse_uuid_string(value))
             .collect::<Vec<_>>();
-        self.archive_entries(&archive_ids)?;
-        self.trim_working_entries(MemoryScope::User, None, settings.max_active_working_entries)?;
-        self.trim_working_entries(
+        self.archive_entries(conn, &archive_ids)?;
+        self.trim_working_entries(conn, MemoryScope::User, None, settings.max_active_working_entries)?;
+        self.trim_working_entries(conn,
             MemoryScope::Project,
             Some(&task.project_id),
             settings.max_active_working_entries,
         )?;
+        tx.commit().map_err(|error| error.to_string())?;
         Ok(())
     }
 }

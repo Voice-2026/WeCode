@@ -1,12 +1,13 @@
 use super::{helpers::*, types::StoredMemorySummary};
 use crate::memory::extraction::MemoryScope;
 use crate::memory::{MemoryService, now_seconds};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use uuid::Uuid;
 
 impl MemoryService {
     pub(in crate::memory) fn upsert_summary(
         &self,
+        conn: &Connection,
         scope: MemoryScope,
         project_id: Option<&str>,
         tool_id: Option<&str>,
@@ -21,7 +22,6 @@ impl MemoryService {
         let source_ids = sorted_unique(source_entry_ids);
         let source_json = serde_json::to_string(&source_ids).map_err(|error| error.to_string())?;
         let now = now_seconds();
-        let conn = self.open_connection()?;
         let existing = conn
             .query_row(
                 r#"
@@ -49,8 +49,8 @@ impl MemoryService {
                 params![content, version, source_json, token_estimate, now, existing.id],
             )
             .map_err(|error| error.to_string())?;
-            self.insert_summary_version(&existing.id, version, content, &source_ids, now)?;
-            self.trim_summary_versions(&existing.id, max_versions)?;
+            self.insert_summary_version(conn, &existing.id, version, content, &source_ids, now)?;
+            self.trim_summary_versions(conn, &existing.id, max_versions)?;
             return Ok(StoredMemorySummary {
                 id: existing.id,
                 scope,
@@ -99,26 +99,26 @@ impl MemoryService {
             ],
         )
         .map_err(|error| error.to_string())?;
-        self.insert_summary_version(
+        self.insert_summary_version(conn, 
             &summary.id,
             summary.version,
             &summary.content,
             &summary.source_entry_ids,
             now,
         )?;
-        self.trim_summary_versions(&summary.id, max_versions)?;
+        self.trim_summary_versions(conn, &summary.id, max_versions)?;
         Ok(summary)
     }
 
     fn insert_summary_version(
         &self,
+        conn: &Connection,
         summary_id: &str,
         version: i64,
         content: &str,
         source_ids: &[String],
         created_at: f64,
     ) -> Result<(), String> {
-        let conn = self.open_connection()?;
         conn.execute(
             r#"
             INSERT INTO memory_summary_versions (
@@ -138,8 +138,12 @@ impl MemoryService {
         Ok(())
     }
 
-    fn trim_summary_versions(&self, summary_id: &str, max_versions: i32) -> Result<(), String> {
-        let conn = self.open_connection()?;
+    fn trim_summary_versions(
+        &self,
+        conn: &Connection,
+        summary_id: &str,
+        max_versions: i32,
+    ) -> Result<(), String> {
         conn.execute(
             r#"
             DELETE FROM memory_summary_versions
@@ -160,6 +164,7 @@ impl MemoryService {
 
     pub(super) fn mark_entries_merged(
         &self,
+        conn: &Connection,
         entry_ids: &[String],
         summary_id: &str,
     ) -> Result<(), String> {
@@ -167,10 +172,10 @@ impl MemoryService {
             return Ok(());
         }
         let now = now_seconds();
-        let mut conn = self.open_connection()?;
-        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        // Runs within the caller's transaction (apply_extraction_response); the
+        // loop no longer opens its own connection/transaction.
         for id in entry_ids {
-            tx.execute(
+            conn.execute(
                 r#"
                 UPDATE memory_entries
                 SET status = 'merged', merged_summary_id = ?1, merged_at = ?2, updated_at = ?2
@@ -180,38 +185,39 @@ impl MemoryService {
             )
             .map_err(|error| error.to_string())?;
         }
-        tx.commit().map_err(|error| error.to_string())?;
         Ok(())
     }
 
     pub(super) fn merge_stale_working_entries(
         &self,
+        conn: &Connection,
         scope: MemoryScope,
         project_id: Option<&str>,
         max_active: i32,
         summary_id: &str,
     ) -> Result<(), String> {
-        let ids = self.stale_working_entry_ids(scope, project_id, max_active)?;
-        self.mark_entries_merged(&ids, summary_id)
+        let ids = self.stale_working_entry_ids(conn, scope, project_id, max_active)?;
+        self.mark_entries_merged(conn, &ids, summary_id)
     }
 
     pub(super) fn trim_working_entries(
         &self,
+        conn: &Connection,
         scope: MemoryScope,
         project_id: Option<&str>,
         max_active: i32,
     ) -> Result<(), String> {
-        let ids = self.stale_working_entry_ids(scope, project_id, max_active)?;
-        self.archive_entries(&ids)
+        let ids = self.stale_working_entry_ids(conn, scope, project_id, max_active)?;
+        self.archive_entries(conn, &ids)
     }
 
     fn stale_working_entry_ids(
         &self,
+        conn: &Connection,
         scope: MemoryScope,
         project_id: Option<&str>,
         max_active: i32,
     ) -> Result<Vec<String>, String> {
-        let conn = self.open_connection()?;
         let mut statement = conn
             .prepare(
                 r#"
@@ -236,15 +242,18 @@ impl MemoryService {
             .map_err(|error| error.to_string())
     }
 
-    pub(super) fn archive_entries(&self, entry_ids: &[String]) -> Result<(), String> {
+    pub(super) fn archive_entries(
+        &self,
+        conn: &Connection,
+        entry_ids: &[String],
+    ) -> Result<(), String> {
         if entry_ids.is_empty() {
             return Ok(());
         }
         let now = now_seconds();
-        let mut conn = self.open_connection()?;
-        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        // Runs within the caller's transaction; no longer opens its own.
         for id in entry_ids {
-            tx.execute(
+            conn.execute(
                 r#"
                 UPDATE memory_entries
                 SET tier = 'archive', status = 'archived', archived_at = ?1, updated_at = ?1
@@ -254,17 +263,15 @@ impl MemoryService {
             )
             .map_err(|error| error.to_string())?;
         }
-        tx.commit().map_err(|error| error.to_string())?;
         // Best-effort: keep the archived/merged tail bounded. Archived rows are
         // no longer injected, so they are pure history — cap the total so the
         // table does not grow without bound over the app's lifetime.
-        let _ = self.prune_archived_entries();
+        let _ = self.prune_archived_entries(conn);
         Ok(())
     }
 
-    fn prune_archived_entries(&self) -> Result<(), String> {
+    fn prune_archived_entries(&self, conn: &Connection) -> Result<(), String> {
         const MAX_ARCHIVED_ENTRIES: i64 = 500;
-        let conn = self.open_connection()?;
         conn.execute(
             r#"
             DELETE FROM memory_entries
