@@ -100,8 +100,6 @@ class RemoteTerminalOutputController {
 
   int bufferOffset(String sessionId) => _router.bufferOffset(sessionId);
 
-  int sequenceFor(String sessionId) => _router.sequenceFor(sessionId);
-
   /// True when a live output gap was observed for [sessionId] and no baseline
   /// has repaired it yet; such a session must not skip its baseline request.
   bool hasSequenceGap(String sessionId) => _router.hasSequenceGap(sessionId);
