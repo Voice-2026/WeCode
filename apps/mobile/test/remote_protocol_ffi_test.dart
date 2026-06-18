@@ -148,20 +148,5 @@ void main() {
       codux_protocol_ffi.terminalKeyInputBytes(key: 'space', control: true),
       [0],
     );
-    expect(
-      codux_protocol_ffi.terminalSelectorInput(selector: 'deleteBackward:'),
-      '\u007f',
-    );
-    expect(
-      codux_protocol_ffi.terminalSelectorInput(selector: 'moveLeft:'),
-      '\u001b[D',
-    );
-    expect(
-      codux_protocol_ffi.terminalSelectorInput(
-        selector: 'moveLeft:',
-        applicationCursor: true,
-      ),
-      '\u001bOD',
-    );
   });
 }

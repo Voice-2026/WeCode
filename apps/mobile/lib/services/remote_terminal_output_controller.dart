@@ -83,9 +83,6 @@ class RemoteTerminalOutputController {
   void resizeScreen(String sessionId, {required int cols, required int rows}) =>
       _router.resizeScreen(sessionId, cols: cols, rows: rows);
 
-  void scrollScreenLines(String sessionId, int lines) =>
-      _router.scrollScreenLines(sessionId, lines);
-
   void scrollScreenPixels(
     String sessionId, {
     required double pixels,
@@ -98,9 +95,6 @@ class RemoteTerminalOutputController {
 
   void settleScreenPixelScroll(String sessionId) =>
       _router.settleScreenPixelScroll(sessionId);
-
-  void scrollScreenToBottom(String sessionId) =>
-      _router.scrollScreenToBottom(sessionId);
 
   bool hasCachedOutput(String sessionId) => _router.hasCachedOutput(sessionId);
 

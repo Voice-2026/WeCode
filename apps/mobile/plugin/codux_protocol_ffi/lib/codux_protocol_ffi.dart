@@ -52,9 +52,6 @@ bool _hasRequiredSymbols(DynamicLibrary library) {
         )
       >
     >('codux_terminal_key_input_json');
-    library.lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Utf8>, Bool)>>(
-      'codux_terminal_selector_input_json',
-    );
     library.lookup<
       NativeFunction<
         Pointer<Utf8> Function(
@@ -333,11 +330,6 @@ final _terminalKeyInputJson = _dylib
         bool,
       )
     >('codux_terminal_key_input_json');
-final _terminalSelectorInputJson = _dylib
-    .lookupFunction<
-      Pointer<Utf8> Function(Pointer<Utf8>, Bool),
-      Pointer<Utf8> Function(Pointer<Utf8>, bool)
-    >('codux_terminal_selector_input_json');
 final _terminalMouseInputJson = _dylib
     .lookupFunction<
       Pointer<Utf8> Function(
@@ -851,20 +843,6 @@ List<int> terminalKeyInputBytes({
   } finally {
     malloc.free(keyPtr);
     malloc.free(keyCharPtr);
-  }
-}
-
-String terminalSelectorInput({
-  required String selector,
-  bool applicationCursor = false,
-}) {
-  final selectorPtr = selector.toNativeUtf8();
-  try {
-    return _terminalInputFromJson(
-      _terminalSelectorInputJson(selectorPtr, applicationCursor),
-    );
-  } finally {
-    malloc.free(selectorPtr);
   }
 }
 
@@ -1805,11 +1783,6 @@ final _outputRouterResizeScreen = _dylib
       Void Function(Pointer<Void>, Pointer<Utf8>, Int64, Int64),
       void Function(Pointer<Void>, Pointer<Utf8>, int, int)
     >('codux_output_router_resize_screen');
-final _outputRouterScrollScreenLines = _dylib
-    .lookupFunction<
-      Void Function(Pointer<Void>, Pointer<Utf8>, Int64),
-      void Function(Pointer<Void>, Pointer<Utf8>, int)
-    >('codux_output_router_scroll_screen_lines');
 final _outputRouterScrollScreenPixels = _dylib
     .lookupFunction<
       Void Function(Pointer<Void>, Pointer<Utf8>, Double, Double),
@@ -1820,36 +1793,6 @@ final _outputRouterSettleScreenPixelScroll = _dylib
       Void Function(Pointer<Void>, Pointer<Utf8>),
       void Function(Pointer<Void>, Pointer<Utf8>)
     >('codux_output_router_settle_screen_pixel_scroll');
-final _outputRouterScrollScreenToBottom = _dylib
-    .lookupFunction<
-      Void Function(Pointer<Void>, Pointer<Utf8>),
-      void Function(Pointer<Void>, Pointer<Utf8>)
-    >('codux_output_router_scroll_screen_to_bottom');
-final _outputRouterApplyHostScroll = _dylib
-    .lookupFunction<
-      Void Function(
-        Pointer<Void>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        Int64,
-        Int64,
-        Int64,
-        Int64,
-        Int64,
-        Int64,
-      ),
-      void Function(
-        Pointer<Void>,
-        Pointer<Utf8>,
-        Pointer<Utf8>,
-        int,
-        int,
-        int,
-        int,
-        int,
-        int,
-      )
-    >('codux_output_router_apply_host_scroll');
 
 /// Dart handle for the Rust `RemoteTerminalOutputRouter`: terminal output
 /// orchestration + render-path screen ops, all owned by the shared core.
@@ -2024,13 +1967,6 @@ class RemoteOutputRouter {
     );
   }
 
-  void scrollScreenLines(String sessionId, int lines) {
-    _withSession(
-      sessionId,
-      (ptr) => _outputRouterScrollScreenLines(_liveHandle(), ptr, lines),
-    );
-  }
-
   void scrollScreenPixels(
     String sessionId, {
     required double pixels,
@@ -2052,42 +1988,5 @@ class RemoteOutputRouter {
       sessionId,
       (ptr) => _outputRouterSettleScreenPixelScroll(_liveHandle(), ptr),
     );
-  }
-
-  void scrollScreenToBottom(String sessionId) {
-    _withSession(
-      sessionId,
-      (ptr) => _outputRouterScrollScreenToBottom(_liveHandle(), ptr),
-    );
-  }
-
-  void applyHostScroll(
-    String sessionId, {
-    required String screenData,
-    required int cols,
-    required int rows,
-    required int displayOffset,
-    required int totalLines,
-    int marginRows = 0,
-    int marginRowsBelow = 0,
-  }) {
-    final sessionPtr = sessionId.toNativeUtf8();
-    final screenDataPtr = screenData.toNativeUtf8();
-    try {
-      _outputRouterApplyHostScroll(
-        _liveHandle(),
-        sessionPtr,
-        screenDataPtr,
-        cols,
-        rows,
-        displayOffset,
-        totalLines,
-        marginRows,
-        marginRowsBelow,
-      );
-    } finally {
-      malloc.free(sessionPtr);
-      malloc.free(screenDataPtr);
-    }
   }
 }
