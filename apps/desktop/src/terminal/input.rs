@@ -8,6 +8,17 @@ struct TerminalInputHandler {
 
 impl TerminalInputHandler {
     fn send_filtered_input(&self, text: &str, window: &mut Window, cx: &mut App) {
+        // The IME text channel carries committed text only. A navigation key
+        // (arrows/home/end) is sometimes mis-delivered here as its escape
+        // sequence -- as caret notation ("^[OA") or a real ESC -- in addition
+        // to the keystroke path that already encodes and sends it. Writing the
+        // caret-notation form verbatim makes the shell echo a literal "^[OA"
+        // even though the keystroke path already recalled history. Drop it: the
+        // keystroke path owns real keys. This mirrors the marked-text guard in
+        // `terminal_input_marked_text`.
+        if terminal_marked_text_looks_like_escape_sequence(text) {
+            return;
+        }
         let bytes = codux_terminal_core::terminal_text_input_bytes(text);
         if bytes.is_empty() {
             return;

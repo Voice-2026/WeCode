@@ -461,6 +461,20 @@ mod tests {
     }
 
     #[test]
+    fn committed_ime_text_drops_navigation_escape_sequences() {
+        // The IME commit path (`send_filtered_input`) drops text that looks like
+        // an escape sequence: a navigation key mis-delivered here as caret
+        // notation ("^[OA") or a real ESC would otherwise be written verbatim
+        // and the shell would echo a literal "^[OA" on top of the keystroke
+        // path's real recall.
+        assert!(terminal_marked_text_looks_like_escape_sequence("^[OA"));
+        assert!(terminal_marked_text_looks_like_escape_sequence("\x1bOA"));
+        assert!(terminal_marked_text_looks_like_escape_sequence("␛OA"));
+        assert!(!terminal_marked_text_looks_like_escape_sequence("拼"));
+        assert!(!terminal_marked_text_looks_like_escape_sequence("ls -la"));
+    }
+
+    #[test]
     fn maps_modified_navigation_and_function_keys() {
         assert_eq!(
             bytes(
