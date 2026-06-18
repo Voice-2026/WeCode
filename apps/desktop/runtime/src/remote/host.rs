@@ -4598,8 +4598,8 @@ mod tests {
     }
 
     #[test]
-    fn terminal_resource_subscription_sends_full_raw_baseline() {
-        let support_dir = temp_support_dir("codux-remote-resource-terminal-full-baseline");
+    fn terminal_resource_subscription_sends_tail_raw_baseline() {
+        let support_dir = temp_support_dir("codux-remote-resource-terminal-tail-baseline");
         write_paired_remote_settings(&support_dir);
         let terminals = Arc::new(TerminalManager::new());
         let runtime = Arc::new(RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -4668,11 +4668,13 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
         let baseline = baseline.expect("terminal baseline");
-        assert_eq!(baseline["data"], "abc");
-        assert_eq!(baseline["offset"], 0);
-        assert_eq!(baseline["tail"], false);
-        assert_eq!(baseline["hasPrevious"], false);
-        assert_eq!(baseline["truncated"], true);
+        // Baseline re-attach sends the newest `maxChars` (tail window); the mobile
+        // consumer treats `tail: true` as a full keyframe replacement.
+        assert_eq!(baseline["data"], "def");
+        assert_eq!(baseline["offset"], 3);
+        assert_eq!(baseline["tail"], true);
+        assert_eq!(baseline["hasPrevious"], true);
+        assert_eq!(baseline["truncated"], false);
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -5732,7 +5734,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 18);
+        assert_eq!(state.rows, 32);
 
         let ignored = terminals
             .resize_viewport(&session_id, "remote:device-2", 120, 40)
@@ -5743,7 +5745,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 18);
+        assert_eq!(state.rows, 32);
 
         let ignored = terminals
             .resize_viewport(&session_id, "desktop", 100, 32)
@@ -5754,7 +5756,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 18);
+        assert_eq!(state.rows, 32);
 
         terminals
             .claim_viewport(&session_id, "desktop")
@@ -5793,7 +5795,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 18);
+        assert_eq!(state.rows, 32);
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -6026,14 +6028,14 @@ mod tests {
             .viewport_state(&session_id)
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
-        assert_eq!((state.cols, state.rows), (72, 18));
+        assert_eq!((state.cols, state.rows), (72, 32));
 
         let expired = terminals
             .expire_viewport_lease_for_test(&session_id)
             .expect("expire viewport lease")
             .expect("expired viewport state");
         assert_eq!(expired.owner, "desktop");
-        assert_eq!((expired.cols, expired.rows), (72, 18));
+        assert_eq!((expired.cols, expired.rows), (72, 32));
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -6165,7 +6167,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 80);
-        assert_eq!(state.rows, 24);
+        assert_eq!(state.rows, 32);
 
         fs::remove_dir_all(support_dir).ok();
     }
