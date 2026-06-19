@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 pub const MOBILE_TEXT_FILE_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
@@ -32,10 +33,26 @@ pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
             if name.starts_with('.') {
                 return None;
             }
+            // symlink_metadata so symlinks are reported as such, not followed.
+            let metadata = fs::symlink_metadata(&path).ok();
+            let is_symlink = metadata
+                .as_ref()
+                .map(|metadata| metadata.file_type().is_symlink())
+                .unwrap_or(false);
+            let size = metadata.as_ref().map(|metadata| metadata.len()).unwrap_or(0);
+            let modified_at = metadata
+                .as_ref()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs() as i64)
+                .unwrap_or(0);
             Some(json!({
                 "name": name,
                 "path": path.to_string_lossy().to_string(),
                 "isDirectory": path.is_dir(),
+                "isSymbolicLink": is_symlink,
+                "size": size,
+                "modifiedAt": modified_at,
             }))
         })
         .collect::<Vec<_>>();

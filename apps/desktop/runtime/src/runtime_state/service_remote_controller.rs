@@ -54,4 +54,76 @@ impl RuntimeService {
     pub fn remote_host_info(&self, device_id: &str) -> Result<serde_json::Value, String> {
         self.remote_controllers.controller_for(device_id)?.host_info()
     }
+
+    /// The device hosting the project at `project_path`, if it is a remote
+    /// project. Used to route a project's domains over the controller.
+    pub(crate) fn host_device_for_project_path(&self, project_path: &str) -> Option<String> {
+        crate::project_store::ProjectStore::new(self.support_dir.clone())
+            .projects_snapshot()
+            .into_iter()
+            .find(|project| project.path == project_path)
+            .and_then(|project| project.host_device_id)
+    }
+
+    /// List a directory of a remote-hosted project as the file panel's
+    /// `FileEntry`s, mapped from the host's `file.list` payload (capped to 80 to
+    /// match the local loader).
+    pub(crate) fn remote_project_files(
+        &self,
+        device_id: &str,
+        project_path: &str,
+        directory_path: Option<&str>,
+    ) -> Result<Vec<FileEntry>, String> {
+        let listing_dir = directory_path.unwrap_or(project_path);
+        let value = self
+            .remote_controllers
+            .controller_for(device_id)?
+            .file_list(Some(listing_dir), Some("projectFiles"))?;
+        Ok(value
+            .get("entries")
+            .and_then(|entries| entries.as_array())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .take(80)
+                    .map(|entry| remote_file_entry(project_path, entry))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+}
+
+/// Build the file panel's `FileEntry` from one host `file.list` entry, computing
+/// the project-relative path the panel expects.
+fn remote_file_entry(project_path: &str, entry: &serde_json::Value) -> FileEntry {
+    let path = entry
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let is_directory = entry
+        .get("isDirectory")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let relative_path = path
+        .strip_prefix(project_path)
+        .unwrap_or(path)
+        .trim_start_matches('/')
+        .to_string();
+    FileEntry {
+        name: entry
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        relative_path,
+        kind: if is_directory {
+            FileKind::Directory
+        } else {
+            FileKind::File
+        },
+        size: entry
+            .get("size")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+    }
 }

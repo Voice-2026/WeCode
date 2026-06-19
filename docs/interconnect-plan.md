@@ -162,20 +162,23 @@ x11/wayland unproven.)
   pair (persist + cache) → browse a remote directory through the manager. (Run with
   `cargo test -p codux-runtime -- --ignored controller`.)
 
+- **GPUI add-project-remote flow (done).** (a) Sidebar remote marker on the per-project icon
+  (`ProjectInfo::host_device_id`). (b) Project editor "Device" field: This Mac + a chip per
+  paired host + a "Pair device…" inline form (paste `codux://pair` ticket → `pair_remote_host`).
+  (c) When a remote device is selected, the directory "Choose" opens an inline remote browser
+  (navigate/create folders on the host via `remote_browse_directory`/`remote_create_directory`),
+  and `host_device_id` is saved with the project. JSON→struct mapping is done in the runtime
+  (`RemoteController::browse_directory → RemoteDirectoryListing`) so the UI carries no wire JSON.
+
 - **Next (ordered), each its own green commit:**
-  1. **GPUI UI** — the backend for this is done and validated. (a) Paste-ticket pairing dialog
-     → `pair_remote_host`. (b) Add-project: a "device" picker (`saved_remote_hosts`) + a remote
-     directory browser over `remote_browse_directory` / `remote_create_directory`, setting the
-     new project's `host_device_id`. (c) Sidebar remote marker on the per-project `.relative()`
-     icon wrapper in `project_column.rs` (driven by `ProjectInfo::host_device_id`). This is
-     where product/UX decisions live, so it's the natural next checkpoint with the owner.
-  2. **Hosted-project domain routing** — for a project whose `host_device_id` is set, route its
-     file/git/terminal/ai through the manager's controller. Per domain needs a payload→struct
-     mapping (host returns runtime-core JSON; desktop UI wants `GitSummary`/`FileEntry`), so
-     it's real work per domain, not a blanket wrap. The manager + `controller_for` make each a
-     thin addition; validate each against the agent (`cargo run -p codux-agent -- --serve`).
-  3. **Memory over remote (P4 tail)** — net-new memory protocol + host serving, riding on the
-     model routing from step 2.
+  1. **Hosted-project domain routing** — for a project whose `host_device_id` is set, route its
+     file/git/terminal/ai through `remote_controller_for_project`. Each domain needs a
+     payload→struct mapping; where the host payload lacks fields the desktop struct needs (e.g.
+     `FileEntry.size/modified_at`, `GitSummary`), **enrich the shared `codux-runtime-core`
+     payload builders** so desktop-host and agent serve the richer shape uniformly, then parse.
+     Validate each against the agent (`cargo run -p codux-agent -- --serve`).
+  2. **Memory over remote (P4 tail)** — net-new memory protocol + host serving, riding on the
+     model routing from step 1.
 
 ## Verification
 

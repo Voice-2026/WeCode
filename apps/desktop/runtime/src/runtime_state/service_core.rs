@@ -162,6 +162,12 @@ impl RuntimeService {
         project_path: &str,
         directory_path: Option<&str>,
     ) -> Vec<FileEntry> {
+        // Remote-hosted projects list their files on the host over the controller.
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            return self
+                .remote_project_files(&device_id, project_path, directory_path)
+                .unwrap_or_default();
+        }
         load_file_entries(project_path, directory_path)
     }
 
