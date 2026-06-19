@@ -920,6 +920,18 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
+    /// Copy the `codux://pair` ticket to the clipboard so another desktop
+    /// controller (which can't scan the QR) can paste it to connect to this host.
+    pub(super) fn copy_remote_pairing_link(&mut self, payload: String, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(gpui::ClipboardItem {
+            entries: vec![gpui::ClipboardEntry::String(gpui::ClipboardString::new(
+                payload,
+            ))],
+        });
+        self.status_message = "pairing link copied".to_string();
+        self.invalidate_remote_panel(cx);
+    }
+
     fn apply_remote_pairing_cancel_result(
         &mut self,
         result: Result<RemoteSummary, String>,

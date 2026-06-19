@@ -937,7 +937,21 @@ fn remote_pairing_overlay(
                     div()
                         .mt(px(24.0))
                         .flex()
+                        .gap(px(8.0))
                         .justify_center()
+                        .when_some(
+                            pairing.as_ref().map(|pairing| pairing.qr_payload.clone()),
+                            |row, payload| {
+                                row.child(settings_small_button(
+                                    "settings-remote-pairing-copy",
+                                    settings_text(language, "remote.copyLink", "Copy link"),
+                                    cx,
+                                    move |app, _event, _window, cx| {
+                                        app.copy_remote_pairing_link(payload.clone(), cx)
+                                    },
+                                ))
+                            },
+                        )
                         .child(remote_pairing_cancel_button(pairing, language, cx)),
                 ),
         )
