@@ -1521,15 +1521,7 @@ impl CoduxApp {
     ) {
         match panel {
             AssistantPanel::AIStats => {
-                self.state.memory = self.runtime_service.reload_memory(
-                    self.state
-                        .selected_project
-                        .as_ref()
-                        .map(|project| project.id.as_str()),
-                );
-                self.reload_memory_manager_snapshot();
-                self.normalize_selected_memory_entry();
-                self.normalize_selected_memory_summary();
+                self.refresh_ai_stats_panel_async(cx);
             }
             AssistantPanel::SSH => {
                 self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());
