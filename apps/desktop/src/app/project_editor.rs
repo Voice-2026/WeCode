@@ -188,6 +188,9 @@ impl CoduxApp {
             .flex()
             .flex_col()
             .gap(px(2.0))
+            .px(px(16.0))
+            .pt(px(10.0))
+            .pb(px(12.0))
             .overflow_y_scrollbar();
         if let Some(parent) = self.project_editor_browse_parent.clone() {
             list = list.child(file_picker_entry_row(
@@ -246,8 +249,6 @@ impl CoduxApp {
             .flex_1()
             .flex()
             .flex_col()
-            .gap(px(10.0))
-            .p(px(16.0))
             .child(file_picker_breadcrumb(
                 &current,
                 &root_label,
@@ -257,7 +258,7 @@ impl CoduxApp {
             .child(list);
         // Save mode: a filename row (prefilled when an existing file is clicked).
         if mode == FilePickerMode::Save {
-            right = right.child(div().min_w_0().child(project_editor_input(
+            right = right.child(div().min_w_0().px(px(16.0)).pb(px(12.0)).child(project_editor_input(
                 "file-picker-filename",
                 &self.file_picker_filename,
                 "File name",
@@ -269,6 +270,8 @@ impl CoduxApp {
         if let Some(error) = self.project_editor_browse_error.as_ref() {
             right = right.child(
                 div()
+                    .px(px(16.0))
+                    .pb(px(12.0))
                     .text_size(rems(0.8125))
                     .text_color(color(theme::ORANGE))
                     .child(error.clone()),
@@ -466,20 +469,13 @@ fn file_picker_device_row(
         .py(px(6.0))
         .rounded(px(6.0))
         .cursor_pointer()
-        .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(move |app, _event, window, cx| on_click(app, window, cx)))
-        .child(
-            Icon::new(HeroIconName::GlobeAlt)
-                .size_3()
-                .text_color(color(theme::TEXT_MUTED)),
-        )
-        .child(
-            div()
-                .text_size(rems(0.8125))
-                .text_color(color(theme::TEXT))
-                .truncate()
-                .child(label),
-        );
+        .text_color(color(theme::TEXT))
+        // Hover tints the text (and icon, via inheritance) the theme accent;
+        // background is reserved for the selected state only.
+        .hover(|style| style.text_color(cx.theme().primary))
+        .child(Icon::new(HeroIconName::GlobeAlt).size_3())
+        .child(div().text_size(rems(0.8125)).truncate().child(label))
+        .on_click(cx.listener(move |app, _event, window, cx| on_click(app, window, cx)));
     if selected {
         row = row.bg(cx.theme().secondary);
     }
@@ -500,6 +496,8 @@ fn file_picker_breadcrumb(
         .flex_wrap()
         .items_center()
         .gap(px(2.0))
+        .px(px(16.0))
+        .pt(px(16.0))
         .pb(px(10.0))
         .border_b_1()
         .border_color(color(theme::BORDER_SOFT));
