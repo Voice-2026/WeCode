@@ -195,19 +195,26 @@ x11/wayland unproven.)
   `Deserialize` across the snapshot types) and `indexed_project_ai_history_summary/state` route
   to it. `ai.stats` (mobile's baseline view) is unchanged.
 
-- **Remaining — each a substantial feature, not a thin branch:**
-  1. **Terminal UI wiring** — the transport+router foundation is done and tested; what's left is
-     rendering a remote session in the desktop terminal pane (route the pane's input/resize/close
-     to the controller; render from the router's screen snapshot). GPUI work that **must be
-     live-validated** (rendering/scrollback/input) — cannot be verified blind.
-  2. **Git operations** (stage/commit/diff/push/pull/checkout/…) — there are **zero** git
-     operation messages in the remote protocol today (only `git.status`). This needs a net-new
-     protocol surface implemented on BOTH hosts (desktop `GitService` + agent `git2`) plus
-     routing ~20–30 `RuntimeService` git methods. Large.
-  3. **Memory over remote** — the agent has **no memory engine** (it's desktop-only, ~9.5k LOC),
-     and the engine's core flow selects an **AI provider from `AISettings`** to run LLM
-     extraction. This needs (a) extracting the memory engine into a shared crate and (b) **model
-     routing to the host** — a major subsystem. Cannot be completed blind.
+- **Terminal UI (done).** A remote-hosted project's terminals run on the host. `host_device_id`
+  threads through the launch config; the attach chokepoint branches to
+  `attach_pending_session_remote`, which opens the terminal on the host
+  (`RemoteController::open_terminal`), forwards `terminal.output` bytes into the pane's existing
+  byte channel (the model parses them like a local PTY — zero render changes), and routes
+  input/resize through a Remote variant of `TerminalSessionBinding`. The controller demuxes
+  output per session. (Two immediate-constructor paths — boot/float restore — remain local-only;
+  small follow-up.) The transport/router path is e2e-tested; GUI pixels want a human glance.
+
+- **Git operations (done).** Added the git operation protocol (stage/unstage/commit/discard/diff)
+  and implemented it on **both** hosts (agent via `git2`; desktop host via `GitService`). The
+  controller + `RuntimeService` git methods route remote projects to the host and map the
+  refreshed `git.status` back into `GitSummary`. Agent serve-smoke drives stage → commit → diff.
+  (Push/pull/fetch/checkout/branch follow the same pattern — a further extension.)
+
+- **Remaining:**
+  - **Memory over remote** — the agent has **no memory engine** (desktop-only, ~9.5k LOC), and
+    its core flow selects an **AI provider from `AISettings`** to run LLM extraction. This needs
+    (a) extracting the memory engine into a shared crate and (b) **model routing to the host** —
+    a major subsystem. This is the one genuinely blocked item (no model routing to fake).
 
 ## Verification
 
