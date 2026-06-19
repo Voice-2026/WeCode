@@ -170,21 +170,28 @@ x11/wayland unproven.)
   and `host_device_id` is saved with the project. JSON→struct mapping is done in the runtime
   (`RemoteController::browse_directory → RemoteDirectoryListing`) so the UI carries no wire JSON.
 
-- **Hosted-project domain routing (started).** The seam is `host_device_for_project_path` +
-  the `RemoteControllerManager`; each domain method on `RuntimeService` branches on it. Done:
-  - **file tree** — `reload_project_files` lists on the host (`remote_project_files` maps
-    `file.list` → the panel's `FileEntry`); enriched the shared `file_list_payload` with
-    `size/modifiedAt/isSymbolicLink` so the mapping is faithful.
-  - **file open** — `read_project_file_edit_buffer` reads on the host (`RemoteController::read_file`).
+- **Hosted-project domain routing (file + git status done).** The seam is
+  `host_device_for_project_path` + `RemoteControllerManager`; each `RuntimeService` domain
+  method branches on it. Done:
+  - **file (full)** — list / open / write / create file+dir / delete / rename all route to the
+    host (`remote_*` in `service_remote_controller.rs`, `RemoteController` file methods).
+    Enriched the shared `file_list_payload` with `size/modifiedAt/isSymbolicLink`; the UI works
+    in project-relative paths, `remote_absolute_path` resolves to the host's absolute path.
+  - **git status** — `reload_project_git` maps the host `git.status` into `GitSummary`
+    (`git_summary_from_payload`); aligned the agent's `changed_files` to the host's
+    `GitFileStatus` shape. A remote project's files are fully usable and its git status shows.
 
-- **Next (ordered), each its own green commit:**
-  1. **Finish hosted-project routing** — remaining file ops (write/create/delete/rename),
-     git (status/diff/stage/commit — enrich `git_status_payload` consumers / add a parser to
-     `GitSummary`), terminal (hand back a transport-backed terminal for remote projects), ai
-     stats. Each is a thin branch following the file-tree/open pattern + a payload→struct map.
-     Validate against the agent (`cargo run -p codux-agent -- --serve`).
-  2. **Memory over remote (P4 tail)** — net-new memory protocol + host serving, riding on the
-     model routing from step 1.
+- **Next (ordered), each its own green commit — these are heavier, not thin branches:**
+  1. **Terminal** — biggest remaining: a `RemoteTerminalDriver` (TerminalDriver trait over the
+     controller: create→terminal.create, input/resize/close, and a `terminal.output`
+     subscription feeding the session buffer), with `TerminalManager` routing remote-project
+     sessions to it. Needs a controller output-stream subscription (today `terminal.output`
+     lands in `drain_events`) and live validation against the agent.
+  2. **AI stats** — the host serves a *derived* baseline view, but the desktop AI panel wants
+     `AIHistoryProjectState{snapshot}`. Either have the host serve the richer snapshot, or add a
+     remote-specific render path that consumes the baseline. Impedance, not a thin branch.
+  3. **Git operations** (stage/commit/diff/push) and **memory** — both need net-new remote
+     protocol surface (+ model routing for memory).
 
 ## Verification
 
