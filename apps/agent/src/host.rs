@@ -9,12 +9,14 @@ use codux_protocol::{
     REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_HOST_INFO,
-    REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TRANSPORT_IROH,
-    REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
+    REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
+    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
+    REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
 };
+use codux_terminal_pty::LocalPtyDriver;
 use codux_runtime_core::{
     file::{
         file_delete, file_list_payload, file_make_directory, file_read_payload, file_rename,
@@ -43,6 +45,7 @@ type TransportSlot = Arc<Mutex<Option<Arc<dyn RemoteTransport>>>>;
 /// domains and replies through the (post-connect) transport handle.
 fn make_handler(
     slot: TransportSlot,
+    driver: Arc<LocalPtyDriver>,
     host_id: String,
     name: String,
 ) -> codux_remote_transport::RemoteTransportMessageHandler {
@@ -54,6 +57,14 @@ fn make_handler(
         let device_id = envelope.get("deviceId").and_then(Value::as_str);
         let request_id = envelope.get("requestId").and_then(Value::as_str);
         let payload = envelope.get("payload").cloned().unwrap_or(Value::Null);
+
+        // Terminals stream output asynchronously, so they are handled
+        // imperatively (they send their own responses) rather than as a
+        // single reply.
+        if crate::terminals::is_terminal_kind(kind) {
+            crate::terminals::handle_terminal(&driver, &slot, device_id, kind, &payload);
+            return;
+        }
 
         // (reply_kind, reply_payload). `None` => nothing to send back.
         let reply: Option<(&str, Value)> = match kind {
@@ -184,6 +195,7 @@ async fn connect_serving_host(
     cfg: &AgentHostConfig,
 ) -> Result<(Arc<dyn RemoteTransport>, TransportSlot), String> {
     let slot: TransportSlot = Arc::new(Mutex::new(None));
+    let driver = Arc::new(LocalPtyDriver::new());
     let config = RemoteHostTransportConfig {
         relay_url: cfg.relay_url.clone(),
         relay_preset: cfg.relay_preset.clone(),
@@ -194,7 +206,7 @@ async fn connect_serving_host(
     };
     let host = RemoteTransportFactory::connect_host(
         &config,
-        make_handler(Arc::clone(&slot), cfg.host_id.clone(), cfg.name.clone()),
+        make_handler(Arc::clone(&slot), driver, cfg.host_id.clone(), cfg.name.clone()),
         Arc::new(|_| Ok(())),
         Arc::new(|_, _| {}),
         Arc::new(|_| {}),
@@ -379,6 +391,37 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         if still_present {
             return Err("project.remove did not remove the project".to_string());
         }
+
+        // 4. terminal domain (create -> input -> streamed output -> close)
+        request(REMOTE_TERMINAL_CREATE, json!({ "command": "sh", "cwd": "/tmp" }))?;
+        let created = expect(&mut reply_rx, REMOTE_TERMINAL_CREATED).await?;
+        let terminal_id = created
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "terminal.create returned no sessionId".to_string())?
+            .to_string();
+        request(
+            REMOTE_TERMINAL_INPUT,
+            json!({ "sessionId": terminal_id, "data": "printf codux-terminal-ok\n" }),
+        )?;
+        let marker = "codux-terminal-ok";
+        loop {
+            let (kind, payload) =
+                tokio::time::timeout(std::time::Duration::from_secs(8), reply_rx.recv())
+                    .await
+                    .map_err(|_| "timeout waiting for terminal output".to_string())?
+                    .ok_or_else(|| "channel closed waiting for terminal output".to_string())?;
+            if kind == REMOTE_TERMINAL_OUTPUT {
+                let data = payload.get("data").and_then(Value::as_str).unwrap_or("");
+                let screen = payload.get("screenData").and_then(Value::as_str).unwrap_or("");
+                if data.contains(marker) || screen.contains(marker) {
+                    break;
+                }
+            }
+        }
+        request(REMOTE_TERMINAL_CLOSE, json!({ "sessionId": terminal_id }))?;
+        expect(&mut reply_rx, REMOTE_TERMINAL_CLOSED).await?;
+
         Ok::<(), String>(())
     };
     let result = run.await;
@@ -388,7 +431,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
     Ok(
-        "codux-agent-serve-ok\nfile domain (list/mkdir/write/read/delete) + project domain (add/remove) verified"
+        "codux-agent-serve-ok\nfile + project + terminal (create/input/output/close) domains verified"
             .to_string(),
     )
 }
