@@ -4,6 +4,7 @@ version = "1.8.1"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22"
 codux-ai-history = { path = "../../crates/codux-ai-history" }
 codux-protocol = { path = "../../crates/codux-protocol" }
 codux-remote-transport = { path = "../../crates/codux-remote-transport" }

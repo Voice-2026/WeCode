@@ -10,7 +10,7 @@ use codux_protocol::{
     REMOTE_FILE_DELETED,
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_GIT_STATUS,
-    REMOTE_HOST_INFO,
+    REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
@@ -44,6 +44,9 @@ pub struct AgentHostConfig {
 }
 
 type TransportSlot = Arc<Mutex<Option<Arc<dyn RemoteTransport>>>>;
+/// Our own iroh dial candidate `(node_id, relay_url)`, filled in after connect
+/// so `pairing.confirmed` can hand the controller a reconnect transport.
+type CandidateSlot = Arc<Mutex<Option<(String, String)>>>;
 
 /// Build the message handler that dispatches incoming envelopes to the served
 /// domains and replies through the (post-connect) transport handle.
@@ -51,6 +54,7 @@ fn make_handler(
     slot: TransportSlot,
     driver: Arc<LocalPtyDriver>,
     indexer: AIHistoryIndexer,
+    candidate: CandidateSlot,
     host_id: String,
     name: String,
 ) -> codux_remote_transport::RemoteTransportMessageHandler {
@@ -74,6 +78,38 @@ fn make_handler(
         // (reply_kind, reply_payload). `None` => nothing to send back.
         let reply: Option<(&str, Value)> = match kind {
             REMOTE_TRANSPORT_PING => Some((REMOTE_TRANSPORT_PONG, json!({}))),
+            // Headless pairing: reaching us means the controller already holds
+            // the iroh ticket (the real access gate), so auto-confirm and hand
+            // back our reconnect candidate. No operator, no code validation.
+            REMOTE_PAIRING_REQUEST => {
+                let confirm_device = payload
+                    .get("deviceId")
+                    .and_then(Value::as_str)
+                    .or(device_id)
+                    .unwrap_or_default()
+                    .to_string();
+                let mut transports = Vec::new();
+                if let Ok(guard) = candidate.lock() {
+                    if let Some((node_id, relay_url)) = guard.as_ref() {
+                        transports.push(json!({
+                            "kind": REMOTE_TRANSPORT_IROH,
+                            "nodeId": node_id,
+                            "relayUrl": relay_url,
+                            "relayAuthentication": "",
+                        }));
+                    }
+                }
+                Some((
+                    REMOTE_PAIRING_CONFIRMED,
+                    json!({
+                        "hostId": host_id.clone(),
+                        "deviceId": confirm_device,
+                        "token": "",
+                        "hostName": name.clone(),
+                        "transports": transports,
+                    }),
+                ))
+            }
             REMOTE_HOST_INFO => Some((
                 REMOTE_HOST_INFO,
                 // Transports left empty: the controller already knows the path
@@ -238,6 +274,7 @@ async fn connect_serving_host(
     cfg: &AgentHostConfig,
 ) -> Result<(Arc<dyn RemoteTransport>, TransportSlot), String> {
     let slot: TransportSlot = Arc::new(Mutex::new(None));
+    let candidate: CandidateSlot = Arc::new(Mutex::new(None));
     let driver = Arc::new(LocalPtyDriver::new());
     let indexer = crate::ai_stats::open_indexer();
     let config = RemoteHostTransportConfig {
@@ -254,6 +291,7 @@ async fn connect_serving_host(
             Arc::clone(&slot),
             driver,
             indexer,
+            Arc::clone(&candidate),
             cfg.host_id.clone(),
             cfg.name.clone(),
         ),
@@ -265,6 +303,9 @@ async fn connect_serving_host(
     .await?;
     if let Ok(mut guard) = slot.lock() {
         *guard = Some(Arc::clone(&host));
+    }
+    if let (Ok(mut guard), Some((node_id, relay_url))) = (candidate.lock(), host.iroh_candidate()) {
+        *guard = Some((node_id, relay_url));
     }
     Ok((host, slot))
 }
@@ -283,10 +324,39 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
     }
     if let Some(ticket) = host.iroh_endpoint_ticket() {
         println!("ticket={ticket}");
+        // A pasteable pairing ticket the desktop controller can consume directly.
+        println!("pairingTicket={}", pairing_ticket_url(&cfg.host_id, &ticket));
     }
     // Serve until the process is terminated.
     std::future::pending::<()>().await;
     Ok(())
+}
+
+/// Build the `codux://pair?payload=<base64url>` ticket the desktop controller
+/// pastes. The iroh endpoint ticket is the real access gate; the code/secret/
+/// pairingId are present only because the controller parser requires them (the
+/// headless host auto-confirms without validating them).
+fn pairing_ticket_url(host_id: &str, endpoint_ticket: &str) -> String {
+    use base64::Engine;
+    let payload = json!({
+        "code": short_token(host_id, 1),
+        "secret": short_token(host_id, 2),
+        "pairingId": format!("{host_id}-pairing"),
+        "transports": [{ "kind": REMOTE_TRANSPORT_IROH, "ticket": endpoint_ticket }],
+    });
+    let bytes = serde_json::to_vec(&payload).unwrap_or_default();
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    format!("codux://pair?payload={encoded}")
+}
+
+/// A short non-empty token derived from a seed (not cryptographic — the iroh
+/// ticket is the actual credential).
+fn short_token(seed: &str, salt: u64) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    seed.hash(&mut hasher);
+    salt.hash(&mut hasher);
+    format!("{:08x}", hasher.finish() & 0xffff_ffff)
 }
 
 /// In-process round trip: stand up the serving host, connect a controller, and
@@ -378,6 +448,25 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     }
 
     let run = async {
+        // 0. pairing handshake (headless auto-confirm)
+        request(
+            REMOTE_PAIRING_REQUEST,
+            json!({
+                "pairingId": "smoke-pairing",
+                "code": "code",
+                "secret": "secret",
+                "deviceName": "smoke-controller",
+                "deviceId": device_id,
+            }),
+        )?;
+        let confirmed = expect(&mut reply_rx, REMOTE_PAIRING_CONFIRMED).await?;
+        if confirmed.get("hostId").and_then(Value::as_str) != Some(cfg.host_id.as_str()) {
+            return Err(format!("pairing.confirmed missing matching hostId: {confirmed}"));
+        }
+        if confirmed.get("deviceId").and_then(Value::as_str) != Some(device_id.as_str()) {
+            return Err("pairing.confirmed did not echo the device id".to_string());
+        }
+
         // 1. list
         request(REMOTE_FILE_LIST, json!({ "purpose": "projectFiles" }))?;
         let listed = expect(&mut reply_rx, REMOTE_FILE_LIST).await?;
@@ -519,5 +608,5 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     controller.shutdown().await;
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
-    Ok("codux-agent-serve-ok\nfile + project + terminal + git + ai domains verified".to_string())
+    Ok("codux-agent-serve-ok\npairing + file + project + terminal + git + ai domains verified".to_string())
 }
