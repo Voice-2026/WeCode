@@ -841,6 +841,9 @@ fn project_row(
                         .child(project_icon(&project, active, false))
                         .when(activity_state.is_active(), |this| {
                             this.child(project_activity_badge(activity_state, cx))
+                        })
+                        .when(project.host_device_id.is_some(), |this| {
+                            this.child(project_remote_badge())
                         }),
                 )
                 .child(
@@ -970,6 +973,28 @@ fn project_activity_badge(
             .into_any_element(),
         AIActivityState::Idle => div().into_any_element(),
     }
+}
+
+/// A small marker overlaid on a project's icon when the project is hosted on a
+/// remote device (bottom-left, distinct from the top-right activity badge).
+fn project_remote_badge() -> AnyElement {
+    div()
+        .absolute()
+        .left(px(-3.0))
+        .bottom(px(-3.0))
+        .w(px(15.0))
+        .h(px(15.0))
+        .rounded_full()
+        .bg(color(theme::BG_COLUMN))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            Icon::new(HeroIconName::GlobeAlt)
+                .size_2()
+                .text_color(color(theme::ACCENT)),
+        )
+        .into_any_element()
 }
 
 fn project_icon(project: &ProjectInfo, active: bool, collapsed: bool) -> impl IntoElement {
