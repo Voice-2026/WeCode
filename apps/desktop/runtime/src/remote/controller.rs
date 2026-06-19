@@ -16,7 +16,8 @@ use codux_protocol::{
     REMOTE_FILE_MOVED, REMOTE_FILE_WRITE_BYTES,
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_READ,
+    REMOTE_MEMORY_RESULT,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
     REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
     REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
@@ -601,6 +602,22 @@ impl RemoteController {
             }),
         )?;
         serde_json::from_value(value).map_err(|error| error.to_string())
+    }
+
+    /// Run a memory read query on the host. `args` is merged with `op`; the
+    /// host replies `{op, result}` and this returns the `result` JSON.
+    pub fn memory_read(&self, op: &str, args: Value) -> Result<Value, String> {
+        let mut payload = match args {
+            Value::Object(map) => map,
+            _ => serde_json::Map::new(),
+        };
+        payload.insert("op".to_string(), Value::String(op.to_string()));
+        let value = self.request(
+            REMOTE_MEMORY_READ,
+            REMOTE_MEMORY_RESULT,
+            Value::Object(payload),
+        )?;
+        Ok(value.get("result").cloned().unwrap_or(Value::Null))
     }
 
     pub fn project_list(&self) -> Result<Value, String> {

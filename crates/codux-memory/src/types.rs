@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::MemoryConfig;
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemorySummary {
     pub available: bool,
@@ -19,7 +19,7 @@ pub struct MemorySummary {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryEntrySummary {
     pub id: String,
@@ -42,7 +42,7 @@ pub struct MemoryEntrySummary {
     pub last_decision: Option<MemoryEntryDecisionSummary>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryEntryDecisionSummary {
     pub kind: String,
@@ -52,7 +52,7 @@ pub struct MemoryEntryDecisionSummary {
     pub created_at: f64,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryManagerSnapshot {
     pub available: bool,
@@ -68,7 +68,7 @@ pub struct MemoryManagerSnapshot {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryManagerTargetRow {
     pub id: String,
@@ -81,7 +81,7 @@ pub struct MemoryManagerTargetRow {
     pub is_open_project: bool,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryScopeOverview {
     pub active_entry_count: i64,
@@ -103,7 +103,7 @@ impl MemoryScopeOverview {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryProjectProfileSummary {
     pub project_id: String,
@@ -115,7 +115,7 @@ pub struct MemoryProjectProfileSummary {
 
 pub type MemoryProjectProfile = MemoryProjectProfileSummary;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryProjectProfileRefreshResult {
     pub profile: MemoryProjectProfile,
@@ -123,7 +123,7 @@ pub struct MemoryProjectProfileRefreshResult {
     pub fallback_reason: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemorySummaryRow {
     pub id: String,
@@ -154,7 +154,7 @@ pub struct MemoryProjectMigrationRequest {
     pub overwrite: bool,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryExtractionSummary {
     pub queued: i64,
@@ -204,7 +204,7 @@ pub struct MemoryManagerSnapshotRequest {
     pub limit: Option<i64>,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryManagementSnapshot {
     pub available: bool,

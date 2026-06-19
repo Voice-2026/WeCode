@@ -1,7 +1,7 @@
 use super::super::MemorySummary;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryEnqueueResult {
     pub enqueued: bool,
@@ -9,7 +9,7 @@ pub struct MemoryEnqueueResult {
     pub summary: MemorySummary,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryExtractionTask {
     pub id: String,
@@ -25,7 +25,7 @@ pub struct MemoryExtractionTask {
     pub enqueued_at: f64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum MemoryExtractionStatus {
     Idle,
@@ -34,7 +34,7 @@ pub enum MemoryExtractionStatus {
     Failed,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryExtractionStatusSnapshot {
     pub status: MemoryExtractionStatus,

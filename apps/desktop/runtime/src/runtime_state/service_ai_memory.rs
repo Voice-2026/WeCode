@@ -58,6 +58,14 @@ impl RuntimeService {
     }
 
     pub fn reload_memory(&self, project_id: Option<&str>) -> MemorySummary {
+        if let Some(pid) = project_id {
+            if let Some(result) = self.remote_memory_read(pid, "summary", Default::default()) {
+                return result
+                    .ok()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_default();
+            }
+        }
         load_memory(&self.support_dir, project_id)
     }
 
@@ -327,6 +335,24 @@ impl RuntimeService {
         &self,
         request: MemoryManagementRequest,
     ) -> Result<MemoryManagementSnapshot, String> {
+        if let Some(pid) = request.project_id.clone() {
+            let mut args = serde_json::Map::new();
+            args.insert("scope".to_string(), request.scope.clone().into());
+            if let Some(tier) = &request.tier {
+                args.insert("tier".to_string(), tier.clone().into());
+            }
+            if let Some(status) = &request.status {
+                args.insert("status".to_string(), status.clone().into());
+            }
+            if let Some(limit) = request.limit {
+                args.insert("limit".to_string(), limit.into());
+            }
+            if let Some(result) = self.remote_memory_read(&pid, "management", args) {
+                return result.and_then(|value| {
+                    serde_json::from_value(value).map_err(|error| error.to_string())
+                });
+            }
+        }
         MemoryService::new(self.support_dir.clone()).management_snapshot(request)
     }
 
@@ -335,6 +361,20 @@ impl RuntimeService {
         projects: &[ProjectInfo],
         request: MemoryManagerSnapshotRequest,
     ) -> MemoryManagerSnapshot {
+        if let Some(pid) = request.project_id.clone() {
+            let mut args = serde_json::Map::new();
+            args.insert("scope".to_string(), request.scope.clone().into());
+            args.insert("tab".to_string(), request.tab.clone().into());
+            if let Some(limit) = request.limit {
+                args.insert("limit".to_string(), limit.into());
+            }
+            if let Some(result) = self.remote_memory_read(&pid, "manager", args) {
+                return result
+                    .ok()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_default();
+            }
+        }
         MemoryService::new(self.support_dir.clone())
             .manager_snapshot_for_request(&crate::memory::memory_project_infos(projects), request)
     }

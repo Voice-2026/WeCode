@@ -57,12 +57,6 @@ pub(crate) fn gemini_session_paths(project_path: &str) -> Vec<PathBuf> {
     gemini_session_paths_for_roots(project_path, &[home_dir().join(".gemini")])
 }
 
-pub(crate) fn agy_session_paths(project_path: &str) -> Vec<PathBuf> {
-    agy_session_paths_for_roots(
-        project_path,
-        &[home_dir().join(".gemini").join("antigravity-cli")],
-    )
-}
 
 fn gemini_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -112,32 +106,6 @@ fn gemini_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<
     });
     files.sort_by_key(|path| std::cmp::Reverse(file_modified_millis(path).unwrap_or(0)));
     files
-}
-
-fn agy_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
-    gemini_session_paths_for_roots(project_path, roots)
-}
-
-pub(super) fn find_kiro_session_path(
-    project_path: &str,
-    external_session_id: &str,
-) -> Option<PathBuf> {
-    let sessions_dir = home_dir().join(".kiro").join("sessions").join("cli");
-    if !sessions_dir.exists() {
-        return None;
-    }
-    let mut candidates = recursive_files(&sessions_dir, "json")
-        .into_iter()
-        .filter(|path| {
-            path.file_stem()
-                .and_then(|value| value.to_str())
-                .map(|value| value.contains(external_session_id))
-                .unwrap_or(false)
-                || kiro_file_belongs_to_project(path, project_path)
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by_key(|path| std::cmp::Reverse(file_modified_millis(path).unwrap_or(0)));
-    candidates.into_iter().next()
 }
 
 pub(super) fn directory_files(dir: &Path, extension: &str) -> Vec<PathBuf> {
@@ -200,29 +168,6 @@ fn codex_file_belongs_to_project(path: &Path, project_path: &str) -> bool {
         }
     }
     false
-}
-
-fn kiro_file_belongs_to_project(file_path: &Path, project_path: &str) -> bool {
-    let Ok(data) = fs::read_to_string(file_path) else {
-        return false;
-    };
-    let Ok(value) = serde_json::from_str::<Value>(&data) else {
-        return false;
-    };
-    [
-        value.get("projectPath").and_then(|value| value.as_str()),
-        value
-            .get("project")
-            .and_then(|value| value.get("path"))
-            .and_then(|value| value.as_str()),
-        value.get("cwd").and_then(|value| value.as_str()),
-        value
-            .get("workingDirectory")
-            .and_then(|value| value.as_str()),
-    ]
-    .into_iter()
-    .flatten()
-    .any(|candidate| paths_equivalent(Some(candidate), project_path))
 }
 
 fn collect_recursive_files(dir: &Path, extension: &str, files: &mut Vec<PathBuf>) {

@@ -177,6 +177,40 @@ impl RuntimeService {
             .and_then(|project| project.host_device_id)
     }
 
+    /// The `(device_id, project_path)` of the remote project with `project_id`,
+    /// if it is remote-hosted. Memory methods key on project id; the host needs
+    /// the path to resolve its own project (its memory store uses host ids).
+    pub(crate) fn remote_project_for_id(&self, project_id: &str) -> Option<(String, String)> {
+        crate::project_store::ProjectStore::new(self.support_dir.clone())
+            .projects_snapshot()
+            .into_iter()
+            .find(|project| project.id == project_id)
+            .and_then(|project| {
+                project
+                    .host_device_id
+                    .map(|device_id| (device_id, project.path))
+            })
+    }
+
+    /// Run a memory read on the host of a remote project. Returns `None` for a
+    /// local project (caller falls back to the local engine). `op`-specific
+    /// args are merged with the resolved `projectId`/`projectPath`.
+    pub(crate) fn remote_memory_read(
+        &self,
+        project_id: &str,
+        op: &str,
+        mut args: serde_json::Map<String, serde_json::Value>,
+    ) -> Option<Result<serde_json::Value, String>> {
+        let (device_id, project_path) = self.remote_project_for_id(project_id)?;
+        let controller = match self.remote_controllers.controller_for(&device_id) {
+            Ok(controller) => controller,
+            Err(error) => return Some(Err(error)),
+        };
+        args.insert("projectId".to_string(), project_id.to_string().into());
+        args.insert("projectPath".to_string(), project_path.into());
+        Some(controller.memory_read(op, serde_json::Value::Object(args)))
+    }
+
     /// List a directory of a remote-hosted project as the file panel's
     /// `FileEntry`s, mapped from the host's `file.list` payload (capped to 80 to
     /// match the local loader).

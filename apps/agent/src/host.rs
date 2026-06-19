@@ -12,7 +12,8 @@ use codux_protocol::{
     REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
     REMOTE_GIT_INVOKE,
-    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED,
+    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT,
+    REMOTE_PAIRING_CONFIRMED,
     REMOTE_PAIRING_REQUEST,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
@@ -356,6 +357,10 @@ fn make_handler(
                     )),
                     None => Some((REMOTE_ERROR, json!({ "message": "Unable to load AI stats." }))),
                 }
+            }
+            REMOTE_MEMORY_READ => {
+                // The host runs the codux-memory engine against its own store.
+                Some((REMOTE_MEMORY_RESULT, crate::memory::memory_read_payload(&payload)))
             }
             REMOTE_AI_STATE => {
                 // The controller owns the project record and sends its path; the
@@ -802,6 +807,19 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             return Err(format!("ai.state reply missing matching projectId: {state}"));
         }
 
+        // memory.read: the host runs the codux-memory engine against its store.
+        request(
+            REMOTE_MEMORY_READ,
+            json!({ "op": "summary", "projectPath": stats_project }),
+        )?;
+        let memory = expect(&mut reply_rx, REMOTE_MEMORY_RESULT).await?;
+        if memory.get("op").and_then(Value::as_str) != Some("summary") {
+            return Err(format!("memory.read reply missing op: {memory}"));
+        }
+        if memory.get("result").is_none() {
+            return Err(format!("memory.read reply missing result: {memory}"));
+        }
+
         Ok::<(), String>(())
     };
     let result = run.await;
@@ -810,5 +828,5 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     controller.shutdown().await;
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
-    Ok("codux-agent-serve-ok\npairing + file + project + terminal + git + ai domains verified".to_string())
+    Ok("codux-agent-serve-ok\npairing + file + project + terminal + git + ai + memory domains verified".to_string())
 }

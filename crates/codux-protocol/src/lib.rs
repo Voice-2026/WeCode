@@ -100,6 +100,18 @@ pub const REMOTE_AI_STATS: &str = "ai.stats";
 /// distinct from `ai.stats`, which serves the derived baseline view to mobile.
 pub const REMOTE_AI_STATE: &str = "ai.state";
 
+/// Generic memory read query (`{op, projectId, …}`) → `{op, result}`. The host
+/// runs the codux-memory engine against its own memory store. Ops: `summary`,
+/// `manager`, `management`, `status`.
+pub const REMOTE_MEMORY_READ: &str = "memory.read";
+/// Reply to `memory.read`: `{op, result}` carrying the op's JSON snapshot.
+pub const REMOTE_MEMORY_RESULT: &str = "memory.result";
+/// Trigger memory extraction on the host with a controller-forwarded provider
+/// config (`{config, outputLocale}`). The host runs the engine and replies
+/// `memory.result` with the refreshed extraction status. The forwarded provider
+/// config is used for the run and not persisted.
+pub const REMOTE_MEMORY_EXTRACT: &str = "memory.extract";
+
 pub const REMOTE_TRANSPORT_IROH: &str = "iroh";
 pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";
 
