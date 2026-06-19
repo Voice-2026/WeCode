@@ -150,6 +150,23 @@ impl RuntimeService {
         }
     }
 
+    /// Perform a worktree mutation on the host and return a `WorktreeSnapshot`
+    /// built from the refreshed worktree payload. `None` ⇒ local project.
+    pub(crate) fn remote_worktree_mutation(
+        &self,
+        project_path: &str,
+        run: impl FnOnce(
+            &std::sync::Arc<crate::remote::RemoteController>,
+        ) -> Result<serde_json::Value, String>,
+    ) -> Option<Result<crate::worktree::WorktreeSnapshot, String>> {
+        let device_id = self.host_device_for_project_path(project_path)?;
+        let controller = match self.remote_controllers.controller_for(&device_id) {
+            Ok(controller) => controller,
+            Err(error) => return Some(Err(error)),
+        };
+        Some(run(&controller).map(|value| worktree_snapshot_from_payload(&value)))
+    }
+
     /// The device hosting the project at `project_path`, if it is a remote
     /// project. Used to route a project's domains over the controller.
     pub(crate) fn host_device_for_project_path(&self, project_path: &str) -> Option<String> {
@@ -233,6 +250,53 @@ fn git_summary_from_payload(value: &serde_json::Value) -> crate::git::GitSummary
         remote_branches: parse_typed(value, "remoteBranches"),
         remotes: parse_typed(value, "remotes"),
         commits: parse_typed(value, "commits"),
+    }
+}
+
+/// Build a `WorktreeSnapshot` from a host worktree payload (worktree.list /
+/// worktree.updated shape).
+fn worktree_snapshot_from_payload(value: &serde_json::Value) -> crate::worktree::WorktreeSnapshot {
+    use serde_json::Value;
+    let worktrees = value
+        .get("worktrees")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    let str_field = |key: &str| {
+                        item.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+                    };
+                    crate::worktree::ProjectWorktreeSnapshot {
+                        id: str_field("id"),
+                        project_id: str_field("projectId"),
+                        name: str_field("name"),
+                        branch: str_field("branch"),
+                        path: str_field("path"),
+                        status: str_field("status"),
+                        is_default: item.get("isDefault").and_then(Value::as_bool).unwrap_or(false),
+                        created_at: 0,
+                        updated_at: 0,
+                        git_summary: item
+                            .get("gitSummary")
+                            .cloned()
+                            .and_then(|summary| serde_json::from_value(summary).ok())
+                            .unwrap_or_default(),
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    crate::worktree::WorktreeSnapshot {
+        project_id: value.get("projectId").and_then(Value::as_str).unwrap_or_default().to_string(),
+        selected_worktree_id: value
+            .get("selectedWorktreeId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        worktrees,
+        tasks: Vec::new(),
+        error: value.get("error").and_then(Value::as_str).map(str::to_string),
     }
 }
 

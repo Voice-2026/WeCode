@@ -18,7 +18,8 @@ use codux_protocol::{
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
     REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
-    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_WORKTREE_LIST,
+    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
+    REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
     REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
     REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT,
     REMOTE_TERMINAL_RESIZE, REMOTE_TRANSPORT_IROH,
@@ -612,6 +613,44 @@ impl RemoteController {
             REMOTE_WORKTREE_LIST,
             REMOTE_WORKTREE_LIST,
             json!({ "projectId": project_id, "projectPath": project_path }),
+        )
+    }
+
+    pub fn worktree_create(
+        &self,
+        project_id: &str,
+        project_path: &str,
+        branch_name: &str,
+        base_branch: Option<&str>,
+    ) -> Result<Value, String> {
+        self.request(
+            REMOTE_WORKTREE_UPDATED,
+            REMOTE_WORKTREE_CREATE,
+            json!({
+                "projectId": project_id,
+                "projectPath": project_path,
+                "branchName": branch_name,
+                "baseBranch": base_branch,
+            }),
+        )
+    }
+
+    pub fn worktree_remove(
+        &self,
+        project_id: &str,
+        project_path: &str,
+        worktree_path: &str,
+        remove_branch: bool,
+    ) -> Result<Value, String> {
+        self.request(
+            REMOTE_WORKTREE_UPDATED,
+            REMOTE_WORKTREE_REMOVE,
+            json!({
+                "projectId": project_id,
+                "projectPath": project_path,
+                "worktreePath": worktree_path,
+                "removeBranch": remove_branch,
+            }),
         )
     }
 

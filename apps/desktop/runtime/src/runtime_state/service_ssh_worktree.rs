@@ -88,6 +88,16 @@ impl RuntimeService {
     ) -> Result<WorktreeSnapshot, String> {
         let project_id = request.project_id.clone();
         let project_path = request.project_path.clone();
+        if let Some(result) = self.remote_worktree_mutation(&project_path, |controller| {
+            controller.worktree_create(
+                &project_id,
+                &project_path,
+                &request.branch_name,
+                request.base_branch.as_deref(),
+            )
+        }) {
+            return result;
+        }
         let result = WorktreeService::new(self.support_dir.clone()).create_from_request(request);
         if result.is_ok() {
             self.remote_host
@@ -100,6 +110,16 @@ impl RuntimeService {
         &self,
         request: WorktreeRemoveRequest,
     ) -> Result<WorktreeSnapshot, String> {
+        if let Some(result) = self.remote_worktree_mutation(&request.project_path, |controller| {
+            controller.worktree_remove(
+                &request.project_id,
+                &request.project_path,
+                &request.worktree_path,
+                request.remove_branch,
+            )
+        }) {
+            return result;
+        }
         WorktreeService::new(self.support_dir.clone()).remove_from_request(request)
     }
 

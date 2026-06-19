@@ -17,7 +17,7 @@ use codux_protocol::{
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
-    REMOTE_WORKTREE_LIST,
+    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
@@ -300,6 +300,33 @@ fn make_handler(
                     REMOTE_WORKTREE_LIST,
                     crate::worktree::worktree_list_payload(project_id, project_path),
                 ))
+            }
+            REMOTE_WORKTREE_CREATE | REMOTE_WORKTREE_REMOVE => {
+                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_path = payload
+                    .get("projectPath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let result = if kind == REMOTE_WORKTREE_CREATE {
+                    crate::worktree::worktree_create(
+                        project_path,
+                        payload.get("branchName").and_then(Value::as_str).unwrap_or(""),
+                        payload.get("baseBranch").and_then(Value::as_str),
+                    )
+                } else {
+                    crate::worktree::worktree_remove(
+                        project_path,
+                        payload.get("worktreePath").and_then(Value::as_str).unwrap_or(""),
+                        payload.get("removeBranch").and_then(Value::as_bool).unwrap_or(false),
+                    )
+                };
+                match result {
+                    Ok(()) => Some((
+                        REMOTE_WORKTREE_UPDATED,
+                        crate::worktree::worktree_list_payload(project_id, project_path),
+                    )),
+                    Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                }
             }
             REMOTE_AI_STATS => {
                 // Resolve the project (path is needed to scan its CLI history),
@@ -714,13 +741,24 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             json!({ "projectId": "p", "projectPath": repo_dir }),
         )?;
         let worktrees = expect(&mut reply_rx, REMOTE_WORKTREE_LIST).await?;
-        if worktrees
+        let base_count = worktrees
             .get("worktrees")
             .and_then(Value::as_array)
-            .map(|items| items.is_empty())
-            .unwrap_or(true)
-        {
+            .map(Vec::len)
+            .unwrap_or(0);
+        if base_count == 0 {
             return Err(format!("worktree.list returned no worktrees: {worktrees}"));
+        }
+        // worktree create → the list grows by one
+        request(
+            REMOTE_WORKTREE_CREATE,
+            json!({ "projectId": "p", "projectPath": repo_dir, "branchName": "smoke-wt" }),
+        )?;
+        let created = expect(&mut reply_rx, REMOTE_WORKTREE_UPDATED).await?;
+        if created.get("worktrees").and_then(Value::as_array).map(Vec::len).unwrap_or(0)
+            <= base_count
+        {
+            return Err(format!("worktree.create did not add a worktree: {created}"));
         }
         let _ = std::fs::remove_dir_all(&repo_dir);
 
