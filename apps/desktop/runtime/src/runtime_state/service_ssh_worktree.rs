@@ -57,6 +57,11 @@ impl RuntimeService {
         project_id: Option<&str>,
         project_path: Option<&str>,
     ) -> WorktreeSummary {
+        if let Some(path) = project_path {
+            if let Some(device_id) = self.host_device_for_project_path(path) {
+                return self.remote_worktree_summary(&device_id, project_id.unwrap_or_default(), path);
+            }
+        }
         load_worktrees(&self.support_dir, project_id, project_path)
     }
 

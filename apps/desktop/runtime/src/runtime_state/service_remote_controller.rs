@@ -117,6 +117,39 @@ impl RuntimeService {
         }
     }
 
+    /// Worktree summary of a remote-hosted project, mapped from the host's
+    /// `worktree.list` payload (`active_git` filled from the routed git status).
+    pub(crate) fn remote_worktree_summary(
+        &self,
+        device_id: &str,
+        project_id: &str,
+        project_path: &str,
+    ) -> crate::worktree::WorktreeSummary {
+        let active_git = self.reload_project_git(project_path);
+        match self
+            .remote_controllers
+            .controller_for(device_id)
+            .and_then(|controller| controller.worktree_list(project_id, project_path))
+        {
+            Ok(value) => crate::worktree::WorktreeSummary {
+                available: value.get("available").and_then(serde_json::Value::as_bool).unwrap_or(true),
+                selected_worktree_id: value
+                    .get("selectedWorktreeId")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                worktrees: parse_typed(&value, "worktrees"),
+                tasks: parse_typed(&value, "tasks"),
+                active_git,
+                error: value.get("error").and_then(serde_json::Value::as_str).map(str::to_string),
+            },
+            Err(error) => crate::worktree::WorktreeSummary {
+                active_git,
+                error: Some(error),
+                ..Default::default()
+            },
+        }
+    }
+
     /// The device hosting the project at `project_path`, if it is a remote
     /// project. Used to route a project's domains over the controller.
     pub(crate) fn host_device_for_project_path(&self, project_path: &str) -> Option<String> {
