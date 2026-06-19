@@ -263,6 +263,7 @@ mod tests {
             memory_workspace_root: None,
             memory_prompt_file: None,
             memory_index_file: None,
+            host_device_id: None,
         };
 
         let pane = TerminalPanePlan {

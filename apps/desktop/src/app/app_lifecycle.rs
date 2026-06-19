@@ -57,6 +57,13 @@ impl CoduxApp {
         let terminal_config = terminal_config_for_settings(&state.settings, window.appearance());
         let terminal_manager = runtime_service.terminal_manager();
         let terminal_pane_registry = HashMap::new();
+        // Boot restore runs during App construction, before a `Context<Self>`
+        // exists to drive the async attach chokepoint. Local terminals spawn
+        // their PTY synchronously here; remote-hosted ones are collected as
+        // pending and attached once the entity exists, in
+        // `attach_boot_pending_terminals` (see `CoduxApp::new`'s caller). This is
+        // empty for the common local-only boot.
+        let mut boot_pending_terminals = Vec::new();
         let (terminals, active_terminal_id, next_terminal_index) = spawn_terminal_tabs(
             &restore_plan,
             terminal_manager.clone(),
@@ -64,6 +71,7 @@ impl CoduxApp {
             &base_pty_config,
             terminal_config,
             &terminal_pane_registry,
+            Some(&mut boot_pending_terminals),
             cx,
         )?;
         let selected_ai_provider_id = state
@@ -129,6 +137,7 @@ impl CoduxApp {
             terminals,
             terminal_pane_registry: HashMap::new(),
             terminal_manager,
+            boot_pending_terminals,
             terminal_layout_loading: false,
             active_terminal_id,
             active_terminal_runtime_ids: HashMap::new(),
@@ -177,6 +186,11 @@ impl CoduxApp {
             pet_custom_install_window: None,
             pet_dex_window: None,
             ssh_profile_editor_window: None,
+            file_picker_window: None,
+            file_picker_mode: FilePickerMode::OpenFolder,
+            file_picker_target: FilePickerTarget::ProjectEditorPath,
+            file_picker_filename: String::new(),
+            file_picker_selected: None,
             project_editor_window: None,
             terminal_tab_editor_window: None,
             worktree_creator_window: None,
@@ -353,6 +367,11 @@ impl CoduxApp {
             remote_pairing_creating: false,
             remote_pairing_error: None,
             remote_pairing_poll_generation: 0,
+            remote_connect_open: false,
+            remote_connect_ticket: String::new(),
+            remote_connect_name: String::new(),
+            remote_connect_error: None,
+            remote_connect_busy: false,
             recording_shortcut_id: None,
             workspace_view: WorkspaceView::Terminal,
             workspace_split: None,
@@ -360,6 +379,7 @@ impl CoduxApp {
             project_column_collapsed: true,
             task_column_collapsed: false,
             project_list_state: None,
+            remote_link_states: std::collections::HashMap::new(),
             project_column_view: None,
             task_column_view: None,
             task_column_header_view: None,
@@ -383,6 +403,14 @@ impl CoduxApp {
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
             project_editor_saving: false,
+            project_editor_host_device_id: None,
+            project_editor_browse_busy: false,
+            project_editor_browse_path: String::new(),
+            project_editor_browse_parent: None,
+            project_editor_browse_entries: Vec::new(),
+            project_editor_browse_error: None,
+            project_editor_browse_new_folder: String::new(),
+            file_picker_new_folder_active: false,
             terminal_tab_editor_id: None,
             terminal_tab_editor_label: String::new(),
             worktree_creator_project_id: None,
@@ -403,6 +431,17 @@ impl CoduxApp {
         };
         app.register_terminal_panes_without_observers();
         Ok(app)
+    }
+
+    /// Attach any remote-hosted terminals restored at boot. Called once right
+    /// after the entity is created, when a `Context<Self>` is available to drive
+    /// the async attach chokepoint. A no-op for the common local-only boot.
+    pub fn attach_boot_pending_terminals(&mut self, cx: &mut Context<Self>) {
+        if self.boot_pending_terminals.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.boot_pending_terminals);
+        self.spawn_attach_pending_terminals(None, pending, cx);
     }
 
     pub(crate) fn observe_main_window_appearance(

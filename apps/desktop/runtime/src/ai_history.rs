@@ -1,16 +1,14 @@
-mod helpers;
-mod queries;
-mod session_fork;
-mod sessions;
-mod summary;
+//! Desktop bridge to the shared `codux-ai-sessions` engine. The DB/session layer
+//! (summaries, detail, fork, rename, remove) lives in the crate so the headless
+//! host can serve a remote-hosted project's sessions; the desktop keeps its
+//! live-stats view (`stats_view`), which merges `AIRuntimeStateSummary`, on top.
+
 #[cfg(test)]
 mod tests;
-mod types;
 
-use rusqlite::Connection;
+pub use codux_ai_sessions::*;
+
 use std::collections::BTreeMap;
-use std::path::PathBuf;
-pub use types::*;
 
 pub fn display_tokens(total_tokens: i64, cached_input_tokens: i64, include_cached: bool) -> i64 {
     total_tokens.max(0)
@@ -344,22 +342,3 @@ const DAILY_LEVEL_TIERS: [DailyLevelTier; 8] = [
         icon: "flame",
     },
 ];
-
-pub struct AIHistoryService {
-    database_path: PathBuf,
-}
-
-impl AIHistoryService {
-    pub fn new(support_dir: PathBuf) -> Self {
-        Self {
-            database_path: support_dir.join("ai-usage.sqlite3"),
-        }
-    }
-
-    fn open_connection(&self) -> Result<Connection, String> {
-        if !self.database_path.is_file() {
-            return Err("ai-usage.sqlite3 not found".to_string());
-        }
-        Connection::open(&self.database_path).map_err(|error| error.to_string())
-    }
-}

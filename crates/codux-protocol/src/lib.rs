@@ -82,8 +82,52 @@ pub const REMOTE_FILE_RENAME: &str = "file.rename";
 pub const REMOTE_FILE_RENAMED: &str = "file.renamed";
 pub const REMOTE_FILE_DELETE: &str = "file.delete";
 pub const REMOTE_FILE_DELETED: &str = "file.deleted";
+pub const REMOTE_FILE_CREATE_DIRECTORY: &str = "file.createDirectory";
+pub const REMOTE_FILE_DIRECTORY_CREATED: &str = "file.directoryCreated";
+pub const REMOTE_FILE_COPY: &str = "file.copy";
+pub const REMOTE_FILE_COPIED: &str = "file.copied";
+pub const REMOTE_FILE_MOVE: &str = "file.move";
+pub const REMOTE_FILE_MOVED: &str = "file.moved";
+pub const REMOTE_FILE_WRITE_BYTES: &str = "file.writeBytes";
+pub const REMOTE_FILE_BYTES_WRITTEN: &str = "file.bytesWritten";
+/// Read a file's bytes binary-safely: the host publishes them to its blob store
+/// and replies `file.blob {ticket}`; the controller fetches the blob over
+/// iroh-blobs. Used for cross-device file copy (Save As).
+pub const REMOTE_FILE_READ_BLOB: &str = "file.readBlob";
+pub const REMOTE_FILE_BLOB: &str = "file.blob";
+/// Write a file's bytes binary-safely: the controller publishes them and sends
+/// `file.writeBlob {directory, name, ticket}`; the host fetches the blob and
+/// writes it, replying `file.bytesWritten {path}`. The blob counterpart of
+/// `file.writeBytes` (which uses base64) — content-addressed over iroh-blobs.
+pub const REMOTE_FILE_WRITE_BLOB: &str = "file.writeBlob";
 pub const REMOTE_GIT_STATUS: &str = "git.status";
+/// Generic git mutation (`{op, projectPath, args}`) → refreshed `git.status`.
+pub const REMOTE_GIT_INVOKE: &str = "git.invoke";
+/// Generic git read query (`{op, projectPath, args}`) → `{op, result}`.
+pub const REMOTE_GIT_READ: &str = "git.read";
 pub const REMOTE_AI_STATS: &str = "ai.stats";
+/// Full `AIHistoryProjectState` (incl. the snapshot) for a desktop controller —
+/// distinct from `ai.stats`, which serves the derived baseline view to mobile.
+pub const REMOTE_AI_STATE: &str = "ai.state";
+
+/// Generic memory read query (`{op, projectId, …}`) → `{op, result}`. The host
+/// runs the codux-memory engine against its own memory store. Ops: `summary`,
+/// `manager`, `management`, `status`.
+pub const REMOTE_MEMORY_READ: &str = "memory.read";
+/// Reply to `memory.read`: `{op, result}` carrying the op's JSON snapshot.
+pub const REMOTE_MEMORY_RESULT: &str = "memory.result";
+/// Trigger memory extraction on the host with a controller-forwarded provider
+/// config (`{config, outputLocale}`). The host runs the engine and replies
+/// `memory.result` with the refreshed extraction status. The forwarded provider
+/// config is used for the run and not persisted.
+pub const REMOTE_MEMORY_EXTRACT: &str = "memory.extract";
+
+/// Generic AI-session op (`{op, projectPath, …}`) → `{op, result}`. The host
+/// runs the codux-ai-sessions engine against its own history. Ops: `detail`,
+/// `rename`, `remove`, `fork`.
+pub const REMOTE_AI_SESSION: &str = "ai.session";
+/// Reply to `ai.session`: `{op, result}` carrying the op's JSON.
+pub const REMOTE_AI_SESSION_RESULT: &str = "ai.session.result";
 
 pub const REMOTE_TRANSPORT_IROH: &str = "iroh";
 pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";
@@ -123,6 +167,9 @@ pub struct RemoteTransportCandidate {
 pub struct RemoteTransportPairingRequest {
     pub device_id: String,
     pub device_name: String,
+    /// The requesting device's OS (`std::env::consts::OS`), if it reported one.
+    /// Used to label the device type in the host's device list.
+    pub platform: Option<String>,
     pub pairing_id: Option<String>,
     pub pairing_code: Option<String>,
     pub pairing_secret: Option<String>,

@@ -2,10 +2,15 @@ use super::RemoteService;
 use super::crypto::remote_host_name;
 use super::pairing::remote_summary_show_pending_pairing;
 use super::protocol::{
-    REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_ERROR,
-    REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
-    REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE, REMOTE_PAIRING_CONFIRMED,
+    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED,
+    REMOTE_ERROR,
+    REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED, REMOTE_FILE_COPY, REMOTE_FILE_CREATE_DIRECTORY,
+    REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST,
+    REMOTE_FILE_MOVE, REMOTE_FILE_MOVED, REMOTE_FILE_READ,
+    REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES,
+    REMOTE_FILE_WRITTEN,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE,
+    REMOTE_PAIRING_CONFIRMED,
     REMOTE_PAIRING_REJECTED, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST,
     REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED, REMOTE_PROJECT_UPDATED,
     REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS, REMOTE_RESOURCE_PROJECTS,
@@ -142,6 +147,7 @@ pub struct RemoteHostRuntime {
 
 impl RemoteHostRuntime {
     pub fn new(support_dir: PathBuf) -> Self {
+        codux_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
         let ai_history = AIHistoryIndexer::with_database_path(support_dir.join("ai-usage.sqlite3"));
         Self::new_with_ai_history(support_dir, ai_history)
     }
@@ -824,11 +830,18 @@ impl RemoteHostRuntime {
             REMOTE_FILE_WRITE => self.handle_file_write(&envelope),
             REMOTE_FILE_RENAME => self.handle_file_rename(&envelope),
             REMOTE_FILE_DELETE => self.handle_file_delete(&envelope),
+            REMOTE_FILE_CREATE_DIRECTORY => self.handle_file_create_directory(&envelope),
+            REMOTE_FILE_COPY => self.handle_file_copy(&envelope),
+            REMOTE_FILE_MOVE => self.handle_file_move(&envelope),
+            REMOTE_FILE_WRITE_BYTES => self.handle_file_write_bytes(&envelope),
             REMOTE_GIT_STATUS => self.handle_git_status(&envelope),
+            REMOTE_GIT_INVOKE => self.handle_git_invoke(&envelope),
+            REMOTE_GIT_READ => self.handle_git_read(&envelope),
             REMOTE_PROJECT_ADD => self.handle_project_add(&envelope),
             REMOTE_PROJECT_EDIT => self.handle_project_edit(&envelope),
             REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
             REMOTE_AI_STATS => self.handle_ai_stats(&envelope),
+            REMOTE_AI_STATE => self.handle_ai_state(&envelope),
             REMOTE_TRANSPORT_PING => {
                 self.send_plain(
                     REMOTE_TRANSPORT_PONG,
@@ -1117,6 +1130,7 @@ impl RemoteHostRuntime {
             last_seen: now,
             revoked_at: None,
             online: Some(false),
+            platform: handshake.platform.clone().unwrap_or_default(),
         });
         raw.insert(
             "remote".to_string(),
@@ -1161,6 +1175,7 @@ impl RemoteHostRuntime {
                 "deviceId": device_id,
                 "token": "",
                 "hostName": remote_host_name(),
+                "platform": std::env::consts::OS,
                 "transports": transports,
             }),
         );
@@ -1243,6 +1258,72 @@ impl RemoteHostRuntime {
         }
     }
 
+    fn handle_file_create_directory(&self, envelope: &RemoteEnvelope) {
+        let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
+            self.send_error(envelope, "Directory path is required.");
+            return;
+        };
+        match runtime_file::file_make_directory(path) {
+            Ok(()) => self.send(
+                REMOTE_FILE_DIRECTORY_CREATED,
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": path }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_file_copy(&self, envelope: &RemoteEnvelope) {
+        let path = envelope.payload.get("path").and_then(Value::as_str).unwrap_or_default();
+        let target = envelope.payload.get("targetDir").and_then(Value::as_str).unwrap_or_default();
+        match runtime_file::file_copy(path, target) {
+            Ok(new_path) => self.send(
+                REMOTE_FILE_COPIED,
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": new_path }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_file_move(&self, envelope: &RemoteEnvelope) {
+        let path = envelope.payload.get("path").and_then(Value::as_str).unwrap_or_default();
+        let target = envelope.payload.get("targetDir").and_then(Value::as_str).unwrap_or_default();
+        let overwrite = envelope.payload.get("overwrite").and_then(Value::as_bool).unwrap_or(false);
+        match runtime_file::file_move(path, target, overwrite) {
+            Ok(new_path) => self.send(
+                REMOTE_FILE_MOVED,
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": new_path }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_file_write_bytes(&self, envelope: &RemoteEnvelope) {
+        use base64::Engine;
+        let directory = envelope.payload.get("directory").and_then(Value::as_str).unwrap_or_default();
+        let name = envelope.payload.get("name").and_then(Value::as_str).unwrap_or_default();
+        let bytes = envelope
+            .payload
+            .get("bytes")
+            .and_then(Value::as_str)
+            .and_then(|encoded| base64::engine::general_purpose::STANDARD.decode(encoded).ok())
+            .unwrap_or_default();
+        match runtime_file::file_write_bytes(directory, name, &bytes) {
+            Ok(new_path) => self.send(
+                REMOTE_FILE_BYTES_WRITTEN,
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": new_path }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
     fn handle_project_add(&self, envelope: &RemoteEnvelope) {
         let Some(path) = envelope.payload.get("path").and_then(Value::as_str) else {
             self.send_error(envelope, "Project path is required.");
@@ -1260,6 +1341,7 @@ impl RemoteHostRuntime {
             badge_text: None,
             badge_symbol: None,
             badge_color_hex: None,
+            host_device_id: None,
         }) {
             Ok(baseline) => {
                 let project_id = baseline.selected_project_id.unwrap_or_default();
@@ -1298,6 +1380,7 @@ impl RemoteHostRuntime {
                 badge_text: None,
                 badge_symbol: None,
                 badge_color_hex: None,
+                host_device_id: None,
             },
         ) {
             Ok(_) => {
@@ -1710,6 +1793,40 @@ impl RemoteHostRuntime {
         }
     }
 
+    /// Serve the full `AIHistoryProjectState` for a desktop controller, indexed
+    /// from the path the controller sends (it owns the project record).
+    fn handle_ai_state(&self, envelope: &RemoteEnvelope) {
+        let request = AIHistoryProjectRequest {
+            id: envelope
+                .payload
+                .get("projectId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: envelope
+                .payload
+                .get("projectName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            path: envelope
+                .payload
+                .get("projectPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        };
+        match self.ai_history.project_state(request) {
+            Ok(state) => match serde_json::to_value(state) {
+                Ok(payload) => {
+                    self.send(REMOTE_AI_STATE, envelope.device_id.as_deref(), None, payload)
+                }
+                Err(error) => self.send_error(envelope, &error.to_string()),
+            },
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
     fn handle_git_status(&self, envelope: &RemoteEnvelope) {
         let project_id = envelope
             .payload
@@ -1742,6 +1859,141 @@ impl RemoteHostRuntime {
             None,
             remote_git_status_payload(project_id.clone(), project_path, summary),
         );
+    }
+
+    /// Generic git mutation (`git.invoke`) → GitService, then reply with
+    /// refreshed status (the controller maps it back into a GitSummary).
+    fn handle_git_invoke(&self, envelope: &RemoteEnvelope) {
+        use crate::git::GitService;
+        let project_path = envelope
+            .payload
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if project_path.trim().is_empty() {
+            self.send_error(envelope, "Project path is required.");
+            return;
+        }
+        let op = envelope.payload.get("op").and_then(Value::as_str).unwrap_or_default();
+        let args = envelope.payload.get("args").cloned().unwrap_or(Value::Null);
+        let path = project_path.as_str();
+        let s = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+        let b = |key: &str| args.get(key).and_then(Value::as_bool).unwrap_or(false);
+        let paths = args
+            .get("paths")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let result = match op {
+            "stage" => GitService::stage_paths(path, &paths),
+            "unstage" => GitService::unstage_paths(path, &paths),
+            "discard" => GitService::discard_paths(path, &paths),
+            "commit" => GitService::commit_staged(path, s("message")),
+            "init" => GitService::init(path),
+            "checkout_branch" => GitService::checkout_branch(path, s("branch")),
+            "checkout_remote_branch" => GitService::checkout_remote_branch(path, s("remoteBranch")),
+            "checkout_commit" => GitService::checkout_commit(path, s("commit")),
+            "create_branch" => GitService::create_branch(path, s("branch"), None, b("checkout")),
+            "create_branch_from" => {
+                let from = s("from");
+                GitService::create_branch(
+                    path,
+                    s("branch"),
+                    (!from.is_empty()).then_some(from),
+                    b("checkout"),
+                )
+            }
+            "merge_branch" => GitService::merge_branch(path, s("branch"), b("squash")),
+            "delete_branch" => GitService::delete_branch(path, s("branch"), b("force")),
+            "amend" => GitService::amend_last_commit_message(path, s("message")),
+            "undo_last_commit" => GitService::undo_last_commit(path),
+            "revert_commit" => GitService::revert_commit(path, s("commit")),
+            "restore_commit" => GitService::restore_commit(path, s("commit"), b("forceRemote")),
+            "add_remote" => GitService::add_remote(path, s("name"), s("url")),
+            "remove_remote" => GitService::remove_remote(path, s("name")),
+            "append_gitignore" => GitService::append_gitignore(path, &paths),
+            "fetch" => GitService::fetch(path),
+            "pull" => GitService::pull(path),
+            "push" => GitService::push(path),
+            "sync" => GitService::sync(path),
+            "force_push" => GitService::force_push(path),
+            "push_remote" => GitService::push_remote(path, s("remote")),
+            other => Err(format!("git op '{other}' is not supported.")),
+        };
+        match result {
+            Ok(_) => {
+                let summary = GitService::status(path);
+                self.send(
+                    REMOTE_GIT_STATUS,
+                    envelope.device_id.as_deref(),
+                    None,
+                    remote_git_status_payload(String::new(), project_path, summary),
+                );
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    /// Generic git read (`git.read`) → `{op, result}`.
+    fn handle_git_read(&self, envelope: &RemoteEnvelope) {
+        use crate::git::GitService;
+        let path = envelope
+            .payload
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let op = envelope.payload.get("op").and_then(Value::as_str).unwrap_or_default();
+        let args = envelope.payload.get("args").cloned().unwrap_or(Value::Null);
+        let s = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+        let base = || {
+            let value = s("baseBranch");
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        let result: Result<Value, String> = match op {
+            "diff" => GitService::file_diff(path, s("filePath")).map(|diff| json!({ "diff": diff })),
+            "review_diff" => GitService::review_file_diff(path, s("filePath"), base().as_deref())
+                .map(|diff| json!({ "diff": diff })),
+            "review_file_content" => serde_json::to_value(GitService::review_file_content(
+                path,
+                s("filePath"),
+                base().as_deref(),
+            ))
+            .map_err(|error| error.to_string()),
+            "path_status" => GitService::path_status(path, s("directoryPath"))
+                .and_then(|entries| {
+                    serde_json::to_value(entries).map_err(|error| error.to_string())
+                })
+                .map(|entries| json!({ "entries": entries })),
+            "commit_context" => serde_json::to_value(GitService::commit_message_context(path))
+                .map_err(|error| error.to_string()),
+            "last_commit_message" => {
+                GitService::last_commit_message(path).map(|message| json!({ "message": message }))
+            }
+            "head_pushed" => {
+                GitService::head_commit_pushed(path).map(|pushed| json!({ "pushed": pushed }))
+            }
+            "stored_state" => Ok(remote_git_status_payload(
+                String::new(),
+                path.to_string(),
+                GitService::status(path),
+            )),
+            other => Err(format!("git read '{other}' is not supported.")),
+        };
+        match result {
+            Ok(result) => self.send(
+                REMOTE_GIT_READ,
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "op": op, "result": result }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
     }
 
     fn handle_terminal_create(self: &Arc<Self>, envelope: &RemoteEnvelope) {

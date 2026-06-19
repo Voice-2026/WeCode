@@ -58,6 +58,10 @@ pub struct ProjectInfo {
     pub badge_symbol: Option<String>,
     pub badge_color_hex: Option<String>,
     pub git_default_push_remote_name: Option<String>,
+    /// `Some(device_id)` when the project is hosted on a remote device; `None`
+    /// for a local project. Drives controller-transport routing and the sidebar
+    /// remote marker.
+    pub host_device_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -74,6 +78,7 @@ pub struct RuntimeService {
     git_cancels: Arc<Mutex<HashMap<String, git::GitCancelToken>>>,
     power_manager: Arc<PowerManager>,
     remote_host: Arc<RemoteHostRuntime>,
+    remote_controllers: Arc<crate::remote::RemoteControllerManager>,
 }
 
 impl RuntimeService {
@@ -138,4 +143,6 @@ struct ProjectRecord {
     badge_color_hex: Option<String>,
     #[serde(default)]
     git_default_push_remote_name: Option<String>,
+    #[serde(default)]
+    host_device_id: Option<String>,
 }

@@ -79,6 +79,17 @@ pub trait RemoteTransport: Send + Sync {
     fn iroh_endpoint_ticket(&self) -> Option<String> {
         None
     }
+    /// Add bytes to the local blob store and return a shareable ticket; the peer
+    /// fetches them with [`RemoteTransport::fetch_blob`]. Binary-safe,
+    /// content-addressed transfer over iroh-blobs — the same path the terminal
+    /// file upload uses, generalized for any file byte transfer.
+    async fn publish_blob(&self, _bytes: Vec<u8>) -> Result<String, String> {
+        Err("blob transfer is not supported by this transport".to_string())
+    }
+    /// Download the bytes a peer published under `ticket`.
+    async fn fetch_blob(&self, _ticket: &str) -> Result<Vec<u8>, String> {
+        Err("blob transfer is not supported by this transport".to_string())
+    }
     async fn shutdown(&self);
 }
 

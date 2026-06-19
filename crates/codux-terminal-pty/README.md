@@ -25,5 +25,5 @@ Shared local PTY driver.
 
 ```bash
 cargo test -p codux-terminal-pty
-cargo run -p codux-agent -- --pty-smoke
+cargo run -p codux-agent -- smoke pty
 ```

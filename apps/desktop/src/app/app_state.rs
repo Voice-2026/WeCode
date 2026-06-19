@@ -1,5 +1,13 @@
 use super::*;
 
+/// One entry in the file-picker directory listing (local or on a host).
+#[derive(Clone)]
+pub(in crate::app) struct RemoteBrowseEntry {
+    pub(in crate::app) name: String,
+    pub(in crate::app) path: String,
+    pub(in crate::app) is_dir: bool,
+}
+
 static ACTIVE_SETTINGS_SNAPSHOT: OnceLock<std::sync::Mutex<SettingsSummary>> = OnceLock::new();
 
 pub(crate) fn set_active_settings_snapshot(settings: SettingsSummary) {
@@ -32,6 +40,14 @@ pub struct CoduxApp {
     pub(in crate::app) terminals: Vec<TerminalTab>,
     pub(in crate::app) terminal_pane_registry: HashMap<String, TerminalPane>,
     pub(in crate::app) terminal_manager: Arc<TerminalManager>,
+    /// Remote-hosted terminals restored at boot. Boot runs during construction,
+    /// before a `Context<Self>` exists to drive the async attach chokepoint, so
+    /// they are collected here and attached once via `attach_boot_pending_terminals`
+    /// right after the entity is created. Empty for the common local-only boot.
+    pub(in crate::app) boot_pending_terminals: Vec<(
+        codux_runtime::terminal_pty::TerminalPtyConfig,
+        crate::terminal::PendingTerminalAttach,
+    )>,
     pub(in crate::app) terminal_layout_loading: bool,
     pub(in crate::app) active_terminal_id: usize,
     pub(in crate::app) active_terminal_runtime_ids: HashMap<WorktreeScopeKey, String>,
@@ -66,6 +82,11 @@ pub struct CoduxApp {
     pub(in crate::app) pet_custom_install_window: Option<AnyWindowHandle>,
     pub(in crate::app) pet_dex_window: Option<AnyWindowHandle>,
     pub(in crate::app) ssh_profile_editor_window: Option<AnyWindowHandle>,
+    pub(in crate::app) file_picker_window: Option<AnyWindowHandle>,
+    pub(in crate::app) file_picker_mode: FilePickerMode,
+    pub(in crate::app) file_picker_target: FilePickerTarget,
+    pub(in crate::app) file_picker_filename: String,
+    pub(in crate::app) file_picker_selected: Option<String>,
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) terminal_tab_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,
@@ -249,6 +270,15 @@ pub struct CoduxApp {
     pub(in crate::app) remote_pairing_creating: bool,
     pub(in crate::app) remote_pairing_error: Option<String>,
     pub(in crate::app) remote_pairing_poll_generation: u64,
+    /// "Connect to a device" (controller direction): paste another host's
+    /// `codux://pair` ticket to pair to it. Mirrors the project-editor flow but
+    /// lives in Settings → Remote so device management is unified.
+    pub(in crate::app) remote_connect_open: bool,
+    pub(in crate::app) remote_connect_ticket: String,
+    pub(in crate::app) remote_connect_name: String,
+    pub(in crate::app) remote_connect_error: Option<String>,
+    pub(in crate::app) remote_connect_busy: bool,
+    /// Whether the Devices card "+" menu (Share / Connect) is open.
     pub(in crate::app) recording_shortcut_id: Option<String>,
     pub(in crate::app) workspace_view: WorkspaceView,
     /// Secondary body panel shown next to the terminal workspace (split mode).
@@ -258,6 +288,10 @@ pub struct CoduxApp {
     pub(in crate::app) project_column_collapsed: bool,
     pub(in crate::app) task_column_collapsed: bool,
     pub(in crate::app) project_list_state: Option<gpui::Entity<ProjectListState>>,
+    /// Last polled client→host link state per host device id. Drives the project
+    /// connection badge and triggers terminal re-attach when a host reconnects.
+    pub(in crate::app) remote_link_states:
+        std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
     pub(in crate::app) project_column_view: Option<gpui::Entity<ProjectColumnView>>,
     pub(in crate::app) task_column_view: Option<gpui::Entity<TaskColumnView>>,
     pub(in crate::app) task_column_header_view: Option<gpui::Entity<TaskColumnHeaderView>>,
@@ -284,6 +318,21 @@ pub struct CoduxApp {
     pub(in crate::app) project_editor_badge_symbol: Option<String>,
     pub(in crate::app) project_editor_badge_color_hex: String,
     pub(in crate::app) project_editor_saving: bool,
+    /// `Some(device_id)` when the project being edited is hosted on a remote
+    /// device; `None` = local. Drives the editor's device picker + remote browse.
+    pub(in crate::app) project_editor_host_device_id: Option<String>,
+    /// Inline "pair a new device" form state within the project editor.
+    /// Inline remote directory browser state (shown when choosing a directory on
+    /// a remote device instead of opening the native OS dialog).
+    pub(in crate::app) project_editor_browse_busy: bool,
+    pub(in crate::app) project_editor_browse_path: String,
+    pub(in crate::app) project_editor_browse_parent: Option<String>,
+    pub(in crate::app) project_editor_browse_entries: Vec<RemoteBrowseEntry>,
+    pub(in crate::app) project_editor_browse_error: Option<String>,
+    pub(in crate::app) project_editor_browse_new_folder: String,
+    /// When the file picker is showing an inline "new folder" name editor in the
+    /// listing (triggered by the footer button).
+    pub(in crate::app) file_picker_new_folder_active: bool,
     pub(in crate::app) terminal_tab_editor_id: Option<usize>,
     pub(in crate::app) terminal_tab_editor_label: String,
     pub(in crate::app) worktree_creator_project_id: Option<String>,

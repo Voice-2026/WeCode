@@ -11,7 +11,7 @@ pub struct WorktreeSummary {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeInfo {
     pub id: String,
@@ -25,7 +25,7 @@ pub struct WorktreeInfo {
     pub git_summary: ProjectWorktreeGitSummary,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeTaskInfo {
     pub worktree_id: String,

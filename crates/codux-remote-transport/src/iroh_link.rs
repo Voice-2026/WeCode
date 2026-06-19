@@ -425,6 +425,14 @@ impl RemoteTransport for RemoteIrohHostTransport {
         Some(EndpointTicket::from(self.endpoint.addr()).to_string())
     }
 
+    async fn publish_blob(&self, bytes: Vec<u8>) -> Result<String, String> {
+        publish_blob_bytes(&self.blob_store, &self.endpoint, bytes).await
+    }
+
+    async fn fetch_blob(&self, ticket: &str) -> Result<Vec<u8>, String> {
+        fetch_blob_bytes(&self.blob_store, &self.endpoint, ticket).await
+    }
+
     async fn shutdown(&self) {
         self.closed.store(true, Ordering::SeqCst);
         if let Ok(mut peers) = self.peers.lock() {
@@ -436,6 +444,7 @@ impl RemoteTransport for RemoteIrohHostTransport {
 
 pub struct RemoteIrohControllerTransport {
     endpoint: Endpoint,
+    blob_store: MemStore,
     connection: Mutex<Option<Connection>>,
     tx: Mutex<Option<IrohSender>>,
     terminal_tx: Mutex<Option<IrohSender>>,
@@ -492,6 +501,7 @@ impl RemoteIrohControllerTransport {
         let upload_control_tx = tx.clone();
         let transport = Arc::new(Self {
             endpoint,
+            blob_store: blob_store.clone(),
             connection: Mutex::new(Some(connection.clone())),
             tx: Mutex::new(Some(tx)),
             terminal_tx: Mutex::new(Some(terminal_tx)),
@@ -588,6 +598,14 @@ impl RemoteTransport for RemoteIrohControllerTransport {
             .and_then(|tx| tx.clone())
             .map(|tx| tx.send(upload).is_ok())
             .unwrap_or(false)
+    }
+
+    async fn publish_blob(&self, bytes: Vec<u8>) -> Result<String, String> {
+        publish_blob_bytes(&self.blob_store, &self.endpoint, bytes).await
+    }
+
+    async fn fetch_blob(&self, ticket: &str) -> Result<Vec<u8>, String> {
+        fetch_blob_bytes(&self.blob_store, &self.endpoint, ticket).await
     }
 
     async fn shutdown(&self) {
@@ -905,6 +923,48 @@ async fn download_terminal_upload_blob(
     }
     upload.bytes = bytes.to_vec();
     Ok(upload)
+}
+
+/// Generic blob publish: add bytes to the store, return a shareable ticket. The
+/// terminal upload is a special case of this; the file domain reuses it directly.
+async fn publish_blob_bytes(
+    blob_store: &MemStore,
+    endpoint: &Endpoint,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    if bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("blob size is not supported".to_string());
+    }
+    let tag = blob_store
+        .add_bytes(bytes)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(BlobTicket::new(endpoint.addr(), tag.hash, tag.format).to_string())
+}
+
+/// Generic blob fetch: download the bytes a peer published under `ticket`.
+async fn fetch_blob_bytes(
+    blob_store: &MemStore,
+    endpoint: &Endpoint,
+    ticket: &str,
+) -> Result<Vec<u8>, String> {
+    let ticket = ticket
+        .parse::<BlobTicket>()
+        .map_err(|error| error.to_string())?;
+    let downloader = blob_store.downloader(endpoint);
+    downloader
+        .download(ticket.hash(), Some(ticket.addr().id))
+        .await
+        .map_err(|error| error.to_string())?;
+    let bytes = blob_store
+        .export_bao(ticket.hash(), iroh_blobs::protocol::ChunkRanges::all())
+        .data_to_bytes()
+        .await
+        .map_err(|error| error.to_string())?;
+    if bytes.len() > MAX_UPLOAD_BYTES {
+        return Err("blob size is not supported".to_string());
+    }
+    Ok(bytes.to_vec())
 }
 
 fn spawn_path_watcher(connection: Connection, on_state: RemoteTransportStateHandler) {

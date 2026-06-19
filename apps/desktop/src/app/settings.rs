@@ -15,15 +15,17 @@ use codux_runtime::{
     tool_permissions::ToolPermissionsSummary,
     update::UpdateSummary,
 };
+use super::ui_helpers::dialog_primary_button;
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea, div,
-    img, prelude::FluentBuilder as _, px, relative, rems,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea,
+    div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    menu::{DropdownMenu, PopupMenuItem},
     spinner::Spinner,
     switch::Switch,
 };
@@ -266,6 +268,17 @@ impl CoduxApp {
                 self.state.remote.pending_pairing_list.first().cloned(),
                 |this, pairing| this.child(remote_pending_pairing_overlay(pairing, language, cx)),
             )
+            .when(self.remote_connect_open, |this| {
+                this.child(remote_connect_overlay(
+                    &self.remote_connect_ticket,
+                    &self.remote_connect_name,
+                    self.remote_connect_error.as_deref(),
+                    self.remote_connect_busy,
+                    language,
+                    window,
+                    cx,
+                ))
+            })
     }
 }
 
@@ -345,16 +358,22 @@ fn settings_pane_body(
             window,
             cx,
         ),
-        SettingsPane::Remote => settings_remote_pane(
-            &app.state.settings,
-            &app.state.remote,
-            app.selected_remote_device_id.as_deref(),
-            app.state.settings.language.as_str(),
-            app.remote_reconnecting,
-            app.remote_pairing_creating,
-            window,
-            cx,
-        ),
+        SettingsPane::Remote => {
+            let saved_hosts = app.runtime_service.saved_remote_hosts();
+            let link_states = app.runtime_service.remote_controller_link_states();
+            settings_remote_pane(
+                &app.state.settings,
+                &app.state.remote,
+                &saved_hosts,
+                &link_states,
+                app.selected_remote_device_id.as_deref(),
+                app.state.settings.language.as_str(),
+                app.remote_reconnecting,
+                app.remote_pairing_creating,
+                window,
+                cx,
+            )
+        }
         SettingsPane::Shortcuts => settings_shortcuts_pane(
             &app.state.settings,
             app.recording_shortcut_id.as_deref(),
@@ -813,6 +832,43 @@ fn settings_select_state(
     )
 }
 
+/// A friendly device-type label from an OS id (`std::env::consts::OS` or a
+/// client-reported platform). Falls back to a generic label when unknown.
+fn device_type_label(platform: &str, language: &str) -> String {
+    match platform.trim().to_ascii_lowercase().as_str() {
+        "macos" | "darwin" | "mac" => "macOS".to_string(),
+        "ios" | "ipados" => "iOS".to_string(),
+        "android" => settings_text(language, "device.type.android", "Android"),
+        "linux" => "Linux".to_string(),
+        "windows" => "Windows".to_string(),
+        "" => settings_text(language, "device.type.unknown", "Remote device"),
+        other => other.to_string(),
+    }
+}
+
+/// Connection-status tag for a host this desktop controls, from its client link
+/// state. Absent (never connected this session) reads as disconnected.
+fn host_link_status_tag(
+    link: Option<codux_runtime::remote::ControllerLinkState>,
+    language: &str,
+) -> AnyElement {
+    use codux_runtime::remote::ControllerLinkState;
+    match link {
+        Some(ControllerLinkState::Connected) => settings_status_tag(
+            settings_text(language, "remote.status.connected_label", "Connected"),
+            theme::GREEN,
+        ),
+        Some(ControllerLinkState::Connecting) => settings_status_tag(
+            settings_text(language, "remote.status.connecting_label", "Connecting"),
+            theme::ORANGE,
+        ),
+        _ => settings_status_tag(
+            settings_text(language, "remote.status.disconnected_label", "Disconnected"),
+            theme::TEXT_DIM,
+        ),
+    }
+}
+
 fn settings_status_tag(value: impl Into<String>, accent: u32) -> AnyElement {
     div()
         .h(px(24.0))
@@ -937,10 +993,167 @@ fn remote_pairing_overlay(
                     div()
                         .mt(px(24.0))
                         .flex()
+                        .gap(px(8.0))
                         .justify_center()
+                        .when_some(
+                            pairing.as_ref().map(|pairing| pairing.qr_payload.clone()),
+                            |row, payload| {
+                                row.child(settings_small_button(
+                                    "settings-remote-pairing-copy",
+                                    settings_text(language, "remote.copyLink", "Copy link"),
+                                    cx,
+                                    move |app, _event, _window, cx| {
+                                        app.copy_remote_pairing_link(payload.clone(), cx)
+                                    },
+                                ))
+                            },
+                        )
                         .child(remote_pairing_cancel_button(pairing, language, cx)),
                 ),
         )
+        .into_any_element()
+}
+
+/// The Devices "+" dropdown, using the shared popup-menu component (auto-anchored
+/// to the button): Share this device (advertise via QR/link) or Connect to a
+/// device (paste another host's ticket).
+fn remote_add_dropdown(language: &str, disabled: bool, cx: &mut Context<CoduxApp>) -> AnyElement {
+    let app_entity = cx.entity();
+    let share = settings_text(language, "remote.add.share", "Share this device");
+    let connect = settings_text(language, "remote.add.connect", "Connect to a device");
+    Button::new("settings-remote-add")
+        .compact()
+        .ghost()
+        .disabled(disabled)
+        .text_color(cx.theme().secondary_foreground)
+        .bg(cx.theme().transparent)
+        .icon(
+            Icon::new(HeroIconName::Plus)
+                .size_3p5()
+                .text_color(cx.theme().secondary_foreground),
+        )
+        .dropdown_menu(move |menu, _window, _cx| {
+            let share_entity = app_entity.clone();
+            let connect_entity = app_entity.clone();
+            menu.item(
+                PopupMenuItem::new(share.clone())
+                    .icon(HeroIconName::QrCode)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&share_entity, |app, cx| {
+                            app.create_remote_pairing(window, cx)
+                        });
+                    }),
+            )
+            .item(
+                PopupMenuItem::new(connect.clone())
+                    .icon(HeroIconName::Link)
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&connect_entity, |app, cx| app.open_remote_connect(cx));
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
+/// "Connect to a device" overlay: paste another host's `codux://pair` ticket to
+/// pair this desktop to it (controller direction). Mirrors the project-editor
+/// pairing panel but lives in Settings → Remote.
+fn remote_connect_overlay(
+    ticket: &str,
+    name: &str,
+    error: Option<&str>,
+    busy: bool,
+    language: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let mut card = div()
+        .w(px(420.0))
+        .rounded(px(16.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().background)
+        .shadow_lg()
+        .p(px(20.0))
+        .flex()
+        .flex_col()
+        .gap(px(12.0))
+        .child(
+            div()
+                .text_size(rems(1.125))
+                .line_height(rems(1.5))
+                .text_color(cx.theme().foreground)
+                .child(settings_text(language, "remote.connect.title", "Connect to a device")),
+        )
+        .child(
+            div()
+                .text_size(rems(0.8125))
+                .text_color(cx.theme().muted_foreground)
+                .child(settings_text(
+                    language,
+                    "remote.connect.hint",
+                    "Paste the codux://pair link the other device shows (its Share menu).",
+                )),
+        )
+        .child(settings_text_input(
+            "settings-remote-connect-ticket",
+            ticket,
+            "codux://pair?payload=…",
+            false,
+            window,
+            cx,
+            |app, value, window, cx| app.set_remote_connect_ticket(value, window, cx),
+        ))
+        .child(settings_text_input(
+            "settings-remote-connect-name",
+            name,
+            "This device name",
+            false,
+            window,
+            cx,
+            |app, value, window, cx| app.set_remote_connect_name(value, window, cx),
+        ));
+    if let Some(error) = error {
+        card = card.child(
+            div()
+                .text_size(rems(0.8125))
+                .text_color(cx.theme().danger)
+                .child(error.to_string()),
+        );
+    }
+    let card = card.child(
+        div()
+            .mt(px(4.0))
+            .flex()
+            .gap(px(8.0))
+            .justify_end()
+            .child(settings_small_button(
+                "settings-remote-connect-cancel",
+                settings_text(language, "common.cancel", "Cancel"),
+                cx,
+                |app, _event, _window, cx| app.close_remote_connect(cx),
+            ))
+            .child(
+                dialog_primary_button(
+                    "settings-remote-connect-submit",
+                    settings_text(language, "remote.connect.submit", "Connect"),
+                    cx,
+                    |app, _event, window, cx| app.submit_remote_connect(window, cx),
+                )
+                .disabled(busy)
+                .loading(busy),
+            ),
+    );
+
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(cx.theme().overlay)
+        .occlude()
+        .child(card)
         .into_any_element()
 }
 
@@ -2847,6 +3060,8 @@ fn settings_notifications_pane(
 fn settings_remote_pane(
     settings: &SettingsSummary,
     remote: &RemoteSummary,
+    saved_hosts: &[codux_runtime::remote::SavedRemoteHost],
+    link_states: &std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
     _selected_device_id: Option<&str>,
     language: &str,
     remote_reconnecting: bool,
@@ -2854,26 +3069,7 @@ fn settings_remote_pane(
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
-    let device_rows = if remote.device_list.is_empty() {
-        vec![
-            div()
-                .py(px(12.0))
-                .text_size(rems(0.875))
-                .line_height(rems(1.125))
-                .text_color(color(theme::TEXT_DIM))
-                .child(if remote.enabled {
-                    settings_text(language, "settings.remote.no_devices", "No paired devices.")
-                } else {
-                    settings_text(
-                        language,
-                        "remote.devices.empty_hint",
-                        "Pair a phone to control terminals on the go.",
-                    )
-                })
-                .into_any_element(),
-        ]
-    } else {
-        remote
+    let mut device_rows: Vec<AnyElement> = remote
             .device_list
             .iter()
             .cloned()
@@ -2914,7 +3110,7 @@ fn settings_remote_pane(
                                     .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT_DIM))
                                     .truncate()
-                                    .child(empty_label(&device.id)),
+                                    .child(device_type_label(&device.platform, language)),
                             ),
                     )
                     .child(
@@ -2954,8 +3150,90 @@ fn settings_remote_pane(
                     )
                     .into_any_element()
             })
-            .collect::<Vec<_>>()
-    };
+            .collect::<Vec<_>>();
+
+    // Connected hosts (the desktops / headless agents this Mac pairs to as a
+    // controller) share the same list, tagged "Host", with a Forget action.
+    for host in saved_hosts {
+        let device_id = host.device_id.clone();
+        let name = if host.host_name.trim().is_empty() {
+            host.host_id.clone()
+        } else {
+            host.host_name.clone()
+        };
+        device_rows.push(
+            div()
+                .id(SharedString::from(format!("settings-remote-host-{}", host.device_id)))
+                .min_h(px(64.0))
+                .py(px(12.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(18.0))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(rems(0.9375))
+                                .line_height(rems(1.25))
+                                .text_color(color(theme::TEXT))
+                                .child(empty_label(&name)),
+                        )
+                        .child(
+                            div()
+                                .mt(px(3.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .truncate()
+                                .child(device_type_label(&host.platform, language)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.0))
+                        .child(host_link_status_tag(
+                            link_states.get(host.device_id.as_str()).copied(),
+                            language,
+                        ))
+                        .child(settings_icon_button_state(
+                            SharedString::from(format!("settings-remote-forget-{}", host.device_id)),
+                            HeroIconName::Trash,
+                            false,
+                            cx,
+                            move |app, _event, _window, cx| {
+                                app.forget_remote_host_device(device_id.clone(), cx)
+                            },
+                        )),
+                )
+                .into_any_element(),
+        );
+    }
+
+    if device_rows.is_empty() {
+        device_rows.push(
+            div()
+                .py(px(12.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
+                .text_color(color(theme::TEXT_DIM))
+                .child(if remote.enabled {
+                    settings_text(language, "settings.remote.no_devices", "No paired devices.")
+                } else {
+                    settings_text(
+                        language,
+                        "remote.devices.empty_hint",
+                        "Pair a phone to control terminals on the go.",
+                    )
+                })
+                .into_any_element(),
+        );
+    }
 
     div()
         .relative()
@@ -2980,25 +3258,40 @@ fn settings_remote_pane(
                         ),
                     )
                     .into_any_element(),
-                    settings_row(
-                        settings_text(language, "settings.remote.relay_mode", "Relay Network"),
-                        Some(settings_text(
-                            language,
-                            "settings.remote.relay_mode.help",
-                            "Changing the relay requires pairing again.",
-                        )),
-                        settings_select_impl(
-                            "settings-remote-relay-preset",
-                            settings.remote_relay_preset.as_str(),
-                            remote_relay_preset_options(language),
-                            _window,
-                            cx,
-                            language,
-                            |app, value, window, cx| app.set_remote_relay_preset(value, window, cx),
-                        ),
-                    )
-                    .into_any_element(),
-                    settings_remote_relay_custom_fields(settings, _window, cx, language),
+                    {
+                        // The custom URL/auth fields render as sub-content of the
+                        // relay row (one card slot), and only when "custom" — so
+                        // there's no empty slot drawing a stray separator.
+                        let custom = (settings.remote_relay_preset == "custom").then(|| {
+                            settings_remote_relay_custom_fields(settings, _window, cx, language)
+                        });
+                        let relay_row = settings_row(
+                            settings_text(language, "settings.remote.relay_mode", "Relay Network"),
+                            Some(settings_text(
+                                language,
+                                "settings.remote.relay_mode.help",
+                                "Changing the relay requires pairing again.",
+                            )),
+                            settings_select_impl(
+                                "settings-remote-relay-preset",
+                                settings.remote_relay_preset.as_str(),
+                                remote_relay_preset_options(language),
+                                _window,
+                                cx,
+                                language,
+                                |app, value, window, cx| {
+                                    app.set_remote_relay_preset(value, window, cx)
+                                },
+                            ),
+                        );
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(12.0))
+                            .child(relay_row)
+                            .children(custom)
+                            .into_any_element()
+                    },
                     div()
                         .py(px(10.0))
                         .flex()
@@ -3046,13 +3339,14 @@ fn settings_remote_pane(
                         .flex()
                         .items_center()
                         .gap(px(8.0))
-                        .child(settings_icon_button_state(
-                            "settings-remote-create-pairing",
-                            HeroIconName::Plus,
-                            remote_pairing_creating || !remote.enabled,
-                            cx,
-                            |app, _event, window, cx| app.create_remote_pairing(window, cx),
-                        ))
+                        .child(
+                            div()
+                                .child(remote_add_dropdown(
+                                    language,
+                                    remote_pairing_creating || !remote.enabled,
+                                    cx,
+                                )),
+                        )
                         .child(settings_icon_button_state(
                             "settings-remote-refresh",
                             HeroIconName::ArrowPath,

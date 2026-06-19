@@ -28,6 +28,11 @@ impl RuntimeService {
         project_path: &str,
         file_path: &str,
     ) -> Result<String, String> {
+        if let Some(result) =
+            self.remote_git_read(project_path, "diff", json!({ "filePath": file_path }))
+        {
+            return result.map(|value| remote_git_string(&value, "diff"));
+        }
         git::GitService::file_diff(project_path, file_path)
     }
 
@@ -37,6 +42,9 @@ impl RuntimeService {
         file_path: &str,
         base_branch: Option<&str>,
     ) -> Result<String, String> {
+        if let Some(result) = self.remote_git_read(project_path, "review_diff", serde_json::json!({ "filePath": file_path, "baseBranch": base_branch })) {
+            return result.map(|value| remote_git_string(&value, "diff"));
+        }
         git::GitService::review_file_diff(project_path, file_path, base_branch)
     }
 
@@ -61,6 +69,9 @@ impl RuntimeService {
         project_path: &str,
         directory_path: &str,
     ) -> Result<Vec<git::GitFileStatus>, String> {
+        if let Some(result) = self.remote_git_read(project_path, "path_status", serde_json::json!({ "directoryPath": directory_path })) {
+            return result.and_then(|value| serde_json::from_value(value.get("entries").cloned().unwrap_or_default()).map_err(|error| error.to_string()));
+        }
         git::GitService::path_status(project_path, directory_path)
     }
 
@@ -69,6 +80,9 @@ impl RuntimeService {
         project_path: &str,
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stage", json!({ "paths": [file_path] })) {
+            return result;
+        }
         git::GitService::stage_file(project_path, file_path)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -78,6 +92,9 @@ impl RuntimeService {
         project_path: &str,
         file_paths: &[String],
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "stage", json!({ "paths": file_paths })) {
+            return result;
+        }
         git::GitService::stage_paths(project_path, file_paths)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -87,6 +104,9 @@ impl RuntimeService {
         project_path: &str,
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "unstage", json!({ "paths": [file_path] })) {
+            return result;
+        }
         git::GitService::unstage_file(project_path, file_path)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -96,6 +116,9 @@ impl RuntimeService {
         project_path: &str,
         file_paths: &[String],
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "unstage", json!({ "paths": file_paths })) {
+            return result;
+        }
         git::GitService::unstage_paths(project_path, file_paths)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -105,6 +128,9 @@ impl RuntimeService {
         project_path: &str,
         message: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "commit", json!({ "message": message })) {
+            return result;
+        }
         git::GitService::commit_staged(project_path, message)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -115,6 +141,9 @@ impl RuntimeService {
         message: &str,
         action: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "commit", serde_json::json!({ "message": message })) {
+            return result;
+        }
         git::GitService::commit_action(project_path, message, action)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -124,6 +153,9 @@ impl RuntimeService {
         project_path: &str,
         message: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "amend", serde_json::json!({ "message": message })) {
+            return result;
+        }
         git::GitService::amend_last_commit_message(project_path, message)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -132,6 +164,9 @@ impl RuntimeService {
         &self,
         project_path: &str,
     ) -> Result<String, String> {
+        if let Some(result) = self.remote_git_read(project_path, "last_commit_message", serde_json::json!({})) {
+            return result.map(|value| remote_git_string(&value, "message"));
+        }
         git::GitService::last_commit_message(project_path)
     }
 
@@ -139,39 +174,60 @@ impl RuntimeService {
         &self,
         project_path: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "undo_last_commit", serde_json::json!({})) {
+            return result;
+        }
         git::GitService::undo_last_commit(project_path)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
 
     pub fn project_git_head_commit_pushed(&self, project_path: &str) -> Result<bool, String> {
+        if let Some(result) = self.remote_git_read(project_path, "head_pushed", serde_json::json!({})) {
+            return result.map(|value| value.get("pushed").and_then(|v| v.as_bool()).unwrap_or(false));
+        }
         git::GitService::head_commit_pushed(project_path)
     }
 
     pub fn fetch_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "fetch", serde_json::json!({})) {
+            return result;
+        }
         self.run_cancellable_project_git(project_path, |path, cancel| {
             git::git_fetch_with_cancel(path, Some(cancel)).map(|_| ())
         })
     }
 
     pub fn pull_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "pull", serde_json::json!({})) {
+            return result;
+        }
         self.run_cancellable_project_git(project_path, |path, cancel| {
             git::git_pull_with_cancel(path, Some(cancel)).map(|_| ())
         })
     }
 
     pub fn push_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "push", serde_json::json!({})) {
+            return result;
+        }
         self.run_cancellable_project_git(project_path, |path, cancel| {
             git::git_push_with_cancel(path, Some(cancel)).map(|_| ())
         })
     }
 
     pub fn sync_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "sync", serde_json::json!({})) {
+            return result;
+        }
         self.run_cancellable_project_git(project_path, |path, cancel| {
             git::git_sync_with_cancel(path, Some(cancel)).map(|_| ())
         })
     }
 
     pub fn force_push_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "force_push", serde_json::json!({})) {
+            return result;
+        }
         self.run_cancellable_project_git(project_path, |path, cancel| {
             git::git_force_push_with_cancel(path, Some(cancel)).map(|_| ())
         })
@@ -182,6 +238,9 @@ impl RuntimeService {
         project_path: &str,
         remote: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "push_remote", serde_json::json!({ "remote": remote })) {
+            return result;
+        }
         let remote = remote.to_string();
         self.run_cancellable_project_git(project_path, move |path, cancel| {
             git::git_push_remote_with_cancel(
@@ -236,6 +295,9 @@ impl RuntimeService {
         project_path: &str,
         branch: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "checkout_branch", serde_json::json!({ "branch": branch })) {
+            return result;
+        }
         git::GitService::checkout_branch(project_path, branch)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -245,6 +307,9 @@ impl RuntimeService {
         project_path: &str,
         remote_branch: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "checkout_remote_branch", serde_json::json!({ "remoteBranch": remote_branch })) {
+            return result;
+        }
         git::GitService::checkout_remote_branch(project_path, remote_branch)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -255,6 +320,9 @@ impl RuntimeService {
         branch: &str,
         checkout: bool,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "create_branch", serde_json::json!({ "branch": branch, "checkout": checkout })) {
+            return result;
+        }
         git::GitService::create_branch(project_path, branch, None, checkout)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -266,6 +334,9 @@ impl RuntimeService {
         from: Option<&str>,
         checkout: bool,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "create_branch_from", serde_json::json!({ "branch": branch, "from": from, "checkout": checkout })) {
+            return result;
+        }
         git::GitService::create_branch(project_path, branch, from, checkout)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -276,6 +347,9 @@ impl RuntimeService {
         branch: &str,
         squash: bool,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "merge_branch", serde_json::json!({ "branch": branch, "squash": squash })) {
+            return result;
+        }
         git::GitService::merge_branch(project_path, branch, squash)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -286,6 +360,9 @@ impl RuntimeService {
         branch: &str,
         force: bool,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "delete_branch", serde_json::json!({ "branch": branch, "force": force })) {
+            return result;
+        }
         git::GitService::delete_branch(project_path, branch, force)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -295,6 +372,9 @@ impl RuntimeService {
         project_path: &str,
         file_path: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "discard", json!({ "paths": [file_path] })) {
+            return result;
+        }
         git::GitService::discard_file(project_path, file_path)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -304,6 +384,9 @@ impl RuntimeService {
         project_path: &str,
         file_paths: &[String],
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "discard", json!({ "paths": file_paths })) {
+            return result;
+        }
         git::GitService::discard_paths(project_path, file_paths)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -313,6 +396,9 @@ impl RuntimeService {
         project_path: &str,
         commit: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "checkout_commit", serde_json::json!({ "commit": commit })) {
+            return result;
+        }
         git::GitService::checkout_commit(project_path, commit)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -322,6 +408,9 @@ impl RuntimeService {
         project_path: &str,
         commit: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "revert_commit", serde_json::json!({ "commit": commit })) {
+            return result;
+        }
         git::GitService::revert_commit(project_path, commit)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -332,6 +421,9 @@ impl RuntimeService {
         commit: &str,
         force_remote: bool,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "restore_commit", serde_json::json!({ "commit": commit, "forceRemote": force_remote })) {
+            return result;
+        }
         git::GitService::restore_commit(project_path, commit, force_remote)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -342,6 +434,9 @@ impl RuntimeService {
         name: &str,
         url: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "add_remote", serde_json::json!({ "name": name, "url": url })) {
+            return result;
+        }
         git::GitService::add_remote(project_path, name, url)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -351,6 +446,9 @@ impl RuntimeService {
         project_path: &str,
         name: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "remove_remote", serde_json::json!({ "name": name })) {
+            return result;
+        }
         git::GitService::remove_remote(project_path, name)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -360,6 +458,9 @@ impl RuntimeService {
         project_path: &str,
         paths: &[String],
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "append_gitignore", serde_json::json!({ "paths": paths })) {
+            return result;
+        }
         git::GitService::append_gitignore(project_path, paths)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }

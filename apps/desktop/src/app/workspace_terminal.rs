@@ -6,6 +6,30 @@ const TERMINAL_BOTTOM_TAB_BAR_HEIGHT: Pixels = px(40.0);
 const TERMINAL_BOTTOM_PANEL_MIN_SIZE: Pixels = px(128.0);
 
 impl CoduxApp {
+    /// Overlay descriptor for the terminal when the selected project's remote
+    /// host link is not usable: `(icon, tint, message)`. `None` for a local
+    /// project or a healthy connected link.
+    fn selected_project_terminal_link_overlay(&self) -> Option<(HeroIconName, u32, String)> {
+        let host = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.as_deref())?;
+        match self.remote_link_states.get(host).copied() {
+            Some(codux_runtime::remote::ControllerLinkState::Disconnected) => Some((
+                HeroIconName::LinkSlash,
+                0xE0566B,
+                "远程主机已离线 · 正在自动重连…".to_string(),
+            )),
+            Some(codux_runtime::remote::ControllerLinkState::Connecting) => Some((
+                HeroIconName::Link,
+                theme::ORANGE,
+                "正在连接远程主机…".to_string(),
+            )),
+            _ => None,
+        }
+    }
+
     pub(in crate::app) fn terminal_workspace_body(
         &self,
         cx: &mut Context<Self>,
@@ -145,8 +169,18 @@ impl CoduxApp {
             return div().flex_1().size_full().bg(color(theme::BG_TERMINAL));
         };
         let pane_count = active.panes.len();
+        let link_overlay = self.selected_project_terminal_link_overlay();
 
-        div().flex().flex_1().min_w_0().overflow_hidden().children(
+        div()
+            .relative()
+            .flex()
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .when_some(link_overlay, |this, overlay| {
+                this.child(terminal_link_overlay(overlay))
+            })
+            .children(
             active.panes.iter().enumerate().map(|(index, slot)| {
                 let close_id = SharedString::from(format!("terminal-pane-close-{index}"));
                 let float_id = SharedString::from(format!("terminal-pane-float-{index}"));
@@ -221,6 +255,33 @@ impl CoduxApp {
             }),
         )
     }
+}
+
+/// A centered banner over the terminal area when the remote host link is down
+/// or reconnecting, so a frozen remote shell reads as "offline, recovering"
+/// instead of an unexplained blank pane.
+fn terminal_link_overlay(overlay: (HeroIconName, u32, String)) -> impl IntoElement {
+    let (icon, tint, message) = overlay;
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .py_2()
+        .gap_2()
+        .bg(color(theme::BG_HEADER))
+        .border_b_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .child(Icon::new(icon).size_4().text_color(color(tint)))
+        .child(
+            div()
+                .text_size(rems(0.8125))
+                .text_color(color(theme::TEXT))
+                .child(message),
+        )
 }
 
 fn terminal_bottom_content(tab: &TerminalTab) -> impl IntoElement {

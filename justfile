@@ -68,5 +68,6 @@ ffi:
     cargo build -p codux-protocol-ffi
 
 smoke:
-    cargo run -p codux-agent -- --pty-smoke
-    cargo run -p codux-agent -- --transport-smoke
+    cargo run -p codux-agent -- smoke pty
+    cargo run -p codux-agent -- smoke transport
+    cargo run -p codux-agent -- smoke serve

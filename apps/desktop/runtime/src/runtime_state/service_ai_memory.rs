@@ -19,6 +19,18 @@ impl RuntimeService {
         project_path: &str,
         session_id: &str,
     ) -> AISessionDetail {
+        let mut args = serde_json::Map::new();
+        args.insert("sessionId".to_string(), session_id.into());
+        if let Some(result) = self.remote_ai_session(project_path, "detail", args) {
+            return result
+                .ok()
+                .and_then(|value| serde_json::from_value(value).ok())
+                .unwrap_or_else(|| AISessionDetail {
+                    id: session_id.to_string(),
+                    error: Some("Unable to load remote session detail.".to_string()),
+                    ..Default::default()
+                });
+        }
         AIHistoryService::new(self.support_dir.clone())
             .project_session_detail(project_path, session_id)
             .unwrap_or_else(|error| AISessionDetail {
@@ -32,6 +44,18 @@ impl RuntimeService {
         &self,
         request: AISessionForkRequest,
     ) -> Result<AISessionForkResult, String> {
+        let mut args = serde_json::Map::new();
+        args.insert("projectId".to_string(), request.project_id.clone().into());
+        args.insert("projectName".to_string(), request.project_name.clone().into());
+        args.insert("sessionId".to_string(), request.session_id.clone().into());
+        if let Ok(target) = serde_json::to_value(request.target_tool) {
+            args.insert("targetTool".to_string(), target);
+        }
+        if let Some(result) = self.remote_ai_session(&request.project_path, "fork", args) {
+            return result.and_then(|value| {
+                serde_json::from_value(value).map_err(|error| error.to_string())
+            });
+        }
         AIHistoryService::new(self.support_dir.clone()).fork_project_session(request)
     }
 
@@ -41,6 +65,14 @@ impl RuntimeService {
         session_id: &str,
         title: &str,
     ) -> Result<AIHistorySummary, String> {
+        let mut args = serde_json::Map::new();
+        args.insert("sessionId".to_string(), session_id.into());
+        args.insert("title".to_string(), title.into());
+        if let Some(result) = self.remote_ai_session(project_path, "rename", args) {
+            return result.and_then(|value| {
+                serde_json::from_value(value).map_err(|error| error.to_string())
+            });
+        }
         AIHistoryService::new(self.support_dir.clone()).rename_project_session(
             project_path,
             session_id,
@@ -53,11 +85,26 @@ impl RuntimeService {
         project_path: &str,
         session_id: &str,
     ) -> Result<AIHistorySummary, String> {
+        let mut args = serde_json::Map::new();
+        args.insert("sessionId".to_string(), session_id.into());
+        if let Some(result) = self.remote_ai_session(project_path, "remove", args) {
+            return result.and_then(|value| {
+                serde_json::from_value(value).map_err(|error| error.to_string())
+            });
+        }
         AIHistoryService::new(self.support_dir.clone())
             .remove_project_session(project_path, session_id)
     }
 
     pub fn reload_memory(&self, project_id: Option<&str>) -> MemorySummary {
+        if let Some(pid) = project_id {
+            if let Some(result) = self.remote_memory_read(pid, "summary", Default::default()) {
+                return result
+                    .ok()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_default();
+            }
+        }
         load_memory(&self.support_dir, project_id)
     }
 
@@ -67,15 +114,16 @@ impl RuntimeService {
         project_name: &str,
         workspace_path: &str,
     ) -> Option<crate::memory::MemoryLaunchArtifacts> {
-        let settings = AppSettingsStore::from_support_dir(self.support_dir.clone()).snapshot();
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
         let ssh_context =
             render_ssh_launch_context_from_support_dir(self.support_dir.clone(), None);
         MemoryService::new(self.support_dir.clone()).prepare_launch_artifacts(
+            &crate::runtime_paths::runtime_root_dir(),
             crate::memory::MemoryLaunchRequest {
                 project_id: project_id.to_string(),
                 project_name: project_name.to_string(),
                 workspace_path: Some(workspace_path.to_string()),
-                settings: settings.ai,
+                settings: crate::memory::memory_config(&settings),
                 extra_context: ssh_context,
             },
         )
@@ -88,9 +136,9 @@ impl RuntimeService {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone()).enqueue_completed_session_if_ready(
-            &settings.memory,
+            &crate::memory::memory_settings(&settings.memory),
             &projects,
-            session,
+            &crate::memory::memory_session(session),
         )
     }
 
@@ -98,9 +146,34 @@ impl RuntimeService {
         MemoryService::new(self.support_dir.clone()).extraction_status_snapshot()
     }
 
+    /// Trigger memory extraction for a remote-hosted project on its host. The
+    /// desktop forwards its selected AI provider config (incl. API key) over the
+    /// iroh-encrypted transport; the host runs the engine against its own AI
+    /// sessions and does not persist the provider. Returns the host's refreshed
+    /// extraction status. Errs if the project is not remote-hosted.
+    pub fn extract_remote_project_memory(
+        &self,
+        project_id: &str,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        let (device_id, _path) = self
+            .remote_project_for_id(project_id)
+            .ok_or_else(|| "Project is not remote-hosted.".to_string())?;
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let config = serde_json::to_value(crate::memory::memory_config(&settings))
+            .map_err(|error| error.to_string())?;
+        let output_locale = self.memory_extraction_output_locale();
+        let controller = self.remote_controllers.controller_for(&device_id)?;
+        let result = controller.memory_extract(config, &output_locale)?;
+        serde_json::from_value(result).map_err(|error| error.to_string())
+    }
+
     pub fn automatic_memory_extraction_available(&self) -> bool {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        crate::memory::extraction::select_memory_provider(&settings, None).is_some()
+        crate::memory::extraction::select_memory_provider(
+            &crate::memory::memory_config(&settings),
+            None,
+        )
+        .is_some()
     }
 
     pub fn cancel_memory_extraction_queue(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
@@ -162,9 +235,9 @@ impl RuntimeService {
         let history_sessions = indexed_sessions_since_at(self.ai_usage_database_path(), None)
             .map_err(|error| error.to_string())?;
         memory_service.enqueue_automatic_extraction_candidates(
-            &settings.memory,
+            &crate::memory::memory_settings(&settings.memory),
             &projects,
-            &runtime_state.sessions,
+            &crate::memory::memory_sessions(&runtime_state.sessions),
             &history_sessions,
         )
     }
@@ -182,9 +255,9 @@ impl RuntimeService {
             .map_err(|error| error.to_string())?;
         MemoryService::new(self.support_dir.clone())
             .process_memory_sessions_now(
-                &settings,
+                &crate::memory::memory_config(&settings),
                 &projects,
-                &runtime_state.sessions,
+                &crate::memory::memory_sessions(&runtime_state.sessions),
                 &history_sessions,
                 &output_locale,
             )
@@ -198,7 +271,11 @@ impl RuntimeService {
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_next_memory_extraction_task(&settings, &projects, &output_locale)
+            .process_next_memory_extraction_task(
+                &crate::memory::memory_config(&settings),
+                &projects,
+                &output_locale,
+            )
             .await
     }
 
@@ -209,7 +286,11 @@ impl RuntimeService {
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_memory_extraction_queue(&settings, &projects, &output_locale)
+            .process_memory_extraction_queue(
+                &crate::memory::memory_config(&settings),
+                &projects,
+                &output_locale,
+            )
             .await
     }
 
@@ -221,29 +302,31 @@ impl RuntimeService {
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_memory_extraction_queue_limited(&settings, &projects, &output_locale, limit)
+            .process_memory_extraction_queue_limited(
+                &crate::memory::memory_config(&settings),
+                &projects,
+                &output_locale,
+                limit,
+            )
             .await
     }
 
-    fn memory_project_infos(&self) -> Vec<ProjectInfo> {
+    fn memory_project_infos(&self) -> Vec<crate::memory::MemoryProjectInfo> {
         ProjectStore::new(self.support_dir.clone())
             .project_summaries()
             .into_iter()
-            .map(|project| ProjectInfo {
+            .map(|project| crate::memory::MemoryProjectInfo {
                 id: project.id,
                 name: project.name,
                 path: project.path,
-                exists: true,
-                badge: project.badge,
-                badge_symbol: project.badge_symbol,
-                badge_color_hex: project.badge_color_hex,
-                git_default_push_remote_name: project.git_default_push_remote_name,
             })
             .collect()
     }
 
-    fn memory_project_workspaces(&self) -> Vec<crate::project_store::ProjectWorkspaceRecord> {
-        ProjectStore::new(self.support_dir.clone()).project_workspaces_snapshot()
+    fn memory_project_workspaces(&self) -> Vec<crate::memory::MemoryProjectRecord> {
+        crate::memory::memory_project_records(
+            &ProjectStore::new(self.support_dir.clone()).project_workspaces_snapshot(),
+        )
     }
 
     fn refresh_global_ai_history_index(&self) {
@@ -312,6 +395,24 @@ impl RuntimeService {
         &self,
         request: MemoryManagementRequest,
     ) -> Result<MemoryManagementSnapshot, String> {
+        if let Some(pid) = request.project_id.clone() {
+            let mut args = serde_json::Map::new();
+            args.insert("scope".to_string(), request.scope.clone().into());
+            if let Some(tier) = &request.tier {
+                args.insert("tier".to_string(), tier.clone().into());
+            }
+            if let Some(status) = &request.status {
+                args.insert("status".to_string(), status.clone().into());
+            }
+            if let Some(limit) = request.limit {
+                args.insert("limit".to_string(), limit.into());
+            }
+            if let Some(result) = self.remote_memory_read(&pid, "management", args) {
+                return result.and_then(|value| {
+                    serde_json::from_value(value).map_err(|error| error.to_string())
+                });
+            }
+        }
         MemoryService::new(self.support_dir.clone()).management_snapshot(request)
     }
 
@@ -320,7 +421,22 @@ impl RuntimeService {
         projects: &[ProjectInfo],
         request: MemoryManagerSnapshotRequest,
     ) -> MemoryManagerSnapshot {
-        MemoryService::new(self.support_dir.clone()).manager_snapshot_for_request(projects, request)
+        if let Some(pid) = request.project_id.clone() {
+            let mut args = serde_json::Map::new();
+            args.insert("scope".to_string(), request.scope.clone().into());
+            args.insert("tab".to_string(), request.tab.clone().into());
+            if let Some(limit) = request.limit {
+                args.insert("limit".to_string(), limit.into());
+            }
+            if let Some(result) = self.remote_memory_read(&pid, "manager", args) {
+                return result
+                    .ok()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_default();
+            }
+        }
+        MemoryService::new(self.support_dir.clone())
+            .manager_snapshot_for_request(&crate::memory::memory_project_infos(projects), request)
     }
 
     pub fn archive_memory_entry(
@@ -404,7 +520,10 @@ impl RuntimeService {
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
         MemoryService::new(self.support_dir.clone())
-            .force_refresh_project_profile_with_llm_detailed(&settings, &project)
+            .force_refresh_project_profile_with_llm_detailed(
+                &crate::memory::memory_config(&settings),
+                &project,
+            )
             .await
             .ok_or_else(|| "Unable to refresh project profile.".to_string())
     }

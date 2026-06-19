@@ -24,6 +24,7 @@ pub(in crate::app) enum AuxiliaryWindowSlot {
     TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
+    FilePicker,
 }
 
 impl CoduxApp {
@@ -116,6 +117,7 @@ impl CoduxApp {
             terminal_manager: Arc::new(TerminalManager::with_ai_runtime(
                 runtime_service.ai_runtime_bridge(),
             )),
+            boot_pending_terminals: Vec::new(),
             terminal_layout_loading: false,
             active_terminal_id: 0,
             active_terminal_runtime_ids: HashMap::new(),
@@ -150,6 +152,11 @@ impl CoduxApp {
             pet_custom_install_window: None,
             pet_dex_window: None,
             ssh_profile_editor_window: None,
+            file_picker_window: None,
+            file_picker_mode: FilePickerMode::OpenFolder,
+            file_picker_target: FilePickerTarget::ProjectEditorPath,
+            file_picker_filename: String::new(),
+            file_picker_selected: None,
             project_editor_window: None,
             terminal_tab_editor_window: None,
             worktree_creator_window: None,
@@ -326,6 +333,11 @@ impl CoduxApp {
             remote_pairing_creating: false,
             remote_pairing_error: None,
             remote_pairing_poll_generation: 0,
+            remote_connect_open: false,
+            remote_connect_ticket: String::new(),
+            remote_connect_name: String::new(),
+            remote_connect_error: None,
+            remote_connect_busy: false,
             recording_shortcut_id: None,
             workspace_view: WorkspaceView::Terminal,
             workspace_split: None,
@@ -333,6 +345,7 @@ impl CoduxApp {
             project_column_collapsed: true,
             task_column_collapsed: false,
             project_list_state: None,
+            remote_link_states: std::collections::HashMap::new(),
             project_column_view: None,
             task_column_view: None,
             task_column_header_view: None,
@@ -356,6 +369,14 @@ impl CoduxApp {
             project_editor_badge_symbol: None,
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
             project_editor_saving: false,
+            project_editor_host_device_id: None,
+            project_editor_browse_busy: false,
+            project_editor_browse_path: String::new(),
+            project_editor_browse_parent: None,
+            project_editor_browse_entries: Vec::new(),
+            project_editor_browse_error: None,
+            project_editor_browse_new_folder: String::new(),
+            file_picker_new_folder_active: false,
             terminal_tab_editor_id: None,
             terminal_tab_editor_label: String::new(),
             worktree_creator_project_id: None,
@@ -478,6 +499,7 @@ impl CoduxApp {
             AuxiliaryWindowSlot::TerminalTabEditor => &mut self.terminal_tab_editor_window,
             AuxiliaryWindowSlot::WorktreeCreator => &mut self.worktree_creator_window,
             AuxiliaryWindowSlot::SshProfileEditor => &mut self.ssh_profile_editor_window,
+            AuxiliaryWindowSlot::FilePicker => &mut self.file_picker_window,
         }
     }
 
@@ -497,6 +519,7 @@ impl CoduxApp {
         app.project_editor_badge_color_hex = project
             .badge_color_hex
             .unwrap_or_else(|| PROJECT_BADGE_COLORS[0].to_string());
+        app.project_editor_host_device_id = project.host_device_id;
         app
     }
 
@@ -1499,15 +1522,7 @@ impl CoduxApp {
     ) {
         match panel {
             AssistantPanel::AIStats => {
-                self.state.memory = self.runtime_service.reload_memory(
-                    self.state
-                        .selected_project
-                        .as_ref()
-                        .map(|project| project.id.as_str()),
-                );
-                self.reload_memory_manager_snapshot();
-                self.normalize_selected_memory_entry();
-                self.normalize_selected_memory_summary();
+                self.refresh_ai_stats_panel_async(cx);
             }
             AssistantPanel::SSH => {
                 self.state.ssh = self.runtime_service.reload_ssh(self.runtime.root.clone());

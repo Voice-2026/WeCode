@@ -69,6 +69,37 @@ fn create_move_and_close_preserve_unknown_fields_and_prune_related_state() {
 }
 
 #[test]
+fn create_project_persists_host_device_id_round_trip() {
+    let dir = temp_dir("project-store-host-device");
+    fs::create_dir_all(&dir).unwrap();
+    let project_dir = dir.join("remote-project");
+    fs::create_dir_all(&project_dir).unwrap();
+    let support_dir = dir.join("support");
+    fs::create_dir_all(&support_dir).unwrap();
+
+    ProjectStore::new(support_dir.clone())
+        .create_project(ProjectCreateRequest {
+            name: "Remote".to_string(),
+            path: project_dir.to_str().unwrap().to_string(),
+            badge_text: None,
+            badge_symbol: None,
+            badge_color_hex: None,
+            host_device_id: Some("device-xyz".to_string()),
+        })
+        .unwrap();
+
+    let state = state_value(&support_dir);
+    assert_eq!(state["projects"][0]["hostDeviceId"], "device-xyz");
+
+    // The typed record round-trips the field rather than dropping it.
+    let reloaded: Vec<ProjectRecord> =
+        serde_json::from_value(state["projects"].clone()).unwrap();
+    assert_eq!(reloaded[0].host_device_id.as_deref(), Some("device-xyz"));
+
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn update_project_preserves_unknown_fields_and_updates_default_worktree() {
     let dir = temp_dir("project-store-update");
     fs::create_dir_all(&dir).unwrap();

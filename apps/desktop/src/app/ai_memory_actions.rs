@@ -1280,6 +1280,69 @@ impl CoduxApp {
         self.invalidate_memory_panel(cx);
     }
 
+    /// Async entry point for showing the AI/memory panel. Loads BOTH the project
+    /// memory summary (`state.memory`) and the manager snapshot off the UI thread
+    /// in one background task — for a remote-hosted project both route to the host
+    /// over iroh, so doing them synchronously would freeze the UI on panel switch.
+    pub(super) fn refresh_ai_stats_panel_async(&mut self, cx: &mut Context<Self>) {
+        self.memory_manager_refresh_generation =
+            self.memory_manager_refresh_generation.wrapping_add(1);
+        let generation = self.memory_manager_refresh_generation;
+        self.memory_manager_refreshing = true;
+        let service = self.runtime_service.clone();
+        let summary_project_id = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone());
+        let projects = self.state.projects.clone();
+        let scope = self.memory_manager_scope.clone();
+        let manager_project_id = self.memory_manager_project_id.clone();
+        let tab = self.memory_manager_tab.as_str().to_string();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let loaded = codux_runtime::async_runtime::spawn_blocking(move || {
+                let summary = service.reload_memory(summary_project_id.as_deref());
+                let snapshot = service.reload_memory_manager(
+                    &projects,
+                    &scope,
+                    manager_project_id.as_deref(),
+                    &tab,
+                );
+                (summary, snapshot)
+            })
+            .await
+            .map_err(|error| error.to_string());
+
+            let _ = this.update(cx, |app, cx| {
+                if app.memory_manager_refresh_generation != generation {
+                    return;
+                }
+                app.memory_manager_refreshing = false;
+                match loaded {
+                    Ok((summary, snapshot)) => {
+                        app.state.memory = summary;
+                        app.state.memory_manager = snapshot;
+                        app.normalize_memory_status_seen_failures();
+                        app.normalize_selected_memory_entry();
+                        app.normalize_selected_memory_summary();
+                        let is_running = app.state.memory_manager.extraction.running > 0;
+                        app.memory_processing = is_running;
+                        if is_running {
+                            app.start_memory_extraction_status_refresh(cx);
+                        }
+                        app.status_message = "memory summary reloaded".to_string();
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to reload memory: {error}");
+                    }
+                }
+                app.invalidate_memory_panel(cx);
+            });
+        })
+        .detach();
+        self.invalidate_memory_panel(cx);
+    }
+
     fn normalize_memory_status_seen_failures(&mut self) {
         let failed = self.state.memory_manager.extraction.failed.max(0);
         if self.memory_status_seen_failed_count > failed {

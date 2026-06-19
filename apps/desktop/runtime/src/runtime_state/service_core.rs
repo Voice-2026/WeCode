@@ -30,6 +30,7 @@ fn new_remote_host_runtime(
 
 impl RuntimeService {
     pub fn new(support_dir: PathBuf) -> Self {
+        codux_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
         let ai_history_indexer =
             AIHistoryIndexer::with_database_path(support_dir.join("ai-usage.sqlite3"));
         let ai_runtime = shared_ai_runtime_bridge();
@@ -58,6 +59,9 @@ impl RuntimeService {
             git_cancels: Arc::new(Mutex::new(HashMap::new())),
             power_manager: shared_power_manager(),
             remote_host,
+            remote_controllers: Arc::new(crate::remote::RemoteControllerManager::new(
+                support_dir,
+            )),
         }
     }
 
@@ -158,6 +162,12 @@ impl RuntimeService {
         project_path: &str,
         directory_path: Option<&str>,
     ) -> Vec<FileEntry> {
+        // Remote-hosted projects list their files on the host over the controller.
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            return self
+                .remote_project_files(&device_id, project_path, directory_path)
+                .unwrap_or_default();
+        }
         load_file_entries(project_path, directory_path)
     }
 
@@ -274,6 +284,9 @@ impl RuntimeService {
     }
 
     pub fn reload_project_git(&self, project_path: &str) -> git::GitSummary {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            return self.remote_git_summary(&device_id, project_path);
+        }
         refresh_git_summary(&self.support_dir, project_path)
     }
 
@@ -282,6 +295,14 @@ impl RuntimeService {
         project_path: &str,
         base_branch: Option<&str>,
     ) -> (git::GitSummary, git::GitReviewSummary) {
+        // Remote projects have no local cache; fetch live status from the host
+        // (review diff isn't cached remotely — the panel refreshes it on demand).
+        if self.host_device_for_project_path(project_path).is_some() {
+            return (
+                self.reload_project_git(project_path),
+                git::GitReviewSummary::default(),
+            );
+        }
         (
             crate::runtime_cache::cached_git_summary(&self.support_dir, project_path)
                 .unwrap_or_default(),
@@ -439,6 +460,13 @@ impl RuntimeService {
         &self,
         project: AIHistoryProjectRequest,
     ) -> Result<AIHistoryProjectState, String> {
+        if let Some(device_id) = self.host_device_for_project_path(&project.path) {
+            return self.remote_controllers.controller_for(&device_id)?.ai_state(
+                &project.id,
+                &project.name,
+                &project.path,
+            );
+        }
         self.ai_history_indexer.project_summary(project)
     }
 
@@ -457,6 +485,13 @@ impl RuntimeService {
         &self,
         project: AIHistoryProjectRequest,
     ) -> Result<AIHistoryProjectState, String> {
+        if let Some(device_id) = self.host_device_for_project_path(&project.path) {
+            return self.remote_controllers.controller_for(&device_id)?.ai_state(
+                &project.id,
+                &project.name,
+                &project.path,
+            );
+        }
         self.ai_history_indexer.project_state(project)
     }
 
@@ -1281,6 +1316,7 @@ mod app_runtime_ready_tests {
             memory_workspace_root: None,
             memory_prompt_file: None,
             memory_index_file: None,
+            host_device_id: None,
         };
         let mut config = launch_context.to_config();
         config.shell = Some("/bin/cat".to_string());

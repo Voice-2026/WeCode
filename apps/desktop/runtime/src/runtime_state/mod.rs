@@ -108,6 +108,7 @@ include!("service_git_files.rs");
 include!("service_ai_memory.rs");
 include!("service_ssh_worktree.rs");
 include!("service_system.rs");
+include!("service_remote_controller.rs");
 include!("service_projects_settings.rs");
 include!("state.rs");
 include!("loaders.rs");

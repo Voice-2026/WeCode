@@ -50,6 +50,10 @@ pub struct RemoteDeviceSummary {
     pub last_seen: String,
     pub revoked_at: Option<String>,
     pub online: Option<bool>,
+    /// The device's OS, if it reported one at pairing. Empty for devices paired
+    /// before this was recorded (or clients that don't send it yet).
+    #[serde(default)]
+    pub platform: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -109,6 +113,8 @@ pub(crate) struct RemoteDeviceSettings {
     pub(crate) revoked_at: Option<String>,
     #[serde(default)]
     pub(crate) online: Option<bool>,
+    #[serde(default)]
+    pub(crate) platform: String,
 }
 
 impl From<RemoteDeviceSettings> for RemoteDeviceSummary {
@@ -122,6 +128,7 @@ impl From<RemoteDeviceSettings> for RemoteDeviceSummary {
             last_seen: device.last_seen,
             revoked_at: device.revoked_at,
             online: device.online,
+            platform: device.platform,
         }
     }
 }

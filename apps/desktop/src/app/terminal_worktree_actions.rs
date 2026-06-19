@@ -346,6 +346,51 @@ impl CoduxApp {
         }
     }
 
+    /// Rebind the selected project's remote terminals after its host came back
+    /// online. The host kept the PTY sessions (and their running shells/AI)
+    /// alive and auto-resumes streaming to the reconnected device; the only
+    /// thing broken on our side is that the live panes are still bound to the
+    /// evicted controller. So we re-point each remote pane to the fresh
+    /// controller (same session id) — no teardown, scrollback and AI state
+    /// preserved, live output continues. Each output frame carries a full screen
+    /// snapshot, so any gap during the outage repaints on the next frame.
+    pub(super) fn reattach_terminals_for_reconnected_hosts(
+        &mut self,
+        reconnected: &[String],
+        cx: &mut Context<Self>,
+    ) {
+        let Some(host) = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.clone())
+            .filter(|host| reconnected.iter().any(|device| device == host))
+        else {
+            return;
+        };
+        let controller = match self.runtime_service.remote_controller_for_device(&host) {
+            Ok(controller) => controller,
+            Err(error) => {
+                self.status_message = format!("failed to resolve reconnected host: {error}");
+                return;
+            }
+        };
+        let mut rebound = 0_usize;
+        for tab in &self.terminals {
+            for slot in &tab.panes {
+                if let Some(pane) = &slot.pane {
+                    if pane.rebind_remote_controller(controller.clone()) {
+                        rebound += 1;
+                    }
+                }
+            }
+        }
+        if rebound > 0 {
+            self.status_message = "remote host reconnected — terminal resumed".to_string();
+            self.invalidate_status_bar(cx);
+        }
+    }
+
     pub(super) fn detach_inactive_terminal_views(&mut self) {
         self.refresh_terminal_slot_snapshots();
         for tab in &mut self.terminals {
@@ -658,6 +703,7 @@ impl CoduxApp {
             return;
         }
         let terminal_manager = self.terminal_manager.clone();
+        let runtime_service = self.runtime_service.clone();
         let terminal_config = self.terminal_config_from_settings();
         let attach_started_at = Instant::now();
         // Captured for the ad-hoc (generation=None) completion: if the user
@@ -670,6 +716,7 @@ impl CoduxApp {
             let results = codux_runtime::async_runtime::spawn_blocking({
                 let terminal_manager = terminal_manager.clone();
                 let terminal_config = terminal_config.clone();
+                let runtime_service = runtime_service.clone();
                 move || {
                     let handles = pending_terminals
                         .into_iter()
@@ -680,15 +727,36 @@ impl CoduxApp {
                                 .unwrap_or_else(|| "none".to_string());
                             let terminal_manager = terminal_manager.clone();
                             let terminal_config = terminal_config.clone();
+                            let runtime_service = runtime_service.clone();
                             thread::spawn(move || {
-                                let result = TerminalPane::attach_pending_session(
-                                    terminal_manager,
-                                    pty_config,
-                                    terminal_config,
-                                    pending,
-                                )
-                                .map(|_| ())
-                                .map_err(|error| error.to_string());
+                                // Remote-hosted projects run the terminal on the
+                                // host over the controller; local ones use the PTY.
+                                let result = if let Some(device_id) =
+                                    pty_config.host_device_id.clone()
+                                {
+                                    match runtime_service.remote_controller_for_device(&device_id) {
+                                        Ok(controller) => {
+                                            TerminalPane::attach_pending_session_remote(
+                                                controller,
+                                                pty_config,
+                                                terminal_config,
+                                                pending,
+                                            )
+                                            .map(|_| ())
+                                            .map_err(|error| error.to_string())
+                                        }
+                                        Err(error) => Err(error),
+                                    }
+                                } else {
+                                    TerminalPane::attach_pending_session(
+                                        terminal_manager,
+                                        pty_config,
+                                        terminal_config,
+                                        pending,
+                                    )
+                                    .map(|_| ())
+                                    .map_err(|error| error.to_string())
+                                };
                                 (terminal_id, result)
                             })
                         })
@@ -1162,6 +1230,12 @@ impl CoduxApp {
             .unwrap_or_default();
         let terminal_config = self.terminal_config_from_settings();
         let spawn_started_at = Instant::now();
+        // Project-switch / layout-reload restore. A remote-hosted project's
+        // terminals are deferred into `pending` and attached on the host through
+        // the async chokepoint (local terminals still spawn synchronously inside
+        // `spawn_terminal_tabs`).
+        let mut pending: Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)> =
+            Vec::new();
         match spawn_terminal_tabs(
             &restore_plan,
             self.terminal_manager.clone(),
@@ -1169,6 +1243,7 @@ impl CoduxApp {
             &base_pty_config,
             terminal_config,
             &self.terminal_pane_registry,
+            Some(&mut pending),
             cx,
         ) {
             Ok((terminals, active_terminal_id, next_terminal_index)) => {
@@ -1177,6 +1252,7 @@ impl CoduxApp {
                 self.active_terminal_id = active_terminal_id;
                 self.next_terminal_index = next_terminal_index;
                 self.register_terminal_panes(cx);
+                self.spawn_attach_pending_terminals(None, pending, cx);
                 self.status_message = format!(
                     "terminal layout reloaded · {} tab{}",
                     self.terminals.len(),

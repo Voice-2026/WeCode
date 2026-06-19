@@ -391,6 +391,7 @@ pub(in crate::app) fn spawn_terminal_tabs<C>(
     base_pty_config: &TerminalPtyConfig,
     terminal_config: TerminalConfig,
     terminal_pane_registry: &HashMap<String, TerminalPane>,
+    mut pending_out: Option<&mut Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>>,
     cx: &mut C,
 ) -> Result<(Vec<TerminalTab>, usize, usize)>
 where
@@ -411,6 +412,7 @@ where
                 base_pty_config,
                 &terminal_config,
                 terminal_pane_registry,
+                pending_out.as_deref_mut(),
                 cx,
             )?;
         }
@@ -424,6 +426,7 @@ fn mount_terminal_tab_panes<C>(
     base_pty_config: &TerminalPtyConfig,
     terminal_config: &TerminalConfig,
     terminal_pane_registry: &HashMap<String, TerminalPane>,
+    mut pending_out: Option<&mut Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>>,
     cx: &mut C,
 ) -> Result<()>
 where
@@ -448,6 +451,23 @@ where
             refresh_terminal_pane_config(&pane, terminal_config, cx);
             slot.pane = Some(pane);
             continue;
+        }
+        // A remote-hosted project's terminal must open on the host. When the
+        // caller can drive the async attach chokepoint (`pending_out`), build a
+        // pending pane and defer — opening it inline would block the UI thread
+        // on a network round-trip. Local terminals (and the boot path, which has
+        // no pending sink yet) spawn the PTY synchronously as before.
+        if pty_config.host_device_id.is_some() {
+            if let Some(out) = pending_out.as_deref_mut() {
+                let (pane, attach) = TerminalPane::pending_with_pty_config(
+                    cx,
+                    pty_config.clone(),
+                    terminal_config.clone(),
+                );
+                slot.pane = Some(pane);
+                out.push((pty_config, attach));
+                continue;
+            }
         }
         slot.pane = Some(TerminalPane::spawn_with_pty_config(
             cx,
@@ -616,6 +636,7 @@ pub(in crate::app) fn terminal_launch_context(
             .as_ref()
             .map(|artifacts| artifacts.prompt_file.clone()),
         memory_index_file: memory_artifacts.map(|artifacts| artifacts.index_file),
+        host_device_id: project.host_device_id.clone(),
     })
 }
 

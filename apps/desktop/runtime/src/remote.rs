@@ -1,3 +1,6 @@
+mod controller;
+mod controller_manager;
+mod controller_store;
 mod crypto;
 mod devices;
 mod envelope;
@@ -15,6 +18,12 @@ mod types;
 
 use std::path::PathBuf;
 
+pub use controller::{
+    parse_pairing_ticket, PairingTicket, RemoteController, RemoteControllerTarget,
+    RemoteDirectoryEntry, RemoteDirectoryListing,
+};
+pub use controller_manager::{ControllerLinkState, RemoteControllerManager};
+pub use controller_store::{RemoteControllerStore, SavedRemoteHost, SavedRemoteTransport};
 pub use host::RemoteHostRuntime;
 pub use protocol::REMOTE_PROTOCOL_VERSION;
 pub use relay::{
