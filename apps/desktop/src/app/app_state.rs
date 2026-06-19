@@ -331,6 +331,9 @@ pub struct CoduxApp {
     pub(in crate::app) project_editor_browse_entries: Vec<RemoteBrowseEntry>,
     pub(in crate::app) project_editor_browse_error: Option<String>,
     pub(in crate::app) project_editor_browse_new_folder: String,
+    /// When the file picker is showing an inline "new folder" name editor in the
+    /// listing (triggered by the footer button).
+    pub(in crate::app) file_picker_new_folder_active: bool,
     pub(in crate::app) terminal_tab_editor_id: Option<usize>,
     pub(in crate::app) terminal_tab_editor_label: String,
     pub(in crate::app) worktree_creator_project_id: Option<String>,

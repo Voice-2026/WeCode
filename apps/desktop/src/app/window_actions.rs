@@ -377,6 +377,7 @@ impl CoduxApp {
             project_editor_browse_entries: Vec::new(),
             project_editor_browse_error: None,
             project_editor_browse_new_folder: String::new(),
+            file_picker_new_folder_active: false,
             terminal_tab_editor_id: None,
             terminal_tab_editor_label: String::new(),
             worktree_creator_project_id: None,

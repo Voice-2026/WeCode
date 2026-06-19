@@ -1965,8 +1965,8 @@ impl CoduxApp {
             AuxiliaryWindowSpec {
                 slot: AuxiliaryWindowSlot::FilePicker,
                 title: SharedString::from(title),
-                size: size(px(560.0), px(520.0)),
-                min_size: size(px(440.0), px(400.0)),
+                size: size(px(740.0), px(560.0)),
+                min_size: size(px(640.0), px(460.0)),
                 already_open_message: "file picker already opened",
                 opened_message: "file picker opened",
                 failed_prefix: "failed to open file picker",
@@ -1985,6 +1985,7 @@ impl CoduxApp {
                 app.project_editor_browse_parent = None;
                 app.project_editor_browse_entries = Vec::new();
                 app.project_editor_browse_new_folder = String::new();
+                app.file_picker_new_folder_active = false;
                 app.project_editor_browse_error = None;
                 app.parent_main_window = Some(parent);
                 app
@@ -2152,6 +2153,21 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
     }
 
+    /// Show the inline new-folder name editor in the file listing.
+    pub(super) fn begin_file_picker_new_folder(&mut self, cx: &mut Context<Self>) {
+        self.project_editor_browse_new_folder.clear();
+        self.project_editor_browse_error = None;
+        self.file_picker_new_folder_active = true;
+        self.invalidate_project_management(cx);
+    }
+
+    /// Dismiss the inline new-folder editor without creating anything.
+    pub(super) fn cancel_file_picker_new_folder(&mut self, cx: &mut Context<Self>) {
+        self.file_picker_new_folder_active = false;
+        self.project_editor_browse_new_folder.clear();
+        self.invalidate_project_management(cx);
+    }
+
     pub(super) fn project_editor_browse_create_folder(
         &mut self,
         window: &mut Window,
@@ -2192,6 +2208,7 @@ impl CoduxApp {
                     match result {
                         Ok((device_id, parent)) => {
                             app.project_editor_browse_new_folder.clear();
+                            app.file_picker_new_folder_active = false;
                             app.load_project_editor_browse(
                                 device_id,
                                 Some(parent),
