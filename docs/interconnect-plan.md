@@ -210,11 +210,30 @@ x11/wayland unproven.)
   refreshed `git.status` back into `GitSummary`. Agent serve-smoke drives stage → commit → diff.
   (Push/pull/fetch/checkout/branch follow the same pattern — a further extension.)
 
-- **Remaining:**
-  - **Memory over remote** — the agent has **no memory engine** (desktop-only, ~9.5k LOC), and
-    its core flow selects an **AI provider from `AISettings`** to run LLM extraction. This needs
-    (a) extracting the memory engine into a shared crate and (b) **model routing to the host** —
-    a major subsystem. This is the one genuinely blocked item (no model routing to fake).
+- **File domain complete (done).** copy / move / move-overwrite / import / writeBytes route to
+  the host (`file.copy`/`file.move`/`file.writeBytes` in codux-runtime-core, served by both
+  hosts; the desktop host also gained the missing `createDirectory`). Only reveal/open-external
+  stay local (inherently local).
+
+- **Git domain complete (done).** Generic `git.invoke`/`git.read` dispatch; ~30 RuntimeService
+  git methods route to the host. Agent: git2 (local) + `git` CLI (branch/network, host auth);
+  desktop host: GitService.
+
+- **Remaining (each a real chunk, best done with fresh context):**
+  - **Worktrees** — protocol + desktop host already serve them (mobile uses them). Needs: the
+    controller side + routing the ~11 `RuntimeService` worktree methods, mapping the worktree
+    payload → `WorktreeSummary` (add `Deserialize` to the worktree types; `active_git` filled
+    from the routed `reload_project_git`), plus **agent worktree support** (via `git worktree`
+    CLI — the agent has no worktree service).
+  - **AI session ops** — the AI *stats* panel already routes via `ai.state`. The session-level
+    ops (detail / fork / rename / remove) would route to the host's AIHistoryService. Secondary.
+  - **Terminal boot/float restore** — two immediate-constructor paths still local-only (the main
+    interactive add-terminal path is remote). Small.
+  - **Memory** — reading the host's `memory-workspaces` files already works via the routed file
+    domain. The blocker is **extraction** (generating memories from AI sessions via an LLM),
+    which must run on the host with an **AI provider** — i.e. model routing. The product
+    decision: does the headless host get its **own** AI-provider config, or does the controller
+    forward the desktop's provider (which means sending an API key to the host)?
 
 ## Verification
 
