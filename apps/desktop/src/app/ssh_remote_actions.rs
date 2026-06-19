@@ -932,6 +932,102 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
+    pub(super) fn toggle_remote_add_menu(&mut self, cx: &mut Context<Self>) {
+        self.remote_add_menu_open = !self.remote_add_menu_open;
+        self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn open_remote_connect(&mut self, cx: &mut Context<Self>) {
+        self.remote_add_menu_open = false;
+        self.remote_connect_open = true;
+        self.remote_connect_ticket = String::new();
+        self.remote_connect_name = String::new();
+        self.remote_connect_error = None;
+        self.remote_connect_busy = false;
+        self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn close_remote_connect(&mut self, cx: &mut Context<Self>) {
+        self.remote_connect_open = false;
+        self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn set_remote_connect_ticket(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_connect_ticket = value;
+        self.invalidate_remote_panel(cx);
+    }
+
+    pub(super) fn set_remote_connect_name(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.remote_connect_name = value;
+        self.invalidate_remote_panel(cx);
+    }
+
+    /// Pair this desktop (as controller) to another host by its `codux://pair`
+    /// ticket. The host then appears in the unified device list and is selectable
+    /// when adding a project.
+    pub(super) fn submit_remote_connect(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        let ticket = self.remote_connect_ticket.trim().to_string();
+        if ticket.is_empty() {
+            self.remote_connect_error = Some("Paste a pairing ticket.".to_string());
+            self.invalidate_remote_panel(cx);
+            return;
+        }
+        let device_name = {
+            let name = self.remote_connect_name.trim();
+            if name.is_empty() {
+                "Codux Desktop".to_string()
+            } else {
+                name.to_string()
+            }
+        };
+        let runtime_service = self.runtime_service.clone();
+        self.remote_connect_busy = true;
+        self.remote_connect_error = None;
+        self.invalidate_remote_panel(cx);
+
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                runtime_service.pair_remote_host(&ticket, &device_name)
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("failed to join pairing: {error}")));
+            let _ = this.update(cx, |app, cx| {
+                app.remote_connect_busy = false;
+                match result {
+                    Ok(saved) => {
+                        app.status_message = format!(
+                            "paired with {}",
+                            if saved.host_name.is_empty() {
+                                saved.host_id.clone()
+                            } else {
+                                saved.host_name.clone()
+                            }
+                        );
+                        app.remote_connect_open = false;
+                        app.remote_connect_ticket = String::new();
+                        app.remote_connect_name = String::new();
+                        app.remote_connect_error = None;
+                    }
+                    Err(error) => {
+                        app.remote_connect_error = Some(error);
+                    }
+                }
+                app.invalidate_remote_panel(cx);
+            });
+        })
+        .detach();
+    }
+
     fn apply_remote_pairing_cancel_result(
         &mut self,
         result: Result<RemoteSummary, String>,

@@ -264,6 +264,16 @@ pub struct CoduxApp {
     pub(in crate::app) remote_pairing_creating: bool,
     pub(in crate::app) remote_pairing_error: Option<String>,
     pub(in crate::app) remote_pairing_poll_generation: u64,
+    /// "Connect to a device" (controller direction): paste another host's
+    /// `codux://pair` ticket to pair to it. Mirrors the project-editor flow but
+    /// lives in Settings → Remote so device management is unified.
+    pub(in crate::app) remote_connect_open: bool,
+    pub(in crate::app) remote_connect_ticket: String,
+    pub(in crate::app) remote_connect_name: String,
+    pub(in crate::app) remote_connect_error: Option<String>,
+    pub(in crate::app) remote_connect_busy: bool,
+    /// Whether the Devices card "+" menu (Share / Connect) is open.
+    pub(in crate::app) remote_add_menu_open: bool,
     pub(in crate::app) recording_shortcut_id: Option<String>,
     pub(in crate::app) workspace_view: WorkspaceView,
     /// Secondary body panel shown next to the terminal workspace (split mode).

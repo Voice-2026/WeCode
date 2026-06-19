@@ -15,10 +15,11 @@ use codux_runtime::{
     tool_permissions::ToolPermissionsSummary,
     update::UpdateSummary,
 };
+use super::ui_helpers::dialog_primary_button;
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea, div,
-    img, prelude::FluentBuilder as _, px, relative, rems,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea,
+    anchored, deferred, div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
@@ -266,6 +267,17 @@ impl CoduxApp {
                 self.state.remote.pending_pairing_list.first().cloned(),
                 |this, pairing| this.child(remote_pending_pairing_overlay(pairing, language, cx)),
             )
+            .when(self.remote_connect_open, |this| {
+                this.child(remote_connect_overlay(
+                    &self.remote_connect_ticket,
+                    &self.remote_connect_name,
+                    self.remote_connect_error.as_deref(),
+                    self.remote_connect_busy,
+                    language,
+                    window,
+                    cx,
+                ))
+            })
     }
 }
 
@@ -352,6 +364,7 @@ fn settings_pane_body(
             app.state.settings.language.as_str(),
             app.remote_reconnecting,
             app.remote_pairing_creating,
+            app.remote_add_menu_open,
             window,
             cx,
         ),
@@ -955,6 +968,189 @@ fn remote_pairing_overlay(
                         .child(remote_pairing_cancel_button(pairing, language, cx)),
                 ),
         )
+        .into_any_element()
+}
+
+/// The Devices "+" dropdown: Share this device (advertise via QR/link) or
+/// Connect to a device (paste another host's ticket). Anchored below the button.
+fn remote_add_menu(language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+    let item = |id: &'static str,
+                label: SharedString,
+                hint: SharedString,
+                cx: &mut Context<CoduxApp>,
+                handler: fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>)| {
+        div()
+            .id(id)
+            .px(px(12.0))
+            .py(px(8.0))
+            .rounded(px(6.0))
+            .hover(|style| style.bg(cx.theme().secondary))
+            .cursor_pointer()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(
+                div()
+                    .text_size(rems(0.875))
+                    .text_color(cx.theme().foreground)
+                    .child(label),
+            )
+            .child(
+                div()
+                    .text_size(rems(0.75))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(hint),
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |app, _event, window, cx| handler(app, window, cx)),
+            )
+    };
+
+    deferred(
+        anchored().snap_to_window_with_margin(px(8.0)).child(
+            div()
+                .absolute()
+                .top(px(30.0))
+                .right(px(0.0))
+                .w(px(260.0))
+                .p(px(6.0))
+                .rounded(px(10.0))
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().background)
+                .shadow_lg()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .child(item(
+                    "settings-remote-add-share",
+                    settings_text(language, "remote.add.share", "Share this device").into(),
+                    settings_text(
+                        language,
+                        "remote.add.shareHint",
+                        "Show a QR / link for another device to connect.",
+                    )
+                    .into(),
+                    cx,
+                    |app, window, cx| app.create_remote_pairing(window, cx),
+                ))
+                .child(item(
+                    "settings-remote-add-connect",
+                    settings_text(language, "remote.add.connect", "Connect to a device").into(),
+                    settings_text(
+                        language,
+                        "remote.add.connectHint",
+                        "Paste another device's codux://pair link.",
+                    )
+                    .into(),
+                    cx,
+                    |app, _window, cx| app.open_remote_connect(cx),
+                )),
+        ),
+    )
+    .into_any_element()
+}
+
+/// "Connect to a device" overlay: paste another host's `codux://pair` ticket to
+/// pair this desktop to it (controller direction). Mirrors the project-editor
+/// pairing panel but lives in Settings → Remote.
+fn remote_connect_overlay(
+    ticket: &str,
+    name: &str,
+    error: Option<&str>,
+    busy: bool,
+    language: &str,
+    window: &mut Window,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let mut card = div()
+        .w(px(420.0))
+        .rounded(px(16.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().background)
+        .shadow_lg()
+        .p(px(20.0))
+        .flex()
+        .flex_col()
+        .gap(px(12.0))
+        .child(
+            div()
+                .text_size(rems(1.125))
+                .line_height(rems(1.5))
+                .text_color(cx.theme().foreground)
+                .child(settings_text(language, "remote.connect.title", "Connect to a device")),
+        )
+        .child(
+            div()
+                .text_size(rems(0.8125))
+                .text_color(cx.theme().muted_foreground)
+                .child(settings_text(
+                    language,
+                    "remote.connect.hint",
+                    "Paste the codux://pair link the other device shows (its Share menu).",
+                )),
+        )
+        .child(settings_text_input(
+            "settings-remote-connect-ticket",
+            ticket,
+            "codux://pair?payload=…",
+            false,
+            window,
+            cx,
+            |app, value, window, cx| app.set_remote_connect_ticket(value, window, cx),
+        ))
+        .child(settings_text_input(
+            "settings-remote-connect-name",
+            name,
+            "This device name",
+            false,
+            window,
+            cx,
+            |app, value, window, cx| app.set_remote_connect_name(value, window, cx),
+        ));
+    if let Some(error) = error {
+        card = card.child(
+            div()
+                .text_size(rems(0.8125))
+                .text_color(cx.theme().danger)
+                .child(error.to_string()),
+        );
+    }
+    let card = card.child(
+        div()
+            .mt(px(4.0))
+            .flex()
+            .gap(px(8.0))
+            .justify_end()
+            .child(settings_small_button(
+                "settings-remote-connect-cancel",
+                settings_text(language, "common.cancel", "Cancel"),
+                cx,
+                |app, _event, _window, cx| app.close_remote_connect(cx),
+            ))
+            .child(
+                dialog_primary_button(
+                    "settings-remote-connect-submit",
+                    settings_text(language, "remote.connect.submit", "Connect"),
+                    cx,
+                    |app, _event, window, cx| app.submit_remote_connect(window, cx),
+                )
+                .disabled(busy)
+                .loading(busy),
+            ),
+    );
+
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(cx.theme().overlay)
+        .occlude()
+        .child(card)
         .into_any_element()
 }
 
@@ -2865,6 +3061,7 @@ fn settings_remote_pane(
     language: &str,
     remote_reconnecting: bool,
     remote_pairing_creating: bool,
+    add_menu_open: bool,
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -3060,13 +3257,20 @@ fn settings_remote_pane(
                         .flex()
                         .items_center()
                         .gap(px(8.0))
-                        .child(settings_icon_button_state(
-                            "settings-remote-create-pairing",
-                            HeroIconName::Plus,
-                            remote_pairing_creating || !remote.enabled,
-                            cx,
-                            |app, _event, window, cx| app.create_remote_pairing(window, cx),
-                        ))
+                        .child(
+                            div()
+                                .relative()
+                                .child(settings_icon_button_state(
+                                    "settings-remote-add",
+                                    HeroIconName::Plus,
+                                    remote_pairing_creating || !remote.enabled,
+                                    cx,
+                                    |app, _event, _window, cx| app.toggle_remote_add_menu(cx),
+                                ))
+                                .when(add_menu_open, |container| {
+                                    container.child(remote_add_menu(language, cx))
+                                }),
+                        )
                         .child(settings_icon_button_state(
                             "settings-remote-refresh",
                             HeroIconName::ArrowPath,
