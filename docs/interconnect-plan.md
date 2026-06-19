@@ -261,9 +261,20 @@ x11/wayland unproven.)
   right after the entity is created (`main.rs`). The terminal domain is now fully remote-aware
   (interactive add/split, project-switch restore, boot restore).
 
-- **Remaining (each a real chunk, best done with fresh context):**
-  - **AI session ops** — the AI *stats* panel already routes via `ai.state`. The session-level
-    ops (detail / fork / rename / remove) would route to the host's AIHistoryService. Secondary.
+- **AI session ops complete (done).** The AI-session history layer is extracted into
+  `crates/codux-ai-sessions` (only couplings were `ai_history_normalized` and a tiny temp-dir
+  helper; the desktop keeps its live-stats view on top via a re-export shim). The host serves
+  `ai.session` (detail / rename / remove / fork) against its own `ai-usage.sqlite3`, resolving its
+  own history by the controller-sent path; `reload_project_ai_session_detail` / `fork_ai_session`
+  / `rename_ai_session` / `remove_ai_session` route to the host for remote projects. Added
+  `Deserialize` to the reply types. Agent serve-smoke drives `ai.session` e2e.
+
+- **Status: all planned interconnect domains are routed.** Files, Git, terminals (interactive +
+  project-switch + boot restore), worktrees, AI stats, memory (read + extraction), and AI session
+  ops all run against the host for a remote-hosted project. Only inherently-local actions
+  (reveal-in-finder, open-external) and the controller-local worktree `select` stay on the
+  desktop. The shared engine layer — `codux-llm`, `codux-memory`, `codux-ai-sessions`,
+  `codux-ai-history` — is the foundation. Remaining work is hardening/polish, not new domains.
 
 ## Verification
 
