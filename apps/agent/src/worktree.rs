@@ -101,6 +101,35 @@ pub fn worktree_remove(
     Ok(())
 }
 
+/// Merge a worktree's branch into `base_branch` (in the main worktree),
+/// optionally removing the worktree + branch afterwards.
+pub fn worktree_merge(
+    project_path: &str,
+    worktree_path: &str,
+    base_branch: Option<&str>,
+    remove_branch: bool,
+) -> Result<(), String> {
+    let branch = Command::new("git")
+        .arg("-C")
+        .arg(worktree_path)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty() && value != "HEAD")
+        .ok_or_else(|| "Could not resolve the worktree's branch.".to_string())?;
+    if let Some(base) = base_branch.filter(|value| !value.trim().is_empty()) {
+        run_git(project_path, &["checkout", base])?;
+    }
+    run_git(project_path, &["merge", "--no-edit", &branch])?;
+    if remove_branch {
+        let _ = run_git(project_path, &["worktree", "remove", "--force", worktree_path]);
+        let _ = run_git(project_path, &["branch", "-D", &branch]);
+    }
+    Ok(())
+}
+
 fn worktree_target_path(project_path: &str, branch_name: &str) -> String {
     let safe = branch_name.replace(['/', '\\'], "-");
     format!("{}/.worktrees/{safe}", project_path.trim_end_matches('/'))

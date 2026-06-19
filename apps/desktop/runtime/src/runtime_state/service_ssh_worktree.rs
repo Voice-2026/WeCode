@@ -127,6 +127,17 @@ impl RuntimeService {
         &self,
         request: WorktreeMergeRequest,
     ) -> Result<WorktreeSnapshot, String> {
+        if let Some(result) = self.remote_worktree_mutation(&request.project_path, |controller| {
+            controller.worktree_merge(
+                &request.project_id,
+                &request.project_path,
+                &request.worktree_path,
+                request.base_branch.as_deref(),
+                request.remove_branch.unwrap_or(false),
+            )
+        }) {
+            return result;
+        }
         WorktreeService::new(self.support_dir.clone()).merge_from_request(request)
     }
 

@@ -17,7 +17,8 @@ use codux_protocol::{
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
-    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
+    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE,
+    REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
@@ -301,24 +302,29 @@ fn make_handler(
                     crate::worktree::worktree_list_payload(project_id, project_path),
                 ))
             }
-            REMOTE_WORKTREE_CREATE | REMOTE_WORKTREE_REMOVE => {
+            REMOTE_WORKTREE_CREATE | REMOTE_WORKTREE_REMOVE | REMOTE_WORKTREE_MERGE => {
                 let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                let result = if kind == REMOTE_WORKTREE_CREATE {
-                    crate::worktree::worktree_create(
+                let result = match kind {
+                    REMOTE_WORKTREE_CREATE => crate::worktree::worktree_create(
                         project_path,
                         payload.get("branchName").and_then(Value::as_str).unwrap_or(""),
                         payload.get("baseBranch").and_then(Value::as_str),
-                    )
-                } else {
-                    crate::worktree::worktree_remove(
+                    ),
+                    REMOTE_WORKTREE_MERGE => crate::worktree::worktree_merge(
+                        project_path,
+                        payload.get("worktreePath").and_then(Value::as_str).unwrap_or(""),
+                        payload.get("baseBranch").and_then(Value::as_str),
+                        payload.get("removeBranch").and_then(Value::as_bool).unwrap_or(false),
+                    ),
+                    _ => crate::worktree::worktree_remove(
                         project_path,
                         payload.get("worktreePath").and_then(Value::as_str).unwrap_or(""),
                         payload.get("removeBranch").and_then(Value::as_bool).unwrap_or(false),
-                    )
+                    ),
                 };
                 match result {
                     Ok(()) => Some((
