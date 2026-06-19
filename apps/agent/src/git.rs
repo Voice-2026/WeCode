@@ -55,10 +55,38 @@ pub fn git_status_summary(path: &str) -> GitStatusSummary {
             } else if unstaged {
                 summary.unstaged += 1;
             }
+            // Match the desktop host's GitFileStatus shape so a controller maps
+            // both hosts uniformly.
+            let index_status = if status.contains(Status::INDEX_NEW) {
+                "A"
+            } else if status.contains(Status::INDEX_MODIFIED) {
+                "M"
+            } else if status.contains(Status::INDEX_DELETED) {
+                "D"
+            } else if status.contains(Status::INDEX_RENAMED) {
+                "R"
+            } else if status.contains(Status::INDEX_TYPECHANGE) {
+                "T"
+            } else {
+                ""
+            };
+            let worktree_status = if status.contains(Status::WT_NEW) {
+                "?"
+            } else if status.contains(Status::WT_MODIFIED) {
+                "M"
+            } else if status.contains(Status::WT_DELETED) {
+                "D"
+            } else if status.contains(Status::WT_RENAMED) {
+                "R"
+            } else if status.contains(Status::WT_TYPECHANGE) {
+                "T"
+            } else {
+                ""
+            };
             summary.changed_files.push(json!({
                 "path": entry.path().unwrap_or_default(),
-                "staged": staged,
-                "unstaged": unstaged || untracked,
+                "indexStatus": index_status,
+                "worktreeStatus": worktree_status,
             }));
         }
     }

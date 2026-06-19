@@ -284,6 +284,9 @@ impl RuntimeService {
     }
 
     pub fn reload_project_git(&self, project_path: &str) -> git::GitSummary {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            return self.remote_git_summary(&device_id, project_path);
+        }
         refresh_git_summary(&self.support_dir, project_path)
     }
 

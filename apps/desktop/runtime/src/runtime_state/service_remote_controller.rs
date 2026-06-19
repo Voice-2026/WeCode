@@ -55,6 +55,28 @@ impl RuntimeService {
         self.remote_controllers.controller_for(device_id)?.host_info()
     }
 
+    /// Git status of a remote-hosted project, mapped from the host's `git.status`
+    /// payload. (Only status is in the remote protocol today — operations like
+    /// stage/commit/diff need a protocol expansion.)
+    pub(crate) fn remote_git_summary(
+        &self,
+        device_id: &str,
+        project_path: &str,
+    ) -> crate::git::GitSummary {
+        match self
+            .remote_controllers
+            .controller_for(device_id)
+            .and_then(|controller| controller.git_status("", project_path))
+        {
+            Ok(value) => git_summary_from_payload(&value),
+            Err(error) => crate::git::GitSummary {
+                is_repository: false,
+                error: Some(error),
+                ..Default::default()
+            },
+        }
+    }
+
     /// The device hosting the project at `project_path`, if it is a remote
     /// project. Used to route a project's domains over the controller.
     pub(crate) fn host_device_for_project_path(&self, project_path: &str) -> Option<String> {
@@ -91,6 +113,53 @@ impl RuntimeService {
                     .collect()
             })
             .unwrap_or_default())
+    }
+}
+
+fn parse_typed<T: serde::de::DeserializeOwned + Default>(
+    value: &serde_json::Value,
+    key: &str,
+) -> T {
+    value
+        .get(key)
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default()
+}
+
+/// Map a host `git.status` payload into the desktop's `GitSummary`. Missing
+/// fields (e.g. a host that doesn't compute ahead/behind/commits) default.
+fn git_summary_from_payload(value: &serde_json::Value) -> crate::git::GitSummary {
+    use serde_json::Value;
+    crate::git::GitSummary {
+        branch: value
+            .get("branch")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        upstream: value
+            .get("upstream")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        ahead: value.get("ahead").and_then(Value::as_i64).unwrap_or(0),
+        behind: value.get("behind").and_then(Value::as_i64).unwrap_or(0),
+        head_pushed: value
+            .get("headPushed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        staged: value.get("staged").and_then(Value::as_u64).unwrap_or(0) as usize,
+        unstaged: value.get("unstaged").and_then(Value::as_u64).unwrap_or(0) as usize,
+        untracked: value.get("untracked").and_then(Value::as_u64).unwrap_or(0) as usize,
+        is_repository: value
+            .get("isRepository")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        error: value.get("error").and_then(Value::as_str).map(str::to_string),
+        changed_files: parse_typed(value, "changedFiles"),
+        branches: parse_typed(value, "branches"),
+        remote_branches: parse_typed(value, "remoteBranches"),
+        remotes: parse_typed(value, "remotes"),
+        commits: parse_typed(value, "commits"),
     }
 }
 
