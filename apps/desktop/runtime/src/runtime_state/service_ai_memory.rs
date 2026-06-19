@@ -107,6 +107,27 @@ impl RuntimeService {
         MemoryService::new(self.support_dir.clone()).extraction_status_snapshot()
     }
 
+    /// Trigger memory extraction for a remote-hosted project on its host. The
+    /// desktop forwards its selected AI provider config (incl. API key) over the
+    /// iroh-encrypted transport; the host runs the engine against its own AI
+    /// sessions and does not persist the provider. Returns the host's refreshed
+    /// extraction status. Errs if the project is not remote-hosted.
+    pub fn extract_remote_project_memory(
+        &self,
+        project_id: &str,
+    ) -> Result<MemoryExtractionStatusSnapshot, String> {
+        let (device_id, _path) = self
+            .remote_project_for_id(project_id)
+            .ok_or_else(|| "Project is not remote-hosted.".to_string())?;
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
+        let config = serde_json::to_value(crate::memory::memory_config(&settings))
+            .map_err(|error| error.to_string())?;
+        let output_locale = self.memory_extraction_output_locale();
+        let controller = self.remote_controllers.controller_for(&device_id)?;
+        let result = controller.memory_extract(config, &output_locale)?;
+        serde_json::from_value(result).map_err(|error| error.to_string())
+    }
+
     pub fn automatic_memory_extraction_available(&self) -> bool {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
         crate::memory::extraction::select_memory_provider(

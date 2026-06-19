@@ -7,13 +7,69 @@
 //! Extraction (`memory.extract`, the LLM write path driven by a
 //! controller-forwarded provider config) is the follow-up.
 
-use codux_memory::{MemoryManagementRequest, MemoryProjectInfo, MemoryService};
+use codux_memory::{
+    MemoryConfig, MemoryManagementRequest, MemoryProjectInfo, MemoryProjectRecord, MemoryService,
+    MemorySessionSnapshot,
+};
 use serde_json::{Value, json};
 
 use crate::projects::{AgentProjectStore, agent_data_dir};
 
 fn service() -> MemoryService {
     MemoryService::new(agent_data_dir())
+}
+
+/// The host's projects as workspace records (the agent has no root/worktree
+/// split, so each project is its own root + workspace).
+fn memory_records() -> Vec<MemoryProjectRecord> {
+    AgentProjectStore::new()
+        .list()
+        .into_iter()
+        .map(|project| MemoryProjectRecord {
+            id: project.id.clone(),
+            root_project_id: project.id,
+            root_project_name: project.name,
+            root_project_path: project.path.clone(),
+            workspace_path: project.path,
+            git_default_push_remote_name: None,
+        })
+        .collect()
+}
+
+/// Run a memory extraction pass on the host with the controller-forwarded
+/// provider config. The config (incl. its provider's API key) is used for this
+/// run only and never persisted. Returns `{op: "extract", result: <status>}`.
+pub async fn memory_extract_payload(payload: &Value) -> Value {
+    let config: MemoryConfig = payload
+        .get("config")
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    let output_locale = payload.get("outputLocale").and_then(Value::as_str).unwrap_or("");
+    let projects = memory_records();
+    // The host's indexed AI sessions are the extraction candidates; the agent
+    // runs no live AI supervisor, so there are no runtime snapshots.
+    let history_sessions = codux_ai_history::normalized::indexed_sessions_since_at(
+        agent_data_dir().join("ai-usage.sqlite3"),
+        None,
+    )
+    .unwrap_or_default();
+    let runtime_sessions: Vec<MemorySessionSnapshot> = Vec::new();
+
+    let service = service();
+    let _ = service.enqueue_automatic_extraction_candidates(
+        &config.memory,
+        &projects,
+        &runtime_sessions,
+        &history_sessions,
+    );
+    let status = service
+        .process_memory_extraction_queue(&config, &projects, output_locale)
+        .await
+        .ok()
+        .and_then(|status| serde_json::to_value(status).ok())
+        .unwrap_or(Value::Null);
+    json!({ "op": "extract", "result": status })
 }
 
 /// The host's projects mapped into the engine's project shape (the manager view

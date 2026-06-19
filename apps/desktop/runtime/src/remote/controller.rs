@@ -16,8 +16,8 @@ use codux_protocol::{
     REMOTE_FILE_MOVED, REMOTE_FILE_WRITE_BYTES,
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_READ,
-    REMOTE_MEMORY_RESULT,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
+    REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
     REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
     REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
@@ -616,6 +616,20 @@ impl RemoteController {
             REMOTE_MEMORY_READ,
             REMOTE_MEMORY_RESULT,
             Value::Object(payload),
+        )?;
+        Ok(value.get("result").cloned().unwrap_or(Value::Null))
+    }
+
+    /// Trigger a memory extraction run on the host with a forwarded provider
+    /// config. The config (incl. its API key) is used for the run and not
+    /// persisted on the host. Returns the refreshed extraction status JSON.
+    /// Allows a long timeout — extraction runs an LLM over the host's sessions.
+    pub fn memory_extract(&self, config: Value, output_locale: &str) -> Result<Value, String> {
+        let value = self.request_with_timeout(
+            REMOTE_MEMORY_RESULT,
+            REMOTE_MEMORY_EXTRACT,
+            json!({ "config": config, "outputLocale": output_locale }),
+            std::time::Duration::from_secs(300),
         )?;
         Ok(value.get("result").cloned().unwrap_or(Value::Null))
     }

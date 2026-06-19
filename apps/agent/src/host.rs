@@ -12,7 +12,8 @@ use codux_protocol::{
     REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
     REMOTE_GIT_INVOKE,
-    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT,
+    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT, REMOTE_MEMORY_READ,
+    REMOTE_MEMORY_RESULT,
     REMOTE_PAIRING_CONFIRMED,
     REMOTE_PAIRING_REQUEST,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
@@ -78,6 +79,40 @@ fn make_handler(
         // single reply.
         if crate::terminals::is_terminal_kind(kind) {
             crate::terminals::handle_terminal(&driver, &slot, device_id, kind, &payload);
+            return;
+        }
+
+        // Memory extraction runs the engine + an LLM (async, possibly slow), so
+        // it is handled imperatively on its own runtime thread and sends its own
+        // reply, rather than blocking the message dispatch.
+        if kind == REMOTE_MEMORY_EXTRACT {
+            let slot = Arc::clone(&slot);
+            let device = device_id.map(str::to_string);
+            let request = request_id.map(str::to_string);
+            let payload = payload.clone();
+            std::thread::spawn(move || {
+                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                else {
+                    return;
+                };
+                let result = runtime.block_on(crate::memory::memory_extract_payload(&payload));
+                let mut envelope = json!({ "type": REMOTE_MEMORY_RESULT, "payload": result });
+                if let Some(device) = device.as_deref() {
+                    envelope["deviceId"] = json!(device);
+                }
+                if let Some(request) = request.as_deref() {
+                    envelope["requestId"] = json!(request);
+                }
+                if let Ok(bytes) = serde_json::to_vec(&envelope) {
+                    if let Ok(guard) = slot.lock() {
+                        if let Some(transport) = guard.as_ref() {
+                            transport.send(bytes, device.as_deref());
+                        }
+                    }
+                }
+            });
             return;
         }
 
@@ -820,6 +855,18 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             return Err(format!("memory.read reply missing result: {memory}"));
         }
 
+        // memory.extract: run an extraction pass. With no provider configured and
+        // no indexed sessions, the engine processes an empty queue and returns a
+        // status — exercising the async write path end to end without an LLM.
+        request(
+            REMOTE_MEMORY_EXTRACT,
+            json!({ "config": {}, "outputLocale": "en" }),
+        )?;
+        let extract = expect(&mut reply_rx, REMOTE_MEMORY_RESULT).await?;
+        if extract.get("op").and_then(Value::as_str) != Some("extract") {
+            return Err(format!("memory.extract reply missing op: {extract}"));
+        }
+
         Ok::<(), String>(())
     };
     let result = run.await;
@@ -828,5 +875,5 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     controller.shutdown().await;
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
-    Ok("codux-agent-serve-ok\npairing + file + project + terminal + git + ai + memory domains verified".to_string())
+    Ok("codux-agent-serve-ok\npairing + file + project + terminal + git + ai + memory (read+extract) domains verified".to_string())
 }
