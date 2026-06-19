@@ -15,7 +15,9 @@ use codux_protocol::{
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
     REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
-    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_TRANSPORT_IROH,
+    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
+    REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT,
+    REMOTE_TERMINAL_RESIZE, REMOTE_TRANSPORT_IROH,
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
@@ -163,10 +165,15 @@ struct Waiter {
     tx: Sender<Result<Value, String>>,
 }
 
+type TerminalSink = Box<dyn Fn(Value) + Send + Sync>;
+
 #[derive(Default)]
 struct ControllerInner {
     waiters: Mutex<Vec<Waiter>>,
     events: Mutex<VecDeque<(String, Value)>>,
+    // High-frequency terminal.output frames are pushed here (full envelope) for
+    // a RemoteOutputRouter to assemble, rather than queued as events.
+    terminal_sink: Mutex<Option<TerminalSink>>,
 }
 
 impl ControllerInner {
@@ -183,6 +190,16 @@ impl ControllerInner {
             .unwrap_or_default()
             .to_string();
         let payload = envelope.get("payload").cloned().unwrap_or(Value::Null);
+        // Terminal output streams to the router sink (full envelope: it carries
+        // the top-level sessionId the router needs), not the waiter/event path.
+        if kind == REMOTE_TERMINAL_OUTPUT {
+            if let Ok(sink) = self.terminal_sink.lock() {
+                if let Some(sink) = sink.as_ref() {
+                    sink(envelope);
+                    return;
+                }
+            }
+        }
         {
             let mut waiters = self.waiters.lock().unwrap();
             if kind == REMOTE_ERROR {
@@ -488,6 +505,58 @@ impl RemoteController {
     pub fn project_list(&self) -> Result<Value, String> {
         self.request(REMOTE_PROJECT_LIST, REMOTE_PROJECT_LIST, json!({}))
     }
+
+    // ---- Terminal -----------------------------------------------------------
+
+    /// Register where `terminal.output` frames are delivered (a RemoteOutputRouter
+    /// feed). Replaces any previous sink.
+    pub fn set_terminal_sink(&self, sink: TerminalSink) {
+        if let Ok(mut guard) = self.inner.terminal_sink.lock() {
+            *guard = Some(sink);
+        }
+    }
+
+    /// Create a terminal on the host; returns its session id.
+    pub fn create_terminal(&self, config: Value) -> Result<String, String> {
+        let reply = self.request(REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_CREATE, config)?;
+        reply
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "terminal.created reply missing sessionId".to_string())
+    }
+
+    /// Send keystrokes (fire-and-forget — input is high-frequency).
+    pub fn terminal_input(&self, session_id: &str, data: &str) -> bool {
+        self.fire(
+            REMOTE_TERMINAL_INPUT,
+            json!({ "sessionId": session_id, "data": data }),
+        )
+    }
+
+    pub fn terminal_resize(&self, session_id: &str, cols: u16, rows: u16) -> bool {
+        self.fire(
+            REMOTE_TERMINAL_RESIZE,
+            json!({ "sessionId": session_id, "cols": cols, "rows": rows }),
+        )
+    }
+
+    pub fn close_terminal(&self, session_id: &str) -> Result<Value, String> {
+        self.request(
+            REMOTE_TERMINAL_CLOSED,
+            REMOTE_TERMINAL_CLOSE,
+            json!({ "sessionId": session_id }),
+        )
+    }
+
+    /// Send an envelope without awaiting a reply.
+    fn fire(&self, kind: &str, payload: Value) -> bool {
+        let envelope = json!({ "type": kind, "deviceId": self.device_id, "payload": payload });
+        match serde_json::to_vec(&envelope) {
+            Ok(bytes) => self.transport.send(bytes, None),
+            Err(_) => false,
+        }
+    }
 }
 
 /// Build the persistable host record from a `pairing.confirmed` payload.
@@ -740,6 +809,125 @@ mod e2e {
         );
 
         std::fs::remove_dir_all(support).ok();
+    }
+
+    #[test]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    fn controller_streams_terminal_output_into_the_router() {
+        use codux_protocol::terminal_live_output_payload;
+        use codux_terminal_core::RemoteTerminalOutputRouter;
+
+        // Host: reply terminal.created, then echo terminal.input back as a
+        // terminal.output frame (a fake PTY).
+        let host_slot: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>> = Arc::new(Mutex::new(None));
+        let reply_slot = Arc::clone(&host_slot);
+        let on_message = Arc::new(move |_source: String, data: Vec<u8>| {
+            let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
+                return;
+            };
+            let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+            let device_id = envelope.get("deviceId").and_then(Value::as_str);
+            let send = |value: Value| {
+                if let (Ok(bytes), Ok(guard)) = (serde_json::to_vec(&value), reply_slot.lock()) {
+                    if let Some(transport) = guard.as_ref() {
+                        transport.send(bytes, device_id);
+                    }
+                }
+            };
+            match kind {
+                REMOTE_PAIRING_REQUEST => send(json!({
+                    "type": REMOTE_PAIRING_CONFIRMED, "deviceId": device_id,
+                    "payload": { "hostId": "h", "deviceId": device_id.unwrap_or_default(), "token": "", "transports": [] },
+                })),
+                REMOTE_TERMINAL_CREATE => send(json!({
+                    "type": REMOTE_TERMINAL_CREATED, "deviceId": device_id,
+                    "payload": { "sessionId": "t1" },
+                })),
+                REMOTE_TERMINAL_INPUT => {
+                    let text = envelope
+                        .get("payload")
+                        .and_then(|payload| payload.get("data"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    send(json!({
+                        "type": REMOTE_TERMINAL_OUTPUT,
+                        "sessionId": "t1",
+                        "deviceId": device_id,
+                        "payload": terminal_live_output_payload(text.clone(), text.len(), 1, Some(text)),
+                    }));
+                }
+                _ => {}
+            }
+        });
+
+        crate::async_runtime::block_on(async {
+            let config = codux_remote_transport::RemoteHostTransportConfig {
+                relay_url: "https://relay.example".to_string(),
+                relay_preset: "global".to_string(),
+                iroh_relay_url: String::new(),
+                iroh_relay_authentication: String::new(),
+                host_id: "h".to_string(),
+                host_token: "t".to_string(),
+            };
+            let host = codux_remote_transport::RemoteTransportFactory::connect_host(
+                &config,
+                on_message,
+                Arc::new(|_| Ok(())),
+                Arc::new(|_, _| {}),
+                Arc::new(|_| {}),
+                None,
+            )
+            .await
+            .expect("host");
+            *host_slot.lock().unwrap() = Some(Arc::clone(&host));
+            let ticket = PairingTicket {
+                code: "c".to_string(),
+                secret: "s".to_string(),
+                pairing_id: "p".to_string(),
+                transports: vec![TicketTransport {
+                    kind: REMOTE_TRANSPORT_IROH.to_string(),
+                    ticket: host.iroh_endpoint_ticket().expect("ticket"),
+                    relay_authentication: String::new(),
+                }],
+            };
+            let (controller, _saved) = RemoteController::pair(&ticket, "test").await.expect("pair");
+            let controller = Arc::new(controller);
+
+            // The router assembles terminal output, just like mobile does.
+            let router = Arc::new(Mutex::new(RemoteTerminalOutputRouter::new(100_000, 100_000)));
+            let router_for_sink = Arc::clone(&router);
+            controller.set_terminal_sink(Box::new(move |envelope| {
+                if let Ok(mut router) = router_for_sink.lock() {
+                    router.accept(&envelope, Some("t1"));
+                }
+            }));
+
+            let controller_for_calls = Arc::clone(&controller);
+            let assembled = crate::async_runtime::spawn_blocking(move || {
+                let session = controller_for_calls
+                    .create_terminal(json!({ "command": "echo", "cwd": "/tmp" }))
+                    .expect("create terminal");
+                router.lock().unwrap().bind_session(&session, false);
+                controller_for_calls.terminal_input(&session, "hello-remote-term");
+                // Poll until the echoed output is assembled by the router.
+                for _ in 0..50 {
+                    if let Some(content) = router.lock().unwrap().content(&session) {
+                        if content.contains("hello-remote-term") {
+                            return true;
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                false
+            })
+            .await
+            .unwrap();
+            assert!(assembled, "router assembled the remote terminal output");
+
+            controller.shutdown().await;
+            host.shutdown().await;
+        });
     }
 }
 
