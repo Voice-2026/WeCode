@@ -1,3 +1,4 @@
+mod controller;
 mod crypto;
 mod devices;
 mod envelope;
@@ -15,6 +16,7 @@ mod types;
 
 use std::path::PathBuf;
 
+pub use controller::{RemoteController, RemoteControllerTarget};
 pub use host::RemoteHostRuntime;
 pub use protocol::REMOTE_PROTOCOL_VERSION;
 pub use relay::{

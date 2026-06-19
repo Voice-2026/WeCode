@@ -1,14 +1,32 @@
 use super::types::RemoteSettings;
 use codux_remote_transport::{
-    RemoteHostTransportConfig, RemoteTransport, RemoteTransportFactory as SharedTransportFactory,
-    RemoteTransportMessageHandler, RemoteTransportPairingHandler, RemoteTransportStateHandler,
-    RemoteTransportUploadHandler,
+    RemoteControllerTransportConfig, RemoteHostTransportConfig, RemoteTransport,
+    RemoteTransportFactory as SharedTransportFactory, RemoteTransportMessageHandler,
+    RemoteTransportPairingHandler, RemoteTransportStateHandler, RemoteTransportUploadHandler,
 };
 use std::sync::Arc;
 
 pub(crate) struct RemoteTransportFactory;
 
 impl RemoteTransportFactory {
+    /// Dial OUT to a remote host as a controller (the inverse of `connect_host`).
+    /// The desktop uses this to drive another device's domains.
+    pub(crate) async fn connect_controller(
+        config: &RemoteControllerTransportConfig,
+        on_message: RemoteTransportMessageHandler,
+        on_state: RemoteTransportStateHandler,
+    ) -> Result<Arc<dyn RemoteTransport>, String> {
+        SharedTransportFactory::connect_controller(
+            config,
+            on_message,
+            on_state,
+            Some(Arc::new(|message| {
+                crate::runtime_trace::runtime_trace("remote-controller", &message);
+            })),
+        )
+        .await
+    }
+
     pub(crate) async fn connect_host(
         settings: &RemoteSettings,
         on_message: RemoteTransportMessageHandler,
