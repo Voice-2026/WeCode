@@ -1,10 +1,11 @@
 use super::*;
 
-/// One entry in the inline remote directory browser (a directory on a host).
+/// One entry in the file-picker directory listing (local or on a host).
 #[derive(Clone)]
 pub(in crate::app) struct RemoteBrowseEntry {
     pub(in crate::app) name: String,
     pub(in crate::app) path: String,
+    pub(in crate::app) is_dir: bool,
 }
 
 static ACTIVE_SETTINGS_SNAPSHOT: OnceLock<std::sync::Mutex<SettingsSummary>> = OnceLock::new();
@@ -82,6 +83,10 @@ pub struct CoduxApp {
     pub(in crate::app) pet_dex_window: Option<AnyWindowHandle>,
     pub(in crate::app) ssh_profile_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) file_picker_window: Option<AnyWindowHandle>,
+    pub(in crate::app) file_picker_mode: FilePickerMode,
+    pub(in crate::app) file_picker_target: FilePickerTarget,
+    pub(in crate::app) file_picker_filename: String,
+    pub(in crate::app) file_picker_selected: Option<String>,
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) terminal_tab_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,

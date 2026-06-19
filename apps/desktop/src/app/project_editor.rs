@@ -179,8 +179,19 @@ impl CoduxApp {
     ) -> AnyElement {
         let locale = locale_from_language_setting(self.state.settings.language.as_str());
         let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
-        let title = tr("project.editor.browse.title", "Choose Folder");
+        let mode = self.file_picker_mode;
+        let title = match mode {
+            FilePickerMode::OpenFolder => tr("project.editor.browse.title", "Choose Folder"),
+            FilePickerMode::OpenFile => tr("file.picker.open.title", "Open File"),
+            FilePickerMode::Save => tr("file.picker.save.title", "Save As"),
+        };
+        let confirm_label = match mode {
+            FilePickerMode::OpenFolder => tr("project.editor.browse.use", "Use this folder"),
+            FilePickerMode::OpenFile => tr("file.picker.open.confirm", "Open"),
+            FilePickerMode::Save => tr("file.picker.save.confirm", "Save"),
+        };
         let current = self.project_editor_browse_path.clone();
+        let can_confirm = self.file_picker_result_path().is_some() && !self.project_editor_browse_busy;
 
         let mut list = div()
             .min_h_0()
@@ -190,9 +201,11 @@ impl CoduxApp {
             .gap(px(2.0))
             .overflow_y_scrollbar();
         if let Some(parent) = self.project_editor_browse_parent.clone() {
-            list = list.child(project_editor_browse_row(
+            list = list.child(file_picker_entry_row(
                 "file-picker-up".to_string(),
                 "..".to_string(),
+                true,
+                false,
                 cx,
                 move |app, window, cx| {
                     app.project_editor_browse_navigate(Some(parent.clone()), window, cx)
@@ -201,12 +214,16 @@ impl CoduxApp {
         }
         for entry in &self.project_editor_browse_entries {
             let path = entry.path.clone();
-            list = list.child(project_editor_browse_row(
+            let is_dir = entry.is_dir;
+            let selected = !is_dir && self.file_picker_selected.as_deref() == Some(path.as_str());
+            list = list.child(file_picker_entry_row(
                 format!("file-picker-{path}"),
                 entry.name.clone(),
+                is_dir,
+                selected,
                 cx,
                 move |app, window, cx| {
-                    app.project_editor_browse_navigate(Some(path.clone()), window, cx)
+                    app.file_picker_choose_entry(path.clone(), is_dir, window, cx)
                 },
             ));
         }
@@ -260,6 +277,17 @@ impl CoduxApp {
                             })),
                     ),
             );
+        // Save mode: a filename row (prefilled when an existing file is clicked).
+        if mode == FilePickerMode::Save {
+            body = body.child(div().min_w_0().child(project_editor_input(
+                "file-picker-filename",
+                &self.file_picker_filename,
+                "File name",
+                window,
+                cx,
+                |app, value, window, cx| app.set_file_picker_filename(value, window, cx),
+            )));
+        }
         if let Some(error) = self.project_editor_browse_error.as_ref() {
             body = body.child(
                 div()
@@ -287,11 +315,11 @@ impl CoduxApp {
                     .child(
                         dialog_primary_button(
                             "file-picker-use",
-                            tr("project.editor.browse.use", "Use this folder"),
+                            confirm_label,
                             cx,
                             |app, _event, window, cx| app.file_picker_select(window, cx),
                         )
-                        .disabled(current.trim().is_empty() || self.project_editor_browse_busy),
+                        .disabled(!can_confirm),
                     ),
                 cx,
             ))
@@ -299,13 +327,15 @@ impl CoduxApp {
     }
 }
 
-fn project_editor_browse_row(
+fn file_picker_entry_row(
     id: String,
     label: String,
+    is_dir: bool,
+    selected: bool,
     cx: &mut Context<CoduxApp>,
     on_click: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
 ) -> AnyElement {
-    div()
+    let mut row = div()
         .id(SharedString::from(id))
         .flex()
         .items_center()
@@ -317,9 +347,13 @@ fn project_editor_browse_row(
         .hover(|style| style.bg(cx.theme().secondary_hover))
         .on_click(cx.listener(move |app, _event, window, cx| on_click(app, window, cx)))
         .child(
-            Icon::new(HeroIconName::Folder)
-                .size_3()
-                .text_color(color(theme::TEXT_MUTED)),
+            Icon::new(if is_dir {
+                HeroIconName::Folder
+            } else {
+                HeroIconName::Document
+            })
+            .size_3()
+            .text_color(color(theme::TEXT_MUTED)),
         )
         .child(
             div()
@@ -327,8 +361,11 @@ fn project_editor_browse_row(
                 .text_color(color(theme::TEXT))
                 .truncate()
                 .child(label),
-        )
-        .into_any_element()
+        );
+    if selected {
+        row = row.bg(cx.theme().secondary);
+    }
+    row.into_any_element()
 }
 
 fn project_editor_device_chip(

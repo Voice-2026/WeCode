@@ -1924,18 +1924,39 @@ impl CoduxApp {
             let path = self.project_editor_path.trim();
             (!path.is_empty()).then(|| path.to_string())
         };
-        self.open_file_picker_window(device_id, start, window, cx);
+        self.open_file_picker_window(
+            FilePickerMode::OpenFolder,
+            FilePickerTarget::ProjectEditorPath,
+            device_id,
+            start,
+            window,
+            cx,
+        );
     }
 
     pub(super) fn open_file_picker_window(
         &mut self,
+        mode: FilePickerMode,
+        target: FilePickerTarget,
         device_id: Option<String>,
         start_path: Option<String>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let locale = locale_from_language_setting(&self.state.settings.language);
-        let title = translate(&locale, "project.editor.browse.title", "Choose Folder");
+        let title = translate(
+            &locale,
+            match mode {
+                FilePickerMode::OpenFolder => "project.editor.browse.title",
+                FilePickerMode::OpenFile => "file.picker.open.title",
+                FilePickerMode::Save => "file.picker.save.title",
+            },
+            match mode {
+                FilePickerMode::OpenFolder => "Choose Folder",
+                FilePickerMode::OpenFile => "Open File",
+                FilePickerMode::Save => "Save As",
+            },
+        );
         let parent = cx.entity().downgrade();
         let device_for_build = device_id.clone();
         self.open_auxiliary_window(
@@ -1953,6 +1974,10 @@ impl CoduxApp {
                 let mut app =
                     CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
                 app.window_mode = AppWindowMode::FilePicker;
+                app.file_picker_mode = mode;
+                app.file_picker_target = target;
+                app.file_picker_filename = String::new();
+                app.file_picker_selected = None;
                 app.project_editor_host_device_id = device_for_build;
                 app.project_editor_browse_path = String::new();
                 app.project_editor_browse_parent = None;
@@ -1983,24 +2008,90 @@ impl CoduxApp {
         self.load_project_editor_browse(device_id, path, window.window_handle(), cx);
     }
 
-    /// Confirm the file-picker sub-window's current folder: push it back to the
-    /// project-editor window (the parent) and close the picker.
-    pub(super) fn file_picker_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let path = self.project_editor_browse_path.trim().to_string();
-        if path.is_empty() {
+    /// Click an entry: directories navigate, files are selected (file/save mode).
+    pub(super) fn file_picker_choose_entry(
+        &mut self,
+        path: String,
+        is_dir: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if is_dir {
+            self.project_editor_browse_navigate(Some(path), window, cx);
             return;
         }
+        // Selecting a file (Save mode prefills the filename from it).
+        if self.file_picker_mode == FilePickerMode::Save {
+            if let Some(name) = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|name| name.to_str())
+            {
+                self.file_picker_filename = name.to_string();
+            }
+        }
+        self.file_picker_selected = Some(path);
+        self.invalidate_project_management(cx);
+    }
+
+    pub(super) fn set_file_picker_filename(
+        &mut self,
+        value: String,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.file_picker_filename = value;
+        self.invalidate_project_management(cx);
+    }
+
+    /// The path the picker would return for its current mode/selection, if valid.
+    pub(in crate::app) fn file_picker_result_path(&self) -> Option<String> {
+        match self.file_picker_mode {
+            FilePickerMode::OpenFolder => {
+                let path = self.project_editor_browse_path.trim();
+                (!path.is_empty()).then(|| path.to_string())
+            }
+            FilePickerMode::OpenFile => self.file_picker_selected.clone(),
+            FilePickerMode::Save => {
+                let dir = self.project_editor_browse_path.trim().trim_end_matches('/');
+                let name = self.file_picker_filename.trim();
+                (!dir.is_empty() && !name.is_empty()).then(|| format!("{dir}/{name}"))
+            }
+        }
+    }
+
+    /// Confirm the picker: compute the result path for the mode, deliver it to
+    /// the target on the opener window, and close the picker.
+    pub(super) fn file_picker_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.file_picker_result_path() else {
+            return;
+        };
+        let target = self.file_picker_target;
         if let Some(parent) = self
             .parent_main_window
             .clone()
             .and_then(|parent| parent.upgrade())
         {
             let _ = parent.update(cx, |opener, cx| {
-                opener.project_editor_path = path.clone();
-                opener.invalidate_project_management(cx);
+                opener.apply_file_picker_result(target, path.clone(), cx);
             });
         }
         window.remove_window();
+    }
+
+    /// Deliver a picked path to its target (on the opener window). Add a match
+    /// arm per new `FilePickerTarget`.
+    pub(in crate::app) fn apply_file_picker_result(
+        &mut self,
+        target: FilePickerTarget,
+        path: String,
+        cx: &mut Context<Self>,
+    ) {
+        match target {
+            FilePickerTarget::ProjectEditorPath => {
+                self.project_editor_path = path;
+                self.invalidate_project_management(cx);
+            }
+        }
     }
 
     pub(super) fn set_project_editor_browse_new_folder(
@@ -2113,16 +2204,21 @@ impl CoduxApp {
     fn apply_project_editor_browse(&mut self, listing: codux_runtime::remote::RemoteDirectoryListing) {
         self.project_editor_browse_path = listing.path;
         self.project_editor_browse_parent = listing.parent;
-        // Only directories are pickable as a project root.
+        // Folder mode lists only directories; file/save modes list files too
+        // (files are selectable, directories navigate).
+        let folders_only = self.file_picker_mode == FilePickerMode::OpenFolder;
         self.project_editor_browse_entries = listing
             .entries
             .into_iter()
-            .filter(|entry| entry.is_dir)
+            .filter(|entry| !folders_only || entry.is_dir)
             .map(|entry| RemoteBrowseEntry {
                 name: entry.name,
                 path: entry.path,
+                is_dir: entry.is_dir,
             })
             .collect();
+        // Navigating to a new directory clears any prior file selection.
+        self.file_picker_selected = None;
         self.project_editor_browse_error = None;
     }
 

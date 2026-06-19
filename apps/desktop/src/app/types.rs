@@ -1,5 +1,28 @@
 use crate::terminal::TerminalPane;
 
+/// What the file-picker sub-window selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum FilePickerMode {
+    /// Pick a directory (only folders are choosable; files are hidden).
+    OpenFolder,
+    /// Pick an existing file (folders navigate, files are choosable). Built into
+    /// the picker and ready; wire a caller (e.g. an "Open file…" action) to use it.
+    #[allow(dead_code)]
+    OpenFile,
+    /// Choose a directory + type a filename (Save As). Built and ready; wire a
+    /// caller (e.g. a "Save as…" action) to use it.
+    #[allow(dead_code)]
+    Save,
+}
+
+/// Where the picker's chosen path is delivered when confirmed. Extensible: add a
+/// variant per call site, handled in `apply_file_picker_result`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum FilePickerTarget {
+    /// The project-editor window's directory field (add/edit a project).
+    ProjectEditorPath,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::app) enum AppWindowMode {
     Main,
