@@ -1867,16 +1867,6 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
     }
 
-    pub(super) fn set_project_editor_path(
-        &mut self,
-        value: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_editor_path = clean_dialog_path(&value);
-        self.invalidate_project_management(cx);
-    }
-
     pub(super) fn set_project_editor_badge_symbol(
         &mut self,
         value: Option<String>,

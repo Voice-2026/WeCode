@@ -858,37 +858,15 @@ fn project_editor_path_field(
     path: &str,
     device_label: String,
     is_remote: bool,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
-    let value = path.to_string();
-    let input_state = window.use_keyed_state(SharedString::from("project-editor-path"), cx, {
-        let value = value.clone();
-        move |window, cx| {
-            InputState::new(window, cx)
-                .default_value(value.clone())
-                .placeholder("/path/to/project")
-        }
-    });
-    input_state.update(cx, |state, cx| {
-        if state.value().as_ref() != value {
-            state.set_value(value.clone(), window, cx);
-        }
-    });
-    cx.subscribe_in(&input_state, window, move |app, state, event, window, cx| {
-        if matches!(event, InputEvent::Change) {
-            app.set_project_editor_path(state.read(cx).value().to_string(), window, cx);
-        }
-    })
-    .detach();
-
-    // The device the project will live on is shown as a prefix inside the input
-    // (e.g. "This Mac | /path"); switching devices happens in the picker.
+    // The directory is read-only: it can only be set via the picker (Choose), so
+    // the device + path always stay consistent. The whole box is clickable.
     let device_prefix = div()
         .flex()
         .items_center()
         .gap(px(5.0))
-        .pl(px(2.0))
         .pr(px(8.0))
         .mr(px(8.0))
         .border_r_1()
@@ -910,6 +888,43 @@ fn project_editor_path_field(
                 .text_color(color(theme::TEXT_MUTED))
                 .child(device_label),
         );
+    let has_path = !path.trim().is_empty();
+    let path_text = if has_path {
+        path.to_string()
+    } else {
+        "/path/to/project".to_string()
+    };
+    let path_box = div()
+        .id("project-editor-path")
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .h(px(34.0))
+        .px(px(10.0))
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(color(theme::BORDER_SOFT))
+        .bg(cx.theme().secondary.opacity(0.4))
+        .cursor_pointer()
+        .hover(|style| style.border_color(color(theme::BORDER)))
+        .on_click(cx.listener(|app, _event, window, cx| {
+            app.choose_project_editor_directory(window, cx);
+        }))
+        .child(device_prefix)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(rems(0.8125))
+                .text_color(color(if has_path {
+                    theme::TEXT
+                } else {
+                    theme::TEXT_DIM
+                }))
+                .child(path_text),
+        );
 
     div()
         .flex()
@@ -928,11 +943,7 @@ fn project_editor_path_field(
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(div().flex_1().min_w_0().child(
-                    Input::new(&input_state)
-                        .with_size(gpui_component::Size::Medium)
-                        .prefix(device_prefix),
-                ))
+                .child(path_box)
                 .child(
                     Button::new("project-editor-choose-path")
                         .secondary()
