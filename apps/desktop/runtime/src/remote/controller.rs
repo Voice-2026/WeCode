@@ -13,10 +13,11 @@ use base64::Engine;
 use codux_protocol::{
     REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED,
     REMOTE_FILE_COPY, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_MOVE,
-    REMOTE_FILE_MOVED, REMOTE_FILE_WRITE_BYTES,
+    REMOTE_FILE_MOVED,
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
     REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_FILE_BLOB, REMOTE_FILE_READ_BLOB,
+    REMOTE_FILE_WRITE_BLOB,
     REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
     REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
@@ -544,13 +545,18 @@ impl RemoteController {
         .map(Self::reply_path)
     }
 
-    /// Write raw bytes (base64 over the wire) as `name` in `directory` on the host.
+    /// Write raw bytes as `name` in `directory` on the host. Binary-safe over
+    /// iroh-blobs: publish the bytes, then ask the host to fetch + write them
+    /// (the same content-addressed path as the file read and terminal upload).
     pub fn write_bytes(&self, directory: &str, name: &str, bytes: &[u8]) -> Result<String, String> {
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let transport = self.transport.clone();
+        let bytes = bytes.to_vec();
+        let ticket =
+            crate::async_runtime::block_on(async move { transport.publish_blob(bytes).await })?;
         self.request(
             REMOTE_FILE_BYTES_WRITTEN,
-            REMOTE_FILE_WRITE_BYTES,
-            json!({ "directory": directory, "name": name, "bytes": encoded }),
+            REMOTE_FILE_WRITE_BLOB,
+            json!({ "directory": directory, "name": name, "ticket": ticket }),
         )
         .map(Self::reply_path)
     }

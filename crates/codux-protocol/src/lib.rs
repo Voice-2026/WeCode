@@ -95,6 +95,11 @@ pub const REMOTE_FILE_BYTES_WRITTEN: &str = "file.bytesWritten";
 /// iroh-blobs. Used for cross-device file copy (Save As).
 pub const REMOTE_FILE_READ_BLOB: &str = "file.readBlob";
 pub const REMOTE_FILE_BLOB: &str = "file.blob";
+/// Write a file's bytes binary-safely: the controller publishes them and sends
+/// `file.writeBlob {directory, name, ticket}`; the host fetches the blob and
+/// writes it, replying `file.bytesWritten {path}`. The blob counterpart of
+/// `file.writeBytes` (which uses base64) — content-addressed over iroh-blobs.
+pub const REMOTE_FILE_WRITE_BLOB: &str = "file.writeBlob";
 pub const REMOTE_GIT_STATUS: &str = "git.status";
 /// Generic git mutation (`{op, projectPath, args}`) → refreshed `git.status`.
 pub const REMOTE_GIT_INVOKE: &str = "git.invoke";

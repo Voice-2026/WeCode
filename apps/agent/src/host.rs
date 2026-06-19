@@ -12,6 +12,7 @@ use codux_protocol::{
     REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
     REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_FILE_BLOB, REMOTE_FILE_READ_BLOB,
+    REMOTE_FILE_WRITE_BLOB,
     REMOTE_GIT_INVOKE,
     REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT, REMOTE_MEMORY_READ,
     REMOTE_MEMORY_RESULT,
@@ -128,28 +129,85 @@ fn make_handler(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            std::thread::spawn(move || {
-                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                else {
-                    return;
-                };
-                let result = runtime.block_on(async {
-                    let bytes = match std::fs::read(&path) {
-                        Ok(bytes) => bytes,
-                        Err(error) => return json!({ "error": error.to_string() }),
-                    };
-                    let transport = slot.lock().ok().and_then(|guard| guard.as_ref().cloned());
-                    match transport {
-                        Some(transport) => match transport.publish_blob(bytes).await {
-                            Ok(ticket) => json!({ "ticket": ticket }),
-                            Err(error) => json!({ "error": error }),
-                        },
-                        None => json!({ "error": "transport unavailable" }),
+            // Run on the agent runtime (where the iroh endpoint lives), not a
+            // fresh thread runtime — blob transfer drives the endpoint.
+            let Ok(handle) = tokio::runtime::Handle::try_current() else {
+                return;
+            };
+            handle.spawn(async move {
+                let result = match std::fs::read(&path) {
+                    Ok(bytes) => {
+                        let transport = slot.lock().ok().and_then(|guard| guard.as_ref().cloned());
+                        match transport {
+                            Some(transport) => match transport.publish_blob(bytes).await {
+                                Ok(ticket) => json!({ "ticket": ticket }),
+                                Err(error) => json!({ "error": error }),
+                            },
+                            None => json!({ "error": "transport unavailable" }),
+                        }
                     }
-                });
+                    Err(error) => json!({ "error": error.to_string() }),
+                };
                 let mut envelope = json!({ "type": REMOTE_FILE_BLOB, "payload": result });
+                if let Some(device) = device.as_deref() {
+                    envelope["deviceId"] = json!(device);
+                }
+                if let Some(request) = request.as_deref() {
+                    envelope["requestId"] = json!(request);
+                }
+                if let Ok(bytes) = serde_json::to_vec(&envelope) {
+                    if let Ok(guard) = slot.lock() {
+                        if let Some(transport) = guard.as_ref() {
+                            transport.send(bytes, device.as_deref());
+                        }
+                    }
+                }
+            });
+            return;
+        }
+
+        // Binary-safe file write: fetch the controller-published blob and write
+        // it (the blob counterpart of file.writeBytes; async).
+        if kind == REMOTE_FILE_WRITE_BLOB {
+            let slot = Arc::clone(&slot);
+            let device = device_id.map(str::to_string);
+            let request = request_id.map(str::to_string);
+            let directory = payload
+                .get("directory")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let name = payload
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let ticket = payload
+                .get("ticket")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let Ok(handle) = tokio::runtime::Handle::try_current() else {
+                return;
+            };
+            handle.spawn(async move {
+                let (reply_kind, result) = {
+                    let transport = slot.lock().ok().and_then(|guard| guard.as_ref().cloned());
+                    let bytes = match transport {
+                        Some(transport) => transport.fetch_blob(&ticket).await,
+                        None => Err("transport unavailable".to_string()),
+                    };
+                    match bytes {
+                        Ok(bytes) => match file_write_bytes(&directory, &name, &bytes) {
+                            Ok(new_path) => {
+                                (REMOTE_FILE_BYTES_WRITTEN, json!({ "path": new_path }))
+                            }
+                            Err(error) => (REMOTE_ERROR, json!({ "message": error })),
+                        },
+                        Err(error) => (REMOTE_ERROR, json!({ "message": error })),
+                    }
+                };
+                let mut envelope = json!({ "type": reply_kind, "payload": result });
                 if let Some(device) = device.as_deref() {
                     envelope["deviceId"] = json!(device);
                 }
@@ -738,6 +796,25 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
                 "file.readBlob fetched wrong bytes ({} bytes)",
                 bytes.len()
             ));
+        }
+
+        // Binary-safe write over iroh-blobs: publish bytes, the host fetches the
+        // blob and writes the file; read it back to confirm.
+        let write_ticket = controller.publish_blob(b"blob-write".to_vec()).await?;
+        request(
+            REMOTE_FILE_WRITE_BLOB,
+            json!({ "directory": dir, "name": "blob.txt", "ticket": write_ticket }),
+        )?;
+        let written = expect(&mut reply_rx, REMOTE_FILE_BYTES_WRITTEN).await?;
+        let written_path = written
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("file.writeBlob reply missing path: {written}"))?
+            .to_string();
+        request(REMOTE_FILE_READ, json!({ "path": written_path }))?;
+        let reread = expect(&mut reply_rx, REMOTE_FILE_READ).await?;
+        if reread.get("content").and_then(Value::as_str) != Some("blob-write") {
+            return Err(format!("file.writeBlob round-trip mismatch: {reread}"));
         }
 
         request(REMOTE_FILE_DELETE, json!({ "path": dir }))?;
