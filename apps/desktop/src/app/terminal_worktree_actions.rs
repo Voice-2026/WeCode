@@ -346,51 +346,49 @@ impl CoduxApp {
         }
     }
 
-    /// Re-attach the selected project's terminals after its remote host came
-    /// back online. The dropped panes are still bound to the evicted (dead)
-    /// controller, so we snapshot their output, tear them down (panes +
-    /// registry), and let `ensure_active_terminal_mounted` rebuild them against
-    /// the freshly reconnected controller. The active tab re-attaches now;
-    /// background tabs re-mount lazily on activation.
-    ///
-    /// Note: this opens fresh host sessions — the prior host PTYs are orphaned
-    /// (resuming the exact shell would need a host-side resubscribe protocol).
+    /// Rebind the selected project's remote terminals after its host came back
+    /// online. The host kept the PTY sessions (and their running shells/AI)
+    /// alive and auto-resumes streaming to the reconnected device; the only
+    /// thing broken on our side is that the live panes are still bound to the
+    /// evicted controller. So we re-point each remote pane to the fresh
+    /// controller (same session id) — no teardown, scrollback and AI state
+    /// preserved, live output continues. Each output frame carries a full screen
+    /// snapshot, so any gap during the outage repaints on the next frame.
     pub(super) fn reattach_terminals_for_reconnected_hosts(
         &mut self,
         reconnected: &[String],
         cx: &mut Context<Self>,
     ) {
-        let on_reconnected_host = self
+        let Some(host) = self
             .state
             .selected_project
             .as_ref()
-            .and_then(|project| project.host_device_id.as_deref())
-            .map(|host| reconnected.iter().any(|device| device == host))
-            .unwrap_or(false);
-        if !on_reconnected_host {
+            .and_then(|project| project.host_device_id.clone())
+            .filter(|host| reconnected.iter().any(|device| device == host))
+        else {
             return;
-        }
-        self.refresh_terminal_slot_snapshots();
-        let terminal_ids: Vec<String> = self
-            .terminals
-            .iter()
-            .flat_map(|tab| tab.panes.iter())
-            .filter_map(|slot| slot.terminal_id.clone())
-            .collect();
-        for tab in &mut self.terminals {
-            for slot in &mut tab.panes {
-                slot.pane = None;
+        };
+        let controller = match self.runtime_service.remote_controller_for_device(&host) {
+            Ok(controller) => controller,
+            Err(error) => {
+                self.status_message = format!("failed to resolve reconnected host: {error}");
+                return;
+            }
+        };
+        let mut rebound = 0_usize;
+        for tab in &self.terminals {
+            for slot in &tab.panes {
+                if let Some(pane) = &slot.pane {
+                    if pane.rebind_remote_controller(controller.clone()) {
+                        rebound += 1;
+                    }
+                }
             }
         }
-        for terminal_id in terminal_ids {
-            self.remove_registered_terminal_pane(&terminal_id);
+        if rebound > 0 {
+            self.status_message = "remote host reconnected — terminal resumed".to_string();
+            self.invalidate_status_bar(cx);
         }
-        if let Err(error) = self.ensure_active_terminal_mounted(cx) {
-            self.status_message = format!("failed to re-attach terminal after reconnect: {error}");
-        } else {
-            self.status_message = "remote host reconnected — terminal re-attached".to_string();
-        }
-        self.invalidate_status_bar(cx);
     }
 
     pub(super) fn detach_inactive_terminal_views(&mut self) {

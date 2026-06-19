@@ -258,14 +258,9 @@ impl TerminalPane {
                 config.title.as_deref(),
             )
             .map_err(anyhow::Error::msg)?;
-        let output_tx = pending.output_tx.clone();
-        controller.register_terminal_output(
-            &session_id,
-            Box::new(move |bytes| {
-                let _ = output_tx.send(bytes);
-            }),
-        );
-        pending.session.attach_remote(controller, session_id.clone());
+        pending
+            .session
+            .attach_remote(controller, session_id.clone(), pending.output_tx.clone());
         Ok(session_id)
     }
 
@@ -283,6 +278,12 @@ impl TerminalPane {
 
     pub fn matches_pty_config(&self, config: &TerminalPtyConfig) -> bool {
         self.session.matches_pty_config(config)
+    }
+
+    /// Rebind a remote pane to a reconnected controller (same host session).
+    /// Returns `true` if this was a remote pane. No-op for local panes.
+    pub fn rebind_remote_controller(&self, controller: Arc<RemoteController>) -> bool {
+        self.session.rebind_remote(controller)
     }
 }
 
@@ -345,10 +346,29 @@ struct TerminalSessionBinding {
 
 /// A remote-hosted terminal: input/resize go to the host over the controller;
 /// output arrives via the controller's per-session forwarder (wired at attach).
+/// `output_tx` is retained so the forwarder can be re-registered on a fresh
+/// controller after a reconnect (rebind to the same host session).
 #[derive(Clone)]
 struct RemoteTerminalBackend {
     controller: Arc<RemoteController>,
     session_id: String,
+    output_tx: flume::Sender<Vec<u8>>,
+}
+
+/// Register the per-session output forwarder that pushes the host's
+/// `terminal.output` bytes into the pane's model channel.
+fn register_remote_output(
+    controller: &RemoteController,
+    session_id: &str,
+    output_tx: &flume::Sender<Vec<u8>>,
+) {
+    let output_tx = output_tx.clone();
+    controller.register_terminal_output(
+        session_id,
+        Box::new(move |bytes| {
+            let _ = output_tx.send(bytes);
+        }),
+    );
 }
 
 struct TerminalSessionBindingInner {
@@ -419,14 +439,22 @@ impl TerminalSessionBinding {
         Ok(())
     }
 
-    /// Wire this (pending) binding to a remote host session: input/resize now go
-    /// over the controller. Flushes any buffered writes/resize.
-    fn attach_remote(&self, controller: Arc<RemoteController>, session_id: String) {
+    /// Wire this (pending) binding to a remote host session: register the output
+    /// forwarder, route input/resize over the controller, flush buffered
+    /// writes/resize.
+    fn attach_remote(
+        &self,
+        controller: Arc<RemoteController>,
+        session_id: String,
+        output_tx: flume::Sender<Vec<u8>>,
+    ) {
+        register_remote_output(&controller, &session_id, &output_tx);
         let (pending_writes, last_resize) = {
             let mut inner = self.inner.lock();
             inner.remote = Some(RemoteTerminalBackend {
                 controller: controller.clone(),
                 session_id: session_id.clone(),
+                output_tx,
             });
             inner.pending_match_config = None;
             inner.pending_write_bytes = 0;
@@ -438,6 +466,29 @@ impl TerminalSessionBinding {
         for bytes in pending_writes {
             controller.terminal_input(&session_id, &String::from_utf8_lossy(&bytes));
         }
+    }
+
+    /// Rebind a remote terminal to a freshly reconnected controller, keeping the
+    /// same host session: re-register the output forwarder on the new controller
+    /// and route input/resize through it. The host kept the PTY (and its running
+    /// shell/AI) alive and auto-resumes streaming to the reconnected device, so
+    /// the model's scrollback is preserved and live output continues. Returns
+    /// `true` if this binding was a remote one (and was rebound).
+    fn rebind_remote(&self, controller: Arc<RemoteController>) -> bool {
+        let last_resize = {
+            let mut inner = self.inner.lock();
+            let Some(remote) = inner.remote.as_mut() else {
+                return false;
+            };
+            register_remote_output(&controller, &remote.session_id, &remote.output_tx);
+            remote.controller = controller.clone();
+            (controller.clone(), remote.session_id.clone(), inner.last_resize)
+        };
+        let (controller, session_id, last_resize) = last_resize;
+        if let Some((cols, rows)) = last_resize {
+            controller.terminal_resize(&session_id, cols, rows);
+        }
+        true
     }
 
     fn write(&self, bytes: &[u8]) -> Result<()> {

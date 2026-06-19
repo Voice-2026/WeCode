@@ -1229,6 +1229,152 @@ mod e2e {
             host.shutdown().await;
         });
     }
+
+    /// A dropped controller reconnecting with the SAME device id resumes the
+    /// SAME host terminal session: the host keeps the session and routes its
+    /// output by device id to whichever connection is current, so re-registering
+    /// the per-session forwarder on the fresh controller (the desktop's rebind)
+    /// is enough to resume — no new session, no host-side change.
+    #[test]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    fn controller_reconnect_resumes_same_terminal_session() {
+        use codux_protocol::terminal_live_output_payload;
+
+        // Fake host: echo terminal.input back as terminal.output(sessionId=t1),
+        // routed to the sender's device id — i.e. to whichever connection holds
+        // that device id now (the real host's peer map behaves the same).
+        let host_slot: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>> = Arc::new(Mutex::new(None));
+        let reply_slot = Arc::clone(&host_slot);
+        let on_message = Arc::new(move |_source: String, data: Vec<u8>| {
+            let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
+                return;
+            };
+            let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+            let device_id = envelope.get("deviceId").and_then(Value::as_str);
+            let send = |value: Value| {
+                if let (Ok(bytes), Ok(guard)) = (serde_json::to_vec(&value), reply_slot.lock()) {
+                    if let Some(transport) = guard.as_ref() {
+                        transport.send(bytes, device_id);
+                    }
+                }
+            };
+            match kind {
+                REMOTE_TERMINAL_CREATE => send(json!({
+                    "type": REMOTE_TERMINAL_CREATED, "deviceId": device_id,
+                    "payload": { "sessionId": "t1" },
+                })),
+                REMOTE_TERMINAL_INPUT => {
+                    let text = envelope
+                        .get("payload")
+                        .and_then(|payload| payload.get("data"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    send(json!({
+                        "type": REMOTE_TERMINAL_OUTPUT,
+                        "sessionId": "t1",
+                        "deviceId": device_id,
+                        "payload": terminal_live_output_payload(text.clone(), text.len(), 1, Some(text)),
+                    }));
+                }
+                _ => {}
+            }
+        });
+
+        fn wait_for_marker(rx: &mpsc::Receiver<Vec<u8>>, marker: &str) -> bool {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut accumulated = String::new();
+            while Instant::now() < deadline {
+                if let Ok(bytes) = rx.recv_timeout(Duration::from_millis(200)) {
+                    accumulated.push_str(&String::from_utf8_lossy(&bytes));
+                    if accumulated.contains(marker) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+
+        crate::async_runtime::block_on(async {
+            let config = codux_remote_transport::RemoteHostTransportConfig {
+                relay_url: "https://relay.example".to_string(),
+                relay_preset: "global".to_string(),
+                iroh_relay_url: String::new(),
+                iroh_relay_authentication: String::new(),
+                host_id: "h".to_string(),
+                host_token: "t".to_string(),
+            };
+            let host = codux_remote_transport::RemoteTransportFactory::connect_host(
+                &config,
+                on_message,
+                Arc::new(|_| Ok(())),
+                Arc::new(|_, _| {}),
+                Arc::new(|_| {}),
+                None,
+            )
+            .await
+            .expect("host");
+            *host_slot.lock().unwrap() = Some(Arc::clone(&host));
+
+            // Same device id + ticket for both connections — a reconnect, not a
+            // new device.
+            let device_id = new_device_id();
+            let target = RemoteControllerTarget {
+                host_id: "h".to_string(),
+                device_id: device_id.clone(),
+                device_token: String::new(),
+                relay_url: String::new(),
+                node_id: String::new(),
+                ticket: host.iroh_endpoint_ticket().expect("ticket"),
+                relay_authentication: String::new(),
+            };
+
+            // Controller A: create the session and verify output flows.
+            let controller_a =
+                Arc::new(RemoteController::connect(&target, Arc::new(|_, _| {})).await.expect("A"));
+            let (tx_a, rx_a) = mpsc::channel::<Vec<u8>>();
+            controller_a.register_terminal_output("t1", Box::new(move |bytes| {
+                let _ = tx_a.send(bytes);
+            }));
+            let ca = Arc::clone(&controller_a);
+            let got_a = crate::async_runtime::spawn_blocking(move || {
+                let session = ca
+                    .create_terminal(json!({ "command": "echo", "cwd": "/tmp" }))
+                    .expect("create");
+                assert_eq!(session, "t1");
+                ca.terminal_input("t1", "before-drop");
+                wait_for_marker(&rx_a, "before-drop")
+            })
+            .await
+            .unwrap();
+            assert!(got_a, "controller A receives the session output");
+            controller_a.shutdown().await;
+
+            // Controller B: reconnect with the same device id, re-register the
+            // forwarder for the SAME session (the desktop's rebind), and verify
+            // the host routes the resumed session's output to this new connection.
+            let controller_b =
+                Arc::new(RemoteController::connect(&target, Arc::new(|_, _| {})).await.expect("B"));
+            let (tx_b, rx_b) = mpsc::channel::<Vec<u8>>();
+            controller_b.register_terminal_output("t1", Box::new(move |bytes| {
+                let _ = tx_b.send(bytes);
+            }));
+            let cb = Arc::clone(&controller_b);
+            let got_b = crate::async_runtime::spawn_blocking(move || {
+                cb.terminal_input("t1", "after-reconnect");
+                wait_for_marker(&rx_b, "after-reconnect")
+            })
+            .await
+            .unwrap();
+            assert!(
+                got_b,
+                "reconnected controller B resumes the same session without re-creating it"
+            );
+
+            controller_b.shutdown().await;
+            host.shutdown().await;
+        });
+    }
 }
 
 #[cfg(test)]
@@ -1266,10 +1412,21 @@ mod tests {
     #[test]
     fn route_unmatched_reply_is_queued_as_event() {
         let inner = ControllerInner::default();
-        inner.route(br#"{"type":"terminal.output","payload":{"data":"x"}}"#);
+        // An unsolicited message with no waiter (here a broadcast) is queued for
+        // `drain_events`. `terminal.output` is the one exception — it is demuxed
+        // to a per-session forwarder and never queued (see below).
+        inner.route(br#"{"type":"pairing.confirmed","payload":{"hostId":"h"}}"#);
         let events = inner.events.lock().unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].0, "terminal.output");
+        assert_eq!(events[0].0, "pairing.confirmed");
+    }
+
+    #[test]
+    fn route_terminal_output_is_not_queued_as_event() {
+        let inner = ControllerInner::default();
+        // No sink, no matching forwarder: the frame is dropped, never queued.
+        inner.route(br#"{"type":"terminal.output","payload":{"data":"x"}}"#);
+        assert!(inner.events.lock().unwrap().is_empty());
     }
 
     #[test]
