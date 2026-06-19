@@ -159,6 +159,31 @@ impl RuntimeService {
         project_path: &str,
         relative_path: &str,
     ) -> Result<(String, bool), String> {
+        // Remote-hosted projects read the file on the host over the controller.
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            let absolute = format!(
+                "{}/{}",
+                project_path.trim_end_matches('/'),
+                relative_path.trim_start_matches('/')
+            );
+            return match self
+                .remote_controllers
+                .controller_for(&device_id)
+                .and_then(|controller| controller.read_file(&absolute))
+            {
+                Ok(payload) => Ok((
+                    payload
+                        .get("content")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    true,
+                )),
+                // The host errors on binary/oversized files; surface it
+                // read-only, mirroring the local "message" path.
+                Err(message) => Ok((message, false)),
+            };
+        }
         let result = FilesService::read_text(project_path, relative_path)?;
         if let Some(message) = result.message {
             return Ok((message, false));

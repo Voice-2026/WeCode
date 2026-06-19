@@ -12,8 +12,9 @@
 use base64::Engine;
 use codux_protocol::{
     REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DIRECTORY_CREATED,
-    REMOTE_FILE_LIST, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED,
-    REMOTE_PAIRING_REJECTED, REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_TRANSPORT_IROH,
+    REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO,
+    REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED, REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST,
+    REMOTE_TRANSPORT_IROH,
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
@@ -437,6 +438,10 @@ impl RemoteController {
                 })
                 .unwrap_or_default(),
         })
+    }
+
+    pub fn read_file(&self, path: &str) -> Result<Value, String> {
+        self.request(REMOTE_FILE_READ, REMOTE_FILE_READ, json!({ "path": path }))
     }
 
     pub fn create_directory(&self, path: &str) -> Result<Value, String> {
