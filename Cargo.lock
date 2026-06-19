@@ -1215,6 +1215,7 @@ dependencies = [
  "codux-runtime-core",
  "codux-terminal-core",
  "codux-terminal-pty",
+ "git2",
  "serde_json",
  "tokio",
 ]

@@ -8,7 +8,8 @@
 use codux_protocol::{
     REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
-    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_HOST_INFO,
+    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_GIT_STATUS,
+    REMOTE_HOST_INFO,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
@@ -22,6 +23,7 @@ use codux_runtime_core::{
         file_delete, file_list_payload, file_make_directory, file_read_payload, file_rename,
         file_write,
     },
+    git::git_status_payload,
     host::{host_info_payload, HostInfoPayload},
     project::project_list_payload,
 };
@@ -164,6 +166,21 @@ fn make_handler(
                     },
                     None => Some((REMOTE_ERROR, json!({ "message": "Project id is required." }))),
                 }
+            }
+            REMOTE_GIT_STATUS => {
+                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_path = payload
+                    .get("projectPath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                Some((
+                    REMOTE_GIT_STATUS,
+                    git_status_payload(
+                        project_id,
+                        project_path,
+                        crate::git::git_status_summary(project_path),
+                    ),
+                ))
             }
             _ => None,
         };
@@ -422,6 +439,21 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         request(REMOTE_TERMINAL_CLOSE, json!({ "sessionId": terminal_id }))?;
         expect(&mut reply_rx, REMOTE_TERMINAL_CLOSED).await?;
 
+        // 5. git domain (status against a fresh temp repo)
+        let repo_dir = std::env::temp_dir().join(format!("codux-agent-git-{}", std::process::id()));
+        let repo_dir = repo_dir.to_string_lossy().to_string();
+        git2::Repository::init(&repo_dir).map_err(|error| error.to_string())?;
+        std::fs::write(format!("{repo_dir}/probe.txt"), "x").map_err(|error| error.to_string())?;
+        request(REMOTE_GIT_STATUS, json!({ "projectId": "p", "projectPath": repo_dir }))?;
+        let status = expect(&mut reply_rx, REMOTE_GIT_STATUS).await?;
+        if status.get("isRepository").and_then(Value::as_bool) != Some(true) {
+            return Err("git.status did not detect the repository".to_string());
+        }
+        if status.get("untracked").and_then(Value::as_u64).unwrap_or(0) < 1 {
+            return Err("git.status missing the untracked file".to_string());
+        }
+        let _ = std::fs::remove_dir_all(&repo_dir);
+
         Ok::<(), String>(())
     };
     let result = run.await;
@@ -431,7 +463,6 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
     Ok(
-        "codux-agent-serve-ok\nfile + project + terminal (create/input/output/close) domains verified"
-            .to_string(),
+        "codux-agent-serve-ok\nfile + project + terminal + git domains verified".to_string(),
     )
 }
