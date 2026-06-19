@@ -359,10 +359,12 @@ fn settings_pane_body(
         ),
         SettingsPane::Remote => {
             let saved_hosts = app.runtime_service.saved_remote_hosts();
+            let link_states = app.runtime_service.remote_controller_link_states();
             settings_remote_pane(
                 &app.state.settings,
                 &app.state.remote,
                 &saved_hosts,
+                &link_states,
                 app.selected_remote_device_id.as_deref(),
                 app.state.settings.language.as_str(),
                 app.remote_reconnecting,
@@ -828,6 +830,43 @@ fn settings_select_state(
         cx,
         action,
     )
+}
+
+/// A friendly device-type label from an OS id (`std::env::consts::OS` or a
+/// client-reported platform). Falls back to a generic label when unknown.
+fn device_type_label(platform: &str, language: &str) -> String {
+    match platform.trim().to_ascii_lowercase().as_str() {
+        "macos" | "darwin" | "mac" => "macOS".to_string(),
+        "ios" | "ipados" => "iOS".to_string(),
+        "android" => settings_text(language, "device.type.android", "Android"),
+        "linux" => "Linux".to_string(),
+        "windows" => "Windows".to_string(),
+        "" => settings_text(language, "device.type.unknown", "Remote device"),
+        other => other.to_string(),
+    }
+}
+
+/// Connection-status tag for a host this desktop controls, from its client link
+/// state. Absent (never connected this session) reads as disconnected.
+fn host_link_status_tag(
+    link: Option<codux_runtime::remote::ControllerLinkState>,
+    language: &str,
+) -> AnyElement {
+    use codux_runtime::remote::ControllerLinkState;
+    match link {
+        Some(ControllerLinkState::Connected) => settings_status_tag(
+            settings_text(language, "remote.status.connected_label", "Connected"),
+            theme::GREEN,
+        ),
+        Some(ControllerLinkState::Connecting) => settings_status_tag(
+            settings_text(language, "remote.status.connecting_label", "Connecting"),
+            theme::ORANGE,
+        ),
+        _ => settings_status_tag(
+            settings_text(language, "remote.status.disconnected_label", "Disconnected"),
+            theme::TEXT_DIM,
+        ),
+    }
 }
 
 fn settings_status_tag(value: impl Into<String>, accent: u32) -> AnyElement {
@@ -3062,6 +3101,7 @@ fn settings_remote_pane(
     settings: &SettingsSummary,
     remote: &RemoteSummary,
     saved_hosts: &[codux_runtime::remote::SavedRemoteHost],
+    link_states: &std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
     _selected_device_id: Option<&str>,
     language: &str,
     remote_reconnecting: bool,
@@ -3111,7 +3151,7 @@ fn settings_remote_pane(
                                     .line_height(rems(1.0))
                                     .text_color(color(theme::TEXT_DIM))
                                     .truncate()
-                                    .child(empty_label(&device.id)),
+                                    .child(device_type_label(&device.platform, language)),
                             ),
                     )
                     .child(
@@ -3190,7 +3230,7 @@ fn settings_remote_pane(
                                 .line_height(rems(1.0))
                                 .text_color(color(theme::TEXT_DIM))
                                 .truncate()
-                                .child(empty_label(&host.device_id)),
+                                .child(device_type_label(&host.platform, language)),
                         ),
                 )
                 .child(
@@ -3198,9 +3238,9 @@ fn settings_remote_pane(
                         .flex()
                         .items_center()
                         .gap(px(12.0))
-                        .child(settings_status_tag(
-                            settings_text(language, "remote.type.host", "Host"),
-                            theme::TEXT_DIM,
+                        .child(host_link_status_tag(
+                            link_states.get(host.device_id.as_str()).copied(),
+                            language,
                         ))
                         .child(settings_icon_button_state(
                             SharedString::from(format!("settings-remote-forget-{}", host.device_id)),

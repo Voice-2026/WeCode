@@ -167,6 +167,9 @@ pub struct RemoteTransportCandidate {
 pub struct RemoteTransportPairingRequest {
     pub device_id: String,
     pub device_name: String,
+    /// The requesting device's OS (`std::env::consts::OS`), if it reported one.
+    /// Used to label the device type in the host's device list.
+    pub platform: Option<String>,
     pub pairing_id: Option<String>,
     pub pairing_code: Option<String>,
     pub pairing_secret: Option<String>,

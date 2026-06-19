@@ -47,9 +47,16 @@ pub(crate) fn pairing_handshake_from_envelope(
         .and_then(Value::as_str)
         .unwrap_or("Mobile Device")
         .to_string();
+    let platform = envelope
+        .payload
+        .get("platform")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
     Some(RemoteTransportPairingRequest {
         device_id,
         device_name,
+        platform,
         pairing_id: envelope
             .payload
             .get("pairingId")

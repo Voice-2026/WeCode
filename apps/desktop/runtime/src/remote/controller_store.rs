@@ -32,6 +32,11 @@ pub struct SavedRemoteHost {
     pub host_name: String,
     #[serde(default)]
     pub device_token: String,
+    /// The host's OS (`std::env::consts::OS`: "macos"/"linux"/"windows"/…),
+    /// reported in `pairing.confirmed`. Empty for hosts paired before this was
+    /// recorded. Used to label the device type in the UI.
+    #[serde(default)]
+    pub platform: String,
     #[serde(default)]
     pub transports: Vec<SavedRemoteTransport>,
 }
@@ -116,6 +121,7 @@ mod tests {
             host_id: "host-1".to_string(),
             host_name: "Studio".to_string(),
             device_token: String::new(),
+            platform: "macos".to_string(),
             transports: vec![SavedRemoteTransport {
                 kind: "iroh".to_string(),
                 node_id: "node-abc".to_string(),

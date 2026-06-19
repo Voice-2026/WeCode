@@ -256,6 +256,7 @@ fn make_handler(
                         "deviceId": confirm_device,
                         "token": "",
                         "hostName": name.clone(),
+                        "platform": std::env::consts::OS,
                         "transports": transports,
                     }),
                 ))

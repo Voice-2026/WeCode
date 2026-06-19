@@ -1130,6 +1130,7 @@ impl RemoteHostRuntime {
             last_seen: now,
             revoked_at: None,
             online: Some(false),
+            platform: handshake.platform.clone().unwrap_or_default(),
         });
         raw.insert(
             "remote".to_string(),
@@ -1174,6 +1175,7 @@ impl RemoteHostRuntime {
                 "deviceId": device_id,
                 "token": "",
                 "hostName": remote_host_name(),
+                "platform": std::env::consts::OS,
                 "transports": transports,
             }),
         );

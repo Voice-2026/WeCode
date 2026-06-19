@@ -357,6 +357,7 @@ impl RemoteController {
                 "secret": ticket.secret,
                 "deviceName": device_name,
                 "deviceId": device_id,
+                "platform": std::env::consts::OS,
             },
         });
         let bytes = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
@@ -896,6 +897,7 @@ fn saved_host_from_confirmed(device_id: &str, payload: &Value) -> SavedRemoteHos
         host_id: field("hostId"),
         host_name: field("hostName"),
         device_token: field("token"),
+        platform: field("platform"),
         transports,
     }
 }
