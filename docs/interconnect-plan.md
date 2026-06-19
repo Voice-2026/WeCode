@@ -170,13 +170,19 @@ x11/wayland unproven.)
   and `host_device_id` is saved with the project. JSON→struct mapping is done in the runtime
   (`RemoteController::browse_directory → RemoteDirectoryListing`) so the UI carries no wire JSON.
 
+- **Hosted-project domain routing (started).** The seam is `host_device_for_project_path` +
+  the `RemoteControllerManager`; each domain method on `RuntimeService` branches on it. Done:
+  - **file tree** — `reload_project_files` lists on the host (`remote_project_files` maps
+    `file.list` → the panel's `FileEntry`); enriched the shared `file_list_payload` with
+    `size/modifiedAt/isSymbolicLink` so the mapping is faithful.
+  - **file open** — `read_project_file_edit_buffer` reads on the host (`RemoteController::read_file`).
+
 - **Next (ordered), each its own green commit:**
-  1. **Hosted-project domain routing** — for a project whose `host_device_id` is set, route its
-     file/git/terminal/ai through `remote_controller_for_project`. Each domain needs a
-     payload→struct mapping; where the host payload lacks fields the desktop struct needs (e.g.
-     `FileEntry.size/modified_at`, `GitSummary`), **enrich the shared `codux-runtime-core`
-     payload builders** so desktop-host and agent serve the richer shape uniformly, then parse.
-     Validate each against the agent (`cargo run -p codux-agent -- --serve`).
+  1. **Finish hosted-project routing** — remaining file ops (write/create/delete/rename),
+     git (status/diff/stage/commit — enrich `git_status_payload` consumers / add a parser to
+     `GitSummary`), terminal (hand back a transport-backed terminal for remote projects), ai
+     stats. Each is a thin branch following the file-tree/open pattern + a payload→struct map.
+     Validate against the agent (`cargo run -p codux-agent -- --serve`).
   2. **Memory over remote (P4 tail)** — net-new memory protocol + host serving, riding on the
      model routing from step 1.
 
