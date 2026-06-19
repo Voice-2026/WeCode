@@ -456,6 +456,109 @@ fn saved_host_from_confirmed(device_id: &str, payload: &Value) -> SavedRemoteHos
 }
 
 #[cfg(test)]
+mod e2e {
+    //! End-to-end: pair the controller against a real in-process host over iroh,
+    //! then drive a domain request. Ignored by default (iroh endpoint setup is
+    //! slow and needs no network for direct dial); run with `--ignored`.
+    use super::*;
+    use codux_remote_transport::{RemoteHostTransportConfig, RemoteTransportFactory as Shared};
+
+    #[test]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    fn controller_pairs_and_drives_real_host() {
+        crate::async_runtime::block_on(async {
+            // A minimal host: auto-confirm pairing and answer host.info, replying
+            // through its own transport handle (filled in after connect).
+            let host_slot: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>> = Arc::new(Mutex::new(None));
+            let reply_slot = Arc::clone(&host_slot);
+            let on_message = Arc::new(move |_source: String, data: Vec<u8>| {
+                let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
+                    return;
+                };
+                let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+                let device_id = envelope.get("deviceId").and_then(Value::as_str);
+                let reply = match kind {
+                    REMOTE_PAIRING_REQUEST => Some((
+                        REMOTE_PAIRING_CONFIRMED,
+                        json!({ "hostId": "host-it", "deviceId": device_id.unwrap_or_default(),
+                                "token": "", "hostName": "IT Host", "transports": [] }),
+                    )),
+                    REMOTE_HOST_INFO => {
+                        Some((REMOTE_HOST_INFO, json!({ "hostId": "host-it", "name": "IT Host" })))
+                    }
+                    _ => None,
+                };
+                if let Some((reply_kind, reply_payload)) = reply {
+                    let mut envelope = json!({ "type": reply_kind, "payload": reply_payload });
+                    if let Some(device_id) = device_id {
+                        envelope["deviceId"] = json!(device_id);
+                    }
+                    if let (Ok(bytes), Ok(guard)) =
+                        (serde_json::to_vec(&envelope), reply_slot.lock())
+                    {
+                        if let Some(transport) = guard.as_ref() {
+                            transport.send(bytes, device_id);
+                        }
+                    }
+                }
+            });
+
+            let config = RemoteHostTransportConfig {
+                relay_url: "https://relay.example".to_string(),
+                relay_preset: "global".to_string(),
+                iroh_relay_url: String::new(),
+                iroh_relay_authentication: String::new(),
+                host_id: "host-it".to_string(),
+                host_token: "token-it".to_string(),
+            };
+            let host = Shared::connect_host(
+                &config,
+                on_message,
+                Arc::new(|_| Ok(())),
+                Arc::new(|_, _| {}),
+                Arc::new(|_| {}),
+                None,
+            )
+            .await
+            .expect("host connects");
+            *host_slot.lock().unwrap() = Some(Arc::clone(&host));
+            let endpoint_ticket = host.iroh_endpoint_ticket().expect("host ticket");
+
+            let ticket = PairingTicket {
+                code: "c".to_string(),
+                secret: "s".to_string(),
+                pairing_id: "p".to_string(),
+                transports: vec![TicketTransport {
+                    kind: REMOTE_TRANSPORT_IROH.to_string(),
+                    ticket: endpoint_ticket,
+                    relay_authentication: String::new(),
+                }],
+            };
+            let (controller, saved) = RemoteController::pair(&ticket, "test-desktop")
+                .await
+                .expect("pairing succeeds");
+            assert_eq!(saved.host_id, "host-it");
+            assert_eq!(saved.host_name, "IT Host");
+
+            // A real domain request over the same paired connection.
+            let info = crate::async_runtime::spawn_blocking(move || {
+                let info = controller.host_info();
+                (controller, info)
+            })
+            .await
+            .unwrap();
+            assert_eq!(
+                info.1.expect("host.info reply").get("hostId").and_then(Value::as_str),
+                Some("host-it")
+            );
+
+            info.0.shutdown().await;
+            host.shutdown().await;
+        });
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
