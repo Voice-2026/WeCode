@@ -556,6 +556,107 @@ mod e2e {
             host.shutdown().await;
         });
     }
+
+    #[test]
+    #[ignore = "in-process iroh round trip; run with: cargo test -p codux-runtime -- --ignored controller"]
+    fn manager_pairs_from_ticket_and_browses() {
+        use super::super::controller_manager::RemoteControllerManager;
+
+        // Host: auto-confirm pairing, answer file.list with one fixed entry.
+        let host_slot: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>> = Arc::new(Mutex::new(None));
+        let reply_slot = Arc::clone(&host_slot);
+        let on_message = Arc::new(move |_source: String, data: Vec<u8>| {
+            let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
+                return;
+            };
+            let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+            let device_id = envelope.get("deviceId").and_then(Value::as_str);
+            let reply = match kind {
+                REMOTE_PAIRING_REQUEST => Some((
+                    REMOTE_PAIRING_CONFIRMED,
+                    json!({ "hostId": "host-it", "deviceId": device_id.unwrap_or_default(),
+                            "token": "", "hostName": "IT Host", "transports": [] }),
+                )),
+                REMOTE_FILE_LIST => Some((
+                    REMOTE_FILE_LIST,
+                    json!({ "path": "/remote", "parent": "/",
+                            "entries": [{ "name": "src", "path": "/remote/src", "isDirectory": true }] }),
+                )),
+                _ => None,
+            };
+            if let Some((reply_kind, reply_payload)) = reply {
+                let mut envelope = json!({ "type": reply_kind, "payload": reply_payload });
+                if let Some(device_id) = device_id {
+                    envelope["deviceId"] = json!(device_id);
+                }
+                if let (Ok(bytes), Ok(guard)) = (serde_json::to_vec(&envelope), reply_slot.lock()) {
+                    if let Some(transport) = guard.as_ref() {
+                        transport.send(bytes, device_id);
+                    }
+                }
+            }
+        });
+
+        // Stand up the host and mint a pasteable ticket from its endpoint ticket.
+        let ticket_url = crate::async_runtime::block_on(async {
+            let config = codux_remote_transport::RemoteHostTransportConfig {
+                relay_url: "https://relay.example".to_string(),
+                relay_preset: "global".to_string(),
+                iroh_relay_url: String::new(),
+                iroh_relay_authentication: String::new(),
+                host_id: "host-it".to_string(),
+                host_token: "token-it".to_string(),
+            };
+            let host = codux_remote_transport::RemoteTransportFactory::connect_host(
+                &config,
+                on_message,
+                Arc::new(|_| Ok(())),
+                Arc::new(|_, _| {}),
+                Arc::new(|_| {}),
+                None,
+            )
+            .await
+            .expect("host connects");
+            *host_slot.lock().unwrap() = Some(Arc::clone(&host));
+            let endpoint_ticket = host.iroh_endpoint_ticket().expect("host ticket");
+            // Keep the host alive for the duration of the test.
+            std::mem::forget(host);
+            let payload = json!({
+                "code": "c", "secret": "s", "pairingId": "p",
+                "transports": [{ "kind": REMOTE_TRANSPORT_IROH, "ticket": endpoint_ticket }],
+            });
+            let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(serde_json::to_vec(&payload).unwrap());
+            format!("codux://pair?payload={encoded}")
+        });
+
+        // The full user path: paste ticket -> pair (persists + caches) -> browse.
+        let support = std::env::temp_dir().join(format!(
+            "codux-controller-mgr-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&support).unwrap();
+        let manager = RemoteControllerManager::new(support.clone());
+
+        let saved = manager.pair(&ticket_url, "test-desktop").expect("pair via manager");
+        assert_eq!(saved.host_id, "host-it");
+        // Persisted to the store.
+        assert_eq!(manager.saved_hosts().len(), 1);
+
+        let listing = manager
+            .controller_for(&saved.device_id)
+            .expect("cached controller")
+            .file_list(Some("/remote"), Some("projectFiles"))
+            .expect("remote browse");
+        assert_eq!(
+            listing["entries"][0]["name"].as_str(),
+            Some("src"),
+            "remote directory listing routed through the manager"
+        );
+
+        std::fs::remove_dir_all(support).ok();
+    }
 }
 
 #[cfg(test)]

@@ -59,6 +59,9 @@ impl RuntimeService {
             git_cancels: Arc::new(Mutex::new(HashMap::new())),
             power_manager: shared_power_manager(),
             remote_host,
+            remote_controllers: Arc::new(crate::remote::RemoteControllerManager::new(
+                support_dir,
+            )),
         }
     }
 

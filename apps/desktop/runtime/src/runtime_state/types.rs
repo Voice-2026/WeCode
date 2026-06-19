@@ -78,6 +78,7 @@ pub struct RuntimeService {
     git_cancels: Arc<Mutex<HashMap<String, git::GitCancelToken>>>,
     power_manager: Arc<PowerManager>,
     remote_host: Arc<RemoteHostRuntime>,
+    remote_controllers: Arc<crate::remote::RemoteControllerManager>,
 }
 
 impl RuntimeService {

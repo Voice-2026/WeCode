@@ -1,4 +1,5 @@
 mod controller;
+mod controller_manager;
 mod controller_store;
 mod crypto;
 mod devices;
@@ -20,6 +21,7 @@ use std::path::PathBuf;
 pub use controller::{
     parse_pairing_ticket, PairingTicket, RemoteController, RemoteControllerTarget,
 };
+pub use controller_manager::RemoteControllerManager;
 pub use controller_store::{RemoteControllerStore, SavedRemoteHost, SavedRemoteTransport};
 pub use host::RemoteHostRuntime;
 pub use protocol::REMOTE_PROTOCOL_VERSION;
