@@ -6,7 +6,8 @@ use super::protocol::{
     REMOTE_ERROR,
     REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE, REMOTE_PAIRING_CONFIRMED,
+    REMOTE_GIT_COMMIT, REMOTE_GIT_DIFF, REMOTE_GIT_DISCARD, REMOTE_GIT_STAGE, REMOTE_GIT_STATUS,
+    REMOTE_GIT_UNSTAGE, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE, REMOTE_PAIRING_CONFIRMED,
     REMOTE_PAIRING_REJECTED, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST,
     REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED, REMOTE_PROJECT_UPDATED,
     REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS, REMOTE_RESOURCE_PROJECTS,
@@ -827,6 +828,10 @@ impl RemoteHostRuntime {
             REMOTE_FILE_RENAME => self.handle_file_rename(&envelope),
             REMOTE_FILE_DELETE => self.handle_file_delete(&envelope),
             REMOTE_GIT_STATUS => self.handle_git_status(&envelope),
+            REMOTE_GIT_STAGE | REMOTE_GIT_UNSTAGE | REMOTE_GIT_DISCARD | REMOTE_GIT_COMMIT => {
+                self.handle_git_operation(&envelope)
+            }
+            REMOTE_GIT_DIFF => self.handle_git_diff(&envelope),
             REMOTE_PROJECT_ADD => self.handle_project_add(&envelope),
             REMOTE_PROJECT_EDIT => self.handle_project_edit(&envelope),
             REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
@@ -1781,6 +1786,75 @@ impl RemoteHostRuntime {
             None,
             remote_git_status_payload(project_id.clone(), project_path, summary),
         );
+    }
+
+    /// Stage/unstage/discard/commit on a project path, then reply with refreshed
+    /// git status (the controller maps it back into a GitSummary).
+    fn handle_git_operation(&self, envelope: &RemoteEnvelope) {
+        let project_path = envelope
+            .payload
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if project_path.trim().is_empty() {
+            self.send_error(envelope, "Project path is required.");
+            return;
+        }
+        let paths = envelope
+            .payload
+            .get("paths")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let result = match envelope.kind.as_str() {
+            REMOTE_GIT_STAGE => crate::git::GitService::stage_paths(&project_path, &paths),
+            REMOTE_GIT_UNSTAGE => crate::git::GitService::unstage_paths(&project_path, &paths),
+            REMOTE_GIT_DISCARD => crate::git::GitService::discard_paths(&project_path, &paths),
+            _ => crate::git::GitService::commit_staged(
+                &project_path,
+                envelope
+                    .payload
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            ),
+        };
+        match result {
+            Ok(_) => {
+                let summary = crate::git::GitService::status(&project_path);
+                self.send(
+                    REMOTE_GIT_STATUS,
+                    envelope.device_id.as_deref(),
+                    None,
+                    remote_git_status_payload(String::new(), project_path, summary),
+                );
+            }
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    fn handle_git_diff(&self, envelope: &RemoteEnvelope) {
+        let project_path = envelope
+            .payload
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let path = envelope.payload.get("path").and_then(Value::as_str).unwrap_or_default();
+        match crate::git::GitService::file_diff(project_path, path) {
+            Ok(diff) => self.send(
+                REMOTE_GIT_DIFF,
+                envelope.device_id.as_deref(),
+                None,
+                json!({ "path": path, "diff": diff }),
+            ),
+            Err(error) => self.send_error(envelope, &error),
+        }
     }
 
     fn handle_terminal_create(self: &Arc<Self>, envelope: &RemoteEnvelope) {
