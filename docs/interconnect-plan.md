@@ -189,15 +189,25 @@ x11/wayland unproven.)
   by `codux-terminal-core`'s `RemoteTerminalOutputRouter` — the same engine mobile uses via FFI.
   A 3rd end-to-end iroh test proves it (pair → create → input → router assembles output).
 
-- **Next (ordered), each its own green commit:**
-  1. **Terminal UI wiring** — render a remote session in the desktop terminal pane on top of the
-     foundation above (route the pane's input/resize/close to the controller; render from the
-     router's screen snapshot). GPUI work that needs live validation against the agent.
-  2. **AI stats** — the host serves a *derived* baseline view, but the desktop AI panel wants
-     `AIHistoryProjectState{snapshot}`. Either have the host serve the richer snapshot, or add a
-     remote-specific render path that consumes the baseline. Impedance, not a thin branch.
-  3. **Git operations** (stage/commit/diff/push) and **memory** — both need net-new remote
-     protocol surface (+ model routing for memory).
+- **AI stats (done, tested).** Added a distinct `ai.state` message carrying the full
+  `AIHistoryProjectState{snapshot}` (the desktop AI panel's shape), served by the agent and the
+  desktop host (indexing the path the controller sends); the controller deserializes it (added
+  `Deserialize` across the snapshot types) and `indexed_project_ai_history_summary/state` route
+  to it. `ai.stats` (mobile's baseline view) is unchanged.
+
+- **Remaining — each a substantial feature, not a thin branch:**
+  1. **Terminal UI wiring** — the transport+router foundation is done and tested; what's left is
+     rendering a remote session in the desktop terminal pane (route the pane's input/resize/close
+     to the controller; render from the router's screen snapshot). GPUI work that **must be
+     live-validated** (rendering/scrollback/input) — cannot be verified blind.
+  2. **Git operations** (stage/commit/diff/push/pull/checkout/…) — there are **zero** git
+     operation messages in the remote protocol today (only `git.status`). This needs a net-new
+     protocol surface implemented on BOTH hosts (desktop `GitService` + agent `git2`) plus
+     routing ~20–30 `RuntimeService` git methods. Large.
+  3. **Memory over remote** — the agent has **no memory engine** (it's desktop-only, ~9.5k LOC),
+     and the engine's core flow selects an **AI provider from `AISettings`** to run LLM
+     extraction. This needs (a) extracting the memory engine into a shared crate and (b) **model
+     routing to the host** — a major subsystem. Cannot be completed blind.
 
 ## Verification
 
