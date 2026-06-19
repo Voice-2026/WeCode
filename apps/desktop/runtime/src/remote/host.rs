@@ -6,8 +6,8 @@ use super::protocol::{
     REMOTE_ERROR,
     REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_COMMIT, REMOTE_GIT_DIFF, REMOTE_GIT_DISCARD, REMOTE_GIT_STAGE, REMOTE_GIT_STATUS,
-    REMOTE_GIT_UNSTAGE, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE, REMOTE_PAIRING_CONFIRMED,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE,
+    REMOTE_PAIRING_CONFIRMED,
     REMOTE_PAIRING_REJECTED, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST,
     REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED, REMOTE_PROJECT_UPDATED,
     REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS, REMOTE_RESOURCE_PROJECTS,
@@ -828,10 +828,8 @@ impl RemoteHostRuntime {
             REMOTE_FILE_RENAME => self.handle_file_rename(&envelope),
             REMOTE_FILE_DELETE => self.handle_file_delete(&envelope),
             REMOTE_GIT_STATUS => self.handle_git_status(&envelope),
-            REMOTE_GIT_STAGE | REMOTE_GIT_UNSTAGE | REMOTE_GIT_DISCARD | REMOTE_GIT_COMMIT => {
-                self.handle_git_operation(&envelope)
-            }
-            REMOTE_GIT_DIFF => self.handle_git_diff(&envelope),
+            REMOTE_GIT_INVOKE => self.handle_git_invoke(&envelope),
+            REMOTE_GIT_READ => self.handle_git_read(&envelope),
             REMOTE_PROJECT_ADD => self.handle_project_add(&envelope),
             REMOTE_PROJECT_EDIT => self.handle_project_edit(&envelope),
             REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
@@ -1788,9 +1786,10 @@ impl RemoteHostRuntime {
         );
     }
 
-    /// Stage/unstage/discard/commit on a project path, then reply with refreshed
-    /// git status (the controller maps it back into a GitSummary).
-    fn handle_git_operation(&self, envelope: &RemoteEnvelope) {
+    /// Generic git mutation (`git.invoke`) → GitService, then reply with
+    /// refreshed status (the controller maps it back into a GitSummary).
+    fn handle_git_invoke(&self, envelope: &RemoteEnvelope) {
+        use crate::git::GitService;
         let project_path = envelope
             .payload
             .get("projectPath")
@@ -1801,8 +1800,12 @@ impl RemoteHostRuntime {
             self.send_error(envelope, "Project path is required.");
             return;
         }
-        let paths = envelope
-            .payload
+        let op = envelope.payload.get("op").and_then(Value::as_str).unwrap_or_default();
+        let args = envelope.payload.get("args").cloned().unwrap_or(Value::Null);
+        let path = project_path.as_str();
+        let s = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+        let b = |key: &str| args.get(key).and_then(Value::as_bool).unwrap_or(false);
+        let paths = args
             .get("paths")
             .and_then(Value::as_array)
             .map(|items| {
@@ -1812,22 +1815,45 @@ impl RemoteHostRuntime {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let result = match envelope.kind.as_str() {
-            REMOTE_GIT_STAGE => crate::git::GitService::stage_paths(&project_path, &paths),
-            REMOTE_GIT_UNSTAGE => crate::git::GitService::unstage_paths(&project_path, &paths),
-            REMOTE_GIT_DISCARD => crate::git::GitService::discard_paths(&project_path, &paths),
-            _ => crate::git::GitService::commit_staged(
-                &project_path,
-                envelope
-                    .payload
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-            ),
+        let result = match op {
+            "stage" => GitService::stage_paths(path, &paths),
+            "unstage" => GitService::unstage_paths(path, &paths),
+            "discard" => GitService::discard_paths(path, &paths),
+            "commit" => GitService::commit_staged(path, s("message")),
+            "init" => GitService::init(path),
+            "checkout_branch" => GitService::checkout_branch(path, s("branch")),
+            "checkout_remote_branch" => GitService::checkout_remote_branch(path, s("remoteBranch")),
+            "checkout_commit" => GitService::checkout_commit(path, s("commit")),
+            "create_branch" => GitService::create_branch(path, s("branch"), None, b("checkout")),
+            "create_branch_from" => {
+                let from = s("from");
+                GitService::create_branch(
+                    path,
+                    s("branch"),
+                    (!from.is_empty()).then_some(from),
+                    b("checkout"),
+                )
+            }
+            "merge_branch" => GitService::merge_branch(path, s("branch"), b("squash")),
+            "delete_branch" => GitService::delete_branch(path, s("branch"), b("force")),
+            "amend" => GitService::amend_last_commit_message(path, s("message")),
+            "undo_last_commit" => GitService::undo_last_commit(path),
+            "revert_commit" => GitService::revert_commit(path, s("commit")),
+            "restore_commit" => GitService::restore_commit(path, s("commit"), b("forceRemote")),
+            "add_remote" => GitService::add_remote(path, s("name"), s("url")),
+            "remove_remote" => GitService::remove_remote(path, s("name")),
+            "append_gitignore" => GitService::append_gitignore(path, &paths),
+            "fetch" => GitService::fetch(path),
+            "pull" => GitService::pull(path),
+            "push" => GitService::push(path),
+            "sync" => GitService::sync(path),
+            "force_push" => GitService::force_push(path),
+            "push_remote" => GitService::push_remote(path, s("remote")),
+            other => Err(format!("git op '{other}' is not supported.")),
         };
         match result {
             Ok(_) => {
-                let summary = crate::git::GitService::status(&project_path);
+                let summary = GitService::status(path);
                 self.send(
                     REMOTE_GIT_STATUS,
                     envelope.device_id.as_deref(),
@@ -1839,19 +1865,57 @@ impl RemoteHostRuntime {
         }
     }
 
-    fn handle_git_diff(&self, envelope: &RemoteEnvelope) {
-        let project_path = envelope
+    /// Generic git read (`git.read`) → `{op, result}`.
+    fn handle_git_read(&self, envelope: &RemoteEnvelope) {
+        use crate::git::GitService;
+        let path = envelope
             .payload
             .get("projectPath")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let path = envelope.payload.get("path").and_then(Value::as_str).unwrap_or_default();
-        match crate::git::GitService::file_diff(project_path, path) {
-            Ok(diff) => self.send(
-                REMOTE_GIT_DIFF,
+        let op = envelope.payload.get("op").and_then(Value::as_str).unwrap_or_default();
+        let args = envelope.payload.get("args").cloned().unwrap_or(Value::Null);
+        let s = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
+        let base = || {
+            let value = s("baseBranch");
+            (!value.is_empty()).then(|| value.to_string())
+        };
+        let result: Result<Value, String> = match op {
+            "diff" => GitService::file_diff(path, s("filePath")).map(|diff| json!({ "diff": diff })),
+            "review_diff" => GitService::review_file_diff(path, s("filePath"), base().as_deref())
+                .map(|diff| json!({ "diff": diff })),
+            "review_file_content" => serde_json::to_value(GitService::review_file_content(
+                path,
+                s("filePath"),
+                base().as_deref(),
+            ))
+            .map_err(|error| error.to_string()),
+            "path_status" => GitService::path_status(path, s("directoryPath"))
+                .and_then(|entries| {
+                    serde_json::to_value(entries).map_err(|error| error.to_string())
+                })
+                .map(|entries| json!({ "entries": entries })),
+            "commit_context" => serde_json::to_value(GitService::commit_message_context(path))
+                .map_err(|error| error.to_string()),
+            "last_commit_message" => {
+                GitService::last_commit_message(path).map(|message| json!({ "message": message }))
+            }
+            "head_pushed" => {
+                GitService::head_commit_pushed(path).map(|pushed| json!({ "pushed": pushed }))
+            }
+            "stored_state" => Ok(remote_git_status_payload(
+                String::new(),
+                path.to_string(),
+                GitService::status(path),
+            )),
+            other => Err(format!("git read '{other}' is not supported.")),
+        };
+        match result {
+            Ok(result) => self.send(
+                REMOTE_GIT_READ,
                 envelope.device_id.as_deref(),
                 None,
-                json!({ "path": path, "diff": diff }),
+                json!({ "op": op, "result": result }),
             ),
             Err(error) => self.send_error(envelope, &error),
         }

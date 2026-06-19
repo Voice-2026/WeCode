@@ -295,6 +295,14 @@ impl RuntimeService {
         project_path: &str,
         base_branch: Option<&str>,
     ) -> (git::GitSummary, git::GitReviewSummary) {
+        // Remote projects have no local cache; fetch live status from the host
+        // (review diff isn't cached remotely — the panel refreshes it on demand).
+        if self.host_device_for_project_path(project_path).is_some() {
+            return (
+                self.reload_project_git(project_path),
+                git::GitReviewSummary::default(),
+            );
+        }
         (
             crate::runtime_cache::cached_git_summary(&self.support_dir, project_path)
                 .unwrap_or_default(),

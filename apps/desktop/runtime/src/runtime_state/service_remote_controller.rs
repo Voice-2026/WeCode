@@ -64,9 +64,40 @@ impl RuntimeService {
         self.remote_controllers.controller_for(device_id)
     }
 
+    /// Route a git mutation to the host if the project is remote, returning the
+    /// refreshed `GitSummary`. `None` ⇒ the project is local (caller runs locally).
+    pub(crate) fn remote_git_invoke(
+        &self,
+        project_path: &str,
+        op: &str,
+        args: serde_json::Value,
+    ) -> Option<Result<crate::git::GitSummary, String>> {
+        let device_id = self.host_device_for_project_path(project_path)?;
+        Some(
+            self.remote_controllers
+                .controller_for(&device_id)
+                .and_then(|controller| controller.git_invoke(op, project_path, args))
+                .map(|value| git_summary_from_payload(&value)),
+        )
+    }
+
+    /// Route a git read to the host if the project is remote. `None` ⇒ local.
+    pub(crate) fn remote_git_read(
+        &self,
+        project_path: &str,
+        op: &str,
+        args: serde_json::Value,
+    ) -> Option<Result<serde_json::Value, String>> {
+        let device_id = self.host_device_for_project_path(project_path)?;
+        Some(
+            self.remote_controllers
+                .controller_for(&device_id)
+                .and_then(|controller| controller.git_read(op, project_path, args)),
+        )
+    }
+
     /// Git status of a remote-hosted project, mapped from the host's `git.status`
-    /// payload. (Only status is in the remote protocol today — operations like
-    /// stage/commit/diff need a protocol expansion.)
+    /// payload.
     pub(crate) fn remote_git_summary(
         &self,
         device_id: &str,
@@ -170,6 +201,15 @@ fn git_summary_from_payload(value: &serde_json::Value) -> crate::git::GitSummary
         remotes: parse_typed(value, "remotes"),
         commits: parse_typed(value, "commits"),
     }
+}
+
+/// Pull a string field out of a git.read `result` payload.
+pub(crate) fn remote_git_string(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
 /// Resolve a project-relative path (as the UI uses) to the host's absolute path.

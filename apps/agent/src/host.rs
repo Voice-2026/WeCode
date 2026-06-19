@@ -9,9 +9,9 @@ use codux_protocol::{
     REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY,
     REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
-    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_GIT_COMMIT,
-    REMOTE_GIT_DIFF, REMOTE_GIT_DISCARD, REMOTE_GIT_STAGE, REMOTE_GIT_STATUS, REMOTE_GIT_UNSTAGE,
-    REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
+    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_GIT_INVOKE,
+    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED,
+    REMOTE_PAIRING_REQUEST,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
@@ -222,32 +222,15 @@ fn make_handler(
                     ),
                 ))
             }
-            REMOTE_GIT_STAGE | REMOTE_GIT_UNSTAGE | REMOTE_GIT_DISCARD | REMOTE_GIT_COMMIT => {
+            REMOTE_GIT_INVOKE => {
                 let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                let paths = payload
-                    .get("paths")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|item| item.as_str().map(str::to_string))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let result = match kind {
-                    REMOTE_GIT_STAGE => crate::git::stage(project_path, &paths),
-                    REMOTE_GIT_UNSTAGE => crate::git::unstage(project_path, &paths),
-                    REMOTE_GIT_DISCARD => crate::git::discard(project_path, &paths),
-                    _ => crate::git::commit(
-                        project_path,
-                        payload.get("message").and_then(Value::as_str).unwrap_or(""),
-                    ),
-                };
-                match result {
+                let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
+                let args = payload.get("args").cloned().unwrap_or(Value::Null);
+                match crate::git::invoke(project_path, op, &args) {
                     Ok(()) => Some((
                         REMOTE_GIT_STATUS,
                         git_status_payload(
@@ -259,14 +242,15 @@ fn make_handler(
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 }
             }
-            REMOTE_GIT_DIFF => {
+            REMOTE_GIT_READ => {
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                let path = payload.get("path").and_then(Value::as_str).unwrap_or("");
-                match crate::git::diff(project_path, path) {
-                    Ok(diff) => Some((REMOTE_GIT_DIFF, json!({ "path": path, "diff": diff }))),
+                let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
+                let args = payload.get("args").cloned().unwrap_or(Value::Null);
+                match crate::git::read(project_path, op, &args) {
+                    Ok(result) => Some((REMOTE_GIT_READ, json!({ "op": op, "result": result }))),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 }
             }
@@ -642,30 +626,40 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         if status.get("untracked").and_then(Value::as_u64).unwrap_or(0) < 1 {
             return Err("git.status missing the untracked file".to_string());
         }
-        // git operations: stage → commit → diff
+        // git operations via the generic invoke/read: stage → commit → branch → diff
         request(
-            REMOTE_GIT_STAGE,
-            json!({ "projectPath": repo_dir, "paths": ["probe.txt"] }),
+            REMOTE_GIT_INVOKE,
+            json!({ "projectPath": repo_dir, "op": "stage", "args": { "paths": ["probe.txt"] } }),
         )?;
         let staged = expect(&mut reply_rx, REMOTE_GIT_STATUS).await?;
         if staged.get("staged").and_then(Value::as_u64).unwrap_or(0) < 1 {
-            return Err(format!("git.stage did not stage the file: {staged}"));
+            return Err(format!("git stage did not stage the file: {staged}"));
         }
         request(
-            REMOTE_GIT_COMMIT,
-            json!({ "projectPath": repo_dir, "message": "smoke commit" }),
+            REMOTE_GIT_INVOKE,
+            json!({ "projectPath": repo_dir, "op": "commit", "args": { "message": "smoke commit" } }),
         )?;
         let committed = expect(&mut reply_rx, REMOTE_GIT_STATUS).await?;
-        if committed.get("staged").and_then(Value::as_u64).unwrap_or(9) != 0
-            || committed.get("untracked").and_then(Value::as_u64).unwrap_or(9) != 0
-        {
-            return Err(format!("git.commit did not clean the tree: {committed}"));
+        if committed.get("staged").and_then(Value::as_u64).unwrap_or(9) != 0 {
+            return Err(format!("git commit did not clean the tree: {committed}"));
+        }
+        // create + checkout a branch (shells out to git)
+        request(
+            REMOTE_GIT_INVOKE,
+            json!({ "projectPath": repo_dir, "op": "create_branch", "args": { "branch": "feature", "checkout": true } }),
+        )?;
+        let branched = expect(&mut reply_rx, REMOTE_GIT_STATUS).await?;
+        if branched.get("branch").and_then(Value::as_str) != Some("feature") {
+            return Err(format!("git create_branch did not switch branch: {branched}"));
         }
         std::fs::write(format!("{repo_dir}/probe.txt"), "y").map_err(|error| error.to_string())?;
-        request(REMOTE_GIT_DIFF, json!({ "projectPath": repo_dir, "path": "probe.txt" }))?;
-        let diff = expect(&mut reply_rx, REMOTE_GIT_DIFF).await?;
-        if diff.get("diff").and_then(Value::as_str).is_none() {
-            return Err("git.diff reply missing diff".to_string());
+        request(
+            REMOTE_GIT_READ,
+            json!({ "projectPath": repo_dir, "op": "diff", "args": { "filePath": "probe.txt" } }),
+        )?;
+        let diff = expect(&mut reply_rx, REMOTE_GIT_READ).await?;
+        if diff.pointer("/result/diff").and_then(Value::as_str).is_none() {
+            return Err(format!("git read diff missing result: {diff}"));
         }
         let _ = std::fs::remove_dir_all(&repo_dir);
 
