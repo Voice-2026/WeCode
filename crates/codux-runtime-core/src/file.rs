@@ -107,3 +107,20 @@ pub fn file_rename(path: &str, new_path: &str) -> Result<(), String> {
     }
     fs::rename(source, destination).map_err(|error| error.to_string())
 }
+
+pub fn file_delete(path: &str) -> Result<(), String> {
+    let target = PathBuf::from(path);
+    if target.is_dir() {
+        fs::remove_dir_all(target).map_err(|error| error.to_string())
+    } else {
+        fs::remove_file(target).map_err(|error| error.to_string())
+    }
+}
+
+pub fn file_make_directory(path: &str) -> Result<(), String> {
+    let target = PathBuf::from(path);
+    if target.exists() {
+        return Err("A file or directory with this name already exists.".to_string());
+    }
+    fs::create_dir_all(target).map_err(|error| error.to_string())
+}

@@ -6,14 +6,19 @@
 //! payload builders in `codux-runtime-core`.
 
 use codux_protocol::{
-    REMOTE_ERROR, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_HOST_INFO, REMOTE_TRANSPORT_IROH,
-    REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
+    REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
+    REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
+    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_HOST_INFO,
+    REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
 };
 use codux_runtime_core::{
-    file::{file_list_payload, file_read_payload},
+    file::{
+        file_delete, file_list_payload, file_make_directory, file_read_payload, file_rename,
+        file_write,
+    },
     host::{host_info_payload, HostInfoPayload},
 };
 use serde_json::{json, Value};
@@ -73,6 +78,46 @@ fn make_handler(
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 },
                 None => Some((REMOTE_ERROR, json!({ "message": "File path is required." }))),
+            },
+            REMOTE_FILE_WRITE => match (
+                payload.get("path").and_then(Value::as_str),
+                payload.get("content").and_then(Value::as_str),
+            ) {
+                (Some(path), Some(content)) => match file_write(path, content) {
+                    Ok(()) => Some((REMOTE_FILE_WRITTEN, json!({ "path": path }))),
+                    Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                },
+                _ => Some((
+                    REMOTE_ERROR,
+                    json!({ "message": "File path and content are required." }),
+                )),
+            },
+            REMOTE_FILE_RENAME => match (
+                payload.get("path").and_then(Value::as_str),
+                payload.get("newPath").and_then(Value::as_str),
+            ) {
+                (Some(path), Some(new_path)) => match file_rename(path, new_path) {
+                    Ok(()) => Some((REMOTE_FILE_RENAMED, json!({ "path": path, "newPath": new_path }))),
+                    Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                },
+                _ => Some((
+                    REMOTE_ERROR,
+                    json!({ "message": "File path and newPath are required." }),
+                )),
+            },
+            REMOTE_FILE_DELETE => match payload.get("path").and_then(Value::as_str) {
+                Some(path) => match file_delete(path) {
+                    Ok(()) => Some((REMOTE_FILE_DELETED, json!({ "path": path }))),
+                    Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                },
+                None => Some((REMOTE_ERROR, json!({ "message": "File path is required." }))),
+            },
+            REMOTE_FILE_CREATE_DIRECTORY => match payload.get("path").and_then(Value::as_str) {
+                Some(path) => match file_make_directory(path) {
+                    Ok(()) => Some((REMOTE_FILE_DIRECTORY_CREATED, json!({ "path": path }))),
+                    Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                },
+                None => Some((REMOTE_ERROR, json!({ "message": "Directory path is required." }))),
             },
             _ => None,
         };
@@ -147,12 +192,12 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// In-process round trip: stand up the serving host, connect a controller, ask
-/// for a directory listing, and confirm a real reply comes back. Proves the
-/// headless host actually serves a domain end to end.
+/// In-process round trip: stand up the serving host, connect a controller, and
+/// exercise the full file domain (list, mkdir, write, read, delete) end to end.
+/// Proves the headless host actually serves real domains over the transport.
 pub async fn run_serve_smoke_async() -> Result<String, String> {
     use codux_remote_transport::RemoteControllerTransportConfig;
-    use tokio::sync::oneshot;
+    use tokio::sync::mpsc;
 
     let cfg = AgentHostConfig {
         host_id: "host-serve-smoke".to_string(),
@@ -166,12 +211,13 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         .iroh_candidate()
         .ok_or_else(|| "iroh host candidate missing".to_string())?;
 
-    let (reply_tx, reply_rx) = oneshot::channel::<String>();
-    let reply_tx = Arc::new(Mutex::new(Some(reply_tx)));
+    // Every reply from the host is forwarded as (type, payload).
+    let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<(String, Value)>();
+    let device_id = "device-serve-smoke".to_string();
     let controller_config = RemoteControllerTransportConfig {
         relay_url: cfg.relay_url.clone(),
         host_id: cfg.host_id.clone(),
-        device_id: "device-serve-smoke".to_string(),
+        device_id: device_id.clone(),
         device_token: "token-serve-smoke".to_string(),
         transports: vec![RemoteTransportCandidate {
             kind: REMOTE_TRANSPORT_IROH.to_string(),
@@ -184,44 +230,89 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     };
     let controller = RemoteTransportFactory::connect_controller(
         &controller_config,
-        {
-            let reply_tx = Arc::clone(&reply_tx);
-            Arc::new(move |_source: String, data: Vec<u8>| {
-                let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
-                    return;
-                };
-                if envelope.get("type").and_then(Value::as_str) == Some(REMOTE_FILE_LIST) {
-                    if let Ok(mut guard) = reply_tx.lock() {
-                        if let Some(tx) = guard.take() {
-                            let _ = tx.send(envelope.get("payload").cloned().unwrap_or(Value::Null).to_string());
-                        }
-                    }
+        Arc::new(move |_source: String, data: Vec<u8>| {
+            if let Ok(envelope) = serde_json::from_slice::<Value>(&data) {
+                if let Some(kind) = envelope.get("type").and_then(Value::as_str) {
+                    let payload = envelope.get("payload").cloned().unwrap_or(Value::Null);
+                    let _ = reply_tx.send((kind.to_string(), payload));
                 }
-            })
-        },
+            }
+        }),
         Arc::new(|_, _| {}),
         None,
     )
     .await?;
 
-    let request = json!({
-        "type": REMOTE_FILE_LIST,
-        "deviceId": controller_config.device_id,
-        "requestId": "serve-smoke-1",
-        "payload": { "purpose": "projectFiles" },
-    });
-    let bytes = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
-    if !controller.send(bytes, None) {
-        return Err("controller send failed".to_string());
+    let controller_ref = &controller;
+    let device_ref = &device_id;
+    let request = |kind: &str, payload: Value| -> Result<(), String> {
+        let envelope = json!({ "type": kind, "deviceId": device_ref, "payload": payload });
+        let bytes = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
+        if !controller_ref.send(bytes, None) {
+            return Err(format!("controller send failed for {kind}"));
+        }
+        Ok(())
+    };
+    async fn expect(
+        rx: &mut mpsc::UnboundedReceiver<(String, Value)>,
+        want: &str,
+    ) -> Result<Value, String> {
+        loop {
+            let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+                .await
+                .map_err(|_| format!("timeout waiting for {want}"))?
+                .ok_or_else(|| format!("channel closed waiting for {want}"))?;
+            if kind == want {
+                return Ok(payload);
+            }
+            if kind == REMOTE_ERROR {
+                return Err(format!(
+                    "host error while waiting for {want}: {}",
+                    payload.get("message").and_then(Value::as_str).unwrap_or("")
+                ));
+            }
+        }
     }
-    let observed = tokio::time::timeout(std::time::Duration::from_secs(5), reply_rx)
-        .await
-        .map_err(|_| "file.list reply timeout".to_string())?
-        .map_err(|_| "file.list reply receiver closed".to_string())?;
+
+    let run = async {
+        // 1. list
+        request(REMOTE_FILE_LIST, json!({ "purpose": "projectFiles" }))?;
+        let listed = expect(&mut reply_rx, REMOTE_FILE_LIST).await?;
+        if listed.get("entries").is_none() {
+            return Err("file.list reply missing entries".to_string());
+        }
+
+        // 2. mkdir / write / read / delete in a unique temp dir
+        let dir = std::env::temp_dir().join(format!("codux-agent-serve-{}", std::process::id()));
+        let dir = dir.to_string_lossy().to_string();
+        let file = format!("{dir}/probe.txt");
+
+        request(REMOTE_FILE_CREATE_DIRECTORY, json!({ "path": dir }))?;
+        expect(&mut reply_rx, REMOTE_FILE_DIRECTORY_CREATED).await?;
+        if !std::path::Path::new(&dir).is_dir() {
+            return Err("createDirectory did not create the directory".to_string());
+        }
+
+        request(REMOTE_FILE_WRITE, json!({ "path": file, "content": "codux-agent" }))?;
+        expect(&mut reply_rx, REMOTE_FILE_WRITTEN).await?;
+
+        request(REMOTE_FILE_READ, json!({ "path": file }))?;
+        let read = expect(&mut reply_rx, REMOTE_FILE_READ).await?;
+        if read.get("content").and_then(Value::as_str) != Some("codux-agent") {
+            return Err(format!("file.read returned unexpected content: {read}"));
+        }
+
+        request(REMOTE_FILE_DELETE, json!({ "path": dir }))?;
+        expect(&mut reply_rx, REMOTE_FILE_DELETED).await?;
+        if std::path::Path::new(&dir).exists() {
+            return Err("delete did not remove the directory".to_string());
+        }
+        Ok::<(), String>(())
+    };
+    let result = run.await;
+
     host.shutdown().await;
     controller.shutdown().await;
-    if !observed.contains("entries") {
-        return Err(format!("file.list reply missing entries: {observed}"));
-    }
-    Ok(format!("codux-agent-serve-ok\nfile.list reply has entries"))
+    result?;
+    Ok("codux-agent-serve-ok\nfile domain (list/mkdir/write/read/delete) verified".to_string())
 }

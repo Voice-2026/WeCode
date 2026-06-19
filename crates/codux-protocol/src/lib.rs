@@ -82,6 +82,8 @@ pub const REMOTE_FILE_RENAME: &str = "file.rename";
 pub const REMOTE_FILE_RENAMED: &str = "file.renamed";
 pub const REMOTE_FILE_DELETE: &str = "file.delete";
 pub const REMOTE_FILE_DELETED: &str = "file.deleted";
+pub const REMOTE_FILE_CREATE_DIRECTORY: &str = "file.createDirectory";
+pub const REMOTE_FILE_DIRECTORY_CREATED: &str = "file.directoryCreated";
 pub const REMOTE_GIT_STATUS: &str = "git.status";
 pub const REMOTE_AI_STATS: &str = "ai.stats";
 
