@@ -81,6 +81,7 @@ pub struct CoduxApp {
     pub(in crate::app) pet_custom_install_window: Option<AnyWindowHandle>,
     pub(in crate::app) pet_dex_window: Option<AnyWindowHandle>,
     pub(in crate::app) ssh_profile_editor_window: Option<AnyWindowHandle>,
+    pub(in crate::app) file_picker_window: Option<AnyWindowHandle>,
     pub(in crate::app) project_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) terminal_tab_editor_window: Option<AnyWindowHandle>,
     pub(in crate::app) worktree_creator_window: Option<AnyWindowHandle>,
@@ -313,14 +314,8 @@ pub struct CoduxApp {
     /// device; `None` = local. Drives the editor's device picker + remote browse.
     pub(in crate::app) project_editor_host_device_id: Option<String>,
     /// Inline "pair a new device" form state within the project editor.
-    pub(in crate::app) project_editor_pairing_open: bool,
-    pub(in crate::app) project_editor_pairing_ticket: String,
-    pub(in crate::app) project_editor_pairing_name: String,
-    pub(in crate::app) project_editor_pairing_error: Option<String>,
-    pub(in crate::app) project_editor_pairing_busy: bool,
     /// Inline remote directory browser state (shown when choosing a directory on
     /// a remote device instead of opening the native OS dialog).
-    pub(in crate::app) project_editor_browse_open: bool,
     pub(in crate::app) project_editor_browse_busy: bool,
     pub(in crate::app) project_editor_browse_path: String,
     pub(in crate::app) project_editor_browse_parent: Option<String>,

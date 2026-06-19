@@ -91,39 +91,6 @@ impl CoduxApp {
                     ),
                 cx,
             ))
-            .when(self.project_editor_browse_open, |shell| {
-                shell.child(self.project_editor_browse_overlay(window, cx))
-            })
-    }
-
-    /// The directory picker as a modal popup over the editor window (no longer an
-    /// inline panel). Reuses the existing browse panel content.
-    fn project_editor_browse_overlay(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(cx.theme().overlay)
-            .occlude()
-            .child(
-                div()
-                    .w(px(480.0))
-                    .max_h(px(560.0))
-                    .rounded(px(14.0))
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().background)
-                    .shadow_lg()
-                    .p(px(16.0))
-                    .child(self.project_editor_browse_panel(window, cx)),
-            )
-            .into_any_element()
     }
 
     /// The "Device" selector: This Mac (local) + each paired remote host, plus
@@ -131,7 +98,7 @@ impl CoduxApp {
     /// project as hosted there (its domains route over the controller).
     fn project_editor_device_field(
         &self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let locale = locale_from_language_setting(self.state.settings.language.as_str());
@@ -166,6 +133,8 @@ impl CoduxApp {
                 },
             ));
         }
+        // Pairing now lives in Settings → Remote (unified device management);
+        // this just jumps there. The newly paired host then shows up as a chip.
         row = row.child(
             Button::new("project-editor-device-pair")
                 .secondary()
@@ -175,12 +144,12 @@ impl CoduxApp {
                     "project.editor.device.pair",
                     "Pair device…",
                 )))
-                .on_click(cx.listener(|app, _event, window, cx| {
-                    app.toggle_project_editor_pairing(window, cx);
+                .on_click(cx.listener(|app, _event, _window, cx| {
+                    app.open_settings_window_with_pane(super::settings::SettingsPane::Remote, cx);
                 })),
         );
 
-        let mut field = div()
+        div()
             .flex()
             .flex_col()
             .gap(px(6.0))
@@ -192,100 +161,37 @@ impl CoduxApp {
                     .text_color(color(theme::TEXT))
                     .child(tr("project.editor.device", "Device")),
             )
-            .child(row);
-        if self.project_editor_pairing_open {
-            field = field.child(self.project_editor_pairing_panel(window, cx));
-        }
-        field.into_any_element()
-    }
-
-    fn project_editor_pairing_panel(
-        &self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let locale = locale_from_language_setting(self.state.settings.language.as_str());
-        let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
-        let mut panel = div()
-            .mt(px(10.0))
-            .p(px(12.0))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(color(theme::BORDER_SOFT))
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .child(
-                div()
-                    .text_size(rems(0.8125))
-                    .text_color(color(theme::TEXT_MUTED))
-                    .child(tr(
-                        "project.editor.device.pair.hint",
-                        "Paste the pairing ticket the host shows (codux://pair…).",
-                    )),
-            )
-            .child(project_editor_input(
-                "project-editor-pairing-ticket",
-                &self.project_editor_pairing_ticket,
-                "codux://pair?payload=…",
-                window,
-                cx,
-                |app, value, window, cx| app.set_project_editor_pairing_ticket(value, window, cx),
-            ))
-            .child(project_editor_input(
-                "project-editor-pairing-name",
-                &self.project_editor_pairing_name,
-                "This device name",
-                window,
-                cx,
-                |app, value, window, cx| app.set_project_editor_pairing_name(value, window, cx),
-            ));
-        if let Some(error) = self.project_editor_pairing_error.as_ref() {
-            panel = panel.child(
-                div()
-                    .text_size(rems(0.8125))
-                    .text_color(color(theme::ORANGE))
-                    .child(error.clone()),
-            );
-        }
-        panel
-            .child(
-                div().flex().child(
-                    dialog_primary_button(
-                        "project-editor-pairing-submit",
-                        tr("project.editor.device.pair.submit", "Pair"),
-                        cx,
-                        |app, _event, window, cx| app.submit_project_editor_pairing(window, cx),
-                    )
-                    .disabled(self.project_editor_pairing_busy)
-                    .loading(self.project_editor_pairing_busy),
-                ),
-            )
+            .child(row)
             .into_any_element()
     }
+
 }
 
 impl CoduxApp {
-    /// Inline remote directory browser: navigate the host's folders, create a
-    /// folder, and pick one as the project root.
-    fn project_editor_browse_panel(
+    /// The file-picker sub-window: a standard child window (shared title bar via
+    /// `child_window_shell`, shared `dialog_footer_bar`) for browsing a local or
+    /// remote-host directory and picking a folder. The chosen path is pushed back
+    /// to the project-editor window (the opener).
+    pub(in crate::app) fn file_picker_window(
         &self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let locale = locale_from_language_setting(self.state.settings.language.as_str());
         let tr = |key: &str, fallback: &str| translate(&locale, key, fallback);
+        let title = tr("project.editor.browse.title", "Choose Folder");
         let current = self.project_editor_browse_path.clone();
 
         let mut list = div()
+            .min_h_0()
+            .flex_1()
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .max_h(px(200.0))
             .overflow_y_scrollbar();
         if let Some(parent) = self.project_editor_browse_parent.clone() {
             list = list.child(project_editor_browse_row(
-                "project-editor-browse-up".to_string(),
+                "file-picker-up".to_string(),
                 "..".to_string(),
                 cx,
                 move |app, window, cx| {
@@ -296,7 +202,7 @@ impl CoduxApp {
         for entry in &self.project_editor_browse_entries {
             let path = entry.path.clone();
             list = list.child(project_editor_browse_row(
-                format!("project-editor-browse-{path}"),
+                format!("file-picker-{path}"),
                 entry.name.clone(),
                 cx,
                 move |app, window, cx| {
@@ -305,15 +211,13 @@ impl CoduxApp {
             ));
         }
 
-        let mut panel = div()
-            .mt(px(8.0))
-            .p(px(12.0))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(color(theme::BORDER_SOFT))
+        let mut body = div()
+            .min_h_0()
+            .flex_1()
             .flex()
             .flex_col()
-            .gap(px(8.0))
+            .gap(px(10.0))
+            .p(px(16.0))
             .child(
                 div()
                     .text_size(rems(0.8125))
@@ -332,7 +236,7 @@ impl CoduxApp {
                     .items_center()
                     .gap_2()
                     .child(div().flex_1().min_w_0().child(project_editor_input(
-                        "project-editor-browse-newfolder",
+                        "file-picker-newfolder",
                         &self.project_editor_browse_new_folder,
                         "New folder name",
                         window,
@@ -342,7 +246,7 @@ impl CoduxApp {
                         },
                     )))
                     .child(
-                        Button::new("project-editor-browse-create")
+                        Button::new("file-picker-create")
                             .secondary()
                             .compact()
                             .text_color(cx.theme().secondary_foreground)
@@ -357,35 +261,40 @@ impl CoduxApp {
                     ),
             );
         if let Some(error) = self.project_editor_browse_error.as_ref() {
-            panel = panel.child(
+            body = body.child(
                 div()
                     .text_size(rems(0.8125))
                     .text_color(color(theme::ORANGE))
                     .child(error.clone()),
             );
         }
-        panel
-            .child(
+
+        child_window_shell(SharedString::from(title), cx)
+            .child(body)
+            .child(dialog_footer_bar(
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .child(
-                        dialog_primary_button(
-                            "project-editor-browse-use",
-                            tr("project.editor.browse.use", "Use this folder"),
-                            cx,
-                            |app, _event, window, cx| app.project_editor_browse_select(window, cx),
-                        )
-                        .disabled(current.trim().is_empty() || self.project_editor_browse_busy),
-                    )
+                    .gap(px(8.0))
                     .child(dialog_cancel_button(
-                        "project-editor-browse-cancel",
+                        "file-picker-cancel",
                         tr("common.cancel", "Cancel"),
                         cx,
-                        |app, _event, window, cx| app.close_project_editor_browse(window, cx),
-                    )),
-            )
+                        |_app, _event, window, _cx| {
+                            window.remove_window();
+                        },
+                    ))
+                    .child(
+                        dialog_primary_button(
+                            "file-picker-use",
+                            tr("project.editor.browse.use", "Use this folder"),
+                            cx,
+                            |app, _event, window, cx| app.file_picker_select(window, cx),
+                        )
+                        .disabled(current.trim().is_empty() || self.project_editor_browse_busy),
+                    ),
+                cx,
+            ))
             .into_any_element()
     }
 }

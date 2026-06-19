@@ -1912,139 +1912,65 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
     }
 
-    pub(super) fn toggle_project_editor_pairing(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_editor_pairing_open = !self.project_editor_pairing_open;
-        self.project_editor_pairing_error = None;
-        self.invalidate_project_management(cx);
-    }
-
-    pub(super) fn set_project_editor_pairing_ticket(
-        &mut self,
-        value: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_editor_pairing_ticket = value;
-        self.invalidate_project_management(cx);
-    }
-
-    pub(super) fn set_project_editor_pairing_name(
-        &mut self,
-        value: String,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_editor_pairing_name = value;
-        self.invalidate_project_management(cx);
-    }
-
-    /// Pair with a remote host from the pasted ticket, then select it as the
-    /// project's device.
-    pub(super) fn submit_project_editor_pairing(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let ticket = self.project_editor_pairing_ticket.trim().to_string();
-        if ticket.is_empty() {
-            self.project_editor_pairing_error = Some("Paste a pairing ticket.".to_string());
-            self.invalidate_project_management(cx);
-            return;
-        }
-        let device_name = {
-            let name = self.project_editor_pairing_name.trim();
-            if name.is_empty() {
-                "Codux Desktop".to_string()
-            } else {
-                name.to_string()
-            }
-        };
-        let runtime_service = self.runtime_service.clone();
-        let window_handle = window.window_handle();
-        self.project_editor_pairing_busy = true;
-        self.project_editor_pairing_error = None;
-        self.invalidate_project_management(cx);
-
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
-                runtime_service.pair_remote_host(&ticket, &device_name)
-            })
-            .await
-            .unwrap_or_else(|error| Err(format!("failed to join pairing: {error}")));
-
-            let _ = window_handle.update(cx, |_root, _window, cx| {
-                let _ = this.update(cx, |app, cx| {
-                    app.project_editor_pairing_busy = false;
-                    match result {
-                        Ok(saved) => {
-                            app.status_message = format!(
-                                "paired with {}",
-                                if saved.host_name.is_empty() {
-                                    saved.host_id.clone()
-                                } else {
-                                    saved.host_name.clone()
-                                }
-                            );
-                            app.project_editor_host_device_id = Some(saved.device_id);
-                            app.project_editor_path = String::new();
-                            app.project_editor_pairing_open = false;
-                            app.project_editor_pairing_ticket = String::new();
-                            app.project_editor_pairing_name = String::new();
-                            app.project_editor_pairing_error = None;
-                        }
-                        Err(error) => {
-                            app.project_editor_pairing_error = Some(error);
-                        }
-                    }
-                    app.invalidate_project_management(cx);
-                });
-            });
-        })
-        .detach();
-    }
-
     pub(super) fn choose_project_editor_directory(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Unified in-app picker for both local and remote projects (a remote
-        // project's directory lives on the host; the local one is browsed over
-        // the same overlay via `browse_local_directory`). Start at the currently
-        // entered path, if any.
+        // Open the unified file-picker sub-window (a standard child window with
+        // the shared title bar / footer), browsing local or the selected host.
         let device_id = self.project_editor_host_device_id.clone();
         let start = {
             let path = self.project_editor_path.trim();
             (!path.is_empty()).then(|| path.to_string())
         };
-        self.open_project_editor_browse(device_id, start, window, cx);
+        self.open_file_picker_window(device_id, start, window, cx);
     }
 
-    pub(super) fn open_project_editor_browse(
+    pub(super) fn open_file_picker_window(
         &mut self,
         device_id: Option<String>,
-        path: Option<String>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_editor_browse_open = true;
-        self.project_editor_browse_error = None;
-        self.load_project_editor_browse(device_id, path, window.window_handle(), cx);
-    }
-
-    pub(super) fn close_project_editor_browse(
-        &mut self,
+        start_path: Option<String>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.project_editor_browse_open = false;
-        self.project_editor_browse_error = None;
-        self.project_editor_browse_new_folder.clear();
-        self.invalidate_project_management(cx);
+        let locale = locale_from_language_setting(&self.state.settings.language);
+        let title = translate(&locale, "project.editor.browse.title", "Choose Folder");
+        let parent = cx.entity().downgrade();
+        let device_for_build = device_id.clone();
+        self.open_auxiliary_window(
+            AuxiliaryWindowSpec {
+                slot: AuxiliaryWindowSlot::FilePicker,
+                title: SharedString::from(title),
+                size: size(px(560.0), px(520.0)),
+                min_size: size(px(440.0), px(400.0)),
+                already_open_message: "file picker already opened",
+                opened_message: "file picker opened",
+                failed_prefix: "failed to open file picker",
+            },
+            cx,
+            move |state, runtime, runtime_service, _window, _cx| {
+                let mut app =
+                    CoduxApp::new_settings_window_from_state(state, runtime, runtime_service);
+                app.window_mode = AppWindowMode::FilePicker;
+                app.project_editor_host_device_id = device_for_build;
+                app.project_editor_browse_path = String::new();
+                app.project_editor_browse_parent = None;
+                app.project_editor_browse_entries = Vec::new();
+                app.project_editor_browse_new_folder = String::new();
+                app.project_editor_browse_error = None;
+                app.parent_main_window = Some(parent);
+                app
+            },
+            move |view, window, cx| {
+                let handle = window.window_handle();
+                let device = device_id.clone();
+                let start = start_path.clone();
+                let _ = view.update(cx, |app, cx| {
+                    app.load_project_editor_browse(device, start, handle, cx);
+                });
+            },
+        );
     }
 
     pub(super) fn project_editor_browse_navigate(
@@ -2057,16 +1983,24 @@ impl CoduxApp {
         self.load_project_editor_browse(device_id, path, window.window_handle(), cx);
     }
 
-    pub(super) fn project_editor_browse_select(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.project_editor_browse_path.trim().is_empty() {
-            self.project_editor_path = self.project_editor_browse_path.clone();
+    /// Confirm the file-picker sub-window's current folder: push it back to the
+    /// project-editor window (the parent) and close the picker.
+    pub(super) fn file_picker_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self.project_editor_browse_path.trim().to_string();
+        if path.is_empty() {
+            return;
         }
-        self.project_editor_browse_open = false;
-        self.invalidate_project_management(cx);
+        if let Some(parent) = self
+            .parent_main_window
+            .clone()
+            .and_then(|parent| parent.upgrade())
+        {
+            let _ = parent.update(cx, |opener, cx| {
+                opener.project_editor_path = path.clone();
+                opener.invalidate_project_management(cx);
+            });
+        }
+        window.remove_window();
     }
 
     pub(super) fn set_project_editor_browse_new_folder(

@@ -24,6 +24,7 @@ pub(in crate::app) enum AuxiliaryWindowSlot {
     TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
+    FilePicker,
 }
 
 impl CoduxApp {
@@ -151,6 +152,7 @@ impl CoduxApp {
             pet_custom_install_window: None,
             pet_dex_window: None,
             ssh_profile_editor_window: None,
+            file_picker_window: None,
             project_editor_window: None,
             terminal_tab_editor_window: None,
             worktree_creator_window: None,
@@ -364,12 +366,6 @@ impl CoduxApp {
             project_editor_badge_color_hex: PROJECT_BADGE_COLORS[0].to_string(),
             project_editor_saving: false,
             project_editor_host_device_id: None,
-            project_editor_pairing_open: false,
-            project_editor_pairing_ticket: String::new(),
-            project_editor_pairing_name: String::new(),
-            project_editor_pairing_error: None,
-            project_editor_pairing_busy: false,
-            project_editor_browse_open: false,
             project_editor_browse_busy: false,
             project_editor_browse_path: String::new(),
             project_editor_browse_parent: None,
@@ -498,6 +494,7 @@ impl CoduxApp {
             AuxiliaryWindowSlot::TerminalTabEditor => &mut self.terminal_tab_editor_window,
             AuxiliaryWindowSlot::WorktreeCreator => &mut self.worktree_creator_window,
             AuxiliaryWindowSlot::SshProfileEditor => &mut self.ssh_profile_editor_window,
+            AuxiliaryWindowSlot::FilePicker => &mut self.file_picker_window,
         }
     }
 

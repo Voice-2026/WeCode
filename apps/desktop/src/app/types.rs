@@ -19,6 +19,7 @@ pub(in crate::app) enum AppWindowMode {
     TerminalTabEditor,
     WorktreeCreator,
     SshProfileEditor,
+    FilePicker,
     DesktopPet,
 }
 
