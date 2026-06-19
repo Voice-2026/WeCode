@@ -49,7 +49,10 @@ pub struct AgentHostConfig {
     pub host_token: String,
     pub name: String,
     pub relay_preset: String,
+    /// Custom relay URL (used only when `relay_preset` is "custom").
     pub relay_url: String,
+    /// Optional bearer token for a custom relay.
+    pub relay_authentication: String,
 }
 
 type TransportSlot = Arc<Mutex<Option<Arc<dyn RemoteTransport>>>>;
@@ -238,6 +241,16 @@ fn make_handler(
                     .or(device_id)
                     .unwrap_or_default()
                     .to_string();
+                // Record the device so `codux device` can list it.
+                let device_name = payload
+                    .get("deviceName")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let device_platform = payload
+                    .get("platform")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                crate::device_store::record(&confirm_device, device_name, device_platform);
                 let mut transports = Vec::new();
                 if let Ok(guard) = candidate.lock() {
                     if let Some((node_id, relay_url)) = guard.as_ref() {
@@ -566,11 +579,18 @@ async fn connect_serving_host(
     let candidate: CandidateSlot = Arc::new(Mutex::new(None));
     let driver = Arc::new(LocalPtyDriver::new());
     let indexer = crate::ai_stats::open_indexer();
+    // For a custom relay the iroh relay URL must be set explicitly; for presets
+    // the transport resolves it from `relay_preset`.
+    let iroh_relay_url = if cfg.relay_preset == "custom" {
+        cfg.relay_url.clone()
+    } else {
+        String::new()
+    };
     let config = RemoteHostTransportConfig {
         relay_url: cfg.relay_url.clone(),
         relay_preset: cfg.relay_preset.clone(),
-        iroh_relay_url: String::new(),
-        iroh_relay_authentication: String::new(),
+        iroh_relay_url,
+        iroh_relay_authentication: cfg.relay_authentication.clone(),
         host_id: cfg.host_id.clone(),
         host_token: cfg.host_token.clone(),
     };
@@ -603,19 +623,34 @@ async fn connect_serving_host(
 /// candidate so a controller can connect.
 pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
     let (host, _slot) = connect_serving_host(&cfg).await?;
-    println!("codux-agent host ready");
+    println!("codux host ready");
     println!("hostId={}", cfg.host_id);
     println!("name={}", cfg.name);
     println!("platform={}", std::env::consts::OS);
-    if let Some((node_id, relay_url)) = host.iroh_candidate() {
+    let (node_id, relay) = host
+        .iroh_candidate()
+        .map(|(node_id, relay)| (node_id, relay))
+        .unwrap_or_default();
+    if !node_id.is_empty() {
         println!("nodeId={node_id}");
-        println!("relay={relay_url}");
+        println!("relay={relay}");
     }
     if let Some(ticket) = host.iroh_endpoint_ticket() {
+        let pairing = pairing_ticket_url(&cfg.host_id, &ticket);
         println!("ticket={ticket}");
-        // A pasteable pairing ticket the desktop controller can consume directly.
-        println!("pairingTicket={}", pairing_ticket_url(&cfg.host_id, &ticket));
+        println!("pairingTicket={pairing}");
+        // Publish the ticket for `codux link` / `codux qrcode` to read.
+        crate::runstate::write_ticket(&pairing);
     }
+    // Publish status for `codux status` / `codux stop`.
+    crate::runstate::write_status(&crate::runstate::DaemonStatus {
+        pid: std::process::id(),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        host_id: cfg.host_id.clone(),
+        device_name: cfg.name.clone(),
+        node_id,
+        relay,
+    });
     // Serve until the process is terminated.
     std::future::pending::<()>().await;
     Ok(())
@@ -661,6 +696,7 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         name: "codux-agent-smoke".to_string(),
         relay_preset: "global".to_string(),
         relay_url: "https://relay.example".to_string(),
+        relay_authentication: String::new(),
     };
     // Keep the smoke's project store out of the real ~/.codux-agent.
     let data_dir = std::env::temp_dir().join(format!("codux-agent-data-{}", std::process::id()));
