@@ -1314,6 +1314,7 @@ dependencies = [
  "chrono",
  "codux-ai-history",
  "codux-llm",
+ "codux-memory",
  "codux-protocol",
  "codux-remote-transport",
  "codux-runtime-core",

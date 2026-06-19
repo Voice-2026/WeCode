@@ -1,94 +1,114 @@
-mod apply;
-mod compat;
-pub mod extraction;
-mod launch;
-mod management;
-mod manual;
-mod profile;
-mod queries;
-mod queue;
-mod transcript;
-mod types;
+//! Desktop bridge to the shared `codux-memory` engine.
+//!
+//! The engine lives in `crates/codux-memory` so the headless host can run it
+//! too. The desktop keeps its richer settings/project/session types; this module
+//! re-exports the engine and converts the desktop types into the engine's narrow
+//! config types at the call boundary (field shapes match, so the conversions are
+//! a serde round-trip).
 
-pub use types::*;
+pub use codux_memory::*;
 
-pub use apply::{
-    MemoryDecisionLog, MemoryEntryStatus, MemoryWriteDecisionKind, StoredMemoryEntry,
-    StoredMemorySummary,
-};
-pub use extraction::{MemoryKind, MemoryScope, MemoryTier};
-pub use launch::launch_artifact_paths;
-use launch::{render_launch_memory_index, render_recent_memory};
-pub use manual::MemoryExtractionEnqueueResult;
-use queries::*;
-pub use queue::{
-    MemoryEnqueueResult, MemoryExtractionStatus, MemoryExtractionStatusSnapshot,
-    MemoryExtractionTask,
-};
-
+use crate::ai_runtime::AISessionSnapshot;
+use crate::project_store::ProjectWorkspaceRecord;
 use crate::runtime_state::ProjectInfo;
-use rusqlite::{Connection, OptionalExtension, params};
-use std::{fs, path::PathBuf};
+use crate::settings::{AIMemorySettings, AIProviderSettings, AISettings};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-impl MemoryService {
-    pub fn new(support_dir: PathBuf) -> Self {
-        Self {
-            database_path: support_dir.join("memory.sqlite3"),
-        }
-    }
+/// Convert between the desktop and engine types via a serde round-trip. Used for
+/// the session snapshot, which derives Serialize and shares the engine's
+/// camelCase shape. The settings types are Deserialize-only, so they are copied
+/// field-for-field below.
+fn convert<A: Serialize, B: DeserializeOwned + Default>(value: &A) -> B {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|json| serde_json::from_value(json).ok())
+        .unwrap_or_default()
+}
 
-    pub(super) fn open_connection(&self) -> Result<Connection, String> {
-        if !self.database_path.is_file() {
-            return Err("memory.sqlite3 not found".to_string());
-        }
-        let connection =
-            Connection::open(&self.database_path).map_err(|error| error.to_string())?;
-        initialize_memory_connection(&connection)?;
-        Ok(connection)
-    }
-
-    pub(super) fn open_or_create_connection(&self) -> Result<Connection, String> {
-        if let Some(parent) = self.database_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let connection =
-            Connection::open(&self.database_path).map_err(|error| error.to_string())?;
-        initialize_memory_connection(&connection)?;
-        Ok(connection)
+pub fn memory_config(settings: &AISettings) -> MemoryConfig {
+    MemoryConfig {
+        global_prompt: settings.global_prompt.clone(),
+        memory: memory_settings(&settings.memory),
+        providers: settings.providers.iter().map(memory_provider).collect(),
     }
 }
 
-/// Concurrency-safe connection setup, mirroring the AI-usage store
-/// (`ai_usage_store/connection.rs`). The memory DB has several in-process
-/// accessors at once -- the 300ms status poller (reader), the queue worker
-/// (writer), enqueue-on-completion (writer), and the profile refresh (writer).
-/// With the SQLite defaults (rollback journal + `busy_timeout = 0`) any
-/// contention returns `database is locked` immediately. WAL lets a reader and a
-/// writer proceed without blocking each other, and the busy_timeout makes a
-/// contended writer wait briefly instead of failing.
-fn initialize_memory_connection(connection: &Connection) -> Result<(), String> {
-    connection
-        .busy_timeout(std::time::Duration::from_secs(5))
-        .map_err(|error| error.to_string())?;
-    connection
-        .pragma_update(None, "journal_mode", "WAL")
-        .map_err(|error| error.to_string())?;
-    connection
-        .pragma_update(None, "synchronous", "NORMAL")
-        .map_err(|error| error.to_string())?;
-    Ok(())
+pub fn memory_settings(settings: &AIMemorySettings) -> MemorySettings {
+    MemorySettings {
+        enabled: settings.enabled,
+        automatic_injection_enabled: settings.automatic_injection_enabled,
+        automatic_extraction_enabled: settings.automatic_extraction_enabled,
+        allow_cross_project_user_recall: settings.allow_cross_project_user_recall,
+        default_extractor_provider_id: settings.default_extractor_provider_id.clone(),
+        max_injected_user_working_memories: settings.max_injected_user_working_memories,
+        max_injected_project_working_memories: settings.max_injected_project_working_memories,
+        max_active_working_entries: settings.max_active_working_entries,
+        max_summary_versions: settings.max_summary_versions,
+        summary_target_token_budget: settings.summary_target_token_budget,
+        max_injected_summary_tokens: settings.max_injected_summary_tokens,
+        extraction_idle_delay_seconds: settings.extraction_idle_delay_seconds,
+        session_extraction_cooldown_seconds: settings.session_extraction_cooldown_seconds,
+        max_index_sessions: settings.max_index_sessions,
+        max_extraction_transcript_lines: settings.max_extraction_transcript_lines,
+        max_extraction_transcript_tokens: settings.max_extraction_transcript_tokens,
+    }
 }
 
-include!("memory/service_summary.rs");
-include!("memory/service_management.rs");
-include!("memory/service_launch.rs");
-
-pub(super) fn now_seconds() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs_f64())
-        .unwrap_or(0.0)
+pub fn memory_provider(provider: &AIProviderSettings) -> MemoryProvider {
+    MemoryProvider {
+        id: provider.id.clone(),
+        kind: provider.kind.clone(),
+        display_name: provider.display_name.clone(),
+        is_enabled: provider.is_enabled,
+        model: provider.model.clone(),
+        base_url: provider.base_url.clone(),
+        api_key: provider.api_key.clone(),
+        use_for_memory_extraction: provider.use_for_memory_extraction,
+        priority: provider.priority,
+    }
 }
 
-#[cfg(test)]
-mod tests;
+// ProjectInfo / ProjectWorkspaceRecord are not Serialize, so copy their fields
+// directly (the engine models only a narrow subset).
+pub fn memory_project_info(project: &ProjectInfo) -> MemoryProjectInfo {
+    MemoryProjectInfo {
+        id: project.id.clone(),
+        name: project.name.clone(),
+        path: project.path.clone(),
+    }
+}
+
+pub fn memory_project_infos(projects: &[ProjectInfo]) -> Vec<MemoryProjectInfo> {
+    projects.iter().map(memory_project_info).collect()
+}
+
+pub fn memory_project_record(record: &ProjectWorkspaceRecord) -> MemoryProjectRecord {
+    MemoryProjectRecord {
+        id: record.id.clone(),
+        root_project_id: record.root_project_id.clone(),
+        root_project_name: record.root_project_name.clone(),
+        root_project_path: record.root_project_path.clone(),
+        workspace_path: record.workspace_path.clone(),
+        git_default_push_remote_name: record.git_default_push_remote_name.clone(),
+    }
+}
+
+pub fn memory_project_records(records: &[ProjectWorkspaceRecord]) -> Vec<MemoryProjectRecord> {
+    records.iter().map(memory_project_record).collect()
+}
+
+pub fn memory_session(session: &AISessionSnapshot) -> MemorySessionSnapshot {
+    convert(session)
+}
+
+pub fn memory_sessions(sessions: &[AISessionSnapshot]) -> Vec<MemorySessionSnapshot> {
+    sessions.iter().map(memory_session).collect()
+}
+
+/// Resolve the launch-artifact paths under the desktop's runtime root. Keeps the
+/// 1-arg signature the GPUI launch path expects (shadows the engine's 2-arg
+/// `launch_artifact_paths`, which the desktop reaches via the explicit base).
+pub fn launch_artifact_paths(project_id: &str) -> MemoryLaunchArtifacts {
+    codux_memory::launch_artifact_paths(&crate::runtime_paths::runtime_root_dir(), project_id)
+}

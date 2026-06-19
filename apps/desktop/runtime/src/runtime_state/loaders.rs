@@ -145,8 +145,13 @@ fn load_memory_manager(
     project_id: Option<&str>,
     tab: &str,
 ) -> MemoryManagerSnapshot {
-    MemoryService::new(support_dir.to_path_buf())
-        .manager_snapshot(projects, scope, project_id, tab, 500)
+    MemoryService::new(support_dir.to_path_buf()).manager_snapshot(
+        &crate::memory::memory_project_infos(projects),
+        scope,
+        project_id,
+        tab,
+        500,
+    )
 }
 
 fn load_notifications(support_dir: &Path) -> NotificationSummary {

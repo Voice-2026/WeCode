@@ -67,15 +67,16 @@ impl RuntimeService {
         project_name: &str,
         workspace_path: &str,
     ) -> Option<crate::memory::MemoryLaunchArtifacts> {
-        let settings = AppSettingsStore::from_support_dir(self.support_dir.clone()).snapshot();
+        let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
         let ssh_context =
             render_ssh_launch_context_from_support_dir(self.support_dir.clone(), None);
         MemoryService::new(self.support_dir.clone()).prepare_launch_artifacts(
+            &crate::runtime_paths::runtime_root_dir(),
             crate::memory::MemoryLaunchRequest {
                 project_id: project_id.to_string(),
                 project_name: project_name.to_string(),
                 workspace_path: Some(workspace_path.to_string()),
-                settings: settings.ai,
+                settings: crate::memory::memory_config(&settings),
                 extra_context: ssh_context,
             },
         )
@@ -88,9 +89,9 @@ impl RuntimeService {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone()).enqueue_completed_session_if_ready(
-            &settings.memory,
+            &crate::memory::memory_settings(&settings.memory),
             &projects,
-            session,
+            &crate::memory::memory_session(session),
         )
     }
 
@@ -100,7 +101,11 @@ impl RuntimeService {
 
     pub fn automatic_memory_extraction_available(&self) -> bool {
         let settings = SettingsService::new(self.support_dir.clone()).ai_settings();
-        crate::memory::extraction::select_memory_provider(&settings, None).is_some()
+        crate::memory::extraction::select_memory_provider(
+            &crate::memory::memory_config(&settings),
+            None,
+        )
+        .is_some()
     }
 
     pub fn cancel_memory_extraction_queue(&self) -> Result<MemoryExtractionStatusSnapshot, String> {
@@ -162,9 +167,9 @@ impl RuntimeService {
         let history_sessions = indexed_sessions_since_at(self.ai_usage_database_path(), None)
             .map_err(|error| error.to_string())?;
         memory_service.enqueue_automatic_extraction_candidates(
-            &settings.memory,
+            &crate::memory::memory_settings(&settings.memory),
             &projects,
-            &runtime_state.sessions,
+            &crate::memory::memory_sessions(&runtime_state.sessions),
             &history_sessions,
         )
     }
@@ -182,9 +187,9 @@ impl RuntimeService {
             .map_err(|error| error.to_string())?;
         MemoryService::new(self.support_dir.clone())
             .process_memory_sessions_now(
-                &settings,
+                &crate::memory::memory_config(&settings),
                 &projects,
-                &runtime_state.sessions,
+                &crate::memory::memory_sessions(&runtime_state.sessions),
                 &history_sessions,
                 &output_locale,
             )
@@ -198,7 +203,11 @@ impl RuntimeService {
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_next_memory_extraction_task(&settings, &projects, &output_locale)
+            .process_next_memory_extraction_task(
+                &crate::memory::memory_config(&settings),
+                &projects,
+                &output_locale,
+            )
             .await
     }
 
@@ -209,7 +218,11 @@ impl RuntimeService {
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_memory_extraction_queue(&settings, &projects, &output_locale)
+            .process_memory_extraction_queue(
+                &crate::memory::memory_config(&settings),
+                &projects,
+                &output_locale,
+            )
             .await
     }
 
@@ -221,30 +234,31 @@ impl RuntimeService {
         let output_locale = self.memory_extraction_output_locale();
         let projects = self.memory_project_workspaces();
         MemoryService::new(self.support_dir.clone())
-            .process_memory_extraction_queue_limited(&settings, &projects, &output_locale, limit)
+            .process_memory_extraction_queue_limited(
+                &crate::memory::memory_config(&settings),
+                &projects,
+                &output_locale,
+                limit,
+            )
             .await
     }
 
-    fn memory_project_infos(&self) -> Vec<ProjectInfo> {
+    fn memory_project_infos(&self) -> Vec<crate::memory::MemoryProjectInfo> {
         ProjectStore::new(self.support_dir.clone())
             .project_summaries()
             .into_iter()
-            .map(|project| ProjectInfo {
+            .map(|project| crate::memory::MemoryProjectInfo {
                 id: project.id,
                 name: project.name,
                 path: project.path,
-                exists: true,
-                badge: project.badge,
-                badge_symbol: project.badge_symbol,
-                badge_color_hex: project.badge_color_hex,
-                git_default_push_remote_name: project.git_default_push_remote_name,
-                host_device_id: None,
             })
             .collect()
     }
 
-    fn memory_project_workspaces(&self) -> Vec<crate::project_store::ProjectWorkspaceRecord> {
-        ProjectStore::new(self.support_dir.clone()).project_workspaces_snapshot()
+    fn memory_project_workspaces(&self) -> Vec<crate::memory::MemoryProjectRecord> {
+        crate::memory::memory_project_records(
+            &ProjectStore::new(self.support_dir.clone()).project_workspaces_snapshot(),
+        )
     }
 
     fn refresh_global_ai_history_index(&self) {
@@ -321,7 +335,8 @@ impl RuntimeService {
         projects: &[ProjectInfo],
         request: MemoryManagerSnapshotRequest,
     ) -> MemoryManagerSnapshot {
-        MemoryService::new(self.support_dir.clone()).manager_snapshot_for_request(projects, request)
+        MemoryService::new(self.support_dir.clone())
+            .manager_snapshot_for_request(&crate::memory::memory_project_infos(projects), request)
     }
 
     pub fn archive_memory_entry(
@@ -405,7 +420,10 @@ impl RuntimeService {
             .find(|project| project.id == project_id)
             .ok_or_else(|| "Project not found.".to_string())?;
         MemoryService::new(self.support_dir.clone())
-            .force_refresh_project_profile_with_llm_detailed(&settings, &project)
+            .force_refresh_project_profile_with_llm_detailed(
+                &crate::memory::memory_config(&settings),
+                &project,
+            )
             .await
             .ok_or_else(|| "Unable to refresh project profile.".to_string())
     }
