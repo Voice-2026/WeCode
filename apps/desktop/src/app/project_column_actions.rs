@@ -1,5 +1,6 @@
 use super::ai_runtime_status::AIActivityState;
 use super::*;
+use codux_runtime::remote::ControllerLinkState;
 
 impl CoduxApp {
     pub(super) fn selected_project_id(&self) -> Option<String> {
@@ -33,9 +34,11 @@ impl CoduxApp {
         let projects = self.state.projects.clone();
         let selected_project_id = self.selected_project_id();
         let activity = self.project_activity_snapshot();
+        let links = self.remote_link_states.clone();
         state.update(cx, |state, cx| {
             state.set_snapshot(projects, selected_project_id, cx);
             state.set_activity(activity, cx);
+            state.set_links(links, cx);
         });
     }
 
@@ -43,6 +46,37 @@ impl CoduxApp {
         let state = self.ensure_project_list_state(cx);
         let activity = self.project_activity_snapshot();
         state.update(cx, |state, cx| state.set_activity(activity, cx));
+    }
+
+    /// Pull the latest client→host link states from the runtime (a cheap cached
+    /// read — the controller transport updates it event-driven). On change: push
+    /// to the project badge, and when a host transitions back to Connected,
+    /// re-attach that host's terminals so a dropped remote shell recovers.
+    pub(super) fn refresh_remote_link_states(&mut self, cx: &mut Context<Self>) {
+        let links = self.runtime_service.remote_controller_link_states();
+        if links == self.remote_link_states {
+            return;
+        }
+        let reconnected: Vec<String> = links
+            .iter()
+            .filter(|(device_id, state)| {
+                **state == ControllerLinkState::Connected
+                    && self
+                        .remote_link_states
+                        .get(device_id.as_str())
+                        .copied()
+                        .map(|previous| previous != ControllerLinkState::Connected)
+                        .unwrap_or(false)
+            })
+            .map(|(device_id, _)| device_id.clone())
+            .collect();
+        self.remote_link_states = links.clone();
+        let state = self.ensure_project_list_state(cx);
+        state.update(cx, |state, cx| state.set_links(links, cx));
+        self.invalidate_ui(cx, [UiRegion::ProjectColumn]);
+        if !reconnected.is_empty() {
+            self.reattach_terminals_for_reconnected_hosts(&reconnected, cx);
+        }
     }
 
     fn project_activity_snapshot(&self) -> HashMap<String, AIActivityState> {

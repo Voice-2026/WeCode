@@ -380,6 +380,7 @@ impl CoduxApp {
             project_column_collapsed: true,
             task_column_collapsed: false,
             project_list_state: None,
+            remote_link_states: std::collections::HashMap::new(),
             project_column_view: None,
             task_column_view: None,
             task_column_header_view: None,

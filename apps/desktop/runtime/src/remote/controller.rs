@@ -29,6 +29,7 @@ use codux_protocol::{
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
+    RemoteTransportStateHandler,
 };
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -163,7 +164,7 @@ pub fn parse_pairing_ticket(input: &str) -> Result<PairingTicket, String> {
     Ok(ticket)
 }
 
-fn new_device_id() -> String {
+pub(super) fn new_device_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
 
@@ -257,7 +258,10 @@ pub struct RemoteController {
 }
 
 impl RemoteController {
-    pub async fn connect(target: &RemoteControllerTarget) -> Result<Self, String> {
+    pub async fn connect(
+        target: &RemoteControllerTarget,
+        on_state: RemoteTransportStateHandler,
+    ) -> Result<Self, String> {
         let inner = Arc::new(ControllerInner::default());
         let config = RemoteControllerTransportConfig {
             relay_url: target.relay_url.clone(),
@@ -277,7 +281,7 @@ impl RemoteController {
         let transport = RemoteTransportFactory::connect_controller(
             &config,
             Arc::new(move |_source: String, data: Vec<u8>| message_inner.route(&data)),
-            Arc::new(|_, _| {}),
+            on_state,
         )
         .await?;
         Ok(Self {
@@ -291,21 +295,27 @@ impl RemoteController {
     /// Reconnect to a previously paired host (no fresh handshake — the host
     /// caches our `device_id`). Uses the saved iroh `node_id` + `relay_url`,
     /// since the original pairing ticket is single-use.
-    pub async fn connect_saved(host: &SavedRemoteHost) -> Result<Self, String> {
+    pub async fn connect_saved(
+        host: &SavedRemoteHost,
+        on_state: RemoteTransportStateHandler,
+    ) -> Result<Self, String> {
         let iroh = host
             .transports
             .iter()
             .find(|transport| transport.kind == REMOTE_TRANSPORT_IROH)
             .ok_or_else(|| "Saved host has no iroh transport.".to_string())?;
-        Self::connect(&RemoteControllerTarget {
-            host_id: host.host_id.clone(),
-            device_id: host.device_id.clone(),
-            device_token: host.device_token.clone(),
-            relay_url: iroh.relay_url.clone(),
-            node_id: iroh.node_id.clone(),
-            ticket: String::new(),
-            relay_authentication: iroh.relay_authentication.clone(),
-        })
+        Self::connect(
+            &RemoteControllerTarget {
+                host_id: host.host_id.clone(),
+                device_id: host.device_id.clone(),
+                device_token: host.device_token.clone(),
+                relay_url: iroh.relay_url.clone(),
+                node_id: iroh.node_id.clone(),
+                ticket: String::new(),
+                relay_authentication: iroh.relay_authentication.clone(),
+            },
+            on_state,
+        )
         .await
     }
 
@@ -316,22 +326,26 @@ impl RemoteController {
     pub async fn pair(
         ticket: &PairingTicket,
         device_name: &str,
+        device_id: String,
+        on_state: RemoteTransportStateHandler,
     ) -> Result<(Self, SavedRemoteHost), String> {
         let iroh = ticket
             .transports
             .iter()
             .find(|transport| transport.kind == REMOTE_TRANSPORT_IROH && !transport.ticket.is_empty())
             .ok_or_else(|| "Pairing ticket has no usable iroh transport.".to_string())?;
-        let device_id = new_device_id();
-        let controller = Self::connect(&RemoteControllerTarget {
-            host_id: String::new(),
-            device_id: device_id.clone(),
-            device_token: String::new(),
-            relay_url: String::new(),
-            node_id: String::new(),
-            ticket: iroh.ticket.clone(),
-            relay_authentication: iroh.relay_authentication.clone(),
-        })
+        let controller = Self::connect(
+            &RemoteControllerTarget {
+                host_id: String::new(),
+                device_id: device_id.clone(),
+                device_token: String::new(),
+                relay_url: String::new(),
+                node_id: String::new(),
+                ticket: iroh.ticket.clone(),
+                relay_authentication: iroh.relay_authentication.clone(),
+            },
+            on_state,
+        )
         .await?;
 
         let request = json!({
@@ -965,9 +979,14 @@ mod e2e {
                     relay_authentication: String::new(),
                 }],
             };
-            let (controller, saved) = RemoteController::pair(&ticket, "test-desktop")
-                .await
-                .expect("pairing succeeds");
+            let (controller, saved) = RemoteController::pair(
+                &ticket,
+                "test-desktop",
+                new_device_id(),
+                Arc::new(|_, _| {}),
+            )
+            .await
+            .expect("pairing succeeds");
             assert_eq!(saved.host_id, "host-it");
             assert_eq!(saved.host_name, "IT Host");
 
@@ -1169,7 +1188,10 @@ mod e2e {
                     relay_authentication: String::new(),
                 }],
             };
-            let (controller, _saved) = RemoteController::pair(&ticket, "test").await.expect("pair");
+            let (controller, _saved) =
+                RemoteController::pair(&ticket, "test", new_device_id(), Arc::new(|_, _| {}))
+                    .await
+                    .expect("pair");
             let controller = Arc::new(controller);
 
             // The router assembles terminal output, just like mobile does.

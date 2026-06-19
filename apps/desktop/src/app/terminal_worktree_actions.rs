@@ -346,6 +346,53 @@ impl CoduxApp {
         }
     }
 
+    /// Re-attach the selected project's terminals after its remote host came
+    /// back online. The dropped panes are still bound to the evicted (dead)
+    /// controller, so we snapshot their output, tear them down (panes +
+    /// registry), and let `ensure_active_terminal_mounted` rebuild them against
+    /// the freshly reconnected controller. The active tab re-attaches now;
+    /// background tabs re-mount lazily on activation.
+    ///
+    /// Note: this opens fresh host sessions — the prior host PTYs are orphaned
+    /// (resuming the exact shell would need a host-side resubscribe protocol).
+    pub(super) fn reattach_terminals_for_reconnected_hosts(
+        &mut self,
+        reconnected: &[String],
+        cx: &mut Context<Self>,
+    ) {
+        let on_reconnected_host = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.as_deref())
+            .map(|host| reconnected.iter().any(|device| device == host))
+            .unwrap_or(false);
+        if !on_reconnected_host {
+            return;
+        }
+        self.refresh_terminal_slot_snapshots();
+        let terminal_ids: Vec<String> = self
+            .terminals
+            .iter()
+            .flat_map(|tab| tab.panes.iter())
+            .filter_map(|slot| slot.terminal_id.clone())
+            .collect();
+        for tab in &mut self.terminals {
+            for slot in &mut tab.panes {
+                slot.pane = None;
+            }
+        }
+        for terminal_id in terminal_ids {
+            self.remove_registered_terminal_pane(&terminal_id);
+        }
+        if let Err(error) = self.ensure_active_terminal_mounted(cx) {
+            self.status_message = format!("failed to re-attach terminal after reconnect: {error}");
+        } else {
+            self.status_message = "remote host reconnected — terminal re-attached".to_string();
+        }
+        self.invalidate_status_bar(cx);
+    }
+
     pub(super) fn detach_inactive_terminal_views(&mut self) {
         self.refresh_terminal_slot_snapshots();
         for tab in &mut self.terminals {

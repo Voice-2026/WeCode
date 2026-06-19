@@ -289,6 +289,10 @@ pub struct CoduxApp {
     pub(in crate::app) project_column_collapsed: bool,
     pub(in crate::app) task_column_collapsed: bool,
     pub(in crate::app) project_list_state: Option<gpui::Entity<ProjectListState>>,
+    /// Last polled client→host link state per host device id. Drives the project
+    /// connection badge and triggers terminal re-attach when a host reconnects.
+    pub(in crate::app) remote_link_states:
+        std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
     pub(in crate::app) project_column_view: Option<gpui::Entity<ProjectColumnView>>,
     pub(in crate::app) task_column_view: Option<gpui::Entity<TaskColumnView>>,
     pub(in crate::app) task_column_header_view: Option<gpui::Entity<TaskColumnHeaderView>>,

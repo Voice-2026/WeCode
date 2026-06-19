@@ -22,7 +22,7 @@ pub use controller::{
     parse_pairing_ticket, PairingTicket, RemoteController, RemoteControllerTarget,
     RemoteDirectoryEntry, RemoteDirectoryListing,
 };
-pub use controller_manager::RemoteControllerManager;
+pub use controller_manager::{ControllerLinkState, RemoteControllerManager};
 pub use controller_store::{RemoteControllerStore, SavedRemoteHost, SavedRemoteTransport};
 pub use host::RemoteHostRuntime;
 pub use protocol::REMOTE_PROTOCOL_VERSION;

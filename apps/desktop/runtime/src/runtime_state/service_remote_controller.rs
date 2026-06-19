@@ -27,6 +27,16 @@ impl RuntimeService {
         self.remote_controllers.forget(device_id)
     }
 
+    /// Per-device client→host link states, for the project connection badge and
+    /// for re-attaching terminals when a dropped host comes back. Event-driven:
+    /// the controller transport's state callback updates this; we just read the
+    /// cached snapshot.
+    pub fn remote_controller_link_states(
+        &self,
+    ) -> std::collections::HashMap<String, crate::remote::ControllerLinkState> {
+        self.remote_controllers.link_states()
+    }
+
     /// List a directory on a remote host (for the add-project remote browser),
     /// parsed into a typed listing so the UI never touches the wire JSON.
     pub fn remote_browse_directory(

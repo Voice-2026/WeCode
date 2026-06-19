@@ -2,6 +2,7 @@ use super::ai_runtime_status::AIActivityState;
 use super::app_state::CoduxTooltipPlacement;
 use super::ui_helpers::{codux_tooltip_container_with_placement, titlebar_drag_area};
 use super::*;
+use codux_runtime::remote::ControllerLinkState;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 
 #[derive(Clone)]
@@ -41,6 +42,9 @@ pub(in crate::app) struct ProjectListState {
     pub(in crate::app) projects: Rc<Vec<ProjectInfo>>,
     pub(in crate::app) selected_project_id: Option<String>,
     pub(in crate::app) activity: HashMap<String, AIActivityState>,
+    /// Client→host link state per host device id, for the remote connection
+    /// badge on a project icon.
+    pub(in crate::app) links: HashMap<String, ControllerLinkState>,
     revision: u64,
 }
 
@@ -53,6 +57,7 @@ impl ProjectListState {
             projects: Rc::new(projects),
             selected_project_id,
             activity: HashMap::new(),
+            links: HashMap::new(),
             revision: 0,
         }
     }
@@ -98,17 +103,31 @@ impl ProjectListState {
         self.revision = self.revision.wrapping_add(1);
         cx.notify();
     }
+
+    pub(in crate::app) fn set_links(
+        &mut self,
+        links: HashMap<String, ControllerLinkState>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.links == links {
+            return;
+        }
+        self.links = links;
+        self.revision = self.revision.wrapping_add(1);
+        cx.notify();
+    }
 }
 
 impl Render for ProjectColumnView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = self.collapsed;
-        let (projects, selected_project_id, activity) =
+        let (projects, selected_project_id, activity, links) =
             self.project_list_state.update(cx, |state, _cx| {
                 (
                     state.projects.clone(),
                     state.selected_project_id.clone(),
                     state.activity.clone(),
+                    state.links.clone(),
                 )
             });
         let app_entity = self.app_entity.clone();
@@ -161,6 +180,10 @@ impl Render for ProjectColumnView {
                                 .get(project.id.as_str())
                                 .copied()
                                 .unwrap_or(AIActivityState::Idle);
+                            let link_state = project
+                                .host_device_id
+                                .as_deref()
+                                .map(|device_id| links.get(device_id).copied());
                             div()
                                 .w_full()
                                 .pb(px(4.0))
@@ -171,6 +194,7 @@ impl Render for ProjectColumnView {
                                     project_id,
                                     project_order.clone(),
                                     activity_state,
+                                    link_state,
                                     collapsed,
                                     row_menu_labels.clone(),
                                     window,
@@ -647,6 +671,9 @@ fn project_row(
     project_id: String,
     project_order: Vec<String>,
     activity_state: AIActivityState,
+    // `None` ⇒ local project (no badge). `Some(link)` ⇒ remote project; the inner
+    // `Option` is the link state (`None` ⇒ remote but not yet connected).
+    link_state: Option<Option<ControllerLinkState>>,
     collapsed: bool,
     labels: ProjectRowMenuLabels,
     window: &mut Window,
@@ -751,6 +778,9 @@ fn project_row(
                                 .child(project_icon(&project, active, true))
                                 .when(activity_state.is_active(), |this| {
                                     this.child(project_activity_badge(activity_state, cx))
+                                })
+                                .when_some(link_state, |this, link| {
+                                    this.child(project_remote_badge(link))
                                 }),
                         ),
                 ),
@@ -842,8 +872,8 @@ fn project_row(
                         .when(activity_state.is_active(), |this| {
                             this.child(project_activity_badge(activity_state, cx))
                         })
-                        .when(project.host_device_id.is_some(), |this| {
-                            this.child(project_remote_badge())
+                        .when_some(link_state, |this, link| {
+                            this.child(project_remote_badge(link))
                         }),
                 )
                 .child(
@@ -975,12 +1005,23 @@ fn project_activity_badge(
     }
 }
 
-/// A small marker overlaid on a project's icon when the project is hosted on a
-/// remote device (bottom-left, distinct from the top-right activity badge).
-fn project_remote_badge() -> AnyElement {
+/// Disconnected-link badge color (no theme constant — danger red is local here).
+const REMOTE_LINK_RED: u32 = 0xE0566B;
+
+/// A small connection badge overlaid on the bottom-right of a remote project's
+/// icon: a link glyph tinted by the client→host link state — green connected,
+/// amber connecting, red broken-link disconnected, muted when not yet linked.
+/// `link` is the device's [`ControllerLinkState`], or `None` before any connect.
+fn project_remote_badge(link: Option<ControllerLinkState>) -> AnyElement {
+    let (icon, tint) = match link {
+        Some(ControllerLinkState::Connected) => (HeroIconName::Link, theme::GREEN),
+        Some(ControllerLinkState::Connecting) => (HeroIconName::Link, theme::ORANGE),
+        Some(ControllerLinkState::Disconnected) => (HeroIconName::LinkSlash, REMOTE_LINK_RED),
+        None => (HeroIconName::Link, theme::TEXT_DIM),
+    };
     div()
         .absolute()
-        .left(px(-3.0))
+        .right(px(-3.0))
         .bottom(px(-3.0))
         .w(px(15.0))
         .h(px(15.0))
@@ -989,11 +1030,7 @@ fn project_remote_badge() -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .child(
-            Icon::new(HeroIconName::GlobeAlt)
-                .size_2()
-                .text_color(color(theme::ACCENT)),
-        )
+        .child(Icon::new(icon).size_2().text_color(color(tint)))
         .into_any_element()
 }
 
