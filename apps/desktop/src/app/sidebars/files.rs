@@ -14,6 +14,7 @@ struct FileSidebarLabels {
     preview: String,
     reveal: String,
     copy_path: String,
+    save_as: String,
     copy: String,
     paste: String,
     rename: String,
@@ -32,6 +33,7 @@ fn file_sidebar_labels(language: &str) -> FileSidebarLabels {
         preview: tr("files.panel.open_preview", "Preview"),
         reveal: tr("files.panel.reveal_finder", "Show in File Manager"),
         copy_path: tr("files.panel.copy_path", "Copy Path"),
+        save_as: tr("files.panel.save_as", "Save As…"),
         copy: tr("common.copy", "Copy"),
         paste: tr("files.panel.paste", "Paste"),
         rename: tr("common.rename", "Rename"),
@@ -298,6 +300,7 @@ pub(in crate::app) fn file_section(
                                             let preview_entity = menu_app_entity.clone();
                                             let reveal_entity = menu_app_entity.clone();
                                             let copy_entity = menu_app_entity.clone();
+                                            let save_as_entity = menu_app_entity.clone();
                                             let paste_entity = menu_app_entity.clone();
                                             let rename_entity = menu_app_entity.clone();
                                             let terminal_entity = menu_app_entity.clone();
@@ -348,6 +351,20 @@ pub(in crate::app) fn file_section(
                                                             copy_paths_for_click.join("\n"),
                                                         ),
                                                     );
+                                                }),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(labels.save_as.clone())
+                                                .icon(HeroIconName::ArrowDownTray)
+                                                .disabled(
+                                                    !has_selected
+                                                        || multiple
+                                                        || selected_is_directory,
+                                                )
+                                                .on_click(move |_, window, cx| {
+                                                    cx.update_entity(&save_as_entity, |app, cx| {
+                                                        app.save_as_selected_file_entry(window, cx);
+                                                    });
                                                 }),
                                         )
                                         .separator()

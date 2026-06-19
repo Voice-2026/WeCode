@@ -17,10 +17,16 @@ pub(in crate::app) enum FilePickerMode {
 
 /// Where the picker's chosen path is delivered when confirmed. Extensible: add a
 /// variant per call site, handled in `apply_file_picker_result`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) enum FilePickerTarget {
     /// The project-editor window's directory field (add/edit a project).
     ProjectEditorPath,
+    /// "Save as…" from the file sidebar: copy `source_path` to the chosen
+    /// destination on `device_id` (the project's host, or local).
+    SaveFileAs {
+        source_path: String,
+        device_id: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

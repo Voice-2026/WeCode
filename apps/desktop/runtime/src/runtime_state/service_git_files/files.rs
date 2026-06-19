@@ -105,6 +105,39 @@ impl RuntimeService {
         ))
     }
 
+    /// "Save as…": copy `source_abs` to `dest_abs` on the given device (the
+    /// project's host, or local). Same-device, binary-safe. Local uses fs::copy;
+    /// remote copies into the dest dir on the host, then renames if needed.
+    pub fn save_file_as(
+        &self,
+        device_id: Option<&str>,
+        source_abs: &str,
+        dest_abs: &str,
+    ) -> Result<(), String> {
+        match device_id {
+            None => {
+                if let Some(parent) = std::path::Path::new(dest_abs).parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                std::fs::copy(source_abs, dest_abs)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string())
+            }
+            Some(device_id) => {
+                let controller = self.remote_controllers.controller_for(device_id)?;
+                let dest_dir = std::path::Path::new(dest_abs)
+                    .parent()
+                    .map(|parent| parent.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let copied = controller.copy_path(source_abs, &dest_dir)?;
+                if copied != dest_abs {
+                    controller.rename_path(&copied, dest_abs)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     pub fn copy_project_file_entry(
         &self,
         project_path: &str,

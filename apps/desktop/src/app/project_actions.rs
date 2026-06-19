@@ -1929,6 +1929,7 @@ impl CoduxApp {
             FilePickerTarget::ProjectEditorPath,
             device_id,
             start,
+            None,
             window,
             cx,
         );
@@ -1940,6 +1941,7 @@ impl CoduxApp {
         target: FilePickerTarget,
         device_id: Option<String>,
         start_path: Option<String>,
+        default_filename: Option<String>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1976,7 +1978,7 @@ impl CoduxApp {
                 app.window_mode = AppWindowMode::FilePicker;
                 app.file_picker_mode = mode;
                 app.file_picker_target = target;
-                app.file_picker_filename = String::new();
+                app.file_picker_filename = default_filename.unwrap_or_default();
                 app.file_picker_selected = None;
                 app.project_editor_host_device_id = device_for_build;
                 app.project_editor_browse_path = String::new();
@@ -2065,7 +2067,7 @@ impl CoduxApp {
         let Some(path) = self.file_picker_result_path() else {
             return;
         };
-        let target = self.file_picker_target;
+        let target = self.file_picker_target.clone();
         if let Some(parent) = self
             .parent_main_window
             .clone()
@@ -2090,6 +2092,30 @@ impl CoduxApp {
             FilePickerTarget::ProjectEditorPath => {
                 self.project_editor_path = path;
                 self.invalidate_project_management(cx);
+            }
+            FilePickerTarget::SaveFileAs {
+                source_path,
+                device_id,
+            } => {
+                let runtime_service = self.runtime_service.clone();
+                let dest = path;
+                self.status_message = "saving a copy…".to_string();
+                self.invalidate_status_bar(cx);
+                cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+                    let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                        runtime_service.save_file_as(device_id.as_deref(), &source_path, &dest)
+                    })
+                    .await
+                    .unwrap_or_else(|error| Err(format!("failed to join save-as: {error}")));
+                    let _ = this.update(cx, |app, cx| {
+                        app.status_message = match result {
+                            Ok(()) => "saved a copy".to_string(),
+                            Err(error) => format!("save-as failed: {error}"),
+                        };
+                        app.invalidate_status_bar(cx);
+                    });
+                })
+                .detach();
             }
         }
     }

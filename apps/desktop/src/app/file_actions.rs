@@ -218,6 +218,48 @@ impl CoduxApp {
             .and_then(|path| self.file_tree_entry(path))
     }
 
+    /// "Save as…": copy the selected file to a destination chosen in the file
+    /// picker (Save mode), on the project's device (local or its host).
+    pub(super) fn save_as_selected_file_entry(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(entry) = self.selected_file_entry() else {
+            return;
+        };
+        if matches!(entry.kind, FileKind::Directory) {
+            return;
+        }
+        let Some(project) = self.state.selected_project.clone() else {
+            self.status_message = "no selected project for save-as".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        let project_path = project.path.trim_end_matches('/').to_string();
+        let source_abs = if entry.relative_path.is_empty() {
+            project_path.clone()
+        } else {
+            format!("{project_path}/{}", entry.relative_path)
+        };
+        let start_dir = std::path::Path::new(&source_abs)
+            .parent()
+            .map(|parent| parent.to_string_lossy().to_string());
+        let device_id = project.host_device_id.clone();
+        self.open_file_picker_window(
+            super::types::FilePickerMode::Save,
+            super::types::FilePickerTarget::SaveFileAs {
+                source_path: source_abs,
+                device_id: device_id.clone(),
+            },
+            device_id,
+            start_dir,
+            Some(entry.name.clone()),
+            window,
+            cx,
+        );
+    }
+
     pub(super) fn clear_file_selection(&mut self) {
         self.selected_file_entry = None;
         self.selected_file_entries.clear();
