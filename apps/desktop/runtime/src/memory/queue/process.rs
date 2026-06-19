@@ -183,6 +183,7 @@ impl MemoryService {
             badge_symbol: None,
             badge_color_hex: None,
             git_default_push_remote_name: None,
+            host_device_id: None,
         };
         self.apply_extraction_response_with_profile_refresh(
             response,

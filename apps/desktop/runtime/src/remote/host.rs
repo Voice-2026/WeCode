@@ -1261,6 +1261,7 @@ impl RemoteHostRuntime {
             badge_text: None,
             badge_symbol: None,
             badge_color_hex: None,
+            host_device_id: None,
         }) {
             Ok(baseline) => {
                 let project_id = baseline.selected_project_id.unwrap_or_default();
@@ -1299,6 +1300,7 @@ impl RemoteHostRuntime {
                 badge_text: None,
                 badge_symbol: None,
                 badge_color_hex: None,
+                host_device_id: None,
             },
         ) {
             Ok(_) => {

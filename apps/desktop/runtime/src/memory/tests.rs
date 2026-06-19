@@ -361,6 +361,7 @@ fn manager_snapshot_includes_targets_profile_entries_and_summaries() {
         badge_symbol: None,
         badge_color_hex: None,
         git_default_push_remote_name: None,
+        host_device_id: None,
     }];
 
     let active = service.manager_snapshot(&projects, "project", Some("project-a"), "active", 50);
@@ -674,6 +675,7 @@ fn manager_snapshot_lists_failed_extractions_and_retry_requeues_task() {
         badge_symbol: None,
         badge_color_hex: None,
         git_default_push_remote_name: None,
+        host_device_id: None,
     }];
 
     let failed = service.manager_snapshot(&projects, "project", Some("project-a"), "failed", 50);
@@ -740,6 +742,7 @@ fn manager_snapshot_lists_active_extraction_queue() {
         badge_symbol: None,
         badge_color_hex: None,
         git_default_push_remote_name: None,
+        host_device_id: None,
     }];
 
     let queue = service.manager_snapshot(&projects, "project", Some("project-a"), "queue", 50);
@@ -1042,6 +1045,7 @@ fn extraction_response_recommendation_refreshes_project_profile() {
         badge_symbol: None,
         badge_color_hex: None,
         git_default_push_remote_name: None,
+        host_device_id: None,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()

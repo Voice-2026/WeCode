@@ -24,6 +24,7 @@ fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) 
             name: project.name,
             path: project.path,
             git_default_push_remote_name: project.git_default_push_remote_name,
+            host_device_id: project.host_device_id,
         })
         .collect::<Vec<_>>();
 

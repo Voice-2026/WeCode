@@ -41,6 +41,10 @@ impl ProjectStore {
                 "badgeColorHex".to_string(),
                 optional_string_value(request.badge_color_hex.as_deref()),
             );
+            project.insert(
+                "hostDeviceId".to_string(),
+                optional_string_value(request.host_device_id.as_deref()),
+            );
             self.save_raw_snapshot(&raw)?;
         }
         Ok(self.list_snapshot())
@@ -73,6 +77,10 @@ impl ProjectStore {
             project.insert(
                 "badgeColorHex".to_string(),
                 optional_string_value(request.badge_color_hex.as_deref()),
+            );
+            project.insert(
+                "hostDeviceId".to_string(),
+                optional_string_value(request.host_device_id.as_deref()),
             );
         }
         update_default_worktree_record(&mut raw, &request.project_id, &project_name, &project_path);

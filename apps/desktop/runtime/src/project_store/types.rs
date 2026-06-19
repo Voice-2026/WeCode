@@ -31,6 +31,11 @@ pub struct ProjectRecord {
     pub badge_color_hex: Option<String>,
     #[serde(default)]
     pub git_default_push_remote_name: Option<String>,
+    /// When set, this project's data lives on a remote device (another desktop
+    /// or a headless agent) and its domains route over the controller transport
+    /// instead of executing locally. `None` = local project (today's behavior).
+    #[serde(default)]
+    pub host_device_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -87,6 +92,8 @@ pub struct ProjectCreateRequest {
     pub badge_text: Option<String>,
     pub badge_symbol: Option<String>,
     pub badge_color_hex: Option<String>,
+    #[serde(default)]
+    pub host_device_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -98,6 +105,8 @@ pub struct ProjectUpdateRequest {
     pub badge_text: Option<String>,
     pub badge_symbol: Option<String>,
     pub badge_color_hex: Option<String>,
+    #[serde(default)]
+    pub host_device_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

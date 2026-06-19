@@ -2001,6 +2001,7 @@ impl CoduxApp {
                         badge_text: project_badge_text_from_name(&name),
                         badge_symbol,
                         badge_color_hex: Some(badge_color_hex),
+                        host_device_id: None,
                     })
                 } else {
                     runtime_service.project_create(ProjectCreateRequest {
@@ -2009,6 +2010,7 @@ impl CoduxApp {
                         badge_text: project_badge_text_from_name(&name),
                         badge_symbol,
                         badge_color_hex: Some(badge_color_hex),
+                        host_device_id: None,
                     })
                 };
                 save_result.map(|_| (runtime_service.reload_state(), name))

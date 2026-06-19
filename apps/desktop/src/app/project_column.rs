@@ -1165,6 +1165,7 @@ mod tests {
             badge_symbol: None,
             badge_color_hex: None,
             git_default_push_remote_name: None,
+            host_device_id: None,
         }
     }
 

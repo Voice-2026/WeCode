@@ -263,6 +263,7 @@ mod tests {
             badge_symbol: None,
             badge_color_hex: None,
             git_default_push_remote_name: None,
+            host_device_id: None,
         };
         let worktrees = crate::worktree::WorktreeSummary {
             selected_worktree_id: Some("worktree-b".to_string()),
@@ -286,6 +287,7 @@ mod tests {
             badge_symbol: None,
             badge_color_hex: None,
             git_default_push_remote_name: None,
+            host_device_id: None,
         };
         let worktrees = crate::worktree::WorktreeSummary::default();
 
@@ -306,6 +308,7 @@ mod tests {
             badge_symbol: None,
             badge_color_hex: None,
             git_default_push_remote_name: None,
+            host_device_id: None,
         };
         let worktrees = crate::worktree::WorktreeSummary {
             selected_worktree_id: Some("worktree-b".to_string()),
