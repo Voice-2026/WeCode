@@ -239,16 +239,19 @@ x11/wayland unproven.)
   route to the host for remote-hosted projects; agent serve-smoke drives `memory.read` e2e.
   Added `Deserialize` to the memory reply types.
 
+- **Memory extraction routed (done).** The LLM write path completes the memory domain.
+  `memory.extract {config, outputLocale}` on the host enqueues candidates from its own indexed
+  AI sessions and runs the engine's `process_memory_extraction_queue` with the
+  controller-forwarded `MemoryConfig` (incl. the chosen provider's API key) — used for the run,
+  never persisted (the **owner decision**). Extraction runs an LLM (async/slow), so the agent
+  handles it imperatively on its own runtime thread and sends its own reply, like terminals. The
+  controller has `memory_extract` (300s timeout); RuntimeService
+  `extract_remote_project_memory(project_id)` forwards the desktop's selected provider to the
+  project's host. Agent serve-smoke drives memory.extract e2e (empty config → empty-queue
+  status, no LLM). Memory domain is now complete: engine in codux-memory + codux-llm, desktop
+  shim, read routing, host extraction.
+
 - **Remaining (each a real chunk, best done with fresh context):**
-  - **Memory extraction** — the read path is done; the LLM write path remains. **Decision
-    (owner): the controller forwards its provider config** (incl. API key) over the
-    iroh-encrypted transport; the host uses it for the run and does not persist it. Build:
-    `memory.extract {config, outputLocale}` on the host runs the engine's
-    `process_memory_extraction_queue` with the forwarded `MemoryConfig.providers`; the agent
-    sources its AI sessions (its `AIHistoryIndexer` + runtime state) to enqueue candidates; the
-    controller forwards the selected provider + triggers; route the async
-    `process_memory_*` / `enqueue_*` RuntimeService methods. The protocol const
-    `REMOTE_MEMORY_EXTRACT` and the `codux-llm` `LlmProvider` wire shape are already in place.
   - **AI session ops** — the AI *stats* panel already routes via `ai.state`. The session-level
     ops (detail / fork / rename / remove) would route to the host's AIHistoryService. Secondary.
   - **Terminal boot/float restore** — two immediate-constructor paths still local-only (the main
