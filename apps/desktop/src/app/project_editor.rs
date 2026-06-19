@@ -51,9 +51,6 @@ impl CoduxApp {
                         window,
                         cx,
                     ))
-                    .when(self.project_editor_browse_open, |element| {
-                        element.child(self.project_editor_browse_panel(window, cx))
-                    })
                     .child(project_editor_symbol_field(
                         tr("project.editor.icon", "Project Icon"),
                         tr("common.none", "None"),
@@ -94,6 +91,39 @@ impl CoduxApp {
                     ),
                 cx,
             ))
+            .when(self.project_editor_browse_open, |shell| {
+                shell.child(self.project_editor_browse_overlay(window, cx))
+            })
+    }
+
+    /// The directory picker as a modal popup over the editor window (no longer an
+    /// inline panel). Reuses the existing browse panel content.
+    fn project_editor_browse_overlay(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(cx.theme().overlay)
+            .occlude()
+            .child(
+                div()
+                    .w(px(480.0))
+                    .max_h(px(560.0))
+                    .rounded(px(14.0))
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().background)
+                    .shadow_lg()
+                    .p(px(16.0))
+                    .child(self.project_editor_browse_panel(window, cx)),
+            )
+            .into_any_element()
     }
 
     /// The "Device" selector: This Mac (local) + each paired remote host, plus
