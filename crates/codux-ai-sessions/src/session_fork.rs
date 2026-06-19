@@ -1,5 +1,14 @@
 use super::{AIHistoryService, AISessionDetail, AISessionForkRequest, AISessionForkResult};
-use crate::runtime_paths::runtime_temp_dir;
+/// Temp base for forked-session prompt files. Mirrors `runtime_paths::runtime_temp_dir`
+/// (the fork result carries the absolute path, so the reader uses it directly).
+fn runtime_temp_dir() -> std::path::PathBuf {
+    let slug = if cfg!(debug_assertions) {
+        "codux-dev"
+    } else {
+        "codux"
+    };
+    std::env::temp_dir().join(slug)
+}
 use serde_json::Value;
 use std::{
     collections::{HashSet, VecDeque},
@@ -692,7 +701,7 @@ fn last_snippets(snippets: Vec<String>, max: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_history::AISessionForkTarget;
+    use crate::AISessionForkTarget;
     use rusqlite::params;
 
     #[test]

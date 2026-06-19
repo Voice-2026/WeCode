@@ -1,4 +1,4 @@
-use crate::ai_history_normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
+use codux_ai_history::normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]

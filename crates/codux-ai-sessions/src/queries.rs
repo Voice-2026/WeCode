@@ -2,7 +2,7 @@ use super::{
     helpers::{deterministic_uuid, history_group_key, table_has_column},
     types::{AIProjectUsageSummary, AISessionSummary, SessionDetailLink, SessionLink},
 };
-use crate::ai_history_normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
+use codux_ai_history::normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
 use rusqlite::{Connection, params};
 use std::collections::BTreeMap;
 

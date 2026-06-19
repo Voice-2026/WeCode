@@ -1237,6 +1237,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "codux-ai-sessions"
+version = "0.1.0"
+dependencies = [
+ "codux-ai-history",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "codux-llm"
 version = "0.1.0"
 dependencies = [
@@ -1314,6 +1325,7 @@ dependencies = [
  "bytes",
  "chrono",
  "codux-ai-history",
+ "codux-ai-sessions",
  "codux-llm",
  "codux-memory",
  "codux-protocol",

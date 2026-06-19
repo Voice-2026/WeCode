@@ -71,5 +71,5 @@ pub(super) fn local_today_start_seconds() -> f64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
-    crate::ai_history_normalized::local_day_start_seconds(now)
+    codux_ai_history::normalized::local_day_start_seconds(now)
 }
