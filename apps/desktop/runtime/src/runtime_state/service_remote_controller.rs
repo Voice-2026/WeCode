@@ -74,11 +74,12 @@ impl RuntimeService {
         project_path: &str,
         directory_path: Option<&str>,
     ) -> Result<Vec<FileEntry>, String> {
-        let listing_dir = directory_path.unwrap_or(project_path);
+        // The UI works in project-relative paths; the host lists by absolute.
+        let listing_dir = remote_absolute_path(project_path, directory_path);
         let value = self
             .remote_controllers
             .controller_for(device_id)?
-            .file_list(Some(listing_dir), Some("projectFiles"))?;
+            .file_list(Some(&listing_dir), Some("projectFiles"))?;
         Ok(value
             .get("entries")
             .and_then(|entries| entries.as_array())
@@ -90,6 +91,16 @@ impl RuntimeService {
                     .collect()
             })
             .unwrap_or_default())
+    }
+}
+
+/// Resolve a project-relative path (as the UI uses) to the host's absolute path.
+/// An empty/`None` relative path means the project root.
+pub(crate) fn remote_absolute_path(project_path: &str, relative: Option<&str>) -> String {
+    let root = project_path.trim_end_matches('/');
+    match relative.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(relative) => format!("{root}/{}", relative.trim_start_matches('/')),
+        None => root.to_string(),
     }
 }
 

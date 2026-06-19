@@ -11,10 +11,11 @@
 
 use base64::Engine;
 use codux_protocol::{
-    REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DIRECTORY_CREATED,
-    REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO,
-    REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED, REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST,
-    REMOTE_TRANSPORT_IROH,
+    REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE,
+    REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
+    REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
+    REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
+    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_TRANSPORT_IROH,
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
@@ -449,6 +450,26 @@ impl RemoteController {
             REMOTE_FILE_DIRECTORY_CREATED,
             REMOTE_FILE_CREATE_DIRECTORY,
             json!({ "path": path }),
+        )
+    }
+
+    pub fn write_file(&self, path: &str, content: &str) -> Result<Value, String> {
+        self.request(
+            REMOTE_FILE_WRITTEN,
+            REMOTE_FILE_WRITE,
+            json!({ "path": path, "content": content }),
+        )
+    }
+
+    pub fn delete_path(&self, path: &str) -> Result<Value, String> {
+        self.request(REMOTE_FILE_DELETED, REMOTE_FILE_DELETE, json!({ "path": path }))
+    }
+
+    pub fn rename_path(&self, path: &str, new_path: &str) -> Result<Value, String> {
+        self.request(
+            REMOTE_FILE_RENAMED,
+            REMOTE_FILE_RENAME,
+            json!({ "path": path, "newPath": new_path }),
         )
     }
 

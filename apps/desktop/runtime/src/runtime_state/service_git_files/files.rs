@@ -5,6 +5,16 @@ impl RuntimeService {
         parent_path: Option<&str>,
         name: &str,
     ) -> Result<Vec<FileEntry>, String> {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            let target = format!(
+                "{}/{name}",
+                remote_absolute_path(project_path, parent_path).trim_end_matches('/')
+            );
+            self.remote_controllers
+                .controller_for(&device_id)?
+                .write_file(&target, "")?;
+            return self.remote_project_files(&device_id, project_path, parent_path);
+        }
         FilesService::create_file(project_path, parent_path, name)?;
         Ok(load_file_entries(project_path, parent_path))
     }
@@ -15,6 +25,16 @@ impl RuntimeService {
         parent_path: Option<&str>,
         name: &str,
     ) -> Result<Vec<FileEntry>, String> {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            let target = format!(
+                "{}/{name}",
+                remote_absolute_path(project_path, parent_path).trim_end_matches('/')
+            );
+            self.remote_controllers
+                .controller_for(&device_id)?
+                .create_directory(&target)?;
+            return self.remote_project_files(&device_id, project_path, parent_path);
+        }
         FilesService::create_dir(project_path, parent_path, name)?;
         Ok(load_file_entries(project_path, parent_path))
     }
@@ -25,6 +45,13 @@ impl RuntimeService {
         entry_path: &str,
         directory_path: Option<&str>,
     ) -> Result<Vec<FileEntry>, String> {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            let target = remote_absolute_path(project_path, Some(entry_path));
+            self.remote_controllers
+                .controller_for(&device_id)?
+                .delete_path(&target)?;
+            return self.remote_project_files(&device_id, project_path, directory_path);
+        }
         FilesService::delete(project_path, entry_path)?;
         Ok(load_file_entries(project_path, directory_path))
     }
@@ -35,6 +62,13 @@ impl RuntimeService {
         file_path: &str,
         content: &str,
     ) -> Result<String, String> {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            let target = remote_absolute_path(project_path, Some(file_path));
+            self.remote_controllers
+                .controller_for(&device_id)?
+                .write_file(&target, content)?;
+            return Ok(content.to_string());
+        }
         let result = FilesService::write_text(project_path, file_path, content)?;
         Ok(result.content)
     }
@@ -46,6 +80,24 @@ impl RuntimeService {
         new_name: &str,
         directory_path: Option<&str>,
     ) -> Result<(Vec<FileEntry>, String), String> {
+        if let Some(device_id) = self.host_device_for_project_path(project_path) {
+            let source = remote_absolute_path(project_path, Some(entry_path));
+            let parent = std::path::Path::new(&source)
+                .parent()
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let target = format!("{}/{new_name}", parent.trim_end_matches('/'));
+            self.remote_controllers
+                .controller_for(&device_id)?
+                .rename_path(&source, &target)?;
+            let new_relative = target
+                .strip_prefix(project_path.trim_end_matches('/'))
+                .unwrap_or(&target)
+                .trim_start_matches('/')
+                .to_string();
+            let entries = self.remote_project_files(&device_id, project_path, directory_path)?;
+            return Ok((entries, new_relative));
+        }
         let entry = FilesService::rename(project_path, entry_path, new_name)?;
         Ok((
             load_file_entries(project_path, directory_path),
