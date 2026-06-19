@@ -357,17 +357,21 @@ fn settings_pane_body(
             window,
             cx,
         ),
-        SettingsPane::Remote => settings_remote_pane(
-            &app.state.settings,
-            &app.state.remote,
-            app.selected_remote_device_id.as_deref(),
-            app.state.settings.language.as_str(),
-            app.remote_reconnecting,
-            app.remote_pairing_creating,
-            app.remote_add_menu_open,
-            window,
-            cx,
-        ),
+        SettingsPane::Remote => {
+            let saved_hosts = app.runtime_service.saved_remote_hosts();
+            settings_remote_pane(
+                &app.state.settings,
+                &app.state.remote,
+                &saved_hosts,
+                app.selected_remote_device_id.as_deref(),
+                app.state.settings.language.as_str(),
+                app.remote_reconnecting,
+                app.remote_pairing_creating,
+                app.remote_add_menu_open,
+                window,
+                cx,
+            )
+        }
         SettingsPane::Shortcuts => settings_shortcuts_pane(
             &app.state.settings,
             app.recording_shortcut_id.as_deref(),
@@ -3057,6 +3061,7 @@ fn settings_notifications_pane(
 fn settings_remote_pane(
     settings: &SettingsSummary,
     remote: &RemoteSummary,
+    saved_hosts: &[codux_runtime::remote::SavedRemoteHost],
     _selected_device_id: Option<&str>,
     language: &str,
     remote_reconnecting: bool,
@@ -3065,26 +3070,7 @@ fn settings_remote_pane(
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
-    let device_rows = if remote.device_list.is_empty() {
-        vec![
-            div()
-                .py(px(12.0))
-                .text_size(rems(0.875))
-                .line_height(rems(1.125))
-                .text_color(color(theme::TEXT_DIM))
-                .child(if remote.enabled {
-                    settings_text(language, "settings.remote.no_devices", "No paired devices.")
-                } else {
-                    settings_text(
-                        language,
-                        "remote.devices.empty_hint",
-                        "Pair a phone to control terminals on the go.",
-                    )
-                })
-                .into_any_element(),
-        ]
-    } else {
-        remote
+    let mut device_rows: Vec<AnyElement> = remote
             .device_list
             .iter()
             .cloned()
@@ -3165,8 +3151,90 @@ fn settings_remote_pane(
                     )
                     .into_any_element()
             })
-            .collect::<Vec<_>>()
-    };
+            .collect::<Vec<_>>();
+
+    // Connected hosts (the desktops / headless agents this Mac pairs to as a
+    // controller) share the same list, tagged "Host", with a Forget action.
+    for host in saved_hosts {
+        let device_id = host.device_id.clone();
+        let name = if host.host_name.trim().is_empty() {
+            host.host_id.clone()
+        } else {
+            host.host_name.clone()
+        };
+        device_rows.push(
+            div()
+                .id(SharedString::from(format!("settings-remote-host-{}", host.device_id)))
+                .min_h(px(64.0))
+                .py(px(12.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(18.0))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(rems(0.9375))
+                                .line_height(rems(1.25))
+                                .text_color(color(theme::TEXT))
+                                .child(empty_label(&name)),
+                        )
+                        .child(
+                            div()
+                                .mt(px(3.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .truncate()
+                                .child(empty_label(&host.device_id)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.0))
+                        .child(settings_status_tag(
+                            settings_text(language, "remote.type.host", "Host"),
+                            theme::TEXT_DIM,
+                        ))
+                        .child(settings_icon_button_state(
+                            SharedString::from(format!("settings-remote-forget-{}", host.device_id)),
+                            HeroIconName::Trash,
+                            false,
+                            cx,
+                            move |app, _event, _window, cx| {
+                                app.forget_remote_host_device(device_id.clone(), cx)
+                            },
+                        )),
+                )
+                .into_any_element(),
+        );
+    }
+
+    if device_rows.is_empty() {
+        device_rows.push(
+            div()
+                .py(px(12.0))
+                .text_size(rems(0.875))
+                .line_height(rems(1.125))
+                .text_color(color(theme::TEXT_DIM))
+                .child(if remote.enabled {
+                    settings_text(language, "settings.remote.no_devices", "No paired devices.")
+                } else {
+                    settings_text(
+                        language,
+                        "remote.devices.empty_hint",
+                        "Pair a phone to control terminals on the go.",
+                    )
+                })
+                .into_any_element(),
+        );
+    }
 
     div()
         .relative()

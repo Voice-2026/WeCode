@@ -932,6 +932,17 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
+    /// Forget a host this desktop paired to (controller side): drop the saved
+    /// host + any live connection. Removes it from the unified device list and
+    /// from the add-project device picker.
+    pub(super) fn forget_remote_host_device(&mut self, device_id: String, cx: &mut Context<Self>) {
+        match self.runtime_service.forget_remote_host(&device_id) {
+            Ok(_) => self.status_message = "forgot remote host".to_string(),
+            Err(error) => self.status_message = format!("forget host failed: {error}"),
+        }
+        self.invalidate_remote_panel(cx);
+    }
+
     pub(super) fn toggle_remote_add_menu(&mut self, cx: &mut Context<Self>) {
         self.remote_add_menu_open = !self.remote_add_menu_open;
         self.invalidate_remote_panel(cx);
