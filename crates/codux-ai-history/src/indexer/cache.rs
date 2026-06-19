@@ -1,13 +1,13 @@
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot,
     load_indexed_global_history_at, load_indexed_project_history_at,
 };
-use crate::runtime_trace::runtime_trace_elapsed;
+use crate::trace::runtime_trace_elapsed;
 use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
-pub(super) fn indexed_project_snapshot(
+pub fn indexed_project_snapshot(
     database_path: &Path,
     project: AIHistoryProjectRequest,
 ) -> Result<Option<AIHistorySnapshot>, String> {
@@ -34,7 +34,7 @@ pub(super) fn indexed_project_snapshot(
         })
 }
 
-pub(super) fn indexed_global_snapshot(
+pub fn indexed_global_snapshot(
     database_path: &Path,
     projects: Vec<AIHistoryProjectRequest>,
 ) -> Result<Option<AIGlobalHistorySnapshot>, String> {
@@ -61,7 +61,7 @@ pub(super) fn indexed_global_snapshot(
         })
 }
 
-pub(super) fn receive_reply<T>(rx: Receiver<Result<T, String>>) -> Result<T, String> {
+pub fn receive_reply<T>(rx: Receiver<Result<T, String>>) -> Result<T, String> {
     rx.recv()
         .map_err(|_| "AI history indexer reply dropped.".to_string())?
 }

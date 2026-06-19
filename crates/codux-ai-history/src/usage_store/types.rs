@@ -1,37 +1,37 @@
 #[derive(Debug, Clone)]
-pub(crate) struct AIUsageStore {
+pub struct AIUsageStore {
     database_path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AIExternalFileSummary {
-    pub(crate) source: String,
-    pub(crate) file_path: String,
-    pub(crate) file_modified_at: f64,
-    pub(crate) file_size: i64,
-    pub(crate) project_path: String,
-    pub(crate) usage_buckets: Vec<AIUsageBucket>,
+pub struct AIExternalFileSummary {
+    pub source: String,
+    pub file_path: String,
+    pub file_modified_at: f64,
+    pub file_size: i64,
+    pub project_path: String,
+    pub usage_buckets: Vec<AIUsageBucket>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AIUsageBucket {
-    pub(crate) source: String,
-    pub(crate) session_key: String,
-    pub(crate) external_session_id: Option<String>,
-    pub(crate) session_title: String,
-    pub(crate) model: Option<String>,
-    pub(crate) project_id: String,
-    pub(crate) project_name: String,
-    pub(crate) bucket_start: f64,
-    pub(crate) bucket_end: f64,
-    pub(crate) input_tokens: i64,
-    pub(crate) output_tokens: i64,
-    pub(crate) total_tokens: i64,
-    pub(crate) cached_input_tokens: i64,
-    pub(crate) request_count: i64,
-    pub(crate) active_duration_seconds: i64,
-    pub(crate) first_seen_at: f64,
-    pub(crate) last_seen_at: f64,
+pub struct AIUsageBucket {
+    pub source: String,
+    pub session_key: String,
+    pub external_session_id: Option<String>,
+    pub session_title: String,
+    pub model: Option<String>,
+    pub project_id: String,
+    pub project_name: String,
+    pub bucket_start: f64,
+    pub bucket_end: f64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub request_count: i64,
+    pub active_duration_seconds: i64,
+    pub first_seen_at: f64,
+    pub last_seen_at: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,15 +41,15 @@ pub struct AIUsageProjectTotal {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AIExternalFileCheckpoint {
-    pub(crate) source: String,
-    pub(crate) file_path: String,
-    pub(crate) project_path: String,
-    pub(crate) file_modified_at: f64,
-    pub(crate) file_size: i64,
-    pub(crate) last_offset: i64,
-    pub(crate) last_indexed_at: f64,
-    pub(crate) payload_json: Option<String>,
+pub struct AIExternalFileCheckpoint {
+    pub source: String,
+    pub file_path: String,
+    pub project_path: String,
+    pub file_modified_at: f64,
+    pub file_size: i64,
+    pub last_offset: i64,
+    pub last_indexed_at: f64,
+    pub payload_json: Option<String>,
 }
 
 #[derive(Debug, Clone)]

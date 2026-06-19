@@ -1221,6 +1221,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "codux-ai-history"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "codux-protocol"
 version = "1.8.1"
 dependencies = [
@@ -1271,6 +1283,7 @@ dependencies = [
  "base64",
  "bytes",
  "chrono",
+ "codux-ai-history",
  "codux-protocol",
  "codux-remote-transport",
  "codux-runtime-core",

@@ -4,7 +4,7 @@ use super::state::{
     set_project_source_fingerprint,
 };
 use super::types::AIHistoryIndexerState;
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFileFingerprint,
     AIHistorySourceFingerprint, AIProjectUsageSummary,
 };

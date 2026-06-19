@@ -1,5 +1,5 @@
 impl AIUsageStore {
-    pub(crate) fn project_snapshot(
+    pub fn project_snapshot(
         &self,
         conn: &Connection,
         project: AIHistoryProjectRequest,
@@ -9,7 +9,7 @@ impl AIUsageStore {
         Ok(build_snapshot_from_rows(project, links, buckets))
     }
 
-    pub(crate) fn indexed_project_snapshot(
+    pub fn indexed_project_snapshot(
         &self,
         conn: &Connection,
         project: AIHistoryProjectRequest,
@@ -34,7 +34,7 @@ impl AIUsageStore {
         Ok(Some(snapshot))
     }
 
-    pub(crate) fn rename_project_session(
+    pub fn rename_project_session(
         &self,
         conn: &Connection,
         project_path: &str,
@@ -65,7 +65,7 @@ impl AIUsageStore {
         Ok(true)
     }
 
-    pub(crate) fn remove_project_session(
+    pub fn remove_project_session(
         &self,
         conn: &Connection,
         project_path: &str,
@@ -97,7 +97,7 @@ impl AIUsageStore {
         Ok(true)
     }
 
-    pub(crate) fn save_project_index_state(
+    pub fn save_project_index_state(
         &self,
         conn: &Connection,
         snapshot: &AIHistorySnapshot,

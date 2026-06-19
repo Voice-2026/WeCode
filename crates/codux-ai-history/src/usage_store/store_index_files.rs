@@ -1,5 +1,5 @@
 impl AIUsageStore {
-    pub(crate) fn load_or_index_file<F>(
+    pub fn load_or_index_file<F>(
         &self,
         conn: &Connection,
         source: &str,
@@ -49,7 +49,7 @@ impl AIUsageStore {
         Ok(summary)
     }
 
-    pub(crate) fn load_or_index_jsonl_file<AppendParser, RebuildParser>(
+    pub fn load_or_index_jsonl_file<AppendParser, RebuildParser>(
         &self,
         conn: &Connection,
         source: &str,
@@ -149,7 +149,7 @@ impl AIUsageStore {
         Ok(summary)
     }
 
-    pub(crate) fn stored_external_summary(
+    pub fn stored_external_summary(
         &self,
         conn: &Connection,
         source: &str,
@@ -190,7 +190,7 @@ impl AIUsageStore {
         }))
     }
 
-    pub(crate) fn replace_external_summary(
+    pub fn replace_external_summary(
         &self,
         conn: &Connection,
         summary: &AIExternalFileSummary,

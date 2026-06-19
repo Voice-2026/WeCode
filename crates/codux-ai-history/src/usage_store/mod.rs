@@ -1,10 +1,10 @@
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIHeatmapDay, AIHistoryProjectRequest, AIHistorySnapshot, AIProjectUsageSummary,
     AISessionSummary, AITimeBucket, AIUsageBreakdownItem, HistoryEntry, HistoryEvent, HistoryRole,
     JSONLParseSnapshot, ParsedHistory, deterministic_uuid, half_hour_bucket_start, history_key,
     local_day_start_seconds, now_seconds,
 };
-use crate::runtime_paths::app_support_dir;
+use crate::paths::app_support_dir;
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashMap;

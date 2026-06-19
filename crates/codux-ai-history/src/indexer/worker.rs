@@ -4,20 +4,20 @@ use super::state::{
     project_source_fingerprint_unchanged, set_project_source_fingerprint,
 };
 use super::types::{AIHistoryEvent, AIHistoryIndexerState, AIHistoryJob};
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot,
     index_global_history_fresh_at, index_project_history_fresh_at, load_indexed_project_history_at,
     project_history_source_fingerprint,
 };
-use crate::ai_usage_store::AIUsageStore;
-use crate::runtime_trace::{runtime_trace, runtime_trace_elapsed};
+use crate::usage_store::AIUsageStore;
+use crate::trace::{runtime_trace, runtime_trace_elapsed};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-pub(super) fn history_indexer_loop(
+pub fn history_indexer_loop(
     rx: Receiver<AIHistoryJob>,
     events: Arc<Mutex<VecDeque<AIHistoryEvent>>>,
     state: Arc<Mutex<AIHistoryIndexerState>>,

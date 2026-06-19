@@ -113,61 +113,61 @@ pub struct AIUsageBreakdownItem {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct HistoryEntry {
-    pub(crate) source: String,
-    pub(crate) session_id: String,
-    pub(crate) external_session_id: Option<String>,
-    pub(crate) session_title: Option<String>,
-    pub(crate) timestamp: f64,
-    pub(crate) model: Option<String>,
-    pub(crate) input_tokens: i64,
-    pub(crate) output_tokens: i64,
-    pub(crate) cached_input_tokens: i64,
-    pub(crate) reasoning_output_tokens: i64,
+pub struct HistoryEntry {
+    pub source: String,
+    pub session_id: String,
+    pub external_session_id: Option<String>,
+    pub session_title: Option<String>,
+    pub timestamp: f64,
+    pub model: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub reasoning_output_tokens: i64,
 }
 
 impl HistoryEntry {
-    pub(crate) fn total_tokens(&self) -> i64 {
+    pub fn total_tokens(&self) -> i64 {
         self.input_tokens + self.output_tokens + self.reasoning_output_tokens
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct HistoryEvent {
-    pub(crate) source: String,
-    pub(crate) session_id: String,
-    pub(crate) timestamp: f64,
-    pub(crate) role: HistoryRole,
+pub struct HistoryEvent {
+    pub source: String,
+    pub session_id: String,
+    pub timestamp: f64,
+    pub role: HistoryRole,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HistoryRole {
+pub enum HistoryRole {
     User,
     Assistant,
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct ParsedHistory {
-    pub(crate) entries: Vec<HistoryEntry>,
-    pub(crate) events: Vec<HistoryEvent>,
+pub struct ParsedHistory {
+    pub entries: Vec<HistoryEntry>,
+    pub events: Vec<HistoryEvent>,
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct JSONLParseSnapshot {
-    pub(crate) result: ParsedHistory,
-    pub(crate) last_processed_offset: i64,
-    pub(crate) payload_json: Option<String>,
+pub struct JSONLParseSnapshot {
+    pub result: ParsedHistory,
+    pub last_processed_offset: i64,
+    pub payload_json: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AIExternalFileCheckpointPayload {
-    pub(crate) session_key: Option<String>,
-    pub(crate) external_session_id: Option<String>,
-    pub(crate) session_title: Option<String>,
-    pub(crate) last_model: Option<String>,
+pub struct AIExternalFileCheckpointPayload {
+    pub session_key: Option<String>,
+    pub external_session_id: Option<String>,
+    pub session_title: Option<String>,
+    pub last_model: Option<String>,
     #[serde(default)]
-    pub(crate) model_total_tokens_by_name: HashMap<String, i64>,
+    pub model_total_tokens_by_name: HashMap<String, i64>,
 }
 
 #[derive(Debug, Default)]

@@ -30,6 +30,7 @@ fn new_remote_host_runtime(
 
 impl RuntimeService {
     pub fn new(support_dir: PathBuf) -> Self {
+        codux_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
         let ai_history_indexer =
             AIHistoryIndexer::with_database_path(support_dir.join("ai-usage.sqlite3"));
         let ai_runtime = shared_ai_runtime_bridge();

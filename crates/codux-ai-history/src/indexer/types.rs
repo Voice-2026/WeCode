@@ -1,4 +1,4 @@
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint,
 };
 use serde::Serialize;
@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 
-pub(super) enum AIHistoryJob {
+pub enum AIHistoryJob {
     Global {
         projects: Vec<AIHistoryProjectRequest>,
         database_path: PathBuf,
@@ -23,11 +23,11 @@ pub(super) enum AIHistoryJob {
 }
 
 #[derive(Default)]
-pub(super) struct AIHistoryIndexerState {
-    pub(super) projects: HashMap<String, AIHistoryProjectState>,
-    pub(super) queued_or_running_projects: HashSet<String>,
-    pub(super) project_source_fingerprints: HashMap<String, AIHistorySourceFingerprint>,
-    pub(super) next_version: u64,
+pub struct AIHistoryIndexerState {
+    pub projects: HashMap<String, AIHistoryProjectState>,
+    pub queued_or_running_projects: HashSet<String>,
+    pub project_source_fingerprints: HashMap<String, AIHistorySourceFingerprint>,
+    pub next_version: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -1,15 +1,15 @@
 impl AIUsageStore {
-    pub(crate) fn default() -> Self {
+    pub fn default() -> Self {
         Self {
             database_path: default_database_path(),
         }
     }
 
-    pub(crate) fn at_path(database_path: PathBuf) -> Self {
+    pub fn at_path(database_path: PathBuf) -> Self {
         Self { database_path }
     }
 
-    pub(crate) fn connect(&self) -> Result<Connection> {
+    pub fn connect(&self) -> Result<Connection> {
         if let Some(parent) = self.database_path.parent() {
             fs::create_dir_all(parent).with_context(|| {
                 format!(
@@ -29,7 +29,7 @@ impl AIUsageStore {
         Ok(conn)
     }
 
-    pub(crate) fn global_today_normalized_tokens(&self, conn: &Connection) -> Result<i64> {
+    pub fn global_today_normalized_tokens(&self, conn: &Connection) -> Result<i64> {
         let start = local_day_start_seconds(now_seconds());
         let end = start + 86_400.0;
         conn.query_row(
@@ -44,7 +44,7 @@ impl AIUsageStore {
         .map_err(Into::into)
     }
 
-    pub(crate) fn global_all_time_normalized_tokens(&self, conn: &Connection) -> Result<i64> {
+    pub fn global_all_time_normalized_tokens(&self, conn: &Connection) -> Result<i64> {
         conn.query_row(
             "SELECT COALESCE(SUM(total_tokens), 0) FROM ai_history_file_usage_bucket;",
             [],
@@ -53,7 +53,7 @@ impl AIUsageStore {
         .map_err(Into::into)
     }
 
-    pub(crate) fn normalized_project_totals_since(
+    pub fn normalized_project_totals_since(
         &self,
         conn: &Connection,
         cutoff: Option<f64>,
@@ -91,7 +91,7 @@ impl AIUsageStore {
         Ok(rows)
     }
 
-    pub(crate) fn indexed_sessions_since(
+    pub fn indexed_sessions_since(
         &self,
         conn: &Connection,
         cutoff: Option<f64>,

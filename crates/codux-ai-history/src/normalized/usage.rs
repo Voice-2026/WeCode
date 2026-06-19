@@ -193,11 +193,11 @@ fn active_duration_by_history_key(events: &[HistoryEvent]) -> HashMap<String, i6
     result
 }
 
-pub(crate) fn history_key(source: &str, session_id: &str) -> String {
+pub fn history_key(source: &str, session_id: &str) -> String {
     format!("{source}:{session_id}")
 }
 
-pub(crate) fn deterministic_uuid(value: &str) -> String {
+pub fn deterministic_uuid(value: &str) -> String {
     Uuid::new_v5(&Uuid::NAMESPACE_URL, value.as_bytes()).to_string()
 }
 
@@ -205,7 +205,7 @@ fn min_nonzero(left: f64, right: f64) -> f64 {
     if left <= 0.0 { right } else { left.min(right) }
 }
 
-pub(crate) fn half_hour_bucket_start(timestamp: f64) -> f64 {
+pub fn half_hour_bucket_start(timestamp: f64) -> f64 {
     let Some(date) = Local.timestamp_opt(timestamp as i64, 0).single() else {
         return timestamp;
     };
@@ -235,7 +235,7 @@ pub fn local_day_start_seconds(timestamp: f64) -> f64 {
         .unwrap_or(timestamp)
 }
 
-pub(crate) fn now_seconds() -> f64 {
+pub fn now_seconds() -> f64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())

@@ -142,6 +142,7 @@ pub struct RemoteHostRuntime {
 
 impl RemoteHostRuntime {
     pub fn new(support_dir: PathBuf) -> Self {
+        codux_ai_history::trace::set_trace_sink(crate::runtime_trace::runtime_trace);
         let ai_history = AIHistoryIndexer::with_database_path(support_dir.join("ai-usage.sqlite3"));
         Self::new_with_ai_history(support_dir, ai_history)
     }

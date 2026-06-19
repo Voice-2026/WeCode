@@ -8,7 +8,7 @@ where
     index_project_history_fresh_at(project, AIUsageStore::default(), &mut on_progress)
 }
 
-pub(crate) fn index_project_history_fresh_at<F>(
+pub fn index_project_history_fresh_at<F>(
     project: AIHistoryProjectRequest,
     store: AIUsageStore,
     mut on_progress: F,
@@ -156,7 +156,7 @@ pub fn index_global_history_fresh(
     index_global_history_fresh_at(projects, AIUsageStore::default())
 }
 
-pub(crate) fn index_global_history_fresh_at(
+pub fn index_global_history_fresh_at(
     projects: Vec<AIHistoryProjectRequest>,
     store: AIUsageStore,
 ) -> AIGlobalHistorySnapshot {
@@ -291,7 +291,7 @@ pub fn indexed_sessions_since_at(
 
 pub fn normalized_project_totals_since(
     cutoff: Option<f64>,
-) -> Result<Vec<crate::ai_usage_store::AIUsageProjectTotal>> {
+) -> Result<Vec<crate::usage_store::AIUsageProjectTotal>> {
     let store = AIUsageStore::default();
     let conn = store.connect()?;
     store.normalized_project_totals_since(&conn, cutoff)
@@ -300,7 +300,7 @@ pub fn normalized_project_totals_since(
 pub fn normalized_project_totals_since_at(
     database_path: PathBuf,
     cutoff: Option<f64>,
-) -> Result<Vec<crate::ai_usage_store::AIUsageProjectTotal>> {
+) -> Result<Vec<crate::usage_store::AIUsageProjectTotal>> {
     let store = AIUsageStore::at_path(database_path);
     let conn = store.connect()?;
     store.normalized_project_totals_since(&conn, cutoff)

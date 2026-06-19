@@ -10,7 +10,7 @@ mod kiro;
 mod mimo;
 mod opencode;
 
-pub(super) fn history_source_drivers() -> &'static [HistorySourceDriver] {
+pub fn history_source_drivers() -> &'static [HistorySourceDriver] {
     &[
         claude::DRIVER,
         codex::DRIVER,
@@ -24,7 +24,7 @@ pub(super) fn history_source_drivers() -> &'static [HistorySourceDriver] {
     ]
 }
 
-pub(super) fn history_source_progress(source: &str) -> f64 {
+pub fn history_source_progress(source: &str) -> f64 {
     match source {
         "claude" => 0.38,
         "codex" => 0.58,

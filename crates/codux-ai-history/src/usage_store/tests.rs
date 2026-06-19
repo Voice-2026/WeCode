@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_history_normalized::JSONLParseSnapshot;
+    use crate::normalized::JSONLParseSnapshot;
     use chrono::TimeZone;
     use uuid::Uuid;
 

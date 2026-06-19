@@ -6,11 +6,11 @@ mod tests;
 mod types;
 mod worker;
 
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIGlobalHistorySnapshot, AIHistoryProjectRequest, project_history_source_fingerprint,
     remove_indexed_history_session_at, rename_indexed_history_session_at,
 };
-use crate::runtime_trace::{runtime_trace, runtime_trace_elapsed};
+use crate::trace::{runtime_trace, runtime_trace_elapsed};
 use cache::{indexed_global_snapshot, indexed_project_snapshot, receive_reply};
 use events::push_history_event;
 use state::*;
@@ -60,7 +60,7 @@ impl fmt::Debug for AIHistoryIndexer {
 
 impl AIHistoryIndexer {
     pub fn new() -> Self {
-        Self::with_database_path(crate::runtime_paths::app_support_dir().join("ai-usage.sqlite3"))
+        Self::with_database_path(crate::paths::app_support_dir().join("ai-usage.sqlite3"))
     }
 
     pub fn with_database_path(database_path: PathBuf) -> Self {

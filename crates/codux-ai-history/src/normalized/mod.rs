@@ -1,5 +1,5 @@
-use crate::ai_usage_store::AIUsageStore;
-use crate::runtime_paths::home_dir;
+use crate::usage_store::AIUsageStore;
+use crate::paths::home_dir;
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use rusqlite::Connection;

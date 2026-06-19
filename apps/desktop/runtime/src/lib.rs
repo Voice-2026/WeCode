@@ -1,9 +1,12 @@
 pub mod ai_history;
-pub mod ai_history_indexer;
-pub mod ai_history_normalized;
+// The AI usage-history engine lives in the shared `codux-ai-history` crate so
+// the headless agent can host the same stats with full parity. Re-export it
+// under the historical module paths the desktop code already uses.
+pub use codux_ai_history::indexer as ai_history_indexer;
+pub use codux_ai_history::normalized as ai_history_normalized;
+pub use codux_ai_history::usage_store as ai_usage_store;
 pub mod ai_runtime;
 pub mod ai_runtime_state;
-pub mod ai_usage_store;
 pub mod app_commands;
 pub mod app_icon;
 pub mod app_info;

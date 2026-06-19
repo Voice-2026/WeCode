@@ -402,7 +402,7 @@ fn kimi_text(value: &Value) -> Option<String> {
         .and_then(|value| normalized_string(&value))
 }
 
-pub(super) fn parse_opencode_history_file(
+pub fn parse_opencode_history_file(
     project: &AIHistoryProjectRequest,
     file_path: &Path,
 ) -> ParsedHistory {

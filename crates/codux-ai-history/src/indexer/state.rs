@@ -1,10 +1,10 @@
 use super::{AIHistoryIndexerState, AIHistoryProjectState};
-use crate::ai_history_normalized::{
+use crate::normalized::{
     AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint,
 };
 use std::sync::{Arc, Mutex};
 
-pub(super) fn current_project_state(
+pub fn current_project_state(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
 ) -> Result<Option<AIHistoryProjectState>, String> {
@@ -14,7 +14,7 @@ pub(super) fn current_project_state(
     Ok(guard.projects.get(&project.id).cloned())
 }
 
-pub(super) fn seed_project_state(
+pub fn seed_project_state(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
     snapshot: Option<AIHistorySnapshot>,
@@ -39,7 +39,7 @@ pub(super) fn seed_project_state(
     Ok(next)
 }
 
-pub(super) fn seed_or_queue_project_state(
+pub fn seed_or_queue_project_state(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
     snapshot: Option<AIHistorySnapshot>,
@@ -51,7 +51,7 @@ pub(super) fn seed_or_queue_project_state(
     }
 }
 
-pub(super) fn mark_project_queued(
+pub fn mark_project_queued(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
     cached_snapshot: Option<AIHistorySnapshot>,
@@ -97,7 +97,7 @@ pub(super) fn mark_project_queued(
     }
 }
 
-pub(super) fn mark_project_running(
+pub fn mark_project_running(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
 ) -> Result<AIHistoryProjectState, String> {
@@ -125,7 +125,7 @@ pub(super) fn mark_project_running(
     Ok(next)
 }
 
-pub(super) fn mark_project_completed(
+pub fn mark_project_completed(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
     snapshot: AIHistorySnapshot,
@@ -151,7 +151,7 @@ pub(super) fn mark_project_completed(
     Ok(next)
 }
 
-pub(super) fn project_source_fingerprint_unchanged(
+pub fn project_source_fingerprint_unchanged(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project_id: &str,
     fingerprint: &AIHistorySourceFingerprint,
@@ -163,7 +163,7 @@ pub(super) fn project_source_fingerprint_unchanged(
         .is_some_and(|previous| previous == *fingerprint)
 }
 
-pub(super) fn set_project_source_fingerprint(
+pub fn set_project_source_fingerprint(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project_id: &str,
     fingerprint: AIHistorySourceFingerprint,
@@ -175,7 +175,7 @@ pub(super) fn set_project_source_fingerprint(
     }
 }
 
-pub(super) fn mark_project_failed(
+pub fn mark_project_failed(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
     error: String,
@@ -205,7 +205,7 @@ pub(super) fn mark_project_failed(
     Ok(next)
 }
 
-pub(super) fn mark_project_progress(
+pub fn mark_project_progress(
     state: &Arc<Mutex<AIHistoryIndexerState>>,
     project: &AIHistoryProjectRequest,
     progress: f64,
