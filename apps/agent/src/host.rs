@@ -17,6 +17,7 @@ use codux_protocol::{
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
     REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
+    REMOTE_WORKTREE_LIST,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
@@ -288,6 +289,17 @@ fn make_handler(
                     Ok(result) => Some((REMOTE_GIT_READ, json!({ "op": op, "result": result }))),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 }
+            }
+            REMOTE_WORKTREE_LIST => {
+                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_path = payload
+                    .get("projectPath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                Some((
+                    REMOTE_WORKTREE_LIST,
+                    crate::worktree::worktree_list_payload(project_id, project_path),
+                ))
             }
             REMOTE_AI_STATS => {
                 // Resolve the project (path is needed to scan its CLI history),
@@ -695,6 +707,20 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         let diff = expect(&mut reply_rx, REMOTE_GIT_READ).await?;
         if diff.pointer("/result/diff").and_then(Value::as_str).is_none() {
             return Err(format!("git read diff missing result: {diff}"));
+        }
+        // worktree list: the repo's main worktree shows up
+        request(
+            REMOTE_WORKTREE_LIST,
+            json!({ "projectId": "p", "projectPath": repo_dir }),
+        )?;
+        let worktrees = expect(&mut reply_rx, REMOTE_WORKTREE_LIST).await?;
+        if worktrees
+            .get("worktrees")
+            .and_then(Value::as_array)
+            .map(|items| items.is_empty())
+            .unwrap_or(true)
+        {
+            return Err(format!("worktree.list returned no worktrees: {worktrees}"));
         }
         let _ = std::fs::remove_dir_all(&repo_dir);
 

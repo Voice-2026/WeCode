@@ -16,6 +16,7 @@ use tokio::sync::oneshot;
 mod ai_stats;
 mod git;
 mod host;
+mod worktree;
 mod projects;
 mod terminals;
 
