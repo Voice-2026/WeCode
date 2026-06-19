@@ -1185,6 +1185,12 @@ impl CoduxApp {
             .unwrap_or_default();
         let terminal_config = self.terminal_config_from_settings();
         let spawn_started_at = Instant::now();
+        // Project-switch / layout-reload restore. A remote-hosted project's
+        // terminals are deferred into `pending` and attached on the host through
+        // the async chokepoint (local terminals still spawn synchronously inside
+        // `spawn_terminal_tabs`).
+        let mut pending: Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)> =
+            Vec::new();
         match spawn_terminal_tabs(
             &restore_plan,
             self.terminal_manager.clone(),
@@ -1192,6 +1198,7 @@ impl CoduxApp {
             &base_pty_config,
             terminal_config,
             &self.terminal_pane_registry,
+            Some(&mut pending),
             cx,
         ) {
             Ok((terminals, active_terminal_id, next_terminal_index)) => {
@@ -1200,6 +1207,7 @@ impl CoduxApp {
                 self.active_terminal_id = active_terminal_id;
                 self.next_terminal_index = next_terminal_index;
                 self.register_terminal_panes(cx);
+                self.spawn_attach_pending_terminals(None, pending, cx);
                 self.status_message = format!(
                     "terminal layout reloaded · {} tab{}",
                     self.terminals.len(),

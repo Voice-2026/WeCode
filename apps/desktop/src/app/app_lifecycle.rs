@@ -57,6 +57,12 @@ impl CoduxApp {
         let terminal_config = terminal_config_for_settings(&state.settings, window.appearance());
         let terminal_manager = runtime_service.terminal_manager();
         let terminal_pane_registry = HashMap::new();
+        // Boot restore runs during App construction, before `self`/`Context<Self>`
+        // exists to drive the async attach chokepoint, so it spawns local PTYs
+        // synchronously (`pending_out: None`). Remote-hosted terminals attach on
+        // the next project-switch restore; opening them inline here would block
+        // the boot thread on a network round-trip. (Boot-time remote restore is a
+        // documented follow-up.)
         let (terminals, active_terminal_id, next_terminal_index) = spawn_terminal_tabs(
             &restore_plan,
             terminal_manager.clone(),
@@ -64,6 +70,7 @@ impl CoduxApp {
             &base_pty_config,
             terminal_config,
             &terminal_pane_registry,
+            None,
             cx,
         )?;
         let selected_ai_provider_id = state
