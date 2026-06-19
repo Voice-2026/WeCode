@@ -50,6 +50,50 @@ impl RuntimeService {
             .create_directory(path)
     }
 
+    /// List a local directory for the in-app file picker — same shape as the
+    /// remote browser, so the picker UI is unified for local and remote. Hidden
+    /// entries are skipped; directories sort first.
+    pub fn browse_local_directory(
+        &self,
+        path: Option<&str>,
+    ) -> Result<crate::remote::RemoteDirectoryListing, String> {
+        let dir = match path {
+            Some(value) if !value.trim().is_empty() => std::path::PathBuf::from(value.trim()),
+            _ => crate::runtime_paths::home_dir(),
+        };
+        let dir = dir.canonicalize().unwrap_or(dir);
+        let parent = dir.parent().map(|p| p.to_string_lossy().to_string());
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|error| error.to_string())?.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let entry_path = entry.path();
+            let is_dir = entry_path.is_dir();
+            entries.push(crate::remote::RemoteDirectoryEntry {
+                name,
+                path: entry_path.to_string_lossy().to_string(),
+                is_dir,
+            });
+        }
+        entries.sort_by(|a, b| {
+            b.is_dir
+                .cmp(&a.is_dir)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        Ok(crate::remote::RemoteDirectoryListing {
+            path: dir.to_string_lossy().to_string(),
+            parent,
+            entries,
+        })
+    }
+
+    /// Create a local directory (the picker's "New folder" for local browsing).
+    pub fn create_local_directory(&self, path: &str) -> Result<(), String> {
+        std::fs::create_dir_all(path).map_err(|error| error.to_string())
+    }
+
     /// Fetch a remote host's identity/capabilities (also a reachability check).
     pub fn remote_host_info(&self, device_id: &str) -> Result<serde_json::Value, String> {
         self.remote_controllers.controller_for(device_id)?.host_info()

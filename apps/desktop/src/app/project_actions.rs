@@ -2012,80 +2012,21 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // A remote project's directory lives on the host — browse it over the
-        // controller transport instead of the local OS dialog.
-        if let Some(device_id) = self.project_editor_host_device_id.clone() {
-            self.open_project_editor_browse(device_id, None, window, cx);
-            return;
-        }
-        let locale = locale_from_language_setting(&self.state.settings.language);
-        let default_path = clean_dialog_path(&self.project_editor_path);
-        let request = LocalizedOpenDialogRequest {
-            title: translate(
-                &locale,
-                "project.editor.choose_directory.title",
-                "Choose Project Directory",
-            ),
-            message: translate(
-                &locale,
-                "project.editor.choose_directory.message",
-                "Select a folder for this project.",
-            ),
-            prompt: translate(&locale, "project.editor.choose_directory.prompt", "Choose"),
-            default_path: (!default_path.trim().is_empty()).then_some(default_path),
-            filters: Vec::new(),
-            directory: true,
-            multiple: false,
-            can_create_directories: Some(false),
+        // Unified in-app picker for both local and remote projects (a remote
+        // project's directory lives on the host; the local one is browsed over
+        // the same overlay via `browse_local_directory`). Start at the currently
+        // entered path, if any.
+        let device_id = self.project_editor_host_device_id.clone();
+        let start = {
+            let path = self.project_editor_path.trim();
+            (!path.is_empty()).then(|| path.to_string())
         };
-        let runtime_service = self.runtime_service.clone();
-        let window_handle = window.window_handle();
-        self.status_message = "opening project directory dialog".to_string();
-        self.invalidate_project_management(cx);
-
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                runtime_service.localized_open_dialog(request)
-            })
-            .await
-            .unwrap_or_else(|error| {
-                Err(format!("failed to join project directory dialog: {error}"))
-            });
-
-            let _ = window_handle.update(cx, |_root, _window, cx| {
-                let _ = this.update(cx, |app, cx| {
-                    app.apply_project_editor_directory_result(result, cx);
-                });
-            });
-        })
-        .detach();
-    }
-
-    fn apply_project_editor_directory_result(
-        &mut self,
-        result: Result<Option<Vec<String>>, String>,
-        cx: &mut Context<Self>,
-    ) {
-        match result {
-            Ok(Some(paths)) => {
-                if let Some(path) = paths.first() {
-                    self.project_editor_path = clean_dialog_path(path);
-                    self.status_message = "project directory selected".to_string();
-                } else {
-                    self.status_message = "project directory selection canceled".to_string();
-                }
-            }
-            Ok(None) => self.status_message = "project directory selection canceled".to_string(),
-            Err(error) => {
-                self.status_message = format!("failed to choose project directory: {error}")
-            }
-        }
-        self.invalidate_project_management(cx);
+        self.open_project_editor_browse(device_id, start, window, cx);
     }
 
     pub(super) fn open_project_editor_browse(
         &mut self,
-        device_id: String,
+        device_id: Option<String>,
         path: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -2112,9 +2053,8 @@ impl CoduxApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(device_id) = self.project_editor_host_device_id.clone() {
-            self.load_project_editor_browse(device_id, path, window.window_handle(), cx);
-        }
+        let device_id = self.project_editor_host_device_id.clone();
+        self.load_project_editor_browse(device_id, path, window.window_handle(), cx);
     }
 
     pub(super) fn project_editor_browse_select(
@@ -2145,9 +2085,7 @@ impl CoduxApp {
         cx: &mut Context<Self>,
     ) {
         let name = self.project_editor_browse_new_folder.trim().to_string();
-        let Some(device_id) = self.project_editor_host_device_id.clone() else {
-            return;
-        };
+        let device_id = self.project_editor_host_device_id.clone();
         if name.is_empty() || self.project_editor_browse_path.trim().is_empty() {
             return;
         }
@@ -2164,9 +2102,13 @@ impl CoduxApp {
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::run_limited_blocking(move || {
-                runtime_service
-                    .remote_create_directory(&device_id, &target)
-                    .map(|_| (device_id, parent))
+                match device_id.as_deref() {
+                    Some(device_id) => runtime_service
+                        .remote_create_directory(device_id, &target)
+                        .map(|_| ()),
+                    None => runtime_service.create_local_directory(&target),
+                }
+                .map(|_| (device_id, parent))
             })
             .await
             .unwrap_or_else(|error| Err(format!("failed to join create directory: {error}")));
@@ -2197,7 +2139,7 @@ impl CoduxApp {
 
     fn load_project_editor_browse(
         &mut self,
-        device_id: String,
+        device_id: Option<String>,
         path: Option<String>,
         window_handle: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
@@ -2210,10 +2152,15 @@ impl CoduxApp {
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::run_limited_blocking(move || {
-                runtime_service.remote_browse_directory(&device_id, path_for_call.as_deref())
+                match device_id.as_deref() {
+                    Some(device_id) => {
+                        runtime_service.remote_browse_directory(device_id, path_for_call.as_deref())
+                    }
+                    None => runtime_service.browse_local_directory(path_for_call.as_deref()),
+                }
             })
             .await
-            .unwrap_or_else(|error| Err(format!("failed to join remote browse: {error}")));
+            .unwrap_or_else(|error| Err(format!("failed to join browse: {error}")));
 
             let _ = window_handle.update(cx, |_root, _window, cx| {
                 let _ = this.update(cx, |app, cx| {
