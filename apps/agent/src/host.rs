@@ -11,7 +11,7 @@ use codux_protocol::{
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_MOVE, REMOTE_FILE_MOVED,
     REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
-    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT,
+    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_FILE_BLOB, REMOTE_FILE_READ_BLOB,
     REMOTE_GIT_INVOKE,
     REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT, REMOTE_MEMORY_READ,
     REMOTE_MEMORY_RESULT,
@@ -100,6 +100,56 @@ fn make_handler(
                 };
                 let result = runtime.block_on(crate::memory::memory_extract_payload(&payload));
                 let mut envelope = json!({ "type": REMOTE_MEMORY_RESULT, "payload": result });
+                if let Some(device) = device.as_deref() {
+                    envelope["deviceId"] = json!(device);
+                }
+                if let Some(request) = request.as_deref() {
+                    envelope["requestId"] = json!(request);
+                }
+                if let Ok(bytes) = serde_json::to_vec(&envelope) {
+                    if let Ok(guard) = slot.lock() {
+                        if let Some(transport) = guard.as_ref() {
+                            transport.send(bytes, device.as_deref());
+                        }
+                    }
+                }
+            });
+            return;
+        }
+
+        // Binary-safe file read: publish the file's bytes to the blob store and
+        // reply with a ticket the controller fetches over iroh-blobs (async).
+        if kind == REMOTE_FILE_READ_BLOB {
+            let slot = Arc::clone(&slot);
+            let device = device_id.map(str::to_string);
+            let request = request_id.map(str::to_string);
+            let path = payload
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            std::thread::spawn(move || {
+                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                else {
+                    return;
+                };
+                let result = runtime.block_on(async {
+                    let bytes = match std::fs::read(&path) {
+                        Ok(bytes) => bytes,
+                        Err(error) => return json!({ "error": error.to_string() }),
+                    };
+                    let transport = slot.lock().ok().and_then(|guard| guard.as_ref().cloned());
+                    match transport {
+                        Some(transport) => match transport.publish_blob(bytes).await {
+                            Ok(ticket) => json!({ "ticket": ticket }),
+                            Err(error) => json!({ "error": error }),
+                        },
+                        None => json!({ "error": "transport unavailable" }),
+                    }
+                });
+                let mut envelope = json!({ "type": REMOTE_FILE_BLOB, "payload": result });
                 if let Some(device) = device.as_deref() {
                     envelope["deviceId"] = json!(device);
                 }
@@ -674,6 +724,22 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             return Err(format!("file.read returned unexpected content: {read}"));
         }
 
+        // Binary-safe read over iroh-blobs: the host publishes the bytes and we
+        // fetch the blob by ticket (the cross-device Save-As read path).
+        request(REMOTE_FILE_READ_BLOB, json!({ "path": file }))?;
+        let blob = expect(&mut reply_rx, REMOTE_FILE_BLOB).await?;
+        let ticket = blob
+            .get("ticket")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("file.readBlob reply missing ticket: {blob}"))?;
+        let bytes = controller.fetch_blob(ticket).await?;
+        if bytes != b"codux-agent" {
+            return Err(format!(
+                "file.readBlob fetched wrong bytes ({} bytes)",
+                bytes.len()
+            ));
+        }
+
         request(REMOTE_FILE_DELETE, json!({ "path": dir }))?;
         expect(&mut reply_rx, REMOTE_FILE_DELETED).await?;
         if std::path::Path::new(&dir).exists() {
@@ -895,5 +961,5 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
     controller.shutdown().await;
     let _ = std::fs::remove_dir_all(&data_dir);
     result?;
-    Ok("codux-agent-serve-ok\npairing + file + project + terminal + git + ai + memory (read+extract) + ai-session domains verified".to_string())
+    Ok("codux-agent-serve-ok\npairing + file (+blob) + project + terminal + git + ai + memory (read+extract) + ai-session domains verified".to_string())
 }

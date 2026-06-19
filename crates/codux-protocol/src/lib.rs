@@ -90,6 +90,11 @@ pub const REMOTE_FILE_MOVE: &str = "file.move";
 pub const REMOTE_FILE_MOVED: &str = "file.moved";
 pub const REMOTE_FILE_WRITE_BYTES: &str = "file.writeBytes";
 pub const REMOTE_FILE_BYTES_WRITTEN: &str = "file.bytesWritten";
+/// Read a file's bytes binary-safely: the host publishes them to its blob store
+/// and replies `file.blob {ticket}`; the controller fetches the blob over
+/// iroh-blobs. Used for cross-device file copy (Save As).
+pub const REMOTE_FILE_READ_BLOB: &str = "file.readBlob";
+pub const REMOTE_FILE_BLOB: &str = "file.blob";
 pub const REMOTE_GIT_STATUS: &str = "git.status";
 /// Generic git mutation (`{op, projectPath, args}`) → refreshed `git.status`.
 pub const REMOTE_GIT_INVOKE: &str = "git.invoke";

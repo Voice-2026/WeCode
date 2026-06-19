@@ -16,7 +16,7 @@ use codux_protocol::{
     REMOTE_FILE_MOVED, REMOTE_FILE_WRITE_BYTES,
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT,
+    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_FILE_BLOB, REMOTE_FILE_READ_BLOB,
     REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
     REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
@@ -481,6 +481,27 @@ impl RemoteController {
 
     pub fn read_file(&self, path: &str) -> Result<Value, String> {
         self.request(REMOTE_FILE_READ, REMOTE_FILE_READ, json!({ "path": path }))
+    }
+
+    /// Read a file's bytes binary-safely: ask the host to publish them to its
+    /// blob store, then fetch the blob over iroh-blobs (content-addressed, the
+    /// same path the terminal upload uses). For cross-device file copy.
+    pub fn read_file_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+        let reply = self.request(
+            REMOTE_FILE_BLOB,
+            REMOTE_FILE_READ_BLOB,
+            json!({ "path": path }),
+        )?;
+        if let Some(error) = reply.get("error").and_then(Value::as_str) {
+            return Err(error.to_string());
+        }
+        let ticket = reply
+            .get("ticket")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "host did not return a blob ticket".to_string())?
+            .to_string();
+        let transport = self.transport.clone();
+        crate::async_runtime::block_on(async move { transport.fetch_blob(&ticket).await })
     }
 
     pub fn create_directory(&self, path: &str) -> Result<Value, String> {

@@ -145,18 +145,12 @@ impl RuntimeService {
     fn read_file_any(&self, device: Option<&str>, abs: &str) -> Result<Vec<u8>, String> {
         match device {
             None => std::fs::read(abs).map_err(|error| error.to_string()),
-            Some(device_id) => {
-                let value = self
-                    .remote_controllers
-                    .controller_for(device_id)?
-                    .read_file(abs)?;
-                Ok(value
-                    .get("content")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .as_bytes()
-                    .to_vec())
-            }
+            // Binary-safe: the host publishes the bytes to its blob store and we
+            // fetch them over iroh-blobs (not the text/base64 control channel).
+            Some(device_id) => self
+                .remote_controllers
+                .controller_for(device_id)?
+                .read_file_bytes(abs),
         }
     }
 
