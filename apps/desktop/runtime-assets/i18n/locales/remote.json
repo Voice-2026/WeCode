@@ -68,7 +68,12 @@
       "remote.error.cannot_connect_server": "Cannot connect to the Codux service.",
       "remote.error.connection_lost": "Remote transport connection lost.",
       "remote.error.not_connected_internet": "Network is offline.",
-      "remote.error.timed_out": "Codux service request timed out."
+      "remote.error.timed_out": "Codux service request timed out.",
+      "remote.add.share": "Share this device",
+      "remote.add.connect": "Connect to a device",
+      "remote.connect.title": "Connect to a device",
+      "remote.connect.hint": "Paste the codux://pair link the other device shows (its Share menu).",
+      "remote.connect.submit": "Connect"
     },
     "es": {
       "remote.status.stopped": "Host remoto detenido.",
@@ -313,7 +318,12 @@
       "remote.error.cannot_connect_server": "无法连接 Codux 服务。",
       "remote.error.connection_lost": "远程连接已中断。",
       "remote.error.not_connected_internet": "网络未连接。",
-      "remote.error.timed_out": "Codux 服务请求超时。"
+      "remote.error.timed_out": "Codux 服务请求超时。",
+      "remote.add.share": "分享此设备",
+      "remote.add.connect": "连接到设备",
+      "remote.connect.title": "连接到设备",
+      "remote.connect.hint": "粘贴对方设备「分享」菜单里显示的 codux://pair 链接。",
+      "remote.connect.submit": "连接"
     },
     "zh-Hant": {
       "remote.status.stopped": "遠端主機已停止。",
@@ -348,7 +358,12 @@
       "remote.error.cannot_connect_server": "無法連線到 Codux 服務。",
       "remote.error.connection_lost": "遠端連線已中斷。",
       "remote.error.not_connected_internet": "網路未連線。",
-      "remote.error.timed_out": "Codux 服務請求逾時。"
+      "remote.error.timed_out": "Codux 服務請求逾時。",
+      "remote.add.share": "分享此裝置",
+      "remote.add.connect": "連接到裝置",
+      "remote.connect.title": "連接到裝置",
+      "remote.connect.hint": "貼上對方裝置「分享」選單顯示的 codux://pair 連結。",
+      "remote.connect.submit": "連接"
     }
   }
 }

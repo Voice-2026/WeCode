@@ -19,12 +19,13 @@ use super::ui_helpers::dialog_primary_button;
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea,
-    anchored, deferred, div, img, prelude::FluentBuilder as _, px, relative, rems,
+    div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    menu::{DropdownMenu, PopupMenuItem},
     spinner::Spinner,
     switch::Switch,
 };
@@ -369,7 +370,6 @@ fn settings_pane_body(
                 app.state.settings.language.as_str(),
                 app.remote_reconnecting,
                 app.remote_pairing_creating,
-                app.remote_add_menu_open,
                 window,
                 cx,
             )
@@ -1014,85 +1014,45 @@ fn remote_pairing_overlay(
         .into_any_element()
 }
 
-/// The Devices "+" dropdown: Share this device (advertise via QR/link) or
-/// Connect to a device (paste another host's ticket). Anchored below the button.
-fn remote_add_menu(language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
-    let item = |id: &'static str,
-                label: SharedString,
-                hint: SharedString,
-                cx: &mut Context<CoduxApp>,
-                handler: fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>)| {
-        div()
-            .id(id)
-            .px(px(12.0))
-            .py(px(8.0))
-            .rounded(px(6.0))
-            .hover(|style| style.bg(cx.theme().secondary))
-            .cursor_pointer()
-            .flex()
-            .flex_col()
-            .gap(px(2.0))
-            .child(
-                div()
-                    .text_size(rems(0.875))
-                    .text_color(cx.theme().foreground)
-                    .child(label),
+/// The Devices "+" dropdown, using the shared popup-menu component (auto-anchored
+/// to the button): Share this device (advertise via QR/link) or Connect to a
+/// device (paste another host's ticket).
+fn remote_add_dropdown(language: &str, disabled: bool, cx: &mut Context<CoduxApp>) -> AnyElement {
+    let app_entity = cx.entity();
+    let share = settings_text(language, "remote.add.share", "Share this device");
+    let connect = settings_text(language, "remote.add.connect", "Connect to a device");
+    Button::new("settings-remote-add")
+        .compact()
+        .ghost()
+        .disabled(disabled)
+        .text_color(cx.theme().secondary_foreground)
+        .bg(cx.theme().transparent)
+        .icon(
+            Icon::new(HeroIconName::Plus)
+                .size_3p5()
+                .text_color(cx.theme().secondary_foreground),
+        )
+        .dropdown_menu(move |menu, _window, _cx| {
+            let share_entity = app_entity.clone();
+            let connect_entity = app_entity.clone();
+            menu.item(
+                PopupMenuItem::new(share.clone())
+                    .icon(HeroIconName::QrCode)
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&share_entity, |app, cx| {
+                            app.create_remote_pairing(window, cx)
+                        });
+                    }),
             )
-            .child(
-                div()
-                    .text_size(rems(0.75))
-                    .text_color(cx.theme().muted_foreground)
-                    .child(hint),
+            .item(
+                PopupMenuItem::new(connect.clone())
+                    .icon(HeroIconName::Link)
+                    .on_click(move |_, _window, cx| {
+                        cx.update_entity(&connect_entity, |app, cx| app.open_remote_connect(cx));
+                    }),
             )
-            .on_mouse_down(
-                gpui::MouseButton::Left,
-                cx.listener(move |app, _event, window, cx| handler(app, window, cx)),
-            )
-    };
-
-    deferred(
-        anchored().snap_to_window_with_margin(px(8.0)).child(
-            div()
-                .absolute()
-                .top(px(30.0))
-                .right(px(0.0))
-                .w(px(260.0))
-                .p(px(6.0))
-                .rounded(px(10.0))
-                .border_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().background)
-                .shadow_lg()
-                .flex()
-                .flex_col()
-                .gap(px(2.0))
-                .child(item(
-                    "settings-remote-add-share",
-                    settings_text(language, "remote.add.share", "Share this device").into(),
-                    settings_text(
-                        language,
-                        "remote.add.shareHint",
-                        "Show a QR / link for another device to connect.",
-                    )
-                    .into(),
-                    cx,
-                    |app, window, cx| app.create_remote_pairing(window, cx),
-                ))
-                .child(item(
-                    "settings-remote-add-connect",
-                    settings_text(language, "remote.add.connect", "Connect to a device").into(),
-                    settings_text(
-                        language,
-                        "remote.add.connectHint",
-                        "Paste another device's codux://pair link.",
-                    )
-                    .into(),
-                    cx,
-                    |app, _window, cx| app.open_remote_connect(cx),
-                )),
-        ),
-    )
-    .into_any_element()
+        })
+        .into_any_element()
 }
 
 /// "Connect to a device" overlay: paste another host's `codux://pair` ticket to
@@ -3106,7 +3066,6 @@ fn settings_remote_pane(
     language: &str,
     remote_reconnecting: bool,
     remote_pairing_creating: bool,
-    add_menu_open: bool,
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -3382,17 +3341,11 @@ fn settings_remote_pane(
                         .gap(px(8.0))
                         .child(
                             div()
-                                .relative()
-                                .child(settings_icon_button_state(
-                                    "settings-remote-add",
-                                    HeroIconName::Plus,
+                                .child(remote_add_dropdown(
+                                    language,
                                     remote_pairing_creating || !remote.enabled,
                                     cx,
-                                    |app, _event, _window, cx| app.toggle_remote_add_menu(cx),
-                                ))
-                                .when(add_menu_open, |container| {
-                                    container.child(remote_add_menu(language, cx))
-                                }),
+                                )),
                         )
                         .child(settings_icon_button_state(
                             "settings-remote-refresh",

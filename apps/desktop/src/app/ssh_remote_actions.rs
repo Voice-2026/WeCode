@@ -943,13 +943,7 @@ impl CoduxApp {
         self.invalidate_remote_panel(cx);
     }
 
-    pub(super) fn toggle_remote_add_menu(&mut self, cx: &mut Context<Self>) {
-        self.remote_add_menu_open = !self.remote_add_menu_open;
-        self.invalidate_remote_panel(cx);
-    }
-
     pub(super) fn open_remote_connect(&mut self, cx: &mut Context<Self>) {
-        self.remote_add_menu_open = false;
         self.remote_connect_open = true;
         self.remote_connect_ticket = String::new();
         self.remote_connect_name = String::new();

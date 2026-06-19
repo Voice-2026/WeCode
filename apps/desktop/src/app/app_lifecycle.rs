@@ -372,7 +372,6 @@ impl CoduxApp {
             remote_connect_name: String::new(),
             remote_connect_error: None,
             remote_connect_busy: false,
-            remote_add_menu_open: false,
             recording_shortcut_id: None,
             workspace_view: WorkspaceView::Terminal,
             workspace_split: None,
