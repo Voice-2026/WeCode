@@ -138,21 +138,34 @@ x11/wayland unproven.)
   `Some(id)` will route the project's domains remotely and mark it remote in the sidebar.
   Backward-compatible; round-trips through `state.json` (tested).
 
+- **P3 pairing + saved-host store (done, tested).** Pairing reuses the host's existing
+  handshake (`pairing.request` → operator `pairing.confirmed`/`pairing.rejected`), driven from
+  the controller side exactly like the mobile flow: `parse_pairing_ticket` decodes a pasted
+  `codux://pair` ticket, `RemoteController::pair` connects unpaired (self-minted device id,
+  empty token, ticket-only iroh candidate) and awaits confirmation, `RemoteControllerStore`
+  persists the resulting `SavedRemoteHost`, and `RemoteController::connect_saved` reconnects
+  without re-pairing (the host caches the device id). Ticket parsing, the confirmed-payload
+  mapping, and the store round trip are unit-tested.
+
 - **Next (ordered), each its own green commit:**
-  1. **Saved remote-device store** — persist dial targets `{name, host_id, device_id,
-     device_token, relay, node_id, ticket}` (distinct from inbound paired `RemoteDeviceSummary`).
-     Parse from a pasted pairing ticket. Testable in isolation.
-  2. **Controller manager** — `HashMap<device_id, Arc<RemoteController>>` on `RuntimeService`,
-     lazy-connect on first use, `controller_for(device_id)`.
-  3. **RuntimeService routing seam** — branch at the top of each domain method (and the
+  1. **Controller manager** — `HashMap<device_id, Arc<RemoteController>>` keyed by device id,
+     lazy-connect from `RemoteControllerStore` via `async_runtime::block_on(connect_saved)`,
+     held on `RuntimeService`. (Build together with step 2 so it has a real consumer.)
+  2. **RuntimeService routing seam** — branch at the top of each domain method (and the
      `run_cancellable_project_git` / files / worktree / `terminal_manager()` delegate families):
-     if the project's `host_device_id` is set, forward via the controller; else local. Validate
-     with an in-process host↔controller round trip.
-  4. **GPUI UI** — paste-ticket pairing dialog, remote directory browse in add-project (over
+     if the project's `host_device_id` is set, forward via the controller; else local. **Per
+     domain this needs a payload→struct mapping** (the host returns the runtime-core JSON
+     payload; the desktop UI wants rich structs like `GitSummary`/`FileEntry`), so it is real
+     work per domain, not a blanket wrap. Validate with a live host↔controller round trip
+     (a second desktop, or the agent once it also speaks the pairing handshake).
+  3. **GPUI UI** — paste-ticket pairing dialog, remote directory browse in add-project (over
      `file.list` + `file.createDirectory`), and the sidebar remote marker (the per-project
      `.relative()` icon wrapper in `project_column.rs`).
+  4. **Agent pairing** — teach the headless agent the host pairing handshake (emit a ticket,
+     handle `pairing.request`, auto/headless-confirm) so a desktop can pair with an agent, not
+     only another desktop.
   5. **Memory over remote (P4 tail)** — net-new memory protocol + host serving, riding on the
-     model routing from step 3.
+     model routing from step 2.
 
 ## Verification
 
