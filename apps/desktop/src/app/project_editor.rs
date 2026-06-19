@@ -193,6 +193,46 @@ impl CoduxApp {
         let current = self.project_editor_browse_path.clone();
         let can_confirm = self.file_picker_result_path().is_some() && !self.project_editor_browse_busy;
 
+        // Left: the device sidebar (This Mac + each paired host). Clicking a
+        // device re-lists from its root.
+        let active_device = self.project_editor_host_device_id.clone();
+        let mut devices = div()
+            .w(px(160.0))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .p(px(8.0))
+            .border_r_1()
+            .border_color(cx.theme().border)
+            .overflow_y_scrollbar()
+            .child(file_picker_device_row(
+                "file-picker-device-local".to_string(),
+                tr("project.editor.device.local", "This Mac"),
+                active_device.is_none(),
+                cx,
+                |app, window, cx| app.file_picker_switch_device(None, window, cx),
+            ));
+        for host in self.runtime_service.saved_remote_hosts() {
+            let device_id = host.device_id.clone();
+            let selected = active_device.as_deref() == Some(host.device_id.as_str());
+            let label = if host.host_name.trim().is_empty() {
+                host.host_id.clone()
+            } else {
+                host.host_name.clone()
+            };
+            devices = devices.child(file_picker_device_row(
+                format!("file-picker-device-{}", host.device_id),
+                label,
+                selected,
+                cx,
+                move |app, window, cx| {
+                    app.file_picker_switch_device(Some(device_id.clone()), window, cx)
+                },
+            ));
+        }
+
+        // Right: breadcrumb + listing + new-folder/filename rows.
         let mut list = div()
             .min_h_0()
             .flex_1()
@@ -228,24 +268,14 @@ impl CoduxApp {
             ));
         }
 
-        let mut body = div()
+        let mut right = div()
             .min_h_0()
             .flex_1()
             .flex()
             .flex_col()
             .gap(px(10.0))
             .p(px(16.0))
-            .child(
-                div()
-                    .text_size(rems(0.8125))
-                    .text_color(color(theme::TEXT_MUTED))
-                    .truncate()
-                    .child(if current.trim().is_empty() {
-                        tr("project.editor.browse.loading", "Loading…")
-                    } else {
-                        current.clone()
-                    }),
-            )
+            .child(file_picker_breadcrumb(&current, cx))
             .child(list)
             .child(
                 div()
@@ -279,7 +309,7 @@ impl CoduxApp {
             );
         // Save mode: a filename row (prefilled when an existing file is clicked).
         if mode == FilePickerMode::Save {
-            body = body.child(div().min_w_0().child(project_editor_input(
+            right = right.child(div().min_w_0().child(project_editor_input(
                 "file-picker-filename",
                 &self.file_picker_filename,
                 "File name",
@@ -289,13 +319,20 @@ impl CoduxApp {
             )));
         }
         if let Some(error) = self.project_editor_browse_error.as_ref() {
-            body = body.child(
+            right = right.child(
                 div()
                     .text_size(rems(0.8125))
                     .text_color(color(theme::ORANGE))
                     .child(error.clone()),
             );
         }
+
+        let body = div()
+            .min_h_0()
+            .flex_1()
+            .flex()
+            .child(devices)
+            .child(right);
 
         child_window_shell(SharedString::from(title), cx)
             .child(body)
@@ -366,6 +403,110 @@ fn file_picker_entry_row(
         row = row.bg(cx.theme().secondary);
     }
     row.into_any_element()
+}
+
+/// A device row in the file picker's left sidebar (This Mac / a host).
+fn file_picker_device_row(
+    id: String,
+    label: String,
+    selected: bool,
+    cx: &mut Context<CoduxApp>,
+    on_click: impl Fn(&mut CoduxApp, &mut Window, &mut Context<CoduxApp>) + 'static,
+) -> AnyElement {
+    let mut row = div()
+        .id(SharedString::from(id))
+        .flex()
+        .items_center()
+        .gap_2()
+        .px(px(8.0))
+        .py(px(6.0))
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .hover(|style| style.bg(cx.theme().secondary_hover))
+        .on_click(cx.listener(move |app, _event, window, cx| on_click(app, window, cx)))
+        .child(
+            Icon::new(HeroIconName::GlobeAlt)
+                .size_3()
+                .text_color(color(theme::TEXT_MUTED)),
+        )
+        .child(
+            div()
+                .text_size(rems(0.8125))
+                .text_color(color(theme::TEXT))
+                .truncate()
+                .child(label),
+        );
+    if selected {
+        row = row.bg(cx.theme().secondary);
+    }
+    row.into_any_element()
+}
+
+/// A clickable breadcrumb for the current directory: each path segment navigates
+/// to that ancestor.
+fn file_picker_breadcrumb(path: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
+    let trimmed = path.trim();
+    let mut row = div().flex().flex_wrap().items_center().gap_1();
+    if trimmed.is_empty() {
+        return row
+            .child(
+                div()
+                    .text_size(rems(0.8125))
+                    .text_color(color(theme::TEXT_MUTED))
+                    .child("Loading…"),
+            )
+            .into_any_element();
+    }
+    let absolute = trimmed.starts_with('/');
+    if absolute {
+        row = row.child(file_picker_crumb("file-picker-crumb-root", "/", "/", cx));
+    }
+    let mut cumulative = String::new();
+    for part in trimmed.split('/').filter(|segment| !segment.is_empty()) {
+        cumulative = if absolute {
+            format!("{}/{part}", cumulative.trim_end_matches('/'))
+        } else if cumulative.is_empty() {
+            part.to_string()
+        } else {
+            format!("{cumulative}/{part}")
+        };
+        row = row.child(
+            div()
+                .text_size(rems(0.75))
+                .text_color(color(theme::TEXT_DIM))
+                .child("/"),
+        );
+        row = row.child(file_picker_crumb(
+            &format!("file-picker-crumb-{cumulative}"),
+            part,
+            &cumulative,
+            cx,
+        ));
+    }
+    row.into_any_element()
+}
+
+fn file_picker_crumb(
+    id: &str,
+    label: &str,
+    target: &str,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let target = target.to_string();
+    div()
+        .id(SharedString::from(id.to_string()))
+        .px(px(4.0))
+        .py(px(1.0))
+        .rounded(px(4.0))
+        .cursor_pointer()
+        .hover(|style| style.bg(cx.theme().secondary))
+        .text_size(rems(0.8125))
+        .text_color(color(theme::TEXT))
+        .child(label.to_string())
+        .on_click(cx.listener(move |app, _event, window, cx| {
+            app.project_editor_browse_navigate(Some(target.clone()), window, cx)
+        }))
+        .into_any_element()
 }
 
 fn project_editor_device_chip(

@@ -2073,29 +2073,33 @@ impl CoduxApp {
             .clone()
             .and_then(|parent| parent.upgrade())
         {
+            let device = self.project_editor_host_device_id.clone();
             let _ = parent.update(cx, |opener, cx| {
-                opener.apply_file_picker_result(target, path.clone(), cx);
+                opener.apply_file_picker_result(target, device.clone(), path.clone(), cx);
             });
         }
         window.remove_window();
     }
 
-    /// Deliver a picked path to its target (on the opener window). Add a match
-    /// arm per new `FilePickerTarget`.
+    /// Deliver a picked path (and the device it was browsed on) to its target on
+    /// the opener window. Add a match arm per new `FilePickerTarget`.
     pub(in crate::app) fn apply_file_picker_result(
         &mut self,
         target: FilePickerTarget,
+        dest_device: Option<String>,
         path: String,
         cx: &mut Context<Self>,
     ) {
         match target {
             FilePickerTarget::ProjectEditorPath => {
+                // The picker chose both the device and the directory.
+                self.project_editor_host_device_id = dest_device;
                 self.project_editor_path = path;
                 self.invalidate_project_management(cx);
             }
             FilePickerTarget::SaveFileAs {
                 source_path,
-                device_id,
+                device_id: source_device,
             } => {
                 let runtime_service = self.runtime_service.clone();
                 let dest = path;
@@ -2103,7 +2107,12 @@ impl CoduxApp {
                 self.invalidate_status_bar(cx);
                 cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
                     let result = codux_runtime::async_runtime::run_limited_blocking(move || {
-                        runtime_service.save_file_as(device_id.as_deref(), &source_path, &dest)
+                        runtime_service.save_file_as(
+                            source_device.as_deref(),
+                            &source_path,
+                            dest_device.as_deref(),
+                            &dest,
+                        )
                     })
                     .await
                     .unwrap_or_else(|error| Err(format!("failed to join save-as: {error}")));
@@ -2118,6 +2127,19 @@ impl CoduxApp {
                 .detach();
             }
         }
+    }
+
+    /// Switch the device being browsed in the file picker (left device sidebar):
+    /// re-list from that device's root.
+    pub(super) fn file_picker_switch_device(
+        &mut self,
+        device_id: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_editor_host_device_id = device_id.clone();
+        self.file_picker_selected = None;
+        self.load_project_editor_browse(device_id, None, window.window_handle(), cx);
     }
 
     pub(super) fn set_project_editor_browse_new_folder(

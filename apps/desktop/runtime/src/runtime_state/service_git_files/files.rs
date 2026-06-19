@@ -105,35 +105,79 @@ impl RuntimeService {
         ))
     }
 
-    /// "Save as…": copy `source_abs` to `dest_abs` on the given device (the
-    /// project's host, or local). Same-device, binary-safe. Local uses fs::copy;
-    /// remote copies into the dest dir on the host, then renames if needed.
+    /// "Save as…": copy `source_abs` (on `source_device`) to `dest_abs` (on
+    /// `dest_device`); either may be local (`None`) or a host. Same-device copies
+    /// are binary-safe (local fs::copy; remote copy_path + rename). Cross-device
+    /// streams the bytes through the controller (text-faithful for any remote leg).
     pub fn save_file_as(
         &self,
-        device_id: Option<&str>,
+        source_device: Option<&str>,
         source_abs: &str,
+        dest_device: Option<&str>,
         dest_abs: &str,
     ) -> Result<(), String> {
-        match device_id {
+        if source_device == dest_device {
+            return match dest_device {
+                None => {
+                    if let Some(parent) = std::path::Path::new(dest_abs).parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    std::fs::copy(source_abs, dest_abs)
+                        .map(|_| ())
+                        .map_err(|error| error.to_string())
+                }
+                Some(device_id) => {
+                    let controller = self.remote_controllers.controller_for(device_id)?;
+                    let dest_dir = parent_dir(dest_abs);
+                    let copied = controller.copy_path(source_abs, &dest_dir)?;
+                    if copied != dest_abs {
+                        controller.rename_path(&copied, dest_abs)?;
+                    }
+                    Ok(())
+                }
+            };
+        }
+        // Cross-device: read the source, write the destination.
+        let bytes = self.read_file_any(source_device, source_abs)?;
+        self.write_file_any(dest_device, dest_abs, &bytes)
+    }
+
+    fn read_file_any(&self, device: Option<&str>, abs: &str) -> Result<Vec<u8>, String> {
+        match device {
+            None => std::fs::read(abs).map_err(|error| error.to_string()),
+            Some(device_id) => {
+                let value = self
+                    .remote_controllers
+                    .controller_for(device_id)?
+                    .read_file(abs)?;
+                Ok(value
+                    .get("content")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .as_bytes()
+                    .to_vec())
+            }
+        }
+    }
+
+    fn write_file_any(&self, device: Option<&str>, abs: &str, bytes: &[u8]) -> Result<(), String> {
+        match device {
             None => {
-                if let Some(parent) = std::path::Path::new(dest_abs).parent() {
+                if let Some(parent) = std::path::Path::new(abs).parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
-                std::fs::copy(source_abs, dest_abs)
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
+                std::fs::write(abs, bytes).map_err(|error| error.to_string())
             }
             Some(device_id) => {
-                let controller = self.remote_controllers.controller_for(device_id)?;
-                let dest_dir = std::path::Path::new(dest_abs)
-                    .parent()
-                    .map(|parent| parent.to_string_lossy().to_string())
+                let dir = parent_dir(abs);
+                let name = std::path::Path::new(abs)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
                     .unwrap_or_default();
-                let copied = controller.copy_path(source_abs, &dest_dir)?;
-                if copied != dest_abs {
-                    controller.rename_path(&copied, dest_abs)?;
-                }
-                Ok(())
+                self.remote_controllers
+                    .controller_for(device_id)?
+                    .write_bytes(&dir, &name, bytes)
+                    .map(|_| ())
             }
         }
     }
@@ -309,4 +353,11 @@ impl RuntimeService {
     ) -> Result<(), String> {
         FilesService::open_path(project_path, entry_path)
     }
+}
+
+fn parent_dir(abs: &str) -> String {
+    std::path::Path::new(abs)
+        .parent()
+        .map(|parent| parent.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
