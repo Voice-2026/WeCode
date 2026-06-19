@@ -6,8 +6,8 @@
 //! payload builders in `codux-runtime-core`.
 
 use codux_protocol::{
-    REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE,
-    REMOTE_FILE_DELETED,
+    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY,
+    REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ, REMOTE_FILE_RENAME,
     REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN, REMOTE_GIT_STATUS,
     REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
@@ -243,6 +243,25 @@ fn make_handler(
                     )),
                     None => Some((REMOTE_ERROR, json!({ "message": "Unable to load AI stats." }))),
                 }
+            }
+            REMOTE_AI_STATE => {
+                // The controller owns the project record and sends its path; the
+                // agent indexes the host's history for that path directly.
+                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_name = payload.get("projectName").and_then(Value::as_str).unwrap_or("");
+                let project_path = payload
+                    .get("projectPath")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                Some((
+                    REMOTE_AI_STATE,
+                    crate::ai_stats::ai_state_payload(
+                        &indexer,
+                        project_id,
+                        project_name,
+                        project_path,
+                    ),
+                ))
             }
             _ => None,
         };
@@ -598,6 +617,16 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         }
         if stats.get("sessions").and_then(Value::as_array).is_none() {
             return Err("ai.stats reply missing sessions array".to_string());
+        }
+
+        // ai.state: full AIHistoryProjectState for a desktop controller
+        request(
+            REMOTE_AI_STATE,
+            json!({ "projectId": "p", "projectName": "AI", "projectPath": stats_project }),
+        )?;
+        let state = expect(&mut reply_rx, REMOTE_AI_STATE).await?;
+        if state.get("projectId").and_then(Value::as_str) != Some("p") {
+            return Err(format!("ai.state reply missing matching projectId: {state}"));
         }
 
         Ok::<(), String>(())

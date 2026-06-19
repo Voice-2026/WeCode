@@ -11,7 +11,7 @@
 
 use base64::Engine;
 use codux_protocol::{
-    REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE,
+    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE,
     REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
     REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
@@ -500,6 +500,26 @@ impl RemoteController {
 
     pub fn ai_stats(&self, project_id: &str) -> Result<Value, String> {
         self.request(REMOTE_AI_STATS, REMOTE_AI_STATS, json!({ "projectId": project_id }))
+    }
+
+    /// Full `AIHistoryProjectState` for a hosted project (the desktop AI panel's
+    /// shape), indexed on the host from the project path we send.
+    pub fn ai_state(
+        &self,
+        project_id: &str,
+        project_name: &str,
+        project_path: &str,
+    ) -> Result<codux_ai_history::indexer::AIHistoryProjectState, String> {
+        let value = self.request(
+            REMOTE_AI_STATE,
+            REMOTE_AI_STATE,
+            json!({
+                "projectId": project_id,
+                "projectName": project_name,
+                "projectPath": project_path,
+            }),
+        )?;
+        serde_json::from_value(value).map_err(|error| error.to_string())
     }
 
     pub fn project_list(&self) -> Result<Value, String> {

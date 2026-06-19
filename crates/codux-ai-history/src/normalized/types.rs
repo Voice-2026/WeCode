@@ -19,7 +19,7 @@ pub struct AIHistorySourceFileFingerprint {
     pub size: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIHistorySnapshot {
     pub project_id: String,
@@ -33,7 +33,7 @@ pub struct AIHistorySnapshot {
     pub indexed_at: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIGlobalHistorySnapshot {
     pub total_tokens: i64,
@@ -45,7 +45,7 @@ pub struct AIGlobalHistorySnapshot {
     pub indexed_at: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIProjectUsageSummary {
     pub project_id: String,
@@ -61,7 +61,7 @@ pub struct AIProjectUsageSummary {
     pub current_session_updated_at: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AISessionSummary {
     pub session_id: String,
@@ -84,7 +84,7 @@ pub struct AISessionSummary {
     pub today_cached_input_tokens: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIHeatmapDay {
     pub day: f64,
@@ -93,7 +93,7 @@ pub struct AIHeatmapDay {
     pub request_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AITimeBucket {
     pub start: f64,
@@ -103,7 +103,7 @@ pub struct AITimeBucket {
     pub request_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIUsageBreakdownItem {
     pub key: String,

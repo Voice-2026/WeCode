@@ -86,6 +86,9 @@ pub const REMOTE_FILE_CREATE_DIRECTORY: &str = "file.createDirectory";
 pub const REMOTE_FILE_DIRECTORY_CREATED: &str = "file.directoryCreated";
 pub const REMOTE_GIT_STATUS: &str = "git.status";
 pub const REMOTE_AI_STATS: &str = "ai.stats";
+/// Full `AIHistoryProjectState` (incl. the snapshot) for a desktop controller —
+/// distinct from `ai.stats`, which serves the derived baseline view to mobile.
+pub const REMOTE_AI_STATE: &str = "ai.state";
 
 pub const REMOTE_TRANSPORT_IROH: &str = "iroh";
 pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";

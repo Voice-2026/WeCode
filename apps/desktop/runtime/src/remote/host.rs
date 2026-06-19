@@ -2,7 +2,8 @@ use super::RemoteService;
 use super::crypto::remote_host_name;
 use super::pairing::remote_summary_show_pending_pairing;
 use super::protocol::{
-    REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_ERROR,
+    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED,
+    REMOTE_ERROR,
     REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
     REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE, REMOTE_PAIRING_CONFIRMED,
@@ -830,6 +831,7 @@ impl RemoteHostRuntime {
             REMOTE_PROJECT_EDIT => self.handle_project_edit(&envelope),
             REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
             REMOTE_AI_STATS => self.handle_ai_stats(&envelope),
+            REMOTE_AI_STATE => self.handle_ai_state(&envelope),
             REMOTE_TRANSPORT_PING => {
                 self.send_plain(
                     REMOTE_TRANSPORT_PONG,
@@ -1708,6 +1710,40 @@ impl RemoteHostRuntime {
                     );
                 }
                 Err(error) => self.send_error(envelope, &error),
+            },
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    /// Serve the full `AIHistoryProjectState` for a desktop controller, indexed
+    /// from the path the controller sends (it owns the project record).
+    fn handle_ai_state(&self, envelope: &RemoteEnvelope) {
+        let request = AIHistoryProjectRequest {
+            id: envelope
+                .payload
+                .get("projectId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: envelope
+                .payload
+                .get("projectName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            path: envelope
+                .payload
+                .get("projectPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        };
+        match self.ai_history.project_state(request) {
+            Ok(state) => match serde_json::to_value(state) {
+                Ok(payload) => {
+                    self.send(REMOTE_AI_STATE, envelope.device_id.as_deref(), None, payload)
+                }
+                Err(error) => self.send_error(envelope, &error.to_string()),
             },
             Err(error) => self.send_error(envelope, &error),
         }

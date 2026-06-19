@@ -1,7 +1,7 @@
 use crate::normalized::{
     AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
@@ -30,7 +30,7 @@ pub struct AIHistoryIndexerState {
     pub next_version: u64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIHistoryProjectState {
     pub project_id: String,

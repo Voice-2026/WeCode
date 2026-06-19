@@ -50,6 +50,21 @@ fn stats_payload_from_state(
     payload
 }
 
+/// The full `AIHistoryProjectState` (incl. snapshot) for a desktop controller,
+/// indexed from the payload's project path directly (the controller owns the
+/// project record; the agent just indexes the host's history for that path).
+pub fn ai_state_payload(indexer: &AIHistoryIndexer, id: &str, name: &str, path: &str) -> Value {
+    let request = AIHistoryProjectRequest {
+        id: id.to_string(),
+        name: name.to_string(),
+        path: path.to_string(),
+    };
+    match indexer.project_state(request) {
+        Ok(state) => serde_json::to_value(state).unwrap_or(Value::Null),
+        Err(error) => json!({ "projectId": id, "projectName": name, "error": error }),
+    }
+}
+
 fn fallback_payload(id: &str, name: &str) -> Value {
     json!({
         "projectId": id,

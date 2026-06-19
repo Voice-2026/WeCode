@@ -452,6 +452,13 @@ impl RuntimeService {
         &self,
         project: AIHistoryProjectRequest,
     ) -> Result<AIHistoryProjectState, String> {
+        if let Some(device_id) = self.host_device_for_project_path(&project.path) {
+            return self.remote_controllers.controller_for(&device_id)?.ai_state(
+                &project.id,
+                &project.name,
+                &project.path,
+            );
+        }
         self.ai_history_indexer.project_summary(project)
     }
 
@@ -470,6 +477,13 @@ impl RuntimeService {
         &self,
         project: AIHistoryProjectRequest,
     ) -> Result<AIHistoryProjectState, String> {
+        if let Some(device_id) = self.host_device_for_project_path(&project.path) {
+            return self.remote_controllers.controller_for(&device_id)?.ai_state(
+                &project.id,
+                &project.name,
+                &project.path,
+            );
+        }
         self.ai_history_indexer.project_state(project)
     }
 
