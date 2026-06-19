@@ -124,9 +124,35 @@ x11/wayland unproven.)
   `memory-workspaces/MEMORY.md` and entries — are already reachable today via the `file.*`
   domain.)
 
-- **Next:** P3 desktop-as-client (controller runtime + paste-ticket pairing in Rust + GPUI
-  UI) and P4 device-aware project model + `RuntimeService` routing — so the desktop can
-  actually connect to and drive an agent. Memory-over-remote rides on P4.
+- **P3 started — desktop controller runtime (done, tested).** The desktop was host-only; it
+  now has the dial-out side: `RemoteTransportFactory::connect_controller` + a `RemoteController`
+  (`remote/controller.rs`) that drives a remote host's domains over Iroh, the inverse of
+  `RemoteHostRuntime`. Replies correlate by message type via a FIFO waiter list (the proven
+  mobile/agent scheme); the request path is synchronous so it composes with the synchronous
+  `RuntimeService` domain methods. Typed helpers for host.info / file.list / createDirectory /
+  git.status / ai.stats / project.list; correlation unit-tested.
+
+- **P4 started — device-aware project model (done, tested).** `host_device_id: Option<String>`
+  now threads through the persisted `ProjectRecord`, the create/update DTOs, the raw record
+  builder + mutations, the runtime `ProjectInfo`, and the state loader. `None` = local (today);
+  `Some(id)` will route the project's domains remotely and mark it remote in the sidebar.
+  Backward-compatible; round-trips through `state.json` (tested).
+
+- **Next (ordered), each its own green commit:**
+  1. **Saved remote-device store** — persist dial targets `{name, host_id, device_id,
+     device_token, relay, node_id, ticket}` (distinct from inbound paired `RemoteDeviceSummary`).
+     Parse from a pasted pairing ticket. Testable in isolation.
+  2. **Controller manager** — `HashMap<device_id, Arc<RemoteController>>` on `RuntimeService`,
+     lazy-connect on first use, `controller_for(device_id)`.
+  3. **RuntimeService routing seam** — branch at the top of each domain method (and the
+     `run_cancellable_project_git` / files / worktree / `terminal_manager()` delegate families):
+     if the project's `host_device_id` is set, forward via the controller; else local. Validate
+     with an in-process host↔controller round trip.
+  4. **GPUI UI** — paste-ticket pairing dialog, remote directory browse in add-project (over
+     `file.list` + `file.createDirectory`), and the sidebar remote marker (the per-project
+     `.relative()` icon wrapper in `project_column.rs`).
+  5. **Memory over remote (P4 tail)** — net-new memory protocol + host serving, riding on the
+     model routing from step 3.
 
 ## Verification
 
