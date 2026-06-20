@@ -2875,6 +2875,31 @@ impl RemoteHostRuntime {
     ) -> Result<RemoteTerminalBufferWindow, anyhow::Error> {
         let max_chars = max_chars.max(1);
         if tail {
+            // ROOT FIX for the stale remote screen (e.g. Claude's classic-mode
+            // input box frozen at its old row while "working").
+            //
+            // The per-frame sequence the viewer uses to order/dedup output is the
+            // host's flush counter (one ++ per forwarded batch), but the screen
+            // and history advance continuously as the PTY is processed. So at any
+            // instant the screen/history already reflect a pending un-flushed
+            // batch, while the sequence still reads the previous flushed frame —
+            // a baseline built from "current screen + current sequence" is
+            // therefore inconsistent (its screen is ahead of its label). The
+            // viewer then either drops the in-between frames (stale, what was
+            // reported) or re-appends them (double).
+            //
+            // Flush the pending batch FIRST so its data is assigned a sequence
+            // and forwarded; then the baseline's history, keyframe AND sequence
+            // all reflect that same flushed state, captured together under the
+            // sequence lock so a concurrent flush can't advance it between the
+            // reads. The viewer dedupes the just-flushed frame instead.
+            self.flush_terminal_output_batch(session_id);
+            let seq_guard = self.terminal_output_seq_by_session.lock();
+            let output_seq = seq_guard
+                .as_ref()
+                .ok()
+                .and_then(|sequences| sequences.get(session_id).copied())
+                .unwrap_or(0);
             let (data, start_offset) = self.terminals.snapshot_tail(session_id, max_chars)?;
             let total_characters = self
                 .terminals
@@ -2886,21 +2911,14 @@ impl RemoteHostRuntime {
                 .ok()
                 .map(|snapshot| snapshot.data)
                 .filter(|data| !data.is_empty());
-            // Label the baseline with the sequence AT the keyframe, captured
-            // here next to it — not later in `send_terminal_buffer`. Reading the
-            // sequence downstream advances it past frames emitted after this
-            // keyframe (Claude's classic renderer repaints rapidly while
-            // working); the viewer then drops those in-between frames as already
-            // seen, freezing the screen on the keyframe's stale state (e.g. the
-            // input box stuck at its old row) until the next full repaint.
-            let output_seq = Some(self.current_terminal_output_seq(session_id));
+            drop(seq_guard);
             return Ok(RemoteTerminalBufferWindow {
                 data,
                 screen_data,
                 offset: start_offset,
                 total_characters,
                 truncated: false,
-                output_seq,
+                output_seq: Some(output_seq),
                 request_id,
                 tail: true,
                 has_previous: start_offset > 0,
