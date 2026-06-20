@@ -9,6 +9,7 @@ const dryRun = process.argv.includes("--dry-run");
 const rawRef = process.argv[2] || process.env.GITHUB_REF_NAME || "";
 const rawChannel = process.argv[3] || process.env.RELEASE_CHANNEL || "";
 const version = normalizeVersion(rawRef);
+const tagName = normalizeReleaseTag(rawRef, version);
 const channel =
   rawChannel === "stable" || rawChannel === "beta" ? rawChannel : version.includes("-") ? "beta" : "stable";
 
@@ -57,6 +58,17 @@ function normalizeVersion(value) {
   return trimmed;
 }
 
+function normalizeReleaseTag(value, nextVersion) {
+  const trimmed = value.trim().replace(/^refs\/tags\//, "");
+  if (trimmed.startsWith("gpui-v")) {
+    return `v${nextVersion}`;
+  }
+  if (trimmed.startsWith("v")) {
+    return trimmed;
+  }
+  return `v${nextVersion}`;
+}
+
 function updateCargoVersion(relativePath, nextVersion) {
   const filePath = path.join(root, relativePath);
   const content = fs.readFileSync(filePath, "utf8");
@@ -103,15 +115,38 @@ function buildReleaseNotes(nextVersion) {
 }
 
 function buildDownloadGuide() {
+  const assets = [
+    {
+      name: `codux-${version}-macos-aarch64.dmg`,
+      usage: `Apple Silicon Mac stable release / Apple Silicon Mac 正式版本`,
+    },
+    {
+      name: `codux-${version}-macos-x86_64.dmg`,
+      usage: `Intel Mac stable release / Intel Mac 正式版本`,
+    },
+    {
+      name: `codux-${version}-macos-aarch64-debug.dmg`,
+      usage: `Apple Silicon Mac debug build / Apple Silicon Mac 测试版本`,
+    },
+    {
+      name: `codux-${version}-macos-x86_64-debug.dmg`,
+      usage: `Intel Mac debug build / Intel Mac 测试版本`,
+    },
+    {
+      name: `codux-${version}-windows-x86_64-setup.exe`,
+      usage: `Windows 64-bit installer / Windows 64 位安装包`,
+    },
+  ];
   return [
-    `## 下载说明`,
+    `## Downloads / 下载说明`,
     ``,
-    `| 文件 | 用途 |`,
+    `| File / 文件 | Usage / 用途 |`,
     `| --- | --- |`,
-    `| \`codux-*-macos-aarch64.dmg\` | Apple Silicon Mac 正式版本 |`,
-    `| \`codux-*-macos-x86_64.dmg\` | Intel Mac 正式版本 |`,
-    `| \`codux-*-macos-aarch64-debug.dmg\` | Apple Silicon Mac 测试版本 |`,
-    `| \`codux-*-macos-x86_64-debug.dmg\` | Intel Mac 测试版本 |`,
-    `| \`codux-*-windows-x86_64-setup.exe\` | Windows 64 位安装包 |`,
+    ...assets.map((asset) => `| [\`${asset.name}\`](${releaseAssetUrl(asset.name)}) | ${asset.usage} |`),
   ].join("\n");
+}
+
+function releaseAssetUrl(assetName) {
+  const repo = process.env.GITHUB_REPOSITORY || "duxweb/codux";
+  return `https://github.com/${repo}/releases/download/${encodeURIComponent(tagName)}/${encodeURIComponent(assetName)}`;
 }
