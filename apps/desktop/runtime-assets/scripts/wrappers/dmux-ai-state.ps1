@@ -221,6 +221,7 @@ function Get-EventKind([string]$Value) {
     "codex-session-start" { return "sessionStarted" }
     "codewhale-session-start" { return "sessionStarted" }
     "prompt-submit" { return "promptSubmitted" }
+    "pre-tool-use" { return "promptSubmitted" }
     "codex-prompt-submit" { return "promptSubmitted" }
     "codewhale-message-submit" { return "promptSubmitted" }
     "codewhale-tool-call-before" { return "promptSubmitted" }
@@ -255,6 +256,7 @@ function Get-EventKind([string]$Value) {
 function Get-Source([string]$Value, $Payload) {
   switch ($Value) {
     "prompt-submit" { return "user-input" }
+    "pre-tool-use" { return "tool-use" }
     "codex-prompt-submit" { return "user-input" }
     "codewhale-message-submit" { return "user-input" }
     "codewhale-tool-call-before" { return "tool-use" }

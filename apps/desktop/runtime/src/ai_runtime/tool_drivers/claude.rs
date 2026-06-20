@@ -17,6 +17,11 @@ pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
         definitions: &[
             hook("SessionStart", "session-start", 10, false),
             hook("UserPromptSubmit", "prompt-submit", 10, false),
+            // Fires right after a permission is granted, before the tool runs:
+            // the "tool is executing now" signal Claude otherwise never emits on
+            // approval, so a `needsInput` (等待允许) state clears to responding
+            // instead of sticking until the turn ends.
+            hook("PreToolUse", "pre-tool-use", 10, false),
             hook("PreCompact", "pre-compact", 10, false),
             hook("PostCompact", "post-compact", 10, false),
             hook("Stop", "stop", 10, false),

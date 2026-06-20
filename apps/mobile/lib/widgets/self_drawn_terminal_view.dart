@@ -96,6 +96,11 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   double _cellWidth = 0;
   double _cellHeight = 0;
   double _glyphTop = 0;
+  // Distance from a cell's top to the shared text baseline (from the primary
+  // font). Glyphs are drawn so their own baseline lands here, so a CJK glyph
+  // from the system fallback font lines up with Latin JetBrains Mono glyphs
+  // instead of sitting lower/higher on a mixed line.
+  double _glyphBaseline = 0;
   int _cols = 0;
   int _rows = 0;
   TerminalCursorMetrics? _lastCursorMetrics;
@@ -246,6 +251,8 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     _cellWidth = painter.width;
     _cellHeight = widget.fontSize * _lineHeightMultiplier;
     _glyphTop = ((_cellHeight - painter.height) / 2).clamp(0.0, _cellHeight);
+    _glyphBaseline = _glyphTop +
+        painter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
   }
 
   // ---- input ---------------------------------------------------------------
@@ -754,7 +761,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
                     snapshot: _snapshot,
                     cellWidth: _cellWidth,
                     cellHeight: _cellHeight,
-                    glyphTop: _glyphTop,
+                    glyphBaseline: _glyphBaseline,
                     fontSize: widget.fontSize,
                     fontFamily: _fontFamily,
                     glyphCache: _glyphCache,
@@ -778,7 +785,7 @@ class _TerminalGridPainter extends CustomPainter {
     required this.snapshot,
     required this.cellWidth,
     required this.cellHeight,
-    required this.glyphTop,
+    required this.glyphBaseline,
     required this.fontSize,
     required this.fontFamily,
     required this.glyphCache,
@@ -789,7 +796,7 @@ class _TerminalGridPainter extends CustomPainter {
   final TerminalScreenSnapshot? snapshot;
   final double cellWidth;
   final double cellHeight;
-  final double glyphTop;
+  final double glyphBaseline;
   final double fontSize;
   final String fontFamily;
   final Map<String, ui.Paragraph> glyphCache;
@@ -848,14 +855,17 @@ class _TerminalGridPainter extends CustomPainter {
       // untouched (small tolerance avoids scaling glyphs that already fit).
       final slotWidth = cellWidth * span;
       final glyphWidth = paragraph.maxIntrinsicWidth;
+      // Place the glyph's own baseline on the shared cell baseline so fallback
+      // (e.g. CJK) glyphs line up with the primary font instead of floating.
+      final glyphY = y + glyphBaseline - paragraph.alphabeticBaseline;
       if (glyphWidth > slotWidth + 0.5) {
         canvas.save();
-        canvas.translate(x, y + glyphTop);
+        canvas.translate(x, glyphY);
         canvas.scale(slotWidth / glyphWidth, 1.0);
         canvas.drawParagraph(paragraph, Offset.zero);
         canvas.restore();
       } else {
-        canvas.drawParagraph(paragraph, Offset(x, y + glyphTop));
+        canvas.drawParagraph(paragraph, Offset(x, glyphY));
       }
     }
 
@@ -918,7 +928,7 @@ class _TerminalGridPainter extends CustomPainter {
             underline: false,
             strikeout: false,
           );
-          canvas.drawParagraph(glyph, Offset(x, y + glyphTop));
+          canvas.drawParagraph(glyph, Offset(x, y + glyphBaseline - glyph.alphabeticBaseline));
         }
     }
   }
