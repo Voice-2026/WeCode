@@ -426,6 +426,86 @@ fn prompt_submitted_after_needs_input_restores_running_state() {
 }
 
 #[test]
+fn claude_needs_input_clears_when_probe_sees_resume_after_completed_turn() {
+    // Repro of the desktop pet sticking on "等待允许" after a manual permission
+    // approval: a prior turn completed (has_completed_turn=true), the user sends
+    // a new prompt, Claude asks for permission (needsInput). On approval no hook
+    // fires (Claude has no "granted" hook), so the 5s probe is what must clear
+    // it once Claude resumes responding.
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        test_hook_for("claude", "claude-term-1", "claude-external-1", 1000.0)
+    ));
+    assert!(apply_hook_unlocked(
+        &mut core,
+        AIHookEventPayload {
+            kind: "turnCompleted".to_string(),
+            updated_at: 1010.0,
+            metadata: Some(AIHookEventMetadata {
+                has_completed_turn: Some(true),
+                ..empty_metadata()
+            }),
+            ..test_hook_for("claude", "claude-term-1", "claude-external-1", 1010.0)
+        }
+    ));
+    assert!(apply_hook_unlocked(
+        &mut core,
+        test_hook_for("claude", "claude-term-1", "claude-external-1", 1020.0)
+    ));
+    assert!(apply_hook_unlocked(
+        &mut core,
+        AIHookEventPayload {
+            kind: "needsInput".to_string(),
+            updated_at: 1025.0,
+            metadata: Some(AIHookEventMetadata {
+                notification_type: Some("permission-request".to_string()),
+                target_tool_name: Some("Skill".to_string()),
+                ..empty_metadata()
+            }),
+            ..test_hook_for("claude", "claude-term-1", "claude-external-1", 1025.0)
+        }
+    ));
+    assert_eq!(core.sessions.get("claude-term-1").unwrap().state, "needsInput");
+
+    // User approves; Claude resumes. The probe reads the log: the turn is still
+    // responding (last user prompt newer than last completion) and new output
+    // advanced `updated_at`.
+    apply_runtime_snapshot_unlocked(
+        &mut core,
+        "claude-term-1",
+        AIRuntimeContextSnapshot {
+            tool: "claude".to_string(),
+            external_session_id: Some("claude-external-1".to_string()),
+            transcript_path: None,
+            model: Some("sonnet".to_string()),
+            assistant_preview: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_input_tokens: 0,
+            total_tokens: 200,
+            updated_at: 1030.0,
+            // Log's user-message time sits slightly before the hook's prompt
+            // wall-clock time (real-world skew between the two clocks).
+            started_at: Some(1018.0),
+            completed_at: Some(1010.0),
+            response_state: Some("responding".to_string()),
+            was_interrupted: false,
+            has_completed_turn: false,
+            session_origin: "live".to_string(),
+            source: "probe".to_string(),
+            plan: None,
+        },
+    );
+
+    assert_eq!(
+        core.sessions.get("claude-term-1").unwrap().state,
+        "responding",
+        "needsInput must clear once the probe sees the turn resume after approval"
+    );
+}
+
+#[test]
 fn prompt_submitted_clears_previous_interruption_flag() {
     let mut core = AIRuntimeStateCore::default();
     assert!(apply_hook_unlocked(

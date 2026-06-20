@@ -54,6 +54,14 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
             || (!session.was_interrupted
                 && !session.has_completed_turn
                 && (snapshot_is_newer || session.state == "idle"))
+            // Recover a permission-wait (needsInput) once the transcript shows
+            // fresh activity after the wait: the user approved and Claude
+            // resumed, but Claude emits no "granted" hook. `snapshot_is_newer`
+            // (the log advanced past when the wait was recorded; never inflated
+            // to `now` — the probe request carries the session's own updated_at)
+            // distinguishes a genuine resume from a still-pending prompt, and is
+            // robust to the started_at/hook-clock skew the clause below is not.
+            || (session.state == "needsInput" && snapshot_is_newer)
             || snapshot_started_after_prompt_turn(&snapshot, prompt_turn_started_at)
         {
             state = "responding".to_string();
