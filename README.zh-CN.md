@@ -5,8 +5,8 @@
 <h1 align="center">Codux AI</h1>
 
 <p align="center">
-  <b>为 AI 编程而生的高性能跨端互联终端。</b><br/>
-  用 <b>Rust + GPUI</b> 原生打造，统一 Codex、Claude Code 等 8+ AI 编程 CLI——实时状态、Token 统计、本地记忆、安全 SSH，外加桌面 ⇄ 手机 ⇄ 主机端 的互联，让你随时随地接管长 agent 任务。
+  <b>为 AI 编程而生的高性能跨端互联终端</b><br/>
+  用 <b>Rust + GPUI</b> 原生打造，统一 Codex、Claude Code 等 8+ AI 编程 CLI，整合实时状态、Token 统计、本地记忆与安全 SSH，并连接桌面、手机和主机端，让你随时随地接管长时间运行的 agent 任务。
 </p>
 
 <p align="center">
@@ -43,27 +43,17 @@ AI 编程 CLI 很强——也极其容易失控。真正干活时，工作会散
 
 Codux AI **不是** 又一个编辑器。它是给重度泡在 AI 编程 CLI 里的开发者的控制台，让多项目、长会话的 agent 工作稳得住。
 
-## 📊 监听 & 统计每一个 AI CLI
+## 你可以用 Codux 做什么
 
-Codux 自动识别你在终端里用的 AI CLI，读取它们的本地历史，并在工具支持时帮你装好对接和记忆文件——开箱即用。
+Codux 让 AI 编程工作在多设备之间依然清晰、可恢复、可持续接管。
 
-- **实时看到 agent 在干什么。** 运行中、已完成、中断、等待授权、计划更新——每个会话都绑回正确的项目和 worktree，CLI 给出任务计划时也一并显示。
-- **Token 花在哪一清二楚。** 按工具、模型、项目、worktree、日期统计用量与花销，不用自己记账。
+- 在一个工作区里运行 Codex、Claude Code 和其他 AI 编程 CLI。
+- 直接看到 agent 的实时状态、历史、恢复与 Token 用量，不用离开终端工作流。
+- 按项目和 Git worktree 隔离并行任务，不让会话、文件和 Git 状态互相串扰。
+- 从桌面、手机或运行 `codux` 的主机端继续接管长时间运行的工作。
+- 让终端、文件、记忆和 AI 会话始终留在真正干活的那台机器上。
 
-| 工具 | 实时状态 | 历史记录 | 会话恢复 | 记忆注入 |
-| :--- | :----------- | :------- | :------- | :------- |
-| Codex | 完整 | 完整 | 完整 | 支持 |
-| Claude Code | 完整 | 完整 | 完整 | 支持 |
-| Gemini CLI | 完整 | 完整 | 取决于工具 | 支持 |
-| OpenCode | 完整 | 完整 | 取决于工具 | 支持 |
-| Kiro CLI | 完整 | 完整 | 取决于工具 | 支持 |
-| Kimi Code | 完整 | 完整 | 取决于工具 | 取决于工具 |
-| CodeWhale | 完整 | 完整 | 取决于工具 | 支持 |
-| Agy | 完整 | 完整 | 取决于工具 | 支持 |
-
-`完整` 表示日常使用里这项能力完整可追踪；`取决于工具` 表示工作区和历史都保留，具体恢复行为由 CLI 自己决定。每个工具都做了深度适配，多个会话之间不会互相串味，接入新工具也很顺。
-
-## 🔗 一套工作区，多端互联
+## 一套工作区，多端互联
 
 > **Beta。** 连接主机端会先在本次版本里以 beta 形式上线——连接、配对、主机侧数据链路都还在持续测试中，可能会有粗糙的地方，欢迎反馈。
 
@@ -89,46 +79,11 @@ flowchart LR
     D -->|"🔒 P2P / 中继"| H
 ```
 
-任意操控端——**桌面**或**手机**——都能连接任意主机——**另一台桌面**或**主机端**。桌面端两种身份兼具：既托管自己的项目，也能去操控别人；手机只负责操控。终端、Git、AI、文件、记忆都跑在主机上，所以合上笔记本、换设备都不会打断任务。
+任意操控端——**桌面**或**手机**——都能连接任意主机——**另一台桌面**或**主机端**。桌面端既能托管自己的项目，也能去操控别人；手机只负责操控。真正的工作始终留在主机上，所以换设备不会打断会话。
 
-- **手机接力。** 扫码几秒配对，自动选最快路径、连不上走中继兜底。项目、终端、文件、AI 都跑在主机上，手机只负责操控；切过去也能完整看到终端历史。
-- **主机端。** 把 `codux` agent 跑在服务器、闲置的 Mac 或 Linux 上，像本地一样驱动它的终端、Git、AI——所有功能都跑在该主机自己的数据上。详见 [`apps/agent/README.md`](apps/agent/README.md)。
-- **会话不怕断。** 客户端断开重连后，恢复的是*同一批*终端、shell 和正在运行的 AI；凭据始终不离开主机。
-
-## 🧠 本地长期记忆
-
-Codux 从你的会话里提炼长期偏好、项目画像、模块笔记，过滤噪声，只把相关的注入回支持的 CLI——让上下文跨会话存活。历史和记忆从不离开你的电脑。
-
-## 🌳 Worktree & 分屏工作流
-
-Codux 按真实工作发生的方式建模：**项目 → Worktree / 任务 → 终端、文件、Git、AI 会话。**
-
-- 为并行任务开 Git worktree，不让分支状态互相缠绕。
-- 终端随意分屏、开标签——切换任务时，每块分屏、面板高度、当前 AI 会话、文件上下文、Git 状态都原样回来。
-- AI 历史和运行状态跟随 worktree，项目级记忆保持共享。
-
-这正是 Codux 和普通终端复用工具的根本区别：它 *知道* 每个终端属于哪个项目和 worktree，并围绕这层关系重建整个工作区。
-
-## 🔀 Git，独立 diff 评审
-
-在独立的对比窗口里评审 worktree 相对 base 分支的变更、合并回主线、清理完成的 worktree——全程不用离开终端。
-
-## 📁 终端旁边就是文件
-
-- 浏览项目文件树，在独立窗口预览 Markdown 和图片。
-- **粘贴和拖拽都对 AI 友好。** 粘贴图片自动转成本地文件路径（不是一长串 base64），拖文件进来直接是能用的路径——拿去喂 AI 即用。
-
-## 🐾 桌面宠物
-
-可选的桌面伙伴，会随你的 AI 编程习惯成长——会对用量、提醒和 agent 活动做反应。可以从 Petdex 导入 Codex 风格的自定义宠物包，格式是扁平的 `pet.json` + `spritesheet.png`。
-
-## 🔒 Agent 安全 SSH
-
-让 AI 连服务器，又看不到你的密钥。用保存好、测试过的 SSH 配置加一个 `codux-ssh` 命令执行远程命令——密码和私钥永远不会暴露给 AI。
-
-## ⚡ 原生，不是 Electron
-
-Codux 用 **Rust + GPUI** 打造——和 [Zed](https://zed.dev) 同源的原生技术，所以终端渲染、项目切换、长时间高强度的 agent 输出都又快又稳，不臃肿、不吃内存。桌面端、移动端、主机端共用**同一套 Rust 终端内核**，每个设备渲染出的会话完全一致——覆盖 macOS、Windows 与 Linux。
+- **手机接力。** 几秒完成配对，在手机上继续同一批终端、历史和 AI 会话。
+- **主机端。** 把 `codux` 跑在服务器、闲置 Mac 或 Linux 上，像本地一样驱动它的终端、Git 和 AI。详见 [`apps/agent/README.md`](apps/agent/README.md)。
+- **会话不断。** 断线重连后，恢复的是同一批正在运行的 shell 和 agent 会话。
 
 ## 下载
 
@@ -195,37 +150,6 @@ GitHub README 不渲染第三方播放器，可前往 [Bilibili](https://www.bil
   <img src="docs/images/wechat-author.png" width="320" alt="作者微信二维码">
 </p>
 
-## 仓库结构
-
-本仓库是 Codux monorepo：
-
-- `apps/desktop` —— Rust + GPUI 桌面应用、runtime、资源和发布脚本。
-- `apps/agent` —— 不含 GPUI 的主机端 agent，链接协议、终端核心和共享本地 PTY 驱动。
-- `apps/mobile` —— Flutter 移动控制端。
-- `crates/codux-protocol` —— 共享远程协议：能力、envelope DTO、传输候选、中继规则。
-- `crates/codux-protocol-ffi` —— 面向 Flutter 的协议与终端核心 C ABI 绑定。
-- `crates/codux-runtime-core` —— host、项目、文件、Git、worktree、上传、终端的共享 runtime domain 规则。
-- `crates/codux-terminal-core` —— 共享终端会话、序列、baseline 恢复和远程 PTY 模型（纯 Rust `alacritty_terminal` 引擎）。
-- `crates/codux-terminal-pty` —— 面向桌面与主机端的共享 `portable_pty` 本地 PTY 驱动。
-
-Flutter 保留自己的原生构建系统。远程连接运行在共享的 P2P / 中继传输层上。
-
-## 开发
-
-```bash
-cargo run
-```
-
-提交变更前建议运行：
-
-```bash
-cargo check
-cargo test
-node apps/desktop/scripts/release/test-package-gpui.mjs
-```
-
-桌面端通过推送版本标签（如 `v2.0.0`）触发发布。发布工作流会构建原生 macOS 和 Windows 产物、发布 GitHub Release，并更新对应的自动更新通道。
-
 ## 系统要求
 
 **桌面端**
@@ -259,6 +183,18 @@ node apps/desktop/scripts/release/test-package-gpui.mjs
   <a href="https://github.com/duxweb/codux/graphs/contributors">
     <img src="https://contrib.rocks/image?repo=duxweb/codux" alt="Codux 贡献者">
   </a>
+</p>
+
+## 联系与赞助
+
+欢迎添加作者微信，或请作者喝杯咖啡。
+
+<p align="center">
+  <img src="docs/images/wechat-author.png" width="220" alt="作者微信二维码">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/images/wechat-donate.jpg" width="220" alt="微信赞赏二维码">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/images/alipay-donate.jpg" width="220" alt="支付宝赞赏二维码">
 </p>
 
 ## GitHub Star 趋势

@@ -5,8 +5,8 @@
 <h1 align="center">Codux AI</h1>
 
 <p align="center">
-  <b>The high-performance, cross-device terminal built for AI coding.</b><br/>
-  A native <b>Rust + GPUI</b> workspace for Codex, Claude Code, and 6 more AI coding CLIs — live agent state, token analytics, durable memory, agent-safe SSH, and a desktop ⇄ phone ⇄ headless-host link that lets you drive long agent runs from anywhere.
+  <b>The high-performance, cross-device terminal built for AI coding</b><br/>
+  Built with <b>Rust + GPUI</b>, Codux unifies Codex, Claude Code, and 6+ AI coding CLIs with live status, token analytics, local memory, secure SSH, and a desktop ⇄ phone ⇄ headless-host link for taking over long-running agent work from anywhere.
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
   <a href="https://codux.dux.cn/zh-cn/getting-started/">Docs</a> &middot;
   <a href="https://github.com/duxweb/codux/releases/latest">Download</a> &middot;
   <a href="https://github.com/duxweb/codux-flutter/releases">Mobile</a> &middot;
-  <a href="#wechat">WeChat</a> &middot;
+  <a href="#contact--support">Contact</a> &middot;
   <a href="https://github.com/duxweb/codux/issues">Feedback</a>
 </p>
 
@@ -43,27 +43,17 @@ AI coding CLIs are incredibly powerful — and incredibly easy to lose control o
 
 Codux AI is **not** another editor. It's the control plane for developers who live in AI coding CLIs and need a rock-solid way to run multi-project, long-running agent work.
 
-## 📊 Watch & measure every AI CLI
+## What You Can Do
 
-Codux auto-detects the AI CLIs you run in the terminal, reads their local history, and — where the tool allows — sets up the integrations and memory files for you. Zero config.
+Codux keeps AI coding work readable, recoverable, and connected across devices.
 
-- **See what the agent is doing.** Running, completed, interrupted, permission-waiting, plan-updating — every session tied to the right project and worktree, with the task plan shown when the CLI exposes it.
-- **Token spend, made visible.** Usage and cost by tool, model, project, worktree, and day — no spreadsheets.
+- Run Codex, Claude Code, and other AI coding CLIs in one workspace.
+- Track live agent status, history, resume, and token usage without leaving the terminal workflow.
+- Keep parallel tasks isolated by project and Git worktree so sessions, files, and Git state do not collide.
+- Continue long-running work from your desktop, your phone, or a headless host running `codux`.
+- Keep terminals, files, memory, and AI sessions on the machine that owns the work.
 
-| Tool | Live Status | History | Resume | Memory Injection |
-| :--- | :------------- | :------------ | :----- | :--------------- |
-| Codex | Full | Full | Full | Yes |
-| Claude Code | Full | Full | Full | Yes |
-| Gemini CLI | Full | Full | Tool-dependent | Yes |
-| OpenCode | Full | Full | Tool-dependent | Yes |
-| Kiro CLI | Full | Full | Tool-dependent | Yes |
-| Kimi Code | Full | Full | Tool-dependent | Tool-dependent |
-| CodeWhale | Full | Full | Tool-dependent | Yes |
-| Agy | Full | Full | Tool-dependent | Yes |
-
-`Full` means Codux tracks that capability from everyday use. `Tool-dependent` means the workspace and history are preserved while exact resume behavior is up to the CLI. Every tool gets deep, first-class support, so sessions never cross state and adding a new one stays easy.
-
-## 🔗 One workspace, every device
+## One Workspace, Every Device
 
 > **Beta.** Connecting to a headless host ships first as a beta in this release — the connection, pairing, and host-side data flow are still under active testing, so expect rough edges. Feedback is very welcome.
 
@@ -89,46 +79,11 @@ flowchart LR
     D -->|"🔒 P2P / Relay"| H
 ```
 
-Any controller — a **desktop** or a **phone** — can connect to any host — **another desktop** or a **headless host**. A desktop is both: it hosts its own projects *and* can drive others; a phone drives only. Terminals, Git, AI, files, and memory all run on the host, so closing your laptop or switching devices never stops a run.
+Any controller — a **desktop** or a **phone** — can connect to any host — **another desktop** or a **headless host**. A desktop is both: it hosts its own projects and can drive others; a phone drives only. The work stays on the host machine, so switching devices does not interrupt the session.
 
-- **Phone handoff.** Pair in seconds by QR; it picks the fastest path and falls back to a relay. Projects, terminals, files, and AI keep running on the host — your phone just controls them, with full terminal history when you switch over.
-- **Headless hosts.** Run the `codux` agent on a server, spare Mac, or Linux box and drive its terminals, Git, and AI as if local — everything runs against the host's own data. See [`apps/agent/README.md`](apps/agent/README.md).
-- **Resilient sessions.** A client that drops and reconnects resumes the *same* terminals, shells, and running AI; credentials never leave the host.
-
-## 🧠 Durable local memory
-
-Codux mines durable preferences, project profiles, and module notes from your sessions, filters the noise, and injects only what's relevant back into supported CLIs — so context survives across sessions. History and memory never leave your machine.
-
-## 🌳 Worktree & split-pane workflow
-
-Codux models real AI work the way it actually happens: **Project → Worktree / Task → Terminals, Files, Git, AI Sessions.**
-
-- Spin up Git worktrees for parallel tasks without tangling branch state.
-- Split and tab terminals freely — then switch tasks and every split, panel size, active AI session, file context, and Git state comes back exactly as you left it.
-- AI history and runtime activity stay scoped to the worktree, while project memory stays shared.
-
-This is what sets Codux apart from a plain terminal multiplexer: it *knows* which project and worktree each terminal belongs to, and rebuilds the whole workspace around that relationship.
-
-## 🔀 Git, in focused diffs
-
-Review worktree changes against the base branch in dedicated diff windows, merge back, and clean up finished worktrees — without leaving the terminal.
-
-## 📁 Files beside the terminal
-
-- Browse the project tree and preview Markdown and images in focused windows.
-- **Clipboard & drag-and-drop made AI-friendly.** Pasted images become local file paths (not a wall of base64); dropped files insert ready-to-use paths — hand them straight to the AI.
-
-## 🐾 Desktop pets
-
-Optional companions that grow with your AI coding habits — they react to usage, reminders, and agent activity. Import Codex-style custom pet packs from Petdex with a flat `pet.json` + `spritesheet.png` format.
-
-## 🔒 Agent-safe SSH
-
-Let the AI reach servers without ever seeing your secrets. Run remote commands through saved, tested SSH profiles and a `codux-ssh` command — your passwords and keys are never exposed to the AI.
-
-## ⚡ Native, not Electron
-
-Codux is built in **Rust + GPUI** — the same native stack behind [Zed](https://zed.dev) — so terminal rendering, project switching, and long, heavy agent runs stay fast and smooth, without the bloat and memory drain of Electron. Desktop, mobile, and the headless host share **one Rust terminal core**, so every device renders the same sessions identically — across macOS, Windows, and Linux.
+- **Phone handoff.** Pair in seconds and continue the same terminals, history, and AI sessions from your phone.
+- **Headless host.** Run `codux` on a server, spare Mac, or Linux box and drive its terminals, Git, and AI as if they were local. See [`apps/agent/README.md`](apps/agent/README.md).
+- **Session continuity.** Reconnect to the same running shells and agent sessions after disconnects.
 
 ## Download
 
@@ -187,45 +142,6 @@ Customize everything in **Settings → Shortcuts**.
 
 GitHub READMEs can't embed third-party players — watch the demo on [Bilibili](https://www.bilibili.com/video/BV1mK9vBCEYD/).
 
-## WeChat
-
-Scan to add the author on WeChat and ask to join the DUXAI community group.
-
-<p align="center">
-  <img src="docs/images/wechat-author.png" width="320" alt="Author WeChat QR code">
-</p>
-
-## Repository Layout
-
-This repo is the Codux monorepo:
-
-- `apps/desktop` — Rust + GPUI desktop app, runtime, assets, and release scripts.
-- `apps/agent` — headless controlled-agent app linking protocol, terminal core, and the shared local PTY driver without GPUI.
-- `apps/mobile` — Flutter mobile controller.
-- `crates/codux-protocol` — shared remote protocol: capabilities, envelope DTOs, transport candidates, and relay rules.
-- `crates/codux-protocol-ffi` — Flutter-facing C ABI for the protocol and terminal-core bindings.
-- `crates/codux-runtime-core` — shared runtime domain rules for host, project, file, Git, worktree, upload, and terminal shapes.
-- `crates/codux-terminal-core` — shared terminal session, sequencing, baseline restore, and remote-PTY model (pure-Rust `alacritty_terminal` engine).
-- `crates/codux-terminal-pty` — shared `portable_pty` local PTY driver for host/headless targets.
-
-Flutter keeps its own native build system. Remote connectivity runs on the shared peer-to-peer / relay transport layer.
-
-## Development
-
-```bash
-cargo run
-```
-
-Useful checks before submitting changes:
-
-```bash
-cargo check
-cargo test
-node apps/desktop/scripts/release/test-package-gpui.mjs
-```
-
-Desktop releases are cut by pushing a version tag such as `v2.0.0`. The release workflow builds native macOS and Windows artifacts, publishes the GitHub Release, and updates the configured updater channel.
-
 ## System Requirements
 
 **Desktop app**
@@ -259,6 +175,18 @@ Thanks to everyone who has contributed code, issues, testing, and feedback to Co
   <a href="https://github.com/duxweb/codux/graphs/contributors">
     <img src="https://contrib.rocks/image?repo=duxweb/codux" alt="Codux contributors">
   </a>
+</p>
+
+## Contact & Support
+
+Add the author on WeChat, or buy the author a coffee.
+
+<p align="center">
+  <img src="docs/images/wechat-author.png" width="220" alt="Author WeChat QR">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/images/wechat-donate.jpg" width="220" alt="WeChat support QR">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/images/alipay-donate.jpg" width="220" alt="Alipay support QR">
 </p>
 
 ## GitHub Star Trend
