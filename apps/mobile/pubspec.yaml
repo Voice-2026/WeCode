@@ -83,6 +83,13 @@ flutter:
         - asset: assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf
         - asset: assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf
           weight: 700
+    # Text-presentation fallback for the Dingbat/symbol glyphs JetBrains Mono NF
+    # lacks (e.g. Claude Code's ✳ spinner, ✚ ✤ ✷). Subsetted to the symbol
+    # Unicode blocks (U+2000–2BFF) -- 140KB vs the 1.2MB full font. Without it
+    # these fall to the color-emoji font, which renders them squished.
+    - family: NotoSansSymbols2
+      fonts:
+        - asset: assets/fonts/NotoSansSymbols2-Subset.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

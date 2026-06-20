@@ -11,14 +11,17 @@ import '../services/remote_terminal_output_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/terminal_theme.dart';
 
-/// Fallback for glyphs the primary monospace (JetBrains Mono Nerd Font) lacks —
-/// just color emoji via the platform emoji font. The Nerd Font already covers
-/// Claude Code's TUI symbols, so no separate symbol font is bundled. This only
-/// affects glyphs the primary font is missing, so cell width and grid alignment
-/// (measured from the primary font) are untouched.
+/// Fallback for glyphs the primary monospace (JetBrains Mono Nerd Font) lacks.
+/// `NotoSansSymbols2` (subset, bundled) comes first: it renders the Dingbat
+/// symbols the Nerd Font is missing — Claude Code's ✳ spinner and ✚ ✤ ✷
+/// decorations (U+2733/271A/2724/2737…) — as monochrome TEXT glyphs that take
+/// the terminal's SGR colour and keep the right aspect. Without it they fall to
+/// the platform emoji font, which renders them squished. Emoji stays last for
+/// actual color emoji. This only affects glyphs the primary font is missing, so
+/// cell width and grid alignment (measured from the primary font) are untouched.
 final List<String> _terminalGlyphFallback = Platform.isIOS
-    ? const ['AppleColorEmoji']
-    : const ['Noto Color Emoji'];
+    ? const ['NotoSansSymbols2', 'AppleColorEmoji']
+    : const ['NotoSansSymbols2', 'Noto Color Emoji'];
 
 /// Self-drawn terminal that renders the shared Rust core's cell grid directly.
 /// The Rust `HeadlessTerminalScreen` is the single source of truth — the same
