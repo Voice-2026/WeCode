@@ -77,6 +77,16 @@ flutter:
   # arrows -- on ROMs (some Android skins) that strip the system symbol fonts.
   # Primary font is unchanged, so cell width / grid alignment are untouched.
   fonts:
+    # Bundled primary terminal monospace: a complete, consistently-metricked font
+    # with full coverage of Claude Code's TUI glyphs (✳ spinner, ›, box drawing,
+    # block cursor, Powerline), so they no longer fall back to a system font with
+    # a different aspect/baseline (squished + misaligned). CJK still falls back to
+    # the platform fonts automatically.
+    - family: JetBrainsMonoNF
+      fonts:
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf
+          weight: 700
     - family: NotoSansSymbols2
       fonts:
         - asset: assets/fonts/NotoSansSymbols2-Regular.ttf

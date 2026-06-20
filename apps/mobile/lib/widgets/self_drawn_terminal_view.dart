@@ -72,7 +72,10 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   // Zero-width space anchor in the hidden input (kept invisible and harmless if
   // ever emitted), used to detect inserts vs a backspace on an empty field.
   static final String _sentinel = String.fromCharCode(0x200b);
-  static final String _fontFamily = Platform.isIOS ? 'Menlo' : 'monospace';
+  // Bundled JetBrains Mono Nerd Font (Mono variant): a consistent cross-platform
+  // monospace with full coverage of Claude Code's TUI glyphs, so symbols no
+  // longer fall back to a system font with a mismatched aspect/baseline.
+  static const String _fontFamily = 'JetBrainsMonoNF';
 
   // Per-cell paragraph cache, keyed by (text, color, style). Terminal content
   // is highly repetitive, so this turns per-cell layout into a cache hit after
