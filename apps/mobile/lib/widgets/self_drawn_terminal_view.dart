@@ -11,15 +11,16 @@ import '../services/remote_terminal_output_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/terminal_theme.dart';
 
-/// Fallback fonts for glyphs the primary monospace lacks — e.g. Claude Code's
-/// `⏵⏵` status arrows. `NotoSansSymbols2` is bundled (see pubspec) so symbols
-/// render even on ROMs that strip the system symbol fonts; the platform emoji
-/// font covers color emoji. This only affects glyphs the primary font is
-/// missing, so cell width and grid alignment (measured from the primary font)
-/// are untouched.
+/// Fallback fonts for glyphs the primary monospace lacks. Order: `NotoSansSymbols2`
+/// for symbols (Claude Code's `⏵⏵` etc.); `NotoSansSC` (Noto Sans SC, bundled)
+/// for CJK so Chinese renders consistently even on ROMs that strip CJK fonts —
+/// its fullwidth advance is the standard 1em, identical to the system CJK it
+/// replaces, so the monospace grid is unchanged; then the platform emoji font
+/// for color emoji. This only affects glyphs the primary font is missing, so
+/// cell width and grid alignment (measured from the primary font) are untouched.
 final List<String> _terminalGlyphFallback = Platform.isIOS
-    ? const ['NotoSansSymbols2', 'AppleColorEmoji']
-    : const ['NotoSansSymbols2', 'Noto Color Emoji'];
+    ? const ['NotoSansSymbols2', 'NotoSansSC', 'AppleColorEmoji']
+    : const ['NotoSansSymbols2', 'NotoSansSC', 'Noto Color Emoji'];
 
 /// Self-drawn terminal that renders the shared Rust core's cell grid directly.
 /// The Rust `HeadlessTerminalScreen` is the single source of truth — the same

@@ -80,6 +80,13 @@ flutter:
     - family: NotoSansSymbols2
       fonts:
         - asset: assets/fonts/NotoSansSymbols2-Regular.ttf
+    # Noto Sans SC (Source Han Sans, Simplified Chinese), static Regular instanced
+    # from the variable font. Bundled as a CJK glyph fallback so Chinese renders
+    # consistently / on ROMs lacking CJK fonts. Standard 1em fullwidth metric, so
+    # the terminal's cell grid is unaffected. ~10MB.
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
