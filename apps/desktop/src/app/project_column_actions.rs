@@ -65,8 +65,11 @@ impl CoduxApp {
                         .remote_link_states
                         .get(device_id.as_str())
                         .copied()
+                        // Absent previous = a host we've never seen up: a
+                        // first-launch connect counts as "newly connected" too,
+                        // so its project (loaded empty while connecting) refreshes.
                         .map(|previous| previous != ControllerLinkState::Connected)
-                        .unwrap_or(false)
+                        .unwrap_or(true)
             })
             .map(|(device_id, _)| device_id.clone())
             .collect();
@@ -76,7 +79,39 @@ impl CoduxApp {
         self.invalidate_ui(cx, [UiRegion::ProjectColumn]);
         if !reconnected.is_empty() {
             self.reattach_terminals_for_reconnected_hosts(&reconnected, cx);
+            self.reload_selected_project_for_reconnected_hosts(&reconnected, cx);
         }
+    }
+
+    /// When the selected project's host comes (back) online, re-run its data
+    /// loads. `controller_for` reports remote hosts unavailable while connecting,
+    /// so a switch made while offline left worktrees/tasks/AI/memory empty; this
+    /// repopulates them without freezing the UI on the connect.
+    fn reload_selected_project_for_reconnected_hosts(
+        &mut self,
+        reconnected: &[String],
+        cx: &mut Context<Self>,
+    ) {
+        let on_reconnected_host = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.as_ref())
+            .is_some_and(|host| reconnected.iter().any(|device| device == host));
+        if !on_reconnected_host {
+            return;
+        }
+        let Some(project_id) = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.id.clone())
+        else {
+            return;
+        };
+        self.project_switch_generation = self.project_switch_generation.wrapping_add(1);
+        let generation = self.project_switch_generation;
+        self.spawn_project_switch_load(project_id, generation, cx);
     }
 
     fn project_activity_snapshot(&self) -> HashMap<String, AIActivityState> {
