@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.1] - 2026-06-20
+
+### Added
+
+- Cross-device interconnect: connect the desktop (or phone) to a headless **Codux host** (`codux-agent`) running on a server, spare Mac, or Linux box, and drive its terminals, Git, AI sessions, and memory remotely over the end-to-end encrypted Iroh transport. (Beta)
+- Headless Codux host app (`codux-agent`) for macOS, Linux, and Windows (x86_64 and arm64), installable as a startup service with QR-code or ticket pairing; dropped clients reconnect to the same sessions.
+- Direct, always-latest per-platform download links for both the desktop app and the headless host.
+
+### Changed
+
+- Restructured the README around seven core pillars and positioned 2.0 as a high-performance, Rust-native, cross-device terminal built for AI coding.
+
 ## [1.9.1] - 2026-06-18
 
 ### Changed

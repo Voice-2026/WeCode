@@ -4,6 +4,16 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-beta.1] - 2026-06-20
+
+### Added
+
+- Connect to a remote Codux host (`codux-agent`) and drive its terminals, Git, and AI sessions from your phone over the end-to-end encrypted Iroh transport. (Beta)
+
+### Fixed
+
+- Fixed terminal cursor alignment in the self-drawn terminal: the cursor now centers on the glyph like desktop, and fully covers double-width (CJK) characters instead of half.
+
 ## [1.9.1] - 2026-06-18
 
 ### Changed

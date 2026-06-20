@@ -146,27 +146,27 @@ function buildDownloadGuide() {
     {
       name: `codux-agent-${version}-macos-aarch64`,
       usageEn: `Apple Silicon Mac headless agent`,
-      usageZh: `Apple Silicon Mac 被控端`,
+      usageZh: `Apple Silicon Mac 主机端`,
     },
     {
       name: `codux-agent-${version}-macos-x86_64`,
       usageEn: `Intel Mac headless agent`,
-      usageZh: `Intel Mac 被控端`,
+      usageZh: `Intel Mac 主机端`,
     },
     {
       name: `codux-agent-${version}-linux-x86_64`,
       usageEn: `Linux x86_64 headless agent`,
-      usageZh: `Linux x86_64 被控端`,
+      usageZh: `Linux x86_64 主机端`,
     },
     {
       name: `codux-agent-${version}-linux-aarch64`,
       usageEn: `Linux ARM64 headless agent`,
-      usageZh: `Linux ARM64 被控端`,
+      usageZh: `Linux ARM64 主机端`,
     },
     {
       name: `codux-agent-${version}-windows-x86_64.exe`,
       usageEn: `Windows 64-bit headless agent`,
-      usageZh: `Windows 64 位被控端`,
+      usageZh: `Windows 64 位主机端`,
     },
   ];
   return [
