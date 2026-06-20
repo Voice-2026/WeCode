@@ -77,16 +77,13 @@ flutter:
   # arrows -- on ROMs (some Android skins) that strip the system symbol fonts.
   # Primary font is unchanged, so cell width / grid alignment are untouched.
   fonts:
-    - family: NotoSansSymbols2
+    # Maple Mono NF-CN: one monospace font covering Latin + Nerd-Font/Powerline
+    # glyphs + Chinese. CN variant makes CJK exactly 2x the Latin advance (中=1200,
+    # M=600 at 1000 upm), so it aligns the terminal grid with no gaps. Used as the
+    # primary terminal font, so no separate symbol/CJK fallback fonts are bundled.
+    - family: MapleMonoNFCN
       fonts:
-        - asset: assets/fonts/NotoSansSymbols2-Regular.ttf
-    # Noto Sans SC (Source Han Sans, Simplified Chinese), static Regular instanced
-    # from the variable font. Bundled as a CJK glyph fallback so Chinese renders
-    # consistently / on ROMs lacking CJK fonts. Standard 1em fullwidth metric, so
-    # the terminal's cell grid is unaffected. ~10MB.
-    - family: NotoSansSC
-      fonts:
-        - asset: assets/fonts/NotoSansSC-Regular.ttf
+        - asset: assets/fonts/MapleMono-NF-CN-Regular.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:

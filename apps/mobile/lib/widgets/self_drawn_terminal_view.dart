@@ -11,16 +11,14 @@ import '../services/remote_terminal_output_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/terminal_theme.dart';
 
-/// Fallback fonts for glyphs the primary monospace lacks. Order: `NotoSansSymbols2`
-/// for symbols (Claude Code's `⏵⏵` etc.); `NotoSansSC` (Noto Sans SC, bundled)
-/// for CJK so Chinese renders consistently even on ROMs that strip CJK fonts —
-/// its fullwidth advance is the standard 1em, identical to the system CJK it
-/// replaces, so the monospace grid is unchanged; then the platform emoji font
-/// for color emoji. This only affects glyphs the primary font is missing, so
-/// cell width and grid alignment (measured from the primary font) are untouched.
+/// Fallback for glyphs the primary font (Maple Mono NF-CN) lacks — just color
+/// emoji via the platform font. Maple covers Latin, Nerd-Font/Powerline glyphs
+/// and CJK; a few Dingbats (e.g. ✳ U+2733) are not in it and fall through to the
+/// emoji font. Only affects glyphs the primary font is missing, so cell width
+/// and grid alignment (measured from the primary font) are untouched.
 final List<String> _terminalGlyphFallback = Platform.isIOS
-    ? const ['NotoSansSymbols2', 'NotoSansSC', 'AppleColorEmoji']
-    : const ['NotoSansSymbols2', 'NotoSansSC', 'Noto Color Emoji'];
+    ? const ['AppleColorEmoji']
+    : const ['Noto Color Emoji'];
 
 /// Self-drawn terminal that renders the shared Rust core's cell grid directly.
 /// The Rust `HeadlessTerminalScreen` is the single source of truth — the same
@@ -73,7 +71,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   // Zero-width space anchor in the hidden input (kept invisible and harmless if
   // ever emitted), used to detect inserts vs a backspace on an empty field.
   static final String _sentinel = String.fromCharCode(0x200b);
-  static final String _fontFamily = Platform.isIOS ? 'Menlo' : 'monospace';
+  static const String _fontFamily = 'MapleMonoNFCN';
 
   // Per-cell paragraph cache, keyed by (text, color, style). Terminal content
   // is highly repetitive, so this turns per-cell layout into a cache hit after
