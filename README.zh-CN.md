@@ -2,7 +2,7 @@
   <img src="docs/images/icon.png" width="128" height="128" alt="Codux">
 </p>
 
-<h1 align="center">Codux AI</h1>
+<h1 align="center">Codux Terminal</h1>
 
 <p align="center">
   <b>为 AI 编程而生的高性能跨端互联终端</b><br/>
@@ -86,8 +86,6 @@ flowchart LR
 - **会话不断。** 断线重连后，恢复的是同一批正在运行的 shell 和 agent 会话。
 
 ## 下载
-
-下面每个链接都**直达最新版**——点一下就下载，不用选版本、不用跳页面。
 
 **桌面端**
 

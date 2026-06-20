@@ -2,7 +2,7 @@
   <img src="docs/images/icon.png" width="128" height="128" alt="Codux">
 </p>
 
-<h1 align="center">Codux AI</h1>
+<h1 align="center">Codux Terminal</h1>
 
 <p align="center">
   <b>The high-performance, cross-device terminal built for AI coding</b><br/>
@@ -86,8 +86,6 @@ Any controller — a **desktop** or a **phone** — can connect to any host — 
 - **Session continuity.** Reconnect to the same running shells and agent sessions after disconnects.
 
 ## Download
-
-Every link below always resolves to the **latest release** — one click, no version to pick.
 
 **Desktop app**
 
