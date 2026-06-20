@@ -68,6 +68,24 @@ Codux auto-detects the AI CLIs you run in the terminal, reads their local histor
 
 Desktop, phone, and a headless host all act as **peers** over an end-to-end encrypted Iroh link, so you can keep driving long agent runs from anywhere.
 
+```mermaid
+flowchart LR
+    subgraph drivers["You drive from"]
+        P["📱 Phone"]
+        D["💻 Desktop"]
+    end
+    subgraph hosts["Work runs on (the host)"]
+        D2["💻 Another desktop"]
+        H["🖥️ Headless host<br/>server · spare Mac · Linux"]
+    end
+    P -->|"🔒 Iroh"| D2
+    P -->|"🔒 Iroh"| H
+    D -->|"🔒 Iroh"| D2
+    D -->|"🔒 Iroh"| H
+```
+
+Any controller — a **desktop** or a **phone** — can connect to any host — **another desktop** or a **headless host**. A desktop is both: it hosts its own projects *and* can drive others; a phone drives only. Terminals, Git, AI, files, and memory all run on the host, so closing your laptop or switching devices never stops a run.
+
 - **Phone handoff.** Pair in seconds by QR; it picks the fastest path and falls back to a relay. Projects, terminals, files, and AI keep running on the host — your phone just controls them, with full terminal history when you switch over.
 - **Headless hosts.** Run the `codux` agent on a server, spare Mac, or Linux box and drive its terminals, Git, and AI as if local — everything runs against the host's own data. See [`apps/agent/README.md`](apps/agent/README.md).
 - **Resilient sessions.** A client that drops and reconnects resumes the *same* terminals, shells, and running AI; credentials never leave the host.
