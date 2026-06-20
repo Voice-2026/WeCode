@@ -119,6 +119,7 @@ impl CoduxApp {
 
         self.settings_seen_revision = event.revision;
         let settings = self.runtime_service.reload_settings();
+        self.state.tool_permissions = self.runtime_service.sync_tool_permissions();
         if event.statistics_revision == event.revision {
             self.apply_settings_summary_local(settings);
             self.status_message = "AI statistics mode updated".to_string();

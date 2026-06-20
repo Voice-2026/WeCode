@@ -664,6 +664,47 @@ mod tests {
         fs::remove_dir_all(support_dir).ok();
     }
 
+    #[test]
+    fn runtime_tool_settings_round_trip_through_summary_and_tool_permissions() {
+        let support_dir = temp_dir("settings-runtime-tools-roundtrip");
+        let service = SettingsService::new(support_dir.clone());
+
+        let summary = service
+            .set_runtime_tool_permission("codex", "fullAccess")
+            .expect("set codex permission");
+        assert_eq!(summary.runtime_tool_count, 8);
+
+        let summary = service
+            .set_runtime_tool_model("codexModel", "gpt-5.6")
+            .expect("set codex model");
+        assert_eq!(summary.runtime_tool_count, 8);
+
+        let summary = service
+            .set_codex_effort("xhigh")
+            .expect("set codex effort");
+        assert_eq!(summary.runtime_tool_count, 8);
+
+        let tool_permissions = crate::tool_permissions::ToolPermissionsService::new(support_dir.clone())
+            .summary();
+        assert_eq!(tool_permissions.codex, "fullAccess");
+        assert_eq!(tool_permissions.codex_model, "gpt-5.6");
+        assert_eq!(tool_permissions.codex_effort, "xhigh");
+
+        crate::config::flush_all_config_writes();
+        let saved = fs::read_to_string(support_dir.join("settings.json")).expect("saved settings");
+        let saved: serde_json::Value = serde_json::from_str(&saved).expect("saved json");
+        let tools = saved
+            .get("ai")
+            .and_then(|value| value.get("runtimeTools"))
+            .and_then(|value| value.as_object())
+            .expect("runtime tools object");
+        assert_eq!(tools.get("codex").and_then(|value| value.as_str()), Some("fullAccess"));
+        assert_eq!(tools.get("codexModel").and_then(|value| value.as_str()), Some("gpt-5.6"));
+        assert_eq!(tools.get("codexEffort").and_then(|value| value.as_str()), Some("xhigh"));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
     fn temp_dir(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
