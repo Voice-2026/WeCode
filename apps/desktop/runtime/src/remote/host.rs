@@ -2886,13 +2886,21 @@ impl RemoteHostRuntime {
                 .ok()
                 .map(|snapshot| snapshot.data)
                 .filter(|data| !data.is_empty());
+            // Label the baseline with the sequence AT the keyframe, captured
+            // here next to it — not later in `send_terminal_buffer`. Reading the
+            // sequence downstream advances it past frames emitted after this
+            // keyframe (Claude's classic renderer repaints rapidly while
+            // working); the viewer then drops those in-between frames as already
+            // seen, freezing the screen on the keyframe's stale state (e.g. the
+            // input box stuck at its old row) until the next full repaint.
+            let output_seq = Some(self.current_terminal_output_seq(session_id));
             return Ok(RemoteTerminalBufferWindow {
                 data,
                 screen_data,
                 offset: start_offset,
                 total_characters,
                 truncated: false,
-                output_seq: None,
+                output_seq,
                 request_id,
                 tail: true,
                 has_previous: start_offset > 0,
