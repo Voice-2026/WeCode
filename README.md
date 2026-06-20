@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="https://codux.dux.cn">Website</a> &middot;
+  <a href="https://codux.dux.cn/zh-cn/getting-started/">Docs</a> &middot;
   <a href="https://github.com/duxweb/codux/releases/latest">Download</a> &middot;
   <a href="https://github.com/duxweb/codux-flutter/releases">Mobile</a> &middot;
   <a href="#wechat">WeChat</a> &middot;
@@ -37,7 +38,7 @@ AI coding CLIs are incredibly powerful — and incredibly easy to lose control o
 | Token spend is a black box | Usage by tool, model, project, worktree, and day — no spreadsheets. |
 | Context evaporates between sessions | Local memory for habits, project profiles, and module notes, injected back into supported CLIs automatically. |
 | Server access is fragile | Saved, tested SSH profiles and a `codux-ssh` command agents can use **without ever seeing your credentials**. |
-| You walk away mid-run | Pair your phone over Iroh and keep driving the session from anywhere. |
+| You walk away mid-run | Pair your phone over P2P / relay links and keep driving the session from anywhere. |
 | The code lives on another machine | Connect a headless host — a server, spare Mac, or Linux box — and drive its terminals, Git, and AI as if they were local. |
 
 Codux AI is **not** another editor. It's the control plane for developers who live in AI coding CLIs and need a rock-solid way to run multi-project, long-running agent work.
@@ -66,7 +67,11 @@ Codux auto-detects the AI CLIs you run in the terminal, reads their local histor
 
 > **Beta.** Connecting to a headless host ships first as a beta in this release — the connection, pairing, and host-side data flow are still under active testing, so expect rough edges. Feedback is very welcome.
 
-Desktop, phone, and a headless host all act as **peers** over an end-to-end encrypted Iroh link, so you can keep driving long agent runs from anywhere.
+Desktop, phone, and a headless host all act as **peers** over end-to-end encrypted **P2P / relay links**, so you can keep driving long agent runs from anywhere.
+
+- **Direct when possible.** Codux prefers P2P paths and falls back to relay when the network requires it.
+- **Not SSH remote desktop.** Pair devices once, then connect straight into Codux itself.
+- **No public IP required.** Desktop, phone, and host can pair and reconnect across ordinary home, office, and mobile networks.
 
 ```mermaid
 flowchart LR
@@ -78,10 +83,10 @@ flowchart LR
         D2["💻 Another desktop"]
         H["🖥️ Headless host<br/>server · spare Mac · Linux"]
     end
-    P -->|"🔒 Iroh"| D2
-    P -->|"🔒 Iroh"| H
-    D -->|"🔒 Iroh"| D2
-    D -->|"🔒 Iroh"| H
+    P -->|"🔒 P2P / Relay"| D2
+    P -->|"🔒 P2P / Relay"| H
+    D -->|"🔒 P2P / Relay"| D2
+    D -->|"🔒 P2P / Relay"| H
 ```
 
 Any controller — a **desktop** or a **phone** — can connect to any host — **another desktop** or a **headless host**. A desktop is both: it hosts its own projects *and* can drive others; a phone drives only. Terminals, Git, AI, files, and memory all run on the host, so closing your laptop or switching devices never stops a run.
@@ -203,7 +208,7 @@ This repo is the Codux monorepo:
 - `crates/codux-terminal-core` — shared terminal session, sequencing, baseline restore, and remote-PTY model (pure-Rust `alacritty_terminal` engine).
 - `crates/codux-terminal-pty` — shared `portable_pty` local PTY driver for host/headless targets.
 
-Flutter keeps its own native build system. Remote connectivity runs entirely on the shared Iroh transport.
+Flutter keeps its own native build system. Remote connectivity runs on the shared peer-to-peer / relay transport layer.
 
 ## Development
 
