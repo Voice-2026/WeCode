@@ -40,6 +40,7 @@ class SelfDrawnTerminalView extends StatefulWidget {
     this.onCursorMetrics,
     this.onSelectionChanged,
     this.onRequestKeyboard,
+    this.hardwareKeyboardFirst = false,
     this.keyboardRequested = false,
     this.keyboardRequestSerial = 0,
   });
@@ -65,6 +66,10 @@ class SelfDrawnTerminalView extends StatefulWidget {
 
   /// Called when the user taps the terminal body, to bring up the keyboard.
   final VoidCallback? onRequestKeyboard;
+
+  /// On the pad a connected keyboard is the primary input: tapping the terminal
+  /// focuses the hardware capture instead of forcing the soft IME up.
+  final bool hardwareKeyboardFirst;
   final bool keyboardRequested;
   final int keyboardRequestSerial;
 
@@ -89,6 +94,10 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   // would otherwise leave the field empty.
   final TextEditingController _inputController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  // Captures the physical (connected) keyboard without the soft IME. Kept
+  // separate from `_focusNode` (the IME field) so hardware input works even when
+  // the soft keyboard is closed.
+  final FocusNode _hwFocus = FocusNode(debugLabel: 'terminal-hw');
   bool _resetting = false;
 
   TerminalScreenSnapshot? _snapshot;
@@ -190,6 +199,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     _inputController.removeListener(_handleInputChange);
     _inputController.dispose();
     _focusNode.dispose();
+    _hwFocus.dispose();
     _fling.dispose();
     _autoScrollTimer?.cancel();
     super.dispose();
@@ -763,6 +773,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final startHandle = _buildHandle(isStart: true);
     final endHandle = _buildHandle(isStart: false);
     return Focus(
+      focusNode: _hwFocus,
       autofocus: true,
       onKeyEvent: _handleHardwareKey,
       child: Stack(
@@ -796,12 +807,17 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
           ),
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            // Tapping the terminal clears any selection and brings up the keyboard
-            // (focusing the hidden input) so typing flows directly; the toolbar key
-            // button still toggles the keyboard off.
+            // Tapping clears any selection. On the pad it focuses the hardware
+            // capture (a connected keyboard types directly, no soft IME forced
+            // up); on the phone it raises the soft keyboard. The toolbar key
+            // button still toggles the soft keyboard either way.
             onTap: () {
               _clearSelection();
-              widget.onRequestKeyboard?.call();
+              if (widget.hardwareKeyboardFirst) {
+                _hwFocus.requestFocus();
+              } else {
+                widget.onRequestKeyboard?.call();
+              }
             },
             onVerticalDragStart: _onDragStart,
             onVerticalDragUpdate: _onDragUpdate,

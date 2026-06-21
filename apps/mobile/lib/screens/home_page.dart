@@ -4607,6 +4607,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onSendKey: _sendTerminalKey,
       onToggleKeyboard: _toggleTerminalKeyboard,
       onRequestKeyboard: _requestTerminalKeyboard,
+      hardwareKeyboardFirst: isPadLayout,
       onPaste: _pasteToTerminal,
       onCopy: _copyTerminalSelection,
       onUpload: _chooseUploadForTerminal,
