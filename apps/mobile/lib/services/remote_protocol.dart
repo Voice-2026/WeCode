@@ -121,7 +121,15 @@ abstract final class RemoteMessageType {
   static final fileDelete = codux_protocol_ffi.messageType('fileDelete');
   static final fileDeleted = codux_protocol_ffi.messageType('fileDeleted');
   static final gitStatus = codux_protocol_ffi.messageType('gitStatus');
+  static final gitInvoke = codux_protocol_ffi.messageType('gitInvoke');
+  static final gitRead = codux_protocol_ffi.messageType('gitRead');
   static final aiStats = codux_protocol_ffi.messageType('aiStats');
+  static final aiSession = codux_protocol_ffi.messageType('aiSession');
+  static final aiSessionResult = codux_protocol_ffi.messageType(
+    'aiSessionResult',
+  );
+  static final sshList = codux_protocol_ffi.messageType('sshList');
+  static final sshListResult = codux_protocol_ffi.messageType('sshListResult');
 }
 
 RelayEnvelope remoteResourceSubscribeEnvelope({

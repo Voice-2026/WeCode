@@ -11,11 +11,66 @@ class AIStatsPanel extends StatelessWidget {
     required this.stats,
     required this.loading,
     required this.onRefresh,
+    this.title,
+    this.contentPadding,
+    this.cardBordered = false,
+    this.colors = const AIStatsPanelColors(),
   });
 
   final AIStatsInfo? stats;
   final bool loading;
   final VoidCallback onRefresh;
+
+  /// When set (pad layout), the top metrics are wrapped in a card whose header
+  /// is this title. When null (phone), the metrics render headerless as before.
+  final String? title;
+  final EdgeInsetsGeometry? contentPadding;
+  final bool cardBordered;
+  final AIStatsPanelColors colors;
+
+  /// Wraps the top metric row in a titled card (or returns it unchanged).
+  static Widget _wrapWithHeader({
+    required String? title,
+    required bool bordered,
+    required AIStatsPanelColors colors,
+    required Widget child,
+  }) {
+    if (title == null) return child;
+    final radius = BorderRadius.circular(AppRadius.lg);
+    return ClipRRect(
+      borderRadius: radius,
+      child: Container(
+        decoration: BoxDecoration(color: colors.card),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: radius,
+          border: bordered
+              ? Border.all(color: colors.cardBorder, width: 0.5)
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 48,
+              width: double.infinity,
+              alignment: Alignment.centerLeft,
+              color: colors.cardHeader,
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.l),
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Padding(padding: const EdgeInsets.all(AppSpacing.m), child: child),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,83 +78,118 @@ class AIStatsPanel extends StatelessWidget {
     final prefs = AppPreferences.of(context);
     if (loading && stats == null) {
       return ColoredBox(
-        color: AppColors.bgBase,
+        color: colors.background,
         child: Center(child: CircularProgressIndicator(color: accent)),
       );
     }
     final data = stats;
     return ColoredBox(
-      color: AppColors.bgBase,
+      color: colors.background,
       child: RefreshIndicator(
         color: accent,
-        backgroundColor: AppColors.bgSurface,
+        backgroundColor: colors.card,
         onRefresh: () async => onRefresh(),
         child: ListView(
           physics: const BouncingScrollPhysics(
             parent: AlwaysScrollableScrollPhysics(),
           ),
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.l,
-            AppSpacing.m,
-            AppSpacing.l,
-            AppSpacing.xxl,
-          ),
+          padding:
+              contentPadding ??
+              const EdgeInsets.fromLTRB(
+                AppSpacing.l,
+                AppSpacing.m,
+                AppSpacing.l,
+                AppSpacing.xxl,
+              ),
           children: [
             if (data == null)
-              _EmptyStats(accent: accent, onRefresh: onRefresh)
+              _EmptyStats(
+                accent: accent,
+                onRefresh: onRefresh,
+                bordered: cardBordered,
+                colors: colors,
+              )
             else ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _MetricTile(
-                      label: prefs.t('stats.currentProject'),
-                      value: _formatInt(data.totalTokens),
-                      subValue: data.projectCachedInputTokens > 0
-                          ? prefs.t(
-                              'stats.cached',
-                              params: {
-                                'value': _formatInt(
-                                  data.projectCachedInputTokens,
-                                ),
-                              },
-                            )
-                          : prefs.t(
-                              'stats.requestCount',
-                              params: {'count': '${data.requestCount}'},
-                            ),
-                      accent: accent,
+              _wrapWithHeader(
+                title: title,
+                bordered: cardBordered,
+                colors: colors,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _MetricTile(
+                        label: prefs.t('stats.currentProject'),
+                        value: _formatInt(data.totalTokens),
+                        subValue: data.projectCachedInputTokens > 0
+                            ? prefs.t(
+                                'stats.cached',
+                                params: {
+                                  'value': _formatInt(
+                                    data.projectCachedInputTokens,
+                                  ),
+                                },
+                              )
+                            : prefs.t(
+                                'stats.requestCount',
+                                params: {'count': '${data.requestCount}'},
+                              ),
+                        accent: accent,
+                        bordered: false,
+                        colors: colors,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: AppSpacing.s),
-                  Expanded(
-                    child: _MetricTile(
-                      label: prefs.t('stats.todayTotal'),
-                      value: _formatInt(data.todayTokens),
-                      subValue: data.todayCachedInputTokens > 0
-                          ? prefs.t(
-                              'stats.cached',
-                              params: {
-                                'value': _formatInt(
-                                  data.todayCachedInputTokens,
-                                ),
-                              },
-                            )
-                          : 'Token',
-                      accent: accent,
+                    const SizedBox(width: AppSpacing.s),
+                    Expanded(
+                      child: _MetricTile(
+                        label: prefs.t('stats.todayTotal'),
+                        value: _formatInt(data.todayTokens),
+                        subValue: data.todayCachedInputTokens > 0
+                            ? prefs.t(
+                                'stats.cached',
+                                params: {
+                                  'value': _formatInt(
+                                    data.todayCachedInputTokens,
+                                  ),
+                                },
+                              )
+                            : 'Token',
+                        accent: accent,
+                        bordered: false,
+                        colors: colors,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               const SizedBox(height: AppSpacing.m),
-              _TodayBarsCard(buckets: data.todayTimeBuckets, accent: accent),
+              _CurrentSessionCard(
+                data: data,
+                accent: accent,
+                bordered: cardBordered,
+                colors: colors,
+              ),
               const SizedBox(height: AppSpacing.m),
-              _HeatmapCard(days: data.heatmap, accent: accent),
+              _TodayBarsCard(
+                buckets: data.todayTimeBuckets,
+                accent: accent,
+                bordered: cardBordered,
+                colors: colors,
+              ),
+              const SizedBox(height: AppSpacing.m),
+              _HeatmapCard(
+                days: data.heatmap,
+                accent: accent,
+                bordered: cardBordered,
+                colors: colors,
+              ),
               const SizedBox(height: AppSpacing.m),
               _RankingCard(
                 title: prefs.t('stats.toolRank'),
                 icon: Icons.auto_awesome_rounded,
                 items: data.toolBreakdown,
                 accent: accent,
+                bordered: cardBordered,
+                colors: colors,
               ),
               const SizedBox(height: AppSpacing.m),
               _RankingCard(
@@ -107,6 +197,8 @@ class AIStatsPanel extends StatelessWidget {
                 icon: Icons.memory_rounded,
                 items: data.modelBreakdown,
                 accent: accent,
+                bordered: cardBordered,
+                colors: colors,
               ),
             ],
           ],
@@ -122,16 +214,22 @@ class _MetricTile extends StatelessWidget {
     required this.value,
     required this.subValue,
     required this.accent,
+    required this.bordered,
+    required this.colors,
   });
 
   final String label;
   final String value;
   final String subValue;
   final Color accent;
+  final bool bordered;
+  final AIStatsPanelColors colors;
 
   @override
   Widget build(BuildContext context) {
     return _PanelCard(
+      bordered: bordered,
+      colors: colors,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -172,10 +270,17 @@ class _MetricTile extends StatelessWidget {
 }
 
 class _TodayBarsCard extends StatefulWidget {
-  const _TodayBarsCard({required this.buckets, required this.accent});
+  const _TodayBarsCard({
+    required this.buckets,
+    required this.accent,
+    required this.bordered,
+    required this.colors,
+  });
 
   final List<AIStatsTimeBucket> buckets;
   final Color accent;
+  final bool bordered;
+  final AIStatsPanelColors colors;
 
   @override
   State<_TodayBarsCard> createState() => _TodayBarsCardState();
@@ -196,6 +301,8 @@ class _TodayBarsCardState extends State<_TodayBarsCard> {
         ? visible[_selectedIndex!]
         : null;
     return _PanelCard(
+      bordered: widget.bordered,
+      colors: widget.colors,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -232,6 +339,7 @@ class _TodayBarsCardState extends State<_TodayBarsCard> {
                           value: visible[i].totalTokens,
                           maxValue: maxValue,
                           accent: widget.accent,
+                          trackColor: widget.colors.track,
                           highlighted: _selectedIndex == i,
                         ),
                       ),
@@ -273,19 +381,21 @@ class _TokenBar extends StatelessWidget {
     required this.value,
     required this.maxValue,
     required this.accent,
+    required this.trackColor,
     this.highlighted = false,
   });
 
   final int value;
   final int maxValue;
   final Color accent;
+  final Color trackColor;
   final bool highlighted;
 
   @override
   Widget build(BuildContext context) {
     final ratio = maxValue <= 0 ? 0.0 : value / maxValue;
     final base = value <= 0
-        ? AppColors.bgElevated
+        ? trackColor
         : Color.lerp(accent.withValues(alpha: 0.32), accent, ratio);
     return Align(
       alignment: Alignment.bottomCenter,
@@ -304,10 +414,17 @@ class _TokenBar extends StatelessWidget {
 }
 
 class _HeatmapCard extends StatefulWidget {
-  const _HeatmapCard({required this.days, required this.accent});
+  const _HeatmapCard({
+    required this.days,
+    required this.accent,
+    required this.bordered,
+    required this.colors,
+  });
 
   final List<AIStatsHeatmapDay> days;
   final Color accent;
+  final bool bordered;
+  final AIStatsPanelColors colors;
 
   @override
   State<_HeatmapCard> createState() => _HeatmapCardState();
@@ -328,6 +445,8 @@ class _HeatmapCardState extends State<_HeatmapCard> {
         ? visible[_selectedIndex!]
         : null;
     return _PanelCard(
+      bordered: widget.bordered,
+      colors: widget.colors,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -375,6 +494,7 @@ class _HeatmapCardState extends State<_HeatmapCard> {
                                   visible: visible,
                                   maxValue: maxValue,
                                   accent: widget.accent,
+                                  trackColor: widget.colors.track,
                                   selectedIndex: _selectedIndex,
                                   onTap: (i) => setState(
                                     () => _selectedIndex = _selectedIndex == i
@@ -410,6 +530,7 @@ class _HeatmapCell extends StatelessWidget {
     required this.visible,
     required this.maxValue,
     required this.accent,
+    required this.trackColor,
     required this.selectedIndex,
     required this.onTap,
   });
@@ -418,6 +539,7 @@ class _HeatmapCell extends StatelessWidget {
   final List<AIStatsHeatmapDay> visible;
   final int maxValue;
   final Color accent;
+  final Color trackColor;
   final int? selectedIndex;
   final ValueChanged<int> onTap;
 
@@ -427,7 +549,7 @@ class _HeatmapCell extends StatelessWidget {
     final value = visible[index].totalTokens;
     final ratio = maxValue <= 0 ? 0.0 : value / maxValue;
     final color = value <= 0
-        ? AppColors.bgElevated
+        ? trackColor
         : Color.lerp(accent.withValues(alpha: 0.2), accent, ratio);
     final selected = selectedIndex == index;
     return GestureDetector(
@@ -452,12 +574,16 @@ class _RankingCard extends StatelessWidget {
     required this.icon,
     required this.items,
     required this.accent,
+    required this.bordered,
+    required this.colors,
   });
 
   final String title;
   final IconData icon;
   final List<AIStatsBreakdownItem> items;
   final Color accent;
+  final bool bordered;
+  final AIStatsPanelColors colors;
 
   @override
   Widget build(BuildContext context) {
@@ -469,6 +595,8 @@ class _RankingCard extends StatelessWidget {
     );
     final totalSum = items.fold<int>(0, (sum, item) => sum + item.totalTokens);
     return _PanelCard(
+      bordered: bordered,
+      colors: colors,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -508,6 +636,7 @@ class _RankingCard extends StatelessWidget {
                 totalSum: totalSum,
                 maxValue: maxValue,
                 accent: accent,
+                colors: colors,
               ),
             ],
         ],
@@ -522,12 +651,14 @@ class _RankingRow extends StatelessWidget {
     required this.totalSum,
     required this.maxValue,
     required this.accent,
+    required this.colors,
   });
 
   final AIStatsBreakdownItem item;
   final int totalSum;
   final int maxValue;
   final Color accent;
+  final AIStatsPanelColors colors;
 
   @override
   Widget build(BuildContext context) {
@@ -585,7 +716,7 @@ class _RankingRow extends StatelessWidget {
             value: barRatio,
             minHeight: 4,
             color: accent,
-            backgroundColor: AppColors.bgElevated,
+            backgroundColor: colors.track,
           ),
         ),
       ],
@@ -593,20 +724,162 @@ class _RankingRow extends StatelessWidget {
   }
 }
 
-class _PanelCard extends StatelessWidget {
-  const _PanelCard({required this.child});
+/// Live "current session" card: active tool/model, context usage, and the
+/// running sessions list — all from already-available AIStatsInfo fields.
+class _CurrentSessionCard extends StatelessWidget {
+  const _CurrentSessionCard({
+    required this.data,
+    required this.accent,
+    required this.bordered,
+    required this.colors,
+  });
 
-  final Widget child;
+  final AIStatsInfo data;
+  final Color accent;
+  final bool bordered;
+  final AIStatsPanelColors colors;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(AppSpacing.l),
-    decoration: BoxDecoration(
-      color: AppColors.bgSurface,
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-    ),
-    child: child,
-  );
+  Widget build(BuildContext context) {
+    final prefs = AppPreferences.of(context);
+    final contextPercent = data.contextUsagePercent;
+    // Mirror the desktop "当前会话累计" card: render only the live AI runtime
+    // sessions (each with its own tool/model/usage), never history metadata, so
+    // the card stays empty when no session is actually running.
+    final sessions = data.currentSessions;
+    return _PanelCard(
+      bordered: bordered,
+      colors: colors,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionTitle(
+            title: prefs.t('stats.currentSession'),
+            trailing: contextPercent != null
+                ? '${contextPercent.toStringAsFixed(0)}%'
+                : '',
+            accent: accent,
+          ),
+          if (sessions.isEmpty) ...[
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                prefs.t('stats.currentSession.empty'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.textSubtle,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          for (final session in sessions) ...[
+            const SizedBox(height: 10),
+            _liveSessionRow(session, prefs),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _liveSessionRow(AIStatsSessionInfo session, AppPreferences prefs) {
+    final tool = (session.tool ?? '').trim();
+    final model = (session.model ?? '').trim();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: colors.track,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tool.isEmpty ? '-' : tool,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  model.isEmpty ? '-' : model,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSubtle,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                _formatInt(session.totalTokens),
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                prefs.t('stats.sessionTotal'),
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PanelCard extends StatelessWidget {
+  const _PanelCard({
+    required this.child,
+    required this.colors,
+    this.bordered = false,
+  });
+
+  final Widget child;
+  final AIStatsPanelColors colors;
+  final bool bordered;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(AppRadius.lg);
+    return ClipRRect(
+      borderRadius: radius,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.l),
+        decoration: BoxDecoration(color: colors.card),
+        foregroundDecoration: BoxDecoration(
+          borderRadius: radius,
+          border: bordered
+              ? Border.all(color: colors.cardBorder, width: 0.5)
+              : null,
+        ),
+        child: child,
+      ),
+    );
+  }
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -652,14 +925,23 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _EmptyStats extends StatelessWidget {
-  const _EmptyStats({required this.accent, required this.onRefresh});
+  const _EmptyStats({
+    required this.accent,
+    required this.onRefresh,
+    required this.bordered,
+    required this.colors,
+  });
   final Color accent;
   final VoidCallback onRefresh;
+  final bool bordered;
+  final AIStatsPanelColors colors;
 
   @override
   Widget build(BuildContext context) {
     final prefs = AppPreferences.of(context);
     return _PanelCard(
+      bordered: bordered,
+      colors: colors,
       child: Column(
         children: [
           Icon(Icons.query_stats_rounded, color: accent, size: 32),

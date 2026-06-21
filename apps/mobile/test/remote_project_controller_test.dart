@@ -61,6 +61,11 @@ void main() {
   test('builds project utility envelopes', () {
     expect(controller.removeEnvelope(project).type, 'project.remove');
     expect(controller.aiStatsEnvelope(project).type, 'ai.stats');
+    expect(
+      (controller.aiStatsEnvelope(project, worktreeId: 'worktree-1').payload
+          as Map)['worktreeId'],
+      'worktree-1',
+    );
     expect(controller.gitStatusEnvelope(project).type, 'git.status');
     expect(
       (controller.gitStatusEnvelope(project).payload as Map)['projectPath'],

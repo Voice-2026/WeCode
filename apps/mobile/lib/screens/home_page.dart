@@ -11,6 +11,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../i18n.dart';
 import '../models/remote_models.dart';
+import '../screens/home/home_terminal_actions.dart';
+import '../screens/home/home_pending_worktree_switch.dart';
+import '../screens/home/home_worktree_actions.dart';
+import '../screens/home/home_workspace_mode_actions.dart';
+import '../screens/home/home_workspace_builder.dart';
+import '../screens/home/home_workspace_shell_data.dart';
+import '../screens/home/home_runtime_coordinator.dart';
 import '../screens/settings_screen.dart';
 import '../services/log_service.dart';
 import '../services/log_export_service.dart';
@@ -49,9 +56,7 @@ import '../widgets/codux_home_shell.dart';
 import '../widgets/device_home_screen.dart';
 import '../widgets/project_files_panel.dart';
 import '../widgets/remote_terminal_pane.dart';
-import '../widgets/remote_workspace_view.dart';
 import '../widgets/terminal_switcher_screen.dart';
-import '../widgets/worktree_create_dialog.dart';
 import '../widgets/worktree_action_dialog.dart';
 import '../widgets/terminal_upload_source_sheet.dart';
 import '../widgets/update_available_dialog.dart';
@@ -64,16 +69,6 @@ final String _remoteProtocolVersion = remoteProtocolVersion;
 const Duration _remoteStartupProbeTimeout = Duration(seconds: 15);
 const Duration _remoteLatencyProbeInterval = Duration(seconds: 3);
 const Duration _remoteLatencyProbeTimeout = Duration(seconds: 8);
-
-class _PendingWorktreeSwitch {
-  const _PendingWorktreeSwitch({
-    required this.projectId,
-    required this.worktreeId,
-  });
-
-  final String projectId;
-  final String worktreeId;
-}
 
 class CoduxHomePage extends StatefulWidget {
   const CoduxHomePage({
@@ -95,6 +90,7 @@ class CoduxHomePage extends StatefulWidget {
 
 class _CoduxHomePageState extends State<CoduxHomePage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
+  static const double _padLayoutMinWidth = 900;
   static const int _terminalBufferMaxChars =
       TerminalBufferCapability.mobileMaxChars;
 
@@ -208,6 +204,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   String _projectFilesPath = '';
   String? _projectFilesParent;
   String? _editingFilePath;
+  RemoteGitDiff? _gitDiff;
+  String? _gitDiffPath;
+  List<AISessionRecord> _aiSessions = const [];
+  String? _aiSessionsProjectId;
+  List<RemoteSshProfile> _sshProfiles = const [];
   String? _toastMessage;
   String? _blockingLoadingMessage;
   bool _projectFilesLoading = false;
@@ -248,7 +249,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   DateTime? _lastConnectedAt;
   DateTime? _connectionGraceUntil;
   DateTime? _lastTransportRefreshAt;
-  _PendingWorktreeSwitch? _pendingWorktreeSwitch;
+  PendingWorktreeSwitch? _pendingWorktreeSwitch;
   int? _latencyMs;
   Timer? _latencyProbeTimer;
   int _latencyProbeCounter = 0;
@@ -1859,124 +1860,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _applyRuntimePlan(RemoteRuntimePlan plan, {String reason = ''}) {
-    final previousSessionId = _sessionId;
-    final previousProjectId = _selectedProjectId;
-    final previousWorktreeId = _selectedWorktreeId;
-    if (plan.stateChanged ||
-        plan.clearTerminal ||
-        plan.resetTerminalBuffer ||
-        plan.requestTerminalList ||
-        plan.requestProjectSelectId != null ||
-        plan.bindSessionId != null ||
-        plan.removedSessionId != null) {
-      CoduxLog.info(
-        '[codux-flutter-runtime] plan reason=$reason state=${plan.stateChanged} clear=${plan.clearTerminal} resetBuffer=${plan.resetTerminalBuffer} requestTerminalList=${plan.requestTerminalList} requestProjectSelect=${plan.requestProjectSelectId ?? ''} pending=${_remoteRuntime.pendingProjectSelect(includeSent: true) ?? ''} bind=${plan.bindSessionId ?? ''} beforeProject=${previousProjectId ?? ''} beforeWorktree=${previousWorktreeId ?? ''} beforeSession=${previousSessionId ?? ''}',
-      );
-    }
-    if (plan.removedSessionId != null) {
-      final removed = plan.removedSessionId!;
-      _terminalOutputController.removeSession(removed);
-      _terminalRepaint.tick();
-      _terminalInputSender.clear(sessionId: removed);
-    }
-    if (plan.resetTerminalInput) {
-      _terminalInputBatcher.reset();
-    }
-    if (plan.resetTerminalBuffer) {
-      _terminalBufferRetry.reset();
-      _terminalOutputController.resetTransient();
-      _setTerminalBufferLoading(false);
-    }
-    if (plan.stateChanged && mounted) {
-      setState(_syncRuntimeViewState);
-    } else {
-      _syncRuntimeViewState();
-    }
-    if (previousSessionId != _sessionId ||
-        previousProjectId != _selectedProjectId ||
-        previousWorktreeId != _selectedWorktreeId) {
-      CoduxLog.info(
-        '[codux-flutter-runtime] state reason=$reason project=${previousProjectId ?? ''}->${_selectedProjectId ?? ''} worktree=${previousWorktreeId ?? ''}->${_selectedWorktreeId ?? ''} session=${previousSessionId ?? ''}->${_sessionId ?? ''}',
-      );
-    }
-    if (plan.bindSessionId != null &&
-        previousSessionId != null &&
-        previousSessionId != plan.bindSessionId) {
-      _releaseTerminalViewport(sessionId: previousSessionId);
-    }
-    if (plan.clearTerminal) {
-      _clearTerminal();
-    }
-    if (plan.requestTerminalList) {
-      _requestTerminalList(resetRetry: true);
-    }
-    if (plan.requestProjectSelectId != null) {
-      _sendProjectSelect(plan.requestProjectSelectId!, reason: reason);
-    }
-    if (plan.bindSessionId != null && !_remoteProtocolReady) {
-      CoduxLog.debug(
-        '[codux-flutter-terminal] defer bind session=${plan.bindSessionId} reason=$reason protocolReady=false',
-      );
-      return;
-    }
-    if (plan.bindSessionId != null) {
-      _applyTerminalBind(plan, reason);
-    }
+    _runtimeCoordinator.applyRuntimePlan(plan, reason: reason);
   }
 
   void _bindActiveTerminalAfterProtocolReady({required String reason}) {
-    if (!_remoteProtocolReady) return;
-    final sessionId = _sessionId;
-    if (sessionId == null || sessionId.trim().isEmpty) return;
-    _applyTerminalBind(RemoteRuntimePlan(bindSessionId: sessionId), reason);
-  }
-
-  void _applyTerminalBind(RemoteRuntimePlan plan, String reason) {
-    if (plan.bindSessionId != null) {
-      final bindSessionId = plan.bindSessionId!;
-      _terminalSelectedText = null;
-      final restored = _restoreTerminalSessionFromCache(bindSessionId);
-      if (restored) {
-        _closeTerminalSwitcherAfterPendingWorktreeBuffer(bindSessionId);
-      }
-      final bindResult = _terminalBindingCoordinator.bindSession(
-        plan: plan,
-        bindSessionId: bindSessionId,
-        reason: reason,
-        selectedProjectId: _selectedProjectId,
-        capability: _terminalBufferCapability,
-        restored: restored,
-      );
-      CoduxLog.info(
-        '[codux-flutter-terminal] bind session=$bindSessionId project=${_selectedProjectId ?? ''} cached=${bindResult.restored}',
-      );
-      _focusTerminalViewSoon();
-      // Bound live sessions so headless-screen worker threads from previously
-      // visited projects do not accumulate across switches and stall the app.
-      final evicted = _terminalOutputController.evictInactiveSessions(
-        bindSessionId,
-      );
-      for (final sessionId in evicted) {
-        _terminalInputSender.clear(sessionId: sessionId);
-      }
-      if (evicted.isNotEmpty) {
-        CoduxLog.info(
-          '[codux-flutter-terminal] evict inactive sessions=${evicted.length} keep=$bindSessionId',
-        );
-      }
-      if (bindResult.baselineRequested) {
-        _trackTerminalBaselineRequest(bindSessionId);
-      }
-      _terminalBindingCoordinator.ensureBoundTerminalHasBaseline(
-        sessionId: bindSessionId,
-        baselineRequested: bindResult.baselineRequested,
-        reason: reason,
-        capability: _terminalBufferCapability,
-      );
-      if (plan.flushTerminalInput) {
-        _terminalInputBatcher.flush();
-      }
-    }
+    _runtimeCoordinator.bindActiveTerminalAfterProtocolReady(reason: reason);
   }
 
   Future<void> _cacheProjects(List<ProjectInfo> projects) async {
@@ -2196,11 +2084,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
           _showToast(_t('project.updated'));
         case final type when type == RemoteMessageType.aiStats:
           final payload = message.payload;
-          if (payload is Map<String, dynamic>) {
+          if (payload is Map) {
+            final statsPayload = Map<String, dynamic>.from(payload);
             setState(() {
-              _currentAIStats = AIStatsInfo.fromJson(payload);
+              _currentAIStats = AIStatsInfo.fromJson(statsPayload);
               _aiStatsLoading = false;
-              _workspaceMode = 'stats';
             });
           }
         case final type when type == RemoteMessageType.gitStatus:
@@ -2209,6 +2097,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
             final plan = _remoteRuntime.applyGitStatus(status);
             _applyRuntimePlan(plan, reason: 'git-status');
           }
+        case final type when type == RemoteMessageType.gitRead:
+          _handleGitRead(message.payload);
+        case final type when type == RemoteMessageType.aiSessionResult:
+          _handleAISessionResult(message.payload);
+        case final type when type == RemoteMessageType.sshListResult:
+          _handleSshListResult(message.payload);
         case final type when type == RemoteMessageType.fileRead:
           _handleFileRead(message);
         case final type when type == RemoteMessageType.fileWritten:
@@ -2293,6 +2187,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     CoduxLog.debug(
       '[codux-flutter-projects] project.list count=${next.length} selected=${_selectedProjectId ?? ''}',
     );
+    // Load AI history for the resolved selection. This is the auto-restore path
+    // (background reconnect) where no manual project tap fires; guarded so it
+    // only requests once per selected project.
+    _requestAISessions();
+    _refreshAIStats();
     unawaited(_cacheProjects(next));
   }
 
@@ -3135,79 +3034,221 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     return _remoteRuntime.currentProjectTerminals();
   }
 
-  void _selectTerminal(TerminalInfo terminal) {
-    if (!_isAccessibleTerminal(terminal)) return;
-    _terminalInputBatcher.flush();
-    setState(() => _workspaceMode = 'terminal');
-    final plan = _remoteRuntime.selectTerminal(terminal);
-    _applyRuntimePlan(plan, reason: 'select-terminal');
-    _focusTerminalViewSoon();
-  }
-
-  void _createCurrentProjectTerminal() {
-    final projectId = _selectedProjectId;
-    if (projectId == null) {
-      _showToast(_t('project.selectFirst'));
-      return;
-    }
-    setState(() => _workspaceMode = 'terminal');
-    _createTerminal(projectId);
-  }
-
-  void _createCurrentProjectTabTerminal() {
-    final projectId = _selectedProjectId;
-    if (projectId == null) {
-      _showToast(_t('project.selectFirst'));
-      return;
-    }
-    setState(() => _workspaceMode = 'terminal');
-    _createTerminal(projectId, 'tab');
-  }
-
-  void _closeCurrentTerminal() {
-    final terminal = _currentTerminal();
-    if (terminal == null || !_isAccessibleTerminal(terminal)) return;
-    _closeTerminal(terminal);
-  }
-
-  void _closeTerminal(TerminalInfo terminal) {
-    if (!_isAccessibleTerminal(terminal)) return;
-    final scopedTerminals = _currentProjectTerminals();
-    if (scopedTerminals.length <= 1 &&
-        scopedTerminals.any((item) => item.id == terminal.id)) {
-      _showToast(_t('terminal.keepOne'));
-      return;
-    }
-    final plan = _remoteRuntime.removeTerminal(terminal.id);
-    _applyRuntimePlan(plan, reason: 'close-terminal');
-    _sendTerminalEnvelope(
-      RelayEnvelope(
-        type: RemoteMessageType.terminalClose,
-        sessionId: terminal.id,
-      ),
-      terminal: terminal,
+  HomeTerminalActions get _terminalActions {
+    return HomeTerminalActions(
+      context: context,
+      t: _t,
+      mounted: mounted,
+      selectedProjectId: _selectedProjectId,
+      workspaceMode: _workspaceMode,
+      showToast: _showToast,
+      showTerminalWorkspace: _showTerminalWorkspace,
+      focusTerminalViewSoon: _focusTerminalViewSoon,
+      releaseTerminalViewport: _releaseTerminalViewport,
+      ensureSelectedProjectWorktrees: ({bool loading = false}) =>
+          _ensureSelectedProjectWorktrees(loading: loading),
+      pushTerminalSwitcher: (mutate) => _pushCupertinoPage(() {
+        _showTerminalSwitcher = true;
+        mutate();
+      }),
+      hideTerminalSwitcher: _hideTerminalSwitcher,
+      mountVisibleTerminal: ({required String reason}) =>
+          _mountVisibleTerminal(reason: reason),
+      currentTerminal: _currentTerminal,
+      currentProjectTerminals: _currentProjectTerminals,
+      isAccessibleTerminal: (terminal) =>
+          terminal != null && _isAccessibleTerminal(terminal),
+      runtime: _remoteRuntime,
+      inputBatcher: _terminalInputBatcher,
+      applyRuntimePlan: (plan, {required reason}) =>
+          _applyRuntimePlan(plan, reason: reason),
+      sendTerminalClose: (terminal) {
+        _sendTerminalEnvelope(
+          RelayEnvelope(
+            type: RemoteMessageType.terminalClose,
+            sessionId: terminal.id,
+          ),
+          terminal: terminal,
+        );
+      },
+      setTerminalReady: (ready) => _terminalReady = ready,
     );
   }
 
+  HomeRuntimeCoordinator get _runtimeCoordinator {
+    return HomeRuntimeCoordinator(
+      remoteProtocolReady: _remoteProtocolReady,
+      selectedProjectId: _selectedProjectId,
+      terminalBufferCapability: _terminalBufferCapability,
+      outputController: _terminalOutputController,
+      terminalRepaint: _terminalRepaint,
+      terminalInputSender: _terminalInputSender,
+      terminalInputBatcher: _terminalInputBatcher,
+      terminalBufferRetry: _terminalBufferRetry,
+      terminalBindingCoordinator: _terminalBindingCoordinator,
+      captureSnapshot: () => HomeRuntimeSnapshot(
+        selectedProjectId: _selectedProjectId,
+        selectedWorktreeId: _selectedWorktreeId,
+        sessionId: _sessionId,
+      ),
+      syncRuntimeViewState: _syncRuntimeViewState,
+      setTerminalBufferLoading: (loading) => _setTerminalBufferLoading(loading),
+      restoreTerminalSessionFromCache: _restoreTerminalSessionFromCache,
+      closeTerminalSwitcherAfterPendingWorktreeBuffer:
+          _closeTerminalSwitcherAfterPendingWorktreeBuffer,
+      trackTerminalBaselineRequest: _trackTerminalBaselineRequest,
+      releaseTerminalViewport: ({String? sessionId}) =>
+          _releaseTerminalViewport(sessionId: sessionId),
+      clearTerminal: _clearTerminal,
+      requestTerminalList: () => _requestTerminalList(resetRetry: true),
+      sendProjectSelect: (projectId, {required reason}) =>
+          _sendProjectSelect(projectId, reason: reason),
+      focusTerminalViewSoon: _focusTerminalViewSoon,
+      onSessionStateChanged: (previous, reason) {},
+    );
+  }
+
+  HomeWorkspaceBuilder get _workspaceBuilder {
+    return const HomeWorkspaceBuilder(padLayoutMinWidth: _padLayoutMinWidth);
+  }
+
+  HomeWorkspaceModeActions get _workspaceModeActions {
+    return HomeWorkspaceModeActions(
+      remoteProtocolReady: _remoteProtocolReady,
+      workspaceMode: _workspaceMode,
+      terminalDataVisible: _terminalDataVisible,
+      terminalListLoaded: _terminalListLoaded,
+      selectedProject: _selectedProject,
+      selectedWorktreeId: _selectedWorktreeId,
+      projectFilesPath: _projectFilesPath,
+      releaseTerminalViewport: _releaseTerminalViewport,
+      showToast: _showToast,
+      setModeState:
+          (mode, {bool terminalReady = false, bool aiStatsLoading = false}) {
+            setState(() {
+              _workspaceMode = mode;
+              _terminalReady = terminalReady;
+              _aiStatsLoading = aiStatsLoading;
+            });
+          },
+      setProjectFilesState: (path, {required bool loading}) {
+        setState(() {
+          _projectFilesLoading = loading;
+          _projectFilesPath = path;
+        });
+      },
+      focusTerminalViewSoon: _focusTerminalViewSoon,
+      mountVisibleTerminal: ({required String reason}) =>
+          _mountVisibleTerminal(reason: reason),
+      sendEnvelope: _send,
+      applyRuntimePlan: (plan, {required reason}) =>
+          _applyRuntimePlan(plan, reason: reason),
+      runtime: _remoteRuntime,
+      projectController: _projectController,
+      projectFileController: _projectFileController,
+    );
+  }
+
+  HomeWorktreeActions get _worktreeActions {
+    return HomeWorktreeActions(
+      context: context,
+      t: _t,
+      selectedProject: _selectedProject,
+      selectedProjectId: _selectedProjectId,
+      selectedWorktreeId: _selectedWorktreeId,
+      terminalDataVisible: _terminalDataVisible,
+      terminalListLoaded: _terminalListLoaded,
+      preferredBaseBranch: _defaultWorktreeBaseBranch ?? '',
+      worktreeBaseBranches: _worktreeBaseBranches,
+      worktreesForProject: _worktreesForProject,
+      showToast: _showToast,
+      flushTerminalInput: _terminalInputBatcher.flush,
+      closeTerminalSwitcher: _closeTerminalSwitcher,
+      markPendingSwitch: (projectId, worktreeId) {
+        _pendingWorktreeSwitch = PendingWorktreeSwitch(
+          projectId: projectId,
+          worktreeId: worktreeId,
+        );
+      },
+      clearPendingSwitch: () => _pendingWorktreeSwitch = null,
+      setWorktreeListLoading: (loading) => setState(() {
+        _worktreeListLoading = loading;
+      }),
+      setCreatingWorktree: (creating) => setState(() {
+        _creatingWorktree = creating;
+      }),
+      syncRuntimeViewState: _syncRuntimeViewState,
+      showTerminalWorkspace: _showTerminalWorkspace,
+      sendEnvelope: _send,
+      applyRuntimePlan: (plan, {required reason}) =>
+          _applyRuntimePlan(plan, reason: reason),
+      runtime: _remoteRuntime,
+      confirmAction:
+          ({
+            required String title,
+            required String message,
+            required bool destructive,
+          }) => _confirmWorktreeAction(
+            title: title,
+            message: message,
+            destructive: destructive,
+          ),
+      worktreeTitle: _worktreeTitle,
+      selectEnvelope: _worktreeController.selectEnvelope,
+      createEnvelope:
+          ({
+            required ProjectInfo project,
+            required String baseBranch,
+            required String name,
+          }) => _worktreeController.createEnvelope(
+            project: project,
+            baseBranch: baseBranch,
+            name: name,
+          ),
+      deleteEnvelope: _worktreeController.deleteEnvelope,
+      mergeEnvelope: _worktreeController.mergeEnvelope,
+    );
+  }
+
+  void _selectTerminal(TerminalInfo terminal) {
+    _terminalActions.selectTerminal(terminal);
+  }
+
+  void _createCurrentProjectTerminal() {
+    _terminalActions.createTerminalForSelectedProject(_createTerminal);
+  }
+
+  void _createCurrentProjectTabTerminal() {
+    _terminalActions.createTerminalForSelectedProject(
+      _createTerminal,
+      layoutKind: 'tab',
+    );
+  }
+
+  void _showTerminalWorkspace() {
+    if (!mounted) return;
+    setState(() => _workspaceMode = 'terminal');
+  }
+
+  void _closeCurrentTerminal() {
+    _terminalActions.closeCurrentTerminal();
+  }
+
+  void _closeTerminal(TerminalInfo terminal) {
+    _terminalActions.closeTerminal(terminal);
+  }
+
   Future<void> _openTerminalSwitcher() async {
-    if (_showTerminalSwitcher) return;
-    if (_workspaceMode == 'terminal') {
-      _releaseTerminalViewport();
-    }
-    _ensureSelectedProjectWorktrees(loading: true);
-    await _pushCupertinoPage(() {
-      _showTerminalSwitcher = true;
-      _terminalReady = false;
-    });
+    await _terminalActions.openTerminalSwitcher(_showTerminalSwitcher);
   }
 
   void _closeTerminalSwitcher() {
     _pendingWorktreeSwitch = null;
-    _popCupertinoPage(() {
-      _showTerminalSwitcher = false;
-    }).then((_) {
-      if (mounted) _mountVisibleTerminal(reason: 'switcher-close');
-    });
+    _terminalActions.closeTerminalSwitcher(_popCupertinoPage);
+  }
+
+  void _hideTerminalSwitcher() {
+    _showTerminalSwitcher = false;
   }
 
   void _selectTerminalFromSwitcher(TerminalInfo terminal) {
@@ -3216,141 +3257,19 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _selectWorktree(RemoteWorktreeInfo worktree) {
-    final project = _selectedProject;
-    if (project == null) {
-      _showToast(_t('project.selectFirst'));
-      return;
-    }
-    if (worktree.projectId != project.id) {
-      CoduxLog.warn(
-        '[codux-flutter-worktree] ignore select project=${project.id} worktree=${worktree.id} worktreeProject=${worktree.projectId}',
-      );
-      return;
-    }
-    if (worktree.id == _selectedWorktreeId) {
-      _closeTerminalSwitcher();
-      return;
-    }
-    _terminalInputBatcher.flush();
-    _pendingWorktreeSwitch = _PendingWorktreeSwitch(
-      projectId: project.id,
-      worktreeId: worktree.id,
-    );
-    final plan = _remoteRuntime.worktreeSelected(
-      projectId: project.id,
-      worktreeId: worktree.id,
-      terminalVisible: _terminalDataVisible,
-      terminalListLoaded: _terminalListLoaded,
-    );
-    setState(() {
-      _workspaceMode = 'terminal';
-      _syncRuntimeViewState();
-      _worktreeListLoading = true;
-    });
-    final sent = _send(_worktreeController.selectEnvelope(project, worktree));
-    if (!sent) {
-      _pendingWorktreeSwitch = null;
-      setState(() => _worktreeListLoading = false);
-      return;
-    }
-    _applyRuntimePlan(plan, reason: 'worktree-local-select');
+    _worktreeActions.selectWorktree(worktree);
   }
 
   Future<void> _createWorktree() async {
-    final project = _selectedProject;
-    if (project == null || project.path == null || project.path!.isEmpty) {
-      _showToast(_t('project.selectPathFirst'));
-      return;
-    }
-    final branchOptions = _worktreeCreatorBranchOptions();
-    final request = await showDialog<WorktreeCreateDraft>(
-      context: context,
-      builder: (ctx) => WorktreeCreateDialog(
-        title: _t('worktree.new'),
-        baseBranchLabel: _t('worktree.baseBranch'),
-        nameLabel: _t('worktree.name'),
-        cancelLabel: _t('app.cancel'),
-        createLabel: _t('common.create'),
-        branchOptions: branchOptions,
-        initialBaseBranch: _worktreeCreatorDefaultBaseBranch(branchOptions),
-        initialName: defaultWorktreeName(),
-      ),
-    );
-    if (request == null) return;
-    if (request.baseBranch.isEmpty) {
-      _showToast(_t('worktree.baseBranchRequired'));
-      return;
-    }
-    if (request.name.isEmpty) {
-      _showToast(_t('worktree.nameRequired'));
-      return;
-    }
-    setState(() {
-      _worktreeListLoading = true;
-      _creatingWorktree = true;
-    });
-    _send(
-      _worktreeController.createEnvelope(
-        project: project,
-        baseBranch: request.baseBranch,
-        name: request.name,
-      ),
-    );
-  }
-
-  List<String> _worktreeCreatorBranchOptions() {
-    final projectId = _selectedProjectId;
-    return worktreeBranchOptions(
-      defaultBaseBranch: _defaultWorktreeBaseBranch,
-      baseBranches: _worktreeBaseBranches,
-      worktrees: projectId == null ? const [] : _worktreesForProject(projectId),
-    );
-  }
-
-  String _worktreeCreatorDefaultBaseBranch(List<String> options) {
-    return defaultWorktreeBaseBranch(
-      preferred: _defaultWorktreeBaseBranch,
-      options: options,
-    );
+    await _worktreeActions.createWorktree();
   }
 
   Future<void> _mergeWorktree(RemoteWorktreeInfo worktree) async {
-    final confirmed = await _confirmWorktreeAction(
-      title: _t('worktree.merge'),
-      message: _t(
-        'worktree.mergeConfirm',
-        params: {'name': _worktreeTitle(worktree)},
-      ),
-      destructive: false,
-    );
-    if (!confirmed) return;
-    _sendWorktreeOperation(RemoteMessageType.worktreeMerge, worktree);
+    await _worktreeActions.mergeWorktree(worktree);
   }
 
   Future<void> _deleteWorktree(RemoteWorktreeInfo worktree) async {
-    final confirmed = await _confirmWorktreeAction(
-      title: _t('worktree.delete'),
-      message: _t(
-        'worktree.deleteConfirm',
-        params: {'name': _worktreeTitle(worktree)},
-      ),
-      destructive: true,
-    );
-    if (!confirmed) return;
-    _sendWorktreeOperation(RemoteMessageType.worktreeDelete, worktree);
-  }
-
-  void _sendWorktreeOperation(String type, RemoteWorktreeInfo worktree) {
-    final project = _selectedProject;
-    if (project == null || project.path == null || project.path!.isEmpty) {
-      _showToast(_t('project.selectPathFirst'));
-      return;
-    }
-    setState(() => _worktreeListLoading = true);
-    final envelope = type == RemoteMessageType.worktreeDelete
-        ? _worktreeController.deleteEnvelope(project, worktree)
-        : _worktreeController.mergeEnvelope(project, worktree);
-    _send(envelope);
+    await _worktreeActions.deleteWorktree(worktree);
   }
 
   Future<bool> _confirmWorktreeAction({
@@ -3395,6 +3314,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _requestProjectList(resetRetry: true);
     _requestTerminalList(resetRetry: true);
     _requestGitStatus();
+    _refreshAIStats();
+    _requestAISessions(force: true);
+    _requestSshProfiles();
   }
 
   void _rebuildCurrentTerminal() {
@@ -3542,82 +3464,114 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _requestAIStats() {
-    final project = _selectedProject;
-    if (project == null) {
-      _showToast(_t('project.selectFirst'));
-      return;
-    }
-    if (_workspaceMode == 'terminal') {
-      _releaseTerminalViewport();
-    }
-    setState(() {
-      _workspaceMode = 'stats';
-      _aiStatsLoading = true;
-    });
-    _send(_projectController.aiStatsEnvelope(project));
+    _workspaceModeActions.requestAIStats(_t('project.selectFirst'));
+  }
+
+  void _refreshAIStats() {
+    _workspaceModeActions.refreshAIStats();
   }
 
   void _requestGitStatus() {
-    final project = _selectedProject;
-    if (!_remoteProtocolReady || project == null) return;
-    _send(_projectController.gitStatusEnvelope(project));
+    _workspaceModeActions.requestGitStatus();
   }
 
-  void _syncTerminalToSelectedProject({bool requestListIfMissing = true}) {
-    if (!_terminalDataVisible) return;
-    final plan = _remoteRuntime.ensureTerminalForSelectedProject(
-      terminalVisible: _terminalDataVisible,
-      terminalListLoaded: requestListIfMissing && _terminalListLoaded,
-    );
-    _applyRuntimePlan(plan, reason: 'missing-terminal');
+  void _gitAction(String op, {Map<String, dynamic> args = const {}}) {
+    _workspaceModeActions.gitInvoke(op, args: args);
+  }
+
+  void _requestAISessions({bool force = false}) {
+    final project = _selectedProject;
+    if (project == null) return;
+    if (!force && _aiSessionsProjectId == project.id) return;
+    _aiSessionsProjectId = project.id;
+    _send(_projectController.aiSessionListEnvelope(project));
+  }
+
+  void _handleAISessionResult(Object? payload) {
+    if (payload is! Map) return;
+    if ('${payload['op'] ?? ''}' != 'list') return;
+    final result = payload['result'];
+    if (result is! List) return;
+    if (!mounted) return;
+    setState(() {
+      _aiSessions = result
+          .whereType<Map>()
+          .map(
+            (item) => AISessionRecord.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList();
+    });
+  }
+
+  void _requestSshProfiles() {
+    _send(_projectController.sshListEnvelope());
+  }
+
+  void _handleSshListResult(Object? payload) {
+    if (payload is! Map) return;
+    final profiles = payload['profiles'];
+    if (profiles is! List) return;
+    if (!mounted) return;
+    setState(() {
+      _sshProfiles = profiles
+          .whereType<Map>()
+          .map(
+            (item) =>
+                RemoteSshProfile.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList();
+    });
+  }
+
+  void _requestGitDiff(String path) {
+    setState(() {
+      _gitDiffPath = path;
+      _gitDiff = null;
+    });
+    _workspaceModeActions.requestGitDiff(path);
+  }
+
+  void _handleGitRead(Object? payload) {
+    if (payload is! Map) return;
+    final op = '${payload['op'] ?? ''}';
+    final result = payload['result'];
+    if (op == 'diff' && result is Map && mounted) {
+      setState(() {
+        _gitDiff = RemoteGitDiff.fromResult(Map<String, dynamic>.from(result));
+      });
+    }
   }
 
   void _showTerminalMode() {
-    setState(() {
-      _workspaceMode = 'terminal';
-      _terminalReady = false;
-    });
-    _syncTerminalToSelectedProject();
-    _mountVisibleTerminal(reason: 'mode');
-    _requestGitStatus();
-    _focusTerminalViewSoon();
+    _workspaceModeActions.showTerminalMode();
   }
 
   void _showFilesMode() {
-    final project = _selectedProject;
-    if (project == null) {
-      _showToast(_t('project.selectFirst'));
-      return;
-    }
-    final targetPath = _projectFileController.pathForProject(
-      project,
-      currentPath: _projectFilesPath,
+    _workspaceModeActions.showFilesMode(
+      _t('project.selectFirst'),
+      _t('project.currentNoDir'),
     );
-    if (_workspaceMode == 'terminal') {
-      _releaseTerminalViewport();
-    }
-    setState(() {
-      _workspaceMode = 'files';
-    });
+  }
+
+  void _showReviewMode() {
+    setState(() => _workspaceMode = 'review');
+  }
+
+  void _showSshMode() {
+    setState(() => _workspaceMode = 'ssh');
+    _requestSshProfiles();
+  }
+
+  void _showGitMode() {
+    setState(() => _workspaceMode = 'git');
     _requestGitStatus();
-    _requestProjectFiles(targetPath);
   }
 
   void _requestProjectFiles([String? path]) {
-    final project = _selectedProject;
-    final target = path ?? project?.path;
-    if (target == null || target.isEmpty) {
-      _showToast(_t('project.currentNoDir'));
-      return;
-    }
-    setState(() {
-      _projectFilesLoading = true;
-      _projectFilesPath = target;
-      if (project != null) {
-        _projectFileController.remember(projectId: project.id, path: target);
-      }
-    });
-    _send(_projectFileController.listEnvelope(target));
+    _workspaceModeActions.requestProjectFiles(
+      _t('project.currentNoDir'),
+      path: path,
+    );
   }
 
   Future<void> _copyProjectFilePath(RemoteFileEntry entry) async {
@@ -3675,6 +3629,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     if (entry.isDirectory) return;
     final fileState = _projectFileController.beginReadState(entry);
     setState(() {
+      _workspaceMode = 'files';
       _applyFileEditorState(fileState);
     });
     _send(_projectFileController.readEnvelope(entry));
@@ -3851,10 +3806,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     );
     _applyRuntimePlan(plan, reason: 'user-select');
     _ensureSelectedProjectWorktrees(loading: _showTerminalSwitcher);
+    _requestAISessions(force: true);
     if (_workspaceMode == 'stats') {
       _requestAIStats();
       return;
     }
+    _refreshAIStats();
     if (_workspaceMode == 'files') {
       _requestProjectFiles(project.path);
       return;
@@ -4392,7 +4349,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
               filePickerLoading: _filePickerLoading,
               showVoiceOverlay: _showVoiceOverlay,
               voiceService: _voiceService,
-              editingFilePath: _editingFilePath,
+              // On the pad the editor renders inline in the center pane, so the
+              // bottom-sheet overlay is suppressed there to avoid a double editor.
+              editingFilePath: media.size.width >= _padLayoutMinWidth
+                  ? null
+                  : _editingFilePath,
               fileEditorController: _fileEditorController,
               fileEditorLoading: _fileEditorLoading,
               fileEditorSaving: _fileEditorSaving,
@@ -4591,27 +4552,47 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onVoiceInput: _startVoiceInput,
     );
 
-    return RemoteWorkspaceView(
+    return _buildWorkspaceShell(topInset, terminalBody);
+  }
+
+  Widget _buildWorkspaceShell(double topInset, Widget terminalBody) {
+    final shellData = _workspaceShellData;
+    return _workspaceBuilder.build(
+      context: context,
       topInset: topInset,
       workspaceMode: _workspaceMode,
       connected: _isConnected,
       latencyMs: _latencyMs,
+      deviceName: _activeDevice?.hostName?.trim().isNotEmpty == true
+          ? _activeDevice!.hostName!.trim()
+          : (_activeDevice?.name ?? ''),
       projects: _projects,
       selectedProjectId: _selectedProjectId,
       projectListLoaded: _projectListLoaded,
-      terminals: _currentProjectTerminals(),
+      selectedWorktreeId: _selectedWorktreeId,
       activeTerminalId: _sessionId,
       hasCurrentTerminal: _currentTerminal() != null,
-      aiStats: _currentAIStats,
-      aiStatsLoading: _aiStatsLoading,
-      projectFilesPath: _projectFilesPath,
-      projectFilesParent: _projectFilesParent,
-      projectFileEntries: _projectFileEntries,
-      projectFilesLoading: _projectFilesLoading,
+      shellData: shellData,
       terminalBody: terminalBody,
       onShowTerminal: _showTerminalMode,
       onShowStats: _requestAIStats,
       onShowFiles: _showFilesMode,
+      onShowReview: _showReviewMode,
+      onShowSsh: _showSshMode,
+      onShowGit: _showGitMode,
+      onGitAction: (op, args) => _gitAction(op, args: args),
+      gitDiff: _gitDiff,
+      reviewSelectedPath: _gitDiffPath,
+      onSelectReviewFile: _requestGitDiff,
+      editingFilePath: _editingFilePath,
+      fileEditorController: _fileEditorController,
+      fileEditorLoading: _fileEditorLoading,
+      fileEditorSaving: _fileEditorSaving,
+      fileEditorEditing: _fileEditorEditing,
+      fileEditorEditable: _fileEditorEditable,
+      onEditFile: () => setState(() => _fileEditorEditing = true),
+      onSaveFile: _saveEditingFile,
+      onCloseFileEditor: () => setState(() => _editingFilePath = null),
       onBack: () => setState(() {
         _showTerminal = false;
         _workspaceMode = 'terminal';
@@ -4620,20 +4601,71 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onAddProject: _requestProjectAdd,
       onRemoveProject: _requestProjectRemove,
       onSelectProject: _onProjectSelected,
+      onSelectWorktree: _selectWorktree,
+      onCreateWorktree: _createWorktree,
       onSelectTerminal: _selectTerminal,
       onRefreshLists: _refreshLists,
       onCreateTerminal: _createCurrentProjectTerminal,
       onCloseCurrentTerminal: _closeCurrentTerminal,
+      onCloseTerminal: _closeTerminal,
+      onRenameSession: _renameTerminalSession,
       onRebuildTerminal: _rebuildCurrentTerminal,
       onOpenTerminalSwitcher: _openTerminalSwitcher,
       onRequestProjectFiles: _requestProjectFiles,
       onOpenProjectFile: _requestFileRead,
-      onOpenProjectHome: () => _openFileLocation(_selectedProject?.path ?? ''),
-      onOpenProjectRoot: () => _openFileLocation('/'),
-      onOpenProjectVolumes: () => _openFileLocation('/Volumes'),
+      onOpenProjectHome: _openSelectedProjectHome,
+      onOpenProjectRoot: _openProjectRoot,
+      onOpenProjectVolumes: _openProjectVolumes,
       onRenameProjectFile: _renameProjectFile,
       onCopyProjectFilePath: _copyProjectFilePath,
       onDeleteProjectFile: _deleteProjectFile,
     );
+  }
+
+  List<TerminalInfo> get _workspaceTerminals {
+    return _currentProjectTerminals();
+  }
+
+  WorkspaceShellData get _workspaceShellData {
+    return WorkspaceShellData(
+      terminals: _workspaceTerminals,
+      worktrees: _selectedProjectWorktrees,
+      aiStats: _currentAIStats,
+      aiStatsLoading: _aiStatsLoading,
+      gitStatus: _remoteRuntime.selectedGitStatus,
+      currentSessions: _currentAIStats?.currentSessions ?? const [],
+      aiSessions: _aiSessions,
+      sshProfiles: _sshProfiles,
+      projectFilesPath: _projectFilesPath,
+      projectFilesParent: _projectFilesParent,
+      projectFileEntries: _projectFileEntries,
+      projectFilesLoading: _projectFilesLoading,
+    );
+  }
+
+  List<RemoteWorktreeInfo> get _selectedProjectWorktrees {
+    final projectId = _selectedProjectId;
+    if (projectId == null) return const [];
+    return _worktreesForProject(projectId);
+  }
+
+  void _openSelectedProjectHome() {
+    _openFileLocation(_selectedProject?.path ?? '');
+  }
+
+  void _openProjectRoot() {
+    _openFileLocation('/');
+  }
+
+  void _openProjectVolumes() {
+    _openFileLocation('/Volumes');
+  }
+
+  Future<void> _renameTerminalSession(TerminalInfo terminal) async {
+    final next = await _terminalActions.showRenameDialog(terminal.title.trim());
+    if (!mounted || next == null) return;
+    final trimmed = next.trim();
+    if (trimmed.isEmpty || trimmed == terminal.title.trim()) return;
+    _terminalActions.logRenameNotWired(trimmed);
   }
 }

@@ -19,6 +19,9 @@ class ProjectFilesPanel extends StatelessWidget {
     required this.onRename,
     required this.onCopyPath,
     required this.onDelete,
+    this.showTopBar = true,
+    this.showFooterPath = false,
+    this.highlightMenuRows = true,
   });
 
   final String path;
@@ -34,6 +37,9 @@ class ProjectFilesPanel extends StatelessWidget {
   final ValueChanged<RemoteFileEntry> onRename;
   final ValueChanged<RemoteFileEntry> onCopyPath;
   final ValueChanged<RemoteFileEntry> onDelete;
+  final bool showTopBar;
+  final bool showFooterPath;
+  final bool highlightMenuRows;
 
   @override
   Widget build(BuildContext context) {
@@ -43,60 +49,14 @@ class ProjectFilesPanel extends StatelessWidget {
       color: AppColors.bgBase,
       child: Column(
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.l,
-              AppSpacing.m,
-              AppSpacing.l,
-              AppSpacing.s,
+          if (showTopBar)
+            _ProjectFilesTopBar(
+              path: path,
+              onRefresh: onRefresh,
+              onOpenHome: onOpenHome,
+              onOpenRoot: onOpenRoot,
+              onOpenVolumes: onOpenVolumes,
             ),
-            color: AppColors.bgSurface,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    path.isEmpty ? prefs.t('project.currentDir') : path,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.textMuted,
-                      fontSize: AppTextSize.small,
-                    ),
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  icon: Icon(Icons.storage_rounded, color: accent, size: 19),
-                  color: AppColors.bgSurface,
-                  onSelected: (value) {
-                    if (value == 'home') onOpenHome();
-                    if (value == 'root') onOpenRoot();
-                    if (value == 'volumes') onOpenVolumes();
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'home', child: Text('Home')),
-                    PopupMenuItem(
-                      value: 'volumes',
-                      child: Text(prefs.t('storage.volumes')),
-                    ),
-                    PopupMenuItem(
-                      value: 'root',
-                      child: Text(prefs.t('storage.root')),
-                    ),
-                  ],
-                ),
-                SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: IconButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: onRefresh,
-                    icon: Icon(Icons.refresh, color: accent, size: 18),
-                  ),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: loading
                 ? Center(child: CircularProgressIndicator(color: accent))
@@ -116,6 +76,7 @@ class ProjectFilesPanel extends StatelessWidget {
                           name: prefs.t('project.parentDir'),
                           path: parent!,
                           accent: accent,
+                          highlightMenuOpen: highlightMenuRows,
                           onTap: () => onOpenPath(parent!),
                         );
                       }
@@ -128,6 +89,7 @@ class ProjectFilesPanel extends StatelessWidget {
                         name: item.name,
                         path: item.path,
                         accent: accent,
+                        highlightMenuOpen: highlightMenuRows,
                         onTap: item.isDirectory
                             ? () => onOpenPath(item.path)
                             : () => onOpenFile(item),
@@ -138,7 +100,240 @@ class ProjectFilesPanel extends StatelessWidget {
                     },
                   ),
           ),
+          if (showFooterPath) _ProjectFilesFooterPath(path: path),
         ],
+      ),
+    );
+  }
+}
+
+class ProjectFilesPanelActions extends StatelessWidget {
+  const ProjectFilesPanelActions({
+    super.key,
+    required this.onRefresh,
+    required this.onOpenHome,
+    required this.onOpenRoot,
+    required this.onOpenVolumes,
+    this.dense = false,
+    this.menuColor,
+    this.plain = false,
+  });
+
+  final VoidCallback onRefresh;
+  final VoidCallback onOpenHome;
+  final VoidCallback onOpenRoot;
+  final VoidCallback onOpenVolumes;
+  final bool dense;
+  final Color? menuColor;
+  final bool plain;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final prefs = AppPreferences.of(context);
+    final buttonSize = dense ? 34.0 : 40.0;
+    if (plain) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PlainHeaderIconButton(
+            size: buttonSize,
+            icon: Icons.storage_rounded,
+            color: accent,
+            onTap: () => _showStorageMenu(context, prefs),
+          ),
+          _PlainHeaderIconButton(
+            size: buttonSize,
+            icon: Icons.refresh,
+            color: accent,
+            onTap: onRefresh,
+          ),
+        ],
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: buttonSize,
+          height: buttonSize,
+          child: PopupMenuButton<String>(
+            padding: EdgeInsets.zero,
+            icon: Icon(Icons.storage_rounded, color: accent, size: 19),
+            color: menuColor ?? AppColors.bgSurface,
+            constraints: BoxConstraints.tightFor(
+              width: buttonSize,
+              height: buttonSize,
+            ),
+            onSelected: (value) {
+              if (value == 'home') onOpenHome();
+              if (value == 'root') onOpenRoot();
+              if (value == 'volumes') onOpenVolumes();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'home', child: Text('Home')),
+              PopupMenuItem(
+                value: 'volumes',
+                child: Text(prefs.t('storage.volumes')),
+              ),
+              PopupMenuItem(
+                value: 'root',
+                child: Text(prefs.t('storage.root')),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          width: buttonSize,
+          height: buttonSize,
+          child: IconButton(
+            padding: EdgeInsets.zero,
+            constraints: BoxConstraints.tightFor(
+              width: buttonSize,
+              height: buttonSize,
+            ),
+            onPressed: onRefresh,
+            icon: Icon(Icons.refresh, color: accent, size: 18),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showStorageMenu(
+    BuildContext context,
+    AppPreferences prefs,
+  ) async {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final button = context.findRenderObject() as RenderBox;
+    final offset = button.localToGlobal(Offset.zero, ancestor: overlay);
+    final value = await showMenu<String>(
+      context: context,
+      color: menuColor ?? AppColors.bgSurface,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(
+          offset.dx,
+          offset.dy,
+          button.size.width,
+          button.size.height,
+        ),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        const PopupMenuItem(value: 'home', child: Text('Home')),
+        PopupMenuItem(
+          value: 'volumes',
+          child: Text(prefs.t('storage.volumes')),
+        ),
+        PopupMenuItem(value: 'root', child: Text(prefs.t('storage.root'))),
+      ],
+    );
+    if (value == 'home') onOpenHome();
+    if (value == 'root') onOpenRoot();
+    if (value == 'volumes') onOpenVolumes();
+  }
+}
+
+class _PlainHeaderIconButton extends StatelessWidget {
+  const _PlainHeaderIconButton({
+    required this.size,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final double size;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Center(child: Icon(icon, color: color, size: 18)),
+      ),
+    );
+  }
+}
+
+class _ProjectFilesTopBar extends StatelessWidget {
+  const _ProjectFilesTopBar({
+    required this.path,
+    required this.onRefresh,
+    required this.onOpenHome,
+    required this.onOpenRoot,
+    required this.onOpenVolumes,
+  });
+
+  final String path;
+  final VoidCallback onRefresh;
+  final VoidCallback onOpenHome;
+  final VoidCallback onOpenRoot;
+  final VoidCallback onOpenVolumes;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.l,
+        AppSpacing.m,
+        AppSpacing.l,
+        AppSpacing.s,
+      ),
+      color: AppColors.bgSurface,
+      child: Row(
+        children: [
+          Expanded(child: _ProjectFilesPathText(path: path)),
+          ProjectFilesPanelActions(
+            onRefresh: onRefresh,
+            onOpenHome: onOpenHome,
+            onOpenRoot: onOpenRoot,
+            onOpenVolumes: onOpenVolumes,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProjectFilesFooterPath extends StatelessWidget {
+  const _ProjectFilesFooterPath({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 32,
+      color: const Color(0xFF111820),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      alignment: Alignment.centerLeft,
+      child: _ProjectFilesPathText(path: path),
+    );
+  }
+}
+
+class _ProjectFilesPathText extends StatelessWidget {
+  const _ProjectFilesPathText({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    final prefs = AppPreferences.of(context);
+    return Text(
+      path.isEmpty ? prefs.t('project.currentDir') : path,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: AppColors.textMuted,
+        fontSize: AppTextSize.small,
       ),
     );
   }
@@ -150,6 +345,7 @@ class _ProjectFileRow extends StatefulWidget {
     required this.name,
     required this.path,
     required this.accent,
+    required this.highlightMenuOpen,
     required this.onTap,
     this.onRename,
     this.onCopyPath,
@@ -160,6 +356,7 @@ class _ProjectFileRow extends StatefulWidget {
   final String name;
   final String path;
   final Color accent;
+  final bool highlightMenuOpen;
   final VoidCallback onTap;
   final VoidCallback? onRename;
   final VoidCallback? onCopyPath;
@@ -184,7 +381,7 @@ class _ProjectFileRowState extends State<_ProjectFileRow> {
     child: AnimatedContainer(
       duration: const Duration(milliseconds: 120),
       curve: Curves.easeOutCubic,
-      color: _menuOpen
+      color: _menuOpen && widget.highlightMenuOpen
           ? widget.accent.withValues(alpha: 0.14)
           : Colors.transparent,
       child: Padding(
@@ -446,10 +643,6 @@ class FileEditorOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.secondary;
-    final prefs = AppPreferences.of(context);
-    final pathParts = path.split('/').where((item) => item.isNotEmpty).toList();
-    final fileName = pathParts.isEmpty ? path : pathParts.last;
     return Positioned.fill(
       child: Material(
         color: AppColors.backdrop,
@@ -474,101 +667,17 @@ class FileEditorOverlay extends StatelessWidget {
                     ),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    children: [
-                      Container(
-                        height: 54,
-                        decoration: const BoxDecoration(
-                          color: AppColors.bgSurface,
-                          border: Border(
-                            bottom: BorderSide(
-                              color: AppColors.border,
-                              width: 0.5,
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              onPressed: onClose,
-                              icon: const Icon(
-                                Icons.keyboard_arrow_down,
-                                size: 26,
-                              ),
-                              color: AppColors.textPrimary,
-                            ),
-                            Expanded(
-                              child: Text(
-                                fileName.isNotEmpty ? fileName : path,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: AppTextSize.body,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            if (!editing)
-                              TextButton(
-                                onPressed: loading || !editable ? null : onEdit,
-                                child: Text(
-                                  editable
-                                      ? prefs.t('file.edit')
-                                      : prefs.t('file.readOnlyLarge'),
-                                ),
-                              )
-                            else
-                              TextButton(
-                                onPressed: loading || saving ? null : onSave,
-                                child: saving
-                                    ? SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: accent,
-                                        ),
-                                      )
-                                    : Text(prefs.t('file.save')),
-                              ),
-                            const SizedBox(width: AppSpacing.s),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: loading
-                            ? Center(
-                                child: CircularProgressIndicator(color: accent),
-                              )
-                            : Container(
-                                color: const Color(0xFF070A0F),
-                                child: TextField(
-                                  controller: controller,
-                                  expands: true,
-                                  maxLines: null,
-                                  minLines: null,
-                                  readOnly: !editing,
-                                  showCursor: editing,
-                                  keyboardType: TextInputType.multiline,
-                                  textAlignVertical: TextAlignVertical.top,
-                                  style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: AppTextSize.small,
-                                    height: 1.42,
-                                    fontFamily: 'monospace',
-                                  ),
-                                  cursorColor: accent,
-                                  decoration: const InputDecoration(
-                                    border: InputBorder.none,
-                                    contentPadding: EdgeInsets.all(
-                                      AppSpacing.m,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ],
+                  child: FileEditorView(
+                    path: path,
+                    controller: controller,
+                    loading: loading,
+                    saving: saving,
+                    editing: editing,
+                    editable: editable,
+                    onClose: onClose,
+                    onEdit: onEdit,
+                    onSave: onSave,
+                    closeIcon: Icons.keyboard_arrow_down,
                   ),
                 ),
               ),
@@ -576,6 +685,130 @@ class FileEditorOverlay extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The editor content (header + code field) without any sheet/backdrop chrome,
+/// so it can be embedded directly in the pad center pane or wrapped by the
+/// phone bottom-sheet overlay.
+class FileEditorView extends StatelessWidget {
+  const FileEditorView({
+    super.key,
+    required this.path,
+    required this.controller,
+    required this.loading,
+    required this.saving,
+    required this.editing,
+    required this.editable,
+    required this.onClose,
+    required this.onEdit,
+    required this.onSave,
+    this.closeIcon = Icons.close_rounded,
+  });
+
+  final String path;
+  final TextEditingController controller;
+  final bool loading;
+  final bool saving;
+  final bool editing;
+  final bool editable;
+  final VoidCallback onClose;
+  final VoidCallback onEdit;
+  final VoidCallback onSave;
+  final IconData closeIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final prefs = AppPreferences.of(context);
+    final pathParts = path.split('/').where((item) => item.isNotEmpty).toList();
+    final fileName = pathParts.isEmpty ? path : pathParts.last;
+    return Column(
+      children: [
+        Container(
+          height: 48,
+          decoration: const BoxDecoration(
+            color: AppColors.bgSurface,
+            border: Border(
+              bottom: BorderSide(color: AppColors.border, width: 0.5),
+            ),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: onClose,
+                icon: Icon(closeIcon, size: 22),
+                color: AppColors.textPrimary,
+              ),
+              Expanded(
+                child: Text(
+                  fileName.isNotEmpty ? fileName : path,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: AppTextSize.body,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (!editing)
+                TextButton(
+                  onPressed: loading || !editable ? null : onEdit,
+                  child: Text(
+                    editable
+                        ? prefs.t('file.edit')
+                        : prefs.t('file.readOnlyLarge'),
+                  ),
+                )
+              else
+                TextButton(
+                  onPressed: loading || saving ? null : onSave,
+                  child: saving
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: accent,
+                          ),
+                        )
+                      : Text(prefs.t('file.save')),
+                ),
+              const SizedBox(width: AppSpacing.s),
+            ],
+          ),
+        ),
+        Expanded(
+          child: loading
+              ? Center(child: CircularProgressIndicator(color: accent))
+              : Container(
+                  color: const Color(0xFF070A0F),
+                  child: TextField(
+                    controller: controller,
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    readOnly: !editing,
+                    showCursor: editing,
+                    keyboardType: TextInputType.multiline,
+                    textAlignVertical: TextAlignVertical.top,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: AppTextSize.small,
+                      height: 1.42,
+                      fontFamily: 'monospace',
+                    ),
+                    cursorColor: accent,
+                    decoration: const InputDecoration(
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.all(AppSpacing.m),
+                    ),
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }

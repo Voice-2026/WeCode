@@ -506,6 +506,83 @@ class RemoteGitFileStatus {
   };
 }
 
+/// Result of a `git.read {op: "diff"}` query — a unified diff for one path.
+/// Mirrors the host `GitDiffSnapshot` shape.
+class RemoteGitDiff {
+  const RemoteGitDiff({
+    required this.path,
+    required this.diff,
+    required this.isRepository,
+    this.error,
+  });
+
+  final String path;
+  final String diff;
+  final bool isRepository;
+  final String? error;
+
+  factory RemoteGitDiff.fromResult(Map<String, dynamic> result) =>
+      RemoteGitDiff(
+        path: '${result['path'] ?? ''}',
+        diff: '${result['diff'] ?? ''}',
+        isRepository: result['isRepository'] == true,
+        error: result['error']?.toString(),
+      );
+}
+
+/// One AI conversation-history record from `ai.session` (op `list`). Mirrors the
+/// shared `RemoteAISessionSummary` DTO — same fields from any host.
+class AISessionRecord {
+  const AISessionRecord({
+    required this.id,
+    required this.title,
+    required this.tool,
+    required this.model,
+    required this.time,
+    required this.size,
+  });
+
+  final String id;
+  final String title;
+  final String tool;
+  final String? model;
+  final double time;
+  final int size;
+
+  factory AISessionRecord.fromJson(Map<String, dynamic> json) => AISessionRecord(
+    id: '${json['id'] ?? ''}',
+    title: '${json['title'] ?? ''}',
+    tool: '${json['tool'] ?? ''}',
+    model: json['model']?.toString(),
+    time: (json['time'] is num) ? (json['time'] as num).toDouble() : 0,
+    size: (json['size'] is num) ? (json['size'] as num).toInt() : 0,
+  );
+}
+
+/// One saved SSH profile from `ssh.list` — mirrors the shared
+/// `RemoteSshProfileSummary` DTO. The host owns the profiles; no secrets.
+class RemoteSshProfile {
+  const RemoteSshProfile({
+    required this.id,
+    required this.name,
+    required this.endpoint,
+    required this.credential,
+  });
+
+  final String id;
+  final String name;
+  final String endpoint;
+  final String credential;
+
+  factory RemoteSshProfile.fromJson(Map<String, dynamic> json) =>
+      RemoteSshProfile(
+        id: '${json['id'] ?? ''}',
+        name: '${json['name'] ?? ''}',
+        endpoint: '${json['endpoint'] ?? ''}',
+        credential: '${json['credential'] ?? ''}',
+      );
+}
+
 class AIStatsInfo {
   const AIStatsInfo({
     required this.projectName,
@@ -545,44 +622,50 @@ class AIStatsInfo {
   final List<AIStatsBreakdownItem> toolBreakdown;
   final List<AIStatsBreakdownItem> modelBreakdown;
 
-  factory AIStatsInfo.fromJson(Map<String, dynamic> json) => AIStatsInfo(
-    projectName: '${json['projectName'] ?? 'Project'}',
-    todayTokens:
-        _intValue(json['todayTotalTokens']) ??
-        _intValue(json['todayTokens']) ??
-        0,
-    totalTokens:
-        _intValue(json['projectTotalTokens']) ??
-        _intValue(json['totalTokens']) ??
-        0,
-    currentSessionTokens: _intValue(json['currentSessionTokens']) ?? 0,
-    currentSessionCachedInputTokens:
-        _intValue(json['currentSessionCachedInputTokens']) ?? 0,
-    projectCachedInputTokens: _intValue(json['projectCachedInputTokens']) ?? 0,
-    todayCachedInputTokens: _intValue(json['todayCachedInputTokens']) ?? 0,
-    requestCount: _intValue(json['requestCount']) ?? 0,
-    currentTool: json['currentTool']?.toString(),
-    currentModel: json['currentModel']?.toString(),
-    contextUsagePercent: _doubleValue(json['contextUsagePercent']),
-    updatedAt: json['updatedAt']?.toString(),
-    currentSessions: _listOf(
-      json['currentSessions'],
-      AIStatsSessionInfo.fromJson,
-    ),
-    todayTimeBuckets: _listOf(
-      json['todayTimeBuckets'],
-      AIStatsTimeBucket.fromJson,
-    ),
-    heatmap: _listOf(json['heatmap'], AIStatsHeatmapDay.fromJson),
-    toolBreakdown: _listOf(
-      json['toolBreakdown'],
-      AIStatsBreakdownItem.fromJson,
-    ),
-    modelBreakdown: _listOf(
-      json['modelBreakdown'],
-      AIStatsBreakdownItem.fromJson,
-    ),
-  );
+  factory AIStatsInfo.fromJson(Map<String, dynamic> json) {
+    // Totals/tool/model are nested under `projectSummary` in the remote
+    // snapshot shape; read from there first, falling back to top-level for
+    // any flat payloads.
+    final summary = json['projectSummary'] is Map
+        ? Map<String, dynamic>.from(json['projectSummary'] as Map)
+        : const <String, dynamic>{};
+    int? pick(String key) => _intValue(json[key]) ?? _intValue(summary[key]);
+    return AIStatsInfo(
+      projectName: '${json['projectName'] ?? summary['projectName'] ?? 'Project'}',
+      todayTokens: pick('todayTotalTokens') ?? _intValue(json['todayTokens']) ?? 0,
+      totalTokens:
+          pick('projectTotalTokens') ?? _intValue(json['totalTokens']) ?? 0,
+      currentSessionTokens: pick('currentSessionTokens') ?? 0,
+      currentSessionCachedInputTokens:
+          pick('currentSessionCachedInputTokens') ?? 0,
+      projectCachedInputTokens: pick('projectCachedInputTokens') ?? 0,
+      todayCachedInputTokens: pick('todayCachedInputTokens') ?? 0,
+      requestCount: pick('requestCount') ?? 0,
+      currentTool: (json['currentTool'] ?? summary['currentTool'])?.toString(),
+      currentModel:
+          (json['currentModel'] ?? summary['currentModel'])?.toString(),
+      contextUsagePercent: _doubleValue(json['contextUsagePercent']) ??
+          _doubleValue(summary['contextUsagePercent']),
+      updatedAt: json['updatedAt']?.toString(),
+      currentSessions: _listOf(
+        json['currentSessions'],
+        AIStatsSessionInfo.fromJson,
+      ),
+      todayTimeBuckets: _listOf(
+        json['todayTimeBuckets'],
+        AIStatsTimeBucket.fromJson,
+      ),
+      heatmap: _listOf(json['heatmap'], AIStatsHeatmapDay.fromJson),
+      toolBreakdown: _listOf(
+        json['toolBreakdown'],
+        AIStatsBreakdownItem.fromJson,
+      ),
+      modelBreakdown: _listOf(
+        json['modelBreakdown'],
+        AIStatsBreakdownItem.fromJson,
+      ),
+    );
+  }
 }
 
 class AIStatsSessionInfo {

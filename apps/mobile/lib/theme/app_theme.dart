@@ -44,6 +44,22 @@ class AppTextSize {
   static const title = 16.0;
 }
 
+class AIStatsPanelColors {
+  const AIStatsPanelColors({
+    this.background = AppColors.bgBase,
+    this.card = AppColors.bgSurface,
+    this.cardHeader = AppColors.bgSurface,
+    this.cardBorder = AppColors.border,
+    this.track = AppColors.bgElevated,
+  });
+
+  final Color background;
+  final Color card;
+  final Color cardHeader;
+  final Color cardBorder;
+  final Color track;
+}
+
 ThemeData buildAppTheme({Color accent = AppColors.cyan}) {
   return ThemeData(
     useMaterial3: true,

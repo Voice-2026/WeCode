@@ -1,0 +1,156 @@
+import 'package:flutter/foundation.dart';
+
+import '../../models/remote_models.dart';
+import '../../services/remote_project_controller.dart';
+import '../../services/remote_project_file_controller.dart';
+import '../../services/remote_runtime_store.dart';
+
+class HomeWorkspaceModeActions {
+  const HomeWorkspaceModeActions({
+    required this.remoteProtocolReady,
+    required this.workspaceMode,
+    required this.terminalDataVisible,
+    required this.terminalListLoaded,
+    required this.selectedProject,
+    required this.selectedWorktreeId,
+    required this.projectFilesPath,
+    required this.releaseTerminalViewport,
+    required this.showToast,
+    required this.setModeState,
+    required this.setProjectFilesState,
+    required this.focusTerminalViewSoon,
+    required this.mountVisibleTerminal,
+    required this.sendEnvelope,
+    required this.applyRuntimePlan,
+    required this.runtime,
+    required this.projectController,
+    required this.projectFileController,
+  });
+
+  final bool remoteProtocolReady;
+  final String workspaceMode;
+  final bool terminalDataVisible;
+  final bool terminalListLoaded;
+  final ProjectInfo? selectedProject;
+  final String? selectedWorktreeId;
+  final String projectFilesPath;
+  final VoidCallback releaseTerminalViewport;
+  final void Function(String message) showToast;
+  final void Function(String mode, {bool terminalReady, bool aiStatsLoading})
+  setModeState;
+  final void Function(String path, {required bool loading})
+  setProjectFilesState;
+  final VoidCallback focusTerminalViewSoon;
+  final void Function({required String reason}) mountVisibleTerminal;
+  final bool Function(RelayEnvelope envelope) sendEnvelope;
+  final void Function(RemoteRuntimePlan plan, {required String reason})
+  applyRuntimePlan;
+  final RemoteRuntimeStore runtime;
+  final RemoteProjectController projectController;
+  final RemoteProjectFileController projectFileController;
+
+  void requestAIStats(String selectProjectMessage) {
+    final project = selectedProject;
+    if (project == null) {
+      showToast(selectProjectMessage);
+      return;
+    }
+    if (workspaceMode == 'terminal') {
+      releaseTerminalViewport();
+    }
+    setModeState('stats', aiStatsLoading: true);
+    sendEnvelope(
+      projectController.aiStatsEnvelope(
+        project,
+        worktreeId: selectedWorktreeId,
+      ),
+    );
+  }
+
+  void refreshAIStats() {
+    final project = selectedProject;
+    if (!remoteProtocolReady || project == null) return;
+    sendEnvelope(
+      projectController.aiStatsEnvelope(
+        project,
+        worktreeId: selectedWorktreeId,
+      ),
+    );
+  }
+
+  void requestGitStatus() {
+    final project = selectedProject;
+    if (!remoteProtocolReady || project == null) return;
+    sendEnvelope(projectController.gitStatusEnvelope(project));
+  }
+
+  /// Run a git mutation (stage/unstage/discard/commit/push/...). The host
+  /// replies with a refreshed git.status, so the panel updates automatically.
+  void gitInvoke(String op, {Map<String, dynamic> args = const {}}) {
+    final project = selectedProject;
+    if (!remoteProtocolReady || project == null) return;
+    sendEnvelope(projectController.gitInvokeEnvelope(project, op, args: args));
+  }
+
+  /// Request the unified diff for one path (review/diff view).
+  void requestGitDiff(String path, {String? baseBranch}) {
+    final project = selectedProject;
+    if (!remoteProtocolReady || project == null) return;
+    sendEnvelope(
+      projectController.gitReadEnvelope(
+        project,
+        'diff',
+        args: {'filePath': path, 'baseBranch': ?baseBranch},
+      ),
+    );
+  }
+
+  void syncTerminalToSelectedProject({bool requestListIfMissing = true}) {
+    if (!terminalDataVisible) return;
+    final plan = runtime.ensureTerminalForSelectedProject(
+      terminalVisible: terminalDataVisible,
+      terminalListLoaded: requestListIfMissing && terminalListLoaded,
+    );
+    applyRuntimePlan(plan, reason: 'missing-terminal');
+  }
+
+  void showTerminalMode() {
+    setModeState('terminal', terminalReady: false);
+    syncTerminalToSelectedProject();
+    mountVisibleTerminal(reason: 'mode');
+    requestGitStatus();
+    focusTerminalViewSoon();
+  }
+
+  void showFilesMode(String selectProjectMessage, String currentNoDirMessage) {
+    final project = selectedProject;
+    if (project == null) {
+      showToast(selectProjectMessage);
+      return;
+    }
+    final targetPath = projectFileController.pathForProject(
+      project,
+      currentPath: projectFilesPath,
+    );
+    if (workspaceMode == 'terminal') {
+      releaseTerminalViewport();
+    }
+    setModeState('files');
+    requestGitStatus();
+    requestProjectFiles(currentNoDirMessage, path: targetPath);
+  }
+
+  void requestProjectFiles(String currentNoDirMessage, {String? path}) {
+    final project = selectedProject;
+    final target = path ?? project?.path;
+    if (target == null || target.isEmpty) {
+      showToast(currentNoDirMessage);
+      return;
+    }
+    setProjectFilesState(target, loading: true);
+    if (project != null) {
+      projectFileController.remember(projectId: project.id, path: target);
+    }
+    sendEnvelope(projectFileController.listEnvelope(target));
+  }
+}

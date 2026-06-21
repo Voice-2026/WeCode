@@ -112,11 +112,34 @@ class RemoteProjectController {
     );
   }
 
-  RelayEnvelope aiStatsEnvelope(ProjectInfo project) {
+  RelayEnvelope aiStatsEnvelope(ProjectInfo project, {String? worktreeId}) {
+    final cleanWorktreeId = worktreeId?.trim();
     return RelayEnvelope(
       type: RemoteMessageType.aiStats,
-      payload: {'projectId': project.id},
+      payload: {
+        'projectId': project.id,
+        if (cleanWorktreeId != null && cleanWorktreeId.isNotEmpty)
+          'worktreeId': cleanWorktreeId,
+      },
     );
+  }
+
+  /// Request the AI conversation-history list for a project (same `ai.session`
+  /// channel + DTO both hosts serve). Host replies `ai.session.result`.
+  RelayEnvelope aiSessionListEnvelope(ProjectInfo project) {
+    return RelayEnvelope(
+      type: RemoteMessageType.aiSession,
+      payload: {
+        'op': 'list',
+        'projectId': project.id,
+        if (project.path != null) 'projectPath': project.path,
+      },
+    );
+  }
+
+  /// Request the host's saved SSH profiles (host-wide; the host owns them).
+  RelayEnvelope sshListEnvelope() {
+    return RelayEnvelope(type: RemoteMessageType.sshList, payload: const {});
   }
 
   RelayEnvelope gitStatusEnvelope(ProjectInfo project) {
@@ -125,6 +148,42 @@ class RemoteProjectController {
       payload: {
         'projectId': project.id,
         if (project.path != null) 'projectPath': project.path,
+      },
+    );
+  }
+
+  /// Generic git mutation (stage/unstage/discard/commit/push/...). The host
+  /// replies with a refreshed `git.status`. Served by both desktop and agent.
+  RelayEnvelope gitInvokeEnvelope(
+    ProjectInfo project,
+    String op, {
+    Map<String, dynamic> args = const {},
+  }) {
+    return RelayEnvelope(
+      type: RemoteMessageType.gitInvoke,
+      payload: {
+        'projectId': project.id,
+        if (project.path != null) 'projectPath': project.path,
+        'op': op,
+        'args': args,
+      },
+    );
+  }
+
+  /// Generic git read query (diff/path_status/...). Host replies
+  /// `git.read {op, result}`. Served by both desktop and agent for `diff`.
+  RelayEnvelope gitReadEnvelope(
+    ProjectInfo project,
+    String op, {
+    Map<String, dynamic> args = const {},
+  }) {
+    return RelayEnvelope(
+      type: RemoteMessageType.gitRead,
+      payload: {
+        'projectId': project.id,
+        if (project.path != null) 'projectPath': project.path,
+        'op': op,
+        'args': args,
       },
     );
   }
