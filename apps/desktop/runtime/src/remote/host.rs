@@ -14,7 +14,8 @@ use super::protocol::{
     REMOTE_PROJECT_UPDATED, REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS,
     REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
     REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES, REMOTE_SSH_LIST,
-    REMOTE_SSH_LIST_RESULT, REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_BUFFER_MAX_CHARS,
+    REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT, REMOTE_TERMINAL_BUFFER,
+    REMOTE_TERMINAL_BUFFER_MAX_CHARS,
     REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED,
     REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
     REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_SIGNAL,
@@ -881,6 +882,8 @@ impl RemoteHostRuntime {
             REMOTE_AI_STATE => self.handle_ai_state(&envelope),
             REMOTE_AI_SESSION => self.handle_ai_session(&envelope),
             REMOTE_SSH_LIST => self.handle_ssh_list(&envelope),
+            REMOTE_SSH_UPSERT => self.handle_ssh_upsert(&envelope),
+            REMOTE_SSH_REMOVE => self.handle_ssh_remove(&envelope),
             REMOTE_TRANSPORT_PING => {
                 self.send_plain(
                     REMOTE_TRANSPORT_PONG,
@@ -2079,6 +2082,11 @@ impl RemoteHostRuntime {
     /// Serve the host's saved SSH profiles (lean, no secrets). The host owns the
     /// profiles, so it just sends its own list as the shared DTO.
     fn handle_ssh_list(&self, envelope: &RemoteEnvelope) {
+        self.send_ssh_list(envelope.device_id.as_deref());
+    }
+
+    /// Reply with the saved SSH profiles as secret-free summaries.
+    fn send_ssh_list(&self, device_id: Option<&str>) {
         let service =
             crate::ssh::SSHService::new(self.support_dir.clone(), std::path::PathBuf::new());
         let profiles: Vec<codux_protocol::RemoteSshProfileSummary> = service
@@ -2094,10 +2102,46 @@ impl RemoteHostRuntime {
             .collect();
         self.send(
             REMOTE_SSH_LIST_RESULT,
-            envelope.device_id.as_deref(),
+            device_id,
             None,
             json!({ "profiles": profiles }),
         );
+    }
+
+    /// Add or update a saved SSH profile, then reply with the refreshed list.
+    fn handle_ssh_upsert(&self, envelope: &RemoteEnvelope) {
+        let request: crate::ssh::SSHProfileUpsertRequest =
+            match serde_json::from_value(envelope.payload.clone()) {
+                Ok(request) => request,
+                Err(error) => {
+                    self.send_error(envelope, &format!("Invalid SSH profile: {error}"));
+                    return;
+                }
+            };
+        let store = crate::ssh::SSHStore::from_support_dir(self.support_dir.clone());
+        match store.upsert(request) {
+            Ok(_) => self.send_ssh_list(envelope.device_id.as_deref()),
+            Err(error) => self.send_error(envelope, &error),
+        }
+    }
+
+    /// Remove a saved SSH profile by id, then reply with the refreshed list.
+    fn handle_ssh_remove(&self, envelope: &RemoteEnvelope) {
+        let id = envelope
+            .payload
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if id.trim().is_empty() {
+            self.send_error(envelope, "SSH profile id is required.");
+            return;
+        }
+        let store = crate::ssh::SSHStore::from_support_dir(self.support_dir.clone());
+        match store.delete(id) {
+            Ok(_) => self.send_ssh_list(envelope.device_id.as_deref()),
+            Err(error) => self.send_error(envelope, &error),
+        }
     }
 
     fn handle_git_status(&self, envelope: &RemoteEnvelope) {

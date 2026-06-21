@@ -142,6 +142,20 @@ class RemoteProjectController {
     return RelayEnvelope(type: RemoteMessageType.sshList, payload: const {});
   }
 
+  /// Add or update a saved SSH profile on the host. `fields` carries the
+  /// SSHProfileUpsertRequest shape (id?, name, host, port, username,
+  /// credentialKind, password?, privateKeyPath?, keyPassphrase?).
+  RelayEnvelope sshUpsertEnvelope(Map<String, dynamic> fields) {
+    return RelayEnvelope(type: RemoteMessageType.sshUpsert, payload: fields);
+  }
+
+  RelayEnvelope sshRemoveEnvelope(String id) {
+    return RelayEnvelope(
+      type: RemoteMessageType.sshRemove,
+      payload: {'id': id},
+    );
+  }
+
   RelayEnvelope gitStatusEnvelope(ProjectInfo project) {
     return RelayEnvelope(
       type: RemoteMessageType.gitStatus,

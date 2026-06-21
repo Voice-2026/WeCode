@@ -21,6 +21,8 @@ class PadRightColumn extends StatelessWidget {
     required this.gitStatus,
     required this.onGitAction,
     required this.onRefreshGit,
+    required this.onSshUpsert,
+    required this.onSshRemove,
     required this.sshProfiles,
     required this.reviewSelectedPath,
     required this.onSelectReviewFile,
@@ -45,6 +47,8 @@ class PadRightColumn extends StatelessWidget {
   final RemoteGitStatusInfo? gitStatus;
   final void Function(String op, Map<String, dynamic> args) onGitAction;
   final VoidCallback onRefreshGit;
+  final void Function(Map<String, dynamic> fields) onSshUpsert;
+  final ValueChanged<String> onSshRemove;
   final List<RemoteSshProfile> sshProfiles;
   final String? reviewSelectedPath;
   final ValueChanged<String> onSelectReviewFile;
@@ -107,7 +111,11 @@ class PadRightColumn extends StatelessWidget {
       );
     }
     if (mode == 'ssh') {
-      return PadSshToolPanel(profiles: sshProfiles);
+      return PadSshToolPanel(
+        profiles: sshProfiles,
+        onUpsert: onSshUpsert,
+        onRemove: onSshRemove,
+      );
     }
     if (mode == 'git') {
       return PadGitToolPanel(

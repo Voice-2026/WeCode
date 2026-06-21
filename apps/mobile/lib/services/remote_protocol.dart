@@ -130,6 +130,8 @@ abstract final class RemoteMessageType {
   );
   static final sshList = codux_protocol_ffi.messageType('sshList');
   static final sshListResult = codux_protocol_ffi.messageType('sshListResult');
+  static final sshUpsert = codux_protocol_ffi.messageType('sshUpsert');
+  static final sshRemove = codux_protocol_ffi.messageType('sshRemove');
 }
 
 RelayEnvelope remoteResourceSubscribeEnvelope({

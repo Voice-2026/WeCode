@@ -3508,6 +3508,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _send(_projectController.sshListEnvelope());
   }
 
+  /// Add/update a saved SSH profile on the host; the host replies with a fresh
+  /// ssh.list which refreshes the panel.
+  void _sshUpsert(Map<String, dynamic> fields) {
+    _send(_projectController.sshUpsertEnvelope(fields));
+  }
+
+  void _sshRemove(String id) {
+    _send(_projectController.sshRemoveEnvelope(id));
+  }
+
   void _handleSshListResult(Object? payload) {
     if (payload is! Map) return;
     final profiles = payload['profiles'];
@@ -4644,6 +4654,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onShowGit: () => _toggleWorkspaceTool('git', _showGitMode),
       onGitAction: (op, args) => _gitAction(op, args: args),
       onRefreshGit: _requestGitStatus,
+      onSshUpsert: _sshUpsert,
+      onSshRemove: _sshRemove,
       gitDiff: _gitDiff,
       reviewSelectedPath: _gitDiffPath,
       onSelectReviewFile: _requestGitDiff,

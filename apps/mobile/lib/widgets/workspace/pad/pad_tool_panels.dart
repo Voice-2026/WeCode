@@ -5,9 +5,16 @@ import 'pad_file_list_item.dart';
 import 'pad_theme.dart';
 
 class PadSshToolPanel extends StatefulWidget {
-  const PadSshToolPanel({super.key, required this.profiles});
+  const PadSshToolPanel({
+    super.key,
+    required this.profiles,
+    required this.onUpsert,
+    required this.onRemove,
+  });
 
   final List<RemoteSshProfile> profiles;
+  final void Function(Map<String, dynamic> fields) onUpsert;
+  final ValueChanged<String> onRemove;
 
   @override
   State<PadSshToolPanel> createState() => _PadSshToolPanelState();
@@ -18,18 +25,42 @@ class _PadSshToolPanelState extends State<PadSshToolPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
     return PadPanelSurface(
       width: PadMetrics.rightColumnWidth,
       child: Column(
         children: [
-          const _ToolHeader(title: 'SSH'),
+          Container(
+            height: 48,
+            color: PadColors.header,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'SSH',
+                    style: TextStyle(
+                      color: PadColors.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                _GitHeaderButton(
+                  icon: Icons.add_rounded,
+                  color: accent,
+                  onTap: () => _openForm(),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: widget.profiles.isEmpty
                 ? const Center(
                     child: Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(
-                        'No saved SSH profiles on this host',
+                        '暂无 SSH 连接,点右上角 + 添加',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: PadColors.textSubtle, fontSize: 13),
                       ),
@@ -50,6 +81,8 @@ class _PadSshToolPanelState extends State<PadSshToolPanel> {
                                   ? null
                                   : profile.id;
                             }),
+                            onEdit: () => _openForm(profile),
+                            onDelete: () => _confirmDelete(profile),
                           ),
                         ),
                     ],
@@ -58,6 +91,53 @@ class _PadSshToolPanelState extends State<PadSshToolPanel> {
         ],
       ),
     );
+  }
+
+  void _openForm([RemoteSshProfile? existing]) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: PadColors.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => _SshFormSheet(
+        existing: existing,
+        onSubmit: (fields) {
+          Navigator.of(sheetContext).pop();
+          widget.onUpsert(fields);
+        },
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete(RemoteSshProfile profile) async {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: PadColors.panel,
+        title: const Text(
+          '删除 SSH 连接',
+          style: TextStyle(color: PadColors.textPrimary, fontSize: 16),
+        ),
+        content: Text(
+          '确定删除「${profile.name}」?',
+          style: const TextStyle(color: PadColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消', style: TextStyle(color: PadColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('删除', style: TextStyle(color: accent)),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) widget.onRemove(profile.id);
   }
 }
 
@@ -602,40 +682,20 @@ class _GitFolderNode {
   }
 }
 
-class _ToolHeader extends StatelessWidget {
-  const _ToolHeader({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 48,
-      color: PadColors.header,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      alignment: Alignment.centerLeft,
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: PadColors.textPrimary,
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-}
-
 class _SshProfileRow extends StatelessWidget {
   const _SshProfileRow({
     required this.profile,
     required this.expanded,
     required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   final RemoteSshProfile profile;
   final bool expanded;
   final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -671,6 +731,27 @@ class _SshProfileRow extends StatelessWidget {
           if (expanded) ...[
             const SizedBox(height: 12),
             _SshProfileDetail(profile: profile),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _MiniActionButton(
+                    icon: Icons.edit_rounded,
+                    label: '编辑',
+                    onTap: onEdit,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _MiniActionButton(
+                    icon: Icons.delete_outline_rounded,
+                    label: '删除',
+                    danger: true,
+                    onTap: onDelete,
+                  ),
+                ),
+              ],
+            ),
           ],
         ],
       ),
@@ -1120,15 +1201,23 @@ class _MetaRow extends StatelessWidget {
 }
 
 class _MiniActionButton extends StatelessWidget {
-  const _MiniActionButton({required this.icon, required this.label, this.onTap});
+  const _MiniActionButton({
+    required this.icon,
+    required this.label,
+    this.onTap,
+    this.danger = false,
+  });
 
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
+  final bool danger;
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.secondary;
+    final color = danger
+        ? PadColors.danger
+        : Theme.of(context).colorScheme.secondary;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
@@ -1136,18 +1225,18 @@ class _MiniActionButton extends StatelessWidget {
         height: 34,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: accent.withValues(alpha: 0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 15, color: accent),
+            Icon(icon, size: 15, color: color),
             const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
-                color: accent,
+                color: color,
                 fontSize: 11.5,
                 fontWeight: FontWeight.w800,
               ),
@@ -1416,6 +1505,233 @@ class _GitMenuItem extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Add / edit form for a saved SSH profile. Secrets are never pre-filled (the
+/// host doesn't expose them); on edit, re-enter the credential to change it.
+class _SshFormSheet extends StatefulWidget {
+  const _SshFormSheet({required this.existing, required this.onSubmit});
+
+  final RemoteSshProfile? existing;
+  final void Function(Map<String, dynamic> fields) onSubmit;
+
+  @override
+  State<_SshFormSheet> createState() => _SshFormSheetState();
+}
+
+class _SshFormSheetState extends State<_SshFormSheet> {
+  late final TextEditingController _name;
+  late final TextEditingController _host;
+  late final TextEditingController _port;
+  late final TextEditingController _user;
+  late final TextEditingController _password;
+  late final TextEditingController _keyPath;
+  late final TextEditingController _passphrase;
+  String _kind = 'password';
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existing;
+    // endpoint is "username@host:port" — parse it back for editing.
+    var user = '';
+    var host = '';
+    var port = '22';
+    if (existing != null) {
+      var rest = existing.endpoint;
+      final at = rest.indexOf('@');
+      if (at >= 0) {
+        user = rest.substring(0, at);
+        rest = rest.substring(at + 1);
+      }
+      final colon = rest.lastIndexOf(':');
+      if (colon >= 0) {
+        host = rest.substring(0, colon);
+        port = rest.substring(colon + 1);
+      } else {
+        host = rest;
+      }
+      final cred = existing.credential.toLowerCase();
+      if (cred.contains('key')) {
+        _kind = 'key';
+      } else if (cred.contains('agent')) {
+        _kind = 'agent';
+      }
+    }
+    _name = TextEditingController(text: existing?.name ?? '');
+    _host = TextEditingController(text: host);
+    _port = TextEditingController(text: port);
+    _user = TextEditingController(text: user);
+    _password = TextEditingController();
+    _keyPath = TextEditingController();
+    _passphrase = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _host.dispose();
+    _port.dispose();
+    _user.dispose();
+    _password.dispose();
+    _keyPath.dispose();
+    _passphrase.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final fields = <String, dynamic>{
+      if (widget.existing != null) 'id': widget.existing!.id,
+      'name': _name.text.trim(),
+      'host': _host.text.trim(),
+      'port': int.tryParse(_port.text.trim()) ?? 22,
+      'username': _user.text.trim(),
+      'credentialKind': _kind,
+      if (_kind == 'password' && _password.text.isNotEmpty)
+        'password': _password.text,
+      if (_kind == 'key') ...{
+        if (_keyPath.text.trim().isNotEmpty) 'privateKeyPath': _keyPath.text.trim(),
+        if (_passphrase.text.isNotEmpty) 'keyPassphrase': _passphrase.text,
+      },
+    };
+    if (fields['name'] == '' || fields['host'] == '' || fields['username'] == '') {
+      return;
+    }
+    widget.onSubmit(fields);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.existing == null ? '添加 SSH 连接' : '编辑 SSH 连接',
+                style: const TextStyle(
+                  color: PadColors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _field(_name, '名称'),
+              _field(_host, '主机 (host)'),
+              _field(_port, '端口', keyboardType: TextInputType.number),
+              _field(_user, '用户名'),
+              const SizedBox(height: 6),
+              _kindSelector(accent),
+              const SizedBox(height: 6),
+              if (_kind == 'password')
+                _field(_password, '密码', obscure: true)
+              else if (_kind == 'key') ...[
+                _field(_keyPath, '私钥路径'),
+                _field(_passphrase, '私钥口令 (可选)', obscure: true),
+              ],
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text(
+                        '取消',
+                        style: TextStyle(color: PadColors.textMuted),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(backgroundColor: accent),
+                      onPressed: _submit,
+                      child: const Text('保存'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _field(
+    TextEditingController controller,
+    String hint, {
+    bool obscure = false,
+    TextInputType? keyboardType,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: TextField(
+        controller: controller,
+        obscureText: obscure,
+        keyboardType: keyboardType,
+        style: const TextStyle(color: PadColors.textPrimary, fontSize: 14),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: PadColors.panelTrack,
+          hintText: hint,
+          hintStyle: const TextStyle(color: PadColors.textSubtle, fontSize: 13),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        ),
+      ),
+    );
+  }
+
+  Widget _kindSelector(Color accent) {
+    const kinds = [
+      ('password', '密码'),
+      ('key', '私钥'),
+      ('agent', 'ssh-agent'),
+    ];
+    return Row(
+      children: [
+        for (final (value, label) in kinds)
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => setState(() => _kind = value),
+                child: Container(
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _kind == value
+                        ? accent.withValues(alpha: 0.16)
+                        : PadColors.panelTrack,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: _kind == value ? accent : PadColors.textMuted,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

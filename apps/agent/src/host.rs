@@ -15,7 +15,8 @@ use codux_protocol::{
     REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
     REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_SSH_LIST,
-    REMOTE_SSH_LIST_RESULT, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE,
+    REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT, REMOTE_TERMINAL_CLOSE,
+    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE,
     REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH,
     REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
     REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
@@ -636,6 +637,12 @@ fn make_handler(
                 // it returns an empty list using the same shared wire shape.
                 Some((REMOTE_SSH_LIST_RESULT, json!({ "profiles": [] })))
             }
+            REMOTE_SSH_UPSERT | REMOTE_SSH_REMOVE => Some((
+                REMOTE_ERROR,
+                json!({
+                    "message": "SSH profile management is only available on the desktop host.",
+                }),
+            )),
             REMOTE_AI_STATE => {
                 // The controller owns the project record and sends its path; the
                 // agent indexes the host's history for that path directly.

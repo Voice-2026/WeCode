@@ -33,6 +33,9 @@ class PadWorkspaceView extends StatelessWidget {
   void Function(String op, Map<String, dynamic> args) get onGitAction =>
       controller.onGitAction;
   VoidCallback get onRefreshGit => controller.onRefreshGit;
+  void Function(Map<String, dynamic> fields) get onSshUpsert =>
+      controller.onSshUpsert;
+  ValueChanged<String> get onSshRemove => controller.onSshRemove;
   List<AISessionRecord> get aiSessions => controller.aiSessions;
   List<RemoteSshProfile> get sshProfiles => controller.sshProfiles;
   RemoteGitDiff? get gitDiff => controller.gitDiff;
@@ -244,6 +247,8 @@ class PadWorkspaceView extends StatelessWidget {
                         gitStatus: gitStatus,
                         onGitAction: onGitAction,
                         onRefreshGit: onRefreshGit,
+                        onSshUpsert: onSshUpsert,
+                        onSshRemove: onSshRemove,
                         sshProfiles: sshProfiles,
                         reviewSelectedPath: reviewSelectedPath,
                         onSelectReviewFile: onSelectReviewFile,

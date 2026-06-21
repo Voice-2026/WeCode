@@ -134,6 +134,12 @@ pub const REMOTE_AI_SESSION_RESULT: &str = "ai.session.result";
 pub const REMOTE_SSH_LIST: &str = "ssh.list";
 /// Reply to `ssh.list`: `{ profiles: [RemoteSshProfileSummary] }`.
 pub const REMOTE_SSH_LIST_RESULT: &str = "ssh.list.result";
+/// Add or update a saved SSH profile on the host. Payload is an
+/// `SSHProfileUpsertRequest` shape; reply is a fresh `ssh.list.result`. Only the
+/// desktop host owns SSH profiles — the headless agent rejects this.
+pub const REMOTE_SSH_UPSERT: &str = "ssh.upsert";
+/// Remove a saved SSH profile by id: `{ id }`. Reply is a fresh `ssh.list.result`.
+pub const REMOTE_SSH_REMOVE: &str = "ssh.remove";
 
 pub const REMOTE_TRANSPORT_IROH: &str = "iroh";
 pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";

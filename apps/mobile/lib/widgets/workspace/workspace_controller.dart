@@ -26,6 +26,8 @@ class WorkspaceController {
     required this.gitStatus,
     required this.onGitAction,
     required this.onRefreshGit,
+    required this.onSshUpsert,
+    required this.onSshRemove,
     required this.aiSessions,
     required this.sshProfiles,
     required this.gitDiff,
@@ -88,6 +90,8 @@ class WorkspaceController {
   final RemoteGitStatusInfo? gitStatus;
   final void Function(String op, Map<String, dynamic> args) onGitAction;
   final VoidCallback onRefreshGit;
+  final void Function(Map<String, dynamic> fields) onSshUpsert;
+  final ValueChanged<String> onSshRemove;
   final List<AISessionRecord> aiSessions;
   final List<RemoteSshProfile> sshProfiles;
   final RemoteGitDiff? gitDiff;
