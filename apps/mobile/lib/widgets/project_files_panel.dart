@@ -704,7 +704,9 @@ class FileEditorView extends StatelessWidget {
     required this.onClose,
     required this.onEdit,
     required this.onSave,
+    this.onCancelEdit,
     this.closeIcon = Icons.close_rounded,
+    this.showClose = true,
   });
 
   final String path;
@@ -716,7 +718,9 @@ class FileEditorView extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onEdit;
   final VoidCallback onSave;
+  final VoidCallback? onCancelEdit;
   final IconData closeIcon;
+  final bool showClose;
 
   @override
   Widget build(BuildContext context) {
@@ -736,11 +740,14 @@ class FileEditorView extends StatelessWidget {
           ),
           child: Row(
             children: [
-              IconButton(
-                onPressed: onClose,
-                icon: Icon(closeIcon, size: 22),
-                color: AppColors.textPrimary,
-              ),
+              if (showClose)
+                IconButton(
+                  onPressed: onClose,
+                  icon: Icon(closeIcon, size: 22),
+                  color: AppColors.textPrimary,
+                )
+              else
+                const SizedBox(width: AppSpacing.m),
               Expanded(
                 child: Text(
                   fileName.isNotEmpty ? fileName : path,
@@ -762,7 +769,15 @@ class FileEditorView extends StatelessWidget {
                         : prefs.t('file.readOnlyLarge'),
                   ),
                 )
-              else
+              else ...[
+                if (onCancelEdit != null)
+                  TextButton(
+                    onPressed: saving ? null : onCancelEdit,
+                    child: Text(
+                      prefs.t('file.cancel'),
+                      style: const TextStyle(color: AppColors.textMuted),
+                    ),
+                  ),
                 TextButton(
                   onPressed: loading || saving ? null : onSave,
                   child: saving
@@ -776,6 +791,7 @@ class FileEditorView extends StatelessWidget {
                         )
                       : Text(prefs.t('file.save')),
                 ),
+              ],
               const SizedBox(width: AppSpacing.s),
             ],
           ),

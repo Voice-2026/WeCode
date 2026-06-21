@@ -218,6 +218,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   bool _fileEditorSaving = false;
   bool _fileEditorEditing = false;
   bool _fileEditorEditable = true;
+  String _fileEditorOriginal = '';
   int _reconnectAttempt = 0;
   bool _appInForeground = true;
 
@@ -3567,6 +3568,16 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _requestGitStatus();
   }
 
+  /// Tapping a right-column tool button again collapses the column back to the
+  /// terminal; otherwise it opens that tool. Used by the pad header actions.
+  void _toggleWorkspaceTool(String target, VoidCallback open) {
+    if (_workspaceMode == target) {
+      _showTerminalMode();
+    } else {
+      open();
+    }
+  }
+
   void _requestProjectFiles([String? path]) {
     _workspaceModeActions.requestProjectFiles(
       _t('project.currentNoDir'),
@@ -3682,6 +3693,22 @@ class _CoduxHomePageState extends State<CoduxHomePage>
         content: _fileEditorController.text,
       ),
     );
+  }
+
+  void _beginEditingFile() {
+    setState(() {
+      _fileEditorOriginal = _fileEditorController.text;
+      _fileEditorEditing = true;
+    });
+  }
+
+  /// Discard unsaved edits and return to read-only view.
+  void _cancelEditingFile() {
+    if (_fileEditorSaving) return;
+    setState(() {
+      _fileEditorController.text = _fileEditorOriginal;
+      _fileEditorEditing = false;
+    });
   }
 
   void _focusTerminalSoon() {
@@ -4391,7 +4418,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
                 setState(() => _showVoiceOverlay = false);
               },
               onCloseFileEditor: () => setState(() => _editingFilePath = null),
-              onEditFile: () => setState(() => _fileEditorEditing = true),
+              onEditFile: _beginEditingFile,
               onSaveFile: _saveEditingFile,
             ),
           );
@@ -4575,11 +4602,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       shellData: shellData,
       terminalBody: terminalBody,
       onShowTerminal: _showTerminalMode,
-      onShowStats: _requestAIStats,
+      onShowStats: () => _toggleWorkspaceTool('stats', _requestAIStats),
       onShowFiles: _showFilesMode,
       onShowReview: _showReviewMode,
-      onShowSsh: _showSshMode,
-      onShowGit: _showGitMode,
+      onShowSsh: () => _toggleWorkspaceTool('ssh', _showSshMode),
+      onShowGit: () => _toggleWorkspaceTool('git', _showGitMode),
       onGitAction: (op, args) => _gitAction(op, args: args),
       gitDiff: _gitDiff,
       reviewSelectedPath: _gitDiffPath,
@@ -4590,8 +4617,9 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       fileEditorSaving: _fileEditorSaving,
       fileEditorEditing: _fileEditorEditing,
       fileEditorEditable: _fileEditorEditable,
-      onEditFile: () => setState(() => _fileEditorEditing = true),
+      onEditFile: _beginEditingFile,
       onSaveFile: _saveEditingFile,
+      onCancelFileEdit: _cancelEditingFile,
       onCloseFileEditor: () => setState(() => _editingFilePath = null),
       onBack: () => setState(() {
         _showTerminal = false;

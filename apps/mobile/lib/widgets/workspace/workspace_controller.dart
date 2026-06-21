@@ -38,6 +38,7 @@ class WorkspaceController {
     required this.fileEditorEditable,
     required this.onEditFile,
     required this.onSaveFile,
+    required this.onCancelFileEdit,
     required this.onCloseFileEditor,
     required this.projectFilesPath,
     required this.projectFilesParent,
@@ -98,6 +99,7 @@ class WorkspaceController {
   final bool fileEditorEditable;
   final VoidCallback onEditFile;
   final VoidCallback onSaveFile;
+  final VoidCallback onCancelFileEdit;
   final VoidCallback onCloseFileEditor;
   final String projectFilesPath;
   final String? projectFilesParent;

@@ -46,6 +46,7 @@ class PadWorkspaceView extends StatelessWidget {
   bool get fileEditorEditable => controller.fileEditorEditable;
   VoidCallback get onEditFile => controller.onEditFile;
   VoidCallback get onSaveFile => controller.onSaveFile;
+  VoidCallback get onCancelFileEdit => controller.onCancelFileEdit;
   VoidCallback get onCloseFileEditor => controller.onCloseFileEditor;
   String get projectFilesPath => controller.projectFilesPath;
   String? get projectFilesParent => controller.projectFilesParent;
@@ -220,6 +221,7 @@ class PadWorkspaceView extends StatelessWidget {
                           fileEditorEditable: fileEditorEditable,
                           onEditFile: onEditFile,
                           onSaveFile: onSaveFile,
+                          onCancelFileEdit: onCancelFileEdit,
                           onCloseFileEditor: onCloseFileEditor,
                           onSelectTerminal: onSelectTerminal,
                           onCreateTerminal: onCreateTerminal,

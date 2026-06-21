@@ -230,6 +230,10 @@ class _MetricTile extends StatelessWidget {
     return _PanelCard(
       bordered: bordered,
       colors: colors,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.l,
+        vertical: AppSpacing.m,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -856,11 +860,13 @@ class _PanelCard extends StatelessWidget {
     required this.child,
     required this.colors,
     this.bordered = false,
+    this.padding,
   });
 
   final Widget child;
   final AIStatsPanelColors colors;
   final bool bordered;
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
@@ -868,7 +874,7 @@ class _PanelCard extends StatelessWidget {
     return ClipRRect(
       borderRadius: radius,
       child: Container(
-        padding: const EdgeInsets.all(AppSpacing.l),
+        padding: padding ?? const EdgeInsets.all(AppSpacing.l),
         decoration: BoxDecoration(color: colors.card),
         foregroundDecoration: BoxDecoration(
           borderRadius: radius,

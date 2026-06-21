@@ -25,6 +25,7 @@ class PadWorkspaceMainPane extends StatelessWidget {
     required this.fileEditorEditable,
     required this.onEditFile,
     required this.onSaveFile,
+    required this.onCancelFileEdit,
     required this.onCloseFileEditor,
     required this.onSelectTerminal,
     required this.onCreateTerminal,
@@ -45,6 +46,7 @@ class PadWorkspaceMainPane extends StatelessWidget {
   final bool fileEditorEditable;
   final VoidCallback onEditFile;
   final VoidCallback onSaveFile;
+  final VoidCallback onCancelFileEdit;
   final VoidCallback onCloseFileEditor;
   final ValueChanged<TerminalInfo> onSelectTerminal;
   final VoidCallback onCreateTerminal;
@@ -64,6 +66,8 @@ class PadWorkspaceMainPane extends StatelessWidget {
           onClose: onCloseFileEditor,
           onEdit: onEditFile,
           onSave: onSaveFile,
+          onCancelEdit: onCancelFileEdit,
+          showClose: false,
         );
       }
       return _PadEditorEmpty(
@@ -282,7 +286,6 @@ class _PadTerminalTabs extends StatelessWidget {
             ),
           ),
           _TabBarAction(icon: Icons.add_rounded, onTap: onCreateTerminal),
-          const _TabBarAction(icon: Icons.more_horiz_rounded),
           const SizedBox(width: 6),
         ],
       ),
