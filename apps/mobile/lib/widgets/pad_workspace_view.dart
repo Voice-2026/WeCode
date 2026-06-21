@@ -235,6 +235,10 @@ class PadWorkspaceView extends StatelessWidget {
                       const SizedBox(width: 12),
                       PadRightColumn(
                         mode: workspaceMode,
+                        projectRootName:
+                            selectedProjectOf(projects, selectedProjectId)
+                                ?.name ??
+                            '',
                         aiStats: aiStats,
                         aiStatsLoading: aiStatsLoading,
                         onShowStats: onShowStats,

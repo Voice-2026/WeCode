@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../models/remote_models.dart';
+import 'pad_file_list_item.dart';
 import 'pad_theme.dart';
 
 class PadSshToolPanel extends StatefulWidget {
@@ -64,10 +65,12 @@ class PadGitToolPanel extends StatefulWidget {
   const PadGitToolPanel({
     super.key,
     required this.gitStatus,
+    required this.projectRootName,
     required this.onAction,
   });
 
   final RemoteGitStatusInfo? gitStatus;
+  final String projectRootName;
   final void Function(String op, Map<String, dynamic> args) onAction;
 
   @override
@@ -150,8 +153,14 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                 if (parentPath != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: _GitParentRow(
-                      path: parentPath,
+                    child: PadFileListItem(
+                      icon: Icons.arrow_upward_rounded,
+                      iconColor: Theme.of(context).colorScheme.secondary,
+                      name: '返回上一级',
+                      path: padRootRelativePath(
+                        widget.projectRootName,
+                        '$parentPath/.',
+                      ),
                       onTap: () => setState(() {
                         _currentPaths[_section] = parentPath;
                       }),
@@ -171,8 +180,15 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                             folderFiles.every(
                               (file) => _selectedPaths.contains(file.path),
                             );
-                        return _GitFolderRow(
-                          folder: folder,
+                        return PadFileListItem(
+                          icon: Icons.folder_rounded,
+                          iconColor: Theme.of(context).colorScheme.secondary,
+                          name: folder.name,
+                          path: padRootRelativePath(
+                            widget.projectRootName,
+                            '${folder.path}/.',
+                          ),
+                          trailing: PadCountChip(label: '${folder.count}'),
                           selected: folderSelected,
                           onTap: () => setState(() {
                             _currentPaths[_section] = folder.path;
@@ -186,8 +202,23 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                 for (final file in visibleFiles)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: _GitFileRow(
-                      file: file,
+                    child: PadFileListItem(
+                      icon: _gitFileIcon(file.status),
+                      iconColor: _selectedPaths.contains(file.path)
+                          ? Theme.of(context).colorScheme.secondary
+                          : PadColors.textMuted,
+                      name: file.name,
+                      path: padRootRelativePath(
+                        widget.projectRootName,
+                        file.path,
+                      ),
+                      trailing: PadStatusTag(
+                        label: file.status,
+                        color: _gitStatusColor(
+                          file.status,
+                          Theme.of(context).colorScheme.secondary,
+                        ),
+                      ),
                       selected: _selectedPaths.contains(file.path),
                       onTap: () => widget.onAction(
                         _section == 'staged' ? 'unstage' : 'stage',
@@ -652,62 +683,6 @@ class _GitSectionTab extends StatelessWidget {
   }
 }
 
-class _GitFileRow extends StatelessWidget {
-  const _GitFileRow({
-    required this.file,
-    required this.selected,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final _GitPreviewFile file;
-  final bool selected;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.secondary;
-    final statusColor = switch (file.status) {
-      'A' || '?' => PadColors.success,
-      'D' => PadColors.danger,
-      _ => accent,
-    };
-    return _ToolCard(
-      bordered: false,
-      selected: selected,
-      onTap: onTap,
-      onLongPress: onLongPress,
-      compact: true,
-      child: Row(
-        children: [
-          Container(
-            width: 24,
-            height: 24,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              file.status,
-              style: TextStyle(
-                color: statusColor,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _ToolTitleBlock(title: file.name, subtitle: file.parent),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _GitPathStrip extends StatelessWidget {
   const _GitPathStrip({required this.path});
 
@@ -736,89 +711,6 @@ class _GitPathStrip extends StatelessWidget {
                 color: PadColors.textSecondary,
                 fontSize: 11.5,
                 fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GitParentRow extends StatelessWidget {
-  const _GitParentRow({required this.path, required this.onTap});
-
-  final String path;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.secondary;
-    return _ToolCard(
-      bordered: false,
-      compact: true,
-      onTap: onTap,
-      child: Row(
-        children: [
-          Icon(Icons.arrow_upward_rounded, size: 20, color: accent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _ToolTitleBlock(
-              title: '返回上一级',
-              subtitle: path.isEmpty ? 'codux-gpui' : path,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GitFolderRow extends StatelessWidget {
-  const _GitFolderRow({
-    required this.folder,
-    required this.selected,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final _GitFolderNode folder;
-  final bool selected;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.secondary;
-    return _ToolCard(
-      bordered: false,
-      selected: selected,
-      compact: true,
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Row(
-        children: [
-          Icon(Icons.folder_rounded, size: 21, color: accent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _ToolTitleBlock(title: folder.name, subtitle: folder.path),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            height: 20,
-            constraints: const BoxConstraints(minWidth: 24),
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            decoration: BoxDecoration(
-              color: PadColors.cardActive,
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Text(
-              '${folder.count}',
-              style: const TextStyle(
-                color: PadColors.textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
               ),
             ),
           ),
@@ -901,6 +793,24 @@ class _GitFooterBar extends StatelessWidget {
       ),
     );
   }
+}
+
+Color _gitStatusColor(String status, Color accent) {
+  return switch (status) {
+    'A' || '?' => PadColors.success,
+    'D' => PadColors.danger,
+    'R' => PadColors.warning,
+    _ => accent,
+  };
+}
+
+IconData _gitFileIcon(String status) {
+  return switch (status) {
+    'A' || '?' => Icons.note_add_rounded,
+    'D' => Icons.note_alt_outlined,
+    'R' => Icons.drive_file_rename_outline_rounded,
+    _ => Icons.description_outlined,
+  };
 }
 
 String? _parentToolPath(String path) {
@@ -993,25 +903,21 @@ class _ToolCard extends StatelessWidget {
   const _ToolCard({
     required this.child,
     this.selected = false,
-    this.compact = false,
     this.bordered = false,
     this.onTap,
-    this.onLongPress,
   });
 
   final Widget child;
   final bool selected;
-  final bool compact;
   final bool bordered;
   final VoidCallback? onTap;
-  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final content = AnimatedContainer(
       duration: const Duration(milliseconds: 120),
       curve: Curves.easeOutCubic,
-      padding: EdgeInsets.all(compact ? 10 : 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: selected ? PadColors.cardActive : PadColors.card,
         borderRadius: BorderRadius.circular(10),
@@ -1021,13 +927,12 @@ class _ToolCard extends StatelessWidget {
       ),
       child: child,
     );
-    if (onTap == null && onLongPress == null) return content;
+    if (onTap == null) return content;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: onTap,
-        onLongPress: onLongPress,
         child: content,
       ),
     );

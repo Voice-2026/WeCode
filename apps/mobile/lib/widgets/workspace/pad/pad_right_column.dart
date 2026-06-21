@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../i18n.dart';
 import '../../../models/remote_models.dart';
+import 'pad_file_list_item.dart';
 import 'pad_theme.dart';
 import 'pad_tool_panels.dart';
 import '../../ai_stats_panel.dart';
@@ -14,6 +15,7 @@ class PadRightColumn extends StatelessWidget {
   const PadRightColumn({
     super.key,
     required this.mode,
+    required this.projectRootName,
     required this.aiStats,
     required this.aiStatsLoading,
     required this.onShowStats,
@@ -37,6 +39,7 @@ class PadRightColumn extends StatelessWidget {
   });
 
   final String mode;
+  final String projectRootName;
   final AIStatsInfo? aiStats;
   final bool aiStatsLoading;
   final VoidCallback onShowStats;
@@ -93,6 +96,7 @@ class PadRightColumn extends StatelessWidget {
             Expanded(
               child: _ReviewFileTree(
                 changes: changes,
+                rootName: projectRootName,
                 selectedPath: reviewSelectedPath,
                 onSelect: onSelectReviewFile,
               ),
@@ -105,7 +109,11 @@ class PadRightColumn extends StatelessWidget {
       return PadSshToolPanel(profiles: sshProfiles);
     }
     if (mode == 'git') {
-      return PadGitToolPanel(gitStatus: gitStatus, onAction: onGitAction);
+      return PadGitToolPanel(
+        gitStatus: gitStatus,
+        projectRootName: projectRootName,
+        onAction: onGitAction,
+      );
     }
     return PadPanelSurface(
       width: PadMetrics.rightColumnWidth,
@@ -154,11 +162,13 @@ class PadRightColumn extends StatelessWidget {
 class _ReviewFileTree extends StatefulWidget {
   const _ReviewFileTree({
     required this.changes,
+    required this.rootName,
     required this.selectedPath,
     required this.onSelect,
   });
 
   final List<_ReviewChangeEntry> changes;
+  final String rootName;
   final String? selectedPath;
   final ValueChanged<String> onSelect;
 
@@ -182,22 +192,34 @@ class _ReviewFileTreeState extends State<_ReviewFileTree> {
         : _parentReviewPath(_currentPath);
     final rows = <Widget>[
       if (parentPath != null)
-        _ReviewParentRow(
-          label: prefs.t('project.parentDir'),
-          path: parentPath,
-          accent: accent,
+        PadFileListItem(
+          icon: Icons.arrow_upward_rounded,
+          iconColor: accent,
+          name: prefs.t('project.parentDir'),
+          path: padRootRelativePath(widget.rootName, '$parentPath/.'),
           onTap: () => setState(() => _currentPath = parentPath),
         ),
       for (final folder in snapshot.folders)
-        _ReviewFolderRow(
-          folder: folder,
-          accent: accent,
+        PadFileListItem(
+          icon: Icons.folder_rounded,
+          iconColor: accent,
+          name: folder.name,
+          path: padRootRelativePath(widget.rootName, '${folder.path}/.'),
+          trailing: PadCountChip(label: '${folder.count}'),
           onTap: () => setState(() => _currentPath = folder.path),
         ),
       for (final file in snapshot.files)
-        _ReviewFileRow(
-          file: file,
-          accent: accent,
+        PadFileListItem(
+          icon: _reviewFileIcon(file.status),
+          iconColor: widget.selectedPath == file.path
+              ? accent
+              : PadColors.textMuted,
+          name: file.name,
+          path: padRootRelativePath(widget.rootName, file.path),
+          trailing: PadStatusTag(
+            label: file.status,
+            color: _reviewStatusColor(file.status, accent),
+          ),
           selected: widget.selectedPath == file.path,
           onTap: () => widget.onSelect(file.path),
         ),
@@ -205,23 +227,12 @@ class _ReviewFileTreeState extends State<_ReviewFileTree> {
 
     return ColoredBox(
       color: PadColors.panel,
-      child: Column(
-        children: [
-          _ReviewPathStrip(path: _currentPath),
-          Expanded(
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              itemCount: rows.length,
-              separatorBuilder: (_, _) => const Divider(
-                height: 0.5,
-                thickness: 0.5,
-                color: PadColors.border,
-              ),
-              itemBuilder: (context, index) => rows[index],
-            ),
-          ),
-        ],
+      child: ListView.separated(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+        itemCount: rows.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 6),
+        itemBuilder: (context, index) => rows[index],
       ),
     );
   }
@@ -313,329 +324,6 @@ class _ReviewChangeEntry {
   String get parent {
     final index = path.lastIndexOf('/');
     return index <= 0 ? '' : path.substring(0, index);
-  }
-}
-
-class _ReviewPathStrip extends StatelessWidget {
-  const _ReviewPathStrip({required this.path});
-
-  final String path;
-
-  @override
-  Widget build(BuildContext context) {
-    final displayPath = path.isEmpty ? 'codux-gpui' : path;
-    return Container(
-      height: 40,
-      decoration: const BoxDecoration(
-        color: PadColors.header,
-        border: Border(bottom: BorderSide(color: PadColors.border, width: 0.5)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.account_tree_rounded,
-            size: 16,
-            color: PadColors.textMuted,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              displayPath,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: PadColors.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          const Icon(
-            Icons.more_horiz_rounded,
-            size: 18,
-            color: PadColors.textSubtle,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReviewParentRow extends StatelessWidget {
-  const _ReviewParentRow({
-    required this.label,
-    required this.path,
-    required this.accent,
-    required this.onTap,
-  });
-
-  final String label;
-  final String path;
-  final Color accent;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ReviewRowShell(
-      onTap: onTap,
-      child: Row(
-        children: [
-          Icon(Icons.arrow_upward_rounded, color: accent, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _ReviewTitleBlock(title: label, subtitle: path),
-          ),
-          const SizedBox(width: 8),
-          const Icon(
-            Icons.keyboard_return_rounded,
-            size: 17,
-            color: PadColors.textSubtle,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReviewFolderRow extends StatelessWidget {
-  const _ReviewFolderRow({
-    required this.folder,
-    required this.accent,
-    required this.onTap,
-  });
-
-  final _ReviewFolderNode folder;
-  final Color accent;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ReviewRowShell(
-      onTap: onTap,
-      child: Row(
-        children: [
-          Icon(Icons.folder_rounded, color: accent, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _ReviewTitleBlock(
-              title: folder.name,
-              subtitle: folder.path,
-              trailingLabel: '${folder.count}',
-            ),
-          ),
-          const SizedBox(width: 8),
-          _ReviewChangeTotals(
-            additions: folder.additions,
-            deletions: folder.deletions,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReviewFileRow extends StatelessWidget {
-  const _ReviewFileRow({
-    required this.file,
-    required this.accent,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final _ReviewChangeEntry file;
-  final Color accent;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = _reviewStatusColor(file.status, accent);
-    return _ReviewRowShell(
-      onTap: onTap,
-      selected: selected,
-      selectedColor: accent.withValues(alpha: 0.14),
-      child: Row(
-        children: [
-          Icon(
-            _reviewFileIcon(file.status),
-            color: selected ? accent : PadColors.textMuted,
-            size: 20,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: _ReviewTitleBlock(title: file.name, subtitle: file.parent),
-          ),
-          const SizedBox(width: 8),
-          _ReviewStatusBadge(label: file.status, color: statusColor),
-          const SizedBox(width: 8),
-          _ReviewChangeTotals(
-            additions: file.additions,
-            deletions: file.deletions,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ReviewRowShell extends StatelessWidget {
-  const _ReviewRowShell({
-    required this.child,
-    required this.onTap,
-    this.selected = false,
-    this.selectedColor,
-  });
-
-  final Widget child;
-  final VoidCallback onTap;
-  final bool selected;
-  final Color? selectedColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutCubic,
-        color: selected ? selectedColor : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: child,
-      ),
-    );
-  }
-}
-
-class _ReviewTitleBlock extends StatelessWidget {
-  const _ReviewTitleBlock({
-    required this.title,
-    required this.subtitle,
-    this.trailingLabel,
-  });
-
-  final String title;
-  final String subtitle;
-  final String? trailingLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: PadColors.textPrimary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            if (trailingLabel != null) ...[
-              const SizedBox(width: 6),
-              Container(
-                height: 18,
-                constraints: const BoxConstraints(minWidth: 22),
-                alignment: Alignment.center,
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                decoration: BoxDecoration(
-                  color: PadColors.cardActive,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  trailingLabel!,
-                  style: const TextStyle(
-                    color: PadColors.textMuted,
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-        const SizedBox(height: 3),
-        Text(
-          subtitle.isEmpty ? '.' : subtitle,
-          textDirection: TextDirection.rtl,
-          textAlign: TextAlign.right,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: PadColors.textSubtle, fontSize: 11),
-        ),
-      ],
-    );
-  }
-}
-
-class _ReviewStatusBadge extends StatelessWidget {
-  const _ReviewStatusBadge({required this.label, required this.color});
-
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 24,
-      height: 24,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-  }
-}
-
-class _ReviewChangeTotals extends StatelessWidget {
-  const _ReviewChangeTotals({required this.additions, required this.deletions});
-
-  final int additions;
-  final int deletions;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 46,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            '+$additions',
-            style: const TextStyle(
-              color: PadColors.success,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            '-$deletions',
-            style: const TextStyle(
-              color: PadColors.danger,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
