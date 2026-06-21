@@ -263,6 +263,10 @@ impl LocalPtySession {
             .clone()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| project_name.clone());
+        let worktree_id = config
+            .worktree_id
+            .clone()
+            .filter(|value| !value.trim().is_empty());
         let info = Arc::new(Mutex::new(TerminalSessionSnapshot {
             id: id.clone(),
             title: config
@@ -272,6 +276,7 @@ impl LocalPtySession {
             slot_id: config.slot_id.clone().unwrap_or_default(),
             session_key: config.session_key.clone(),
             project_id,
+            worktree_id,
             project_name,
             cwd,
             shell,
@@ -284,6 +289,7 @@ impl LocalPtySession {
             last_active_at: now,
             buffer_characters: 0,
             has_buffer: false,
+            tool: config.tool.clone(),
         }));
         let history = Arc::new(Mutex::new(RingHistory::new(DEFAULT_HISTORY_LIMIT)));
         spawn_reader(

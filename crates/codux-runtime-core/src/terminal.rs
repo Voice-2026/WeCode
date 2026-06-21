@@ -22,6 +22,7 @@ pub fn terminal_snapshot_payload(terminal: TerminalSessionSnapshot, layout_kind:
             format!("{} · {}", terminal.project_name, terminal.title)
         },
         "projectId": terminal.project_id,
+        "worktreeId": terminal.worktree_id,
         "projectName": terminal.project_name,
         "projectPath": terminal.cwd,
         "cwd": terminal.cwd,
@@ -74,6 +75,7 @@ mod tests {
                 slot_id: "slot".to_string(),
                 session_key: None,
                 project_id: "project-1".to_string(),
+                worktree_id: Some("worktree-1".to_string()),
                 project_name: "Codux".to_string(),
                 cwd: "/tmp/codux".to_string(),
                 shell: "/bin/zsh".to_string(),
@@ -86,11 +88,13 @@ mod tests {
                 last_active_at: "2".to_string(),
                 buffer_characters: 42,
                 has_buffer: true,
+                tool: Some("codex".to_string()),
             },
             "split",
         );
 
         assert_eq!(payload["displayTitle"], "Codux · Codex");
+        assert_eq!(payload["worktreeId"], "worktree-1");
         assert_eq!(payload["layoutKind"], "split");
         assert_eq!(payload["bufferCharacters"], 42);
     }

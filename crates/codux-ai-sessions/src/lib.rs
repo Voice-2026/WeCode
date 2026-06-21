@@ -11,9 +11,9 @@ mod queries;
 mod session_fork;
 mod sessions;
 mod summary;
-mod types;
 #[cfg(test)]
 mod tests;
+mod types;
 
 pub use types::*;
 

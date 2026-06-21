@@ -2,20 +2,19 @@ use super::RemoteService;
 use super::crypto::remote_host_name;
 use super::pairing::remote_summary_show_pending_pairing;
 use super::protocol::{
-    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED,
-    REMOTE_ERROR,
-    REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED, REMOTE_FILE_COPY, REMOTE_FILE_CREATE_DIRECTORY,
-    REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST,
-    REMOTE_FILE_MOVE, REMOTE_FILE_MOVED, REMOTE_FILE_READ,
-    REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES,
-    REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE,
-    REMOTE_PAIRING_CONFIRMED,
-    REMOTE_PAIRING_REJECTED, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST,
-    REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED, REMOTE_PROJECT_UPDATED,
-    REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS, REMOTE_RESOURCE_PROJECTS,
-    REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS, REMOTE_RESOURCE_UNSUBSCRIBE,
-    REMOTE_RESOURCE_WORKTREES, REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_BUFFER_MAX_CHARS,
+    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATE, REMOTE_AI_STATS,
+    REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_ERROR, REMOTE_FILE_BYTES_WRITTEN,
+    REMOTE_FILE_COPIED, REMOTE_FILE_COPY, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE,
+    REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_MOVE,
+    REMOTE_FILE_MOVED, REMOTE_FILE_READ, REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED,
+    REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN, REMOTE_GIT_INVOKE,
+    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE,
+    REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED, REMOTE_PROJECT_ADD, REMOTE_PROJECT_EDIT,
+    REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT, REMOTE_PROJECT_SELECTED,
+    REMOTE_PROJECT_UPDATED, REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS,
+    REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
+    REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES, REMOTE_SSH_LIST,
+    REMOTE_SSH_LIST_RESULT, REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_BUFFER_MAX_CHARS,
     REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED,
     REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
     REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_SIGNAL,
@@ -51,9 +50,9 @@ use crate::worktree::{
 };
 use codux_remote_transport::RemoteTransportUpload;
 use codux_runtime_core::{
-    file as runtime_file, git as runtime_git, host as runtime_host, project as runtime_project,
-    subscription::RuntimeSubscriptionRouter, terminal as runtime_terminal,
-    upload as runtime_upload, worktree as runtime_worktree,
+    ai_stats as runtime_ai_stats, file as runtime_file, git as runtime_git, host as runtime_host,
+    project as runtime_project, subscription::RuntimeSubscriptionRouter,
+    terminal as runtime_terminal, upload as runtime_upload, worktree as runtime_worktree,
 };
 use codux_terminal_core::{
     RemoteSequenceGuard, TerminalDriver, TerminalSequence, TerminalSessionHandle,
@@ -123,6 +122,7 @@ pub struct RemoteHostRuntime {
     runtime_instance_id: String,
     support_dir: PathBuf,
     ai_history: AIHistoryIndexer,
+    ai_current_sessions: Option<Arc<dyn runtime_ai_stats::RemoteAICurrentSessionProvider>>,
     terminals: Arc<TerminalManager>,
     resource_subscriptions: RuntimeSubscriptionRouter,
     terminal_subscriptions: RemoteTerminalSubscriptions,
@@ -143,6 +143,12 @@ pub struct RemoteHostRuntime {
     resolved_relay: Mutex<Option<String>>,
     send_seq_by_device: Mutex<HashMap<String, i64>>,
     receive_seq_by_device: Mutex<HashMap<String, RemoteSequenceGuard>>,
+    // Devices currently watching a project's `ai.stats` (project_id -> device_id
+    // -> runtime session scope). A device registers by requesting `ai.stats` and
+    // watches at most one project at a time. We re-push fresh stats to these
+    // devices when the live AI runtime changes (so remote views tick like the
+    // desktop's local view) and when a cold-on-request index finishes refreshing.
+    ai_stats_watchers: Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
 impl RemoteHostRuntime {
@@ -153,10 +159,25 @@ impl RemoteHostRuntime {
     }
 
     pub fn new_with_ai_history(support_dir: PathBuf, ai_history: AIHistoryIndexer) -> Self {
-        Self::new_with_ai_history_and_terminals(
+        Self::new_with_ai_history_current_sessions_option_and_terminals(
             support_dir,
             ai_history,
+            None,
             Arc::new(TerminalManager::new()),
+        )
+    }
+
+    pub fn new_with_ai_history_current_sessions_and_terminals(
+        support_dir: PathBuf,
+        ai_history: AIHistoryIndexer,
+        ai_current_sessions: Arc<dyn runtime_ai_stats::RemoteAICurrentSessionProvider>,
+        terminals: Arc<TerminalManager>,
+    ) -> Self {
+        Self::new_with_ai_history_current_sessions_option_and_terminals(
+            support_dir,
+            ai_history,
+            Some(ai_current_sessions),
+            terminals,
         )
     }
 
@@ -165,11 +186,26 @@ impl RemoteHostRuntime {
         ai_history: AIHistoryIndexer,
         terminals: Arc<TerminalManager>,
     ) -> Self {
+        Self::new_with_ai_history_current_sessions_option_and_terminals(
+            support_dir,
+            ai_history,
+            None,
+            terminals,
+        )
+    }
+
+    fn new_with_ai_history_current_sessions_option_and_terminals(
+        support_dir: PathBuf,
+        ai_history: AIHistoryIndexer,
+        ai_current_sessions: Option<Arc<dyn runtime_ai_stats::RemoteAICurrentSessionProvider>>,
+        terminals: Arc<TerminalManager>,
+    ) -> Self {
         let snapshot = RemoteService::new(support_dir.clone()).summary();
         Self {
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             support_dir,
             ai_history,
+            ai_current_sessions,
             terminals,
             resource_subscriptions: RuntimeSubscriptionRouter::default(),
             terminal_subscriptions: RemoteTerminalSubscriptions::default(),
@@ -189,6 +225,7 @@ impl RemoteHostRuntime {
             resolved_relay: Mutex::new(None),
             send_seq_by_device: Mutex::new(HashMap::new()),
             receive_seq_by_device: Mutex::new(HashMap::new()),
+            ai_stats_watchers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -842,6 +879,8 @@ impl RemoteHostRuntime {
             REMOTE_PROJECT_REMOVE => self.handle_project_remove(&envelope),
             REMOTE_AI_STATS => self.handle_ai_stats(&envelope),
             REMOTE_AI_STATE => self.handle_ai_state(&envelope),
+            REMOTE_AI_SESSION => self.handle_ai_session(&envelope),
+            REMOTE_SSH_LIST => self.handle_ssh_list(&envelope),
             REMOTE_TRANSPORT_PING => {
                 self.send_plain(
                     REMOTE_TRANSPORT_PONG,
@@ -1275,8 +1314,16 @@ impl RemoteHostRuntime {
     }
 
     fn handle_file_copy(&self, envelope: &RemoteEnvelope) {
-        let path = envelope.payload.get("path").and_then(Value::as_str).unwrap_or_default();
-        let target = envelope.payload.get("targetDir").and_then(Value::as_str).unwrap_or_default();
+        let path = envelope
+            .payload
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let target = envelope
+            .payload
+            .get("targetDir")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         match runtime_file::file_copy(path, target) {
             Ok(new_path) => self.send(
                 REMOTE_FILE_COPIED,
@@ -1289,9 +1336,21 @@ impl RemoteHostRuntime {
     }
 
     fn handle_file_move(&self, envelope: &RemoteEnvelope) {
-        let path = envelope.payload.get("path").and_then(Value::as_str).unwrap_or_default();
-        let target = envelope.payload.get("targetDir").and_then(Value::as_str).unwrap_or_default();
-        let overwrite = envelope.payload.get("overwrite").and_then(Value::as_bool).unwrap_or(false);
+        let path = envelope
+            .payload
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let target = envelope
+            .payload
+            .get("targetDir")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let overwrite = envelope
+            .payload
+            .get("overwrite")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         match runtime_file::file_move(path, target, overwrite) {
             Ok(new_path) => self.send(
                 REMOTE_FILE_MOVED,
@@ -1305,13 +1364,25 @@ impl RemoteHostRuntime {
 
     fn handle_file_write_bytes(&self, envelope: &RemoteEnvelope) {
         use base64::Engine;
-        let directory = envelope.payload.get("directory").and_then(Value::as_str).unwrap_or_default();
-        let name = envelope.payload.get("name").and_then(Value::as_str).unwrap_or_default();
+        let directory = envelope
+            .payload
+            .get("directory")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let name = envelope
+            .payload
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let bytes = envelope
             .payload
             .get("bytes")
             .and_then(Value::as_str)
-            .and_then(|encoded| base64::engine::general_purpose::STANDARD.decode(encoded).ok())
+            .and_then(|encoded| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .ok()
+            })
             .unwrap_or_default();
         match runtime_file::file_write_bytes(directory, name, &bytes) {
             Ok(new_path) => self.send(
@@ -1766,31 +1837,172 @@ impl RemoteHostRuntime {
             self.send_error(envelope, "Unable to load AI stats.");
             return;
         };
+        let current_session_scope_id = envelope
+            .payload
+            .get("worktreeId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(&project.id)
+            .to_string();
         let request = AIHistoryProjectRequest {
             id: project.id.clone(),
             name: project.name.clone(),
             path: project.path.clone(),
         };
         match self.ai_history.project_state(request) {
-            Ok(state) => match remote_ai_stats_payload(project.id, project.name, state) {
-                Ok(payload) => {
-                    let payload_project_id = payload
-                        .get("projectId")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    self.broadcast_resource_payload(
-                        REMOTE_AI_STATS,
-                        REMOTE_RESOURCE_AI_STATS,
-                        envelope.device_id.as_deref(),
-                        payload_project_id.as_deref(),
-                        None,
-                        payload,
+            Ok(state) => {
+                // Register the requesting device as a watcher of this project so
+                // we re-push fresh stats when the live AI runtime changes (and,
+                // for a cold-on-request index, once the refresh completes).
+                if let Some(device_id) = envelope
+                    .device_id
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    self.register_ai_stats_watcher(
+                        &state.project_id,
+                        device_id,
+                        &current_session_scope_id,
                     );
                 }
-                Err(error) => self.send_error(envelope, &error),
-            },
+                match self.remote_ai_stats_payload(
+                    project.id,
+                    project.name,
+                    state,
+                    &current_session_scope_id,
+                ) {
+                    Ok(payload) => {
+                        let payload_project_id = payload
+                            .get("projectId")
+                            .and_then(Value::as_str)
+                            .map(str::to_string);
+                        self.broadcast_resource_payload(
+                            REMOTE_AI_STATS,
+                            REMOTE_RESOURCE_AI_STATS,
+                            envelope.device_id.as_deref(),
+                            payload_project_id.as_deref(),
+                            None,
+                            payload,
+                        );
+                    }
+                    Err(error) => self.send_error(envelope, &error),
+                }
+            }
             Err(error) => self.send_error(envelope, &error),
         }
+    }
+
+    /// Record that `device_id` is watching `project_id`'s `ai.stats` (a device
+    /// watches at most one project, so drop its entries under any other project).
+    fn register_ai_stats_watcher(&self, project_id: &str, device_id: &str, scope_id: &str) {
+        let Ok(mut watchers) = self.ai_stats_watchers.lock() else {
+            return;
+        };
+        for (id, devices) in watchers.iter_mut() {
+            if id != project_id {
+                devices.remove(device_id);
+            }
+        }
+        watchers.retain(|_, devices| !devices.is_empty());
+        watchers
+            .entry(project_id.to_string())
+            .or_default()
+            .insert(device_id.to_string(), scope_id.to_string());
+    }
+
+    /// Drop a disconnected device from every project's watcher set.
+    fn clear_ai_stats_watcher_device(&self, device_id: &str) {
+        if let Ok(mut watchers) = self.ai_stats_watchers.lock() {
+            for devices in watchers.values_mut() {
+                devices.remove(device_id);
+            }
+            watchers.retain(|_, devices| !devices.is_empty());
+        }
+    }
+
+    /// Re-push fresh `ai.stats` to every watcher. Called when the live AI runtime
+    /// state changes so remote views tick like the desktop's local view.
+    pub fn push_ai_stats_to_watchers(&self) {
+        let snapshot = match self.ai_stats_watchers.lock() {
+            Ok(watchers) => watchers.clone(),
+            Err(_) => return,
+        };
+        for project_id in snapshot.keys() {
+            self.push_ai_stats_for_project(project_id, &snapshot);
+        }
+    }
+
+    /// Push freshly-indexed `ai.stats` to watchers of a project once its cold
+    /// index refresh completes. No-op until the state is ready.
+    pub fn flush_pending_ai_stats(&self, state: &AIHistoryProjectState) {
+        if state.is_loading || state.queued {
+            return;
+        }
+        let snapshot = match self.ai_stats_watchers.lock() {
+            Ok(watchers) => watchers.clone(),
+            Err(_) => return,
+        };
+        self.push_ai_stats_for_project(&state.project_id, &snapshot);
+    }
+
+    /// Build and send `ai.stats` to each device watching `project_id`, using each
+    /// device's stored runtime session scope.
+    fn push_ai_stats_for_project(
+        &self,
+        project_id: &str,
+        watchers: &HashMap<String, HashMap<String, String>>,
+    ) {
+        let Some(devices) = watchers.get(project_id).filter(|devices| !devices.is_empty()) else {
+            return;
+        };
+        let project_store = ProjectStore::new(self.support_dir.clone());
+        let Some(project) = project_store
+            .projects_snapshot()
+            .into_iter()
+            .find(|project| project.id == project_id)
+        else {
+            return;
+        };
+        let request = AIHistoryProjectRequest {
+            id: project.id.clone(),
+            name: project.name.clone(),
+            path: project.path.clone(),
+        };
+        let Ok(state) = self.ai_history.project_state(request) else {
+            return;
+        };
+        for (device_id, scope_id) in devices {
+            let payload = match self.remote_ai_stats_payload(
+                project.id.clone(),
+                project.name.clone(),
+                state.clone(),
+                scope_id,
+            ) {
+                Ok(payload) => payload,
+                Err(_) => continue,
+            };
+            self.send(REMOTE_AI_STATS, Some(device_id), None, payload);
+        }
+    }
+
+    fn remote_ai_stats_payload(
+        &self,
+        project_id: String,
+        project_name: String,
+        state: AIHistoryProjectState,
+        current_session_scope_id: &str,
+    ) -> Result<Value, String> {
+        let current_sessions = self
+            .ai_current_sessions
+            .as_ref()
+            .map(|provider| provider.current_sessions(current_session_scope_id))
+            .unwrap_or_default();
+        runtime_ai_stats::ai_stats_payload_from_state(
+            project_id,
+            project_name,
+            state,
+            current_sessions,
+        )
     }
 
     /// Serve the full `AIHistoryProjectState` for a desktop controller, indexed
@@ -1818,13 +2030,85 @@ impl RemoteHostRuntime {
         };
         match self.ai_history.project_state(request) {
             Ok(state) => match serde_json::to_value(state) {
-                Ok(payload) => {
-                    self.send(REMOTE_AI_STATE, envelope.device_id.as_deref(), None, payload)
-                }
+                Ok(payload) => self.send(
+                    REMOTE_AI_STATE,
+                    envelope.device_id.as_deref(),
+                    None,
+                    payload,
+                ),
                 Err(error) => self.send_error(envelope, &error.to_string()),
             },
             Err(error) => self.send_error(envelope, &error),
         }
+    }
+
+    /// Serve `ai.session` for a remote controller. Same channel + DTO the agent
+    /// uses; the host owns the AI history, so it sends the lean session list.
+    fn handle_ai_session(&self, envelope: &RemoteEnvelope) {
+        let payload = &envelope.payload;
+        let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
+        let project_path = payload
+            .get("projectPath")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let store = ProjectStore::new(self.support_dir.clone());
+                store
+                    .projects_snapshot()
+                    .into_iter()
+                    .find(|project| project.id == project_id)
+                    .or_else(|| store.projects_snapshot().into_iter().next())
+                    .map(|project| project.path)
+            })
+            .unwrap_or_default();
+        let service = codux_ai_sessions::AIHistoryService::new(self.support_dir.clone());
+        let result = match op {
+            "list" => serde_json::to_value(
+                service
+                    .project_summary(&project_path)
+                    .sessions
+                    .into_iter()
+                    .map(codux_protocol::RemoteAISessionSummary::from)
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or(Value::Null),
+            _ => Value::Null,
+        };
+        self.send(
+            REMOTE_AI_SESSION_RESULT,
+            envelope.device_id.as_deref(),
+            None,
+            json!({ "op": op, "result": result }),
+        );
+    }
+
+    /// Serve the host's saved SSH profiles (lean, no secrets). The host owns the
+    /// profiles, so it just sends its own list as the shared DTO.
+    fn handle_ssh_list(&self, envelope: &RemoteEnvelope) {
+        let service =
+            crate::ssh::SSHService::new(self.support_dir.clone(), std::path::PathBuf::new());
+        let profiles: Vec<codux_protocol::RemoteSshProfileSummary> = service
+            .summary()
+            .profiles
+            .into_iter()
+            .map(|profile| codux_protocol::RemoteSshProfileSummary {
+                id: profile.id,
+                name: profile.name,
+                endpoint: profile.endpoint,
+                credential: profile.credential_kind,
+            })
+            .collect();
+        self.send(
+            REMOTE_SSH_LIST_RESULT,
+            envelope.device_id.as_deref(),
+            None,
+            json!({ "profiles": profiles }),
+        );
     }
 
     fn handle_git_status(&self, envelope: &RemoteEnvelope) {
@@ -1875,7 +2159,11 @@ impl RemoteHostRuntime {
             self.send_error(envelope, "Project path is required.");
             return;
         }
-        let op = envelope.payload.get("op").and_then(Value::as_str).unwrap_or_default();
+        let op = envelope
+            .payload
+            .get("op")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let args = envelope.payload.get("args").cloned().unwrap_or(Value::Null);
         let path = project_path.as_str();
         let s = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
@@ -1948,7 +2236,11 @@ impl RemoteHostRuntime {
             .get("projectPath")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        let op = envelope.payload.get("op").and_then(Value::as_str).unwrap_or_default();
+        let op = envelope
+            .payload
+            .get("op")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let args = envelope.payload.get("args").cloned().unwrap_or(Value::Null);
         let s = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or_default();
         let base = || {
@@ -1956,7 +2248,9 @@ impl RemoteHostRuntime {
             (!value.is_empty()).then(|| value.to_string())
         };
         let result: Result<Value, String> = match op {
-            "diff" => GitService::file_diff(path, s("filePath")).map(|diff| json!({ "diff": diff })),
+            "diff" => {
+                GitService::file_diff(path, s("filePath")).map(|diff| json!({ "diff": diff }))
+            }
             "review_diff" => GitService::review_file_diff(path, s("filePath"), base().as_deref())
                 .map(|diff| json!({ "diff": diff })),
             "review_file_content" => serde_json::to_value(GitService::review_file_content(
@@ -3689,6 +3983,7 @@ impl RemoteHostRuntime {
         };
         self.resource_subscriptions.remove_device(device_id);
         self.terminal_subscriptions.remove_device(device_id);
+        self.clear_ai_stats_watcher_device(device_id);
     }
 
     fn release_all_remote_viewports(&self) {
@@ -3899,37 +4194,6 @@ fn is_terminal_stream_kind(kind: &str) -> bool {
     )
 }
 
-pub(crate) fn remote_ai_stats_payload(
-    project_id: String,
-    project_name: String,
-    state: AIHistoryProjectState,
-) -> Result<Value, String> {
-    let mut value = serde_json::to_value(state).map_err(|error| error.to_string())?;
-    let baseline = value
-        .get_mut("baseline")
-        .map(Value::take)
-        .filter(|value| !value.is_null());
-    let mut payload = baseline.unwrap_or_else(|| {
-        json!({
-            "projectId": project_id,
-            "projectName": project_name,
-            "projectSummary": {},
-            "sessions": [],
-            "heatmap": [],
-            "todayTimeBuckets": [],
-            "toolBreakdown": [],
-            "modelBreakdown": [],
-        })
-    });
-    if let Some(object) = payload.as_object_mut() {
-        object.insert(
-            "updatedAt".to_string(),
-            json!(chrono::Utc::now().to_rfc3339()),
-        );
-    }
-    Ok(payload)
-}
-
 pub(crate) fn remote_git_status_payload(
     project_id: String,
     project_path: String,
@@ -4077,6 +4341,7 @@ fn remote_terminal_pty_config(
         cols,
         rows,
         project_id: Some(scope.worktree_id.clone()),
+        worktree_id: Some(scope.worktree_id.clone()),
         project_name: Some(scope.project_name.clone()),
         terminal_id,
         session_key,
@@ -6467,6 +6732,36 @@ mod tests {
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 80);
         assert_eq!(state.rows, 32);
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn ai_stats_watcher_tracks_one_project_per_device_and_clears_on_disconnect() {
+        let support_dir = temp_support_dir("codux-remote-ai-stats-watcher");
+        let runtime = RemoteHostRuntime::new(support_dir.clone());
+
+        runtime.register_ai_stats_watcher("project-a", "device-1", "project-a");
+        runtime.register_ai_stats_watcher("project-a", "device-2", "worktree-x");
+        {
+            let watchers = runtime.ai_stats_watchers.lock().unwrap();
+            assert_eq!(watchers["project-a"].len(), 2);
+            assert_eq!(watchers["project-a"]["device-2"], "worktree-x");
+        }
+
+        // Switching a device to another project drops its old-project entry.
+        runtime.register_ai_stats_watcher("project-b", "device-1", "project-b");
+        {
+            let watchers = runtime.ai_stats_watchers.lock().unwrap();
+            assert!(!watchers["project-a"].contains_key("device-1"));
+            assert!(watchers["project-b"].contains_key("device-1"));
+            assert!(watchers["project-a"].contains_key("device-2"));
+        }
+
+        // Disconnect drops the device from every project, pruning empties.
+        runtime.clear_ai_stats_watcher_device("device-1");
+        runtime.clear_ai_stats_watcher_device("device-2");
+        assert!(runtime.ai_stats_watchers.lock().unwrap().is_empty());
 
         fs::remove_dir_all(support_dir).ok();
     }

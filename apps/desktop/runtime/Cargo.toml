@@ -17,6 +17,7 @@ codux-memory = { path = "../../../crates/codux-memory" }
 codux-protocol = { path = "../../../crates/codux-protocol" }
 codux-remote-transport = { path = "../../../crates/codux-remote-transport" }
 codux-runtime-core = { path = "../../../crates/codux-runtime-core" }
+codux-runtime-live = { path = "../../../crates/codux-runtime-live" }
 codux-terminal-core = { path = "../../../crates/codux-terminal-core" }
 codux-terminal-pty = { path = "../../../crates/codux-terminal-pty" }
 flume = "0.12"
@@ -58,3 +59,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = ["std
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_System_Power", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+# Enable the live crate's cross-crate test helpers (e.g. viewport-lease expiry)
+# for this crate's own tests, without leaking them into release builds.
+codux-runtime-live = { path = "../../../crates/codux-runtime-live", features = ["test-support"] }

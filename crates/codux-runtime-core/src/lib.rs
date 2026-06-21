@@ -1,3 +1,4 @@
+pub mod ai_stats;
 pub mod file;
 pub mod git;
 pub mod host;

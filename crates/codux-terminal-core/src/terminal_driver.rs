@@ -30,6 +30,7 @@ pub struct TerminalLaunchConfig {
     pub terminal_id: Option<String>,
     pub slot_id: Option<String>,
     pub session_key: Option<String>,
+    pub worktree_id: Option<String>,
     pub title: Option<String>,
     pub tool: Option<String>,
 }
@@ -82,6 +83,8 @@ pub struct TerminalSessionSnapshot {
     pub slot_id: String,
     pub session_key: Option<String>,
     pub project_id: String,
+    #[serde(default, rename = "worktreeId", skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
     pub project_name: String,
     pub cwd: String,
     pub shell: String,
@@ -94,6 +97,8 @@ pub struct TerminalSessionSnapshot {
     pub last_active_at: String,
     pub buffer_characters: usize,
     pub has_buffer: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
 }
 
 pub type TerminalEventSink = Box<dyn Fn(TerminalEvent) -> bool + Send + Sync + 'static>;

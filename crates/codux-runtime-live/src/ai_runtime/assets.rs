@@ -6,185 +6,185 @@ use std::os::unix::fs::PermissionsExt;
 const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     (
         "scripts/shell-hooks/dmux-ai-hook.zsh",
-        include_bytes!("../../../runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh"),
     ),
     (
         "scripts/shell-hooks/zsh/.zlogin",
-        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zlogin"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/shell-hooks/zsh/.zlogin"),
     ),
     (
         "scripts/shell-hooks/zsh/.zprofile",
-        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zprofile"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/shell-hooks/zsh/.zprofile"),
     ),
     (
         "scripts/shell-hooks/zsh/.zshenv",
-        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zshenv"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/shell-hooks/zsh/.zshenv"),
     ),
     (
         "scripts/shell-hooks/zsh/.zshrc",
-        include_bytes!("../../../runtime-assets/scripts/shell-hooks/zsh/.zshrc"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/shell-hooks/zsh/.zshrc"),
     ),
     (
         "scripts/wrappers/bin/agy",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/agy"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/agy"),
     ),
     (
         "scripts/wrappers/bin/agy.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/agy.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/agy.ps1"),
     ),
     (
         "scripts/wrappers/bin/claude",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/claude"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude"),
     ),
     (
         "scripts/wrappers/bin/claude-code",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/claude-code"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude-code"),
     ),
     (
         "scripts/wrappers/bin/claude-code.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/claude-code.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude-code.ps1"),
     ),
     (
         "scripts/wrappers/bin/claude.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/claude.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude.ps1"),
     ),
     (
         "scripts/wrappers/bin/codex",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codex"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codex"),
     ),
     (
         "scripts/wrappers/bin/codex.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codex.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codex.ps1"),
     ),
     (
         "scripts/wrappers/bin/codewhale",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codewhale"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale"),
     ),
     (
         "scripts/wrappers/bin/codewhale-tui",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codewhale-tui"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale-tui"),
     ),
     (
         "scripts/wrappers/bin/codewhale-tui.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codewhale-tui.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale-tui.ps1"),
     ),
     (
         "scripts/wrappers/bin/codewhale.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codewhale.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale.ps1"),
     ),
     (
         "scripts/wrappers/bin/codux-ssh",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codux-ssh"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codux-ssh"),
     ),
     (
         "scripts/wrappers/bin/codux-ssh.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/codux-ssh.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codux-ssh.ps1"),
     ),
     (
         "scripts/wrappers/bin/deepseek",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/deepseek"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek"),
     ),
     (
         "scripts/wrappers/bin/deepseek-tui",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/deepseek-tui"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek-tui"),
     ),
     (
         "scripts/wrappers/bin/deepseek-tui.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/deepseek-tui.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek-tui.ps1"),
     ),
     (
         "scripts/wrappers/bin/deepseek.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/deepseek.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek.ps1"),
     ),
     (
         "scripts/wrappers/bin/gemini",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/gemini"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/gemini"),
     ),
     (
         "scripts/wrappers/bin/gemini.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/gemini.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/gemini.ps1"),
     ),
     (
         "scripts/wrappers/bin/kiro",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kiro"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro"),
     ),
     (
         "scripts/wrappers/bin/kiro-cli",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kiro-cli"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro-cli"),
     ),
     (
         "scripts/wrappers/bin/kiro-cli.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kiro-cli.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro-cli.ps1"),
     ),
     (
         "scripts/wrappers/bin/kiro.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kiro.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro.ps1"),
     ),
     (
         "scripts/wrappers/bin/kimi",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kimi"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kimi"),
     ),
     (
         "scripts/wrappers/bin/kimi-code",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kimi-code"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kimi-code"),
     ),
     (
         "scripts/wrappers/bin/kimi-code.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kimi-code.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kimi-code.ps1"),
     ),
     (
         "scripts/wrappers/bin/kimi.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/kimi.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kimi.ps1"),
     ),
     (
         "scripts/wrappers/bin/mimo",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/mimo"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/mimo"),
     ),
     (
         "scripts/wrappers/bin/mimo.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/mimo.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/mimo.ps1"),
     ),
     (
         "scripts/wrappers/bin/opencode",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/opencode"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/opencode"),
     ),
     (
         "scripts/wrappers/bin/opencode.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/bin/opencode.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/opencode.ps1"),
     ),
     (
         "scripts/wrappers/codux-ssh-expect.exp",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/codux-ssh-expect.exp"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/codux-ssh-expect.exp"),
     ),
     (
         "scripts/wrappers/codux-ssh.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/codux-ssh.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/codux-ssh.ps1"),
     ),
     (
         "scripts/wrappers/dmux-ai-state.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/dmux-ai-state.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/dmux-ai-state.ps1"),
     ),
     (
         "scripts/wrappers/dmux-ai-state.sh",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/dmux-ai-state.sh"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/dmux-ai-state.sh"),
     ),
     (
         "scripts/wrappers/opencode-config/package.json",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/opencode-config/package.json"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/opencode-config/package.json"),
     ),
     (
         "scripts/wrappers/opencode-config/plugins/dmux-runtime.js",
         include_bytes!(
-            "../../../runtime-assets/scripts/wrappers/opencode-config/plugins/dmux-runtime.js"
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/opencode-config/plugins/dmux-runtime.js"
         ),
     ),
     (
         "scripts/wrappers/tool-wrapper.ps1",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/tool-wrapper.ps1"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/tool-wrapper.ps1"),
     ),
     (
         "scripts/wrappers/tool-wrapper.sh",
-        include_bytes!("../../../runtime-assets/scripts/wrappers/tool-wrapper.sh"),
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/tool-wrapper.sh"),
     ),
 ];
 

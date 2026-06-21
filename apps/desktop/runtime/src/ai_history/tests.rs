@@ -61,6 +61,14 @@ fn stats_view_owns_display_token_mode_and_project_filtering() {
     assert_eq!(normalized.today_total_tokens, 30);
     assert_eq!(normalized.today_buckets[0].value, 30);
     assert_eq!(normalized.current_sessions.len(), 1);
+    assert_eq!(normalized.current_sessions[0].session_id, "term-a");
+    assert_eq!(
+        normalized.current_sessions[0].terminal_id.as_deref(),
+        Some("term-a")
+    );
+    assert_eq!(normalized.current_sessions[0].title, "Session");
+    assert_eq!(normalized.current_sessions[0].status, "running");
+    assert!(normalized.current_sessions[0].is_running);
     assert_eq!(normalized.current_sessions[0].total_tokens, 5);
     assert_eq!(normalized.tool_rows[0].value, 100);
 

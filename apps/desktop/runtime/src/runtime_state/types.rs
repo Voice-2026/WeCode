@@ -23,6 +23,7 @@ pub struct RuntimeState {
     pub runtime_activity: RuntimeActivitySummary,
     pub runtime_events: RuntimeEventSummary,
     pub ai_runtime_state: AIRuntimeStateSummary,
+    pub remote_ai_current_sessions: Vec<AIHistoryCurrentSessionView>,
     pub remote: RemoteSummary,
     pub pet: PetSummary,
     pub power: PowerSummary,

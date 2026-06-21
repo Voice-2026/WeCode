@@ -1299,6 +1299,11 @@ impl CoduxApp {
         let scope = self.memory_manager_scope.clone();
         let manager_project_id = self.memory_manager_project_id.clone();
         let tab = self.memory_manager_tab.as_str().to_string();
+        let selected_project = self.state.selected_project.clone();
+        let scope_id = current_worktree_scope_key(&self.state)
+            .map(|scope| scope.worktree_id)
+            .or_else(|| selected_project.as_ref().map(|project| project.id.clone()));
+        let include_cached = self.state.settings.statistics_mode == "includingCache";
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let loaded = codux_runtime::async_runtime::spawn_blocking(move || {
                 let summary = service.reload_memory(summary_project_id.as_deref());
@@ -1308,7 +1313,17 @@ impl CoduxApp {
                     manager_project_id.as_deref(),
                     &tab,
                 );
-                (summary, snapshot)
+                let remote_ai_current_sessions = selected_project
+                    .as_ref()
+                    .filter(|project| project.host_device_id.is_some())
+                    .and_then(|project| {
+                        let scope_id = scope_id.as_deref().unwrap_or(project.id.as_str());
+                        service
+                            .remote_ai_current_sessions(&project.path, scope_id, include_cached)
+                            .and_then(Result::ok)
+                    })
+                    .unwrap_or_default();
+                (summary, snapshot, remote_ai_current_sessions)
             })
             .await
             .map_err(|error| error.to_string());
@@ -1319,9 +1334,11 @@ impl CoduxApp {
                 }
                 app.memory_manager_refreshing = false;
                 match loaded {
-                    Ok((summary, snapshot)) => {
+                    Ok((summary, snapshot, remote_ai_current_sessions)) => {
                         app.state.memory = summary;
                         app.state.memory_manager = snapshot;
+                        app.state.remote_ai_current_sessions = remote_ai_current_sessions;
+                        app.state.refresh_ai_history_stats();
                         app.normalize_memory_status_seen_failures();
                         app.normalize_selected_memory_entry();
                         app.normalize_selected_memory_summary();

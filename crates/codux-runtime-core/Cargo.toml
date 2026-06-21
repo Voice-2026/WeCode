@@ -4,6 +4,7 @@ version = "1.8.1"
 edition = "2024"
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 codux-protocol = { path = "../codux-protocol" }
 codux-terminal-core = { path = "../codux-terminal-core" }
 serde = { version = "1", features = ["derive"] }

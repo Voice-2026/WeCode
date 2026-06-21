@@ -19,8 +19,20 @@ pub fn ai_session_payload(payload: &Value) -> Value {
         .get("projectPath")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let session_id = payload.get("sessionId").and_then(Value::as_str).unwrap_or("");
+    let session_id = payload
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let result = match op {
+        "list" => serde_json::to_value(
+            service()
+                .project_summary(project_path)
+                .sessions
+                .into_iter()
+                .map(codux_protocol::RemoteAISessionSummary::from)
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or(Value::Null),
         "detail" => service()
             .project_session_detail(project_path, session_id)
             .ok()

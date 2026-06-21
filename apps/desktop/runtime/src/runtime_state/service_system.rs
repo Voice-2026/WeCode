@@ -239,6 +239,21 @@ impl RuntimeService {
         self.remote_host.broadcast_terminal_list_change();
     }
 
+    /// Push freshly-indexed AI stats to remote devices that requested them while
+    /// the project's index was still cold (see `flush_pending_ai_stats`).
+    pub fn flush_remote_ai_stats(
+        &self,
+        state: &crate::ai_history_indexer::AIHistoryProjectState,
+    ) {
+        self.remote_host.flush_pending_ai_stats(state);
+    }
+
+    /// Re-push `ai.stats` to watching remote devices after the live AI runtime
+    /// state changed, so their views tick like the desktop's local view.
+    pub fn push_remote_ai_stats_to_watchers(&self) {
+        self.remote_host.push_ai_stats_to_watchers();
+    }
+
     pub fn shutdown_runtime_state(&self) {
         self.remote_host.shutdown();
     }

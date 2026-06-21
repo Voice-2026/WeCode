@@ -6,41 +6,42 @@
 //! payload builders in `codux-runtime-core`.
 
 use codux_protocol::{
-    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED,
-    REMOTE_FILE_COPY, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
+    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR,
+    REMOTE_FILE_BLOB, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED, REMOTE_FILE_COPY,
+    REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
     REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_MOVE, REMOTE_FILE_MOVED,
-    REMOTE_FILE_READ, REMOTE_FILE_RENAME,
-    REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
-    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_FILE_BLOB, REMOTE_FILE_READ_BLOB,
-    REMOTE_FILE_WRITE_BLOB,
-    REMOTE_GIT_INVOKE,
-    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT, REMOTE_MEMORY_READ,
-    REMOTE_MEMORY_RESULT,
-    REMOTE_PAIRING_CONFIRMED,
-    REMOTE_PAIRING_REQUEST,
-    REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_TERMINAL_CLOSE,
-    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
-    REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
-    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE,
-    REMOTE_WORKTREE_UPDATED,
+    REMOTE_FILE_READ, REMOTE_FILE_READ_BLOB, REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED,
+    REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BLOB, REMOTE_FILE_WRITE_BYTES, REMOTE_FILE_WRITTEN,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
+    REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
+    REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_SSH_LIST,
+    REMOTE_SSH_LIST_RESULT, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE,
+    REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH,
+    REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
+    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
 };
-use codux_terminal_pty::LocalPtyDriver;
 use codux_runtime_core::{
     file::{
         file_copy, file_delete, file_list_payload, file_make_directory, file_move,
         file_read_payload, file_rename, file_write, file_write_bytes,
     },
     git::git_status_payload,
-    host::{host_info_payload, HostInfoPayload},
+    host::{HostInfoPayload, host_info_payload},
     project::project_list_payload,
+};
+use codux_runtime_live::{
+    ai_runtime::AIRuntimeBridge,
+    ai_runtime_state::AIRuntimeStateService,
+    terminal_pty::TerminalManager,
 };
 
 use crate::projects::AgentProjectStore;
 use codux_ai_history::indexer::AIHistoryIndexer;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 /// What the agent needs to stand up a host endpoint.
@@ -59,13 +60,19 @@ type TransportSlot = Arc<Mutex<Option<Arc<dyn RemoteTransport>>>>;
 /// Our own iroh dial candidate `(node_id, relay_url)`, filled in after connect
 /// so `pairing.confirmed` can hand the controller a reconnect transport.
 type CandidateSlot = Arc<Mutex<Option<(String, String)>>>;
+/// Devices watching a project's `ai.stats` (project_id -> device ids). A device
+/// registers by requesting `ai.stats`; the poller re-pushes fresh stats to them
+/// when the live AI runtime changes, so remote views tick like the desktop's.
+type AIStatsWatchers = Arc<Mutex<HashMap<String, HashSet<String>>>>;
 
 /// Build the message handler that dispatches incoming envelopes to the served
 /// domains and replies through the (post-connect) transport handle.
 fn make_handler(
     slot: TransportSlot,
-    driver: Arc<LocalPtyDriver>,
+    driver: Arc<TerminalManager>,
     indexer: AIHistoryIndexer,
+    ai_current_sessions: Arc<AgentAICurrentSessionProvider>,
+    ai_stats_watchers: AIStatsWatchers,
     candidate: CandidateSlot,
     host_id: String,
     name: String,
@@ -317,7 +324,10 @@ fn make_handler(
                 payload.get("newPath").and_then(Value::as_str),
             ) {
                 (Some(path), Some(new_path)) => match file_rename(path, new_path) {
-                    Ok(()) => Some((REMOTE_FILE_RENAMED, json!({ "path": path, "newPath": new_path }))),
+                    Ok(()) => Some((
+                        REMOTE_FILE_RENAMED,
+                        json!({ "path": path, "newPath": new_path }),
+                    )),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 },
                 _ => Some((
@@ -337,11 +347,17 @@ fn make_handler(
                     Ok(()) => Some((REMOTE_FILE_DIRECTORY_CREATED, json!({ "path": path }))),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 },
-                None => Some((REMOTE_ERROR, json!({ "message": "Directory path is required." }))),
+                None => Some((
+                    REMOTE_ERROR,
+                    json!({ "message": "Directory path is required." }),
+                )),
             },
             REMOTE_FILE_COPY => {
                 let path = payload.get("path").and_then(Value::as_str).unwrap_or("");
-                let target = payload.get("targetDir").and_then(Value::as_str).unwrap_or("");
+                let target = payload
+                    .get("targetDir")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 match file_copy(path, target) {
                     Ok(new_path) => Some((REMOTE_FILE_COPIED, json!({ "path": new_path }))),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
@@ -349,8 +365,14 @@ fn make_handler(
             }
             REMOTE_FILE_MOVE => {
                 let path = payload.get("path").and_then(Value::as_str).unwrap_or("");
-                let target = payload.get("targetDir").and_then(Value::as_str).unwrap_or("");
-                let overwrite = payload.get("overwrite").and_then(Value::as_bool).unwrap_or(false);
+                let target = payload
+                    .get("targetDir")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let overwrite = payload
+                    .get("overwrite")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 match file_move(path, target, overwrite) {
                     Ok(new_path) => Some((REMOTE_FILE_MOVED, json!({ "path": new_path }))),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
@@ -358,13 +380,18 @@ fn make_handler(
             }
             REMOTE_FILE_WRITE_BYTES => {
                 use base64::Engine;
-                let directory = payload.get("directory").and_then(Value::as_str).unwrap_or("");
+                let directory = payload
+                    .get("directory")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let name = payload.get("name").and_then(Value::as_str).unwrap_or("");
                 let bytes = payload
                     .get("bytes")
                     .and_then(Value::as_str)
                     .and_then(|encoded| {
-                        base64::engine::general_purpose::STANDARD.decode(encoded).ok()
+                        base64::engine::general_purpose::STANDARD
+                            .decode(encoded)
+                            .ok()
                     })
                     .unwrap_or_default();
                 match file_write_bytes(directory, name, &bytes) {
@@ -386,7 +413,10 @@ fn make_handler(
                         Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                     }
                 }
-                None => Some((REMOTE_ERROR, json!({ "message": "Project path is required." }))),
+                None => Some((
+                    REMOTE_ERROR,
+                    json!({ "message": "Project path is required." }),
+                )),
             },
             REMOTE_PROJECT_REMOVE => {
                 let id = payload
@@ -400,11 +430,17 @@ fn make_handler(
                         }
                         Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                     },
-                    None => Some((REMOTE_ERROR, json!({ "message": "Project id is required." }))),
+                    None => Some((
+                        REMOTE_ERROR,
+                        json!({ "message": "Project id is required." }),
+                    )),
                 }
             }
             REMOTE_GIT_STATUS => {
-                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
@@ -419,7 +455,10 @@ fn make_handler(
                 ))
             }
             REMOTE_GIT_INVOKE => {
-                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
@@ -451,7 +490,10 @@ fn make_handler(
                 }
             }
             REMOTE_WORKTREE_LIST => {
-                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
@@ -462,7 +504,10 @@ fn make_handler(
                 ))
             }
             REMOTE_WORKTREE_CREATE | REMOTE_WORKTREE_REMOVE | REMOTE_WORKTREE_MERGE => {
-                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
@@ -470,19 +515,34 @@ fn make_handler(
                 let result = match kind {
                     REMOTE_WORKTREE_CREATE => crate::worktree::worktree_create(
                         project_path,
-                        payload.get("branchName").and_then(Value::as_str).unwrap_or(""),
+                        payload
+                            .get("branchName")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
                         payload.get("baseBranch").and_then(Value::as_str),
                     ),
                     REMOTE_WORKTREE_MERGE => crate::worktree::worktree_merge(
                         project_path,
-                        payload.get("worktreePath").and_then(Value::as_str).unwrap_or(""),
+                        payload
+                            .get("worktreePath")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
                         payload.get("baseBranch").and_then(Value::as_str),
-                        payload.get("removeBranch").and_then(Value::as_bool).unwrap_or(false),
+                        payload
+                            .get("removeBranch")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                     ),
                     _ => crate::worktree::worktree_remove(
                         project_path,
-                        payload.get("worktreePath").and_then(Value::as_str).unwrap_or(""),
-                        payload.get("removeBranch").and_then(Value::as_bool).unwrap_or(false),
+                        payload
+                            .get("worktreePath")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                        payload
+                            .get("removeBranch")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                     ),
                 };
                 match result {
@@ -496,7 +556,10 @@ fn make_handler(
             REMOTE_AI_STATS => {
                 // Resolve the project (path is needed to scan its CLI history),
                 // falling back to the first project like the desktop host.
-                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let store = AgentProjectStore::new();
                 let project = store
                     .list()
@@ -504,21 +567,46 @@ fn make_handler(
                     .find(|item| item.id == project_id)
                     .or_else(|| store.list().into_iter().next());
                 match project {
-                    Some(project) => Some((
-                        REMOTE_AI_STATS,
-                        crate::ai_stats::ai_stats_payload(
-                            &indexer,
-                            &project.id,
-                            &project.name,
-                            &project.path,
-                        ),
+                    Some(project) => {
+                        // Register the requesting device as a watcher (one project
+                        // per device) so the poller re-pushes on runtime change.
+                        if let Some(device_id) = device_id.filter(|value| !value.trim().is_empty()) {
+                            if let Ok(mut watchers) = ai_stats_watchers.lock() {
+                                for (id, devices) in watchers.iter_mut() {
+                                    if id != &project.id {
+                                        devices.remove(device_id);
+                                    }
+                                }
+                                watchers.retain(|_, devices| !devices.is_empty());
+                                watchers
+                                    .entry(project.id.clone())
+                                    .or_default()
+                                    .insert(device_id.to_string());
+                            }
+                        }
+                        Some((
+                            REMOTE_AI_STATS,
+                            crate::ai_stats::ai_stats_payload(
+                                &indexer,
+                                ai_current_sessions.as_ref(),
+                                &project.id,
+                                &project.name,
+                                &project.path,
+                            ),
+                        ))
+                    }
+                    None => Some((
+                        REMOTE_ERROR,
+                        json!({ "message": "Unable to load AI stats." }),
                     )),
-                    None => Some((REMOTE_ERROR, json!({ "message": "Unable to load AI stats." }))),
                 }
             }
             REMOTE_MEMORY_READ => {
                 // The host runs the codux-memory engine against its own store.
-                Some((REMOTE_MEMORY_RESULT, crate::memory::memory_read_payload(&payload)))
+                Some((
+                    REMOTE_MEMORY_RESULT,
+                    crate::memory::memory_read_payload(&payload),
+                ))
             }
             REMOTE_AI_SESSION => {
                 // The host runs the codux-ai-sessions engine against its own history.
@@ -527,11 +615,22 @@ fn make_handler(
                     crate::sessions::ai_session_payload(&payload),
                 ))
             }
+            REMOTE_SSH_LIST => {
+                // The headless host has no saved SSH profiles of its own yet, so
+                // it returns an empty list using the same shared wire shape.
+                Some((REMOTE_SSH_LIST_RESULT, json!({ "profiles": [] })))
+            }
             REMOTE_AI_STATE => {
                 // The controller owns the project record and sends its path; the
                 // agent indexes the host's history for that path directly.
-                let project_id = payload.get("projectId").and_then(Value::as_str).unwrap_or("");
-                let project_name = payload.get("projectName").and_then(Value::as_str).unwrap_or("");
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let project_name = payload
+                    .get("projectName")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
@@ -577,7 +676,10 @@ async fn connect_serving_host(
 ) -> Result<(Arc<dyn RemoteTransport>, TransportSlot), String> {
     let slot: TransportSlot = Arc::new(Mutex::new(None));
     let candidate: CandidateSlot = Arc::new(Mutex::new(None));
-    let driver = Arc::new(LocalPtyDriver::new());
+    let ai_runtime = Arc::new(AIRuntimeBridge::new());
+    let driver = Arc::new(TerminalManager::with_ai_runtime(Arc::clone(&ai_runtime)));
+    let ai_current_sessions = Arc::new(AgentAICurrentSessionProvider { ai_runtime });
+    let ai_stats_watchers: AIStatsWatchers = Arc::new(Mutex::new(HashMap::new()));
     let indexer = crate::ai_stats::open_indexer();
     // For a custom relay the iroh relay URL must be set explicitly; for presets
     // the transport resolves it from `relay_preset`.
@@ -599,7 +701,9 @@ async fn connect_serving_host(
         make_handler(
             Arc::clone(&slot),
             driver,
-            indexer,
+            indexer.clone(),
+            Arc::clone(&ai_current_sessions),
+            Arc::clone(&ai_stats_watchers),
             Arc::clone(&candidate),
             cfg.host_id.clone(),
             cfg.name.clone(),
@@ -616,7 +720,91 @@ async fn connect_serving_host(
     if let (Ok(mut guard), Some((node_id, relay_url))) = (candidate.lock(), host.iroh_candidate()) {
         *guard = Some((node_id, relay_url));
     }
+    spawn_ai_stats_poller(
+        Arc::clone(&slot),
+        indexer,
+        ai_current_sessions,
+        ai_stats_watchers,
+    );
     Ok((host, slot))
+}
+
+/// Watch the live AI runtime and re-push `ai.stats` to watching devices whenever
+/// a project's current sessions change. The headless host has no UI tick, so a
+/// lightweight poll drives the same real-time updates the desktop emits from its
+/// runtime tick.
+fn spawn_ai_stats_poller(
+    slot: TransportSlot,
+    indexer: AIHistoryIndexer,
+    provider: Arc<AgentAICurrentSessionProvider>,
+    watchers: AIStatsWatchers,
+) {
+    tokio::spawn(async move {
+        use codux_protocol::RemoteAICurrentSession;
+        use codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider;
+        let mut last: HashMap<String, Vec<RemoteAICurrentSession>> = HashMap::new();
+        let mut ticker = tokio::time::interval(std::time::Duration::from_millis(1000));
+        loop {
+            ticker.tick().await;
+            let snapshot = match watchers.lock() {
+                Ok(watchers) => watchers.clone(),
+                Err(_) => continue,
+            };
+            if snapshot.is_empty() {
+                continue;
+            }
+            let projects = AgentProjectStore::new().list();
+            for (project_id, devices) in snapshot {
+                if devices.is_empty() {
+                    continue;
+                }
+                let current = provider.current_sessions(&project_id);
+                if last.get(&project_id) == Some(&current) {
+                    continue;
+                }
+                last.insert(project_id.clone(), current);
+                let Some(project) = projects.iter().find(|item| item.id == project_id) else {
+                    continue;
+                };
+                let payload = crate::ai_stats::ai_stats_payload(
+                    &indexer,
+                    provider.as_ref(),
+                    &project.id,
+                    &project.name,
+                    &project.path,
+                );
+                for device in &devices {
+                    let envelope =
+                        json!({ "type": REMOTE_AI_STATS, "payload": payload, "deviceId": device });
+                    let Ok(bytes) = serde_json::to_vec(&envelope) else {
+                        continue;
+                    };
+                    if let Ok(guard) = slot.lock() {
+                        if let Some(transport) = guard.as_ref() {
+                            transport.send(bytes, Some(device));
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+struct AgentAICurrentSessionProvider {
+    ai_runtime: Arc<AIRuntimeBridge>,
+}
+
+impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
+    for AgentAICurrentSessionProvider
+{
+    fn current_sessions(&self, project_id: &str) -> Vec<codux_protocol::RemoteAICurrentSession> {
+        let snapshot = self.ai_runtime.runtime_state_snapshot();
+        let summary = AIRuntimeStateService::new(crate::projects::agent_data_dir())
+            .summary_from_runtime_snapshot(&snapshot);
+        codux_runtime_live::ai_runtime_state::remote_current_sessions_from_runtime_state(
+            &summary, project_id,
+        )
+    }
 }
 
 /// Run the headless host until the process is stopped, printing the pairing
@@ -756,10 +944,11 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         want: &str,
     ) -> Result<Value, String> {
         loop {
-            let (kind, payload) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-                .await
-                .map_err(|_| format!("timeout waiting for {want}"))?
-                .ok_or_else(|| format!("channel closed waiting for {want}"))?;
+            let (kind, payload) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+                    .await
+                    .map_err(|_| format!("timeout waiting for {want}"))?
+                    .ok_or_else(|| format!("channel closed waiting for {want}"))?;
             if kind == want {
                 return Ok(payload);
             }
@@ -786,7 +975,9 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         )?;
         let confirmed = expect(&mut reply_rx, REMOTE_PAIRING_CONFIRMED).await?;
         if confirmed.get("hostId").and_then(Value::as_str) != Some(cfg.host_id.as_str()) {
-            return Err(format!("pairing.confirmed missing matching hostId: {confirmed}"));
+            return Err(format!(
+                "pairing.confirmed missing matching hostId: {confirmed}"
+            ));
         }
         if confirmed.get("deviceId").and_then(Value::as_str) != Some(device_id.as_str()) {
             return Err("pairing.confirmed did not echo the device id".to_string());
@@ -810,7 +1001,10 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             return Err("createDirectory did not create the directory".to_string());
         }
 
-        request(REMOTE_FILE_WRITE, json!({ "path": file, "content": "codux-agent" }))?;
+        request(
+            REMOTE_FILE_WRITE,
+            json!({ "path": file, "content": "codux-agent" }),
+        )?;
         expect(&mut reply_rx, REMOTE_FILE_WRITTEN).await?;
 
         request(REMOTE_FILE_READ, json!({ "path": file }))?;
@@ -862,7 +1056,10 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
 
         // 3. project domain (add / remove)
         let project_path = format!("/tmp/codux-agent-project-{}", std::process::id());
-        request(REMOTE_PROJECT_ADD, json!({ "path": project_path, "name": "Smoke" }))?;
+        request(
+            REMOTE_PROJECT_ADD,
+            json!({ "path": project_path, "name": "Smoke" }),
+        )?;
         let added = expect(&mut reply_rx, REMOTE_PROJECT_LIST).await?;
         let project_id = added
             .get("projects")
@@ -892,7 +1089,10 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         }
 
         // 4. terminal domain (create -> input -> streamed output -> close)
-        request(REMOTE_TERMINAL_CREATE, json!({ "command": "sh", "cwd": "/tmp" }))?;
+        request(
+            REMOTE_TERMINAL_CREATE,
+            json!({ "command": "sh", "cwd": "/tmp" }),
+        )?;
         let created = expect(&mut reply_rx, REMOTE_TERMINAL_CREATED).await?;
         let terminal_id = created
             .get("sessionId")
@@ -912,7 +1112,10 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
                     .ok_or_else(|| "channel closed waiting for terminal output".to_string())?;
             if kind == REMOTE_TERMINAL_OUTPUT {
                 let data = payload.get("data").and_then(Value::as_str).unwrap_or("");
-                let screen = payload.get("screenData").and_then(Value::as_str).unwrap_or("");
+                let screen = payload
+                    .get("screenData")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 if data.contains(marker) || screen.contains(marker) {
                     break;
                 }
@@ -926,7 +1129,10 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         let repo_dir = repo_dir.to_string_lossy().to_string();
         git2::Repository::init(&repo_dir).map_err(|error| error.to_string())?;
         std::fs::write(format!("{repo_dir}/probe.txt"), "x").map_err(|error| error.to_string())?;
-        request(REMOTE_GIT_STATUS, json!({ "projectId": "p", "projectPath": repo_dir }))?;
+        request(
+            REMOTE_GIT_STATUS,
+            json!({ "projectId": "p", "projectPath": repo_dir }),
+        )?;
         let status = expect(&mut reply_rx, REMOTE_GIT_STATUS).await?;
         if status.get("isRepository").and_then(Value::as_bool) != Some(true) {
             return Err("git.status did not detect the repository".to_string());
@@ -958,7 +1164,9 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         )?;
         let branched = expect(&mut reply_rx, REMOTE_GIT_STATUS).await?;
         if branched.get("branch").and_then(Value::as_str) != Some("feature") {
-            return Err(format!("git create_branch did not switch branch: {branched}"));
+            return Err(format!(
+                "git create_branch did not switch branch: {branched}"
+            ));
         }
         std::fs::write(format!("{repo_dir}/probe.txt"), "y").map_err(|error| error.to_string())?;
         request(
@@ -966,7 +1174,11 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             json!({ "projectPath": repo_dir, "op": "diff", "args": { "filePath": "probe.txt" } }),
         )?;
         let diff = expect(&mut reply_rx, REMOTE_GIT_READ).await?;
-        if diff.pointer("/result/diff").and_then(Value::as_str).is_none() {
+        if diff
+            .pointer("/result/diff")
+            .and_then(Value::as_str)
+            .is_none()
+        {
             return Err(format!("git read diff missing result: {diff}"));
         }
         // worktree list: the repo's main worktree shows up
@@ -989,7 +1201,11 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
             json!({ "projectId": "p", "projectPath": repo_dir, "branchName": "smoke-wt" }),
         )?;
         let created = expect(&mut reply_rx, REMOTE_WORKTREE_UPDATED).await?;
-        if created.get("worktrees").and_then(Value::as_array).map(Vec::len).unwrap_or(0)
+        if created
+            .get("worktrees")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0)
             <= base_count
         {
             return Err(format!("worktree.create did not add a worktree: {created}"));
@@ -998,7 +1214,10 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
 
         // 6. ai stats domain (single-reply usage snapshot for a project)
         let stats_project = format!("/tmp/codux-agent-ai-{}", std::process::id());
-        request(REMOTE_PROJECT_ADD, json!({ "path": stats_project, "name": "AI" }))?;
+        request(
+            REMOTE_PROJECT_ADD,
+            json!({ "path": stats_project, "name": "AI" }),
+        )?;
         let added = expect(&mut reply_rx, REMOTE_PROJECT_LIST).await?;
         let stats_project_id = added
             .get("projects")
@@ -1014,7 +1233,9 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         request(REMOTE_AI_STATS, json!({ "projectId": stats_project_id }))?;
         let stats = expect(&mut reply_rx, REMOTE_AI_STATS).await?;
         if stats.get("projectId").and_then(Value::as_str) != Some(stats_project_id.as_str()) {
-            return Err(format!("ai.stats reply missing matching projectId: {stats}"));
+            return Err(format!(
+                "ai.stats reply missing matching projectId: {stats}"
+            ));
         }
         if stats.get("sessions").and_then(Value::as_array).is_none() {
             return Err("ai.stats reply missing sessions array".to_string());
@@ -1027,7 +1248,9 @@ pub async fn run_serve_smoke_async() -> Result<String, String> {
         )?;
         let state = expect(&mut reply_rx, REMOTE_AI_STATE).await?;
         if state.get("projectId").and_then(Value::as_str) != Some("p") {
-            return Err(format!("ai.state reply missing matching projectId: {state}"));
+            return Err(format!(
+                "ai.state reply missing matching projectId: {state}"
+            ));
         }
 
         // memory.read: the host runs the codux-memory engine against its store.

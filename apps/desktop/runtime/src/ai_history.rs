@@ -8,6 +8,7 @@ mod tests;
 
 pub use codux_ai_sessions::*;
 
+use crate::ai_runtime_state::remote_current_sessions_from_runtime_state;
 use std::collections::BTreeMap;
 
 pub fn display_tokens(total_tokens: i64, cached_input_tokens: i64, include_cached: bool) -> i64 {
@@ -61,24 +62,10 @@ fn stats_current_sessions(
     selected_scope_id: Option<&str>,
     include_cached: bool,
 ) -> Vec<AIHistoryCurrentSessionView> {
-    runtime_state
-        .sessions
-        .iter()
-        .filter(|session| {
-            selected_scope_id
-                .map(|scope_id| session.project_id == scope_id)
-                .unwrap_or(true)
-        })
-        .map(|session| AIHistoryCurrentSessionView {
-            tool: session.tool.clone(),
-            model: session.model.clone(),
-            total_tokens: display_tokens(
-                session.total_tokens,
-                session.cached_input_tokens,
-                include_cached,
-            ),
-        })
-        .collect()
+    codux_ai_sessions::ai_current_session_views(
+        remote_current_sessions_from_runtime_state(runtime_state, selected_scope_id.unwrap_or("")),
+        include_cached,
+    )
 }
 
 fn stats_today_buckets(

@@ -264,6 +264,44 @@ impl RuntimeService {
         Some(controller.ai_session(op, serde_json::Value::Object(args)))
     }
 
+    /// Live AI runtime sessions of a remote-hosted project, read from the
+    /// host's existing `ai.stats.currentSessions` payload.
+    pub fn remote_ai_current_sessions(
+        &self,
+        project_path: &str,
+        scope_id: &str,
+        include_cached: bool,
+    ) -> Option<Result<Vec<crate::ai_history::AIHistoryCurrentSessionView>, String>> {
+        let device_id = self.host_device_for_project_path(project_path)?;
+        let controller = match self.remote_controllers.controller_for(&device_id) {
+            Ok(controller) => controller,
+            Err(error) => return Some(Err(error)),
+        };
+        Some(controller.ai_stats(scope_id).map(|payload| {
+            crate::ai_history::ai_current_session_views(
+                codux_runtime_core::ai_stats::current_sessions_from_payload(&payload),
+                include_cached,
+            )
+        }))
+    }
+
+    /// Apply any `ai.stats` the host pushed for a remote-hosted project since the
+    /// last tick (live AI runtime updates). Returns the latest current-session
+    /// views, or `None` if the project is local or nothing was pushed.
+    pub fn drain_remote_ai_current_sessions(
+        &self,
+        project_path: &str,
+        include_cached: bool,
+    ) -> Option<Vec<crate::ai_history::AIHistoryCurrentSessionView>> {
+        let device_id = self.host_device_for_project_path(project_path)?;
+        let controller = self.remote_controllers.controller_for(&device_id).ok()?;
+        let payload = controller.drain_pushed_ai_stats().pop()?;
+        Some(crate::ai_history::ai_current_session_views(
+            codux_runtime_core::ai_stats::current_sessions_from_payload(&payload),
+            include_cached,
+        ))
+    }
+
     /// Run a memory read on the host of a remote project. Returns `None` for a
     /// local project (caller falls back to the local engine). `op`-specific
     /// args are merged with the resolved `projectId`/`projectPath`.

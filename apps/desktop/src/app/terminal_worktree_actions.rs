@@ -1712,6 +1712,7 @@ impl CoduxApp {
             &scope_key.worktree_id,
             &format!("target_worktree={worktree_id}"),
         );
+        let include_cached = self.state.settings.statistics_mode == "includingCache";
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let load = codux_runtime::async_runtime::spawn_blocking({
                 let scope_key = scope_key.clone();
@@ -1729,9 +1730,17 @@ impl CoduxApp {
                         })
                         .unwrap_or_else(|| AIHistorySummary {
                             is_loading: true,
-                            detail: "loading".to_string(),
-                            ..AIHistorySummary::default()
-                        });
+                        detail: "loading".to_string(),
+                        ..AIHistorySummary::default()
+                    });
+                    let remote_ai_current_sessions = runtime_service
+                        .remote_ai_current_sessions(
+                            &project.path,
+                            &scope_key.worktree_id,
+                            include_cached,
+                        )
+                        .and_then(Result::ok)
+                        .unwrap_or_default();
                     let terminal_layout = runtime_service.reload_terminal_layout(Some(
                         &super::app_state::worktree_terminal_storage_key(&scope_key),
                     ));
@@ -1740,6 +1749,7 @@ impl CoduxApp {
                         generation,
                         scope_key,
                         ai_history,
+                        remote_ai_current_sessions,
                         terminal_layout,
                         terminal_runtime: TerminalRuntimeSummary::default(),
                     })
@@ -1801,6 +1811,7 @@ impl CoduxApp {
             ),
         );
         self.state.ai_history = load.ai_history;
+        self.state.remote_ai_current_sessions = load.remote_ai_current_sessions;
         self.state.refresh_ai_history_stats();
         self.normalize_selected_ai_session();
         self.restore_cached_file_panel_state();

@@ -1,9 +1,11 @@
 use crate::common::{c_to_string, string_to_c};
 use codux_protocol::{
-    REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_DEVICE_INFO,
+    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATS, REMOTE_DEVICE_CONNECTED,
+    REMOTE_DEVICE_DISCONNECTED, REMOTE_DEVICE_INFO, REMOTE_SSH_LIST, REMOTE_SSH_LIST_RESULT,
     REMOTE_ERROR, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
     REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_GIT_STATUS, REMOTE_HELLO, REMOTE_HOST_INFO, REMOTE_HOST_OFFLINE,
+    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HELLO, REMOTE_HOST_INFO,
+    REMOTE_HOST_OFFLINE,
     REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED, REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_ADD,
     REMOTE_PROJECT_EDIT, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_PROJECT_SELECT,
     REMOTE_PROJECT_SELECTED, REMOTE_PROJECT_UPDATED, REMOTE_PROTOCOL_VERSION, REMOTE_RELAY_ERROR,
@@ -189,7 +191,13 @@ fn message_type_by_name(name: &str) -> Option<&'static str> {
         "fileDelete" => REMOTE_FILE_DELETE,
         "fileDeleted" => REMOTE_FILE_DELETED,
         "gitStatus" => REMOTE_GIT_STATUS,
+        "gitInvoke" => REMOTE_GIT_INVOKE,
+        "gitRead" => REMOTE_GIT_READ,
         "aiStats" => REMOTE_AI_STATS,
+        "aiSession" => REMOTE_AI_SESSION,
+        "aiSessionResult" => REMOTE_AI_SESSION_RESULT,
+        "sshList" => REMOTE_SSH_LIST,
+        "sshListResult" => REMOTE_SSH_LIST_RESULT,
         _ => return None,
     })
 }
@@ -233,6 +241,18 @@ mod tests {
         assert_eq!(
             message_type_by_name("pairingConfirmed"),
             Some("pairing.confirmed")
+        );
+        assert_eq!(message_type_by_name("gitInvoke"), Some("git.invoke"));
+        assert_eq!(message_type_by_name("gitRead"), Some("git.read"));
+        assert_eq!(message_type_by_name("aiSession"), Some("ai.session"));
+        assert_eq!(
+            message_type_by_name("aiSessionResult"),
+            Some("ai.session.result"),
+        );
+        assert_eq!(message_type_by_name("sshList"), Some("ssh.list"));
+        assert_eq!(
+            message_type_by_name("sshListResult"),
+            Some("ssh.list.result"),
         );
         assert_eq!(resource_type_by_name("gitStatus"), Some("git.status"));
         assert_eq!(transport_kind_by_name("iroh"), Some("iroh"));

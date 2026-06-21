@@ -483,6 +483,8 @@ pub(in crate::app) struct ProjectSwitchPrimaryLoad {
     pub(in crate::app) generation: u64,
     pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) ai_history: AIHistorySummary,
+    pub(in crate::app) remote_ai_current_sessions:
+        Vec<codux_runtime::ai_history::AIHistoryCurrentSessionView>,
 }
 
 pub(in crate::app) struct WorktreeSwitchLoad {
@@ -490,6 +492,8 @@ pub(in crate::app) struct WorktreeSwitchLoad {
     pub(in crate::app) generation: u64,
     pub(in crate::app) scope_key: WorktreeScopeKey,
     pub(in crate::app) ai_history: AIHistorySummary,
+    pub(in crate::app) remote_ai_current_sessions:
+        Vec<codux_runtime::ai_history::AIHistoryCurrentSessionView>,
     pub(in crate::app) terminal_layout: TerminalLayoutSummary,
     pub(in crate::app) terminal_runtime: TerminalRuntimeSummary,
 }

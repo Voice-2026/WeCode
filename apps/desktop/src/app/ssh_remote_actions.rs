@@ -1275,6 +1275,9 @@ impl CoduxApp {
                 &previous_project_states,
                 &self.state.ai_runtime_state.project_states,
             );
+            if ai_activity_changed {
+                self.runtime_service.push_remote_ai_stats_to_watchers();
+            }
             self.state.pet = self.runtime_service.reload_pet();
             if let Ok(snapshot) = self.runtime_service.pet_snapshot() {
                 self.pet_snapshot = snapshot;
@@ -1283,6 +1286,7 @@ impl CoduxApp {
         if include_scheduled_tick {
             self.refresh_global_today_ai_tokens();
         }
+        let remote_ai_stats_changed = self.apply_pushed_remote_ai_stats();
         let memory_event = current_memory_update_event();
         let memory_update_event = memory_event.revision > self.memory_seen_revision;
         if memory_update_event {
@@ -1313,6 +1317,7 @@ impl CoduxApp {
             || child_window_events > 0
             || !remote_events.is_empty()
             || ai_activity_changed
+            || remote_ai_stats_changed
             || !drained.memory.is_empty()
             || memory_update_event
             || has_scheduled_refresh;
@@ -1357,6 +1362,31 @@ impl CoduxApp {
         }
     }
 
+    /// Apply any `ai.stats` the host pushed for the selected remote-hosted
+    /// project since the last tick (live AI runtime updates). Returns whether the
+    /// view changed. No-op for a local project.
+    fn apply_pushed_remote_ai_stats(&mut self) -> bool {
+        let Some(project) = self
+            .state
+            .selected_project
+            .as_ref()
+            .filter(|project| project.host_device_id.is_some())
+            .cloned()
+        else {
+            return false;
+        };
+        let include_cached = self.state.settings.statistics_mode.trim() == "includingCache";
+        let Some(views) = self
+            .runtime_service
+            .drain_remote_ai_current_sessions(&project.path, include_cached)
+        else {
+            return false;
+        };
+        self.state.remote_ai_current_sessions = views;
+        self.state.refresh_ai_history_stats();
+        true
+    }
+
     pub(super) fn apply_ai_runtime_activity_tick(
         &mut self,
         cx: &mut Context<Self>,
@@ -1385,6 +1415,9 @@ impl CoduxApp {
             &previous_project_states,
             &self.state.ai_runtime_state.project_states,
         );
+        if ai_activity_changed {
+            self.runtime_service.push_remote_ai_stats_to_watchers();
+        }
         self.state.pet = self.runtime_service.reload_pet();
         if let Ok(snapshot) = self.runtime_service.pet_snapshot() {
             self.pet_snapshot = snapshot;
@@ -1596,6 +1629,12 @@ impl CoduxApp {
         let previous_active_index_count = self.ai_history_active_index_count;
 
         for event in events {
+            // Push freshly-indexed stats to any remote device that requested
+            // `ai.stats` while this project's index was cold. Independent of the
+            // desktop's own selection (a remote may view a different project).
+            if let AIHistoryEvent::ProjectState { state } = &event {
+                self.runtime_service.flush_remote_ai_stats(state);
+            }
             match event {
                 AIHistoryEvent::ProjectState { state }
                     if selected_history_id == Some(state.project_id.as_str())

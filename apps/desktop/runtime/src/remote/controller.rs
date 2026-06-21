@@ -432,6 +432,23 @@ impl RemoteController {
         self.inner.events.lock().unwrap().drain(..).collect()
     }
 
+    /// Drain unsolicited `ai.stats` payloads the host pushed (live runtime
+    /// updates), leaving any other queued events in place. Returns them oldest
+    /// first; callers apply the latest.
+    pub fn drain_pushed_ai_stats(&self) -> Vec<Value> {
+        let mut events = self.inner.events.lock().unwrap();
+        let mut payloads = Vec::new();
+        events.retain(|(kind, payload)| {
+            if kind == REMOTE_AI_STATS {
+                payloads.push(payload.clone());
+                false
+            } else {
+                true
+            }
+        });
+        payloads
+    }
+
     pub async fn shutdown(&self) {
         self.transport.shutdown().await;
     }

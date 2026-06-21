@@ -63,6 +63,69 @@ pub struct AISessionSummary {
     pub request_count: i64,
 }
 
+impl From<AISessionSummary> for codux_protocol::RemoteAISessionSummary {
+    fn from(summary: AISessionSummary) -> Self {
+        Self {
+            id: summary.id,
+            title: summary.title,
+            tool: summary.source,
+            model: summary.last_model,
+            time: summary.last_seen_at,
+            size: summary.total_tokens,
+        }
+    }
+}
+
+impl AIHistoryCurrentSessionView {
+    pub fn from_remote(
+        session: codux_protocol::RemoteAICurrentSession,
+        include_cached: bool,
+    ) -> Self {
+        Self {
+            session_id: session.session_id,
+            terminal_id: session.terminal_id,
+            title: session.title,
+            tool: session.tool,
+            model: session.model,
+            status: session.status,
+            is_running: session.is_running,
+            total_tokens: display_current_session_tokens(
+                session.total_tokens,
+                session.cached_input_tokens,
+                include_cached,
+            ),
+            cached_input_tokens: if include_cached {
+                session.cached_input_tokens.max(0)
+            } else {
+                0
+            },
+        }
+    }
+}
+
+pub fn ai_current_session_views(
+    sessions: impl IntoIterator<Item = codux_protocol::RemoteAICurrentSession>,
+    include_cached: bool,
+) -> Vec<AIHistoryCurrentSessionView> {
+    sessions
+        .into_iter()
+        .map(|session| AIHistoryCurrentSessionView::from_remote(session, include_cached))
+        .collect()
+}
+
+fn display_current_session_tokens(
+    total_tokens: i64,
+    cached_input_tokens: i64,
+    include_cached: bool,
+) -> i64 {
+    total_tokens.max(0)
+        + if include_cached {
+            cached_input_tokens.max(0)
+        } else {
+            0
+        }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AISessionDetail {
@@ -156,9 +219,21 @@ pub struct AIHistoryStatsView {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AIHistoryCurrentSessionView {
+    #[serde(default, rename = "sessionId")]
+    pub session_id: String,
+    #[serde(default, rename = "terminalId")]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub title: String,
     pub tool: String,
     pub model: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, rename = "isRunning")]
+    pub is_running: bool,
     pub total_tokens: i64,
+    #[serde(default)]
+    pub cached_input_tokens: i64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]

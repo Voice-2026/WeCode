@@ -91,6 +91,7 @@ impl RuntimeState {
             runtime_activity,
             runtime_events,
             ai_runtime_state,
+            remote_ai_current_sessions: Vec::new(),
             remote,
             pet,
             power,
@@ -139,6 +140,7 @@ impl RuntimeState {
         self.runtime_activity = load_runtime_activity(&self.support_dir);
         self.runtime_events = load_runtime_events();
         self.ai_runtime_state = load_ai_runtime_state(&self.support_dir, &self.runtime_events);
+        self.remote_ai_current_sessions.clear();
         self.refresh_ai_history_stats();
         self.pet = load_pet(&self.support_dir);
         self.power = PowerService::new().summary(&self.settings.sleep_mode);
@@ -155,6 +157,14 @@ impl RuntimeState {
             ai_runtime_session_scope_id.as_deref(),
             &self.settings.statistics_mode,
         );
+        if self
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.as_ref())
+            .is_some()
+        {
+            self.ai_history_stats.current_sessions = self.remote_ai_current_sessions.clone();
+        }
     }
 
     pub fn refresh_daily_level(&mut self) {

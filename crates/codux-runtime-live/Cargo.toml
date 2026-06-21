@@ -1,0 +1,24 @@
+[package]
+name = "codux-runtime-live"
+version = "1.8.1"
+edition = "2024"
+
+[features]
+# Exposes `*_for_test` helpers across crate boundaries so dependents (e.g. the
+# desktop runtime) can drive viewport-lease expiry from their own tests.
+test-support = []
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+codux-protocol = { path = "../codux-protocol" }
+codux-terminal-core = { path = "../codux-terminal-core" }
+codux-terminal-pty = { path = "../codux-terminal-pty" }
+flume = "0.12"
+libc = "0.2"
+parking_lot = "0.12"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4", "v5"] }

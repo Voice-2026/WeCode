@@ -5,8 +5,11 @@ pub mod ai_history;
 pub use codux_ai_history::indexer as ai_history_indexer;
 pub use codux_ai_history::normalized as ai_history_normalized;
 pub use codux_ai_history::usage_store as ai_usage_store;
-pub mod ai_runtime;
-pub mod ai_runtime_state;
+// The live AI runtime engine (supervisor, runtime state, enhanced PTY manager,
+// runtime paths) lives in the AppKit-free `codux-runtime-live` crate so the
+// headless agent runs the same engine without the desktop platform layer.
+// Re-exported under the historical module paths the desktop code already uses.
+pub use codux_runtime_live::{ai_runtime, ai_runtime_state, runtime_paths, terminal_pty};
 pub mod app_commands;
 pub mod app_icon;
 pub mod app_info;
@@ -35,14 +38,12 @@ pub mod runtime_activity;
 pub mod runtime_bridge;
 pub mod runtime_cache;
 pub mod runtime_event;
-pub mod runtime_paths;
 pub mod runtime_state;
 pub mod runtime_trace;
 pub mod settings;
 pub mod ssh;
 pub mod system_fonts;
 pub mod terminal_layout;
-pub mod terminal_pty;
 pub mod terminal_runtime;
 pub mod tool_permissions;
 pub mod update;

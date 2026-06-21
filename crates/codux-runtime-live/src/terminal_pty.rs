@@ -120,6 +120,7 @@ pub struct TerminalPtyConfig {
     pub terminal_id: Option<String>,
     pub slot_id: Option<String>,
     pub session_key: Option<String>,
+    pub worktree_id: Option<String>,
     pub title: Option<String>,
     pub tool: Option<String>,
     /// When set, the terminal runs on this remote device over the controller.
@@ -150,6 +151,7 @@ impl From<TerminalLaunchConfig> for TerminalPtyConfig {
             session_key: config.session_key,
             title: config.title,
             tool: config.tool,
+            worktree_id: config.worktree_id,
             ..Default::default()
         }
     }
@@ -186,6 +188,7 @@ impl TerminalLaunchContext {
                     .to_string(),
             ),
             project_id: Some(self.project_id.clone()),
+            worktree_id: Some(self.project_id.clone()),
             project_name: Some(self.project_name.clone()),
             terminal_id: self.terminal_id.clone(),
             slot_id: self.slot_id.clone(),
@@ -446,8 +449,8 @@ impl TerminalManager {
         Ok(self.session(session_id)?.viewport_state())
     }
 
-    #[cfg(test)]
-    pub(crate) fn expire_viewport_lease_for_test(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn expire_viewport_lease_for_test(
         &self,
         session_id: &str,
     ) -> Result<Option<TerminalViewportState>> {
@@ -798,6 +801,10 @@ impl TerminalPtySession {
             .filter(|value| !value.trim().is_empty())
             .or_else(|| context.map(|context| context.project_id.clone()))
             .unwrap_or_else(|| project_name.clone());
+        let worktree_id = config
+            .worktree_id
+            .clone()
+            .filter(|value| !value.trim().is_empty());
         let slot_id = config
             .slot_id
             .clone()
@@ -826,6 +833,7 @@ impl TerminalPtySession {
             slot_id: slot_id.clone(),
             session_key: session_key.clone(),
             project_id: project_id.clone(),
+            worktree_id,
             project_name,
             cwd: info_cwd.clone(),
             shell: shell.clone(),
@@ -838,6 +846,7 @@ impl TerminalPtySession {
             last_active_at: now,
             buffer_characters: 0,
             has_buffer: false,
+            tool: config.tool.clone(),
         }));
         let viewport = Arc::new(parking_lot::Mutex::new(TerminalViewportLease {
             state: TerminalViewportState {

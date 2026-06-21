@@ -129,6 +129,12 @@ pub const REMOTE_AI_SESSION: &str = "ai.session";
 /// Reply to `ai.session`: `{op, result}` carrying the op's JSON.
 pub const REMOTE_AI_SESSION_RESULT: &str = "ai.session.result";
 
+/// Request the host's saved SSH profiles (the host owns them — a remote
+/// terminal's ssh is the host's). Reply carries `RemoteSshProfileSummary`s.
+pub const REMOTE_SSH_LIST: &str = "ssh.list";
+/// Reply to `ssh.list`: `{ profiles: [RemoteSshProfileSummary] }`.
+pub const REMOTE_SSH_LIST_RESULT: &str = "ssh.list.result";
+
 pub const REMOTE_TRANSPORT_IROH: &str = "iroh";
 pub const REMOTE_TRANSPORT_ROLE_HOST: &str = "host";
 
@@ -143,6 +149,67 @@ impl RemoteTransportKind {
             Self::Iroh => REMOTE_TRANSPORT_IROH,
         }
     }
+}
+
+/// One AI conversation-history record sent over `ai.session` (op `list`).
+/// Lean by design — every host produces this exact shape and every controller
+/// (desktop or mobile) parses it, so the wire fields live here once.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAISessionSummary {
+    pub id: String,
+    pub title: String,
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Last-seen time (epoch seconds).
+    pub time: f64,
+    /// Total tokens (the "size" of the session).
+    pub size: i64,
+}
+
+/// One live AI runtime session sent inside `ai.stats.currentSessions`.
+/// This is distinct from `RemoteAISessionSummary`: history records come from
+/// indexed CLI logs, while current sessions come from the host runtime.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAICurrentSession {
+    #[serde(default, rename = "sessionId")]
+    pub session_id: String,
+    #[serde(
+        default,
+        rename = "terminalId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub project_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub tool: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, rename = "isRunning")]
+    pub is_running: bool,
+    #[serde(default, rename = "totalTokens")]
+    pub total_tokens: i64,
+    #[serde(default, rename = "cachedInputTokens")]
+    pub cached_input_tokens: i64,
+}
+
+/// One saved SSH profile sent over `ssh.list`. The host owns the profiles
+/// (a remote terminal's ssh is the host's anyway), so the host sends this list;
+/// secrets are never included.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSshProfileSummary {
+    pub id: String,
+    pub name: String,
+    pub endpoint: String,
+    pub credential: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

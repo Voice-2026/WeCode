@@ -11,6 +11,7 @@ members = [
     "crates/codux-protocol-ffi",
     "crates/codux-remote-transport",
     "crates/codux-runtime-core",
+    "crates/codux-runtime-live",
     "crates/codux-terminal-core",
     "crates/codux-terminal-pty",
 ]

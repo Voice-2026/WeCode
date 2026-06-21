@@ -1,8 +1,8 @@
 use super::crypto::{display_host_name, remote_pairing_payload};
 use super::host::{
-    remote_ai_stats_payload, remote_file_list, remote_file_read, remote_file_rename,
-    remote_file_write, remote_terminal_upload_directory, sanitized_remote_upload_name,
-    terminal_upload_path_input, unique_remote_upload_path,
+    remote_file_list, remote_file_read, remote_file_rename, remote_file_write,
+    remote_terminal_upload_directory, sanitized_remote_upload_name, terminal_upload_path_input,
+    unique_remote_upload_path,
 };
 use super::pairing::remote_summary_show_pending_pairing;
 use super::summary::remote_summary_from_settings;
@@ -433,7 +433,7 @@ fn remote_file_read_write_and_rename_match_tauri_mobile_limits() {
 
 #[test]
 fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
-    let payload = remote_ai_stats_payload(
+    let payload = codux_runtime_core::ai_stats::ai_stats_payload_from_state(
         "project-1".to_string(),
         "Project One".to_string(),
         AIHistoryProjectState {
@@ -448,6 +448,7 @@ fn remote_ai_stats_payload_matches_tauri_empty_snapshot_shape() {
             error: None,
             version: 1,
         },
+        Vec::new(),
     )
     .expect("payload");
 
@@ -546,6 +547,7 @@ fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
             slot_id: "slot-1".to_string(),
             session_key: Some("session-key-1".to_string()),
             project_id: "project-1".to_string(),
+            worktree_id: Some("worktree-1".to_string()),
             project_name: "Codux".to_string(),
             cwd: "/workspace/codux".to_string(),
             shell: "zsh".to_string(),
@@ -558,6 +560,7 @@ fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
             last_active_at: "2026-01-01T00:00:01Z".to_string(),
             buffer_characters: 42,
             has_buffer: true,
+            tool: None,
         },
         "tab",
         Some("worktree-1"),

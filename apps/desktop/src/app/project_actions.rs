@@ -33,6 +33,7 @@ impl CoduxApp {
                 .unwrap_or_else(|| project_id.clone()),
         };
         let generation = self.project_switch_generation;
+        let include_cached = self.state.settings.statistics_mode == "includingCache";
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
             let result = codux_runtime::async_runtime::run_limited_blocking(move || {
                 let worktrees =
@@ -52,6 +53,14 @@ impl CoduxApp {
                         detail: "loading".to_string(),
                         ..AIHistorySummary::default()
                     });
+                let remote_ai_current_sessions = runtime_service
+                    .remote_ai_current_sessions(
+                        &project.path,
+                        &scope_key.worktree_id,
+                        include_cached,
+                    )
+                    .and_then(Result::ok)
+                    .unwrap_or_default();
                 (
                     ProjectSwitchTaskLoad {
                         project_id: project_id.clone(),
@@ -63,6 +72,7 @@ impl CoduxApp {
                         generation,
                         scope_key,
                         ai_history,
+                        remote_ai_current_sessions,
                     },
                 )
             })
@@ -711,6 +721,7 @@ impl CoduxApp {
         let primary_runtime_service = runtime_service.clone();
         let primary_project = project.clone();
         let primary_worktree = super::ai_runtime_status::selected_worktree_info(&self.state);
+        let include_cached = self.state.settings.statistics_mode == "includingCache";
         let primary_scope_key = WorktreeScopeKey {
             project_id: project.id.clone(),
             worktree_id: primary_worktree
@@ -870,6 +881,14 @@ impl CoduxApp {
                             detail: "loading".to_string(),
                             ..AIHistorySummary::default()
                         });
+                    let remote_ai_current_sessions = primary_runtime_service
+                        .remote_ai_current_sessions(
+                            &primary_project.path,
+                            &primary_scope_key.worktree_id,
+                            include_cached,
+                        )
+                        .and_then(Result::ok)
+                        .unwrap_or_default();
                     codux_runtime::runtime_trace::runtime_trace(
                         "project-switch",
                         &format!(
@@ -884,6 +903,7 @@ impl CoduxApp {
                         generation,
                         scope_key: primary_scope_key,
                         ai_history,
+                        remote_ai_current_sessions,
                     }
                 },
             )
@@ -1049,8 +1069,9 @@ impl CoduxApp {
         if merge_ai_history_summary(&mut self.state.ai_history, load.ai_history) {
             self.selected_ai_session_id = None;
             self.state.ai_session_detail = None;
-            self.state.refresh_ai_history_stats();
         }
+        self.state.remote_ai_current_sessions = load.remote_ai_current_sessions;
+        self.state.refresh_ai_history_stats();
         self.runtime_trace(
             "project-switch",
             &format!(

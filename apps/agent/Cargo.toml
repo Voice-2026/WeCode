@@ -18,6 +18,7 @@ codux-ai-sessions = { path = "../../crates/codux-ai-sessions" }
 codux-memory = { path = "../../crates/codux-memory" }
 codux-protocol = { path = "../../crates/codux-protocol" }
 codux-remote-transport = { path = "../../crates/codux-remote-transport" }
+codux-runtime-live = { path = "../../crates/codux-runtime-live" }
 codux-runtime-core = { path = "../../crates/codux-runtime-core" }
 codux-terminal-core = { path = "../../crates/codux-terminal-core" }
 codux-terminal-pty = { path = "../../crates/codux-terminal-pty" }

@@ -208,33 +208,84 @@ fn parse_process_line(line: &str) -> Option<RuntimeProcessSummary> {
 }
 
 fn is_ai_runtime_process(command: &str) -> bool {
-    let lower = command.to_ascii_lowercase();
-    [
-        "codex",
-        "claude",
-        "gemini",
-        "opencode",
-        "kiro",
-        "agy",
-        "codewhale",
-        "deepseek",
-        "kimi",
-        "mimo",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
-        && !is_codux_process(command)
+    command_ai_tool_name(command).is_some() && !is_codux_process(command)
+}
+
+fn command_ai_tool_name(command: &str) -> Option<&'static str> {
+    command_words(command)
+        .into_iter()
+        .filter_map(|word| executable_name(&word))
+        .find_map(|name| crate::ai_runtime::tool_driver::canonical_tool_name(&name))
+}
+
+fn command_words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+
+    for ch in command.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(active_quote) = quote {
+            if ch == active_quote {
+                quote = None;
+            } else {
+                current.push(ch);
+            }
+            continue;
+        }
+        if ch == '\'' || ch == '"' {
+            quote = Some(ch);
+            continue;
+        }
+        if ch.is_whitespace() || ch == ';' || ch == '&' || ch == '|' {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words
+}
+
+fn executable_name(word: &str) -> Option<String> {
+    let word = word.trim();
+    if word.is_empty() {
+        return None;
+    }
+    let word = word
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim_end_matches(".exe")
+        .trim_end_matches(".cmd")
+        .trim_end_matches(".bat")
+        .trim_end_matches(".ps1");
+    let name = word
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(word)
+        .trim()
+        .to_ascii_lowercase();
+    (!name.is_empty()).then_some(name)
 }
 
 fn is_codux_process(command: &str) -> bool {
-    let executable = command.split_whitespace().next().unwrap_or_default();
-    let name = executable
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(executable)
-        .trim_matches('"')
-        .to_ascii_lowercase();
-    name == "codux" || name == "codux.exe"
+    command_words(command)
+        .into_iter()
+        .filter_map(|word| executable_name(&word))
+        .any(|name| name == "codux")
 }
 
 #[cfg(test)]
@@ -297,7 +348,9 @@ mod tests {
             "/usr/bin/codex --project /Volumes/Web/codux-gpui"
         ));
         assert!(is_ai_runtime_process("/usr/bin/codewhale-tui"));
-        assert!(is_ai_runtime_process("/usr/bin/deepseek resume session-1"));
+        assert!(is_ai_runtime_process(
+            "/usr/bin/deepseek resume session-1"
+        ));
         assert!(is_ai_runtime_process("/usr/bin/kimi-code"));
     }
 }

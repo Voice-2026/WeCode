@@ -1,6 +1,7 @@
 use crate::ai_runtime::{
     AIPlanSnapshot, AIProjectPhase, AIRuntimeStateSnapshot, AISessionSnapshot,
 };
+use codux_protocol::RemoteAICurrentSession;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
@@ -123,6 +124,38 @@ impl AIRuntimeStateService {
         let mut raw = Map::new();
         fill_raw_from_runtime_snapshot(&mut raw, snapshot);
         summary_from_raw(STATE_SOURCE.to_string(), &raw, None)
+    }
+}
+
+pub fn remote_current_sessions_from_runtime_state(
+    runtime_state: &AIRuntimeStateSummary,
+    project_id: &str,
+) -> Vec<RemoteAICurrentSession> {
+    runtime_state
+        .sessions
+        .iter()
+        .filter(|session| project_id.trim().is_empty() || session.project_id == project_id)
+        .map(remote_current_session_from_runtime_session)
+        .collect()
+}
+
+fn remote_current_session_from_runtime_session(
+    session: &AIRuntimeSessionSummary,
+) -> RemoteAICurrentSession {
+    RemoteAICurrentSession {
+        session_id: session
+            .ai_session_id
+            .clone()
+            .unwrap_or_else(|| session.terminal_id.clone()),
+        terminal_id: Some(session.terminal_id.clone()),
+        project_id: session.project_id.clone(),
+        title: session.session_title.clone(),
+        tool: session.tool.clone(),
+        model: session.model.clone(),
+        status: session.state.clone(),
+        is_running: session.state == "running",
+        total_tokens: session.total_tokens.max(0),
+        cached_input_tokens: session.cached_input_tokens.max(0),
     }
 }
 
