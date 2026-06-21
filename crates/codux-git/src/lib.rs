@@ -1,3 +1,9 @@
+//! Git engine for Codux. A self-contained git2 + notify implementation
+//! (`GitService` + free `git_*` commands + `GitWatchManager`) shared by the
+//! desktop app (re-exported as `crate::git`) and the headless agent host. The
+//! `wire` module holds the single `git.invoke` / `git.read` / status-summary
+//! dispatch both remote hosts route through, so neither host reimplements it.
+
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -36,3 +42,5 @@ include!("metadata.rs");
 
 #[cfg(test)]
 include!("tests.rs");
+
+pub mod wire;

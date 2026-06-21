@@ -2,6 +2,38 @@ use crate::git::GitBranchSummary;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::borrow::Borrow;
+use std::path::Path;
+use uuid::Uuid;
+
+/// Stable per-worktree id, shared by the desktop and headless hosts so the same
+/// (project, path) always resolves to the same id regardless of transport. The
+/// default/main worktree uses the project id itself; non-default worktrees use
+/// this v5 UUID.
+pub fn worktree_uuid(project_id: &str, path: &str) -> String {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("codux:worktree:{project_id}:{path}").as_bytes(),
+    )
+    .to_string()
+}
+
+/// Human-readable worktree name: the branch leaf, else the directory name.
+pub fn worktree_display_name(branch: &str, path: &str) -> String {
+    let branch = branch.trim();
+    if !branch.is_empty() && branch != "detached HEAD" {
+        return branch
+            .split('/')
+            .next_back()
+            .filter(|value| !value.is_empty())
+            .unwrap_or(branch)
+            .to_string();
+    }
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Worktree")
+        .to_string()
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

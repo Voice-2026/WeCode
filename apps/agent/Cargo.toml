@@ -15,6 +15,7 @@ path = "src/main.rs"
 base64 = "0.22"
 codux-ai-history = { path = "../../crates/codux-ai-history" }
 codux-ai-sessions = { path = "../../crates/codux-ai-sessions" }
+codux-git = { path = "../../crates/codux-git" }
 codux-memory = { path = "../../crates/codux-memory" }
 codux-protocol = { path = "../../crates/codux-protocol" }
 codux-remote-transport = { path = "../../crates/codux-remote-transport" }

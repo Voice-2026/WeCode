@@ -4,8 +4,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use uuid::Uuid;
-
 use super::GitRepository;
 
 #[derive(Clone, Debug)]

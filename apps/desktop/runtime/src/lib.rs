@@ -21,7 +21,10 @@ pub mod dialog;
 pub mod dock_badge;
 pub mod file_editor_layout;
 pub mod files;
-pub mod git;
+// The git engine (GitService + git_* commands + GitWatchManager + the shared
+// `wire` dispatch) lives in the AppKit-free `codux-git` crate so the headless
+// agent runs the exact same git logic. Re-exported as `crate::git`.
+pub use codux_git as git;
 pub mod i18n;
 pub mod llm;
 pub mod memory;

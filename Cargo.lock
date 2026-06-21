@@ -1305,6 +1305,7 @@ dependencies = [
  "clap",
  "codux-ai-history",
  "codux-ai-sessions",
+ "codux-git",
  "codux-memory",
  "codux-protocol",
  "codux-remote-transport",
@@ -1346,6 +1347,18 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "codux-git"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "codux-runtime-core",
+ "git2",
+ "notify 8.2.0",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1427,6 +1440,7 @@ dependencies = [
  "chrono",
  "codux-ai-history",
  "codux-ai-sessions",
+ "codux-git",
  "codux-llm",
  "codux-memory",
  "codux-protocol",
@@ -1479,6 +1493,7 @@ dependencies = [
  "codux-terminal-core",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

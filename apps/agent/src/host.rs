@@ -447,11 +447,7 @@ fn make_handler(
                     .unwrap_or("");
                 Some((
                     REMOTE_GIT_STATUS,
-                    git_status_payload(
-                        project_id,
-                        project_path,
-                        crate::git::git_status_summary(project_path),
-                    ),
+                    git_status_payload(project_id, project_path, codux_git::wire::status(project_path)),
                 ))
             }
             REMOTE_GIT_INVOKE => {
@@ -465,28 +461,48 @@ fn make_handler(
                     .unwrap_or("");
                 let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
                 let args = payload.get("args").cloned().unwrap_or(Value::Null);
-                match crate::git::invoke(project_path, op, &args) {
+                match codux_git::wire::invoke(project_path, op, &args) {
                     Ok(()) => Some((
                         REMOTE_GIT_STATUS,
                         git_status_payload(
                             project_id,
                             project_path,
-                            crate::git::git_status_summary(project_path),
+                            codux_git::wire::status(project_path),
                         ),
                     )),
                     Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                 }
             }
             REMOTE_GIT_READ => {
+                let project_id = payload
+                    .get("projectId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 let project_path = payload
                     .get("projectPath")
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
                 let args = payload.get("args").cloned().unwrap_or(Value::Null);
-                match crate::git::read(project_path, op, &args) {
-                    Ok(result) => Some((REMOTE_GIT_READ, json!({ "op": op, "result": result }))),
-                    Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                // `stored_state` is a full status payload (needs the project
+                // envelope); every other read op shares the engine table.
+                if op == "stored_state" {
+                    Some((
+                        REMOTE_GIT_READ,
+                        json!({
+                            "op": op,
+                            "result": git_status_payload(
+                                project_id,
+                                project_path,
+                                codux_git::wire::status(project_path),
+                            ),
+                        }),
+                    ))
+                } else {
+                    match codux_git::wire::read(project_path, op, &args) {
+                        Ok(result) => Some((REMOTE_GIT_READ, json!({ "op": op, "result": result }))),
+                        Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
+                    }
                 }
             }
             REMOTE_WORKTREE_LIST => {

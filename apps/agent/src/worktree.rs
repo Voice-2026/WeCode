@@ -4,59 +4,106 @@
 //! worktree panel populates. Mutations (create/merge/remove) follow the same
 //! CLI approach as the git domain.
 
-use serde_json::{json, Value};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use codux_runtime_core::worktree::{
+    RuntimeWorktreeItem, default_worktree_base_branch, selected_runtime_worktree_id,
+    worktree_base_branches, worktree_display_name, worktree_summary_payload, worktree_uuid,
+};
+use serde_json::{Value, json};
 use std::path::Path;
 use std::process::Command;
 
-/// A `worktree.list` reply: the project's real git worktrees, mapped into the
-/// shape the controller deserializes into `WorktreeInfo`.
+/// A scanned git worktree before it is mapped to the wire shape.
+struct ScannedEntry {
+    path: String,
+    branch: String,
+    is_default: bool,
+}
+
+/// A `worktree.list` reply: the project's real git worktrees, mapped through the
+/// shared `worktree_summary_payload` so the wire shape (ids, base branches,
+/// selection) matches the desktop host exactly.
 pub fn worktree_list_payload(project_id: &str, project_path: &str) -> Value {
+    let scanned = scan_worktrees(project_path);
+    let entries: Vec<Value> = scanned
+        .iter()
+        .map(|entry| worktree_entry(project_id, entry))
+        .collect();
+    let items: Vec<RuntimeWorktreeItem> = scanned
+        .iter()
+        .map(|entry| RuntimeWorktreeItem {
+            id: entry_id(project_id, entry),
+            project_id: project_id.to_string(),
+            path: entry.path.clone(),
+            is_default: entry.is_default,
+            exists: Path::new(&entry.path).exists(),
+        })
+        .collect();
+    let selected = selected_runtime_worktree_id(project_id, None, &items);
+    // Base branches come from the project's git branches (same source the
+    // desktop host uses), so the worktree create dialog offers real options.
+    let status = codux_git::wire::status(project_path);
+    let base_branches = worktree_base_branches(&status.branch, &status.branches);
+    let default_base_branch = default_worktree_base_branch(&status.branch, &status.branches);
+    worktree_summary_payload(
+        project_id,
+        selected,
+        Value::Array(entries),
+        json!([]),
+        true,
+        base_branches,
+        default_base_branch,
+        None,
+    )
+}
+
+/// Scan the project's real git worktrees via `git worktree list --porcelain`.
+fn scan_worktrees(project_path: &str) -> Vec<ScannedEntry> {
     let mut worktrees = Vec::new();
-    if let Ok(output) = Command::new("git")
+    let Ok(output) = Command::new("git")
         .arg("-C")
         .arg(project_path)
         .args(["worktree", "list", "--porcelain"])
         .output()
-    {
-        if output.status.success() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut path: Option<String> = None;
-            let mut branch = String::new();
-            for line in text.lines() {
-                if let Some(value) = line.strip_prefix("worktree ") {
-                    path = Some(value.to_string());
-                    branch = String::new();
-                } else if let Some(value) = line.strip_prefix("branch ") {
-                    branch = value.trim_start_matches("refs/heads/").to_string();
-                } else if line.trim().is_empty() {
-                    if let Some(path) = path.take() {
-                        let is_default = worktrees.is_empty();
-                        worktrees.push(worktree_entry(project_id, &path, &branch, is_default));
-                    }
-                }
-            }
-            if let Some(path) = path.take() {
-                let is_default = worktrees.is_empty();
-                worktrees.push(worktree_entry(project_id, &path, &branch, is_default));
-            }
+    else {
+        return worktrees;
+    };
+    if !output.status.success() {
+        return worktrees;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut path: Option<String> = None;
+    let mut branch = String::new();
+    let flush = |worktrees: &mut Vec<ScannedEntry>, path: Option<String>, branch: &str| {
+        if let Some(path) = path {
+            let is_default = worktrees.is_empty();
+            worktrees.push(ScannedEntry {
+                path,
+                branch: branch.to_string(),
+                is_default,
+            });
+        }
+    };
+    for line in text.lines() {
+        if let Some(value) = line.strip_prefix("worktree ") {
+            path = Some(value.to_string());
+            branch = String::new();
+        } else if let Some(value) = line.strip_prefix("branch ") {
+            branch = value.trim_start_matches("refs/heads/").to_string();
+        } else if line.trim().is_empty() {
+            flush(&mut worktrees, path.take(), &branch);
         }
     }
-    let selected = worktrees
-        .first()
-        .and_then(|entry| entry.get("id").cloned())
-        .unwrap_or(Value::Null);
-    json!({
-        "projectId": project_id,
-        "selectedWorktreeId": selected,
-        "worktrees": worktrees,
-        "tasks": [],
-        "available": true,
-        "baseBranches": [],
-        "defaultBaseBranch": "",
-        "error": Value::Null,
-    })
+    flush(&mut worktrees, path.take(), &branch);
+    worktrees
+}
+
+/// The default/main worktree uses the project id; others the shared v5 UUID.
+fn entry_id(project_id: &str, entry: &ScannedEntry) -> String {
+    if entry.is_default {
+        project_id.to_string()
+    } else {
+        worktree_uuid(project_id, &entry.path)
+    }
 }
 
 /// Create a worktree (`git worktree add`) at a sibling `.worktrees/<branch>` dir.
@@ -149,27 +196,16 @@ fn run_git(repo: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
-fn worktree_entry(project_id: &str, path: &str, branch: &str, is_default: bool) -> Value {
-    let mut hasher = DefaultHasher::new();
-    path.hash(&mut hasher);
-    let id = format!("wt-{:016x}", hasher.finish());
-    let name = if branch.is_empty() {
-        Path::new(path)
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("worktree")
-            .to_string()
-    } else {
-        branch.to_string()
-    };
+fn worktree_entry(project_id: &str, entry: &ScannedEntry) -> Value {
+    let path = entry.path.as_str();
     json!({
-        "id": id,
+        "id": entry_id(project_id, entry),
         "projectId": project_id,
-        "name": name,
-        "branch": branch,
+        "name": worktree_display_name(&entry.branch, path),
+        "branch": entry.branch,
         "path": path,
         "status": "active",
-        "isDefault": is_default,
+        "isDefault": entry.is_default,
         "exists": Path::new(path).exists(),
         "gitSummary": {
             "changes": changed_file_count(path),

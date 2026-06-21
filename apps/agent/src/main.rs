@@ -10,7 +10,6 @@ mod cmd_start;
 mod cmd_update;
 mod config_store;
 mod device_store;
-mod git;
 mod host;
 mod logo;
 mod memory;

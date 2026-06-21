@@ -6,6 +6,7 @@
 //! The desktop keeps its live-stats view (`stats_view`, which merges
 //! `AIRuntimeStateSummary`) on top of this crate; only the DB/session layer moves.
 
+mod dispatch;
 mod helpers;
 mod queries;
 mod session_fork;
@@ -15,6 +16,7 @@ mod summary;
 mod tests;
 mod types;
 
+pub use dispatch::{session_op_payload, session_op_result};
 pub use types::*;
 
 use rusqlite::Connection;

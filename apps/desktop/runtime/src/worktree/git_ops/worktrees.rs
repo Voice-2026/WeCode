@@ -108,27 +108,4 @@ pub(super) fn worktree_slug(branch_name: &str) -> String {
     }
 }
 
-pub(super) fn worktree_uuid(project_id: &str, path: &str) -> String {
-    Uuid::new_v5(
-        &Uuid::NAMESPACE_URL,
-        format!("codux:worktree:{project_id}:{path}").as_bytes(),
-    )
-    .to_string()
-}
-
-pub(super) fn worktree_display_name(branch: &str, path: &str) -> String {
-    let branch = branch.trim();
-    if !branch.is_empty() && branch != "detached HEAD" {
-        return branch
-            .split('/')
-            .next_back()
-            .filter(|value| !value.is_empty())
-            .unwrap_or(branch)
-            .to_string();
-    }
-    Path::new(path)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("Worktree")
-        .to_string()
-}
+pub(super) use codux_runtime_core::worktree::{worktree_display_name, worktree_uuid};
