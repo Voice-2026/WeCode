@@ -104,6 +104,7 @@ class PadRightColumn extends StatelessWidget {
                 onRefresh: onRefreshGit,
               ),
             ),
+            _ReviewFooter(status: gitStatus, onAction: onGitAction),
           ],
         ),
       );
@@ -412,4 +413,261 @@ class _ColumnHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Review panel footer: one-tap commit&push / commit&merge for the current
+/// project changes. The merge action prompts for a target branch.
+class _ReviewFooter extends StatefulWidget {
+  const _ReviewFooter({required this.status, required this.onAction});
+
+  final RemoteGitStatusInfo? status;
+  final void Function(String op, Map<String, dynamic> args) onAction;
+
+  @override
+  State<_ReviewFooter> createState() => _ReviewFooterState();
+}
+
+class _ReviewFooterState extends State<_ReviewFooter> {
+  bool _busy = false;
+
+  @override
+  void didUpdateWidget(covariant _ReviewFooter oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A fresh git.status reply (new object) means the last action settled.
+    if (!identical(widget.status, oldWidget.status) && _busy) {
+      setState(() => _busy = false);
+    }
+  }
+
+  bool get _hasChanges => (widget.status?.changes ?? 0) > 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final enabled = _hasChanges && !_busy;
+    return Container(
+      decoration: const BoxDecoration(
+        color: PadColors.header,
+        border: Border(top: BorderSide(color: PadColors.border, width: 0.5)),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ReviewFooterButton(
+              icon: Icons.cloud_upload_rounded,
+              label: '提交推送',
+              accent: accent,
+              busy: _busy,
+              onTap: enabled ? _commitPush : null,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _ReviewFooterButton(
+              icon: Icons.merge_rounded,
+              label: '提交合并',
+              accent: accent,
+              busy: _busy,
+              onTap: enabled ? _commitMerge : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _commitPush() async {
+    final message = await _promptMessage(context, '提交并推送');
+    if (message == null || message.isEmpty) return;
+    setState(() => _busy = true);
+    widget.onAction('commit_push', {'message': message});
+  }
+
+  Future<void> _commitMerge() async {
+    final branches = (widget.status?.branches ?? const <RemoteGitBranch>[])
+        .where((branch) => !branch.isCurrent)
+        .map((branch) => branch.name)
+        .toList();
+    if (branches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('没有可合并的目标分支')),
+      );
+      return;
+    }
+    final result = await _promptMerge(context, branches);
+    if (result == null) return;
+    setState(() => _busy = true);
+    widget.onAction('commit_merge', {
+      'message': result.$1,
+      'target': result.$2,
+    });
+  }
+}
+
+class _ReviewFooterButton extends StatelessWidget {
+  const _ReviewFooterButton({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.busy,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final bool busy;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Container(
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: enabled ? 0.14 : 0.06),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: busy
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2, color: accent),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 16,
+                    color: enabled ? accent : PadColors.textSubtle,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: enabled ? accent : PadColors.textSubtle,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+Future<String?> _promptMessage(BuildContext context, String title) async {
+  final controller = TextEditingController();
+  final accent = Theme.of(context).colorScheme.secondary;
+  final message = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: PadColors.panel,
+      title: Text(
+        title,
+        style: const TextStyle(color: PadColors.textPrimary, fontSize: 16),
+      ),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        maxLines: 3,
+        style: const TextStyle(color: PadColors.textPrimary),
+        decoration: const InputDecoration(
+          hintText: '提交说明',
+          hintStyle: TextStyle(color: PadColors.textSubtle),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('取消', style: TextStyle(color: PadColors.textMuted)),
+        ),
+        TextButton(
+          onPressed: () =>
+              Navigator.of(dialogContext).pop(controller.text.trim()),
+          child: Text('确定', style: TextStyle(color: accent)),
+        ),
+      ],
+    ),
+  );
+  controller.dispose();
+  return message;
+}
+
+Future<(String, String)?> _promptMerge(
+  BuildContext context,
+  List<String> branches,
+) async {
+  final controller = TextEditingController();
+  final accent = Theme.of(context).colorScheme.secondary;
+  String target = branches.first;
+  final result = await showDialog<(String, String)>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setLocal) => AlertDialog(
+        backgroundColor: PadColors.panel,
+        title: const Text(
+          '提交并合并',
+          style: TextStyle(color: PadColors.textPrimary, fontSize: 16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 2,
+              style: const TextStyle(color: PadColors.textPrimary),
+              decoration: const InputDecoration(
+                hintText: '提交说明',
+                hintStyle: TextStyle(color: PadColors.textSubtle),
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              '合并到目标分支',
+              style: TextStyle(color: PadColors.textSubtle, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            DropdownButton<String>(
+              value: target,
+              isExpanded: true,
+              dropdownColor: PadColors.panel,
+              style: const TextStyle(color: PadColors.textPrimary),
+              items: [
+                for (final branch in branches)
+                  DropdownMenuItem(value: branch, child: Text(branch)),
+              ],
+              onChanged: (value) =>
+                  setLocal(() => target = value ?? target),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消', style: TextStyle(color: PadColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () {
+              final message = controller.text.trim();
+              if (message.isEmpty) return;
+              Navigator.of(dialogContext).pop((message, target));
+            },
+            child: Text('确定', style: TextStyle(color: accent)),
+          ),
+        ],
+      ),
+    ),
+  );
+  controller.dispose();
+  return result;
 }
