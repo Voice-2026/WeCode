@@ -425,6 +425,8 @@ class RemoteGitStatusInfo {
     this.isRepository = false,
     this.error,
     this.changedFiles = const [],
+    this.branches = const [],
+    this.remoteBranches = const [],
   });
 
   final String projectId;
@@ -440,6 +442,8 @@ class RemoteGitStatusInfo {
   final bool isRepository;
   final String? error;
   final List<RemoteGitFileStatus> changedFiles;
+  final List<RemoteGitBranch> branches;
+  final List<String> remoteBranches;
 
   factory RemoteGitStatusInfo.fromJson(Map<String, dynamic> json) =>
       RemoteGitStatusInfo(
@@ -461,6 +465,15 @@ class RemoteGitStatusInfo {
               (item) =>
                   RemoteGitFileStatus.fromJson(Map<String, dynamic>.from(item)),
             )
+            .toList(),
+        branches: (json['branches'] as List<dynamic>? ?? [])
+            .whereType<Map>()
+            .map(
+              (item) => RemoteGitBranch.fromJson(Map<String, dynamic>.from(item)),
+            )
+            .toList(),
+        remoteBranches: (json['remoteBranches'] as List<dynamic>? ?? [])
+            .map((item) => '$item')
             .toList(),
       );
 
@@ -504,6 +517,18 @@ class RemoteGitFileStatus {
     'indexStatus': indexStatus,
     'worktreeStatus': worktreeStatus,
   };
+}
+
+class RemoteGitBranch {
+  const RemoteGitBranch({required this.name, required this.isCurrent});
+
+  final String name;
+  final bool isCurrent;
+
+  factory RemoteGitBranch.fromJson(Map<String, dynamic> json) => RemoteGitBranch(
+    name: '${json['name'] ?? ''}',
+    isCurrent: json['isCurrent'] == true,
+  );
 }
 
 /// Result of a `git.read {op: "diff"}` query — a unified diff for one path.

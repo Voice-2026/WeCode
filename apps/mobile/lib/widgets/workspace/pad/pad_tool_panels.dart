@@ -87,6 +87,185 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
     'untracked': _gitRootPath,
   };
   final Set<String> _selectedPaths = {};
+  final TextEditingController _commitController = TextEditingController();
+
+  @override
+  void dispose() {
+    _commitController.dispose();
+    super.dispose();
+  }
+
+  /// Commit the staged changes via `op` (commit / commit_push / commit_sync),
+  /// then clear the message field.
+  void _commit(String op) {
+    final message = _commitController.text.trim();
+    if (message.isEmpty) return;
+    widget.onAction(op, {'message': message});
+    _commitController.clear();
+  }
+
+  /// Git panel header: title, a sync shortcut, and the branch/actions menu.
+  Widget _buildGitHeader(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    return Container(
+      height: 48,
+      color: PadColors.header,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'Git',
+              style: TextStyle(
+                color: PadColors.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          _GitHeaderButton(
+            icon: Icons.sync_rounded,
+            color: accent,
+            onTap: () => widget.onAction('sync', const {}),
+          ),
+          const SizedBox(width: 2),
+          _GitHeaderButton(
+            icon: Icons.more_horiz_rounded,
+            onTap: () => _openBranchMenu(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Branch name + commit message field + commit button group (commit / commit
+  /// & push / commit & sync).
+  Widget _buildBranchCommitCard(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final branch = widget.gitStatus?.branch.trim().isNotEmpty == true
+        ? widget.gitStatus!.branch.trim()
+        : '—';
+    return _ToolCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            branch,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: PadColors.textPrimary,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: PadColors.panelTrack,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: TextField(
+              controller: _commitController,
+              minLines: 2,
+              maxLines: 4,
+              style: const TextStyle(
+                color: PadColors.textPrimary,
+                fontSize: 13,
+              ),
+              decoration: const InputDecoration(
+                isCollapsed: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 8),
+                border: InputBorder.none,
+                hintText: '提交说明',
+                hintStyle: TextStyle(color: PadColors.textSubtle, fontSize: 13),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _MiniActionButton(
+                  icon: Icons.check_rounded,
+                  label: '提交',
+                  onTap: () => _commit('commit'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _CommitMenuButton(
+                accent: accent,
+                onCommitPush: () => _commit('commit_push'),
+                onCommitSync: () => _commit('commit_sync'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openBranchMenu(BuildContext context) {
+    final status = widget.gitStatus;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: PadColors.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) => _GitBranchMenu(
+        status: status,
+        onAction: (op, args) {
+          Navigator.of(sheetContext).pop();
+          widget.onAction(op, args);
+        },
+        onCreateBranch: () {
+          Navigator.of(sheetContext).pop();
+          _promptCreateBranch(context);
+        },
+      ),
+    );
+  }
+
+  Future<void> _promptCreateBranch(BuildContext context) async {
+    final controller = TextEditingController();
+    final accent = Theme.of(context).colorScheme.secondary;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: PadColors.panel,
+        title: const Text(
+          '新建分支',
+          style: TextStyle(color: PadColors.textPrimary, fontSize: 16),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: PadColors.textPrimary),
+          decoration: const InputDecoration(
+            hintText: '分支名称',
+            hintStyle: TextStyle(color: PadColors.textSubtle),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消', style: TextStyle(color: PadColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: Text('创建', style: TextStyle(color: accent)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name != null && name.isNotEmpty) {
+      widget.onAction('create_branch', {'branch': name, 'checkout': true});
+    }
+  }
 
   /// Maps real `git.status` changed files into the panel's section model.
   /// A partially-staged file appears in both `staged` and `changed`.
@@ -133,7 +312,7 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
       width: PadMetrics.rightColumnWidth,
       child: Column(
         children: [
-          const _ToolHeader(title: 'Git'),
+          _buildGitHeader(context),
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async => widget.onRefresh(),
@@ -145,10 +324,7 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                 ),
                 padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
                 children: [
-                _GitSummaryCard(
-                  status: widget.gitStatus,
-                  onAction: widget.onAction,
-                ),
+                _buildBranchCommitCard(context),
                 const SizedBox(height: 10),
                 _GitSectionTabs(
                   selected: _section,
@@ -479,139 +655,6 @@ class _SshProfileDetail extends StatelessWidget {
   }
 }
 
-class _GitSummaryCard extends StatelessWidget {
-  const _GitSummaryCard({required this.status, required this.onAction});
-
-  final RemoteGitStatusInfo? status;
-  final void Function(String op, Map<String, dynamic> args) onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.secondary;
-    final branch = status?.branch.trim().isNotEmpty == true
-        ? status!.branch.trim()
-        : '—';
-    final upstream = status?.upstream?.trim() ?? '';
-    final subtitleParts = <String>[
-      if (upstream.isNotEmpty) upstream,
-      if ((status?.ahead ?? 0) > 0) '${status!.ahead} ahead',
-      if ((status?.behind ?? 0) > 0) '${status!.behind} behind',
-    ];
-    return _ToolCard(
-      bordered: false,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _ToolIconTile(icon: Icons.account_tree_rounded, color: accent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _ToolTitleBlock(
-                  title: branch,
-                  subtitle: subtitleParts.isEmpty
-                      ? 'no upstream'
-                      : subtitleParts.join(' · '),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            height: 48,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF111820),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                _GitMetric(
-                  icon: Icons.inventory_2_rounded,
-                  value: '${status?.staged ?? 0}',
-                  color: PadColors.chartB,
-                ),
-                const _GitMetricDivider(),
-                _GitMetric(
-                  icon: Icons.edit_note_rounded,
-                  value: '${status?.unstaged ?? 0}',
-                  color: PadColors.warning,
-                ),
-                const _GitMetricDivider(),
-                _GitMetric(
-                  icon: Icons.add_circle_outline_rounded,
-                  value: '${status?.untracked ?? 0}',
-                  color: PadColors.success,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _MiniActionButton(
-                  icon: Icons.check_rounded,
-                  label: 'Commit',
-                  onTap: () => _promptCommit(context),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _MiniActionButton(
-                  icon: Icons.sync_rounded,
-                  label: 'Sync',
-                  onTap: () => onAction('sync', const {}),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _promptCommit(BuildContext context) async {
-    final controller = TextEditingController();
-    final accent = Theme.of(context).colorScheme.secondary;
-    final message = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: PadColors.panel,
-        title: const Text(
-          'Commit',
-          style: TextStyle(color: PadColors.textPrimary, fontSize: 16),
-        ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 3,
-          style: const TextStyle(color: PadColors.textPrimary),
-          decoration: const InputDecoration(
-            hintText: 'Commit message',
-            hintStyle: TextStyle(color: PadColors.textSubtle),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel', style: TextStyle(color: PadColors.textMuted)),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: Text('Commit', style: TextStyle(color: accent)),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (message != null && message.isNotEmpty) {
-      onAction('commit', {'message': message});
-    }
-  }
-}
-
 class _GitSectionTabs extends StatelessWidget {
   const _GitSectionTabs({required this.selected, required this.onChanged});
 
@@ -914,13 +957,11 @@ class _ToolCard extends StatelessWidget {
   const _ToolCard({
     required this.child,
     this.selected = false,
-    this.bordered = false,
     this.onTap,
   });
 
   final Widget child;
   final bool selected;
-  final bool bordered;
   final VoidCallback? onTap;
 
   @override
@@ -932,9 +973,6 @@ class _ToolCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: selected ? PadColors.cardActive : PadColors.card,
         borderRadius: BorderRadius.circular(10),
-        border: bordered
-            ? Border.all(color: PadColors.border, width: 0.5)
-            : null,
       ),
       child: child,
     );
@@ -1082,56 +1120,224 @@ class _MiniActionButton extends StatelessWidget {
   }
 }
 
-class _GitMetric extends StatelessWidget {
-  const _GitMetric({
-    required this.icon,
-    required this.value,
-    required this.color,
-  });
+/// Tappable icon button used in the git panel header (sync / branch menu).
+class _GitHeaderButton extends StatelessWidget {
+  const _GitHeaderButton({required this.icon, required this.onTap, this.color});
 
   final IconData icon;
-  final String value;
-  final Color color;
+  final VoidCallback onTap;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 24,
-              height: 24,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.13),
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Icon(icon, size: 14, color: color),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                color: PadColors.textPrimary,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: Icon(icon, size: 18, color: color ?? PadColors.textSubtle),
         ),
       ),
     );
   }
 }
 
-class _GitMetricDivider extends StatelessWidget {
-  const _GitMetricDivider();
+/// The dropdown half of the commit button group: commit & push / commit & sync.
+class _CommitMenuButton extends StatelessWidget {
+  const _CommitMenuButton({
+    required this.accent,
+    required this.onCommitPush,
+    required this.onCommitSync,
+  });
+
+  final Color accent;
+  final VoidCallback onCommitPush;
+  final VoidCallback onCommitSync;
 
   @override
   Widget build(BuildContext context) {
-    return Container(width: 0.5, height: 24, color: PadColors.border);
+    return Container(
+      height: 34,
+      width: 38,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: PopupMenuButton<String>(
+        padding: EdgeInsets.zero,
+        position: PopupMenuPosition.under,
+        color: PadColors.panel,
+        icon: Icon(Icons.arrow_drop_down_rounded, color: accent, size: 22),
+        onSelected: (value) =>
+            value == 'push' ? onCommitPush() : onCommitSync(),
+        itemBuilder: (context) => const [
+          PopupMenuItem(
+            value: 'push',
+            child: Text(
+              '提交并推送',
+              style: TextStyle(color: PadColors.textPrimary, fontSize: 13),
+            ),
+          ),
+          PopupMenuItem(
+            value: 'sync',
+            child: Text(
+              '提交并同步',
+              style: TextStyle(color: PadColors.textPrimary, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Branch / actions menu opened from the git panel header "...".
+class _GitBranchMenu extends StatelessWidget {
+  const _GitBranchMenu({
+    required this.status,
+    required this.onAction,
+    required this.onCreateBranch,
+  });
+
+  final RemoteGitStatusInfo? status;
+  final void Function(String op, Map<String, dynamic> args) onAction;
+  final VoidCallback onCreateBranch;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    final locals = (status?.branches ?? const <RemoteGitBranch>[])
+        .where((branch) => !branch.isCurrent)
+        .toList();
+    final remotes = status?.remoteBranches ?? const <String>[];
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.only(bottom: 8),
+        children: [
+          Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 10),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: PadColors.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const _GitMenuSection(label: '操作'),
+          _GitMenuItem(
+            icon: Icons.add_rounded,
+            label: '新建分支',
+            accent: accent,
+            onTap: onCreateBranch,
+          ),
+          _GitMenuItem(
+            icon: Icons.download_rounded,
+            label: '获取 (fetch)',
+            accent: accent,
+            onTap: () => onAction('fetch', const {}),
+          ),
+          _GitMenuItem(
+            icon: Icons.south_rounded,
+            label: '拉取 (pull)',
+            accent: accent,
+            onTap: () => onAction('pull', const {}),
+          ),
+          _GitMenuItem(
+            icon: Icons.north_rounded,
+            label: '推送 (push)',
+            accent: accent,
+            onTap: () => onAction('push', const {}),
+          ),
+          if (locals.isNotEmpty) const _GitMenuSection(label: '切换分支'),
+          for (final branch in locals)
+            _GitMenuItem(
+              icon: Icons.alt_route_rounded,
+              label: branch.name,
+              accent: accent,
+              onTap: () =>
+                  onAction('checkout_branch', {'branch': branch.name}),
+            ),
+          if (remotes.isNotEmpty) const _GitMenuSection(label: '远程分支'),
+          for (final branch in remotes)
+            _GitMenuItem(
+              icon: Icons.cloud_outlined,
+              label: branch,
+              accent: accent,
+              onTap: () =>
+                  onAction('checkout_remote_branch', {'remoteBranch': branch}),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GitMenuSection extends StatelessWidget {
+  const _GitMenuSection({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: PadColors.textSubtle,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _GitMenuItem extends StatelessWidget {
+  const _GitMenuItem({
+    required this.icon,
+    required this.label,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: accent),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: PadColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
