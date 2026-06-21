@@ -154,7 +154,7 @@ class PadRightColumn extends StatelessWidget {
           icon: Icons.arrow_upward_rounded,
           iconColor: accent,
           name: '返回上一级',
-          path: _fileLabel(projectFilesParent!),
+          path: padCurrentDirPath(projectFilesPath, projectFilesParent!),
           onTap: () => onRequestProjectFiles(projectFilesParent!),
         ),
       for (final entry in projectFileEntries)
@@ -164,7 +164,7 @@ class PadRightColumn extends StatelessWidget {
               : Icons.description_outlined,
           iconColor: entry.isDirectory ? accent : PadColors.textMuted,
           name: entry.name,
-          path: _fileLabel(entry.path),
+          path: padCurrentDirPath(projectFilesPath, entry.path),
           onTap: entry.isDirectory
               ? () => onRequestProjectFiles(entry.path)
               : () => onOpenProjectFile(entry),
@@ -190,19 +190,6 @@ class PadRightColumn extends StatelessWidget {
     );
   }
 
-  /// Path label for a browser entry, rooted at the current directory (`/`).
-  /// Every visible item is a direct child of the current directory, so its
-  /// location reads as `/` (the current directory is the root of this view).
-  String _fileLabel(String absolutePath) {
-    final base = projectFilesPath.trim();
-    if (base.isNotEmpty && absolutePath.startsWith('$base/')) {
-      final rel = absolutePath.substring(base.length + 1);
-      final slash = rel.lastIndexOf('/');
-      final dir = slash <= 0 ? '' : rel.substring(0, slash);
-      return dir.isEmpty ? '/' : '/$dir';
-    }
-    return '/';
-  }
 
   void _showFileActions(BuildContext context, RemoteFileEntry entry) {
     showModalBottomSheet<void>(
@@ -298,7 +285,7 @@ class _ReviewFileTreeState extends State<_ReviewFileTree> {
           icon: Icons.arrow_upward_rounded,
           iconColor: accent,
           name: prefs.t('project.parentDir'),
-          path: padRootRelativePath('$parentPath/.'),
+          path: padCurrentDirPath(_currentPath, parentPath),
           onTap: () => setState(() => _currentPath = parentPath),
         ),
       for (final folder in snapshot.folders)
@@ -306,7 +293,7 @@ class _ReviewFileTreeState extends State<_ReviewFileTree> {
           icon: Icons.folder_rounded,
           iconColor: accent,
           name: folder.name,
-          path: padRootRelativePath('${folder.path}/.'),
+          path: padCurrentDirPath(_currentPath, folder.path),
           trailing: PadCountChip(label: '${folder.count}'),
           onTap: () => setState(() => _currentPath = folder.path),
         ),
@@ -317,7 +304,7 @@ class _ReviewFileTreeState extends State<_ReviewFileTree> {
               ? accent
               : PadColors.textMuted,
           name: file.name,
-          path: padRootRelativePath(file.path),
+          path: padCurrentDirPath(_currentPath, file.path),
           trailing: PadStatusTag(
             label: file.status,
             color: _reviewStatusColor(file.status, accent),

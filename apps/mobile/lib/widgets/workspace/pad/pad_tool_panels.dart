@@ -89,15 +89,6 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
   bool _syncing = false;
 
   @override
-  void didUpdateWidget(covariant PadGitToolPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // A fresh git.status reply (new object) means the sync settled.
-    if (_syncing && !identical(widget.gitStatus, oldWidget.gitStatus)) {
-      setState(() => _syncing = false);
-    }
-  }
-
-  @override
   void dispose() {
     _commitController.dispose();
     super.dispose();
@@ -107,6 +98,11 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
     if (_syncing) return;
     setState(() => _syncing = true);
     widget.onAction('sync', const {});
+    // Keep the spinner up for a beat so the sync reads as an action, even when
+    // the host's git.status reply comes back almost instantly.
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _syncing = false);
+    });
   }
 
   /// Commit the staged changes via `op` (commit / commit_push / commit_sync),
@@ -256,8 +252,54 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
           // (showing a dialog mid-pop throws a navigator-lock red screen).
           Future.microtask(_promptCreateBranch);
         },
+        onAmend: () {
+          Navigator.of(sheetContext).pop();
+          Future.microtask(_promptAmend);
+        },
       ),
     );
+  }
+
+  Future<void> _promptAmend() async {
+    if (!mounted) return;
+    final controller = TextEditingController();
+    final accent = Theme.of(context).colorScheme.secondary;
+    final message = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: PadColors.panel,
+        title: const Text(
+          '修改最近一次提交说明',
+          style: TextStyle(color: PadColors.textPrimary, fontSize: 16),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          style: const TextStyle(color: PadColors.textPrimary),
+          decoration: const InputDecoration(
+            hintText: '新的提交说明',
+            hintStyle: TextStyle(color: PadColors.textSubtle),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消', style: TextStyle(color: PadColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: Text('确定', style: TextStyle(color: accent)),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted) return;
+    if (message != null && message.isNotEmpty) {
+      widget.onAction('amend', {'message': message});
+    }
   }
 
   Future<void> _promptCreateBranch() async {
@@ -375,7 +417,7 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                       icon: Icons.arrow_upward_rounded,
                       iconColor: Theme.of(context).colorScheme.secondary,
                       name: '返回上一级',
-                      path: padRootRelativePath('$parentPath/.'),
+                      path: padCurrentDirPath(currentPath, parentPath),
                       onTap: () => setState(() {
                         _currentPaths[_section] = parentPath;
                       }),
@@ -399,7 +441,7 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                           icon: Icons.folder_rounded,
                           iconColor: Theme.of(context).colorScheme.secondary,
                           name: folder.name,
-                          path: padRootRelativePath('${folder.path}/.'),
+                          path: padCurrentDirPath(currentPath, folder.path),
                           trailing: PadCountChip(label: '${folder.count}'),
                           selected: folderSelected,
                           onTap: () => setState(() {
@@ -420,7 +462,7 @@ class _PadGitToolPanelState extends State<PadGitToolPanel> {
                           ? Theme.of(context).colorScheme.secondary
                           : PadColors.textMuted,
                       name: file.name,
-                      path: padRootRelativePath(file.path),
+                      path: padCurrentDirPath(currentPath, file.path),
                       trailing: PadStatusTag(
                         label: file.status,
                         color: _gitStatusColor(
@@ -1198,11 +1240,13 @@ class _GitBranchMenu extends StatelessWidget {
     required this.status,
     required this.onAction,
     required this.onCreateBranch,
+    required this.onAmend,
   });
 
   final RemoteGitStatusInfo? status;
   final void Function(String op, Map<String, dynamic> args) onAction;
   final VoidCallback onCreateBranch;
+  final VoidCallback onAmend;
 
   @override
   Widget build(BuildContext context) {
@@ -1227,7 +1271,6 @@ class _GitBranchMenu extends StatelessWidget {
               ),
             ),
           ),
-          const _GitMenuSection(label: '操作'),
           _GitMenuItem(
             icon: Icons.add_rounded,
             label: '新建分支',
@@ -1236,21 +1279,39 @@ class _GitBranchMenu extends StatelessWidget {
           ),
           _GitMenuItem(
             icon: Icons.download_rounded,
-            label: '获取 (fetch)',
+            label: '获取',
             accent: accent,
             onTap: () => onAction('fetch', const {}),
           ),
           _GitMenuItem(
             icon: Icons.south_rounded,
-            label: '拉取 (pull)',
+            label: '拉取',
             accent: accent,
             onTap: () => onAction('pull', const {}),
           ),
           _GitMenuItem(
             icon: Icons.north_rounded,
-            label: '推送 (push)',
+            label: '推送',
             accent: accent,
             onTap: () => onAction('push', const {}),
+          ),
+          _GitMenuItem(
+            icon: Icons.warning_amber_rounded,
+            label: '强制推送',
+            accent: accent,
+            onTap: () => onAction('force_push', const {}),
+          ),
+          _GitMenuItem(
+            icon: Icons.undo_rounded,
+            label: '撤销最近一次提交',
+            accent: accent,
+            onTap: () => onAction('undo_last_commit', const {}),
+          ),
+          _GitMenuItem(
+            icon: Icons.edit_note_rounded,
+            label: '修改最近一次提交说明',
+            accent: accent,
+            onTap: onAmend,
           ),
           if (locals.isNotEmpty) const _GitMenuSection(label: '切换分支'),
           for (final branch in locals)
