@@ -39,6 +39,7 @@ class SelfDrawnTerminalView extends StatefulWidget {
     this.onSendKey,
     this.onCursorMetrics,
     this.onSelectionChanged,
+    this.onRequestKeyboard,
     this.keyboardRequested = false,
     this.keyboardRequestSerial = 0,
   });
@@ -61,6 +62,9 @@ class SelfDrawnTerminalView extends StatefulWidget {
 
   /// Selected text (null when the selection is cleared), for the copy action.
   final ValueChanged<String?>? onSelectionChanged;
+
+  /// Called when the user taps the terminal body, to bring up the keyboard.
+  final VoidCallback? onRequestKeyboard;
   final bool keyboardRequested;
   final int keyboardRequestSerial;
 
@@ -728,10 +732,13 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
         ),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          // Tapping the terminal only clears any selection; the keyboard is
-          // shown/hidden exclusively via the toolbar key button so it never
-          // pops up unexpectedly.
-          onTap: _clearSelection,
+          // Tapping the terminal clears any selection and brings up the keyboard
+          // (focusing the hidden input) so typing flows directly; the toolbar key
+          // button still toggles the keyboard off.
+          onTap: () {
+            _clearSelection();
+            widget.onRequestKeyboard?.call();
+          },
           onVerticalDragStart: _onDragStart,
           onVerticalDragUpdate: _onDragUpdate,
           onVerticalDragEnd: _onDragEnd,

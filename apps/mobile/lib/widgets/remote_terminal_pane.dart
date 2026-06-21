@@ -40,6 +40,7 @@ class RemoteTerminalPane extends StatefulWidget {
     required this.onSelectionChanged,
     required this.onSendKey,
     required this.onToggleKeyboard,
+    required this.onRequestKeyboard,
     required this.onPaste,
     required this.onCopy,
     required this.onUpload,
@@ -72,6 +73,7 @@ class RemoteTerminalPane extends StatefulWidget {
   final ValueChanged<String?> onSelectionChanged;
   final ValueChanged<String> onSendKey;
   final VoidCallback onToggleKeyboard;
+  final VoidCallback onRequestKeyboard;
   final VoidCallback onPaste;
   final VoidCallback onCopy;
   final VoidCallback onUpload;
@@ -181,6 +183,7 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
                                 onInput: widget.onInput,
                                 onSendKey: widget.onSendKey,
                                 onSelectionChanged: widget.onSelectionChanged,
+                                onRequestKeyboard: widget.onRequestKeyboard,
                                 keyboardRequested: widget.keyboardRequested,
                                 keyboardRequestSerial: widget.keyboardRequestSerial,
                                 onCursorMetrics: (metrics) {

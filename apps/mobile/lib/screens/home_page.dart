@@ -3728,6 +3728,17 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     });
   }
 
+  /// Tapping the terminal body brings up the keyboard / focuses the input so
+  /// typing flows directly (the toolbar key button still toggles it off).
+  void _requestTerminalKeyboard() {
+    if (_keyboardRequested) return;
+    setState(() {
+      _keyboardRequested = true;
+      _keyboardRequestSerial += 1;
+      _keyboardShownSinceRequest = false;
+    });
+  }
+
   void _toggleTerminalKeyboard() {
     if (_keyboardRequested || _keyboardVisible) {
       setState(() {
@@ -4545,12 +4556,20 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   Widget _buildWorkspace(double topInset, double bottomInset) {
+    // On the pad the terminal stays centered while the right column shows a tool
+    // (stats/ssh/git), so the terminal toolbar must stay visible. Report an
+    // effective 'terminal' mode whenever the terminal body is actually centered.
+    final isPadLayout =
+        MediaQuery.of(context).size.width >= _padLayoutMinWidth;
+    final terminalCentered = isPadLayout
+        ? (_workspaceMode != 'review' && _editingFilePath == null)
+        : (_workspaceMode == 'terminal');
     final terminalBody = RemoteTerminalPane(
       connected: _isConnected,
       showTerminal: _hasShownTerminal,
       hasDevice: _activeDevice != null,
       status: _status,
-      workspaceMode: _workspaceMode,
+      workspaceMode: terminalCentered ? 'terminal' : _workspaceMode,
       projectListLoaded: _projectListLoaded,
       projectCount: _projects.length,
       terminalUploadLoading: _terminalUploadLoading,
@@ -4589,6 +4608,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       },
       onSendKey: _sendTerminalKey,
       onToggleKeyboard: _toggleTerminalKeyboard,
+      onRequestKeyboard: _requestTerminalKeyboard,
       onPaste: _pasteToTerminal,
       onCopy: _copyTerminalSelection,
       onUpload: _chooseUploadForTerminal,
