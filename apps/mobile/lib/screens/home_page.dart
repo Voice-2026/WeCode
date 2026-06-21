@@ -3544,6 +3544,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
   }
 
   void _showTerminalMode() {
+    // Switching to the terminal view closes any open file editor so the center
+    // pane reliably returns to the terminal (the pad editor has no close button).
+    if (_editingFilePath != null) {
+      setState(() => _editingFilePath = null);
+    }
     _workspaceModeActions.showTerminalMode();
   }
 
@@ -3556,6 +3561,7 @@ class _CoduxHomePageState extends State<CoduxHomePage>
 
   void _showReviewMode() {
     setState(() => _workspaceMode = 'review');
+    _requestGitStatus();
   }
 
   void _showSshMode() {
@@ -3825,6 +3831,10 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       if (projectChanged) {
         _projectFileController.forget(project.id);
         _pendingWorktreeSwitch = null;
+        // Drop the previous project's review/diff selection so the review panel
+        // doesn't show stale files after switching projects.
+        _gitDiffPath = null;
+        _gitDiff = null;
       }
     });
     final plan = _remoteRuntime.userSelectProject(
@@ -3841,6 +3851,12 @@ class _CoduxHomePageState extends State<CoduxHomePage>
     _refreshAIStats();
     if (_workspaceMode == 'files') {
       _requestProjectFiles(project.path);
+      return;
+    }
+    // Review and git panels read git.status; refresh it for the new project so
+    // they don't stay stale until the view is toggled away and back.
+    if (_workspaceMode == 'review' || _workspaceMode == 'git') {
+      _requestGitStatus();
       return;
     }
     if (resetTerminal) {

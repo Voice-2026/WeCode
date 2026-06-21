@@ -137,10 +137,12 @@ class PadWorkspaceView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final primaryWorkspaceMode = switch (workspaceMode) {
-      'files' || 'review' => workspaceMode,
-      _ => 'terminal',
-    };
+    // The center pane is decoupled from the right-column tool: opening the files
+    // panel (or any tool) keeps the terminal centered; the center only switches
+    // to the editor when a file is actually open, or to the diff in review mode.
+    final primaryWorkspaceMode = workspaceMode == 'review'
+        ? 'review'
+        : (editingFilePath != null ? 'files' : 'terminal');
     final showRightColumn =
         workspaceMode == 'files' ||
         workspaceMode == 'stats' ||
