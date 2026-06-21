@@ -16,6 +16,7 @@ class PadRightColumn extends StatelessWidget {
     super.key,
     required this.mode,
     required this.projectRootName,
+    required this.projectRootPath,
     required this.aiStats,
     required this.aiStatsLoading,
     required this.onShowStats,
@@ -41,6 +42,7 @@ class PadRightColumn extends StatelessWidget {
 
   final String mode;
   final String projectRootName;
+  final String projectRootPath;
   final AIStatsInfo? aiStats;
   final bool aiStatsLoading;
   final VoidCallback onShowStats;
@@ -135,30 +137,139 @@ class PadRightColumn extends StatelessWidget {
               plain: true,
             ),
           ),
-          Expanded(child: _files()),
+          Expanded(child: _filesCardList(context)),
         ],
       ),
     );
   }
 
-  Widget _files() {
-    return ProjectFilesPanel(
-      path: projectFilesPath,
-      parent: projectFilesParent,
-      entries: projectFileEntries,
-      loading: projectFilesLoading,
-      onOpenPath: onRequestProjectFiles,
-      onOpenFile: onOpenProjectFile,
-      onRefresh: () => onRequestProjectFiles(projectFilesPath),
-      onOpenHome: onOpenProjectHome,
-      onOpenRoot: onOpenProjectRoot,
-      onOpenVolumes: onOpenProjectVolumes,
-      onRename: onRenameProjectFile,
-      onCopyPath: onCopyProjectFilePath,
-      onDelete: onDeleteProjectFile,
-      showTopBar: false,
-      showFooterPath: true,
-      highlightMenuRows: false,
+  /// File browser as card rows (matching the git/review lists): leading icon,
+  /// name, and the path relative to the project root (no trailing slash). Files
+  /// open on tap and expose rename/copy/delete on long-press.
+  Widget _filesCardList(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.secondary;
+    if (projectFilesLoading && projectFileEntries.isEmpty) {
+      return ColoredBox(
+        color: PadColors.panel,
+        child: Center(child: CircularProgressIndicator(color: accent)),
+      );
+    }
+    final rows = <Widget>[
+      if (projectFilesParent != null)
+        PadFileListItem(
+          icon: Icons.arrow_upward_rounded,
+          iconColor: accent,
+          name: '返回上一级',
+          path: _fileLabel(projectFilesParent!, true),
+          onTap: () => onRequestProjectFiles(projectFilesParent!),
+        ),
+      for (final entry in projectFileEntries)
+        PadFileListItem(
+          icon: entry.isDirectory
+              ? Icons.folder_rounded
+              : Icons.description_outlined,
+          iconColor: entry.isDirectory ? accent : PadColors.textMuted,
+          name: entry.name,
+          path: _fileLabel(entry.path, entry.isDirectory),
+          onTap: entry.isDirectory
+              ? () => onRequestProjectFiles(entry.path)
+              : () => onOpenProjectFile(entry),
+          onLongPress: () => _showFileActions(context, entry),
+        ),
+    ];
+    return ColoredBox(
+      color: PadColors.panel,
+      child: RefreshIndicator(
+        onRefresh: () async => onRequestProjectFiles(projectFilesPath),
+        color: accent,
+        backgroundColor: PadColors.card,
+        child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+          itemCount: rows.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 6),
+          itemBuilder: (context, index) => rows[index],
+        ),
+      ),
+    );
+  }
+
+  /// Path label relative to the project root (e.g. `codux-gpui/apps/mobile`),
+  /// without a trailing slash. Falls back to the absolute parent dir when the
+  /// entry is outside the project root (e.g. while browsing `/Volumes`).
+  String _fileLabel(String absolutePath, bool isDirectory) {
+    final root = projectRootPath.trim();
+    String? rel;
+    if (root.isNotEmpty && absolutePath == root) {
+      rel = '';
+    } else if (root.isNotEmpty && absolutePath.startsWith('$root/')) {
+      rel = absolutePath.substring(root.length + 1);
+    }
+    if (rel != null) {
+      return padRootRelativePath(
+        projectRootName,
+        isDirectory ? '$rel/.' : (rel.isEmpty ? '.' : rel),
+      );
+    }
+    final slash = absolutePath.lastIndexOf('/');
+    return slash <= 0 ? '/' : absolutePath.substring(0, slash);
+  }
+
+  void _showFileActions(BuildContext context, RemoteFileEntry entry) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: PadColors.panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        final accent = Theme.of(sheetContext).colorScheme.secondary;
+        Widget item(IconData icon, String label, VoidCallback onTap,
+            {bool danger = false}) {
+          final color = danger ? PadColors.danger : accent;
+          return InkWell(
+            onTap: () {
+              Navigator.of(sheetContext).pop();
+              onTap();
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: color),
+                  const SizedBox(width: 12),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: danger ? PadColors.danger : PadColors.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              item(Icons.drive_file_rename_outline_rounded, '重命名',
+                  () => onRenameProjectFile(entry)),
+              item(Icons.link_rounded, '复制路径',
+                  () => onCopyProjectFilePath(entry)),
+              item(Icons.delete_outline_rounded, '删除',
+                  () => onDeleteProjectFile(entry), danger: true),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 }

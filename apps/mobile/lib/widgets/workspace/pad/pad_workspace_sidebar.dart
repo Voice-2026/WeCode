@@ -336,11 +336,7 @@ class _HistorySessionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = session.title.trim().isNotEmpty ? session.title.trim() : session.id;
     final time = formatEpochSeconds(session.time);
-    final meta = [
-      if (session.tool.trim().isNotEmpty) session.tool.trim(),
-      if ((session.model ?? '').trim().isNotEmpty) session.model!.trim(),
-      if (time.isNotEmpty) time,
-    ].join(' · ');
+    final tool = session.tool.trim();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       child: Column(
@@ -373,16 +369,33 @@ class _HistorySessionRow extends StatelessWidget {
               ],
             ],
           ),
-          if (meta.isNotEmpty) ...[
+          if (tool.isNotEmpty || time.isNotEmpty) ...[
             const SizedBox(height: 3),
-            Text(
-              meta,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: PadColors.textMuted,
-                fontSize: 11,
-              ),
+            // Second line: tool on the left, time on the right (two-ends aligned).
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    tool,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: PadColors.textMuted,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                if (time.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    time,
+                    style: const TextStyle(
+                      color: PadColors.textSubtle,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ],

@@ -240,6 +240,10 @@ class PadWorkspaceView extends StatelessWidget {
                             selectedProjectOf(projects, selectedProjectId)
                                 ?.name ??
                             '',
+                        projectRootPath:
+                            selectedProjectOf(projects, selectedProjectId)
+                                ?.path ??
+                            '',
                         aiStats: aiStats,
                         aiStatsLoading: aiStatsLoading,
                         onShowStats: onShowStats,
