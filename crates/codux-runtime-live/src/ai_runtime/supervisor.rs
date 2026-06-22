@@ -25,6 +25,7 @@ use std::{
 #[derive(Debug)]
 enum AIRuntimeSupervisorMessage {
     HookFrame(Vec<u8>),
+    DrainEventDir,
     Poll,
     TranscriptTail(Vec<String>),
 }
@@ -76,17 +77,23 @@ impl AIRuntimeSupervisor {
             return Ok(());
         };
         start_poll_loop(self.tx.clone());
-        start_transcript_monitor_loop(
-            self.tx.clone(),
-            Arc::clone(&self.transcript_monitors),
-            runtime_event_dir,
-        );
+        start_transcript_monitor_loop(self.tx.clone(), Arc::clone(&self.transcript_monitors));
+        start_event_dir_watcher(self.tx.clone(), runtime_event_dir.clone());
         let state = Arc::clone(&self.state);
         let transcript_monitors = Arc::clone(&self.transcript_monitors);
         let events = Arc::clone(&self.events);
         thread::Builder::new()
             .name("codux-ai-runtime-supervisor".to_string())
-            .spawn(move || supervisor_loop(rx, registry, state, transcript_monitors, events))
+            .spawn(move || {
+                supervisor_loop(
+                    rx,
+                    registry,
+                    state,
+                    transcript_monitors,
+                    events,
+                    runtime_event_dir,
+                )
+            })
             .map_err(|error| error.to_string())?;
         Ok(())
     }
@@ -139,42 +146,20 @@ fn supervisor_loop(
     state: Arc<AIRuntimeStateStore>,
     transcript_monitors: TranscriptMonitorMap,
     events: Arc<Mutex<Vec<AIRuntimeSupervisorEvent>>>,
+    runtime_event_dir: PathBuf,
 ) {
     while let Ok(message) = rx.recv() {
         match message {
             AIRuntimeSupervisorMessage::HookFrame(frame) => {
-                let Some(payload) = runtime_frame_to_hook(&frame) else {
-                    runtime_log_line(
-                        "runtime-ingress",
-                        &format!("drop hook-frame reason=decode bytes={}", frame.len()),
-                    );
-                    continue;
-                };
-                runtime_log_line(
-                    "runtime-ingress",
-                    &format!(
-                        "receive hook tool={} kind={} terminal={} project={}",
-                        payload.tool, payload.kind, payload.terminal_id, payload.project_id
-                    ),
-                );
-                push_event(
-                    &events,
-                    AIRuntimeSupervisorEvent::RuntimeEvent {
-                        event: AIRuntimeEvent::Hook {
-                            payload: payload.clone(),
-                        },
-                    },
-                );
-                let mutation = state.apply_hook(payload);
-                runtime_log_line(
-                    "runtime-ingress",
-                    if mutation.did_change {
-                        "apply hook result=changed"
-                    } else {
-                        "apply hook result=no-change"
-                    },
-                );
-                after_mutation(&state, &transcript_monitors, &events, mutation);
+                handle_hook_frame(&frame, &state, &transcript_monitors, &events);
+            }
+            AIRuntimeSupervisorMessage::DrainEventDir => {
+                // Single-threaded drain: both the FS watcher and the periodic
+                // fallback funnel here, so files are read+deleted exactly once
+                // (no cross-thread double-read / duplicate hooks).
+                for frame in drain_runtime_event_dir(&runtime_event_dir, now_seconds()) {
+                    handle_hook_frame(&frame, &state, &transcript_monitors, &events);
+                }
             }
             AIRuntimeSupervisorMessage::Poll => {
                 let mutation = poll_runtime_sessions(&state, &registry, "interval", None);
@@ -195,6 +180,46 @@ fn supervisor_loop(
             }
         }
     }
+}
+
+fn handle_hook_frame(
+    frame: &[u8],
+    state: &AIRuntimeStateStore,
+    transcript_monitors: &TranscriptMonitorMap,
+    events: &Arc<Mutex<Vec<AIRuntimeSupervisorEvent>>>,
+) {
+    let Some(payload) = runtime_frame_to_hook(frame) else {
+        runtime_log_line(
+            "runtime-ingress",
+            &format!("drop hook-frame reason=decode bytes={}", frame.len()),
+        );
+        return;
+    };
+    runtime_log_line(
+        "runtime-ingress",
+        &format!(
+            "receive hook tool={} kind={} terminal={} project={}",
+            payload.tool, payload.kind, payload.terminal_id, payload.project_id
+        ),
+    );
+    push_event(
+        events,
+        AIRuntimeSupervisorEvent::RuntimeEvent {
+            event: AIRuntimeEvent::Hook {
+                payload: payload.clone(),
+            },
+        },
+    );
+    let mutation = state.apply_hook(payload);
+    runtime_log_line(
+        "runtime-ingress",
+        if mutation.did_change {
+            "apply hook result=changed"
+        } else {
+            "apply hook result=no-change"
+        },
+    );
+    after_mutation(state, transcript_monitors, events, mutation);
 }
 
 fn after_mutation(
@@ -257,7 +282,6 @@ fn start_poll_loop(tx: SyncSender<AIRuntimeSupervisorMessage>) {
 fn start_transcript_monitor_loop(
     tx: SyncSender<AIRuntimeSupervisorMessage>,
     monitors: TranscriptMonitorMap,
-    runtime_event_dir: PathBuf,
 ) {
     let _ = thread::Builder::new()
         .name("codux-ai-runtime-transcript-monitor".to_string())
@@ -266,6 +290,11 @@ fn start_transcript_monitor_loop(
                 thread::sleep(std::time::Duration::from_millis(
                     TRANSCRIPT_MONITOR_INTERVAL_MS,
                 ));
+                // Periodic safety-net drain in case a filesystem event was
+                // missed; the FS watcher handles the low-latency common case.
+                if tx.send(AIRuntimeSupervisorMessage::DrainEventDir).is_err() {
+                    return;
+                }
                 let changed = monitors
                     .lock()
                     .map(|mut monitors| {
@@ -276,14 +305,6 @@ fn start_transcript_monitor_loop(
                         }
                     })
                     .unwrap_or_default();
-                for frame in drain_runtime_event_dir(&runtime_event_dir, now_seconds()) {
-                    if tx
-                        .send(AIRuntimeSupervisorMessage::HookFrame(frame))
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
                 if changed.is_empty() {
                     continue;
                 }
@@ -293,6 +314,69 @@ fn start_transcript_monitor_loop(
                 {
                     return;
                 }
+            }
+        });
+}
+
+/// Deliver external CLI hook files with near-zero latency by watching the
+/// runtime event directory instead of relying on the 3s fallback poll. Each
+/// filesystem event nudges the supervisor to drain; draining itself stays on
+/// the supervisor thread so reads/deletes never race. A dropped event simply
+/// falls back to the next periodic drain.
+fn start_event_dir_watcher(tx: SyncSender<AIRuntimeSupervisorMessage>, runtime_event_dir: PathBuf) {
+    let _ = thread::Builder::new()
+        .name("codux-ai-runtime-event-watcher".to_string())
+        .spawn(move || {
+            use notify::{EventKind, RecursiveMode, Watcher};
+
+            if let Err(error) = std::fs::create_dir_all(&runtime_event_dir) {
+                runtime_log_line(
+                    "runtime-ingress",
+                    &format!("event-watcher create-dir failed error={error}"),
+                );
+                return;
+            }
+
+            let nudge_tx = tx.clone();
+            let mut watcher = match notify::recommended_watcher(
+                move |result: notify::Result<notify::Event>| {
+                    let Ok(event) = result else {
+                        return;
+                    };
+                    if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
+                        // Coalesce bursts: if a drain is already queued, dropping
+                        // this nudge is harmless — the queued drain covers it.
+                        let _ = nudge_tx.try_send(AIRuntimeSupervisorMessage::DrainEventDir);
+                    }
+                },
+            ) {
+                Ok(watcher) => watcher,
+                Err(error) => {
+                    runtime_log_line(
+                        "runtime-ingress",
+                        &format!("event-watcher init failed error={error}"),
+                    );
+                    return;
+                }
+            };
+
+            if let Err(error) = watcher.watch(&runtime_event_dir, RecursiveMode::NonRecursive) {
+                runtime_log_line(
+                    "runtime-ingress",
+                    &format!("event-watcher watch failed error={error}"),
+                );
+                return;
+            }
+            runtime_log_line(
+                "runtime-ingress",
+                &format!("event-watcher active dir={}", runtime_event_dir.display()),
+            );
+
+            // Drain anything already staged before the watch registered, then
+            // park to keep the watcher (and its background thread) alive.
+            let _ = tx.send(AIRuntimeSupervisorMessage::DrainEventDir);
+            loop {
+                thread::park();
             }
         });
 }

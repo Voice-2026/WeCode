@@ -16,6 +16,7 @@ codux-terminal-core = { path = "../codux-terminal-core" }
 codux-terminal-pty = { path = "../codux-terminal-pty" }
 flume = "0.12"
 libc = "0.2"
+notify = "8"
 parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
