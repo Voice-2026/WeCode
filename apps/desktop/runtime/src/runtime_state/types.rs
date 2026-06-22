@@ -11,6 +11,11 @@ pub struct RuntimeState {
     pub daily_level: AIHistoryDailyLevelView,
     pub ai_history: AIHistorySummary,
     pub ai_history_stats: AIHistoryStatsView,
+    /// Fingerprint of the inputs to the history-derived geometry in
+    /// `ai_history_stats` (buckets/heatmap/breakdowns). Lets a refresh reuse the
+    /// existing geometry and recompute only the live current-session rows when
+    /// the indexed history (and the local day / cache mode) are unchanged.
+    pub ai_history_stats_fingerprint: u64,
     pub ai_session_detail: Option<AISessionDetail>,
     pub memory: MemorySummary,
     pub memory_manager: MemoryManagerSnapshot,

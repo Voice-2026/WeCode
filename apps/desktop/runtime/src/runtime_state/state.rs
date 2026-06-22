@@ -79,6 +79,7 @@ impl RuntimeState {
             daily_level,
             ai_history,
             ai_history_stats,
+            ai_history_stats_fingerprint: 0,
             ai_session_detail,
             memory,
             memory_manager,
@@ -151,12 +152,29 @@ impl RuntimeState {
     pub fn refresh_ai_history_stats(&mut self) {
         let ai_runtime_session_scope_id =
             selected_ai_runtime_session_scope_id(self.selected_project.as_ref(), &self.worktrees);
-        self.ai_history_stats = build_ai_history_stats(
-            &self.ai_history,
-            &self.ai_runtime_state,
-            ai_runtime_session_scope_id.as_deref(),
-            &self.settings.statistics_mode,
-        );
+        // The history-derived geometry (today buckets, heatmap, tool/model rows,
+        // totals) only changes when the indexed history, the cache mode, or the
+        // local day changes — none of which move during an active turn. Only the
+        // live current-session rows change per tick, so when the geometry
+        // fingerprint matches we recompute just those and leave the rest in place
+        // instead of rebuilding 48 buckets + 140 heatmap cells + two sorts.
+        let fingerprint =
+            ai_history_geometry_fingerprint(&self.ai_history, &self.settings.statistics_mode);
+        if fingerprint == self.ai_history_stats_fingerprint {
+            self.ai_history_stats.current_sessions = crate::ai_history::current_sessions_view(
+                &self.ai_runtime_state,
+                ai_runtime_session_scope_id.as_deref(),
+                &self.settings.statistics_mode,
+            );
+        } else {
+            self.ai_history_stats = build_ai_history_stats(
+                &self.ai_history,
+                &self.ai_runtime_state,
+                ai_runtime_session_scope_id.as_deref(),
+                &self.settings.statistics_mode,
+            );
+            self.ai_history_stats_fingerprint = fingerprint;
+        }
         if self
             .selected_project
             .as_ref()
@@ -174,6 +192,25 @@ impl RuntimeState {
 
 fn build_daily_level(global_history: &AIGlobalHistorySummary) -> AIHistoryDailyLevelView {
     crate::ai_history::daily_level_view(global_history.today_total_tokens)
+}
+
+fn ai_history_geometry_fingerprint(history: &AIHistorySummary, statistics_mode: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (statistics_mode.trim() == "includingCache").hash(&mut hasher);
+    // Geometry pivots on the local day boundary (buckets/heatmap), not the exact
+    // second, so a day-granular clock keeps the fingerprint stable within a day.
+    let now = crate::ai_history_normalized::now_seconds();
+    (crate::ai_history_normalized::local_day_start_seconds(now) as i64).hash(&mut hasher);
+    history.project_total_tokens.hash(&mut hasher);
+    history.project_cached_input_tokens.hash(&mut hasher);
+    history.today_total_tokens.hash(&mut hasher);
+    history.today_cached_input_tokens.hash(&mut hasher);
+    history.today_time_buckets.len().hash(&mut hasher);
+    history.heatmap.len().hash(&mut hasher);
+    history.tool_breakdown.len().hash(&mut hasher);
+    history.model_breakdown.len().hash(&mut hasher);
+    hasher.finish()
 }
 
 fn build_ai_history_stats(

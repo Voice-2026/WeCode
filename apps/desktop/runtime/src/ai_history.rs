@@ -57,6 +57,20 @@ pub fn stats_view(
     }
 }
 
+/// Build only the live current-session rows, so a stats refresh whose history
+/// geometry is unchanged can update them without rebuilding the whole view.
+pub fn current_sessions_view(
+    runtime_state: &crate::ai_runtime_state::AIRuntimeStateSummary,
+    selected_scope_id: Option<&str>,
+    statistics_mode: &str,
+) -> Vec<AIHistoryCurrentSessionView> {
+    stats_current_sessions(
+        runtime_state,
+        selected_scope_id,
+        statistics_mode.trim() == "includingCache",
+    )
+}
+
 fn stats_current_sessions(
     runtime_state: &crate::ai_runtime_state::AIRuntimeStateSummary,
     selected_scope_id: Option<&str>,
