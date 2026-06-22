@@ -537,7 +537,10 @@ fn prompt_submitted_clears_previous_interruption_flag() {
 }
 
 #[test]
-fn reconcile_without_live_terminal_marks_running_session_interrupted() {
+fn reconcile_without_live_terminal_silently_retires_running_session() {
+    // A turn whose terminal has vanished is retired silently: loading stops but
+    // it must NOT masquerade as an interruption or completion, so no
+    // notification fires and it is not enqueued for memory extraction.
     let store = AIRuntimeStateStore::default();
     assert!(
         store
@@ -548,12 +551,13 @@ fn reconcile_without_live_terminal_marks_running_session_interrupted() {
     let mutation = store.reconcile_bridge_snapshot(&[]);
 
     assert!(mutation.did_change);
-    assert!(mutation.completion.is_some());
+    assert!(mutation.completion.is_none());
     let snapshot = store.snapshot();
     assert_eq!(snapshot.running_count, 0);
-    assert_eq!(snapshot.completion_count, 1);
+    assert_eq!(snapshot.completion_count, 0);
     assert_eq!(snapshot.sessions[0].state, "idle");
-    assert!(snapshot.sessions[0].was_interrupted);
+    assert!(!snapshot.sessions[0].was_interrupted);
+    assert!(!snapshot.sessions[0].has_completed_turn);
 }
 
 fn responding_probe_snapshot(updated_at: f64) -> AIRuntimeContextSnapshot {
@@ -622,15 +626,17 @@ fn responding_heartbeat_stops_renewing_after_turn_exceeds_ceiling() {
     );
 
     // reconcile, with the terminal still live, now sees a stale responding
-    // session and marks it interrupted -> idle, releasing the pet bubble.
+    // session and silently retires it -> idle, releasing the pet bubble without
+    // firing a spurious "interrupted" notification.
     let store = AIRuntimeStateStore::default();
     *store.core.lock().unwrap() = core;
     let result = store.reconcile_bridge_snapshot(&[codex_bridge_terminal()]);
     assert!(result.did_change);
+    assert!(result.completion.is_none());
     let snapshot = store.snapshot();
     assert_eq!(snapshot.running_count, 0);
     assert_eq!(snapshot.sessions[0].state, "idle");
-    assert!(snapshot.sessions[0].was_interrupted);
+    assert!(!snapshot.sessions[0].was_interrupted);
 }
 
 #[test]

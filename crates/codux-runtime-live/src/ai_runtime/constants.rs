@@ -1,4 +1,10 @@
-pub const RUNNING_STALE_SECONDS: f64 = 90.0;
+/// Backstop window after which a `responding` turn with no fresh signal (hook,
+/// transcript progress, or real terminal output) is silently retired via
+/// `mark_timed_out`. Real output keeps the turn alive through the output
+/// heartbeat, so this only fires on genuine total silence; because retiring is
+/// now silent (no "已中断" notification), the window is generous to avoid
+/// clearing the loading state during long model "thinking" gaps.
+pub const RUNNING_STALE_SECONDS: f64 = 240.0;
 pub const POLL_INTERVAL_SECONDS: u64 = 5;
 pub const RUNNING_STATE_RENEWAL_SECONDS: f64 = 30.0;
 /// Upper bound on how long a "responding" turn may have its heartbeat renewed

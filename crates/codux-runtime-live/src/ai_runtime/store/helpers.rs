@@ -23,7 +23,13 @@ pub fn probe_request_for_session(session: &AISessionSnapshot) -> AIRuntimeProbeR
     }
 }
 
-pub(super) fn mark_interrupted(session: AISessionSnapshot, updated_at: f64) -> AISessionSnapshot {
+/// Silently retire an in-flight turn that the runtime simply lost track of
+/// (no authoritative end signal within the backstop window). This is NOT an
+/// interruption: `was_interrupted`/`has_completed_turn` stay false so it emits
+/// no "已中断"/"completed" notification, is not enqueued for memory extraction,
+/// and does not trigger a pet failure reaction — it just stops the loading
+/// state. Genuine interruptions/completions still flow through hook metadata.
+pub(super) fn mark_timed_out(session: AISessionSnapshot, updated_at: f64) -> AISessionSnapshot {
     let completed_turn_started_at = session
         .active_turn_started_at
         .or(session.runtime_turn_started_at)
@@ -32,7 +38,7 @@ pub(super) fn mark_interrupted(session: AISessionSnapshot, updated_at: f64) -> A
         state: "idle".to_string(),
         status: "idle".to_string(),
         is_running: false,
-        was_interrupted: true,
+        was_interrupted: false,
         has_completed_turn: false,
         active_turn_started_at: None,
         runtime_turn_started_at: None,

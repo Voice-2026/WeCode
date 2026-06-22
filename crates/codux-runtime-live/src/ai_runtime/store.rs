@@ -22,7 +22,7 @@ mod tests;
 
 use apply::{apply_hook_unlocked, apply_runtime_snapshot_unlocked};
 use helpers::{
-    bridge_terminal_session, is_codex_transcript_session, mark_interrupted, now_seconds,
+    bridge_terminal_session, is_codex_transcript_session, mark_timed_out, now_seconds,
 };
 pub use helpers::{probe_request_for_session, should_poll_runtime_session};
 #[cfg(test)]
@@ -317,7 +317,7 @@ impl AIRuntimeStateStore {
             if now - existing.updated_at > RUNNING_STALE_SECONDS {
                 core.sessions.insert(
                     terminal.terminal_id.clone(),
-                    mark_interrupted(existing, now),
+                    mark_timed_out(existing, now),
                 );
                 did_change = true;
             }
@@ -334,7 +334,7 @@ impl AIRuntimeStateStore {
         for terminal_id in stale_ids {
             if let Some(session) = core.sessions.get(&terminal_id).cloned() {
                 core.sessions
-                    .insert(terminal_id, mark_interrupted(session, now));
+                    .insert(terminal_id, mark_timed_out(session, now));
                 did_change = true;
             }
         }
