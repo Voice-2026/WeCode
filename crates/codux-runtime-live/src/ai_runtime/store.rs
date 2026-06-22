@@ -72,6 +72,36 @@ impl AIRuntimeStateStore {
         state_snapshot_unlocked(&core)
     }
 
+    /// Drop a session when its terminal is explicitly closed so it no longer
+    /// lingers in the current-session snapshot. Returns whether an entry was
+    /// removed.
+    pub fn remove_session(&self, terminal_id: &str) -> bool {
+        let Ok(mut core) = self.core.lock() else {
+            return false;
+        };
+        core.sessions.remove(terminal_id).is_some()
+    }
+
+    /// Record real terminal output as a liveness heartbeat for an in-flight
+    /// turn so the staleness sweep reflects genuine activity instead of a coarse
+    /// timer. Deliberately only sustains an existing `responding` turn — it
+    /// never starts one — so generic shell or service-command output can never
+    /// flip a terminal into AI "responding" status. Returns whether a turn was
+    /// refreshed.
+    pub fn note_output_activity(&self, terminal_id: &str, now: f64) -> bool {
+        let Ok(mut core) = self.core.lock() else {
+            return false;
+        };
+        let Some(session) = core.sessions.get_mut(terminal_id) else {
+            return false;
+        };
+        if session.state != "responding" {
+            return false;
+        }
+        session.updated_at = now;
+        true
+    }
+
     pub fn runtime_tracked_sessions(&self, now: f64) -> Vec<AISessionSnapshot> {
         let Ok(core) = self.core.lock() else {
             return Vec::new();

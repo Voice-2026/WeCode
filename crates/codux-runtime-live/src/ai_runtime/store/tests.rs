@@ -634,6 +634,46 @@ fn responding_heartbeat_stops_renewing_after_turn_exceeds_ceiling() {
 }
 
 #[test]
+fn remove_session_drops_closed_terminal_from_snapshot() {
+    // Closing a terminal tab must evict its session from the live state so it
+    // stops appearing in the current-session aggregate (otherwise stale cards
+    // linger after the tab is gone).
+    let store = AIRuntimeStateStore::default();
+    assert!(store.reconcile_bridge_snapshot(&[codex_bridge_terminal()]).did_change);
+    assert_eq!(store.snapshot().sessions.len(), 1);
+
+    assert!(store.remove_session("terminal-1"));
+    assert!(store.snapshot().sessions.is_empty());
+
+    // Removing an unknown terminal is a no-op.
+    assert!(!store.remove_session("terminal-1"));
+}
+
+#[test]
+fn note_output_activity_only_sustains_a_responding_turn() {
+    let store = AIRuntimeStateStore::default();
+    let mut core = AIRuntimeStateCore::default();
+    assert!(apply_hook_unlocked(
+        &mut core,
+        test_hook("promptSubmitted", 1000.0)
+    ));
+    assert_eq!(core.sessions.get("terminal-1").unwrap().state, "responding");
+    *store.core.lock().unwrap() = core;
+
+    // Real output during a responding turn pulls updated_at forward.
+    let now = now_seconds();
+    assert!(store.note_output_activity("terminal-1", now));
+    assert!(store.core.lock().unwrap().sessions["terminal-1"].updated_at >= now - 1.0);
+
+    // Unknown terminals never create a session (service/shell output is inert).
+    assert!(!store.note_output_activity("terminal-unknown", now));
+
+    // Once the turn goes idle, output no longer fabricates activity.
+    store.core.lock().unwrap().sessions.get_mut("terminal-1").unwrap().state = "idle".to_string();
+    assert!(!store.note_output_activity("terminal-1", now + 10.0));
+}
+
+#[test]
 fn responding_heartbeat_renews_within_ceiling_across_quiet_gap() {
     // A genuinely active turn that has only just gone quiet (well within the
     // ceiling) must still have its heartbeat renewed so it is not interrupted

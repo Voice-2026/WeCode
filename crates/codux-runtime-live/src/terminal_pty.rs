@@ -586,6 +586,7 @@ impl TerminalManager {
             return;
         };
         ai_runtime.registry().remove(session.id());
+        ai_runtime.remove_session(session.id());
     }
 }
 
@@ -1836,7 +1837,12 @@ struct CodeWhaleTerminalProgressWatcher {
     binding: AIRuntimeTerminalBinding,
     ai_runtime: Arc<AIRuntimeBridge>,
     parser: TerminalProgressOscParser,
+    last_activity_at: f64,
 }
+
+/// Throttle output heartbeats so a chatty turn does not lock the state store on
+/// every byte; one refresh per second is ample against the 90s staleness sweep.
+const OUTPUT_ACTIVITY_THROTTLE_SECONDS: f64 = 1.0;
 
 impl CodeWhaleTerminalProgressWatcher {
     fn new(binding: AIRuntimeTerminalBinding, ai_runtime: Arc<AIRuntimeBridge>) -> Self {
@@ -1844,6 +1850,7 @@ impl CodeWhaleTerminalProgressWatcher {
             binding,
             ai_runtime,
             parser: TerminalProgressOscParser::default(),
+            last_activity_at: 0.0,
         }
     }
 
@@ -1856,6 +1863,15 @@ impl CodeWhaleTerminalProgressWatcher {
         };
         if session_id != &self.binding.terminal_id {
             return;
+        }
+        let now = now_seconds();
+        if now - self.last_activity_at >= OUTPUT_ACTIVITY_THROTTLE_SECONDS {
+            self.last_activity_at = now;
+            // Keeps an in-flight turn's loading state alive on genuine output;
+            // a no-op unless a `responding` turn already exists, so plain shell
+            // or service-command output never fabricates AI activity.
+            self.ai_runtime
+                .note_output_activity(&self.binding.terminal_id, now);
         }
         for progress in self.parser.push(bytes) {
             match progress {

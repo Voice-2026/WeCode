@@ -305,6 +305,19 @@ impl AIRuntimeBridge {
         Arc::clone(&self.registry)
     }
 
+    /// Remove a closed terminal's session from the live runtime state so it
+    /// stops appearing in current-session aggregates.
+    pub fn remove_session(&self, terminal_id: &str) -> bool {
+        self.supervisor.remove_session(terminal_id)
+    }
+
+    /// Refresh an in-flight turn's liveness from real terminal output so the
+    /// loading/responding state tracks genuine activity. No-op unless the
+    /// terminal already has a `responding` turn (hook-established).
+    pub fn note_output_activity(&self, terminal_id: &str, now: f64) -> bool {
+        self.supervisor.note_output_activity(terminal_id, now)
+    }
+
     pub fn claude_session_map_dir(&self) -> PathBuf {
         claude_session_map_dir_in(&self.temp_dir)
     }

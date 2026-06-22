@@ -111,6 +111,14 @@ impl AIRuntimeSupervisor {
         self.state.dismiss_completion(project_id)
     }
 
+    pub fn remove_session(&self, terminal_id: &str) -> bool {
+        self.state.remove_session(terminal_id)
+    }
+
+    pub fn note_output_activity(&self, terminal_id: &str, now: f64) -> bool {
+        self.state.note_output_activity(terminal_id, now)
+    }
+
     pub fn drain_events(&self) -> Vec<AIRuntimeSupervisorEvent> {
         self.events
             .lock()
