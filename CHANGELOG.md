@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.2] - 2026-06-22
+
+### Added
+
+- Mobile/pad workspace overhaul: live and historical AI session display, add/edit/delete SSH profiles on device, pull-to-refresh for the files/Git/review lists, one-tap "commit & push" / "commit & merge" in the review footer, and a card-style files list.
+- Desktop "Star us on GitHub" nudge: a Help-menu entry plus a one-time prompt after a few days of use, localized across all 10 languages.
+
+### Changed
+
+- Reworked desktop transparency into a single app-opacity control with a layered frosted-glass depth scheme; refreshed cards, section titles, sidebar headers, the Git toolbar icon, and gave popup/context menus roomier rows.
+- AI runtime is faster and lighter: lower-latency hook delivery (filesystem watch instead of a 3s poll), single-pass state snapshots, and no wasted rebuilds while idle.
+- Unified desktop and headless-host Git, session, and worktree logic; surfaced real-time remote AI stats.
+
+### Fixed
+
+- AI runtime stability: stopped false "task interrupted" notifications, kept the loading/running state accurate through long model turns, and stopped closed terminals from lingering in the current-session totals.
+- Localized the file context menu's "Save As…", fixed the opacity slider not filling its row, and a range of mobile terminal input, path, persistence, and review-staleness issues.
+
 ## [2.0.0-beta.1] - 2026-06-20
 
 ### Added
