@@ -576,10 +576,18 @@ impl TerminalRenderer {
     }
 
     fn paint_prepared(&self, state: &TerminalPaintState, window: &mut Window, cx: &mut App) {
+        // In transparent style, skip the opaque base fill so the workspace
+        // body's translucent backing (and the window blur) shows behind the
+        // terminal; styled cells still paint their own opaque backgrounds.
+        let base_background = if crate::theme::window_is_solid() {
+            state.background
+        } else {
+            transparent_black()
+        };
         window.paint_quad(quad(
             state.bounds,
             px(0.0),
-            state.background,
+            base_background,
             Edges::<Pixels>::default(),
             transparent_black(),
             Default::default(),

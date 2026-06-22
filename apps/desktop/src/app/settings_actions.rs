@@ -404,6 +404,60 @@ impl CoduxApp {
         self.invalidate_ui_region(cx, UiRegion::Root);
     }
 
+    /// Push the persisted appearance opacity into the render-time theme state.
+    /// A single opacity drives the whole UI; the terminal body derives a more
+    /// opaque value from it in `theme::terminal_alpha`.
+    pub(super) fn apply_window_appearance_settings(&self) {
+        theme::set_window_appearance(
+            self.state.settings.window_style != "solid",
+            theme::opacity_fraction(&self.state.settings.window_opacity, 80),
+        );
+    }
+
+    /// Lazily create the single appearance opacity slider and wire its events:
+    /// drag (`Change`) updates the live theme alpha for instant feedback;
+    /// `Release` persists the value.
+    pub(super) fn ensure_appearance_sliders(&mut self, cx: &mut Context<Self>) {
+        if self.appearance_vibrancy_slider.is_some() {
+            return;
+        }
+        let vibrancy_default = theme::opacity_fraction(&self.state.settings.window_opacity, 80);
+        let vibrancy_state = cx.new(|_| {
+            gpui_component::slider::SliderState::new()
+                .min(0.2)
+                .max(1.0)
+                .step(0.01)
+                .default_value(vibrancy_default)
+        });
+        let vibrancy_sub =
+            cx.subscribe(&vibrancy_state, |app, _state, event, cx| match event {
+                gpui_component::slider::SliderEvent::Change(value) => {
+                    theme::set_vibrancy_alpha(value.start());
+                    let _ = app;
+                    cx.refresh_windows();
+                }
+                gpui_component::slider::SliderEvent::Release(value) => {
+                    app.persist_window_opacity((value.start() * 100.0).round() as i64, cx);
+                }
+            });
+        self.appearance_vibrancy_slider = Some(vibrancy_state);
+        self._appearance_slider_subscriptions = vec![vibrancy_sub];
+    }
+
+    fn persist_window_opacity(&mut self, percent: i64, cx: &mut Context<Self>) {
+        self.save_settings_async(
+            "set_window_opacity",
+            "saving window opacity",
+            move |service| service.set_window_opacity(percent),
+            |app, settings, cx| {
+                app.apply_async_settings_summary(settings);
+                app.apply_window_appearance_settings();
+                cx.refresh_windows();
+            },
+            cx,
+        );
+    }
+
     pub(super) fn toggle_dock_badge(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.save_settings_async(
             "toggle_dock_badge",

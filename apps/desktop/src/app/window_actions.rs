@@ -361,6 +361,8 @@ impl CoduxApp {
             git_files_panel_view: None,
             git_history_panel_view: None,
             status_bar_view: None,
+            appearance_vibrancy_slider: None,
+            _appearance_slider_subscriptions: Vec::new(),
             file_sidebar_view: None,
             project_open_applications,
             project_editor_project_id: None,

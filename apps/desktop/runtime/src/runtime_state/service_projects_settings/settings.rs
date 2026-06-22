@@ -113,6 +113,15 @@ impl RuntimeService {
         self.update_settings_with_side_effects(|settings| settings.set_icon_style(icon_style))
     }
 
+    pub fn set_window_style(&self, window_style: &str) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| settings.set_window_style(window_style))
+    }
+
+    pub fn set_window_opacity(&self, percent: i64) -> Result<SettingsSummary, String> {
+        self.update_settings_with_side_effects(|settings| settings.set_window_opacity(percent))
+    }
+
+
     pub fn toggle_dock_badge(&self) -> Result<SettingsSummary, String> {
         self.update_settings_with_side_effects(|settings| settings.toggle_dock_badge())
     }

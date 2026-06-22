@@ -58,7 +58,6 @@ impl Render for WorkspaceColumnView {
             .min_h_0()
             .w_full()
             .h_full()
-            .bg(color(theme::BG_TERMINAL))
             .child(
                 div().flex().flex_none().w_full().h(px(52.0)).child(
                     gpui::AnyView::from(self.toolbar_view.clone())
@@ -525,7 +524,7 @@ impl Render for WorkspaceAssistantView {
                         .min_w(px(ASSISTANT_PANEL_WIDTH))
                         .max_w(px(ASSISTANT_PANEL_WIDTH))
                         .h_full()
-                        .bg(color(theme::BG_COLUMN))
+                        .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
                         .border_l_1()
                         .border_color(cx.theme().sidebar_border)
                         .child(match panel {
@@ -860,7 +859,6 @@ impl Render for TerminalWorkspaceView {
             .min_h_0()
             .w_full()
             .h_full()
-            .bg(color(theme::BG_TERMINAL))
             .on_prepaint({
                 let view = cx.entity();
                 move |bounds, _, cx| {
@@ -1074,7 +1072,7 @@ fn terminal_main_split_area(
         return div()
             .flex_1()
             .size_full()
-            .bg(color(theme::BG_TERMINAL))
+            .bg(theme::terminal_fill(color(theme::BG_TERMINAL)))
             .into_any_element();
     }
 
@@ -1270,6 +1268,10 @@ fn terminal_bottom_tabs_area(
                 .px_2()
                 .border_t_1()
                 .border_color(cx.theme().border)
+                // The tab strip is frosted chrome (app background + opacity),
+                // matching the headers/sidebar; the terminal body itself is the
+                // more-opaque surface derived from the same opacity setting.
+                .bg(theme::vibrancy(color(theme::BG_TERMINAL)))
                 .child(
                     div()
                         .flex()

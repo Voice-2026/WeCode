@@ -45,7 +45,6 @@ impl CoduxApp {
                 .min_h_0()
                 .w_full()
                 .h_full()
-                .bg(color(theme::BG_TERMINAL))
                 .child(
                     div()
                         .flex_1()
@@ -71,7 +70,6 @@ impl CoduxApp {
             .min_h_0()
             .w_full()
             .h_full()
-            .bg(color(theme::BG_TERMINAL))
             .child(
                 v_resizable("workspace-terminal-split")
                     .child(
@@ -166,7 +164,7 @@ impl CoduxApp {
 
     pub(in crate::app) fn terminal_panes(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(active) = self.main_terminal() else {
-            return div().flex_1().size_full().bg(color(theme::BG_TERMINAL));
+            return div().flex_1().size_full();
         };
         let pane_count = active.panes.len();
         let link_overlay = self.selected_project_terminal_link_overlay();

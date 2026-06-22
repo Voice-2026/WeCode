@@ -253,7 +253,7 @@ pub(in crate::app) fn review_workspace_body(
                         .child(gpui::AnyView::from(file_list_view)),
                 )
                 .child(
-                    resizable_panel().size_range(px(520.0)..px(1600.0)).child(
+                    resizable_panel().size_range(px(520.0)..Pixels::MAX).child(
                         div()
                             .size_full()
                             .min_w_0()

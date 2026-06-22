@@ -141,6 +141,8 @@ impl Default for AppSettings {
             terminal_scrollback_lines: default_terminal_scrollback_lines(),
             terminal_paste_images_as_paths: default_terminal_paste_images_as_paths(),
             icon_style: default_icon_style(),
+            window_style: default_window_style(),
+            window_opacity: default_window_opacity(),
             notification_channels: HashMap::new(),
             shortcuts: HashMap::new(),
             update: UpdateSettings::default(),

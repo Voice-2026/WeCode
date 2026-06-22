@@ -470,6 +470,8 @@ fn git_panel_header(
         .justify_between()
         .border_b_1()
         .border_color(color(theme::BORDER_SOFT))
+        // Thin translucent darkening: deeper than the panel, still see-through.
+        .bg(theme::vibrancy_raised(color(theme::BG_HEADER)))
         .child(
             div()
                 .flex()
@@ -2185,7 +2187,8 @@ fn git_status_group_header(
         .justify_between()
         .border_color(cx.theme().border)
         .when(!first, |this| this.border_t_1())
-        .bg(cx.theme().list_head)
+        // Thin translucent darkening: deeper than the panel, still see-through.
+        .bg(theme::vibrancy_raised(cx.theme().list_head))
         .cursor_pointer()
         .on_click(
             cx.listener(move |app, _event, _window, cx| app.toggle_git_status_section(id, cx)),
@@ -3040,7 +3043,8 @@ fn git_history_panel(
                 .px_3()
                 .flex()
                 .items_center()
-                .bg(cx.theme().list_head)
+                // Thin translucent darkening: deeper than the panel, see-through.
+                .bg(theme::vibrancy_raised(cx.theme().list_head))
                 .text_size(rems(0.875))
                 .line_height(rems(1.125))
                 .text_color(cx.theme().muted_foreground)
@@ -3489,7 +3493,11 @@ fn git_review_content_panel(
     scroll_handle: VirtualListScrollHandle,
     cx: &mut Context<workspace_views::ReviewDiffContentView>,
 ) -> impl IntoElement {
-    let item_sizes = Rc::new(vec![size(px(1.0), px(18.0)); cells.len()]);
+    // Declare each row's intrinsic width from the longest line so the virtual
+    // list reports a wide content size and offers horizontal scrolling; without
+    // this the list assumes ~0 width and clips long lines instead.
+    let content_width = review_content_width(&cells);
+    let item_sizes = Rc::new(vec![size(content_width, px(18.0)); cells.len()]);
     let list_cells = cells.clone();
     div()
         .flex()
@@ -3540,7 +3548,7 @@ fn git_review_content_panel(
                             visible_range
                                 .filter_map(|index| {
                                     let cell = list_cells.get(index)?;
-                                    Some(git_review_code_line(cell.clone()))
+                                    Some(git_review_code_line(cell.clone(), content_width))
                                 })
                                 .collect::<Vec<_>>()
                         },
@@ -3552,7 +3560,19 @@ fn git_review_content_panel(
         )
 }
 
-fn git_review_code_line(cell: GitReviewAlignedCell) -> AnyElement {
+/// Estimated pixel width of the widest line, used to size the virtual list's
+/// content so it can scroll horizontally. SF Mono at ~12px advances ~7.2px per
+/// glyph; a small buffer avoids clipping the last characters.
+fn review_content_width(cells: &[GitReviewAlignedCell]) -> Pixels {
+    let max_chars = cells
+        .iter()
+        .map(|cell| cell.text.chars().count())
+        .max()
+        .unwrap_or(0);
+    px(60.0 + max_chars as f32 * 7.5)
+}
+
+fn git_review_code_line(cell: GitReviewAlignedCell, content_width: Pixels) -> AnyElement {
     let line_bg = match cell.tone {
         Some(GitReviewLineTone::Addition) => Some(color(theme::GREEN).opacity(0.13)),
         Some(GitReviewLineTone::Deletion) => Some(color(0xF87171).opacity(0.14)),
@@ -3561,8 +3581,11 @@ fn git_review_code_line(cell: GitReviewAlignedCell) -> AnyElement {
     div()
         .h(px(18.0))
         .flex()
-        .w_full()
-        .min_w_0()
+        // Fixed to the longest-line width (≥ viewport via the list) so row
+        // backgrounds span the full scrollable width and lines stay aligned
+        // across the three columns when scrolled horizontally.
+        .w(content_width)
+        .min_w(gpui::relative(1.0))
         .when_some(line_bg, |this, bg| this.bg(bg))
         .child(
             div()
@@ -3578,10 +3601,11 @@ fn git_review_code_line(cell: GitReviewAlignedCell) -> AnyElement {
                 ),
         )
         .child(
+            // Natural width, single line — long content overflows and is reached
+            // via the list's horizontal scroll instead of being clipped.
             div()
-                .flex_1()
-                .min_w_0()
-                .overflow_x_hidden()
+                .flex_none()
+                .whitespace_nowrap()
                 .child(cell.text),
         )
         .into_any_element()

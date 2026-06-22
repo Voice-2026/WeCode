@@ -352,7 +352,17 @@
       "settings.remote.relay_change.title": "Relay-Netzwerk wechseln",
       "settings.remote.relay_change.message": "Beim Wechsel des Relays werden gekoppelte Geräte gelöscht. Koppeln Sie mobile Geräte danach erneut.",
       "settings.remote.relay_authentication": "Relay-Authentifizierung",
-      "settings.remote.relay_authentication.help": "Optionales Bearer-Token für benutzerdefinierte Iroh-Relays. Nach Änderungen erneut koppeln."
+      "settings.remote.relay_authentication.help": "Optionales Bearer-Token für benutzerdefinierte Iroh-Relays. Nach Änderungen erneut koppeln.",
+      "settings.window_style.title": "App-Stil",
+      "settings.window_style.card_help": "Wählen Sie ein einfarbiges oder Milchglas-Fenster und ziehen Sie, um die Transparenz anzupassen.",
+      "settings.window_style.label": "App-Stil",
+      "settings.window_style.help": "Milchglas nutzt die native Unschärfe (macOS / Windows).",
+      "settings.window_style.transparent": "Transparent",
+      "settings.window_style.solid": "Einfarbig",
+      "settings.window_style.ui_opacity": "Oberfläche",
+      "settings.window_style.terminal_opacity": "Terminal",
+      "settings.window_style.ui_help": "Milchglas für Seitenleiste und Spaltenköpfe (100 % = einfarbig).",
+      "settings.window_style.terminal_help": "Transparenz des Terminal-Hintergrunds (100 % = einfarbig)."
     },
     "en": {
       "settings.ai_auto_refresh": "AI Auto Refresh",
@@ -706,7 +716,17 @@
       "settings.remote.relay_change.title": "Change Relay Network",
       "settings.remote.relay_change.message": "Changing the relay will clear paired devices. Pair mobile devices again after the change.",
       "settings.remote.relay_authentication": "Relay Authentication",
-      "settings.remote.relay_authentication.help": "Optional Bearer token for custom Iroh relays. Pair again after changing it"
+      "settings.remote.relay_authentication.help": "Optional Bearer token for custom Iroh relays. Pair again after changing it",
+      "settings.window_style.title": "App Style",
+      "settings.window_style.card_help": "Choose a solid or frosted-glass window, and drag to tune transparency.",
+      "settings.window_style.label": "App Style",
+      "settings.window_style.help": "Frosted glass uses the native blur (macOS / Windows).",
+      "settings.window_style.transparent": "Transparent",
+      "settings.window_style.solid": "Solid",
+      "settings.window_style.ui_opacity": "Opacity",
+      "settings.window_style.terminal_opacity": "Terminal",
+      "settings.window_style.ui_help": "Frosted-glass opacity for the sidebar, headers, panels and cards; the terminal stays a bit more opaque. Drag to 100% for solid.",
+      "settings.window_style.terminal_help": "Terminal background transparency (drag to 100% for solid)."
     },
     "es": {
       "settings.ai_auto_refresh": "Actualización automática de IA",
@@ -1060,7 +1080,17 @@
       "settings.remote.relay_change.title": "Cambiar red de relay",
       "settings.remote.relay_change.message": "Cambiar el relay borrará los dispositivos emparejados. Vuelve a emparejar los dispositivos móviles después del cambio.",
       "settings.remote.relay_authentication": "Autenticación de relay",
-      "settings.remote.relay_authentication.help": "Token Bearer opcional para relays Iroh personalizados. Vuelve a emparejar después de cambiarlo."
+      "settings.remote.relay_authentication.help": "Token Bearer opcional para relays Iroh personalizados. Vuelve a emparejar después de cambiarlo.",
+      "settings.window_style.title": "Estilo de la app",
+      "settings.window_style.card_help": "Elige una ventana sólida o de vidrio esmerilado y arrastra para ajustar la transparencia.",
+      "settings.window_style.label": "Estilo de la app",
+      "settings.window_style.help": "El vidrio esmerilado usa el desenfoque nativo (macOS / Windows).",
+      "settings.window_style.transparent": "Transparente",
+      "settings.window_style.solid": "Sólido",
+      "settings.window_style.ui_opacity": "Interfaz",
+      "settings.window_style.terminal_opacity": "Terminal",
+      "settings.window_style.ui_help": "Vidrio esmerilado para la barra lateral y encabezados (100 % = sólido).",
+      "settings.window_style.terminal_help": "Transparencia del fondo del terminal (100 % = sólido)."
     },
     "fr": {
       "settings.ai_auto_refresh": "Actualisation auto IA",
@@ -1414,7 +1444,17 @@
       "settings.remote.relay_change.title": "Changer de réseau relais",
       "settings.remote.relay_change.message": "Changer de relais supprimera les appareils associés. Associez à nouveau les appareils mobiles après la modification.",
       "settings.remote.relay_authentication": "Authentification du relais",
-      "settings.remote.relay_authentication.help": "Jeton Bearer facultatif pour les relais Iroh personnalisés. Associez à nouveau après modification."
+      "settings.remote.relay_authentication.help": "Jeton Bearer facultatif pour les relais Iroh personnalisés. Associez à nouveau après modification.",
+      "settings.window_style.title": "Style de l'app",
+      "settings.window_style.card_help": "Choisissez une fenêtre unie ou en verre dépoli, et glissez pour régler la transparence.",
+      "settings.window_style.label": "Style de l'app",
+      "settings.window_style.help": "Le verre dépoli utilise le flou natif (macOS / Windows).",
+      "settings.window_style.transparent": "Transparent",
+      "settings.window_style.solid": "Uni",
+      "settings.window_style.ui_opacity": "Interface",
+      "settings.window_style.terminal_opacity": "Terminal",
+      "settings.window_style.ui_help": "Verre dépoli pour la barre latérale et les en-têtes (100 % = uni).",
+      "settings.window_style.terminal_help": "Transparence du fond du terminal (100 % = uni)."
     },
     "ja": {
       "settings.ai_auto_refresh": "AI 自動更新",
@@ -1768,7 +1808,17 @@
       "settings.remote.relay_change.title": "リレーネットワークを変更",
       "settings.remote.relay_change.message": "リレーを変更するとペアリング済みデバイスが消去されます。変更後にモバイルデバイスを再度ペアリングしてください。",
       "settings.remote.relay_authentication": "リレー認証",
-      "settings.remote.relay_authentication.help": "カスタム Iroh リレー用の任意の Bearer トークンです。変更後は再度ペアリングしてください。"
+      "settings.remote.relay_authentication.help": "カスタム Iroh リレー用の任意の Bearer トークンです。変更後は再度ペアリングしてください。",
+      "settings.window_style.title": "アプリスタイル",
+      "settings.window_style.card_help": "単色またはすりガラスのウィンドウを選び、ドラッグして透明度を調整します。",
+      "settings.window_style.label": "アプリスタイル",
+      "settings.window_style.help": "すりガラスはネイティブのぼかしを使用します（macOS / Windows）。",
+      "settings.window_style.transparent": "透明",
+      "settings.window_style.solid": "単色",
+      "settings.window_style.ui_opacity": "インターフェース",
+      "settings.window_style.terminal_opacity": "ターミナル",
+      "settings.window_style.ui_help": "サイドバーと列ヘッダーのすりガラス（100% で単色）。",
+      "settings.window_style.terminal_help": "ターミナル背景の透明度（100% で単色）。"
     },
     "ko": {
       "settings.ai_auto_refresh": "AI 자동 새로고침",
@@ -2122,7 +2172,17 @@
       "settings.remote.relay_change.title": "릴레이 네트워크 변경",
       "settings.remote.relay_change.message": "릴레이를 변경하면 페어링된 장치가 삭제됩니다. 변경 후 모바일 장치를 다시 페어링하세요.",
       "settings.remote.relay_authentication": "릴레이 인증",
-      "settings.remote.relay_authentication.help": "사용자 지정 Iroh 릴레이용 선택적 Bearer 토큰입니다. 변경 후 다시 페어링하세요."
+      "settings.remote.relay_authentication.help": "사용자 지정 Iroh 릴레이용 선택적 Bearer 토큰입니다. 변경 후 다시 페어링하세요.",
+      "settings.window_style.title": "앱 스타일",
+      "settings.window_style.card_help": "단색 또는 프로스트 글래스 창을 선택하고 드래그하여 투명도를 조절하세요.",
+      "settings.window_style.label": "앱 스타일",
+      "settings.window_style.help": "프로스트 글래스는 네이티브 블러를 사용합니다 (macOS / Windows).",
+      "settings.window_style.transparent": "투명",
+      "settings.window_style.solid": "단색",
+      "settings.window_style.ui_opacity": "인터페이스",
+      "settings.window_style.terminal_opacity": "터미널",
+      "settings.window_style.ui_help": "사이드바와 열 헤더의 프로스트 글래스 (100%면 단색).",
+      "settings.window_style.terminal_help": "터미널 배경 투명도 (100%면 단색)."
     },
     "pt-BR": {
       "settings.ai_auto_refresh": "Atualização automática de IA",
@@ -2476,7 +2536,17 @@
       "settings.remote.relay_change.title": "Alterar rede de relay",
       "settings.remote.relay_change.message": "Alterar o relay removerá os dispositivos emparelhados. Emparelhe os dispositivos móveis novamente após a alteração.",
       "settings.remote.relay_authentication": "Autenticação do relay",
-      "settings.remote.relay_authentication.help": "Token Bearer opcional para relays Iroh personalizados. Emparelhe novamente após alterar."
+      "settings.remote.relay_authentication.help": "Token Bearer opcional para relays Iroh personalizados. Emparelhe novamente após alterar.",
+      "settings.window_style.title": "Estilo do app",
+      "settings.window_style.card_help": "Escolha uma janela sólida ou de vidro fosco e arraste para ajustar a transparência.",
+      "settings.window_style.label": "Estilo do app",
+      "settings.window_style.help": "O vidro fosco usa o desfoque nativo (macOS / Windows).",
+      "settings.window_style.transparent": "Transparente",
+      "settings.window_style.solid": "Sólido",
+      "settings.window_style.ui_opacity": "Interface",
+      "settings.window_style.terminal_opacity": "Terminal",
+      "settings.window_style.ui_help": "Vidro fosco para a barra lateral e cabeçalhos (100% = sólido).",
+      "settings.window_style.terminal_help": "Transparência do fundo do terminal (100% = sólido)."
     },
     "ru": {
       "settings.ai_auto_refresh": "Автообновление ИИ",
@@ -2830,7 +2900,17 @@
       "settings.remote.relay_change.title": "Изменить релейную сеть",
       "settings.remote.relay_change.message": "При изменении реле сопряженные устройства будут удалены. После изменения выполните сопряжение мобильных устройств заново.",
       "settings.remote.relay_authentication": "Аутентификация реле",
-      "settings.remote.relay_authentication.help": "Необязательный Bearer-токен для пользовательских реле Iroh. После изменения выполните сопряжение заново."
+      "settings.remote.relay_authentication.help": "Необязательный Bearer-токен для пользовательских реле Iroh. После изменения выполните сопряжение заново.",
+      "settings.window_style.title": "Стиль приложения",
+      "settings.window_style.card_help": "Выберите сплошное или матовое окно и перетащите, чтобы настроить прозрачность.",
+      "settings.window_style.label": "Стиль приложения",
+      "settings.window_style.help": "Матовое стекло использует нативное размытие (macOS / Windows).",
+      "settings.window_style.transparent": "Прозрачный",
+      "settings.window_style.solid": "Сплошной",
+      "settings.window_style.ui_opacity": "Интерфейс",
+      "settings.window_style.terminal_opacity": "Терминал",
+      "settings.window_style.ui_help": "Матовое стекло для боковой панели и заголовков (100% — сплошной).",
+      "settings.window_style.terminal_help": "Прозрачность фона терминала (100% — сплошной)."
     },
     "zh-Hans": {
       "settings.ai_auto_refresh": "AI 自动刷新",
@@ -3184,7 +3264,17 @@
       "settings.remote.relay_change.title": "切换中继网络",
       "settings.remote.relay_change.message": "切换中继会清空已配对设备，修改后需要重新配对。",
       "settings.remote.relay_authentication": "中继认证",
-      "settings.remote.relay_authentication.help": "自定义 Iroh 中继的可选 Bearer Token，修改后需要重新配对。"
+      "settings.remote.relay_authentication.help": "自定义 Iroh 中继的可选 Bearer Token，修改后需要重新配对。",
+      "settings.window_style.title": "应用风格",
+      "settings.window_style.card_help": "选择纯色或毛玻璃窗口，并拖动调节透明度。",
+      "settings.window_style.label": "应用风格",
+      "settings.window_style.help": "毛玻璃使用系统原生模糊（macOS / Windows）。",
+      "settings.window_style.transparent": "透明",
+      "settings.window_style.solid": "纯色",
+      "settings.window_style.ui_opacity": "透明度",
+      "settings.window_style.terminal_opacity": "终端",
+      "settings.window_style.ui_help": "侧栏、标题、面板与卡片的毛玻璃浓度；终端会自动更实一些。拖到 100% 即为纯色。",
+      "settings.window_style.terminal_help": "终端背景透明度（拖到 100% 即为纯色）。"
     },
     "zh-Hant": {
       "settings.ai_auto_refresh": "AI 自動重新整理",
@@ -3538,7 +3628,17 @@
       "settings.remote.relay_change.title": "切換中繼網路",
       "settings.remote.relay_change.message": "切換中繼會清空已配對裝置，修改後需要重新配對。",
       "settings.remote.relay_authentication": "中繼認證",
-      "settings.remote.relay_authentication.help": "自訂 Iroh 中繼的可選 Bearer Token，修改後需要重新配對。"
+      "settings.remote.relay_authentication.help": "自訂 Iroh 中繼的可選 Bearer Token，修改後需要重新配對。",
+      "settings.window_style.title": "應用風格",
+      "settings.window_style.card_help": "選擇純色或毛玻璃視窗，並拖動調節透明度。",
+      "settings.window_style.label": "應用風格",
+      "settings.window_style.help": "毛玻璃使用系統原生模糊（macOS / Windows）。",
+      "settings.window_style.transparent": "透明",
+      "settings.window_style.solid": "純色",
+      "settings.window_style.ui_opacity": "透明度",
+      "settings.window_style.terminal_opacity": "終端",
+      "settings.window_style.ui_help": "側欄、標題、面板與卡片的毛玻璃濃度；終端會自動更實一些。拖到 100% 即為純色。",
+      "settings.window_style.terminal_help": "終端背景透明度（拖到 100% 即為純色）。"
     }
   }
 }

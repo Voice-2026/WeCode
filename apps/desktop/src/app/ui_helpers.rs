@@ -308,10 +308,11 @@ pub(in crate::app) fn column_header(
         .px(px(10.0))
         .flex_shrink_0()
         .flex()
-        .items_center()
+        // No `items_center`: the content row stretches to full header height so
+        // its draggable middle area covers the whole title bar.
         .border_b_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().title_bar)
+        .bg(theme::vibrancy(cx.theme().title_bar))
         .child(content)
 }
 
@@ -319,9 +320,31 @@ pub(in crate::app) fn titlebar_drag_area(
     id: impl Into<ElementId>,
     element: gpui::Div,
 ) -> impl IntoElement {
+    // The headers are painted inside `.cached()` views. GPUI's `reuse_paint`
+    // replays mouse listeners but NOT `window_control_hitboxes`, so a
+    // `window_control_area(Drag)` region is dropped on every reused frame and
+    // only the native (appears_transparent) titlebar strip stays draggable —
+    // i.e. just the top of the header. Drive the move with mouse listeners +
+    // `start_window_move()` (which survive caching) so the whole header height
+    // is draggable; `window_control_area` stays as a fallback for fresh frames.
+    let should_move = std::rc::Rc::new(std::cell::Cell::new(false));
+    let on_down = should_move.clone();
+    let on_up = should_move.clone();
+    let on_move = should_move;
     element
         .id(id)
         .window_control_area(WindowControlArea::Drag)
+        .on_mouse_down(MouseButton::Left, move |_, _window, _cx| {
+            on_down.set(true);
+        })
+        .on_mouse_up(MouseButton::Left, move |_, _window, _cx| {
+            on_up.set(false);
+        })
+        .on_mouse_move(move |_, window, _cx| {
+            if on_move.replace(false) {
+                window.start_window_move();
+            }
+        })
         .when(!cfg!(target_os = "windows"), |this| {
             this.on_click(|event, window, _| {
                 if event.click_count() == 2 {

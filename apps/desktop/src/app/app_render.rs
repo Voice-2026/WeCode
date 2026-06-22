@@ -3,6 +3,7 @@ use super::*;
 impl Render for CoduxApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.focus_root_if_needed(window, cx);
+        self.ensure_appearance_sliders(cx);
 
         if self.window_mode == AppWindowMode::DesktopPet {
             return self.desktop_pet_window(window, cx).into_any_element();
@@ -316,11 +317,19 @@ impl Render for CoduxApp {
             .flex()
             .flex_col()
             .text_color(color(theme::TEXT))
-            .bg(cx.theme().background)
+            // Solid style: paint the opaque app background, covering the window's
+            // native blur. Transparent style: leave it unpainted so the frosted
+            // sidebar/headers and terminal show the vibrancy.
+            .when(theme::window_is_solid(), |this| {
+                this.bg(cx.theme().background)
+            })
             .track_focus(&focus_handle)
             .key_context("CoduxMainWindow")
             .on_key_down(cx.listener(Self::on_key_down))
             .child(
+                // Main row: the sidebar spans the full window height; the status
+                // bar lives in the right-hand vertical stack so it never extends
+                // under the sidebar.
                 div()
                     .flex()
                     .flex_1()
@@ -341,38 +350,13 @@ impl Render for CoduxApp {
                     .child(
                         div()
                             .flex()
+                            .flex_col()
                             .flex_1()
                             .flex_basis(px(0.0))
                             .w_full()
                             .min_w_0()
                             .min_h_0()
                             .overflow_hidden()
-                            .when_some(task_column_view, |this, task_column_view| {
-                                this.child(
-                                    div()
-                                        .flex_none()
-                                        .flex_shrink_0()
-                                        .flex_basis(px(task_column_width))
-                                        .w(px(task_column_width))
-                                        .min_w(px(task_column_width))
-                                        .max_w(px(task_column_width))
-                                        .h_full()
-                                        .overflow_hidden()
-                                        .border_r_1()
-                                        .border_color(cx.theme().border)
-                                        .child(
-                                            gpui::AnyView::from(task_column_view).cached(
-                                                gpui::StyleRefinement::default()
-                                                    .flex()
-                                                    .flex_none()
-                                                    .h_full()
-                                                    .min_w(px(task_column_width))
-                                                    .max_w(px(task_column_width))
-                                                    .w_full(),
-                                            ),
-                                        ),
-                                )
-                            })
                             .child(
                                 div()
                                     .flex()
@@ -382,29 +366,65 @@ impl Render for CoduxApp {
                                     .min_w_0()
                                     .min_h_0()
                                     .overflow_hidden()
-                                    .child(
-                                        gpui::AnyView::from(workspace_column_view).cached(
-                                            gpui::StyleRefinement::default()
-                                                .flex()
-                                                .flex_1()
-                                                .flex_basis(px(0.0))
-                                                .w_full()
+                                    .when_some(task_column_view, |this, task_column_view| {
+                                        this.child(
+                                            div()
+                                                .flex_none()
+                                                .flex_shrink_0()
+                                                .flex_basis(px(task_column_width))
+                                                .w(px(task_column_width))
+                                                .min_w(px(task_column_width))
+                                                .max_w(px(task_column_width))
                                                 .h_full()
-                                                .min_w(px(0.0))
-                                                .min_h(px(0.0)),
-                                        ),
+                                                .overflow_hidden()
+                                                .border_r_1()
+                                                .border_color(cx.theme().border)
+                                                .child(
+                                                    gpui::AnyView::from(task_column_view).cached(
+                                                        gpui::StyleRefinement::default()
+                                                            .flex()
+                                                            .flex_none()
+                                                            .h_full()
+                                                            .min_w(px(task_column_width))
+                                                            .max_w(px(task_column_width))
+                                                            .w_full(),
+                                                    ),
+                                                ),
+                                        )
+                                    })
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_1()
+                                            .flex_basis(px(0.0))
+                                            .w_full()
+                                            .min_w_0()
+                                            .min_h_0()
+                                            .overflow_hidden()
+                                            .child(
+                                                gpui::AnyView::from(workspace_column_view).cached(
+                                                    gpui::StyleRefinement::default()
+                                                        .flex()
+                                                        .flex_1()
+                                                        .flex_basis(px(0.0))
+                                                        .w_full()
+                                                        .h_full()
+                                                        .min_w(px(0.0))
+                                                        .min_h(px(0.0)),
+                                                ),
+                                            ),
                                     ),
+                            )
+                            .child(
+                                gpui::AnyView::from(status_bar_view).cached(
+                                    gpui::StyleRefinement::default()
+                                        .flex()
+                                        .flex_none()
+                                        .w_full()
+                                        .h(px(28.0)),
+                                ),
                             ),
                     ),
-            )
-            .child(
-                gpui::AnyView::from(status_bar_view).cached(
-                    gpui::StyleRefinement::default()
-                        .flex()
-                        .flex_none()
-                        .w_full()
-                        .h(px(28.0)),
-                ),
             )
             .when_some(self.toast_message.clone(), |this, message| {
                 this.child(

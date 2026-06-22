@@ -181,7 +181,7 @@ fn status_bar_content(
         .justify_between()
         .border_t_1()
         .border_color(color(theme::BORDER_SOFT))
-        .bg(color(theme::STATUS_BAR))
+        .bg(theme::vibrancy_panel(color(theme::STATUS_BAR)))
         .text_color(color(theme::TEXT_MUTED))
         .text_size(rems(0.75))
         .child(

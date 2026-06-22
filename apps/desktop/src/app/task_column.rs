@@ -357,10 +357,14 @@ fn task_column_content(
         .min_w_0()
         .h_full()
         .min_h_0()
-        .bg(color(theme::BG_COLUMN))
         .child(gpui::AnyView::from(header_view))
         .child(
-            div().flex_1().min_h_0().overflow_hidden().child(
+            div()
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
+                .child(
                 v_resizable("task-column-resizable")
                     .child(
                         resizable_panel()
@@ -393,16 +397,19 @@ fn task_column_header(
         .px(px(10.0))
         .flex_shrink_0()
         .flex()
-        .items_center()
+        // No `items_center` on the outer div: the content row below stretches to
+        // full header height so its drag area covers the whole title bar.
         .border_b_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().title_bar)
+        .bg(theme::vibrancy(cx.theme().title_bar))
         .child(
+            // No `items_center`: children stretch to full header height so the
+            // drag area fills it; the title text and buttons center themselves.
             div()
                 .flex()
-                .items_center()
                 .justify_between()
                 .w_full()
+                .h_full()
                 .child(titlebar_drag_area(
                     "task-column-titlebar-drag",
                     div()
@@ -583,7 +590,9 @@ fn session_section_heading(
         .justify_between()
         .border_t_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().list_head)
+        // Thin translucent darkening over the column's frosted fill: a touch
+        // deeper than the panel, still see-through.
+        .bg(theme::vibrancy_raised(cx.theme().list_head))
         .child(
             div()
                 .text_size(rems(0.875))

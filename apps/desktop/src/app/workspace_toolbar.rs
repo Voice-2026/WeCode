@@ -58,11 +58,13 @@ impl CoduxApp {
             disabled_level_button(&self.state.settings.language, cx).into_any_element()
         };
         column_header(
+            // No `items_center` here: children stretch to full header height so the
+            // draggable middle area fills it. Each side group centers its own content.
             div()
                 .flex()
-                .items_center()
                 .justify_between()
                 .w_full()
+                .h_full()
                 .child(
                     div()
                         .flex()

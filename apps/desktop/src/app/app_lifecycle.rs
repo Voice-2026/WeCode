@@ -22,6 +22,10 @@ impl CoduxApp {
             Some(window),
             cx,
         );
+        theme::set_window_appearance(
+            state.settings.window_style != "solid",
+            theme::opacity_fraction(&state.settings.window_opacity, 80),
+        );
         let runtime = RuntimeInventory::load();
         let runtime_service = RuntimeService::new(state.support_dir.clone());
         let _ = runtime_service.recover_interrupted_memory_extraction_queue();
@@ -395,6 +399,8 @@ impl CoduxApp {
             git_files_panel_view: None,
             git_history_panel_view: None,
             status_bar_view: None,
+            appearance_vibrancy_slider: None,
+            _appearance_slider_subscriptions: Vec::new(),
             file_sidebar_view: None,
             project_open_applications,
             project_editor_project_id: None,

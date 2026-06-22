@@ -5,6 +5,8 @@ impl Default for SettingsSummary {
             theme: "Auto".to_string(),
             theme_color: "Blue".to_string(),
             icon_style: "default".to_string(),
+            window_style: "transparent".to_string(),
+            window_opacity: "80".to_string(),
             shows_dock_badge: true,
             terminal_font_family: String::new(),
             terminal_font_size: "14".to_string(),

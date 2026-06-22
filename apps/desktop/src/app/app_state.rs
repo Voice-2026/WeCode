@@ -310,6 +310,9 @@ pub struct CoduxApp {
     pub(in crate::app) git_files_panel_view: Option<gpui::Entity<sidebars::GitFilesPanelView>>,
     pub(in crate::app) git_history_panel_view: Option<gpui::Entity<sidebars::GitHistoryPanelView>>,
     pub(in crate::app) status_bar_view: Option<gpui::Entity<StatusBarView>>,
+    pub(in crate::app) appearance_vibrancy_slider:
+        Option<gpui::Entity<gpui_component::slider::SliderState>>,
+    pub(in crate::app) _appearance_slider_subscriptions: Vec<Subscription>,
     pub(in crate::app) file_sidebar_view: Option<gpui::Entity<FileSidebarView>>,
     pub(in crate::app) project_open_applications: Vec<ProjectOpenApplicationSummary>,
     pub(in crate::app) project_editor_project_id: Option<String>,

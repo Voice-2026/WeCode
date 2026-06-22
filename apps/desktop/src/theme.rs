@@ -106,6 +106,110 @@ pub fn divider_for_surface(surface: Hsla) -> Hsla {
     }
 }
 
+/// Default frosted-glass opacity for the UI chrome (used when no setting is
+/// stored yet). The terminal body derives its own, more-opaque value from this.
+pub const DEFAULT_VIBRANCY_ALPHA: f32 = 0.80;
+/// Content panels (task column, right sidebar) sit this much more opaque than
+/// the chrome so their lists/cards read clearly.
+pub const PANEL_ALPHA_BOOST: f32 = 0.10;
+/// The terminal body is kept this much more opaque than the UI chrome so the
+/// shell text stays legible while the surrounding chrome reads as frosted glass.
+pub const TERMINAL_ALPHA_BOOST: f32 = 0.20;
+
+// 0 = solid (opaque), 1 = transparent (frosted). Alpha stored as f32 bits.
+static DYNAMIC_WINDOW_TRANSPARENT: AtomicU32 = AtomicU32::new(1);
+static DYNAMIC_VIBRANCY_ALPHA: AtomicU32 = AtomicU32::new(0); // set in `init` below
+
+fn load_alpha(cell: &AtomicU32, fallback: f32) -> f32 {
+    let bits = cell.load(Ordering::Relaxed);
+    if bits == 0 {
+        fallback
+    } else {
+        f32::from_bits(bits).clamp(0.0, 1.0)
+    }
+}
+
+/// Whether the window paints solid (opaque) instead of frosted/transparent.
+pub fn window_is_solid() -> bool {
+    DYNAMIC_WINDOW_TRANSPARENT.load(Ordering::Relaxed) == 0
+}
+
+pub fn vibrancy_alpha() -> f32 {
+    load_alpha(&DYNAMIC_VIBRANCY_ALPHA, DEFAULT_VIBRANCY_ALPHA)
+}
+
+/// The terminal body opacity, derived from the single UI opacity setting plus a
+/// fixed boost so the terminal is always a bit more solid than the chrome.
+pub fn terminal_alpha() -> f32 {
+    (vibrancy_alpha() + TERMINAL_ALPHA_BOOST).min(1.0)
+}
+
+/// Apply the persisted appearance to the dynamic state read at render time.
+pub fn set_window_appearance(transparent: bool, vibrancy_alpha: f32) {
+    DYNAMIC_WINDOW_TRANSPARENT.store(transparent as u32, Ordering::Relaxed);
+    set_vibrancy_alpha(vibrancy_alpha);
+}
+
+pub fn set_vibrancy_alpha(alpha: f32) {
+    DYNAMIC_VIBRANCY_ALPHA.store(alpha.clamp(0.02, 1.0).to_bits(), Ordering::Relaxed);
+}
+
+/// Parse a stored opacity percentage string (e.g. "45") into a 0..1 fraction,
+/// clamped to a sane range so the UI never becomes fully invisible.
+pub fn opacity_fraction(percent: &str, default_percent: i64) -> f32 {
+    let pct = percent
+        .trim()
+        .parse::<f64>()
+        .map(|value| value.round() as i64)
+        .unwrap_or(default_percent)
+        .clamp(20, 100);
+    pct as f32 / 100.0
+}
+
+/// Tint for frosted-glass regions (sidebar + column headers): a translucent fill
+/// over the window's native blur material (macOS `NSVisualEffectView` / Windows
+/// acrylic). In solid mode it returns the opaque base so callers degrade cleanly.
+pub fn vibrancy(base: Hsla) -> Hsla {
+    if window_is_solid() {
+        base
+    } else {
+        base.opacity(vibrancy_alpha())
+    }
+}
+
+/// Tint for content panels (task column, right sidebar): a step more opaque than
+/// the chrome so their content reads clearly while still showing the blur.
+pub fn vibrancy_panel(base: Hsla) -> Hsla {
+    if window_is_solid() {
+        base
+    } else {
+        base.opacity((vibrancy_alpha() + PANEL_ALPHA_BOOST).min(1.0))
+    }
+}
+
+/// Subtle darkening for raised surfaces on a frosted panel — title/section bars
+/// AND cards. They sit ON the panel's fill, so rather than stacking a second
+/// full fill (which reads as opaque) this lays a thin translucent dark tint over
+/// the panel: the surface stays see-through but reads a touch deeper than the
+/// panel behind it, giving depth. Opaque base in solid mode.
+pub fn vibrancy_raised(solid_base: Hsla) -> Hsla {
+    if window_is_solid() {
+        solid_base
+    } else {
+        gpui::hsla(0.0, 0.0, 0.0, 0.05)
+    }
+}
+
+/// Tint for the terminal/workspace body backing. Translucent in transparent mode
+/// so the blur shows behind the terminal; opaque in solid mode.
+pub fn terminal_fill(base: Hsla) -> Hsla {
+    if window_is_solid() {
+        base
+    } else {
+        base.opacity(terminal_alpha())
+    }
+}
+
 pub fn codux_main_titlebar(title: impl Into<SharedString>) -> TitlebarOptions {
     codux_titlebar(title, CoduxTitlebarKind::Main)
 }

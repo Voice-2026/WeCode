@@ -5,6 +5,8 @@ pub struct SettingsSummary {
     pub theme: String,
     pub theme_color: String,
     pub icon_style: String,
+    pub window_style: String,
+    pub window_opacity: String,
     pub shows_dock_badge: bool,
     pub terminal_font_family: String,
     pub terminal_font_size: String,

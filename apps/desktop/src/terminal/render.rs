@@ -32,7 +32,7 @@ impl Render for TerminalView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(self.config.colors.background())
+            .bg(crate::theme::terminal_fill(self.config.colors.background()))
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))

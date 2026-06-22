@@ -22,6 +22,16 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_str)
             .map(sanitize_icon_style)
             .unwrap_or(defaults.icon_style),
+        window_style: raw
+            .get("windowStyle")
+            .and_then(Value::as_str)
+            .map(sanitize_window_style)
+            .unwrap_or(defaults.window_style),
+        window_opacity: raw
+            .get("windowOpacity")
+            .and_then(Value::as_str)
+            .map(|value| sanitize_opacity_percent(value, 80))
+            .unwrap_or(defaults.window_opacity),
         shows_dock_badge: raw
             .get("showsDockBadge")
             .and_then(Value::as_bool)

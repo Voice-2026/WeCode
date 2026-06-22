@@ -108,6 +108,26 @@ fn sanitize_icon_style(value: &str) -> String {
     .to_string()
 }
 
+fn sanitize_window_style(value: &str) -> String {
+    match value.trim() {
+        "solid" => "solid",
+        _ => "transparent",
+    }
+    .to_string()
+}
+
+/// Clamp an opacity percentage string to 20..=100, falling back to `default`.
+fn sanitize_opacity_percent(value: &str, default: i64) -> String {
+    value
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .map(|parsed| parsed.round() as i64)
+        .unwrap_or(default)
+        .clamp(20, 100)
+        .to_string()
+}
+
 fn sanitize_tool_permission(value: &str) -> String {
     match value.trim() {
         "fullAccess" => "fullAccess",

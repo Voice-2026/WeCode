@@ -154,6 +154,14 @@ pub(super) fn default_icon_style() -> String {
     "default".to_string()
 }
 
+pub(super) fn default_window_style() -> String {
+    "transparent".to_string()
+}
+
+pub(super) fn default_window_opacity() -> String {
+    "80".to_string()
+}
+
 pub(super) fn default_developer_refresh() -> String {
     "3".to_string()
 }

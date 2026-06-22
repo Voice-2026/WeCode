@@ -639,7 +639,9 @@ fn assistant_panel_header(
         .justify_between()
         .border_b_1()
         .border_color(color(theme::BORDER_SOFT))
-        .bg(color(theme::BG_HEADER))
+        // Thin translucent darkening over the panel: frosted, but a touch deeper
+        // than the panel behind it (not a second full fill).
+        .bg(theme::vibrancy_raised(color(theme::BG_HEADER)))
         .child(
             div()
                 .flex()
@@ -662,7 +664,9 @@ fn assistant_panel_header(
 }
 
 fn ai_stats_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
-    cx.theme().secondary
+    // Cards read a touch deeper than their frosted panel (same treatment as
+    // title bars): a thin translucent darkening, not a second opaque fill.
+    theme::vibrancy_raised(cx.theme().secondary)
 }
 
 fn ai_stats_track_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {

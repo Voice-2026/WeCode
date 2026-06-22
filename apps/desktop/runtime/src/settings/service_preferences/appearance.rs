@@ -12,6 +12,17 @@ impl SettingsService {
         self.update_string("iconStyle", sanitize_icon_style(icon_style))
     }
 
+    pub fn set_window_style(&self, window_style: &str) -> Result<SettingsSummary, String> {
+        self.update_string("windowStyle", sanitize_window_style(window_style))
+    }
+
+    pub fn set_window_opacity(&self, percent: i64) -> Result<SettingsSummary, String> {
+        self.update_string(
+            "windowOpacity",
+            sanitize_opacity_percent(&percent.to_string(), 80),
+        )
+    }
+
     pub fn cycle_theme(&self) -> Result<SettingsSummary, String> {
         let current = self.summary().theme;
         let next = next_string_option(&current, terminal_theme_options(), "Auto");

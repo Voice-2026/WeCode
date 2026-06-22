@@ -49,6 +49,10 @@ pub struct AppSettings {
     pub terminal_paste_images_as_paths: bool,
     #[serde(default = "default_icon_style")]
     pub icon_style: String,
+    #[serde(default = "default_window_style")]
+    pub window_style: String,
+    #[serde(default = "default_window_opacity")]
+    pub window_opacity: String,
     #[serde(default)]
     pub notification_channels: HashMap<String, NotificationChannelSettings>,
     #[serde(default)]

@@ -42,6 +42,12 @@ pub(super) fn sanitize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.icon_style.trim().is_empty() {
         settings.icon_style = default_icon_style();
     }
+    if settings.window_style.trim().is_empty() {
+        settings.window_style = default_window_style();
+    }
+    if settings.window_opacity.trim().is_empty() {
+        settings.window_opacity = default_window_opacity();
+    }
     let remote_relay_url = settings.remote.relay_url.trim().to_string();
     settings.remote.relay_preset =
         sanitize_remote_relay_preset(&settings.remote.relay_preset, &remote_relay_url);

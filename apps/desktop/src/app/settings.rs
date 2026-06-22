@@ -335,7 +335,12 @@ fn settings_pane_body(
             window,
             cx,
         ),
-        SettingsPane::Appearance => settings_appearance_pane(&app.state.settings, window, cx),
+        SettingsPane::Appearance => settings_appearance_pane(
+            &app.state.settings,
+            app.appearance_vibrancy_slider.clone(),
+            window,
+            cx,
+        ),
         SettingsPane::Pet => settings_pet_pane(&app.state.settings, window, cx),
         SettingsPane::AI => settings_ai_pane(
             &app.state.settings,
@@ -2044,6 +2049,7 @@ fn update_status_text(update: &UpdateSummary, language: &str) -> String {
 
 fn settings_appearance_pane(
     settings: &SettingsSummary,
+    vibrancy_slider: Option<gpui::Entity<gpui_component::slider::SliderState>>,
     _window: &mut Window,
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
@@ -2114,7 +2120,107 @@ fn settings_appearance_pane(
         );
     }
 
+    // App Style sits at the top of the Appearance pane.
+    cards.insert(0, appearance_style_card(vibrancy_slider, language, cx));
+
     settings_form(cards).into_any_element()
+}
+
+fn appearance_style_card(
+    vibrancy_slider: Option<gpui::Entity<gpui_component::slider::SliderState>>,
+    language: &str,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let mut children = Vec::new();
+    if let Some(state) = vibrancy_slider {
+        children.push(
+            appearance_slider_row(
+                settings_text(language, "settings.window_style.ui_opacity", "Opacity"),
+                settings_text(
+                    language,
+                    "settings.window_style.ui_help",
+                    "Frosted-glass opacity for the sidebar, headers, panels and cards. The terminal stays a bit more opaque. Drag to 100% for solid.",
+                ),
+                state,
+                cx,
+            )
+            .into_any_element(),
+        );
+    }
+
+    settings_card(
+        Some(settings_text(language, "settings.window_style.title", "App Style")),
+        None,
+        children,
+        cx,
+    )
+    .into_any_element()
+}
+
+/// A settings row whose right-hand control is an opacity slider with a
+/// percentage readout. The control slot mirrors `settings_row` exactly
+/// (`relative(0.3)` width, `justify_end`) so it lines up flush-right with the
+/// other settings controls.
+fn appearance_slider_row(
+    label: String,
+    help: String,
+    state: gpui::Entity<gpui_component::slider::SliderState>,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let percent = (state.read(cx).value().start() * 100.0).round() as i64;
+    div()
+        .w_full()
+        .min_h(px(58.0))
+        .py(px(10.0))
+        .flex()
+        .items_center()
+        .gap(px(24.0))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
+                        .text_color(color(theme::TEXT))
+                        .child(label),
+                )
+                .child(
+                    div()
+                        .mt(px(3.0))
+                        .max_w(px(420.0))
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0625))
+                        .text_color(color(theme::TEXT_DIM))
+                        .child(help),
+                ),
+        )
+        .child(
+            div()
+                .w(relative(0.3))
+                .min_w(px(180.0))
+                .max_w(relative(0.3))
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(10.0))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(gpui_component::slider::Slider::new(&state)),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .min_w(px(38.0))
+                        .text_size(rems(0.8125))
+                        .text_color(color(theme::TEXT_MUTED))
+                        .child(format!("{percent}%")),
+                ),
+        )
 }
 
 fn settings_pet_pane(

@@ -17,8 +17,8 @@ use app::{
 };
 use assets::CoduxAssets;
 use gpui::{
-    AnyWindowHandle, App, AppContext, Bounds, KeyBinding, Unbind, WindowBounds, WindowOptions, px,
-    size,
+    AnyWindowHandle, App, AppContext, Bounds, KeyBinding, Styled, Unbind,
+    WindowBackgroundAppearance, WindowBounds, WindowOptions, px, size, transparent_black,
 };
 use gpui_component::Root;
 use parking_lot::Mutex;
@@ -146,6 +146,11 @@ fn open_main_window(
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(MAIN_WINDOW_MIN_WIDTH), px(MAIN_WINDOW_MIN_HEIGHT))),
             icon: Some(std::sync::Arc::new(window_icon_image(settings))),
+            // Native frosted glass behind transparent regions: the sidebar and
+            // column headers paint a translucent tint over this blur material
+            // (macOS NSVisualEffectView / Windows acrylic), while bodies and the
+            // status bar stay opaque.
+            window_background: WindowBackgroundAppearance::Blurred,
             ..Default::default()
         },
         |window, cx| {
@@ -166,7 +171,11 @@ fn open_main_window(
             // Attach any remote-hosted terminals restored at boot now that the
             // entity exists (the async attach chokepoint needs a Context<Self>).
             view.update(cx, |app, cx| app.attach_boot_pending_terminals(cx));
-            cx.new(|cx| Root::new(view, window, cx))
+            // gpui-component's Root paints an opaque `theme.background` behind the
+            // whole view, which would hide the window's native blur. Override it to
+            // transparent for the main window so the frosted sidebar/headers show
+            // the vibrancy; opaque bodies and the status bar still cover it.
+            cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
         },
     );
 

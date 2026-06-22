@@ -148,7 +148,7 @@ impl Render for ProjectColumnView {
                 PROJECT_COLUMN_EXPANDED_WIDTH
             }))
             .h_full()
-            .bg(cx.theme().sidebar)
+            .bg(theme::vibrancy(cx.theme().sidebar))
             .border_r_1()
             .border_color(cx.theme().sidebar_border)
             .child(project_column_header(collapsed))
@@ -245,7 +245,8 @@ fn project_column_header(collapsed: bool) -> impl IntoElement {
             .h(px(52.0))
             .px(px(10.0))
             .flex()
-            .items_center()
+            // No `items_center`: the drag area stretches to full header height
+            // so the whole title bar is draggable.
             .border_b_1()
             .border_color(color(theme::BORDER_SOFT))
             .child(titlebar_drag_area(
