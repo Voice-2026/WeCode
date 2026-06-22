@@ -437,9 +437,12 @@ mod tests {
             scale_factor: 1.0,
             side: DesktopPetSide::Left,
         };
+        // side=Left anchors the sprite to the window's right edge, so with the
+        // current BASE_WIDTH the sprite hotspot is local x in [300,376]: pick a
+        // cursor that lands inside it (local 338,140 -> physical 438,340).
         assert!(!desktop_pet_should_click_through(
             layout,
-            DesktopPetPhysicalPosition { x: 350.0, y: 300.0 },
+            DesktopPetPhysicalPosition { x: 438.0, y: 340.0 },
             false,
         ));
         assert!(desktop_pet_should_click_through(

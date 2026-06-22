@@ -2205,17 +2205,23 @@ fn appearance_slider_row(
                 .max_w(relative(0.3))
                 .flex()
                 .items_center()
-                .justify_end()
                 .gap(px(10.0))
+                // The slider fills the slot (grow + allow it to size below its
+                // content min via min_w_0); the percent readout trails it. No
+                // `justify_end` here — unlike the small fixed controls in
+                // `settings_row`, a growing slider defines the row width itself,
+                // and justify_end would fight that growth and leave a gap.
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
                         .child(gpui_component::slider::Slider::new(&state)),
                 )
                 .child(
                     div()
                         .flex_shrink_0()
-                        .min_w(px(38.0))
+                        .min_w(px(34.0))
+                        .text_align(gpui::TextAlign::Right)
                         .text_size(rems(0.8125))
                         .text_color(color(theme::TEXT_MUTED))
                         .child(format!("{percent}%")),
