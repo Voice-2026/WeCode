@@ -40,7 +40,8 @@
       "menu.window.bring_all_to_front": "Alle nach vorne bringen",
       "menu.window.minimize": "Minimieren",
       "menu.window.zoom": "Zoomen",
-      "menu.workspace": "Arbeitsbereich"
+      "menu.workspace": "Arbeitsbereich",
+      "menu.app.star_github": "Gib mir einen Stern"
     },
     "en": {
       "menu.app.about_format": "About %@",
@@ -82,7 +83,8 @@
       "menu.window.bring_all_to_front": "Bring All to Front",
       "menu.window.minimize": "Minimize",
       "menu.window.zoom": "Zoom",
-      "menu.workspace": "Workspace"
+      "menu.workspace": "Workspace",
+      "menu.app.star_github": "Give Me a Star"
     },
     "es": {
       "menu.app.about_format": "Acerca de %@",
@@ -124,7 +126,8 @@
       "menu.window.bring_all_to_front": "Traer todo al frente",
       "menu.window.minimize": "Minimizar",
       "menu.window.zoom": "Zoom",
-      "menu.workspace": "Espacio de trabajo"
+      "menu.workspace": "Espacio de trabajo",
+      "menu.app.star_github": "Dame una estrella"
     },
     "fr": {
       "menu.app.about_format": "À propos de %@",
@@ -166,7 +169,8 @@
       "menu.window.bring_all_to_front": "Tout ramener au premier plan",
       "menu.window.minimize": "Réduire",
       "menu.window.zoom": "Zoom",
-      "menu.workspace": "Espace de travail"
+      "menu.workspace": "Espace de travail",
+      "menu.app.star_github": "Donnez-moi une étoile"
     },
     "ja": {
       "menu.app.about_format": "%@について",
@@ -208,7 +212,8 @@
       "menu.window.bring_all_to_front": "すべてを手前に移動",
       "menu.window.minimize": "しまう",
       "menu.window.zoom": "ズーム",
-      "menu.workspace": "ワークスペース"
+      "menu.workspace": "ワークスペース",
+      "menu.app.star_github": "スターをください"
     },
     "ko": {
       "menu.app.about_format": "%@ 소개",
@@ -250,7 +255,8 @@
       "menu.window.bring_all_to_front": "모두 앞으로 가져오기",
       "menu.window.minimize": "최소화",
       "menu.window.zoom": "확대/축소",
-      "menu.workspace": "작업 공간"
+      "menu.workspace": "작업 공간",
+      "menu.app.star_github": "별을 주세요"
     },
     "pt-BR": {
       "menu.app.about_format": "Sobre %@",
@@ -292,7 +298,8 @@
       "menu.window.bring_all_to_front": "Trazer tudo para frente",
       "menu.window.minimize": "Minimizar",
       "menu.window.zoom": "Zoom",
-      "menu.workspace": "Espaço de trabalho"
+      "menu.workspace": "Espaço de trabalho",
+      "menu.app.star_github": "Dê-me uma estrela"
     },
     "ru": {
       "menu.app.about_format": "О %@",
@@ -334,7 +341,8 @@
       "menu.window.bring_all_to_front": "Все окна вперед",
       "menu.window.minimize": "Свернуть",
       "menu.window.zoom": "Масштаб",
-      "menu.workspace": "Рабочая область"
+      "menu.workspace": "Рабочая область",
+      "menu.app.star_github": "Поставьте мне звезду"
     },
     "zh-Hans": {
       "menu.app.about_format": "关于 %@",
@@ -376,7 +384,8 @@
       "menu.window.bring_all_to_front": "全部移到前面",
       "menu.window.minimize": "最小化",
       "menu.window.zoom": "缩放",
-      "menu.workspace": "工作区"
+      "menu.workspace": "工作区",
+      "menu.app.star_github": "为我点赞"
     },
     "zh-Hant": {
       "menu.app.about_format": "關於 %@",
@@ -418,7 +427,8 @@
       "menu.window.bring_all_to_front": "全部移到最前",
       "menu.window.minimize": "最小化",
       "menu.window.zoom": "縮放",
-      "menu.workspace": "工作區"
+      "menu.workspace": "工作區",
+      "menu.app.star_github": "為我點讚"
     }
   }
 }

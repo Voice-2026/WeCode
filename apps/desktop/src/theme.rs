@@ -196,7 +196,7 @@ pub fn vibrancy_raised(solid_base: Hsla) -> Hsla {
     if window_is_solid() {
         solid_base
     } else {
-        gpui::hsla(0.0, 0.0, 0.0, 0.05)
+        gpui::hsla(0.0, 0.0, 0.0, 0.06)
     }
 }
 

@@ -313,7 +313,7 @@ fn workspace_assistant_button(
                         AssistantPanel::AIStats => HeroIconName::Sparkles,
                         AssistantPanel::SSH => HeroIconName::CommandLine,
                         AssistantPanel::FileManager => HeroIconName::Folder,
-                        AssistantPanel::Git => HeroIconName::ArrowPathRoundedSquare,
+                        AssistantPanel::Git => HeroIconName::Share,
                     })
                     .size_3p5()
                     .text_color(if active {

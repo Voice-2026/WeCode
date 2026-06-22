@@ -468,8 +468,6 @@ fn git_panel_header(
         .flex()
         .items_center()
         .justify_between()
-        .border_b_1()
-        .border_color(color(theme::BORDER_SOFT))
         // Thin translucent darkening: deeper than the panel, still see-through.
         .bg(theme::vibrancy_raised(color(theme::BG_HEADER)))
         .child(

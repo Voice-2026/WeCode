@@ -113,7 +113,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "Datei doppelklicken zum Öffnen",
       "files.preview.open_external": "Extern öffnen",
-      "files.preview.loading": "Vorschau wird geladen..."
+      "files.preview.loading": "Vorschau wird geladen...",
+      "files.panel.save_as": "Speichern unter…"
     },
     "en": {
       "files.panel.title": "Files",
@@ -228,7 +229,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "Double-click a file to open it",
       "files.preview.open_external": "Open Externally",
-      "files.preview.loading": "Loading preview..."
+      "files.preview.loading": "Loading preview...",
+      "files.panel.save_as": "Save As…"
     },
     "es": {
       "files.panel.title": "Archivos",
@@ -343,7 +345,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "Haz doble clic en un archivo para abrirlo",
       "files.preview.open_external": "Abrir externamente",
-      "files.preview.loading": "Cargando vista previa..."
+      "files.preview.loading": "Cargando vista previa...",
+      "files.panel.save_as": "Guardar como…"
     },
     "fr": {
       "files.panel.title": "Fichiers",
@@ -458,7 +461,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "Double-cliquez sur un fichier pour l’ouvrir",
       "files.preview.open_external": "Ouvrir en externe",
-      "files.preview.loading": "Chargement de l’aperçu..."
+      "files.preview.loading": "Chargement de l’aperçu...",
+      "files.panel.save_as": "Enregistrer sous…"
     },
     "ja": {
       "files.panel.title": "ファイル",
@@ -573,7 +577,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "ファイルをダブルクリックして開く",
       "files.preview.open_external": "外部で開く",
-      "files.preview.loading": "プレビューを読み込み中..."
+      "files.preview.loading": "プレビューを読み込み中...",
+      "files.panel.save_as": "名前を付けて保存…"
     },
     "ko": {
       "files.panel.title": "파일",
@@ -688,7 +693,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "파일을 두 번 클릭해 열기",
       "files.preview.open_external": "외부에서 열기",
-      "files.preview.loading": "미리보기를 불러오는 중..."
+      "files.preview.loading": "미리보기를 불러오는 중...",
+      "files.panel.save_as": "다른 이름으로 저장…"
     },
     "pt-BR": {
       "files.panel.title": "Arquivos",
@@ -803,7 +809,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "Clique duas vezes em um arquivo para abrir",
       "files.preview.open_external": "Abrir externamente",
-      "files.preview.loading": "Carregando prévia..."
+      "files.preview.loading": "Carregando prévia...",
+      "files.panel.save_as": "Salvar como…"
     },
     "ru": {
       "files.panel.title": "Файлы",
@@ -918,7 +925,8 @@
       "files.panel.items_count_format": "%d file items",
       "files.editor.empty": "Дважды щелкните файл, чтобы открыть",
       "files.preview.open_external": "Открыть во внешнем приложении",
-      "files.preview.loading": "Загрузка предпросмотра..."
+      "files.preview.loading": "Загрузка предпросмотра...",
+      "files.panel.save_as": "Сохранить как…"
     },
     "zh-Hans": {
       "files.panel.title": "文件",
@@ -1033,7 +1041,8 @@
       "files.panel.items_count_format": "%d 个文件项",
       "files.editor.empty": "双击文件打开",
       "files.preview.open_external": "外部打开",
-      "files.preview.loading": "正在加载预览..."
+      "files.preview.loading": "正在加载预览...",
+      "files.panel.save_as": "另存为…"
     },
     "zh-Hant": {
       "files.panel.title": "檔案",
@@ -1148,7 +1157,8 @@
       "files.panel.items_count_format": "%d 個檔案項目",
       "files.editor.empty": "雙擊檔案開啟",
       "files.preview.open_external": "外部打開",
-      "files.preview.loading": "正在載入預覽..."
+      "files.preview.loading": "正在載入預覽...",
+      "files.panel.save_as": "另存為…"
     }
   }
 }

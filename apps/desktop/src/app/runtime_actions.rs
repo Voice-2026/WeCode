@@ -200,6 +200,7 @@ impl CoduxApp {
                     ],
                 );
                 app.refresh_window_runtime_data(cx);
+                app.maybe_prompt_github_star(cx);
             });
         })
         .detach();

@@ -780,6 +780,7 @@ impl CoduxApp {
         match action_id {
             "help:about" => self.open_about_window(window, cx),
             "help:check-updates" => self.open_update_dialog_window(window, cx),
+            "help:star-github" => self.prompt_github_star(cx),
             "help:open-folder" => self.open_project_folder_from_dialog(window, cx),
             "help:export-diagnostics" => self.export_diagnostics(cx),
             "help:runtime-log" => self.open_runtime_log(cx),

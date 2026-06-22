@@ -507,7 +507,7 @@ fn project_more_button(
             let entries = project_help_menu_entries(&language);
             entries
                 .into_iter()
-                .fold(menu, move |menu, entry| match entry {
+                .fold(menu.min_w(px(256.0)).max_w(px(360.0)), move |menu, entry| match entry {
                     ProjectHelpMenuEntry::Separator => menu.separator(),
                     ProjectHelpMenuEntry::Item {
                         label,
@@ -578,6 +578,11 @@ fn project_help_menu_entries(language: &str) -> Vec<ProjectHelpMenuEntry> {
             label: label("menu.app.check_updates", "Check for Updates..."),
             icon: HeroIconName::ArrowPath,
             action_id: "help:check-updates",
+        },
+        Item {
+            label: label("menu.app.star_github", "Star on GitHub"),
+            icon: HeroIconName::Star,
+            action_id: "help:star-github",
         },
         Separator,
         Item {

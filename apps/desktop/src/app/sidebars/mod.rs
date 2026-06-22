@@ -637,8 +637,6 @@ fn assistant_panel_header(
         .flex()
         .items_center()
         .justify_between()
-        .border_b_1()
-        .border_color(color(theme::BORDER_SOFT))
         // Thin translucent darkening over the panel: frosted, but a touch deeper
         // than the panel behind it (not a second full fill).
         .bg(theme::vibrancy_raised(color(theme::BG_HEADER)))

@@ -13,6 +13,7 @@ pub use codux_runtime_live::{ai_runtime, ai_runtime_state, runtime_paths, termin
 pub mod app_commands;
 pub mod app_icon;
 pub mod app_info;
+pub mod app_milestones;
 pub mod async_runtime;
 pub mod background_queue;
 pub mod config;

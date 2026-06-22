@@ -630,6 +630,14 @@ impl RuntimeService {
         AIRuntimeStateService::new(&self.support_dir).summary_from_runtime_snapshot(snapshot)
     }
 
+    pub fn app_milestones(&self) -> crate::app_milestones::AppMilestones {
+        crate::app_milestones::load_or_seed(&self.support_dir)
+    }
+
+    pub fn mark_star_prompt_shown(&self) -> crate::app_milestones::AppMilestones {
+        crate::app_milestones::mark_star_prompt_shown(&self.support_dir)
+    }
+
     pub fn poll_ai_runtime_state(&self) -> Result<AIRuntimeStateSnapshot, String> {
         self.ai_runtime.poll_runtime_state()?;
         Ok(self.ai_runtime.runtime_state_snapshot())
