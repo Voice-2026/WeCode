@@ -4,6 +4,26 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-beta.2] - 2026-06-22
+
+### Added
+
+- Manage SSH profiles on device — add, edit, and delete saved connections directly from mobile.
+- Pull-to-refresh for the files, Git, and review lists.
+- One-tap "commit & push" and "commit & merge" from the review footer.
+- Card-style files list and a unified list-item style shared by the Git and review lists.
+
+### Changed
+
+- Reworked the mobile/pad workspace: live and historical AI session display, a dedicated "Files" center view with an editor and browser sidebar, a toggleable right column, and a redesigned Git panel.
+- Hardware-keyboard-first terminal input; the terminal toolbar stays available when the right column is open.
+- "+" now creates a new tab instead of splitting the terminal (split panes remain desktop-only).
+
+### Fixed
+
+- Fixed terminal cursor keys and tap-to-type behavior.
+- Fixed current-directory "/"-rooted paths, file persistence, sync spinner timing, and review staleness.
+
 ## [2.0.0-beta.1] - 2026-06-20
 
 ### Added
