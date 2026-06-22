@@ -1260,9 +1260,14 @@ impl CoduxApp {
         self.dispatch_ai_completion_notifications(&drained.events);
         self.refresh_dock_badge_for_ai_runtime_events(&drained.events, cx);
         self.ai_runtime_state_save_tick = self.ai_runtime_state_save_tick.wrapping_add(1);
-        let should_refresh_ai_state = include_scheduled_tick
-            || !drained.events.is_empty()
-            || self.ai_runtime_state_save_tick % 30 == 0;
+        // Drained events are the authoritative "something changed" signal (the
+        // supervisor only emits State on a real mutation, and a brand-new
+        // session always arrives with one). So on a fully idle app — no events
+        // and nothing currently tracked — skip the scheduled/periodic rebuild
+        // entirely instead of re-summarizing an empty snapshot every 30s.
+        let should_refresh_ai_state = !drained.events.is_empty()
+            || ((include_scheduled_tick || self.ai_runtime_state_save_tick % 30 == 0)
+                && !self.state.ai_runtime_state.sessions.is_empty());
         let mut ai_activity_changed = false;
         if should_refresh_ai_state {
             let previous_project_states = self.state.ai_runtime_state.project_states.clone();

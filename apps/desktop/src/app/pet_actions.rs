@@ -81,6 +81,14 @@ impl CoduxApp {
 
     pub(super) fn refresh_desktop_pet_live_runtime_state(&mut self) {
         let snapshot = self.runtime_service.ai_runtime_state_snapshot();
+        // This runs every 500ms while the pet window is open. When nothing is
+        // tracked and nothing is currently shown there is no work to do, so skip
+        // the summarize + history-stats rebuild rather than churning on an empty
+        // snapshot. (When sessions just cleared, state is still non-empty for one
+        // tick, so the clearing refresh still runs.)
+        if snapshot.sessions.is_empty() && self.state.ai_runtime_state.sessions.is_empty() {
+            return;
+        }
         self.state.ai_runtime_state = self
             .runtime_service
             .summarize_ai_runtime_state_snapshot(&snapshot);
