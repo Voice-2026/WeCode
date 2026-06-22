@@ -822,7 +822,7 @@ impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
 {
     fn current_sessions(&self, project_id: &str) -> Vec<codux_protocol::RemoteAICurrentSession> {
         let snapshot = self.ai_runtime.runtime_state_snapshot();
-        let summary = AIRuntimeStateService::new(crate::projects::agent_data_dir())
+        let summary = AIRuntimeStateService::new(&crate::projects::agent_data_dir())
             .summary_from_runtime_snapshot(&snapshot);
         codux_runtime_live::ai_runtime_state::remote_current_sessions_from_runtime_state(
             &summary, project_id,

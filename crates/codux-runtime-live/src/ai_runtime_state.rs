@@ -1,10 +1,10 @@
 use crate::ai_runtime::{
-    AIPlanSnapshot, AIProjectPhase, AIRuntimeStateSnapshot, AISessionSnapshot,
+    AIPlanSnapshot, AIProjectPhase, AIProjectTotals, AIRuntimeStateSnapshot, AISessionSnapshot,
 };
 use codux_protocol::RemoteAICurrentSession;
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
-use std::path::PathBuf;
+use serde_json::{Map, Value};
+use std::path::Path;
 
 const STATE_SOURCE: &str = "memory";
 
@@ -109,7 +109,7 @@ pub struct AIRuntimeSessionSummary {
 pub struct AIRuntimeStateService;
 
 impl AIRuntimeStateService {
-    pub fn new(_support_dir: PathBuf) -> Self {
+    pub fn new(_support_dir: &Path) -> Self {
         Self
     }
 
@@ -121,9 +121,60 @@ impl AIRuntimeStateService {
         &self,
         snapshot: &AIRuntimeStateSnapshot,
     ) -> AIRuntimeStateSummary {
-        let mut raw = Map::new();
-        fill_raw_from_runtime_snapshot(&mut raw, snapshot);
-        summary_from_raw(STATE_SOURCE.to_string(), &raw, None)
+        // Map the typed runtime snapshot straight to the summary. The old path
+        // serialized everything into a serde_json::Map and immediately parsed
+        // it back into these same typed structs (plus a redundant second sort);
+        // that round trip ran on every state rebuild (1Hz floor + the 500ms pet
+        // loop). Direct mapping skips all of it.
+        let mut sessions = snapshot
+            .sessions
+            .iter()
+            .map(session_from_runtime_snapshot)
+            .collect::<Vec<_>>();
+        sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
+        let project_states = snapshot
+            .projects
+            .iter()
+            .map(|project| AIRuntimeProjectStateSummary {
+                project_id: project.project_id.clone(),
+                project_phase: (&project.project_phase).into(),
+                completed_phase: (&project.completed_phase).into(),
+                totals: project_totals_summary(&project.project_id, &project.totals),
+            })
+            .collect::<Vec<_>>();
+        let project_totals = snapshot
+            .projects
+            .iter()
+            .map(|project| project_totals_summary(&project.project_id, &project.totals))
+            .collect::<Vec<_>>();
+        AIRuntimeStateSummary {
+            path: STATE_SOURCE.to_string(),
+            updated_at: snapshot.updated_at,
+            running_count: snapshot.running_count,
+            needs_input_count: snapshot.needs_input_count,
+            completed_count: snapshot.completion_count,
+            session_count: sessions.len(),
+            global_total_tokens: snapshot.global_totals.total_tokens,
+            global_cached_input_tokens: snapshot.global_totals.cached_input_tokens,
+            project_states,
+            project_totals,
+            sessions,
+            error: None,
+        }
+    }
+}
+
+fn project_totals_summary(
+    project_id: &str,
+    totals: &AIProjectTotals,
+) -> AIRuntimeProjectTotalsSummary {
+    AIRuntimeProjectTotalsSummary {
+        project_id: project_id.to_string(),
+        total_tokens: totals.total_tokens,
+        cached_input_tokens: totals.cached_input_tokens,
+        running: totals.running,
+        needs_input: totals.needs_input,
+        completed: totals.completed,
     }
 }
 
@@ -214,32 +265,6 @@ fn summary_from_raw(
         sessions,
         error,
     }
-}
-
-fn fill_raw_from_runtime_snapshot(raw: &mut Map<String, Value>, snapshot: &AIRuntimeStateSnapshot) {
-    let mut sessions = snapshot
-        .sessions
-        .iter()
-        .map(session_from_runtime_snapshot)
-        .collect::<Vec<_>>();
-    sessions.sort_by(|left, right| right.updated_at.total_cmp(&left.updated_at));
-
-    raw.insert("schemaVersion".to_string(), json!(1));
-    raw.insert("source".to_string(), json!("gpui-supervisor"));
-    raw.insert("updatedAt".to_string(), json!(snapshot.updated_at));
-    raw.insert("runningCount".to_string(), json!(snapshot.running_count));
-    raw.insert(
-        "needsInputCount".to_string(),
-        json!(snapshot.needs_input_count),
-    );
-    raw.insert(
-        "completedCount".to_string(),
-        json!(snapshot.completion_count),
-    );
-    raw.insert("sessionCount".to_string(), json!(sessions.len()));
-    raw.insert("globalTotals".to_string(), json!(snapshot.global_totals));
-    raw.insert("projects".to_string(), json!(snapshot.projects));
-    raw.insert("sessions".to_string(), json!(sessions));
 }
 
 fn raw_global_totals(raw: &Map<String, Value>) -> AIRuntimeProjectTotalsSummary {
@@ -452,7 +477,7 @@ mod tests {
     #[test]
     fn summary_returns_default_memory_state() {
         let dir = std::env::temp_dir();
-        let summary = AIRuntimeStateService::new(dir.clone()).summary();
+        let summary = AIRuntimeStateService::new(&dir).summary();
 
         assert_eq!(summary.session_count, 0);
         assert_eq!(summary.running_count, 0);
@@ -462,7 +487,7 @@ mod tests {
     #[test]
     fn summary_from_runtime_snapshot_returns_live_supervisor_state() {
         let dir = std::env::temp_dir();
-        let service = AIRuntimeStateService::new(dir.clone());
+        let service = AIRuntimeStateService::new(&dir);
         let snapshot = AIRuntimeStateSnapshot {
             running_count: 1,
             needs_input_count: 1,

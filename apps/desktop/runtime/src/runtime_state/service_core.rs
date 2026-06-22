@@ -45,7 +45,7 @@ impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
 {
     fn current_sessions(&self, project_id: &str) -> Vec<codux_protocol::RemoteAICurrentSession> {
         let snapshot = self.ai_runtime.runtime_state_snapshot();
-        let summary = AIRuntimeStateService::new(self.support_dir.clone())
+        let summary = AIRuntimeStateService::new(&self.support_dir)
             .summary_from_runtime_snapshot(&snapshot);
         crate::ai_runtime_state::remote_current_sessions_from_runtime_state(&summary, project_id)
     }
@@ -627,7 +627,7 @@ impl RuntimeService {
         &self,
         snapshot: &AIRuntimeStateSnapshot,
     ) -> AIRuntimeStateSummary {
-        AIRuntimeStateService::new(self.support_dir.clone()).summary_from_runtime_snapshot(snapshot)
+        AIRuntimeStateService::new(&self.support_dir).summary_from_runtime_snapshot(snapshot)
     }
 
     pub fn poll_ai_runtime_state(&self) -> Result<AIRuntimeStateSnapshot, String> {

@@ -198,7 +198,7 @@ fn load_ai_runtime_state(
     support_dir: &Path,
     _runtime_events: &RuntimeEventSummary,
 ) -> AIRuntimeStateSummary {
-    AIRuntimeStateService::new(support_dir.to_path_buf()).summary()
+    AIRuntimeStateService::new(support_dir).summary()
 }
 
 fn load_remote(support_dir: &Path) -> RemoteSummary {
