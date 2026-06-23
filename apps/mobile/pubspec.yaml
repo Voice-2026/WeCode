@@ -74,8 +74,16 @@ flutter:
 
   # Bundled ONLY as a terminal glyph fallback (never the primary font), so it
   # fills symbols the system monospace lacks -- e.g. Claude Code's `⏵⏵` status
-  # arrows -- on ROMs (some Android skins) that strip the system symbol fonts.
+  # arrows, the `⏺` record bullet (otherwise drawn as a colour emoji), and the
+  # spinner stars `✽✶✷✸` (each would otherwise fall back to a different font and
+  # flicker between sizes) -- on ROMs that strip or lack the system symbol fonts.
   # Primary font is unchanged, so cell width / grid alignment are untouched.
+  # Subset of Noto Sans Symbols 2 (SIL OFL 1.1): Misc Technical + Dingbats +
+  # Geometric Shapes + Arrows blocks only.
+  fonts:
+    - family: TerminalSymbols
+      fonts:
+        - asset: assets/fonts/TerminalSymbols.ttf
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

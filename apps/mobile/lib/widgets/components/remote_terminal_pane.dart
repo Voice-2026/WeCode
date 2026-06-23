@@ -133,6 +133,10 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
               terminalHeight: terminalHeight,
               keyboardLift: keyboardLift,
               cursorMetrics: _cursorMetrics,
+              // Clear the toolbar by the grid's top inset plus two rows (the
+              // cursor line + a TUI input box's bottom border), not just touch.
+              bottomMargin:
+                  terminalPadding.top + (_cursorMetrics?.lineHeight ?? 16.0) * 2,
             );
             final showHostSyncOverlay =
                 widget.connected &&
@@ -253,13 +257,18 @@ double _terminalLiftForKeyboard({
   required double terminalHeight,
   required double keyboardLift,
   required TerminalCursorMetrics? cursorMetrics,
+  double bottomMargin = 0,
 }) {
   if (keyboardLift <= 0) return 0;
   final safeBottom = terminalHeight - keyboardLift;
   if (safeBottom <= 0) return keyboardLift;
   final metrics = cursorMetrics;
   if (metrics == null) return keyboardLift;
-  final cursorBottom = (metrics.row + 1) * math.max(1.0, metrics.lineHeight);
+  // bottomMargin covers the grid's top inset (the content sits that much lower
+  // than its row implies) plus a couple of rows, so the cursor AND the TUI input
+  // box border just below it clear the toolbar instead of merely touching it.
+  final cursorBottom =
+      (metrics.row + 1) * math.max(1.0, metrics.lineHeight) + bottomMargin;
   final overflow = cursorBottom - safeBottom;
   if (overflow <= 0) return 0;
   return overflow.clamp(0.0, keyboardLift);
@@ -270,11 +279,13 @@ double terminalLiftForKeyboardForTest({
   required double terminalHeight,
   required double keyboardLift,
   required TerminalCursorMetrics? cursorMetrics,
+  double bottomMargin = 0,
 }) {
   return _terminalLiftForKeyboard(
     terminalHeight: terminalHeight,
     keyboardLift: keyboardLift,
     cursorMetrics: cursorMetrics,
+    bottomMargin: bottomMargin,
   );
 }
 

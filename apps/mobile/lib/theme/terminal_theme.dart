@@ -61,14 +61,14 @@ class TerminalTheme {
     required bool bold,
     required bool dim,
   }) {
-    final foreground = _resolveScreenColor(fg, AppColors.textPrimary);
-    var background = _resolveScreenColor(bg, AppColors.bgBase);
+    final foreground = _resolveScreenColor(fg, AppColors.terminalText);
+    var background = _resolveScreenColor(bg, AppColors.terminalBg);
     var fgColor = foreground.color;
     var bgColor = background.color;
-    var drawBackground = !background.isDefault && bgColor != AppColors.bgBase;
+    var drawBackground = !background.isDefault && bgColor != AppColors.terminalBg;
 
     if (background.isHostLightSurface) {
-      bgColor = AppColors.bgElevated;
+      bgColor = AppColors.terminalElevated;
       drawBackground = true;
       background = background.copyWith(color: bgColor);
     }
@@ -162,7 +162,7 @@ int _channel(Object? value) {
 
 Color _ansiIndexedColor(Object? value) {
   final index = value is num ? value.toInt() : int.tryParse('${value ?? ''}');
-  if (index == null) return AppColors.textPrimary;
+  if (index == null) return AppColors.terminalText;
   const basic = [
     Color(0xFF0D1117),
     Color(0xFFFF6B6B),
@@ -194,7 +194,7 @@ Color _ansiIndexedColor(Object? value) {
     final value = 8 + (index - 232) * 10;
     return Color.fromARGB(255, value, value, value);
   }
-  return AppColors.textPrimary;
+  return AppColors.terminalText;
 }
 
 Color _boldForeground(Map<String, dynamic> value, Color fallback) {
@@ -219,7 +219,7 @@ Color _namedColor(String name, Color fallback) {
     'DimWhite' ||
     'BrightWhite' ||
     'BrightForeground' => const Color(0xFFF8F9FA),
-    'Background' => AppColors.bgBase,
+    'Background' => AppColors.terminalBg,
     _ => fallback,
   };
 }
@@ -241,7 +241,7 @@ Color _dimColor(Color fg, Color bg) {
 
 Color _ensureReadable(Color fg, Color bg) {
   if (_contrastRatio(fg, bg) >= 3.0 || !_isNeutral(fg)) return fg;
-  return bg.computeLuminance() > 0.5 ? AppColors.bgBase : AppColors.textPrimary;
+  return bg.computeLuminance() > 0.5 ? AppColors.terminalBg : AppColors.terminalText;
 }
 
 double _contrastRatio(Color a, Color b) {

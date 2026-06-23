@@ -190,6 +190,23 @@ extension _HomePageProtocol on HomeController {
     if (projectId != null && projectId.isNotEmpty) {
       _clearProjectSelectAck(projectId);
     }
+    // Stale-response guard. Under high latency, switching A->B->A can land on B:
+    // B's late `project.selected` arrives after the user re-selected A and would
+    // yank the view back. Ignore a confirmation that no longer matches the
+    // user's current selection. The initial host->client sync (no selection
+    // yet) and any matching confirmation still apply.
+    final current = _selectedProjectId;
+    if (current != null &&
+        current.isNotEmpty &&
+        projectId != null &&
+        projectId.isNotEmpty &&
+        projectId != current) {
+      CoduxLog.info(
+        '[codux-flutter-projects] ignore stale project.selected '
+        'project=$projectId current=$current',
+      );
+      return;
+    }
     final plan = _remoteRuntime.projectSelected(
       projectId: projectId,
       worktreeId: worktreeId,

@@ -12,11 +12,17 @@ import '../../services/remote_terminal_output_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/terminal_theme.dart';
 
-/// Fallback for glyphs the primary font lacks. Keep emoji last so terminal
-/// symbols prefer text fonts first.
+/// Fallback for glyphs the primary font lacks. The bundled monochrome
+/// `TerminalSymbols` (a Noto Sans Symbols 2 subset) comes first so terminal
+/// markers -- `⏺` record, `⏵⏵` arrows, the `✽✶✷` spinner -- resolve to one
+/// consistent text font instead of the colour-emoji font (wrong look) or a
+/// patchwork of system fonts (the spinner flickering between sizes). It only
+/// holds symbol blocks, so ASCII/CJK still fall through to the fonts after it.
+/// Emoji stays last.
 final List<String> _terminalGlyphFallback = Platform.isIOS
-    ? const ['Menlo', 'PingFang SC', 'AppleColorEmoji']
+    ? const ['TerminalSymbols', 'Menlo', 'PingFang SC', 'AppleColorEmoji']
     : const [
+        'TerminalSymbols',
         'monospace',
         'sans-serif',
         'Noto Sans Symbols 2',
@@ -102,6 +108,11 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   double _glyphBaseline = 0;
   int _cols = 0;
   int _rows = 0;
+  // When the host grid is taller than the phone's viewport, the view shows the
+  // bottom window by default; this is how far (in pixels) the user has dragged
+  // that window UP to reveal the rows clipped above. 0 = pinned to the bottom
+  // (the live prompt / input box). Reset on session switch.
+  double _bottomWindowPan = 0;
   TerminalCursorMetrics? _lastCursorMetrics;
 
   // Momentum (fling) scrolling: a friction simulation drives scroll-pixel
@@ -160,6 +171,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     }
     if (widget.sessionId != oldWidget.sessionId) {
       _appliedGen = -1;
+      _bottomWindowPan = 0;
       _lastCursorMetrics = null;
       _selAnchor = null;
       _selFocus = null;
@@ -168,15 +180,23 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
       if (sessionId == null) {
         _snapshot = null;
       } else {
-        // The viewport pixel size is unchanged across a switch, so resize the
-        // new session's screen to the known grid and read its snapshot
-        // synchronously here: the build that follows paints the new session at
-        // the correct size on the very first frame -- no stale content and no
-        // resize-reflow flashing through.
-        if (_cols > 0 && _rows > 0) {
-          widget.controller.resizeScreen(sessionId, cols: _cols, rows: _rows);
+        // Adopt our column width for the new session's screen but keep its
+        // host-driven row count: the host owns the row count for remote viewers
+        // (it stays taller than the phone's viewport), and clamping it here is
+        // what clipped a TUI's bottom-anchored input box. Read the snapshot
+        // synchronously so the first frame paints at the right size -- no stale
+        // content and no resize-reflow flashing through.
+        var snapshot = widget.controller.screenSnapshot(sessionId);
+        final screenRows = snapshot?.rows ?? _rows;
+        if (_cols > 0 && screenRows > 0) {
+          widget.controller.resizeScreen(
+            sessionId,
+            cols: _cols,
+            rows: screenRows,
+          );
+          snapshot = widget.controller.screenSnapshot(sessionId);
         }
-        _snapshot = widget.controller.screenSnapshot(sessionId);
+        _snapshot = snapshot;
         _appliedGen = widget.controller.renderGeneration(sessionId);
         // Sync the host PTY to this session's viewport after the frame (so a
         // repaint/TUI app paints at the mobile row count, not the host's old
@@ -373,8 +393,15 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final callback = widget.onCursorMetrics;
     final snapshot = _snapshot;
     if (callback == null || snapshot == null || _cellHeight <= 0) return;
+    // Report the cursor's VISIBLE row (after the bottom-window lift), not its
+    // raw host-grid row -- otherwise the keyboard-lift math would treat a row
+    // near the host's tall bottom as far lower than where it actually paints.
+    final start = _bottomWindowStartRows();
+    final visibleRow = start > 0
+        ? (snapshot.cursor.row - start).clamp(0, snapshot.rows)
+        : snapshot.cursor.row;
     final metrics = TerminalCursorMetrics(
-      row: snapshot.cursor.row,
+      row: visibleRow,
       col: snapshot.cursor.col,
       lineHeight: _cellHeight,
     );
@@ -391,9 +418,15 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     if (cols == _cols && rows == _rows) return;
     _cols = cols;
     _rows = rows;
+    // The local cell screen keeps the HOST's row count (its current snapshot
+    // rows); only the column width follows the phone. The host owns rows for
+    // remote viewers, so clamping them to the phone's shorter viewport here is
+    // what clipped a TUI's bottom-anchored input box. The measured rows are
+    // still sent as the resize REQUEST (the host adopts our cols, keeps rows).
+    final screenRows = _snapshot?.rows ?? rows;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || widget.sessionId != sessionId) return;
-      widget.controller.resizeScreen(sessionId, cols: cols, rows: rows);
+      widget.controller.resizeScreen(sessionId, cols: cols, rows: screenRows);
       widget.onResize?.call(cols, rows);
       _refresh(force: true);
     });
@@ -407,6 +440,24 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     final sessionId = widget.sessionId;
     if (sessionId == null || _cellHeight <= 0 || pixels == 0) return;
     final mode = _snapshot?.inputMode;
+    final snap = _snapshot;
+    // Drag the bottom-window first when the host grid overflows the viewport:
+    // reveal the rows clipped above the live bottom before handing the gesture
+    // to scrollback / the app. Scroll up (pixels>0) pans toward the top; scroll
+    // down pans back toward the bottom, but only once scrollback is exhausted
+    // (displayOffset==0) so history scrolls before the window re-pins.
+    if (snap != null && _cellHeight > 0) {
+      final maxPan = _bottomWindowStartRows() * _cellHeight;
+      if (maxPan > 0 && (pixels > 0 || snap.displayOffset == 0)) {
+        final next = (_bottomWindowPan + pixels).clamp(0.0, maxPan);
+        final consumed = next - _bottomWindowPan;
+        if (consumed != 0) {
+          setState(() => _bottomWindowPan = next);
+          pixels -= consumed;
+          if (pixels == 0) return;
+        }
+      }
+    }
     // Forward the gesture to the app only when it owns scrolling:
     //  - mouse tracking on  -> send wheel events (Claude Code, vim, ...);
     //  - alternate screen + alternate-scroll -> translate to arrow keys
@@ -504,7 +555,42 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   double _scrollShift() {
     final snapshot = _snapshot;
     if (snapshot == null) return 0;
-    return snapshot.scrollPixelOffset - snapshot.marginRows * _cellHeight;
+    return snapshot.scrollPixelOffset -
+        snapshot.marginRows * _cellHeight +
+        _bottomWindowShift();
+  }
+
+  // The host keeps a taller grid than the phone's viewport for remote viewers,
+  // so a snapshot can have more rows than fit on screen. Lift the grid by the
+  // overflow so its BOTTOM rows -- the live prompt / TUI input box / cursor --
+  // sit at the viewport bottom instead of being clipped below it. Returns <= 0
+  // (an upward shift); 0 when the grid fits (no clamping, draw from the top).
+  double _bottomWindowShift() {
+    if (_cellHeight <= 0) return 0;
+    final maxPan = _bottomWindowStartRows() * _cellHeight;
+    if (maxPan <= 0) return 0;
+    // Pinned to the content bottom (pan 0) lifts by the full overflow; dragging
+    // up (pan -> maxPan) reduces the lift toward 0, revealing the clipped top.
+    final pan = _bottomWindowPan.clamp(0.0, maxPan);
+    return -(maxPan - pan);
+  }
+
+  // Rows clipped above the visible window. The grid can be taller than the
+  // viewport AND its content can sit anywhere in it: a TUI fills to the bottom
+  // (input box on the last rows), but a fresh shell prints a few lines at the
+  // top with the rest blank. Anchor the window to the bottom of the CONTENT
+  // (the last non-blank row, or the cursor) rather than the bottom of the grid
+  // -- otherwise a short screen shows its empty bottom and hides the content off
+  // the top. Returns 0 when the content already fits the viewport.
+  int _bottomWindowStartRows() {
+    final snapshot = _snapshot;
+    if (snapshot == null || _rows <= 0) return 0;
+    var lastRow = snapshot.cursor.visible ? snapshot.cursor.row : 0;
+    for (final cell in snapshot.cells) {
+      if (cell.row > lastRow) lastRow = cell.row;
+    }
+    final start = lastRow - _rows + 1;
+    return start > 0 ? start : 0;
   }
 
   /// Lines-from-bottom of a viewport row (row 0 = top). Stable under scrolling.
@@ -900,6 +986,7 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
                       selectionEnd: selEnd,
                       focused: _focusNode.hasFocus,
                       cursorBlinkOn: _cursorBlinkOn,
+                      bottomShift: _bottomWindowShift(),
                     ),
                   ),
                 );
@@ -927,6 +1014,7 @@ class _TerminalGridPainter extends CustomPainter {
     this.selectionEnd,
     this.focused = true,
     this.cursorBlinkOn = true,
+    this.bottomShift = 0,
   });
 
   final TerminalScreenSnapshot? snapshot;
@@ -941,6 +1029,10 @@ class _TerminalGridPainter extends CustomPainter {
   final bool focused;
   final bool cursorBlinkOn;
 
+  /// Upward (<= 0) pixel shift so the grid's bottom rows stay visible when the
+  /// host grid is taller than the phone's viewport. See `_bottomWindowShift`.
+  final double bottomShift;
+
   @override
   void paint(Canvas canvas, Size size) {
     final snapshot = this.snapshot;
@@ -952,7 +1044,7 @@ class _TerminalGridPainter extends CustomPainter {
     // any pre-rendered overscan rows (host-served scroll) above the viewport.
     canvas.translate(
       0,
-      snapshot.scrollPixelOffset - snapshot.marginRows * cellHeight,
+      snapshot.scrollPixelOffset - snapshot.marginRows * cellHeight + bottomShift,
     );
 
     final bgPaint = Paint();
@@ -1113,10 +1205,15 @@ class _TerminalGridPainter extends CustomPainter {
         bold: cell.bold,
         dim: cell.dim,
       );
-      // Wide cells (CJK, width >= 2) leave the batched run and render on their
-      // own so each is positioned at its exact grid column — a fallback font's
-      // narrower-than-2-cells glyph would otherwise drift the rest of the run.
-      if (span != 1) {
+      // Cells that don't render from the primary monospace font leave the
+      // batched run and render on their own, each positioned at its exact grid
+      // column. Otherwise a fallback font's advance (proportional, != cell
+      // width) drifts the rest of the run -- e.g. the spinner symbol `✽✶✷`
+      // before "Scurrying…" sits in the same colour run as the text, so as it
+      // cycles glyphs of different widths the whole word jitters left/right.
+      // Two cases: wide cells (CJK, width >= 2), and single-width symbols
+      // (codepoint >= U+2000, which fall back to the bundled TerminalSymbols).
+      if (span != 1 || _isFallbackSymbol(cell.text)) {
         if (current != null) {
           yield current;
           current = null;
@@ -1227,8 +1324,18 @@ class _TerminalGridPainter extends CustomPainter {
         old.selectionStart != selectionStart ||
         old.selectionEnd != selectionEnd ||
         old.focused != focused ||
-        old.cursorBlinkOn != cursorBlinkOn;
+        old.cursorBlinkOn != cursorBlinkOn ||
+        old.bottomShift != bottomShift;
   }
+}
+
+/// True when a 1-cell glyph is likely shaped by a fallback (proportional) font
+/// rather than the primary monospace -- symbols, arrows, dingbats, box drawing,
+/// and punctuation from the General Punctuation block up (codepoint >= U+2000).
+/// Such cells render standalone so their advance can't drift their run-mates.
+bool _isFallbackSymbol(String text) {
+  if (text.isEmpty) return false;
+  return text.runes.first >= 0x2000;
 }
 
 class _TerminalRowRun {

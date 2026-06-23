@@ -51,6 +51,16 @@ class TerminalViewportController {
   int? get pendingCols => _pendingCols;
   int? get pendingRows => _pendingRows;
 
+  /// The host's authoritative grid size for [sessionId] as last reported in a
+  /// viewport-state message, or null if none seen yet. The host keeps its own
+  /// (often taller) row count for remote viewers, so this can differ from the
+  /// phone's measured viewport; the local cell screen is sized to this.
+  ({int cols, int rows})? reportedSize(String sessionId) {
+    final size = _sentBySession[sessionId.trim()];
+    if (size == null) return null;
+    return (cols: size.cols, rows: size.rows);
+  }
+
   void resetSizes() {
     _lastCols = null;
     _lastRows = null;

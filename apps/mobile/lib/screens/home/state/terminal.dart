@@ -7,7 +7,55 @@ part of '../home_page.dart';
 /// [_CoduxHomePageState._applyState] (`setState` is `@protected`).
 extension _HomePageTerminal on HomeController {
   void _handleTerminalViewportState(RelayEnvelope message) {
-    _terminalViewportController.applyRemoteState(message);
+    final applied = _terminalViewportController.applyRemoteState(message);
+    if (!applied) return;
+    final sessionId = message.sessionId?.trim();
+    if (sessionId == null || sessionId.isEmpty) return;
+    // Recover the viewport if the desktop took it back while we're the active
+    // viewer. The host hands ownership to the desktop when our lease lapses (or
+    // when the desktop actively repaints/resizes its own copy). Left there, the
+    // host renders at the desktop's wide grid (e.g. 111 cols) and our 47-col
+    // screen fills with reflowed/garbled bytes that only a manual project switch
+    // or re-enter would clear. Re-send our resize: it re-claims, snaps the host
+    // PTY back to our grid, and triggers a fresh keyframe -- so the screen
+    // self-heals. A bare claim wouldn't resize the host or refetch the screen.
+    // Only a local (desktop) owner is recovered; another remote viewer is left
+    // alone, and once we own it the next state reports a remote owner so this
+    // converges instead of ping-ponging.
+    if (sessionId == _sessionId &&
+        _terminalViewportInteractive &&
+        _terminalViewportClaimable) {
+      final owner = _terminalViewportController.owner ?? '';
+      if (owner.isNotEmpty && !owner.startsWith('remote:')) {
+        final cols = _terminalViewportController.pendingCols;
+        final rows = _terminalViewportController.pendingRows;
+        if (cols != null && rows != null && cols > 0 && rows > 0) {
+          _sendTerminalResize(cols, rows, sessionId: sessionId);
+        } else {
+          _claimTerminalViewport(sessionId: sessionId);
+        }
+      }
+    }
+    final size = _terminalViewportController.reportedSize(sessionId);
+    if (size == null || size.cols <= 0 || size.rows <= 0) return;
+    // Size the local cell screen to the host's ROW count but the phone's COLUMN
+    // count. Rows: the host keeps its own (taller) row count for remote viewers,
+    // so a TUI anchors its input box near the host's last row; feeding that into
+    // a screen clamped to the phone's shorter viewport collapsed those rows onto
+    // each other (overlapping text, a cursor stranded on the status line, the
+    // input box clipped off-screen). Adopt the host rows and let the renderer
+    // show the bottom window + scroll. Cols: the phone DRIVES the width (the
+    // host reflows to it), so keep our measured cols -- adopting the host's
+    // transient desktop width (e.g. 111 while the desktop briefly owns the
+    // viewport) would clip the grid horizontally. resizeScreen bumps the render
+    // generation, so a static (non-generating) session repaints too.
+    final cols = _terminalViewportController.pendingCols ?? size.cols;
+    _terminalOutputController.resizeScreen(
+      sessionId,
+      cols: cols,
+      rows: size.rows,
+    );
+    _terminalRepaint.tick();
   }
 
   void _handleTerminalOutput(RelayEnvelope message) {

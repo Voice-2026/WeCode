@@ -221,7 +221,15 @@ class RemoteTerminalBindingCoordinator {
     final hasCachedOutput =
         _outputController.hasCachedOutput(bindSessionId) &&
         !_outputController.hasSequenceGap(bindSessionId);
-    final needsFullBuffer = !hasCachedOutput || restored || plan.bindFullBuffer;
+    // A gap-free cached session switched back to must NOT reload its baseline:
+    // replaying the trimmed raw history rebuilds the screen from a truncated,
+    // mid-escape byte window, which for a repainting TUI (codex/claude in the
+    // normal buffer) paints residue, black rows, and stray escape fragments
+    // (e.g. `5;67;78m`) into scrollback. The viewport re-claim/resize on rebind
+    // already pushes a fresh host keyframe, so a gap-free switch stays current
+    // without the reload. Only reload when there's no usable cache, a real
+    // sequence gap, or the plan explicitly asks for a full buffer.
+    final needsFullBuffer = !hasCachedOutput || plan.bindFullBuffer;
     if (selectedProjectId != null) {
       baselineRequested = replaceProjectSubscription(
         projectId: selectedProjectId,
