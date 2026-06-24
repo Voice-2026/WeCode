@@ -13,6 +13,7 @@ use iroh::{
     protocol::ProtocolHandler,
 };
 use iroh_blobs::{BlobsProtocol, store::mem::MemStore, ticket::BlobTicket};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -29,6 +30,10 @@ const MAX_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
 const STREAM_KIND_CONTROL: u8 = 0;
 const STREAM_KIND_TERMINAL: u8 = 1;
 const IROH_RELAY_URL_ENV: &str = "CODUX_IROH_RELAY_URL";
+/// Set (non-empty) to disable LAN mDNS address lookup. Direct LAN discovery is
+/// best-effort and additive to the relay path, so disabling it only forgoes
+/// same-network direct connections — useful on networks that block multicast.
+const IROH_DISABLE_LAN_MDNS_ENV: &str = "CODUX_IROH_DISABLE_LAN_MDNS";
 const IROH_ONLINE_TIMEOUT: Duration = Duration::from_secs(12);
 /// Upper bound on a single controller→host dial. Without this, an unreachable
 /// peer (offline, on a relay we can't reach, no path) makes `endpoint.connect`
@@ -84,6 +89,8 @@ impl RemoteIrohHostTransport {
         .bind()
         .await
         .map_err(|error| format!("iroh host bind failed: {error}"))?;
+        // Advertise on the LAN so co-located controllers reach us directly.
+        enable_local_discovery(&endpoint, &on_log);
         if tokio::time::timeout(IROH_ONLINE_TIMEOUT, endpoint.online())
             .await
             .is_err()
@@ -486,6 +493,8 @@ impl RemoteIrohControllerTransport {
             .bind()
             .await
             .map_err(|error| format!("iroh controller bind failed: {error}"))?;
+        // Discover co-located hosts directly on the LAN, not just via the relay.
+        enable_local_discovery(&endpoint, &on_log);
         on_state(String::new(), "connecting".to_string());
         // Mirror the host path: wait for our own endpoint to register with its
         // relay before dialling. A relay-routed connect cannot complete until we
@@ -1077,6 +1086,41 @@ fn socket_addr_label(addr: &SocketAddr) -> String {
     match addr {
         SocketAddr::V4(addr) => addr.to_string(),
         SocketAddr::V6(addr) => format!("[{}]:{}", addr.ip(), addr.port()),
+    }
+}
+
+/// Best-effort: add LAN mDNS address lookup so two endpoints on the same local
+/// network discover each other's direct addresses and connect WITHOUT routing
+/// through the relay (lower latency, and it works even when the relay is the
+/// slow path). This is purely additive to the N0 preset's relay + DNS discovery
+/// — if mDNS can't initialize (no usable IPv4/IPv6, multicast blocked) the
+/// endpoint keeps working over the relay, so errors are logged and swallowed.
+///
+/// Must be called from within a tokio runtime (after `bind().await`): the mDNS
+/// service spawns onto the current runtime handle.
+fn enable_local_discovery(endpoint: &Endpoint, on_log: &Option<RemoteTransportLogHandler>) {
+    if std::env::var(IROH_DISABLE_LAN_MDNS_ENV)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+    {
+        log_transport(on_log, "iroh_lan_mdns disabled via env".to_string());
+        return;
+    }
+    let lookup = match endpoint.address_lookup() {
+        Ok(lookup) => lookup,
+        Err(error) => {
+            log_transport(on_log, format!("iroh_lan_mdns unavailable error={error}"));
+            return;
+        }
+    };
+    match MdnsAddressLookup::builder().build(endpoint.id()) {
+        Ok(mdns) => {
+            lookup.add(mdns);
+            log_transport(on_log, "iroh_lan_mdns enabled".to_string());
+        }
+        Err(error) => {
+            log_transport(on_log, format!("iroh_lan_mdns init failed error={error}"));
+        }
     }
 }
 
