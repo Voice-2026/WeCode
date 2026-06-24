@@ -294,6 +294,14 @@ impl TerminalPane {
     pub fn rebind_remote_controller(&self, controller: Arc<RemoteController>) -> bool {
         self.session.rebind_remote(controller)
     }
+
+    /// Reap the host PTY for a remote pane on a user-initiated close. Returns
+    /// `true` if this was a remote pane. No-op for local panes (the local PTY is
+    /// killed separately). Switching projects must NOT call this — the host shell
+    /// is kept alive so a switch-back re-attaches it (persistent remote terminals).
+    pub fn close_remote_session(&self) -> bool {
+        self.session.close_remote()
+    }
 }
 
 pub struct PendingTerminalAttach {
@@ -499,6 +507,16 @@ impl TerminalSessionBinding {
         if let Some((cols, rows)) = last_resize {
             controller.terminal_resize(&session_id, cols, rows);
         }
+        true
+    }
+
+    /// Fire the host-PTY close for a remote binding (best-effort, non-blocking).
+    /// Returns `true` if this was a remote binding. No-op for local bindings.
+    fn close_remote(&self) -> bool {
+        let Some(remote) = self.inner.lock().remote.clone() else {
+            return false;
+        };
+        remote.controller.close_terminal_fire(&remote.session_id);
         true
     }
 

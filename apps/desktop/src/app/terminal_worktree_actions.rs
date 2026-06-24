@@ -467,6 +467,14 @@ impl CoduxApp {
         &mut self,
         terminal_id: &str,
     ) -> Result<(), String> {
+        // A remote terminal lives on the host; the local manager doesn't own it,
+        // so the kill below won't reap it. Close the host PTY here on a
+        // user-initiated close — otherwise persistent remote terminals accumulate
+        // one orphaned host shell per close until the host restarts. (A project
+        // switch never reaches this path, so switched-away shells stay alive.)
+        if let Some(pane) = self.terminal_pane_registry.get(terminal_id) {
+            pane.close_remote_session();
+        }
         self.remove_registered_terminal_pane(terminal_id);
         let exists = self
             .terminal_manager

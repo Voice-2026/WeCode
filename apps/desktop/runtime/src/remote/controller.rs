@@ -913,6 +913,13 @@ impl RemoteController {
         )
     }
 
+    /// Fire-and-forget terminal close, for reaping a host PTY on a user-initiated
+    /// close. Cleanup doesn't need the ack, and this is called on the UI thread —
+    /// so it must not block on a request round-trip.
+    pub fn close_terminal_fire(&self, session_id: &str) -> bool {
+        self.fire(REMOTE_TERMINAL_CLOSE, json!({ "sessionId": session_id }))
+    }
+
     /// Send an envelope without awaiting a reply.
     fn fire(&self, kind: &str, payload: Value) -> bool {
         let mut envelope =
