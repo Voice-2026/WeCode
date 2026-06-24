@@ -13,9 +13,11 @@ use codux_protocol::{
     REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
     REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
     REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
-    REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_VIEWPORT_CLAIM,
-    REMOTE_TERMINAL_VIEWPORT_RELEASE, REMOTE_TERMINAL_VIEWPORT_RESIZE,
-    REMOTE_TERMINAL_VIEWPORT_STATE, RemoteTerminalBufferWindow, RemoteTerminalSubscriptions,
+    REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_SIGNAL,
+    REMOTE_TERMINAL_VIEWPORT_CLAIM, REMOTE_TERMINAL_VIEWPORT_RELEASE,
+    REMOTE_TERMINAL_VIEWPORT_RESIZE, REMOTE_TERMINAL_VIEWPORT_SCROLL,
+    REMOTE_TERMINAL_VIEWPORT_SCROLLED, REMOTE_TERMINAL_VIEWPORT_STATE,
+    RemoteTerminalBufferWindow, RemoteTerminalSubscriptions,
     terminal_buffer_payloads, terminal_live_output_payload,
 };
 use codux_remote_transport::RemoteTransport;
@@ -87,12 +89,14 @@ pub fn is_terminal_kind(kind: &str) -> bool {
         REMOTE_TERMINAL_LIST
             | REMOTE_TERMINAL_CREATE
             | REMOTE_TERMINAL_INPUT
+            | REMOTE_TERMINAL_SIGNAL
             | REMOTE_TERMINAL_RESIZE
             | REMOTE_TERMINAL_CLOSE
             | REMOTE_TERMINAL_OUTPUT_ACK
             | REMOTE_TERMINAL_VIEWPORT_CLAIM
             | REMOTE_TERMINAL_VIEWPORT_RESIZE
             | REMOTE_TERMINAL_VIEWPORT_RELEASE
+            | REMOTE_TERMINAL_VIEWPORT_SCROLL
             | REMOTE_RESOURCE_SUBSCRIBE
             | REMOTE_RESOURCE_UNSUBSCRIBE
     )
@@ -459,6 +463,78 @@ pub fn handle_terminal(
             if let (Some(id), Some(device_id)) = (session_id(), device_id) {
                 let owner = terminal_viewport_remote_owner(device_id);
                 driver.touch_viewport_lease(id, &owner);
+            }
+        }
+        REMOTE_TERMINAL_SIGNAL => {
+            // Forward a control signal to the PTY — same as the desktop host: an
+            // interrupt is Ctrl-C (0x03), escape is ESC (0x1b).
+            if let Some(id) = session_id() {
+                let byte: &[u8] = match payload.get("signal").and_then(Value::as_str) {
+                    Some("interrupt") => &[0x03],
+                    Some("escape") => &[0x1b],
+                    _ => &[],
+                };
+                if !byte.is_empty() {
+                    let _ = driver.write(id, byte);
+                }
+            }
+        }
+        REMOTE_TERMINAL_VIEWPORT_SCROLL => {
+            // Scroll the host's authoritative screen and reply with the viewport
+            // snapshot — mirrors the desktop host so phones get scrollback on an
+            // agent terminal too. `displayOffset` = a precise viewport fetch;
+            // `toBottom` = jump to live; otherwise scroll by `lines` (0 = sync).
+            if let (Some(id), Some(device_id)) = (session_id(), device_id) {
+                let owner = terminal_viewport_remote_owner(device_id);
+                driver.touch_viewport_lease(id, &owner);
+                let viewport_request_id = payload.get("viewportRequestId").and_then(|value| {
+                    value
+                        .as_str()
+                        .map(str::to_string)
+                        .or_else(|| value.as_u64().map(|number| number.to_string()))
+                });
+                let max_lines =
+                    payload.get("maxLines").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let overscan_rows =
+                    payload.get("overscanRows").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let snapshot = if let Some(display_offset) = payload
+                    .get("displayOffset")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize)
+                {
+                    driver.remote_viewport_snapshot(id, display_offset, overscan_rows, max_lines)
+                } else if payload.get("toBottom").and_then(Value::as_bool).unwrap_or(false) {
+                    driver.scroll_screen_to_bottom(id)
+                } else {
+                    let lines = payload
+                        .get("lines")
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0)
+                        .clamp(i32::MIN as i64, i32::MAX as i64)
+                        as i32;
+                    driver.scroll_screen_lines(id, lines)
+                };
+                if let Ok(snapshot) = snapshot {
+                    let mut scrolled = json!({
+                        "sessionId": id,
+                        "displayOffset": snapshot.display_offset,
+                        "totalLines": snapshot.total_lines,
+                        "cols": snapshot.cols,
+                        "rows": snapshot.rows,
+                        "marginRows": snapshot.margin_rows,
+                        "marginRowsBelow": snapshot.margin_rows_below,
+                        "screenData": snapshot.data,
+                    });
+                    if let Some(request_id) = viewport_request_id {
+                        scrolled["viewportRequestId"] = Value::String(request_id);
+                    }
+                    reply(
+                        transport,
+                        Some(device_id),
+                        REMOTE_TERMINAL_VIEWPORT_SCROLLED,
+                        scrolled,
+                    );
+                }
             }
         }
         _ => {}
