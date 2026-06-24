@@ -1,6 +1,10 @@
 use super::*;
 use chrono::Timelike as _;
 
+/// Minimum seconds a pet activity line stays before another same-tone line may
+/// replace it, so concurrent agents don't make the bubble flicker every tick.
+const DESKTOP_PET_LINE_MIN_HOLD_SECS: f64 = 5.0;
+
 fn desktop_pet_action_status(action_id: &str) -> &'static str {
     match action_id {
         DESKTOP_PET_MUTE_30_MINUTES => "desktop pet muted for 30 minutes",
@@ -429,6 +433,18 @@ impl CoduxApp {
         self.set_desktop_pet_activity(line, tone, Vec::new(), cx);
     }
 
+    /// Set the line bypassing the same-tone hold. Used for the LLM "speech"
+    /// line, which is intentional, rate-limited personality (not the multi-agent
+    /// flicker the hold guards against).
+    pub(super) fn set_desktop_pet_activity_line_forced(
+        &mut self,
+        line: String,
+        tone: DesktopPetActivityTone,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_desktop_pet_activity_with_hold(line, tone, Vec::new(), true, cx);
+    }
+
     pub(super) fn set_desktop_pet_activity(
         &mut self,
         line: String,
@@ -436,6 +452,36 @@ impl CoduxApp {
         plan_items: Vec<DesktopPetPlanItem>,
         cx: &mut Context<Self>,
     ) {
+        self.set_desktop_pet_activity_with_hold(line, tone, plan_items, false, cx);
+    }
+
+    fn set_desktop_pet_activity_with_hold(
+        &mut self,
+        line: String,
+        tone: DesktopPetActivityTone,
+        plan_items: Vec<DesktopPetPlanItem>,
+        force: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        // When several agents run at once, the activity line recomputes every
+        // refresh tick and the most-recently-updated session keeps changing, so
+        // the bubble flickers between A/B/C roughly once a second. Hold each
+        // message for DESKTOP_PET_LINE_MIN_HOLD_SECS before rotating to another
+        // line of the *same* tone (same priority band). A tone change is a real
+        // state escalation (e.g. running -> needs-permission) and passes through
+        // immediately; clearing to idle is governed elsewhere.
+        let is_same_tone_rotation = !force
+            && tone == self.desktop_pet_tone
+            && !line.trim().is_empty()
+            && !self.desktop_pet_line.trim().is_empty()
+            && line != self.desktop_pet_line;
+        if is_same_tone_rotation && now < self.desktop_pet_line_hold_until {
+            return;
+        }
         if self.desktop_pet_line != line
             || self.desktop_pet_tone != tone
             || self.desktop_pet_plan_items != plan_items
@@ -444,11 +490,13 @@ impl CoduxApp {
             self.desktop_pet_line = line;
             self.desktop_pet_tone = tone;
             self.desktop_pet_plan_items = plan_items;
+            self.desktop_pet_line_hold_until = if has_line {
+                now + DESKTOP_PET_LINE_MIN_HOLD_SECS
+            } else {
+                0.0
+            };
             self.desktop_pet_line_visible_until = if has_line {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|duration| duration.as_secs_f64() + 10.0)
-                    .unwrap_or(0.0)
+                now + 10.0
             } else {
                 0.0
             };
@@ -614,7 +662,7 @@ impl CoduxApp {
                     // key that produced nothing -- allow a retry.
                     self.desktop_pet_requested_llm_key.clear();
                 } else {
-                    self.set_desktop_pet_activity_line(text, tone, cx);
+                    self.set_desktop_pet_activity_line_forced(text, tone, cx);
                 }
             }
             Err(_) => {

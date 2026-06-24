@@ -214,6 +214,7 @@ impl CoduxApp {
             desktop_pet_next_late_night_reminder_at: 0.0,
             desktop_pet_next_idle_llm_at: 0.0,
             desktop_pet_line_visible_until: 0.0,
+            desktop_pet_line_hold_until: 0.0,
             pet_sprite_frame: 0,
             pet_sprite_animation_active: false,
             file_preview: "select a file to preview it".to_string(),

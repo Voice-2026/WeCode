@@ -109,6 +109,11 @@ pub struct CoduxApp {
     pub(in crate::app) desktop_pet_next_late_night_reminder_at: f64,
     pub(in crate::app) desktop_pet_next_idle_llm_at: f64,
     pub(in crate::app) desktop_pet_line_visible_until: f64,
+    // While `now` is below this, a same-tone message switch (e.g. several
+    // running agents taking turns as the most-recently-updated session) is held
+    // back so the bubble doesn't flicker between concurrent agents every refresh
+    // tick. Reset each time a new line is actually displayed.
+    pub(in crate::app) desktop_pet_line_hold_until: f64,
     pub(in crate::app) pet_sprite_frame: usize,
     pub(in crate::app) pet_sprite_animation_active: bool,
     pub(in crate::app) file_preview: String,
