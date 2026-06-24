@@ -247,11 +247,10 @@ pub fn request_restart() -> Result<(), String> {
 fn spawn_update_installer_helper(path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        return Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("")
-            .arg(path)
+        let mut command = Command::new("cmd");
+        command.arg("/C").arg("start").arg("").arg(path);
+        apply_no_window(&mut command);
+        return command
             .spawn()
             .map(|_| ())
             .map_err(|error| error.to_string());
@@ -789,11 +788,26 @@ fn open_target(target: &str) -> Result<(), String> {
 }
 
 fn spawn_open_command(program: &str, args: &[&str]) -> Result<(), String> {
-    Command::new(program)
-        .args(args)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    let mut command = Command::new(program);
+    command.args(args);
+    apply_no_window(&mut command);
+    command.spawn().map(|_| ()).map_err(|error| error.to_string())
+}
+
+/// On Windows, launch the helper process without flashing a console window.
+/// Opening a log/file goes through `cmd /C start ...`, and without this flag
+/// `cmd.exe` briefly pops a console window before the associated app appears.
+fn apply_no_window(command: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = command;
+    }
 }
 
 fn redact_settings(mut settings: Value) -> Value {

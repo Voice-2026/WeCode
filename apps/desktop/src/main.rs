@@ -61,6 +61,17 @@ fn main() -> Result<()> {
         load_embedded_fonts(cx);
         disable_root_tab_focus_bindings(cx);
         let initial_state = codux_runtime::runtime_state::RuntimeState::load();
+        // Always leave a boot line so the runtime log is never confusingly empty
+        // when opened from the Help menu (and so its resolved path is verifiable
+        // on every platform, including Windows).
+        codux_runtime::runtime_trace::runtime_trace(
+            "startup",
+            &format!(
+                "codux {} launched os={}",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS
+            ),
+        );
         let _ = codux_runtime::app_icon::apply_app_icon(&initial_state.settings.icon_style);
         app::set_active_settings_snapshot(initial_state.settings.clone());
         theme::apply_component_theme(
