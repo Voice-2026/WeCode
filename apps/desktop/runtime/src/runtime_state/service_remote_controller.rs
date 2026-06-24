@@ -3,11 +3,13 @@
 // the add-project remote flow; routing a hosted project's other domains builds
 // on `controller_for`.
 
-/// How long the add-project file browser waits for a paired host to (re)connect
-/// before reporting it unreachable. Long enough to cover an iroh relay/holepunch
-/// dial on first use after launch, short enough that a genuinely offline host
-/// fails with a clear message instead of hanging.
-const REMOTE_PICKER_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+/// How long an explicit, blocking-pool remote operation (the add-project file
+/// browser, the terminal attach on project open) waits for a paired host to
+/// (re)connect before reporting it unreachable. Long enough to cover an iroh
+/// relay/holepunch dial on first use after launch — which can take a few seconds
+/// — short enough that a genuinely offline host fails with a clear message
+/// instead of hanging.
+const REMOTE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 impl RuntimeService {
     /// Pair with a remote host from a pasted `codux://pair` ticket, persist it,
@@ -54,7 +56,7 @@ impl RuntimeService {
         // for the host to connect so the first browse after launch shows the
         // listing, rather than an empty pane until a second click.
         self.remote_controllers
-            .controller_for_blocking(device_id, REMOTE_PICKER_CONNECT_TIMEOUT)?
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
             .browse_directory(path)
     }
 
@@ -65,7 +67,7 @@ impl RuntimeService {
         path: &str,
     ) -> Result<serde_json::Value, String> {
         self.remote_controllers
-            .controller_for_blocking(device_id, REMOTE_PICKER_CONNECT_TIMEOUT)?
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)?
             .create_directory(path)
     }
 
@@ -137,6 +139,21 @@ impl RuntimeService {
         device_id: &str,
     ) -> Result<std::sync::Arc<crate::remote::RemoteController>, String> {
         self.remote_controllers.controller_for(device_id)
+    }
+
+    /// Like [`remote_controller_for_device`](Self::remote_controller_for_device),
+    /// but waits (bounded) for the host to connect. The terminal attach on
+    /// project open runs on the blocking pool and otherwise hit `controller_for`
+    /// during the first few seconds after launch — before the iroh dial
+    /// completes — so it failed with "not ready yet" and the pane stayed blank
+    /// (the attach fires once and never retries). Waiting here lets the first
+    /// terminal attach succeed once the link comes up.
+    pub fn remote_controller_for_device_blocking(
+        &self,
+        device_id: &str,
+    ) -> Result<std::sync::Arc<crate::remote::RemoteController>, String> {
+        self.remote_controllers
+            .controller_for_blocking(device_id, REMOTE_CONNECT_TIMEOUT)
     }
 
     /// Route a git mutation to the host if the project is remote, returning the

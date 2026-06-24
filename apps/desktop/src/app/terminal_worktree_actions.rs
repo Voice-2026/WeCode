@@ -731,10 +731,17 @@ impl CoduxApp {
                             thread::spawn(move || {
                                 // Remote-hosted projects run the terminal on the
                                 // host over the controller; local ones use the PTY.
+                                // Use the blocking resolver: on launch the attach
+                                // fires before the iroh dial finishes, and it only
+                                // runs once — without waiting it failed "not ready
+                                // yet" and the pane stayed blank. This is its own
+                                // thread, so the bounded wait is free.
                                 let result = if let Some(device_id) =
                                     pty_config.host_device_id.clone()
                                 {
-                                    match runtime_service.remote_controller_for_device(&device_id) {
+                                    match runtime_service
+                                        .remote_controller_for_device_blocking(&device_id)
+                                    {
                                         Ok(controller) => {
                                             TerminalPane::attach_pending_session_remote(
                                                 controller,

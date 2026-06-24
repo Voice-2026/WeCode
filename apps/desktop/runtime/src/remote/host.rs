@@ -3503,7 +3503,26 @@ impl RemoteHostRuntime {
             .get("projectId")
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty());
-        let scope = self.remote_project_scope_for_envelope(envelope, project_id)?;
+        let cwd = envelope
+            .payload
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.trim().is_empty());
+        // A controller that added this project by browsing a path holds its OWN
+        // project id, which this host's project store doesn't have — each side
+        // keeps its own projects; only the host *code* is shared, not the data.
+        // Git/worktree route to the host by path and work regardless; the terminal
+        // scope normally resolves by id, so when the project isn't registered here
+        // fall back to a scope synthesized from the cwd the controller sent (the
+        // host path) — i.e. just open a terminal in that directory.
+        let scope = match self.remote_project_scope_for_envelope(envelope, project_id) {
+            Ok(scope) => scope,
+            Err(error) => {
+                let cwd = cwd.clone().ok_or(error)?;
+                self.remote_terminal_scope_from_path(envelope, project_id, &cwd)
+            }
+        };
         let command = envelope
             .payload
             .get("command")
@@ -3518,12 +3537,6 @@ impl RemoteHostRuntime {
             .filter(|value| !value.trim().is_empty())
             .or_else(|| command.clone())
             .unwrap_or_else(|| "Terminal".to_string());
-        let cwd = envelope
-            .payload
-            .get("cwd")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .filter(|value| !value.trim().is_empty());
         let terminal_id = terminal_id.map(str::to_string).or_else(|| {
             if reuse_saved_terminal {
                 self.saved_remote_terminal_id(&scope.layout_key)
@@ -3763,6 +3776,37 @@ impl RemoteHostRuntime {
             .filter(|value| !value.trim().is_empty())
             .map(str::to_string);
         self.remote_project_scope_with_worktree(&scoped_project_id, worktree_id.as_deref())
+    }
+
+    /// Build a terminal scope from a host path for a project this host doesn't
+    /// have registered (the controller added it by browsing, so it holds an id
+    /// we don't know). Keeps the controller's project id for stable layout
+    /// keying, and uses the path as the worktree/cwd — the host runs the shell
+    /// there just as it would for a local project at that path.
+    fn remote_terminal_scope_from_path(
+        &self,
+        envelope: &RemoteEnvelope,
+        project_id: Option<&str>,
+        path: &str,
+    ) -> RemoteProjectScope {
+        let project_id = project_id
+            .map(str::to_string)
+            .or_else(|| self.remote_project_scope_id(envelope.device_id.as_deref()))
+            .unwrap_or_else(|| path.to_string());
+        let worktree_id = envelope
+            .payload
+            .get("worktreeId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| project_id.clone());
+        RemoteProjectScope {
+            project_id: project_id.clone(),
+            project_name: default_project_name(path),
+            project_path: path.to_string(),
+            worktree_id: worktree_id.clone(),
+            layout_key: terminal_layout_storage_key(&project_id, &worktree_id),
+        }
     }
 
     fn worktree_request_scope(
