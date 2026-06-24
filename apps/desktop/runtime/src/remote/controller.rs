@@ -242,25 +242,20 @@ impl ControllerInner {
             }
             let session_id = envelope.get("sessionId").and_then(Value::as_str);
             let data = payload.get("data").and_then(Value::as_str).unwrap_or("");
-            let screen_data = payload
-                .get("screenData")
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty());
-            if let Some(session_id) = session_id {
+            // Feed ONLY the live byte stream into the emulator — exactly like a
+            // local PTY relay. The host also emits full-screen `screenData`
+            // keyframes (on attach and on every resize), but our desktop emulator
+            // keeps its OWN scrollback built from this byte stream, so replaying a
+            // keyframe on top of it DUPLICATES the screen into scrollback — and a
+            // window drag fires many resize keyframes, so the content piled up
+            // many times over. Resize is handled by the shell's own repaint in the
+            // live stream, just as it is for a local terminal. (The keyframe stays
+            // in the protocol for grid-reconciling clients; this emulator isn't
+            // one — see the tmux-style notes in the remote terminal design.)
+            if let Some(session_id) = session_id.filter(|_| !data.is_empty()) {
                 if let Ok(forwarders) = self.terminal_outputs.lock() {
                     if let Some(forwarder) = forwarders.get(session_id) {
-                        // ALWAYS feed the live `data` stream: it carries the
-                        // shell's output AND its VT query requests (e.g. `\e[6n`
-                        // cursor-position report) that the terminal engine must
-                        // answer — dropping it hangs the remote shell before its
-                        // first prompt. Fall back to the screen keyframe only when
-                        // there is no live data (a pure re-attach keyframe) so the
-                        // pane isn't blank after reconnecting to a live session.
-                        if !data.is_empty() {
-                            forwarder(data.as_bytes().to_vec());
-                        } else if let Some(screen) = screen_data {
-                            forwarder(screen.as_bytes().to_vec());
-                        }
+                        forwarder(data.as_bytes().to_vec());
                     }
                 }
             }
