@@ -2,6 +2,7 @@ pub mod ai_stats;
 pub mod file;
 pub mod git;
 pub mod host;
+pub mod path;
 pub mod project;
 pub mod subscription;
 pub mod terminal;

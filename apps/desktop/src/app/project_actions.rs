@@ -2051,9 +2051,10 @@ impl CoduxApp {
             }
             FilePickerMode::OpenFile => self.file_picker_selected.clone(),
             FilePickerMode::Save => {
-                let dir = self.project_editor_browse_path.trim().trim_end_matches('/');
+                let dir = self.project_editor_browse_path.trim();
                 let name = self.file_picker_filename.trim();
-                (!dir.is_empty() && !name.is_empty()).then(|| format!("{dir}/{name}"))
+                (!dir.is_empty() && !name.is_empty())
+                    .then(|| codux_runtime::path::join_path(dir, name))
             }
         }
     }
@@ -2176,9 +2177,9 @@ impl CoduxApp {
         }
         let parent = self
             .project_editor_browse_path
-            .trim_end_matches('/')
+            .trim_end_matches(['/', '\\'])
             .to_string();
-        let target = format!("{parent}/{name}");
+        let target = codux_runtime::path::join_path(&parent, &name);
         let runtime_service = self.runtime_service.clone();
         let window_handle = window.window_handle();
         self.project_editor_browse_busy = true;
@@ -2198,26 +2199,21 @@ impl CoduxApp {
             .await
             .unwrap_or_else(|error| Err(format!("failed to join create directory: {error}")));
 
-            let _ = window_handle.update(cx, |_root, _window, cx| {
-                let _ = this.update(cx, |app, cx| {
-                    app.project_editor_browse_busy = false;
-                    match result {
-                        Ok((device_id, parent)) => {
-                            app.project_editor_browse_new_folder.clear();
-                            app.file_picker_new_folder_active = false;
-                            app.load_project_editor_browse(
-                                device_id,
-                                Some(parent),
-                                window_handle,
-                                cx,
-                            );
-                        }
-                        Err(error) => {
-                            app.project_editor_browse_error = Some(error);
-                            app.invalidate_project_management(cx);
-                        }
+            // Update the entity directly (not via `window_handle.update`, whose
+            // swallowed `Err` could otherwise leave `browse_busy` stuck true).
+            let _ = this.update(cx, |app, cx| {
+                app.project_editor_browse_busy = false;
+                match result {
+                    Ok((device_id, parent)) => {
+                        app.project_editor_browse_new_folder.clear();
+                        app.file_picker_new_folder_active = false;
+                        app.load_project_editor_browse(device_id, Some(parent), window_handle, cx);
                     }
-                });
+                    Err(error) => {
+                        app.project_editor_browse_error = Some(error);
+                        app.invalidate_project_management(cx);
+                    }
+                }
             });
         })
         .detach();
@@ -2227,7 +2223,9 @@ impl CoduxApp {
         &mut self,
         device_id: Option<String>,
         path: Option<String>,
-        window_handle: gpui::AnyWindowHandle,
+        // Retained for call-site symmetry; the completion updates the picker
+        // entity directly (see below) rather than through a window handle.
+        _window_handle: gpui::AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
         let runtime_service = self.runtime_service.clone();
@@ -2248,15 +2246,18 @@ impl CoduxApp {
             .await
             .unwrap_or_else(|error| Err(format!("failed to join browse: {error}")));
 
-            let _ = window_handle.update(cx, |_root, _window, cx| {
-                let _ = this.update(cx, |app, cx| {
-                    app.project_editor_browse_busy = false;
-                    match result {
-                        Ok(listing) => app.apply_project_editor_browse(listing),
-                        Err(error) => app.project_editor_browse_error = Some(error),
-                    }
-                    app.invalidate_project_management(cx);
-                });
+            // Update the entity directly. The previous code nested this inside a
+            // `window_handle.update(...)` whose `Err` was discarded; when that
+            // update failed (window mid-update / not found) the `browse_busy`
+            // reset never ran, leaving the picker's confirm button disabled
+            // forever even though the listing had loaded.
+            let _ = this.update(cx, |app, cx| {
+                app.project_editor_browse_busy = false;
+                match result {
+                    Ok(listing) => app.apply_project_editor_browse(listing),
+                    Err(error) => app.project_editor_browse_error = Some(error),
+                }
+                app.invalidate_project_management(cx);
             });
         })
         .detach();
@@ -2380,10 +2381,7 @@ fn clean_dialog_path(path: &str) -> String {
             }
         }
     }
-    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
-        return format!(r"\\{rest}");
-    }
-    path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+    codux_runtime::path::display_path(path)
 }
 
 pub(super) fn merge_ai_history_summary(

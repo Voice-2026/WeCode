@@ -7,13 +7,21 @@ use std::{
 
 pub const MOBILE_TEXT_FILE_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
 
+// Cross-platform path primitives live in `crate::path`; re-export the sentinel
+// from here too so existing `file::FILE_LIST_DRIVES_SENTINEL` references keep
+// resolving.
+pub use crate::path::FILE_LIST_DRIVES_SENTINEL;
+use crate::path::{display_path, drive_root_parent};
+
 pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
+    let requested = path.map(str::trim).filter(|value| !value.is_empty());
+    if requested == Some(FILE_LIST_DRIVES_SENTINEL) {
+        return drive_list_payload(purpose);
+    }
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let requested = path
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(&home);
+    let requested = requested.unwrap_or(home.as_str());
     let requested_path = PathBuf::from(requested);
     let directory = if requested_path.is_dir() {
         requested_path
@@ -48,7 +56,7 @@ pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
                 .unwrap_or(0);
             Some(json!({
                 "name": name,
-                "path": path.to_string_lossy().to_string(),
+                "path": display_path(&path.to_string_lossy()),
                 "isDirectory": path.is_dir(),
                 "isSymbolicLink": is_symlink,
                 "size": size,
@@ -79,15 +87,65 @@ pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
                 )
         })
     });
+    let parent = match directory.parent() {
+        Some(parent) => display_path(&parent.to_string_lossy()),
+        // A volume root (`C:\`, `/`) has no parent: step up to the drive list on
+        // Windows so other volumes stay reachable; on POSIX there's nowhere up.
+        None => drive_root_parent(),
+    };
     let mut payload = json!({
-        "path": directory.to_string_lossy().to_string(),
-        "parent": directory.parent().map(|path| path.to_string_lossy().to_string()).unwrap_or_default(),
+        "path": display_path(&directory.to_string_lossy()),
+        "parent": parent,
         "entries": entries,
     });
     if let Some(purpose) = purpose {
         payload["purpose"] = Value::String(purpose.to_string());
     }
     payload
+}
+
+fn drive_list_payload(purpose: Option<&str>) -> Value {
+    let mut payload = json!({
+        "path": FILE_LIST_DRIVES_SENTINEL,
+        "parent": "",
+        "entries": drive_entries(),
+    });
+    if let Some(purpose) = purpose {
+        payload["purpose"] = Value::String(purpose.to_string());
+    }
+    payload
+}
+
+#[cfg(target_os = "windows")]
+fn drive_entries() -> Vec<Value> {
+    (b'A'..=b'Z')
+        .filter_map(|letter| {
+            let letter = letter as char;
+            let root = format!("{letter}:\\");
+            Path::new(&root).is_dir().then(|| {
+                json!({
+                    "name": format!("{letter}:"),
+                    "path": root,
+                    "isDirectory": true,
+                    "isSymbolicLink": false,
+                    "size": 0,
+                    "modifiedAt": 0,
+                })
+            })
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn drive_entries() -> Vec<Value> {
+    vec![json!({
+        "name": "/",
+        "path": "/",
+        "isDirectory": true,
+        "isSymbolicLink": false,
+        "size": 0,
+        "modifiedAt": 0,
+    })]
 }
 
 pub fn file_read_payload(path: &str) -> Result<Value, String> {
@@ -220,4 +278,21 @@ pub fn file_make_directory(path: &str) -> Result<(), String> {
         return Err("A file or directory with this name already exists.".to_string());
     }
     fs::create_dir_all(target).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drives_sentinel_returns_volume_listing() {
+        let payload = file_list_payload(Some(FILE_LIST_DRIVES_SENTINEL), Some("projectFiles"));
+        assert_eq!(payload["path"], FILE_LIST_DRIVES_SENTINEL);
+        assert_eq!(payload["purpose"], "projectFiles");
+        let entries = payload["entries"].as_array().expect("entries array");
+        assert!(!entries.is_empty(), "expected at least one volume entry");
+        for entry in entries {
+            assert_eq!(entry["isDirectory"], Value::Bool(true));
+        }
+    }
 }

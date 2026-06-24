@@ -67,12 +67,24 @@ impl RuntimeService {
         &self,
         path: Option<&str>,
     ) -> Result<crate::remote::RemoteDirectoryListing, String> {
+        use codux_runtime_core::path::{FILE_LIST_DRIVES_SENTINEL, display_path};
+        // Volume list (the Windows "all drives" root): reuse the shared core
+        // listing so local and remote browsing expose drives identically.
+        if path.map(str::trim) == Some(FILE_LIST_DRIVES_SENTINEL) {
+            let value = codux_runtime_core::file::file_list_payload(path, None);
+            return Ok(local_directory_listing_from_payload(&value));
+        }
         let dir = match path {
             Some(value) if !value.trim().is_empty() => std::path::PathBuf::from(value.trim()),
             _ => crate::runtime_paths::home_dir(),
         };
         let dir = dir.canonicalize().unwrap_or(dir);
-        let parent = dir.parent().map(|p| p.to_string_lossy().to_string());
+        let parent = match dir.parent() {
+            // `display_path` strips the `\\?\` prefix that `canonicalize` adds on
+            // Windows, so the picker shows `C:\…` instead of `\\?\C:\…`.
+            Some(parent) => Some(display_path(&parent.to_string_lossy())),
+            None => drive_root_parent(),
+        };
         let mut entries = Vec::new();
         for entry in std::fs::read_dir(&dir).map_err(|error| error.to_string())?.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -83,7 +95,7 @@ impl RuntimeService {
             let is_dir = entry_path.is_dir();
             entries.push(crate::remote::RemoteDirectoryEntry {
                 name,
-                path: entry_path.to_string_lossy().to_string(),
+                path: display_path(&entry_path.to_string_lossy()),
                 is_dir,
             });
         }
@@ -93,7 +105,7 @@ impl RuntimeService {
                 .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
         });
         Ok(crate::remote::RemoteDirectoryListing {
-            path: dir.to_string_lossy().to_string(),
+            path: display_path(&dir.to_string_lossy()),
             parent,
             entries,
         })
@@ -504,5 +516,57 @@ fn remote_file_entry(project_path: &str, entry: &serde_json::Value) -> FileEntry
             .get("size")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0),
+    }
+}
+
+/// Step-up target for a local volume root as an `Option` for the picker listing:
+/// `Some(drive list)` on Windows, `None` on POSIX where `/` is the top.
+fn drive_root_parent() -> Option<String> {
+    let parent = codux_runtime_core::path::drive_root_parent();
+    (!parent.is_empty()).then_some(parent)
+}
+
+/// Parse a `file_list_payload` value into the typed listing the picker uses —
+/// same shape as the remote controller's `browse_directory`.
+fn local_directory_listing_from_payload(
+    value: &serde_json::Value,
+) -> crate::remote::RemoteDirectoryListing {
+    use serde_json::Value;
+    crate::remote::RemoteDirectoryListing {
+        path: value
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        parent: value
+            .get("parent")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        entries: value
+            .get("entries")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| crate::remote::RemoteDirectoryEntry {
+                        name: entry
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        path: entry
+                            .get("path")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        is_dir: entry
+                            .get("isDirectory")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }

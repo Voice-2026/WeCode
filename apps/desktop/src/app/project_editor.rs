@@ -513,27 +513,40 @@ fn file_picker_breadcrumb(
             .into_any_element();
     }
     // The root crumb stands in for the bare filesystem root: an icon + the
-    // device label (e.g. "Local" / a host name) navigating to "/".
-    let mut row = bar.child(file_picker_root_crumb(root_label, is_remote, cx));
-    let absolute = trimmed.starts_with('/');
-    let mut cumulative = String::new();
-    for part in trimmed.split('/').filter(|segment| !segment.is_empty()) {
-        cumulative = if absolute {
-            format!("{}/{part}", cumulative.trim_end_matches('/'))
-        } else if cumulative.is_empty() {
-            part.to_string()
-        } else {
-            format!("{cumulative}/{part}")
-        };
+    // device label (e.g. "Local" / a host name) navigating to the root target
+    // (`/` on POSIX, the drive list on Windows).
+    let (root_target, segments) = file_picker_breadcrumb_model(trimmed);
+    let mut row = bar.child(file_picker_root_crumb(root_label, &root_target, is_remote, cx));
+    for segment in segments {
         row = row.child(file_picker_crumb_separator());
         row = row.child(file_picker_crumb(
-            &format!("file-picker-crumb-{cumulative}"),
-            part,
-            &cumulative,
+            &format!("file-picker-crumb-{}", segment.target),
+            &segment.label,
+            &segment.target,
             cx,
         ));
     }
     row.into_any_element()
+}
+
+/// One clickable breadcrumb segment: its visible label and the absolute path it
+/// navigates to.
+struct FilePickerCrumb {
+    label: String,
+    target: String,
+}
+
+/// Adapt the shared, typed-path-backed [`codux_runtime::path::breadcrumb_segments`]
+/// splitter into the picker's crumb type. Splitting lives in the core crate so
+/// Windows / POSIX / UNC / drive-list paths are all parsed the same way wherever
+/// they're shown.
+fn file_picker_breadcrumb_model(path: &str) -> (String, Vec<FilePickerCrumb>) {
+    let (root_target, segments) = codux_runtime::path::breadcrumb_segments(path);
+    let crumbs = segments
+        .into_iter()
+        .map(|(label, target)| FilePickerCrumb { label, target })
+        .collect();
+    (root_target, crumbs)
 }
 
 /// The `›` chevron between path segments.
@@ -544,8 +557,15 @@ fn file_picker_crumb_separator() -> AnyElement {
         .into_any_element()
 }
 
-/// The leading device crumb (icon + label) that navigates to the root.
-fn file_picker_root_crumb(label: &str, is_remote: bool, cx: &mut Context<CoduxApp>) -> AnyElement {
+/// The leading device crumb (icon + label) that navigates to the root target
+/// (`/` on POSIX, the drive list on Windows).
+fn file_picker_root_crumb(
+    label: &str,
+    root_target: &str,
+    is_remote: bool,
+    cx: &mut Context<CoduxApp>,
+) -> AnyElement {
+    let root_target = root_target.to_string();
     div()
         .id("file-picker-crumb-root")
         .flex()
@@ -572,8 +592,8 @@ fn file_picker_root_crumb(label: &str, is_remote: bool, cx: &mut Context<CoduxAp
                 .text_color(color(theme::TEXT))
                 .child(label.to_string()),
         )
-        .on_click(cx.listener(|app, _event, window, cx| {
-            app.project_editor_browse_navigate(Some("/".to_string()), window, cx)
+        .on_click(cx.listener(move |app, _event, window, cx| {
+            app.project_editor_browse_navigate(Some(root_target.clone()), window, cx)
         }))
         .into_any_element()
 }
@@ -954,4 +974,68 @@ fn project_editor_path_field(
                 ),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod breadcrumb_tests {
+    use super::file_picker_breadcrumb_model;
+
+    fn crumbs(path: &str) -> (String, Vec<(String, String)>) {
+        let (root, segments) = file_picker_breadcrumb_model(path);
+        (
+            root,
+            segments
+                .into_iter()
+                .map(|segment| (segment.label, segment.target))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn posix_path_splits_on_forward_slash() {
+        let (root, segments) = crumbs("/Users/dux/project");
+        assert_eq!(root, "/");
+        assert_eq!(
+            segments,
+            vec![
+                ("Users".into(), "/Users".into()),
+                ("dux".into(), "/Users/dux".into()),
+                ("project".into(), "/Users/dux/project".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_drive_path_splits_into_clickable_crumbs() {
+        let (root, segments) = crumbs(r"C:\Users\dux");
+        assert_eq!(root, codux_runtime::path::FILE_LIST_DRIVES_SENTINEL);
+        assert_eq!(
+            segments,
+            vec![
+                ("C:".into(), r"C:\".into()),
+                ("Users".into(), r"C:\Users".into()),
+                ("dux".into(), r"C:\Users\dux".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_forward_slash_path_also_splits() {
+        let (_root, segments) = crumbs("C:/Users/dux");
+        let targets: Vec<String> = segments.into_iter().map(|(_, target)| target).collect();
+        assert_eq!(targets, vec![r"C:\", r"C:\Users", r"C:\Users\dux"]);
+    }
+
+    #[test]
+    fn windows_drive_root_shows_only_drive_crumb() {
+        let (_root, segments) = crumbs(r"C:\");
+        assert_eq!(segments, vec![("C:".into(), r"C:\".into())]);
+    }
+
+    #[test]
+    fn drive_list_view_has_no_segments() {
+        let (root, segments) = crumbs(codux_runtime::path::FILE_LIST_DRIVES_SENTINEL);
+        assert_eq!(root, codux_runtime::path::FILE_LIST_DRIVES_SENTINEL);
+        assert!(segments.is_empty());
+    }
 }

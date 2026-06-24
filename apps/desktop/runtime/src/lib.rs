@@ -10,6 +10,11 @@ pub use codux_ai_history::usage_store as ai_usage_store;
 // headless agent runs the same engine without the desktop platform layer.
 // Re-exported under the historical module paths the desktop code already uses.
 pub use codux_runtime_live::{ai_runtime, ai_runtime_state, runtime_paths, terminal_pty};
+// Cross-platform path primitives (drive-list sentinel, Windows path detection,
+// separator-aware joins, `\\?\` stripping) live in the shared core crate so the
+// host's file.list and the desktop UI breadcrumb agree on path handling.
+// Re-exported as `codux_runtime::path`.
+pub use codux_runtime_core::path;
 pub mod app_commands;
 pub mod app_icon;
 pub mod app_info;
