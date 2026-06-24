@@ -34,13 +34,13 @@ class _ScannerScreenState extends State<ScannerScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Keep the controller MINIMAL: no forced cameraResolution (it starved the
+    // analysis stream on some MTK/OPLUS devices, so onDetect never fired) and no
+    // autoZoom (it zoomed the centred QR out of frame). Let the device pick its
+    // own compatible resolution; the ticket-free QR is small enough to decode.
     _controller = MobileScannerController(
       autoStart: false,
       formats: const [BarcodeFormat.qrCode],
-      // High analysis resolution so a small or dense pairing QR has enough pixels
-      // per module to decode. NO autoZoom: it predicted an off-centre area and
-      // zoomed the (centred) QR out of frame, so nothing ever decoded.
-      cameraResolution: const Size(1920, 1080),
       detectionSpeed: DetectionSpeed.noDuplicates,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -54,7 +54,14 @@ class _ScannerScreenState extends State<ScannerScreen>
       return;
     }
     _startPending = true;
-    await _controller.start();
+    try {
+      await _controller.start();
+      debugPrint(
+        '[codux-scanner] started running=${_controller.value.isRunning} size=${_controller.value.size}',
+      );
+    } catch (error) {
+      debugPrint('[codux-scanner] start FAILED: $error');
+    }
     _startPending = false;
   }
 
