@@ -702,6 +702,29 @@ impl CoduxApp {
         pending_terminals: Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>,
         cx: &mut Context<Self>,
     ) {
+        // Drop any pending attach whose terminal is ALREADY being attached by an
+        // earlier in-flight call. Each remote attach mints a fresh host PTY, and
+        // the only other guard (the pane registry) misses if a recomputed
+        // pty_config fails to match the still-pending pane — so without this a
+        // racing restore could open two PTYs for one terminal and orphan one. A
+        // skipped pane is reused (it's already registered) once the in-flight
+        // attach lands. `attaching_ids` is exactly what we marked, so completion
+        // clears it regardless of result (panic / generation skip).
+        let mut attaching_ids: Vec<String> = Vec::new();
+        let pending_terminals: Vec<_> = pending_terminals
+            .into_iter()
+            .filter(|(_, pending)| match pending.terminal_id() {
+                Some(id) => {
+                    if self.terminal_attach_in_flight.insert(id.to_string()) {
+                        attaching_ids.push(id.to_string());
+                        true
+                    } else {
+                        false
+                    }
+                }
+                None => true,
+            })
+            .collect();
         if pending_terminals.is_empty() {
             if generation.is_some() {
                 self.terminal_layout_loading = false;
@@ -789,6 +812,11 @@ impl CoduxApp {
             .await
             .unwrap_or_else(|error| vec![("none".to_string(), Err(error.to_string()))]);
             let _ = this.update(cx, |app, cx| {
+                // Release the in-flight guard for everything we marked, before any
+                // early return below, so a terminal is never stuck "attaching".
+                for id in &attaching_ids {
+                    app.terminal_attach_in_flight.remove(id);
+                }
                 let ok_count = results.iter().filter(|(_, result)| result.is_ok()).count();
                 let error = results.iter().find_map(|(terminal_id, result)| {
                     result

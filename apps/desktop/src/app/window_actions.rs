@@ -114,6 +114,7 @@ impl CoduxApp {
             root_focus_handle: None,
             terminals: Vec::new(),
             terminal_pane_registry: HashMap::new(),
+            terminal_attach_in_flight: std::collections::HashSet::new(),
             terminal_manager: Arc::new(TerminalManager::with_ai_runtime(
                 runtime_service.ai_runtime_bridge(),
             )),

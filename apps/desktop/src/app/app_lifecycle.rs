@@ -147,6 +147,7 @@ impl CoduxApp {
             root_focus_handle: None,
             terminals,
             terminal_pane_registry: HashMap::new(),
+            terminal_attach_in_flight: std::collections::HashSet::new(),
             terminal_manager,
             boot_pending_terminals,
             terminal_layout_loading: false,

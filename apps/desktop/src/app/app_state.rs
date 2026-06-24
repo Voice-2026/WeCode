@@ -39,6 +39,11 @@ pub struct CoduxApp {
     pub(in crate::app) root_focus_handle: Option<FocusHandle>,
     pub(in crate::app) terminals: Vec<TerminalTab>,
     pub(in crate::app) terminal_pane_registry: HashMap<String, TerminalPane>,
+    /// Terminal ids with a host attach currently in flight. Each remote attach
+    /// mints a fresh host PTY, so a racing restore that slipped past the pane
+    /// registry could open a second PTY for one terminal and orphan it; this
+    /// guards against that. All access is on the main thread.
+    pub(in crate::app) terminal_attach_in_flight: std::collections::HashSet<String>,
     pub(in crate::app) terminal_manager: Arc<TerminalManager>,
     /// Remote-hosted terminals restored at boot. Boot runs during construction,
     /// before a `Context<Self>` exists to drive the async attach chokepoint, so
