@@ -679,6 +679,14 @@ impl CoduxApp {
         let Some(key) = current_worktree_scope_key(&self.state) else {
             return;
         };
+        // Don't stamp a layout under a key it doesn't belong to. During a
+        // project switch `selected_project` (→ key) can update a beat before
+        // `terminal_layout` is swapped, which would cache the PREVIOUS project's
+        // panes under the NEW project's key; the runtime-cache restore path would
+        // then replay them into the new project (terminal cross-talk).
+        if terminal_layout_is_foreign_to_owner(&self.state.terminal_layout, &key.worktree_id) {
+            return;
+        }
         self.terminal_layout_cache.insert(
             key,
             super::app_state::TerminalLayoutCacheEntry {

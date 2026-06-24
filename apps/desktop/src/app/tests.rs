@@ -283,6 +283,61 @@ mod tests {
     }
 
     #[test]
+    fn terminal_pane_terminal_id_rejects_foreign_owner_id() {
+        // A pane carrying ANOTHER workspace's terminal id (leaked during a laggy
+        // project switch) must NOT be re-prefixed into this owner: that accreted
+        // a project segment on every switch and could resolve to the other
+        // project's live pane (cross-talk). It gets a fresh id owned by THIS
+        // project instead; an id already owned by this project is kept as-is.
+        let base = TerminalLaunchContext {
+            project_id: "project-B".to_string(),
+            project_name: "Codux".to_string(),
+            project_path: PathBuf::from("/workspace/codux"),
+            support_dir: PathBuf::from("/support/Codux"),
+            runtime_root: PathBuf::from("/runtime-root"),
+            terminal_id: None,
+            slot_id: None,
+            session_key: None,
+            session_title: None,
+            session_cwd: None,
+            session_instance_id: None,
+            tool_permissions_file: None,
+            memory_workspace_root: None,
+            memory_prompt_file: None,
+            memory_index_file: None,
+            host_device_id: None,
+        };
+
+        let foreign = TerminalPanePlan {
+            terminal_id: Some("gpui-term-project-A-1234".to_string()),
+            title: "分屏 2".to_string(),
+            restored_output_bytes: 0,
+            restored_output_tail: String::new(),
+        };
+        let derived = terminal_pane_terminal_id(Some(&base), &foreign)
+            .expect("terminal id should be derived");
+        assert!(
+            derived.starts_with("gpui-term-project-B-"),
+            "foreign id not re-owned to this project: {derived}"
+        );
+        assert!(
+            !derived.contains("project-A"),
+            "foreign project segment leaked into id: {derived}"
+        );
+
+        let owned = TerminalPanePlan {
+            terminal_id: Some("gpui-term-project-B-abc".to_string()),
+            title: "分屏 1".to_string(),
+            restored_output_bytes: 0,
+            restored_output_tail: String::new(),
+        };
+        assert_eq!(
+            terminal_pane_terminal_id(Some(&base), &owned).expect("terminal id should be derived"),
+            "gpui-term-project-B-abc"
+        );
+    }
+
+    #[test]
     fn structural_terminal_layout_removes_entries_without_terminal_ids() {
         let layout = TerminalLayoutSummary {
             active_terminal_id: "term-2".to_string(),

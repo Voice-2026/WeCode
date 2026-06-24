@@ -183,6 +183,17 @@ pub(in crate::app) fn normalize_terminal_restore_state(
     };
 
     layout = structural_terminal_layout(layout);
+    // Drop any tab/pane carried over from ANOTHER workspace. A terminal id is
+    // owned by exactly one owner (`gpui-term-{owner}-…`); a foreign-owner id can
+    // leak into this restore during a laggy project switch (e.g. via the runtime
+    // layout cache) and would otherwise resolve to the OTHER project's live pane
+    // — the cross-talk ("串台") where switching projects shows the wrong terminal.
+    layout
+        .top_panes
+        .retain(|pane| !terminal_id_is_foreign_to_owner(&pane.terminal_id, owner_id));
+    layout
+        .tabs
+        .retain(|tab| !terminal_id_is_foreign_to_owner(&tab.terminal_id, owner_id));
     if layout.top_panes.is_empty() && layout.tabs.is_empty() {
         layout = default_terminal_layout_for_owner(Some(owner_id), language);
     }
@@ -358,6 +369,33 @@ fn terminal_session_belongs_to_owner(
     }
     let terminal_prefix = format!("gpui-term-{owner_id}-");
     session.terminal_id.starts_with(&terminal_prefix)
+}
+
+/// Whether `terminal_id` was minted for a DIFFERENT workspace than `owner_id`.
+/// Terminal ids are `gpui-term-{owner}-…`; an id carrying the `gpui-term-`
+/// prefix but a different owner segment belongs to another project/worktree and
+/// must not be restored here. Non-`gpui-term-` ids are left alone (not ours).
+fn terminal_id_is_foreign_to_owner(terminal_id: &str, owner_id: &str) -> bool {
+    let owner_id = owner_id.trim();
+    if owner_id.is_empty() {
+        return false;
+    }
+    terminal_id.starts_with("gpui-term-")
+        && !terminal_id.starts_with(&format!("gpui-term-{owner_id}-"))
+}
+
+/// Whether `layout` carries any pane/tab terminal id minted for a DIFFERENT
+/// owner than `owner_id` — i.e. this layout doesn't belong to that workspace.
+pub(in crate::app) fn terminal_layout_is_foreign_to_owner(
+    layout: &TerminalLayoutSummary,
+    owner_id: &str,
+) -> bool {
+    layout
+        .top_panes
+        .iter()
+        .map(|pane| pane.terminal_id.as_str())
+        .chain(layout.tabs.iter().map(|tab| tab.terminal_id.as_str()))
+        .any(|terminal_id| terminal_id_is_foreign_to_owner(terminal_id, owner_id))
 }
 
 fn restored_terminal_output_tail(
@@ -756,11 +794,16 @@ pub(in crate::app) fn terminal_pane_terminal_id(
     )
 }
 
-fn project_terminal_id(project_id: &str, terminal_id: &str) -> String {
-    if terminal_id.starts_with(&format!("gpui-term-{project_id}-")) {
+fn project_terminal_id(owner_id: &str, terminal_id: &str) -> String {
+    if terminal_id.starts_with(&format!("gpui-term-{owner_id}-")) {
         terminal_id.to_string()
-    } else if let Some(suffix) = terminal_id.strip_prefix("gpui-term-") {
-        format!("gpui-term-{project_id}-{suffix}")
+    } else if terminal_id.starts_with("gpui-term-") {
+        // A `gpui-term-` id minted for a DIFFERENT owner. The old behavior
+        // re-prefixed it (`gpui-term-{owner}-{foreign}-…`), which accreted a new
+        // project segment on every switch AND, un-mangled, could resolve to the
+        // other project's live pane (cross-talk). A foreign id can't be restored
+        // under this owner — mint a fresh one instead.
+        unique_terminal_id(owner_id)
     } else {
         terminal_id.to_string()
     }
