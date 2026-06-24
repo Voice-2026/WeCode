@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../i18n.dart';
@@ -29,6 +30,7 @@ class _ScannerScreenState extends State<ScannerScreen>
   bool _handledPayload = false;
   bool _recognized = false;
   bool _showManualConnect = false;
+  String? _importError;
 
   @override
   void initState() {
@@ -80,6 +82,33 @@ class _ScannerScreenState extends State<ScannerScreen>
 
   void _openManualConnect() {
     setState(() => _showManualConnect = true);
+  }
+
+  /// Decode a QR from a picked screenshot/photo instead of the live camera.
+  /// A static full-resolution image is far easier to decode than the live
+  /// preview stream, so this reliably pairs even on low-resolution tablet
+  /// cameras where the live scan struggles. Reuses the existing scanner's
+  /// `analyzeImage` — no extra dependency.
+  Future<void> _importFromGallery() async {
+    if (_handledPayload) return;
+    if (_importError != null) {
+      setState(() => _importError = null);
+    }
+    final noCodeMessage = AppPreferences.of(context).t('pair.importNoCode');
+    try {
+      final result = await FilePicker.pickFiles(type: FileType.image);
+      final path = result?.files.firstOrNull?.path;
+      if (path == null) return;
+      final capture = await _controller.analyzeImage(path);
+      final value = capture?.barcodes.firstOrNull?.rawValue?.trim();
+      if (value != null && value.isNotEmpty) {
+        _handleDetected(value);
+        return;
+      }
+    } catch (_) {
+      // Fall through to the not-found message below.
+    }
+    if (mounted) setState(() => _importError = noCodeMessage);
   }
 
   void _submitManualPayload(String token) {
@@ -171,12 +200,27 @@ class _ScannerScreenState extends State<ScannerScreen>
                       fontSize: 14,
                     ),
                   ),
+                  if (_importError != null) ...[
+                    const SizedBox(height: AppSpacing.s),
+                    Text(
+                      _importError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFF87171),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.l),
                   Wrap(
                     alignment: WrapAlignment.center,
                     spacing: AppSpacing.s,
                     runSpacing: AppSpacing.s,
                     children: [
+                      _ScannerAction(
+                        label: prefs.t('pair.importImage'),
+                        onTap: _importFromGallery,
+                      ),
                       _ScannerAction(
                         label: prefs.t('pair.manualConnect'),
                         onTap: _openManualConnect,
