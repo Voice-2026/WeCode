@@ -235,10 +235,17 @@ pub struct TerminalOutputSnapshot {
 
 pub type EventSink = Arc<dyn Fn(TerminalEvent) -> bool + Send + Sync + 'static>;
 
+/// Resolves the next viewport owner when a remote lease expires. Called with
+/// `(session_id, expired_owner)`; returns another owner string to hand off to
+/// (e.g. a second phone still watching the same terminal), or `None` to revert
+/// to the host desktop.
+pub type ViewportOwnerResolver = Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>;
+
 pub struct TerminalManager {
     sessions: Arc<parking_lot::Mutex<HashMap<String, Arc<TerminalPtySession>>>>,
     ai_runtime: Option<Arc<AIRuntimeBridge>>,
     viewport_lease_watcher_started: std::sync::Once,
+    viewport_owner_resolver: Arc<parking_lot::Mutex<Option<ViewportOwnerResolver>>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -272,6 +279,7 @@ impl TerminalManager {
             sessions: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             ai_runtime: None,
             viewport_lease_watcher_started: std::sync::Once::new(),
+            viewport_owner_resolver: Arc::new(parking_lot::Mutex::new(None)),
         }
     }
 
@@ -280,7 +288,16 @@ impl TerminalManager {
             sessions: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             ai_runtime: Some(ai_runtime),
             viewport_lease_watcher_started: std::sync::Once::new(),
+            viewport_owner_resolver: Arc::new(parking_lot::Mutex::new(None)),
         }
+    }
+
+    /// Register a policy that picks the next viewport owner when a remote lease
+    /// expires, so a still-active second viewer inherits it instead of the lease
+    /// snapping back to the host desktop. Without a resolver, expiry reverts to
+    /// the host (the previous behavior).
+    pub fn set_viewport_owner_resolver(&self, resolver: ViewportOwnerResolver) {
+        *self.viewport_owner_resolver.lock() = Some(resolver);
     }
 
     pub fn list(&self) -> Vec<TerminalSessionSnapshot> {
@@ -469,6 +486,7 @@ impl TerminalManager {
 
     fn ensure_viewport_lease_watcher(&self) {
         let sessions = Arc::downgrade(&self.sessions);
+        let resolver_slot = Arc::clone(&self.viewport_owner_resolver);
         self.viewport_lease_watcher_started.call_once(move || {
             std::thread::Builder::new()
                 .name("codux-terminal-viewport-lease".to_string())
@@ -478,8 +496,20 @@ impl TerminalManager {
                         let Some(sessions) = sessions.upgrade() else {
                             break;
                         };
-                        for session in sessions.lock().values().cloned().collect::<Vec<_>>() {
-                            session.clone_handle().release_expired_viewport_lease();
+                        let resolver = resolver_slot.lock().clone();
+                        let entries = sessions
+                            .lock()
+                            .iter()
+                            .map(|(id, session)| (id.clone(), session.clone()))
+                            .collect::<Vec<_>>();
+                        for (session_id, session) in entries {
+                            // On expiry, hand off to another active viewer the
+                            // host's resolver names; fall back to the host.
+                            session.clone_handle().reclaim_expired_viewport_lease(|expired| {
+                                resolver
+                                    .as_ref()
+                                    .and_then(|resolve| resolve(&session_id, expired))
+                            });
                         }
                     }
                 })
@@ -1176,13 +1206,34 @@ impl TerminalPtySessionHandle {
     }
 
     pub fn release_expired_viewport_lease(&self) -> Option<TerminalViewportState> {
+        self.reclaim_expired_viewport_lease(|_expired| None)
+    }
+
+    /// Reclaim an expired remote lease. `resolve_next` is consulted only when the
+    /// lease has actually expired and is remote-owned; it receives the expired
+    /// owner and may return ANOTHER owner to hand off to (e.g. a second phone
+    /// still watching this terminal). A `None` -- or an owner equal to the
+    /// expired one or to the local host -- reverts the lease to the host desktop,
+    /// preserving the original behavior.
+    pub fn reclaim_expired_viewport_lease(
+        &self,
+        resolve_next: impl FnOnce(&str) -> Option<String>,
+    ) -> Option<TerminalViewportState> {
         let mut viewport = self.viewport.lock();
         if viewport.state.owner == terminal_viewport_local_owner()
             || viewport.expires_at > Instant::now()
         {
             return None;
         }
-        viewport.state.owner = terminal_viewport_local_owner().to_string();
+        let expired_owner = viewport.state.owner.clone();
+        let next_owner = resolve_next(&expired_owner)
+            .map(|owner| terminal_viewport_owner(&owner))
+            .filter(|owner| {
+                owner.as_str() != expired_owner.as_str()
+                    && owner.as_str() != terminal_viewport_local_owner()
+            })
+            .unwrap_or_else(|| terminal_viewport_local_owner().to_string());
+        viewport.state.owner = next_owner;
         viewport.state.generation = viewport.state.generation.saturating_add(1);
         viewport.expires_at = Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL;
         let state = viewport.state.clone();
@@ -3422,6 +3473,59 @@ mod tests {
         let state = handle.viewport_state();
         assert_eq!(state.owner, terminal_viewport_local_owner());
         assert_eq!((accepted.cols, accepted.rows), (100, 32));
+
+        let _ = session.kill();
+        fs::remove_dir_all(temp).ok();
+    }
+
+    #[test]
+    fn expired_remote_viewport_hands_off_to_another_active_viewer() {
+        let manager = TerminalManager::new();
+        let temp = std::env::temp_dir()
+            .join(format!("codux-terminal-viewport-handoff-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp).unwrap();
+        let session_id = manager
+            .create(
+                TerminalPtyConfig {
+                    shell: Some("sh".to_string()),
+                    command: Some("printf ready".to_string()),
+                    cwd: Some(temp.to_string_lossy().to_string()),
+                    cols: Some(100),
+                    rows: Some(32),
+                    ..Default::default()
+                },
+                |_| {},
+            )
+            .expect("create terminal");
+        let session = manager.session(&session_id).expect("session");
+        let handle = session.clone_handle();
+
+        handle.claim_viewport("remote:phone-a").expect("phone-a claim");
+        {
+            let mut viewport = session.viewport.lock();
+            viewport.expires_at = Instant::now() - Duration::from_secs(1);
+        }
+
+        // A resolver names phone-b as another active viewer: the expired lease is
+        // handed to it instead of snapping back to the host desktop.
+        let reclaimed = handle
+            .reclaim_expired_viewport_lease(|expired| {
+                assert_eq!(expired, "remote:phone-a");
+                Some("remote:phone-b".to_string())
+            })
+            .expect("handoff state");
+        assert_eq!(reclaimed.owner, "remote:phone-b");
+        assert_eq!(handle.viewport_state().owner, "remote:phone-b");
+
+        // With no replacement viewer, expiry reverts to the host desktop.
+        {
+            let mut viewport = session.viewport.lock();
+            viewport.expires_at = Instant::now() - Duration::from_secs(1);
+        }
+        let reverted = handle
+            .reclaim_expired_viewport_lease(|_| None)
+            .expect("revert state");
+        assert_eq!(reverted.owner, terminal_viewport_local_owner());
 
         let _ = session.kill();
         fs::remove_dir_all(temp).ok();

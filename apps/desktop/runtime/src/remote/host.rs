@@ -126,7 +126,9 @@ pub struct RemoteHostRuntime {
     ai_current_sessions: Option<Arc<dyn runtime_ai_stats::RemoteAICurrentSessionProvider>>,
     terminals: Arc<TerminalManager>,
     resource_subscriptions: RuntimeSubscriptionRouter,
-    terminal_subscriptions: RemoteTerminalSubscriptions,
+    // Arc so the viewport-owner resolver (registered on the TerminalManager) can
+    // read the live viewer set when a remote lease expires.
+    terminal_subscriptions: Arc<RemoteTerminalSubscriptions>,
     terminal_output_seq_by_session: Mutex<HashMap<String, TerminalSequence>>,
     terminal_output_batches: Mutex<HashMap<String, RemoteTerminalOutputBatch>>,
     terminal_buffer_baselines: Mutex<HashMap<String, RemoteTerminalBufferBaseline>>,
@@ -202,6 +204,22 @@ impl RemoteHostRuntime {
         terminals: Arc<TerminalManager>,
     ) -> Self {
         let snapshot = RemoteService::new(support_dir.clone()).summary();
+        let terminal_subscriptions = Arc::new(RemoteTerminalSubscriptions::default());
+        // When a remote viewport lease expires, hand it to another phone still
+        // viewing the same terminal (if any) instead of snapping back to the
+        // desktop; only fall back to the desktop when no other viewer remains.
+        {
+            let subscriptions = Arc::clone(&terminal_subscriptions);
+            terminals.set_viewport_owner_resolver(Arc::new(
+                move |session_id: &str, expired_owner: &str| {
+                    subscriptions
+                        .viewers_for_session(session_id, None)
+                        .into_iter()
+                        .map(|device| terminal_viewport_remote_owner(&device))
+                        .find(|owner| owner != expired_owner)
+                },
+            ));
+        }
         Self {
             runtime_instance_id: uuid::Uuid::new_v4().to_string(),
             support_dir,
@@ -209,7 +227,7 @@ impl RemoteHostRuntime {
             ai_current_sessions,
             terminals,
             resource_subscriptions: RuntimeSubscriptionRouter::default(),
-            terminal_subscriptions: RemoteTerminalSubscriptions::default(),
+            terminal_subscriptions,
             terminal_output_seq_by_session: Mutex::new(HashMap::new()),
             terminal_output_batches: Mutex::new(HashMap::new()),
             terminal_buffer_baselines: Mutex::new(HashMap::new()),
@@ -2946,6 +2964,38 @@ impl RemoteHostRuntime {
         self.send_transport(kind, device_id, session_id, payload);
     }
 
+    /// Fan-out helper for terminal output: sends a frame whose payload was
+    /// already serialized once (see [`RemoteService::outgoing_transport_text_raw`]),
+    /// so broadcasting one batch to N subscribers does not clone + re-serialize
+    /// the payload per device. Only the small per-device `seq` wrapper differs.
+    fn send_terminal_output_raw(
+        &self,
+        device_id: Option<&str>,
+        session_id: Option<&str>,
+        payload: &serde_json::value::RawValue,
+    ) -> bool {
+        let text = {
+            let Ok(mut send_seq) = self.send_seq_by_device.lock() else {
+                return false;
+            };
+            self.service().outgoing_transport_text_raw(
+                REMOTE_TERMINAL_OUTPUT,
+                device_id,
+                session_id,
+                payload,
+                &mut send_seq,
+            )
+        };
+        let Some(text) = text else {
+            return false;
+        };
+        let transport = self.transport.lock().ok().and_then(|value| value.clone());
+        let Some(transport) = transport else {
+            return false;
+        };
+        transport.send_terminal(text.into_bytes(), device_id)
+    }
+
     fn send_error(&self, envelope: &RemoteEnvelope, message: &str) {
         self.send_transport(
             "error",
@@ -4082,13 +4132,29 @@ impl RemoteHostRuntime {
             output_seq,
             batch.screen_data,
         );
-        for device_id in batch.viewers {
-            self.send_terminal_data(
-                REMOTE_TERMINAL_OUTPUT,
-                Some(&device_id),
-                Some(session_id),
-                payload.clone(),
-            );
+        // Serialize the payload once and fan it out raw, so N subscribers of the
+        // same terminal don't each clone + re-serialize the whole batch. Falls
+        // back to the per-device path if the payload can't be pre-serialized.
+        match serde_json::value::to_raw_value(&payload) {
+            Ok(payload_raw) => {
+                for device_id in batch.viewers {
+                    self.send_terminal_output_raw(
+                        Some(&device_id),
+                        Some(session_id),
+                        &payload_raw,
+                    );
+                }
+            }
+            Err(_) => {
+                for device_id in batch.viewers {
+                    self.send_terminal_data(
+                        REMOTE_TERMINAL_OUTPUT,
+                        Some(&device_id),
+                        Some(session_id),
+                        payload.clone(),
+                    );
+                }
+            }
         }
     }
 }

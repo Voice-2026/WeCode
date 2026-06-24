@@ -71,6 +71,7 @@ type AIStatsWatchers = Arc<Mutex<HashMap<String, HashSet<String>>>>;
 fn make_handler(
     slot: TransportSlot,
     driver: Arc<TerminalManager>,
+    fanout: crate::terminals::TerminalFanout,
     indexer: AIHistoryIndexer,
     ai_current_sessions: Arc<AgentAICurrentSessionProvider>,
     ai_stats_watchers: AIStatsWatchers,
@@ -91,7 +92,9 @@ fn make_handler(
         // imperatively (they send their own responses) rather than as a
         // single reply.
         if crate::terminals::is_terminal_kind(kind) {
-            crate::terminals::handle_terminal(&driver, &slot, device_id, kind, &payload);
+            crate::terminals::handle_terminal(
+                &driver, &slot, &fanout, device_id, kind, &envelope, &payload,
+            );
             return;
         }
 
@@ -701,6 +704,23 @@ async fn connect_serving_host(
     let candidate: CandidateSlot = Arc::new(Mutex::new(None));
     let ai_runtime = Arc::new(AIRuntimeBridge::new());
     let driver = Arc::new(TerminalManager::with_ai_runtime(Arc::clone(&ai_runtime)));
+    let fanout = crate::terminals::TerminalFanout::new();
+    // On viewport-lease expiry, hand the viewport to another phone still viewing
+    // the same agent terminal (if any) instead of snapping back to the host.
+    {
+        let subscriptions = fanout.subscriptions();
+        driver.set_viewport_owner_resolver(Arc::new(
+            move |session_id: &str, expired_owner: &str| {
+                subscriptions
+                    .viewers_for_session(session_id, None)
+                    .into_iter()
+                    .map(|device| {
+                        codux_runtime_live::terminal_pty::terminal_viewport_remote_owner(&device)
+                    })
+                    .find(|owner| owner != expired_owner)
+            },
+        ));
+    }
     let ai_current_sessions = Arc::new(AgentAICurrentSessionProvider { ai_runtime });
     let ai_stats_watchers: AIStatsWatchers = Arc::new(Mutex::new(HashMap::new()));
     let indexer = crate::ai_stats::open_indexer();
@@ -724,6 +744,7 @@ async fn connect_serving_host(
         make_handler(
             Arc::clone(&slot),
             driver,
+            fanout,
             indexer.clone(),
             Arc::clone(&ai_current_sessions),
             Arc::clone(&ai_stats_watchers),
