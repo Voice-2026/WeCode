@@ -2762,15 +2762,44 @@ impl RemoteHostRuntime {
     }
 
     fn remote_project_list_payload(&self, device_id: Option<&str>) -> Value {
-        let baseline = ProjectStore::new(self.support_dir.clone()).list_snapshot();
+        let store = ProjectStore::new(self.support_dir.clone());
+        let baseline = store.list_snapshot();
+        // Only advertise LOCAL projects to a controller. A project backed by
+        // ANOTHER host (host_device_id set) lives on that host; this host can't
+        // serve its terminal — it would spawn a wrong local shell because the
+        // remote path doesn't exist here. Chained host→host forwarding isn't
+        // supported, so hiding them keeps the controller from opening a project
+        // it can never actually use. (host_device_id is on the full record, not
+        // the list summary, so derive the local set from `projects_snapshot`.)
+        let local_ids: HashSet<String> = store
+            .projects_snapshot()
+            .into_iter()
+            .filter(|project| {
+                project
+                    .host_device_id
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or("")
+                    .is_empty()
+            })
+            .map(|project| project.id)
+            .collect();
         let selected_project_id = self
             .remote_project_scope_id(device_id)
-            .filter(|id| baseline.projects.iter().any(|project| &project.id == id))
-            .or(baseline.selected_project_id);
+            .filter(|id| local_ids.contains(id))
+            .or_else(|| baseline.selected_project_id.filter(|id| local_ids.contains(id)))
+            .or_else(|| {
+                baseline
+                    .projects
+                    .iter()
+                    .find(|project| local_ids.contains(&project.id))
+                    .map(|project| project.id.clone())
+            });
         runtime_project::project_list_payload_with_worktrees(
             baseline
                 .projects
                 .into_iter()
+                .filter(|project| local_ids.contains(&project.id))
                 .map(|project| runtime_project::ProjectListItem {
                     id: project.id,
                     name: project.name,
@@ -2778,10 +2807,11 @@ impl RemoteHostRuntime {
                 }),
             selected_project_id,
             None,
-            ProjectStore::new(self.support_dir.clone())
+            store
                 .snapshot()
                 .worktrees
                 .into_iter()
+                .filter(|worktree| local_ids.contains(&worktree.project_id))
                 .map(|worktree| runtime_project::ProjectWorktreeListItem {
                     id: worktree.id,
                     project_id: worktree.project_id,
