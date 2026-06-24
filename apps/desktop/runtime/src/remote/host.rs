@@ -2269,7 +2269,16 @@ impl RemoteHostRuntime {
         let emit = move |event| {
             runtime.handle_terminal_event(event);
         };
-        let plan = match self.remote_terminal_plan_from_envelope(envelope, None, false) {
+        // A controller passes its stable `terminalId` so we key the session by it
+        // and `attach_or_create` RE-ATTACHES to the still-running shell on a later
+        // open (persistent remote terminals) instead of spawning a new one.
+        let requested_terminal_id = envelope
+            .payload
+            .get("terminalId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty());
+        let plan = match self.remote_terminal_plan_from_envelope(envelope, requested_terminal_id, false)
+        {
             Ok(plan) => plan,
             Err(error) => {
                 self.send_error(envelope, &error);
@@ -2307,6 +2316,17 @@ impl RemoteHostRuntime {
                 }
             }
         }
+        // Detect re-attach BEFORE create (which reuses the session by terminal_id).
+        // Only a re-attach needs the seed buffer: a freshly spawned shell prints
+        // its own prompt as live output, so sending the buffer too could duplicate
+        // it — whereas a re-attached (idle) shell emits nothing, so its screen has
+        // to be replayed from the buffer or the pane stays blank.
+        let reattaching = plan
+            .config
+            .terminal_id
+            .as_deref()
+            .map(|id| self.terminals.snapshot(id).is_ok())
+            .unwrap_or(false);
         match self.terminals.create(plan.config, emit) {
             Ok(session_id) => {
                 self.persist_remote_terminal_layout(
@@ -2327,15 +2347,17 @@ impl RemoteHostRuntime {
                 );
                 self.send_terminal_list(envelope.device_id.as_deref());
                 self.send_terminal_viewport_state(&session_id, envelope.device_id.as_deref());
-                self.send_terminal_buffer(
-                    &session_id,
-                    envelope.device_id.as_deref(),
-                    0,
-                    REMOTE_TERMINAL_BUFFER_MAX_CHARS,
-                    None,
-                    None,
-                    false,
-                );
+                if reattaching {
+                    self.send_terminal_buffer(
+                        &session_id,
+                        envelope.device_id.as_deref(),
+                        0,
+                        REMOTE_TERMINAL_BUFFER_MAX_CHARS,
+                        None,
+                        None,
+                        false,
+                    );
+                }
             }
             Err(error) => self.send_error(envelope, &error.to_string()),
         }

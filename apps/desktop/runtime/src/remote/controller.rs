@@ -858,7 +858,11 @@ impl RemoteController {
         rows: Option<u16>,
         project_id: Option<&str>,
         title: Option<&str>,
+        terminal_id: Option<&str>,
     ) -> Result<String, String> {
+        // Pass our stable terminal id so the host keys the session by it and
+        // RE-ATTACHES to the still-running shell on a later open (persistent
+        // remote terminals) instead of spawning a fresh one each switch.
         self.create_terminal(json!({
             "cwd": cwd,
             "command": command,
@@ -866,6 +870,7 @@ impl RemoteController {
             "rows": rows,
             "projectId": project_id,
             "title": title,
+            "terminalId": terminal_id,
         }))
     }
 

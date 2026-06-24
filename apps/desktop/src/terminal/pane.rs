@@ -248,6 +248,14 @@ impl TerminalPane {
         pending: PendingTerminalAttach,
     ) -> Result<String> {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
+        // Wire the output forwarder under our stable terminal id (== the host's
+        // session id) BEFORE creating. The host sends the seed buffer (history +
+        // current screen, so a re-attached terminal repaints its last content)
+        // immediately after `terminal.created`; registering only after the reply
+        // races that send on another thread and drops the seed.
+        if let Some(terminal_id) = config.terminal_id.as_deref() {
+            register_remote_output(&controller, terminal_id, &pending.output_tx);
+        }
         let session_id = controller
             .open_terminal(
                 config.cwd.as_deref(),
@@ -256,6 +264,7 @@ impl TerminalPane {
                 config.rows,
                 config.project_id.as_deref(),
                 config.title.as_deref(),
+                config.terminal_id.as_deref(),
             )
             .map_err(anyhow::Error::msg)?;
         pending
