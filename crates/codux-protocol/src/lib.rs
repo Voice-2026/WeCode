@@ -248,6 +248,30 @@ pub struct RemoteTransportPairingRequest {
     pub pairing_secret: Option<String>,
 }
 
+/// Validate an incoming pairing request against the host's active pairing
+/// session, returning the rejection reason on mismatch. Both the desktop host
+/// and the headless agent call this, so "the request carries the QR's
+/// pairing_id + code + secret" means exactly the same thing on both — and, with
+/// the operator approval dialog removed, that match IS the trust decision
+/// (whoever can present the QR's secret is trusted to pair).
+pub fn pairing_request_matches(
+    active_pairing_id: &str,
+    active_code: &str,
+    active_secret: &str,
+    request: &RemoteTransportPairingRequest,
+) -> Result<(), &'static str> {
+    if request.pairing_id.as_deref() != Some(active_pairing_id) {
+        return Err("pairing_id_mismatch");
+    }
+    if request.pairing_code.as_deref() != Some(active_code) {
+        return Err("code_mismatch");
+    }
+    if request.pairing_secret.as_deref() != Some(active_secret) {
+        return Err("secret_mismatch");
+    }
+    Ok(())
+}
+
 pub fn iroh_transport_candidate(
     url: impl Into<String>,
     node_id: impl Into<String>,

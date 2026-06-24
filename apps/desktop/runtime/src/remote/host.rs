@@ -1,6 +1,5 @@
 use super::RemoteService;
 use super::crypto::remote_host_name;
-use super::pairing::remote_summary_show_pending_pairing;
 use super::protocol::{
     REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATE, REMOTE_AI_STATS,
     REMOTE_DEVICE_CONNECTED, REMOTE_DEVICE_DISCONNECTED, REMOTE_ERROR, REMOTE_FILE_BYTES_WRITTEN,
@@ -951,57 +950,33 @@ impl RemoteHostRuntime {
             );
             return;
         };
-        if handshake.pairing_id.as_deref() != Some(active_pairing.pairing_id.as_str()) {
+        if let Err(reason) = codux_protocol::pairing_request_matches(
+            &active_pairing.pairing_id,
+            &active_pairing.code,
+            &active_pairing.secret,
+            &handshake,
+        ) {
             crate::runtime_trace::runtime_trace(
                 "remote",
                 &format!(
-                    "pairing_request reject reason=pairing_id_mismatch expected={} received={}",
-                    active_pairing.pairing_id,
-                    handshake.pairing_id.as_deref().unwrap_or("")
-                ),
-            );
-            return;
-        }
-        if handshake.pairing_code.as_deref() != Some(active_pairing.code.as_str()) {
-            crate::runtime_trace::runtime_trace(
-                "remote",
-                &format!(
-                    "pairing_request reject reason=code_mismatch pair={}",
+                    "pairing_request reject reason={reason} pair={}",
                     active_pairing.pairing_id
                 ),
             );
             return;
         }
-        if handshake.pairing_secret.as_deref() != Some(active_pairing.secret.as_str()) {
-            crate::runtime_trace::runtime_trace(
-                "remote",
-                &format!(
-                    "pairing_request reject reason=secret_mismatch pair={}",
-                    active_pairing.pairing_id
-                ),
-            );
-            return;
-        }
-        if let Ok(mut pending) = self.pending_pairings.lock() {
-            pending.insert(active_pairing.pairing_id.clone(), handshake.clone());
-        }
-        let settings = super::remote_settings_from_raw(&self.service().raw_settings());
-        let summary = remote_summary_show_pending_pairing(
-            settings,
-            &active_pairing,
-            active_pairing.pairing_id.clone(),
-            handshake.device_name,
-            handshake.device_id.clone(),
-            active_pairing.code.clone(),
-            active_pairing.secret.clone(),
-        );
+        // The request carried this session's pairing_id + code + secret, which
+        // proves the device scanned our QR — so confirm immediately rather than
+        // prompting an operator. The headless agent runs the same shared
+        // match-then-confirm path, so the two hosts pair identically.
         crate::runtime_trace::runtime_trace(
             "remote",
             &format!(
-                "pairing_request pending device={} pair={}",
+                "pairing_request auto_confirm device={} pair={}",
                 handshake.device_id, active_pairing.pairing_id
             ),
         );
+        let summary = self.finalize_remote_pairing(&handshake);
         self.update_snapshot(summary);
     }
 
@@ -1069,23 +1044,25 @@ impl RemoteHostRuntime {
         &self,
         pairing: &RemotePairingInfo,
     ) -> Result<RemotePairingPollResult, String> {
-        let pending = self
-            .pending_pairings
+        // Match-then-confirm has no operator step: a matching request is
+        // auto-confirmed and clears the active pairing. So once our active
+        // pairing for this id is gone, the device paired — report finished so
+        // the pairing screen closes on its own.
+        let still_active = self
+            .active_pairing
             .lock()
             .ok()
-            .and_then(|pending| pending.get(&pairing.pairing_id).cloned());
-        if let Some(handshake) = pending {
-            let settings = super::remote_settings_from_raw(&self.service().raw_settings());
-            let summary = remote_summary_show_pending_pairing(
-                settings,
-                pairing,
-                pairing.pairing_id.clone(),
-                handshake.device_name,
-                handshake.device_id.clone(),
-                pairing.code.clone(),
-                pairing.secret.clone(),
-            );
-            self.update_snapshot(summary.clone());
+            .map(|value| {
+                value
+                    .as_ref()
+                    .map(|active| active.pairing_id == pairing.pairing_id)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        if !still_active {
+            let mut summary = self.service().summary();
+            summary.status = "connected".to_string();
+            summary.message = "Pairing confirmed.".to_string();
             return Ok(RemotePairingPollResult {
                 summary,
                 finished: true,
@@ -1151,17 +1128,12 @@ impl RemoteHostRuntime {
         Ok(summary)
     }
 
-    pub fn confirm_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
-        let pairing_id = pairing_id.trim();
-        if pairing_id.is_empty() {
-            return Err("Missing pairing id.".to_string());
-        }
-        let handshake = self
-            .pending_pairings
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.remove(pairing_id))
-            .ok_or_else(|| "Remote pairing request not found.".to_string())?;
+    /// Record the paired device, clear the active pairing session, and send the
+    /// confirmed transports back to the controller. Shared by the auto-confirm
+    /// path (a request whose code/secret matched the QR) and the legacy operator
+    /// confirm — on a match the QR's secret already proves trust, so no dialog
+    /// gates this.
+    fn finalize_remote_pairing(&self, handshake: &RemoteTransportPairingRequest) -> RemoteSummary {
         let mut raw = self.service().raw_settings();
         let mut settings = super::remote_settings_from_raw(&raw);
         let device_id = handshake.device_id.clone();
@@ -1180,13 +1152,15 @@ impl RemoteHostRuntime {
             online: Some(false),
             platform: handshake.platform.clone().unwrap_or_default(),
         });
-        raw.insert(
-            "remote".to_string(),
-            serde_json::to_value(&settings).map_err(|error| error.to_string())?,
-        );
-        self.service().save_raw_settings(&raw)?;
+        if let Ok(value) = serde_json::to_value(&settings) {
+            raw.insert("remote".to_string(), value);
+            let _ = self.service().save_raw_settings(&raw);
+        }
         if let Ok(mut active) = self.active_pairing.lock() {
             *active = None;
+        }
+        if let Ok(mut pending) = self.pending_pairings.lock() {
+            pending.clear();
         }
         let transports = self
             .transport_candidates_snapshot()
@@ -1209,6 +1183,21 @@ impl RemoteHostRuntime {
         let mut summary = self.service().summary();
         summary.status = "connected".to_string();
         summary.message = "Pairing confirmed.".to_string();
+        summary
+    }
+
+    pub fn confirm_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
+        let pairing_id = pairing_id.trim();
+        if pairing_id.is_empty() {
+            return Err("Missing pairing id.".to_string());
+        }
+        let handshake = self
+            .pending_pairings
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(pairing_id))
+            .ok_or_else(|| "Remote pairing request not found.".to_string())?;
+        let summary = self.finalize_remote_pairing(&handshake);
         self.update_snapshot(summary.clone());
         Ok(summary)
     }

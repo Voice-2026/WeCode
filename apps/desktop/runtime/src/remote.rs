@@ -5,7 +5,6 @@ mod crypto;
 mod devices;
 mod envelope;
 mod host;
-mod pairing;
 mod protocol;
 mod registration;
 mod relay;

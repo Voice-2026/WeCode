@@ -4,7 +4,6 @@ use super::host::{
     remote_terminal_upload_directory, sanitized_remote_upload_name, terminal_upload_path_input,
     unique_remote_upload_path,
 };
-use super::pairing::remote_summary_show_pending_pairing;
 use super::summary::remote_summary_from_settings;
 use super::transport_factory::host_transport_config;
 use super::types::{RemoteDeviceSettings, RemoteHostEvent, RemotePairingInfo, RemoteSettings};
@@ -236,54 +235,6 @@ fn remote_relay_presets_use_iroh_relay_urls() {
         super::relay::remote_relay_preset_for_url("https://relay.example"),
         "custom"
     );
-}
-
-#[test]
-fn pending_pairing_summary_matches_tauri_claimed_status_shape() {
-    let settings = RemoteSettings {
-        is_enabled: true,
-        relay_preset: "custom".to_string(),
-        relay_url: "http://relay.example".to_string(),
-        host_id: "host-1".to_string(),
-        host_token: "host-token".to_string(),
-        ..Default::default()
-    };
-    let active_pairing = RemotePairingInfo {
-        pairing_id: "pair-1".to_string(),
-        code: "123456".to_string(),
-        secret: "secret".to_string(),
-        expires_at: "2026-01-01T00:00:00Z".to_string(),
-        qr_payload: "payload".to_string(),
-    };
-
-    let summary = remote_summary_show_pending_pairing(
-        settings.clone(),
-        &active_pairing,
-        "pair-1".to_string(),
-        "iPhone".to_string(),
-        "device-1".to_string(),
-        "654321".to_string(),
-        "secret".to_string(),
-    );
-
-    assert_eq!(summary.status, "connected");
-    assert_eq!(summary.message, "Confirm device pairing.");
-    assert!(summary.pairing.is_none());
-    assert_eq!(summary.pending_pairings, 1);
-    assert_eq!(summary.pending_pairing_list[0].id, "pair-1");
-    assert_eq!(summary.pending_pairing_list[0].device_name, "iPhone");
-    assert_eq!(summary.pending_pairing_list[0].code, "654321");
-
-    let without_device_key = remote_summary_show_pending_pairing(
-        settings,
-        &active_pairing,
-        "pair-2".to_string(),
-        "Mobile Device".to_string(),
-        String::new(),
-        "111222".to_string(),
-        "secret".to_string(),
-    );
-    assert_eq!(without_device_key.pending_pairing_list[0].code, "111222");
 }
 
 #[test]
