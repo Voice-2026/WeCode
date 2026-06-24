@@ -304,7 +304,10 @@ pub fn handle_terminal(
                 TerminalEvent::Output { session_id, bytes, .. } => {
                     let data = String::from_utf8_lossy(&bytes).to_string();
                     let next = fanout_for_emit.next_seq(&session_id);
-                    let screen = driver_for_emit.snapshot(&session_id).ok();
+                    // Live output is a pure byte stream — no per-output screen
+                    // keyframe. Replaying a whole-screen keyframe on top of the
+                    // viewer's own scrollback duplicated the screen (badly on
+                    // resize); the snapshot was also serialized on every chunk.
                     let buffer_len = driver_for_emit
                         .buffer_characters(&session_id)
                         .ok()
@@ -312,7 +315,7 @@ pub fn handle_terminal(
                     let envelope = json!({
                         "type": REMOTE_TERMINAL_OUTPUT,
                         "sessionId": session_id,
-                        "payload": terminal_live_output_payload(data, buffer_len, next, screen),
+                        "payload": terminal_live_output_payload(data, buffer_len, next),
                     });
                     fanout(
                         &transport_for_emit,
