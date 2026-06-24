@@ -64,7 +64,7 @@ impl TerminalOutputSequencer {
         let session_id = session_id.as_ref();
         let previous_seq = self.sequence_for(session_id);
         if is_buffer {
-            let should_reset = offset.unwrap_or(0) <= 0 || resets_sequence;
+            let should_reset = offset.unwrap_or(0) == 0 || resets_sequence;
             if should_reset {
                 self.allow_next_live_rebase_sessions
                     .insert(session_id.to_string());
