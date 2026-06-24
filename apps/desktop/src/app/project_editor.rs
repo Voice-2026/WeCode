@@ -249,12 +249,20 @@ impl CoduxApp {
             .flex_1()
             .flex()
             .flex_col()
-            .child(file_picker_breadcrumb(
-                &current,
-                &root_label,
-                active_device.is_some(),
-                cx,
-            ))
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .border_b_1()
+                    .border_color(color(theme::BORDER_SOFT))
+                    .child(div().flex_1().min_w_0().child(file_picker_breadcrumb(
+                        &current,
+                        &root_label,
+                        active_device.is_some(),
+                        cx,
+                    )))
+                    .child(file_picker_refresh_button(cx)),
+            )
             .child(list);
         // Save mode: a filename row (prefilled when an existing file is clicked).
         if mode == FilePickerMode::Save {
@@ -498,9 +506,7 @@ fn file_picker_breadcrumb(
         .gap(px(2.0))
         .px(px(16.0))
         .pt(px(16.0))
-        .pb(px(10.0))
-        .border_b_1()
-        .border_color(color(theme::BORDER_SOFT));
+        .pb(px(10.0));
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return bar
@@ -527,6 +533,39 @@ fn file_picker_breadcrumb(
         ));
     }
     row.into_any_element()
+}
+
+/// A fixed refresh button at the top-right of the file picker: re-lists the
+/// current directory. Remote browsing never auto-refreshes (the watcher is
+/// host-side), so this is the manual reload.
+fn file_picker_refresh_button(cx: &mut Context<CoduxApp>) -> AnyElement {
+    div()
+        .flex_none()
+        .pt(px(12.0))
+        .pr(px(12.0))
+        .child(
+            div()
+                .id("file-picker-refresh")
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(28.0))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .hover(|style| style.bg(cx.theme().secondary))
+                .child(
+                    Icon::new(HeroIconName::ArrowPath)
+                        .size_4()
+                        .text_color(color(theme::TEXT_MUTED)),
+                )
+                .on_click(cx.listener(|app, _event, window, cx| {
+                    let current = app.project_editor_browse_path.clone();
+                    if !current.trim().is_empty() {
+                        app.project_editor_browse_navigate(Some(current), window, cx);
+                    }
+                })),
+        )
+        .into_any_element()
 }
 
 /// One clickable breadcrumb segment: its visible label and the absolute path it
