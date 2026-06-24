@@ -21,7 +21,6 @@ use state::{
     merge_worktree_snapshot, raw_snapshot, save_raw_snapshot, selected_worktree_id_from_state,
 };
 use std::{
-    fs,
     path::{Path, PathBuf},
 };
 

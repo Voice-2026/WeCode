@@ -1,9 +1,6 @@
 use super::{
     WorktreeCreateRequest, WorktreeService,
-    git_ops::{
-        current_branch, delete_local_branch, mergeable_branch, removable_worktree_branch,
-        worktree_slug, worktree_uuid,
-    },
+    git_ops::worktree_uuid,
     scan::{ScannedTask, ScannedWorktree, ScannedWorktreeSnapshot},
     state::merge_worktree_snapshot,
 };
@@ -507,59 +504,11 @@ fn tauri_create_request_uses_requested_branch_and_task_title() {
 }
 
 #[test]
-fn generates_stable_worktree_slugs_and_ids() {
-    assert_eq!(worktree_slug("feature/One!"), "feature-one");
+fn generates_stable_worktree_ids() {
     assert_eq!(
         worktree_uuid("project", "/repo/.codux/worktrees/feature-one"),
         worktree_uuid("project", "/repo/.codux/worktrees/feature-one")
     );
-}
-
-#[test]
-fn resolves_only_mergeable_worktree_branches() {
-    assert_eq!(
-        mergeable_branch(Some("feature/one"), "fallback").as_deref(),
-        Some("feature/one")
-    );
-    assert_eq!(
-        mergeable_branch(Some("HEAD"), "fallback").as_deref(),
-        Some("fallback")
-    );
-    assert!(mergeable_branch(None, "detached abc1234").is_none());
-    assert!(mergeable_branch(Some("detached HEAD"), "fallback").is_none());
-    assert!(mergeable_branch(None, " ").is_none());
-}
-
-#[test]
-fn removable_worktree_branch_skips_current_default_branch() {
-    let repo = temp_dir("worktree-default-branch");
-    create_repo_with_commit(&repo);
-
-    assert_eq!(
-        removable_worktree_branch(repo.to_str().expect("repo"), repo.to_str().expect("repo")),
-        None
-    );
-
-    fs::remove_dir_all(repo).ok();
-}
-
-#[test]
-fn delete_local_branch_ignores_missing_branch_and_rejects_current_branch() {
-    let repo = temp_dir("worktree-delete-branch");
-    create_repo_with_commit(&repo);
-    create_branch(&repo, "topic/delete-me");
-
-    delete_local_branch(repo.to_str().expect("repo"), "topic/delete-me").expect("delete branch");
-    delete_local_branch(repo.to_str().expect("repo"), "topic/delete-me")
-        .expect("ignore missing branch");
-    assert!(!branch_exists(
-        repo.to_str().expect("repo"),
-        "topic/delete-me"
-    ));
-    let current = current_branch(repo.to_str().expect("repo")).expect("current branch");
-    assert!(delete_local_branch(repo.to_str().expect("repo"), &current).is_err());
-
-    fs::remove_dir_all(repo).ok();
 }
 
 #[test]
@@ -678,15 +627,6 @@ fn commit_file(repo_path: &Path, relative_path: &str, content: &str, message: &s
         &[&parent],
     )
     .expect("commit file");
-}
-
-fn create_branch(repo: &Path, branch: &str) {
-    let git = super::GitRepository::discover(repo).expect("discover repo");
-    let head = git
-        .head()
-        .and_then(|head| head.peel_to_commit())
-        .expect("head commit");
-    git.branch(branch, &head, false).expect("create branch");
 }
 
 fn branch_exists(repo: &str, branch: &str) -> bool {

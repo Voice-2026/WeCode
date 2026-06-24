@@ -1,8 +1,9 @@
 //! Worktree listing for the headless host via the `git worktree` CLI. The
 //! desktop has a richer WorktreeService (tasks, default/selected state in
 //! state.json); the agent reports the real git worktrees so a controller's
-//! worktree panel populates. Mutations (create/merge/remove) follow the same
-//! CLI approach as the git domain.
+//! worktree panel populates. Mutations (create/merge/remove) route through the
+//! shared `codux_git::worktree` engine — the same git2 implementation + managed
+//! path convention the desktop uses — so the two hosts can't drift on them.
 
 use codux_runtime_core::worktree::{
     RuntimeWorktreeItem, default_worktree_base_branch, selected_runtime_worktree_id,
@@ -106,94 +107,37 @@ fn entry_id(project_id: &str, entry: &ScannedEntry) -> String {
     }
 }
 
-/// Create a worktree (`git worktree add`) at a sibling `.worktrees/<branch>` dir.
+/// Create a worktree via the shared `codux-git` engine — the same git2 backend
+/// and managed `.codux/worktrees/<slug>` path the desktop host uses, so the two
+/// hosts never diverge on path layout or branch setup.
 pub fn worktree_create(
     project_path: &str,
     branch_name: &str,
     base_branch: Option<&str>,
 ) -> Result<(), String> {
-    if branch_name.trim().is_empty() {
-        return Err("A branch name is required.".to_string());
-    }
-    let target = worktree_target_path(project_path, branch_name);
-    let mut args: Vec<&str> = vec!["worktree", "add", &target, "-b", branch_name];
-    if let Some(base) = base_branch.filter(|value| !value.trim().is_empty()) {
-        args.push(base);
-    }
-    run_git(project_path, &args)
+    codux_git::worktree::create_worktree(project_path, branch_name, base_branch).map(|_| ())
 }
 
-/// Remove a worktree (`git worktree remove`), optionally deleting its branch.
+/// Remove a worktree (and optionally its branch) via the shared `codux-git`
+/// engine.
 pub fn worktree_remove(
     project_path: &str,
     worktree_path: &str,
     remove_branch: bool,
 ) -> Result<(), String> {
-    let branch = remove_branch
-        .then(|| {
-            Command::new("git")
-                .arg("-C")
-                .arg(worktree_path)
-                .args(["rev-parse", "--abbrev-ref", "HEAD"])
-                .output()
-                .ok()
-                .filter(|output| output.status.success())
-                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        })
-        .flatten();
-    run_git(project_path, &["worktree", "remove", "--force", worktree_path])?;
-    if let Some(branch) = branch.filter(|value| !value.is_empty() && value != "HEAD") {
-        let _ = run_git(project_path, &["branch", "-D", &branch]);
-    }
-    Ok(())
+    codux_git::worktree::remove_worktree(project_path, worktree_path, remove_branch)
 }
 
 /// Merge a worktree's branch into `base_branch` (in the main worktree),
-/// optionally removing the worktree + branch afterwards.
+/// optionally removing the worktree + branch afterwards, via the shared
+/// `codux-git` engine.
 pub fn worktree_merge(
     project_path: &str,
     worktree_path: &str,
     base_branch: Option<&str>,
     remove_branch: bool,
 ) -> Result<(), String> {
-    let branch = Command::new("git")
-        .arg("-C")
-        .arg(worktree_path)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty() && value != "HEAD")
-        .ok_or_else(|| "Could not resolve the worktree's branch.".to_string())?;
-    if let Some(base) = base_branch.filter(|value| !value.trim().is_empty()) {
-        run_git(project_path, &["checkout", base])?;
-    }
-    run_git(project_path, &["merge", "--no-edit", &branch])?;
-    if remove_branch {
-        let _ = run_git(project_path, &["worktree", "remove", "--force", worktree_path]);
-        let _ = run_git(project_path, &["branch", "-D", &branch]);
-    }
-    Ok(())
-}
-
-fn worktree_target_path(project_path: &str, branch_name: &str) -> String {
-    let safe = branch_name.replace(['/', '\\'], "-");
-    format!("{}/.worktrees/{safe}", project_path.trim_end_matches('/'))
-}
-
-fn run_git(repo: &str, args: &[&str]) -> Result<(), String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .output()
-        .map_err(|error| format!("failed to run git: {error}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
-    }
+    codux_git::worktree::merge_worktree(project_path, worktree_path, base_branch, remove_branch)
 }
 
 fn worktree_entry(project_id: &str, entry: &ScannedEntry) -> Value {

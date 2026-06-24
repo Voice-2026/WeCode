@@ -53,18 +53,6 @@ pub(super) fn list_git_worktrees(root_path: &str) -> Result<Vec<GitWorktreeEntry
     Ok(entries)
 }
 
-pub(super) fn has_head_commit(root_path: &str) -> bool {
-    GitRepository::discover(root_path)
-        .ok()
-        .map(|repo| {
-            repo.head()
-                .ok()
-                .and_then(|head| head.peel_to_commit().ok())
-                .is_some()
-        })
-        .unwrap_or(false)
-}
-
 pub(super) fn commit_hash(root_path: &str, ref_name: &str) -> Option<String> {
     let ref_name = ref_name.trim();
     if ref_name.is_empty() {

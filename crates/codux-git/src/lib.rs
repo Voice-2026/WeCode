@@ -44,3 +44,4 @@ include!("metadata.rs");
 include!("tests.rs");
 
 pub mod wire;
+pub mod worktree;
