@@ -59,7 +59,8 @@ pub struct RemoteControllerTarget {
 
 /// A pairing ticket pasted by the user: the host emits a `codux://pair?payload=`
 /// URL whose base64url payload is `{code, secret, pairingId, transports[]}`.
-/// The iroh node id + relay are carried inside each transport's `ticket`.
+/// Each iroh transport carries either a full `ticket`, or a `node_id` +
+/// `relay_url` pair (the slim QR form) — either is enough to dial.
 #[derive(Clone, Debug)]
 pub struct PairingTicket {
     pub code: String,
@@ -72,7 +73,18 @@ pub struct PairingTicket {
 pub struct TicketTransport {
     pub kind: String,
     pub ticket: String,
+    pub node_id: String,
+    pub relay_url: String,
     pub relay_authentication: String,
+}
+
+impl TicketTransport {
+    /// Whether this transport carries enough to dial: a full ticket, or a node
+    /// id + relay url pair (the slim QR form).
+    fn is_dialable_iroh(&self) -> bool {
+        self.kind == REMOTE_TRANSPORT_IROH
+            && (!self.ticket.is_empty() || (!self.node_id.is_empty() && !self.relay_url.is_empty()))
+    }
 }
 
 /// A directory listing on a remote host, parsed from the `file.list` payload so
@@ -135,6 +147,16 @@ pub fn parse_pairing_ticket(input: &str) -> Result<PairingTicket, String> {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    node_id: item
+                        .get("nodeId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    relay_url: item
+                        .get("relayUrl")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
                     relay_authentication: item
                         .get("relayAuthentication")
                         .and_then(Value::as_str)
@@ -157,7 +179,7 @@ pub fn parse_pairing_ticket(input: &str) -> Result<PairingTicket, String> {
     if !ticket
         .transports
         .iter()
-        .any(|transport| transport.kind == REMOTE_TRANSPORT_IROH && !transport.ticket.is_empty())
+        .any(TicketTransport::is_dialable_iroh)
     {
         return Err("Pairing ticket has no usable iroh transport.".to_string());
     }
@@ -332,15 +354,19 @@ impl RemoteController {
         let iroh = ticket
             .transports
             .iter()
-            .find(|transport| transport.kind == REMOTE_TRANSPORT_IROH && !transport.ticket.is_empty())
+            .find(|transport| transport.is_dialable_iroh())
             .ok_or_else(|| "Pairing ticket has no usable iroh transport.".to_string())?;
         let controller = Self::connect(
             &RemoteControllerTarget {
                 host_id: String::new(),
                 device_id: device_id.clone(),
                 device_token: String::new(),
-                relay_url: String::new(),
-                node_id: String::new(),
+                // Carry whichever the ticket provided — a full ticket, or a
+                // node id + relay url pair (slim QR). `connect` hands all of them
+                // to the transport candidate, which dials with the ticket if
+                // present and otherwise from node id + relay url.
+                relay_url: iroh.relay_url.clone(),
+                node_id: iroh.node_id.clone(),
                 ticket: iroh.ticket.clone(),
                 relay_authentication: iroh.relay_authentication.clone(),
             },
@@ -995,6 +1021,8 @@ mod e2e {
                 transports: vec![TicketTransport {
                     kind: REMOTE_TRANSPORT_IROH.to_string(),
                     ticket: endpoint_ticket,
+                    node_id: String::new(),
+                    relay_url: String::new(),
                     relay_authentication: String::new(),
                 }],
             };
@@ -1204,6 +1232,8 @@ mod e2e {
                 transports: vec![TicketTransport {
                     kind: REMOTE_TRANSPORT_IROH.to_string(),
                     ticket: host.iroh_endpoint_ticket().expect("ticket"),
+                    node_id: String::new(),
+                    relay_url: String::new(),
                     relay_authentication: String::new(),
                 }],
             };
@@ -1479,6 +1509,23 @@ mod tests {
         let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&payload).unwrap());
         assert!(parse_pairing_ticket(&encoded).is_err());
+    }
+
+    #[test]
+    fn parse_pairing_ticket_accepts_node_and_relay_without_ticket() {
+        // The slim QR form: node id + relay url, no iroh endpoint ticket.
+        let payload = json!({
+            "code": "1234",
+            "secret": "s3cr3t",
+            "pairingId": "pair-abc",
+            "transports": [{ "kind": "iroh", "nodeId": "node-x", "relayUrl": "https://relay.example/" }],
+        });
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&payload).unwrap());
+        let ticket = parse_pairing_ticket(&encoded).expect("slim ticket should parse");
+        assert_eq!(ticket.transports[0].node_id, "node-x");
+        assert_eq!(ticket.transports[0].relay_url, "https://relay.example/");
+        assert!(ticket.transports[0].ticket.is_empty());
     }
 
     #[test]
