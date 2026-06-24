@@ -136,6 +136,24 @@ pub(super) fn normalized_existing_path(path: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
+/// Normalize a project path, validating **local** existence only for local
+/// projects. A remote-hosted project's path lives on the host's filesystem
+/// (e.g. a Windows `F:\test`), which neither exists on — nor can be
+/// canonicalized to — this machine; for those we keep the host path verbatim
+/// (just trimmed + non-empty). Without this, creating a remote project fails
+/// the `Path::exists()` check and the editor silently refuses to save (the
+/// error only lands in the main window's status bar).
+pub(super) fn normalized_project_path(path: &str, is_remote: bool) -> Result<String, String> {
+    if !is_remote {
+        return normalized_existing_path(path);
+    }
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("Project path cannot be empty.".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
 pub(super) fn normalize_path(path: &str) -> String {
     PathBuf::from(path)
         .canonicalize()

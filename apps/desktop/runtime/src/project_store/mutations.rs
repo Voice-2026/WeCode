@@ -4,8 +4,8 @@ use super::{
     ProjectUpdateRequest,
 };
 use crate::project_store::helpers::{
-    normalize_path, normalized_existing_path, normalized_project_name, optional_string_value,
-    project_uuid,
+    normalize_path, normalized_existing_path, normalized_project_name, normalized_project_path,
+    optional_string_value, project_uuid,
 };
 use crate::project_store::raw_state::{
     ensure_array, project_index, project_record, prune_project_state, select_project_after_removal,
@@ -20,7 +20,11 @@ impl ProjectStore {
         &self,
         request: ProjectCreateRequest,
     ) -> Result<ProjectListSnapshot, String> {
-        let project_id = self.create_or_select_project(&request.name, &request.path)?;
+        let project_id = self.create_or_select_project_with_host(
+            &request.name,
+            &request.path,
+            request.host_device_id.as_deref(),
+        )?;
         let mut raw = self.raw_snapshot();
         if let Some(projects) = raw.get_mut("projects").and_then(Value::as_array_mut)
             && let Some(project) = projects.iter_mut().find_map(|value| {
@@ -54,7 +58,8 @@ impl ProjectStore {
         &self,
         request: ProjectUpdateRequest,
     ) -> Result<ProjectListSnapshot, String> {
-        let project_path = normalized_existing_path(&request.path)?;
+        let project_path =
+            normalized_project_path(&request.path, request.host_device_id.is_some())?;
         let project_name = normalized_project_name(&request.name, &project_path);
         let mut raw = self.raw_snapshot();
         {
@@ -222,7 +227,22 @@ impl ProjectStore {
     }
 
     pub fn create_or_select_project(&self, name: &str, path: &str) -> Result<String, String> {
-        let project_path = normalized_existing_path(path)?;
+        // A bare create/select is always a local project (the add-project flow
+        // routes remote projects through `create_project` with a host id).
+        self.create_or_select_project_with_host(name, path, None)
+    }
+
+    /// Create-or-select a project, host-aware: a remote project (`host_device_id`
+    /// `Some`) keeps its host-side path verbatim instead of validating local
+    /// existence, so a Windows `F:\test` browsed on a paired host can be saved
+    /// from macOS.
+    pub(super) fn create_or_select_project_with_host(
+        &self,
+        name: &str,
+        path: &str,
+        host_device_id: Option<&str>,
+    ) -> Result<String, String> {
+        let project_path = normalized_project_path(path, host_device_id.is_some())?;
         let project_name = normalized_project_name(name, &project_path);
         let mut raw = self.raw_snapshot();
         let projects = ensure_array(&mut raw, "projects")?;

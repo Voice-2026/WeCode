@@ -14,7 +14,7 @@ use codux_remote_transport::RemoteTransportStateHandler;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Liveness of the client→host iroh link for a paired device.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -257,6 +257,53 @@ impl RemoteControllerManager {
             }
         } else {
             Err(format!("No saved remote host for device {device_id}."))
+        }
+    }
+
+    /// Like [`controller_for`](Self::controller_for), but waits (bounded) for a
+    /// not-yet-connected host to come up instead of failing immediately.
+    ///
+    /// `controller_for` never blocks because it's called from latency-sensitive
+    /// and UI-thread paths. But the add-project file browser and its "new
+    /// folder"/create run on the blocking pool in response to an explicit user
+    /// action, where a short wait (with the picker showing its loading state) is
+    /// exactly right — it turns the "first click shows nothing, second click
+    /// works" race (the first call only *kicks off* the background reconnect)
+    /// into a single successful call. NEVER call this from the UI thread.
+    pub fn controller_for_blocking(
+        &self,
+        device_id: &str,
+        timeout: Duration,
+    ) -> Result<Arc<RemoteController>, String> {
+        // Already connected (re-browsing the same host): no wait.
+        if let Ok(connections) = self.shared.connections.lock() {
+            if let Some(controller) = connections.get(device_id).cloned() {
+                return Ok(controller);
+            }
+        }
+        // Kick off (or join) the background reconnect loop, then poll the pool
+        // until it lands the link or we hit the deadline.
+        if !self.shared.ensure_reconnect_loop(device_id) {
+            return Err(format!("No saved remote host for device {device_id}."));
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Ok(connections) = self.shared.connections.lock() {
+                if let Some(controller) = connections.get(device_id).cloned() {
+                    return Ok(controller);
+                }
+            }
+            if Instant::now() >= deadline {
+                // Surface the real reconnect failure (offline host, relay
+                // unreachable, dial timeout) so the picker shows *why*.
+                return Err(match self.shared.last_error(device_id) {
+                    Some(error) => format!(
+                        "Remote host {device_id} is not reachable yet (last attempt failed: {error})."
+                    ),
+                    None => format!("Remote host {device_id} is still connecting; try again."),
+                });
+            }
+            std::thread::sleep(Duration::from_millis(120));
         }
     }
 

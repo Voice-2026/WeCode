@@ -2194,7 +2194,11 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            // `spawn_blocking` (unbounded pool), not `run_limited_blocking`: a
+            // remote create may wait for the host to connect, and that wait must
+            // not occupy the single-worker priority queue (which would freeze
+            // every other blocking load — file tree, git — meanwhile).
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
                 match device_id.as_deref() {
                     Some(device_id) => runtime_service
                         .remote_create_directory(device_id, &target)
@@ -2248,7 +2252,11 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
 
         cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+            // `spawn_blocking` (unbounded pool), not `run_limited_blocking`: the
+            // first browse of a remote host waits (bounded) for it to connect,
+            // and that wait must not occupy the single-worker priority queue —
+            // doing so would freeze every other blocking load until it returns.
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
                 match device_id.as_deref() {
                     Some(device_id) => {
                         runtime_service.remote_browse_directory(device_id, path_for_call.as_deref())

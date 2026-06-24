@@ -3,6 +3,12 @@
 // the add-project remote flow; routing a hosted project's other domains builds
 // on `controller_for`.
 
+/// How long the add-project file browser waits for a paired host to (re)connect
+/// before reporting it unreachable. Long enough to cover an iroh relay/holepunch
+/// dial on first use after launch, short enough that a genuinely offline host
+/// fails with a clear message instead of hanging.
+const REMOTE_PICKER_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
 impl RuntimeService {
     /// Pair with a remote host from a pasted `codux://pair` ticket, persist it,
     /// and cache the live connection.
@@ -44,8 +50,11 @@ impl RuntimeService {
         device_id: &str,
         path: Option<&str>,
     ) -> Result<crate::remote::RemoteDirectoryListing, String> {
+        // Runs on the blocking pool from an explicit user click: wait (bounded)
+        // for the host to connect so the first browse after launch shows the
+        // listing, rather than an empty pane until a second click.
         self.remote_controllers
-            .controller_for(device_id)?
+            .controller_for_blocking(device_id, REMOTE_PICKER_CONNECT_TIMEOUT)?
             .browse_directory(path)
     }
 
@@ -56,7 +65,7 @@ impl RuntimeService {
         path: &str,
     ) -> Result<serde_json::Value, String> {
         self.remote_controllers
-            .controller_for(device_id)?
+            .controller_for_blocking(device_id, REMOTE_PICKER_CONNECT_TIMEOUT)?
             .create_directory(path)
     }
 

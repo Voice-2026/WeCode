@@ -100,6 +100,37 @@ fn create_project_persists_host_device_id_round_trip() {
 }
 
 #[test]
+fn create_remote_project_keeps_host_path_without_local_existence_check() {
+    // The host path lives on the paired machine, not this one, so it must NOT be
+    // validated against (or canonicalized on) the local filesystem. A Windows
+    // `F:\…` path browsed from macOS would otherwise fail `Path::exists()` and
+    // the project would silently refuse to save.
+    let dir = temp_dir("project-store-remote-path");
+    let support_dir = dir.join("support");
+    fs::create_dir_all(&support_dir).unwrap();
+
+    let host_path = r"F:\test\does-not-exist-locally";
+    ProjectStore::new(support_dir.clone())
+        .create_project(ProjectCreateRequest {
+            name: "Win".to_string(),
+            path: host_path.to_string(),
+            badge_text: None,
+            badge_symbol: None,
+            badge_color_hex: None,
+            host_device_id: Some("device-win".to_string()),
+        })
+        .expect("creating a remote project must not require the path to exist locally");
+
+    let state = state_value(&support_dir);
+    // The host path is stored verbatim (not canonicalized away), and tagged with
+    // its host so the project routes over the controller.
+    assert_eq!(state["projects"][0]["path"], host_path);
+    assert_eq!(state["projects"][0]["hostDeviceId"], "device-win");
+
+    fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn update_project_preserves_unknown_fields_and_updates_default_worktree() {
     let dir = temp_dir("project-store-update");
     fs::create_dir_all(&dir).unwrap();
