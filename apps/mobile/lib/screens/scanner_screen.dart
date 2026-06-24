@@ -54,14 +54,7 @@ class _ScannerScreenState extends State<ScannerScreen>
       return;
     }
     _startPending = true;
-    try {
-      await _controller.start();
-      debugPrint(
-        '[codux-scanner] started running=${_controller.value.isRunning} size=${_controller.value.size}',
-      );
-    } catch (error) {
-      debugPrint('[codux-scanner] start FAILED: $error');
-    }
+    await _controller.start();
     _startPending = false;
   }
 
@@ -143,13 +136,6 @@ class _ScannerScreenState extends State<ScannerScreen>
                   useAppLifecycleState: false,
                   onDetect: (capture) {
                     final value = capture.barcodes.firstOrNull?.rawValue;
-                    // Diagnostic: confirm the DECODER actually fires (vs the
-                    // camera merely running). If `[codux-scanner] onDetect` never
-                    // logs, the QR isn't being decoded at all (a camera/format
-                    // problem, not pairing).
-                    debugPrint(
-                      '[codux-scanner] onDetect barcodes=${capture.barcodes.length} len=${value?.length ?? 0}',
-                    );
                     _handleDetected(value);
                   },
                 ),
