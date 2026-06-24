@@ -45,6 +45,15 @@ impl RuntimeService {
         self.remote_controllers.link_states()
     }
 
+    /// Per-device link path types (direct/relay) for the connection badge. Like
+    /// the link states, the transport's path-event callback updates this; we just
+    /// read the cached snapshot.
+    pub fn remote_controller_link_paths(
+        &self,
+    ) -> std::collections::HashMap<String, crate::remote::ControllerLinkPath> {
+        self.remote_controllers.link_paths()
+    }
+
     /// List a directory on a remote host (for the add-project remote browser),
     /// parsed into a typed listing so the UI never touches the wire JSON.
     pub fn remote_browse_directory(

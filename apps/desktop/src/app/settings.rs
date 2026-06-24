@@ -366,11 +366,13 @@ fn settings_pane_body(
         SettingsPane::Remote => {
             let saved_hosts = app.runtime_service.saved_remote_hosts();
             let link_states = app.runtime_service.remote_controller_link_states();
+            let link_paths = app.runtime_service.remote_controller_link_paths();
             settings_remote_pane(
                 &app.state.settings,
                 &app.state.remote,
                 &saved_hosts,
                 &link_states,
+                &link_paths,
                 app.selected_remote_device_id.as_deref(),
                 app.state.settings.language.as_str(),
                 app.remote_reconnecting,
@@ -855,14 +857,28 @@ fn device_type_label(platform: &str, language: &str) -> String {
 /// state. Absent (never connected this session) reads as disconnected.
 fn host_link_status_tag(
     link: Option<codux_runtime::remote::ControllerLinkState>,
+    path: Option<codux_runtime::remote::ControllerLinkPath>,
     language: &str,
 ) -> AnyElement {
-    use codux_runtime::remote::ControllerLinkState;
+    use codux_runtime::remote::{ControllerLinkPath, ControllerLinkState};
     match link {
-        Some(ControllerLinkState::Connected) => settings_status_tag(
-            settings_text(language, "remote.status.connected_label", "Connected"),
-            theme::GREEN,
-        ),
+        Some(ControllerLinkState::Connected) => {
+            let connected = settings_text(language, "remote.status.connected_label", "Connected");
+            // Append the route so a LAN/p2p direct link is distinguishable from a
+            // relay-routed one (the path arrives a beat after "connected").
+            let label = match path {
+                Some(ControllerLinkPath::Direct) => format!(
+                    "{connected} · {}",
+                    settings_text(language, "remote.path.direct_label", "Direct")
+                ),
+                Some(ControllerLinkPath::Relay) => format!(
+                    "{connected} · {}",
+                    settings_text(language, "remote.path.relay_label", "Relay")
+                ),
+                None => connected,
+            };
+            settings_status_tag(label, theme::GREEN)
+        }
         Some(ControllerLinkState::Connecting) => settings_status_tag(
             settings_text(language, "remote.status.connecting_label", "Connecting"),
             theme::ORANGE,
@@ -3186,6 +3202,7 @@ fn settings_remote_pane(
     remote: &RemoteSummary,
     saved_hosts: &[codux_runtime::remote::SavedRemoteHost],
     link_states: &std::collections::HashMap<String, codux_runtime::remote::ControllerLinkState>,
+    link_paths: &std::collections::HashMap<String, codux_runtime::remote::ControllerLinkPath>,
     _selected_device_id: Option<&str>,
     language: &str,
     remote_reconnecting: bool,
@@ -3355,6 +3372,7 @@ fn settings_remote_pane(
                         .gap(px(12.0))
                         .child(host_link_status_tag(
                             link_states.get(host.device_id.as_str()).copied(),
+                            link_paths.get(host.device_id.as_str()).copied(),
                             language,
                         ))
                         .child(settings_icon_button_state(

@@ -43,6 +43,30 @@ impl ControllerLinkState {
     }
 }
 
+/// How the live link to a host is routed — shown next to the connected state so
+/// the user can tell a LAN/p2p direct path from a relay-routed one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ControllerLinkPath {
+    /// Direct peer-to-peer path (LAN via mDNS, or a holepunched route).
+    Direct,
+    /// Routed through the relay.
+    Relay,
+}
+
+impl ControllerLinkPath {
+    /// Parse the path type from a transport state string. The controller transport
+    /// publishes `connected:path=direct;addr=…` / `connected:path=relay;…` once a
+    /// path is selected; other states (`connecting`, bare `connected`) carry none.
+    fn from_transport_state(state: &str) -> Option<Self> {
+        let detail = state.strip_prefix("connected:path=")?;
+        match detail.split(';').next().unwrap_or(detail) {
+            "direct" => Some(Self::Direct),
+            "relay" => Some(Self::Relay),
+            _ => None,
+        }
+    }
+}
+
 /// Shared manager state captured (weakly) by transport callbacks and the
 /// reconnect loop, so a dropped link can evict + reconnect without a reference
 /// back to the owning `RuntimeService`.
@@ -50,6 +74,9 @@ struct ManagerShared {
     store: RemoteControllerStore,
     connections: Mutex<HashMap<String, Arc<RemoteController>>>,
     links: Mutex<HashMap<String, ControllerLinkState>>,
+    // Selected path type (direct/relay) per connected device, for the UI badge.
+    // Set when the transport reports a selected path; cleared when the link drops.
+    paths: Mutex<HashMap<String, ControllerLinkPath>>,
     reconnecting: Mutex<HashSet<String>>,
     // Last failure from the background reconnect loop per device, so
     // `controller_for` can surface *why* a host stays "not ready" (offline host,
@@ -61,6 +88,18 @@ impl ManagerShared {
     fn set_link(&self, device_id: &str, state: ControllerLinkState) {
         if let Ok(mut links) = self.links.lock() {
             links.insert(device_id.to_string(), state);
+        }
+    }
+
+    fn set_path(&self, device_id: &str, path: ControllerLinkPath) {
+        if let Ok(mut paths) = self.paths.lock() {
+            paths.insert(device_id.to_string(), path);
+        }
+    }
+
+    fn clear_path(&self, device_id: &str) {
+        if let Ok(mut paths) = self.paths.lock() {
+            paths.remove(device_id);
         }
     }
 
@@ -84,7 +123,11 @@ impl ManagerShared {
             };
             let mapped = ControllerLinkState::from_transport_state(&state);
             shared.set_link(&device_id, mapped);
+            if let Some(path) = ControllerLinkPath::from_transport_state(&state) {
+                shared.set_path(&device_id, path);
+            }
             if mapped == ControllerLinkState::Disconnected {
+                shared.clear_path(&device_id);
                 shared.handle_disconnect(&device_id);
             }
         })
@@ -147,10 +190,14 @@ impl ManagerShared {
                 if let Ok(mut links) = self.links.lock() {
                     links.remove(&device_id);
                 }
+                self.clear_path(&device_id);
                 break;
             };
             attempt += 1;
             self.set_link(&device_id, ControllerLinkState::Connecting);
+            // No path while dialing — clear the stale direct/relay marker so the
+            // badge doesn't claim a route the (dropped) link no longer has.
+            self.clear_path(&device_id);
             // Trace every attempt: a stuck/looping reconnect was previously
             // invisible in the runtime log (one hung dial looked identical to
             // "never tried"). The error string from `connect_saved` names the
@@ -212,6 +259,7 @@ impl RemoteControllerManager {
                 store: RemoteControllerStore::new(support_dir),
                 connections: Mutex::new(HashMap::new()),
                 links: Mutex::new(HashMap::new()),
+                paths: Mutex::new(HashMap::new()),
                 reconnecting: Mutex::new(HashSet::new()),
                 last_errors: Mutex::new(HashMap::new()),
             }),
@@ -230,6 +278,16 @@ impl RemoteControllerManager {
             .links
             .lock()
             .map(|links| links.clone())
+            .unwrap_or_default()
+    }
+
+    /// Per-device link path types (direct/relay) for the connection badge. Only
+    /// present while a device is connected and the transport has selected a path.
+    pub fn link_paths(&self) -> HashMap<String, ControllerLinkPath> {
+        self.shared
+            .paths
+            .lock()
+            .map(|paths| paths.clone())
             .unwrap_or_default()
     }
 
