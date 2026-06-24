@@ -101,6 +101,7 @@ impl CoduxApp {
                         if include_slow_tick {
                             app.enqueue_automatic_memory_extraction_async(cx);
                             app.refresh_remote_link_states(cx);
+                            app.detect_project_drive_recovery(cx);
                         }
                         if result.pet_update_events > 0 {
                             app.sync_desktop_pet_window(false, cx);

@@ -245,6 +245,7 @@ impl CoduxApp {
             file_tree_children: HashMap::new(),
             file_tree_scroll_handle: UniformListScrollHandle::new(),
             file_panel_refreshing: false,
+            selected_project_path_available: true,
             selected_git_file: None,
             selected_git_branch,
             git_review,

@@ -81,6 +81,49 @@ impl CoduxApp {
         true
     }
 
+    /// Auto-recover a local project whose drive disconnected then remounted at
+    /// the same path (a new inode). The file + git watchers die silently on
+    /// unmount and never re-attach, and the tree reads back empty, so on a
+    /// false→true availability flip we reload the tree, re-arm both watchers, and
+    /// refresh git. Driven by the ~1s slow tick.
+    pub(super) fn detect_project_drive_recovery(&mut self, cx: &mut Context<Self>) {
+        // Only local projects sit on this machine's (disconnect-prone) volumes;
+        // a remote project's files/git are served by its host, unaffected here.
+        let is_local = self
+            .state
+            .selected_project
+            .as_ref()
+            .is_some_and(|project| project.host_device_id.is_none());
+        let Some(path) = self.selected_worktree_path().filter(|_| is_local) else {
+            // Nothing local selected: keep the baseline "available" so a later
+            // local selection doesn't spuriously fire recovery on its first tick.
+            self.selected_project_path_available = true;
+            return;
+        };
+        let available = std::path::Path::new(&path).is_dir();
+        if available && !self.selected_project_path_available {
+            self.recover_project_drive(path, cx);
+        }
+        self.selected_project_path_available = available;
+    }
+
+    fn recover_project_drive(&mut self, worktree_path: String, cx: &mut Context<Self>) {
+        let git_path = self
+            .state
+            .selected_project
+            .as_ref()
+            .map(|project| project.path.clone())
+            .unwrap_or_else(|| worktree_path.clone());
+        self.status_message = "project drive reconnected — reloading files and git".to_string();
+        // Re-arm the file + git watchers: the originals attached to the now-dead
+        // inode and won't recover on their own.
+        self.runtime_service
+            .watch_project_background(worktree_path, git_path);
+        self.reload_project_files_async(cx);
+        self.refresh_git_panel_state_async(cx);
+        self.invalidate_status_bar(cx);
+    }
+
     pub(super) fn reload_project_files_async(&mut self, cx: &mut Context<Self>) {
         let Some(project) = &self.state.selected_project else {
             self.status_message = "no selected project to refresh".to_string();
