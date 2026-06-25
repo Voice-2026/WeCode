@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
@@ -471,10 +471,17 @@ impl RemoteTransport for RemoteIrohHostTransport {
 struct SharedControllerEndpoint {
     relay_key: String,
     endpoint: Endpoint,
+    // Identity of THIS pooled build. A connect that fails its dials carries the
+    // generation it dialed on and only retires the pool entry when it still
+    // matches — so a late evict from an ABANDONED reconnect (the Dart layer gave
+    // up and started a newer connect) can't clobber the build a concurrent
+    // connect already reused or swapped in.
+    generation: u64,
 }
 
 static SHARED_CONTROLLER_ENDPOINT: OnceLock<AsyncMutex<Option<SharedControllerEndpoint>>> =
     OnceLock::new();
+static SHARED_CONTROLLER_ENDPOINT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn controller_endpoint_key(relay_url: Option<&RelayUrl>, relay_authentication: &str) -> String {
     format!(
@@ -488,7 +495,7 @@ async fn acquire_controller_endpoint(
     relay_url: Option<&RelayUrl>,
     relay_authentication: &str,
     on_log: &Option<RemoteTransportLogHandler>,
-) -> Result<Endpoint, String> {
+) -> Result<(Endpoint, u64), String> {
     let key = controller_endpoint_key(relay_url, relay_authentication);
     let mut guard = SHARED_CONTROLLER_ENDPOINT
         .get_or_init(|| AsyncMutex::new(None))
@@ -497,10 +504,12 @@ async fn acquire_controller_endpoint(
     if let Some(shared) = guard.as_ref() {
         if shared.relay_key == key {
             log_transport(on_log, "iroh_controller endpoint reused".to_string());
-            return Ok(shared.endpoint.clone());
+            return Ok((shared.endpoint.clone(), shared.generation));
         }
-        // Relay changed under us — retire the old endpoint and build for the new one.
-        shared.endpoint.close().await;
+        // Relay changed under us — drop the old entry and build for the new one.
+        // Don't close(): a concurrent connect may still hold a clone of it, and
+        // closing a shared handle would wedge that connect mid-dial. It's
+        // reclaimed when the last clone drops.
         *guard = None;
     }
     let online_started = std::time::Instant::now();
@@ -527,21 +536,38 @@ async fn acquire_controller_endpoint(
             online_started.elapsed().as_millis()
         ),
     );
+    let generation = SHARED_CONTROLLER_ENDPOINT_GENERATION.fetch_add(1, Ordering::Relaxed);
     *guard = Some(SharedControllerEndpoint {
         relay_key: key,
         endpoint: endpoint.clone(),
+        generation,
     });
-    Ok(endpoint)
+    Ok((endpoint, generation))
 }
 
-/// Drop the pooled endpoint so the next connection rebuilds a fresh one — used
-/// when every dial on it failed (its relay home may have gone stale). The
-/// per-connection blob-accept loops watch their own close notifier, so retiring
-/// the endpoint here does not strand them.
-async fn evict_controller_endpoint() {
+/// Retire the pooled endpoint so the next connection rebuilds a fresh one — used
+/// when every dial on it failed (its relay home may have gone stale).
+///
+/// Two guards keep this safe under overlapping reconnects (the Dart layer can
+/// abandon a slow connect and start a newer one while the old one is still
+/// dialing the SAME pooled endpoint):
+/// - Only retire the entry when it still matches `generation`. A late evict from
+///   the abandoned connect must not clobber a build a newer connect already
+///   reused or swapped in.
+/// - Do NOT `close()` the endpoint. `iroh::Endpoint` is a shared handle, so
+///   closing tears down the magicsock for EVERY clone — including the newer
+///   connect that reused this same instance, which then fails its in-flight dial
+///   with "Internal consistency error". Dropping the pool's reference is enough;
+///   the OS resources are reclaimed once the last clone drops. The per-connection
+///   blob-accept loops watch their own close notifier, so this doesn't strand
+///   them either.
+async fn evict_controller_endpoint(generation: u64) {
     if let Some(cell) = SHARED_CONTROLLER_ENDPOINT.get() {
-        if let Some(shared) = cell.lock().await.take() {
-            shared.endpoint.close().await;
+        let mut guard = cell.lock().await;
+        if let Some(shared) = guard.as_ref() {
+            if shared.generation == generation {
+                *guard = None;
+            }
         }
     }
 }
@@ -586,7 +612,7 @@ impl RemoteIrohControllerTransport {
         // connection warms it (relay registration + route priming), every later
         // one — the control link after pairing, reconnects — skips straight to the
         // dial on the warmed path.
-        let endpoint =
+        let (endpoint, endpoint_generation) =
             acquire_controller_endpoint(relay_url.as_ref(), &relay_authentication, &on_log).await?;
         // Dial with a short timeout and retry on the SAME, already-online
         // endpoint. The first relay-routed dial routinely stalls while the relay
@@ -638,7 +664,9 @@ impl RemoteIrohControllerTransport {
         let Some(connection) = connection else {
             // Every dial on the pooled endpoint failed — retire it so the next
             // attempt rebuilds a fresh one rather than re-dialling a wedged path.
-            evict_controller_endpoint().await;
+            // Generation-guarded + no-close so this late evict can't pull the rug
+            // out from a newer reconnect that already reused this endpoint.
+            evict_controller_endpoint(endpoint_generation).await;
             return Err(last_dial_error);
         };
         let (send, recv) = connection
