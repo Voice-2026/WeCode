@@ -976,15 +976,19 @@ impl RemoteHostRuntime {
                 handshake.device_id, active_pairing.pairing_id
             ),
         );
-        // Confirm OFF the transport's pairing callback. `finalize_remote_pairing`
-        // calls back into the transport (snapshot the iroh candidate + send
-        // `pairing.confirmed`); doing that synchronously here re-enters the
-        // transport from inside its own receive callback and stalls the reply, so
-        // the controller never receives the confirmation and the desktop's QR sits
-        // spinning. Defer it to the runtime so the callback returns first.
+        // Authorize the device synchronously before this callback returns.
+        // Recording it touches only settings + in-memory pairing state (never the
+        // transport), so it's safe here — and it closes the window where the
+        // device's first control-lane message would be dropped as
+        // `device_unauthorized`, which makes the client tear its link down and
+        // demand a re-pair. Only the confirmation REPLY re-enters the transport
+        // (snapshot the iroh candidate + send `pairing.confirmed`); doing that
+        // synchronously stalls this callback and the controller never sees the
+        // confirmation, so defer just that to the runtime.
+        self.record_paired_device(&handshake);
         let runtime = Arc::clone(self);
         crate::async_runtime::spawn(async move {
-            let summary = runtime.finalize_remote_pairing(&handshake);
+            let summary = runtime.send_pairing_confirmed(&handshake);
             runtime.update_snapshot(summary);
         });
     }
@@ -1153,12 +1157,13 @@ impl RemoteHostRuntime {
         Ok(summary)
     }
 
-    /// Record the paired device, clear the active pairing session, and send the
-    /// confirmed transports back to the controller. Shared by the auto-confirm
-    /// path (a request whose code/secret matched the QR) and the legacy operator
-    /// confirm — on a match the QR's secret already proves trust, so no dialog
-    /// gates this.
-    fn finalize_remote_pairing(&self, handshake: &RemoteTransportPairingRequest) -> RemoteSummary {
+    /// Persist the paired device into `cached_devices` and clear the active
+    /// pairing session. Touches only settings + in-memory pairing state — never
+    /// the transport — so it is safe to run synchronously from the transport's
+    /// own pairing callback, which is exactly what the auto-confirm path does to
+    /// authorize the device before returning (see
+    /// [`Self::handle_transport_pairing_request`]).
+    fn record_paired_device(&self, handshake: &RemoteTransportPairingRequest) {
         let mut raw = self.service().raw_settings();
         let mut settings = super::remote_settings_from_raw(&raw);
         let device_id = handshake.device_id.clone();
@@ -1187,6 +1192,15 @@ impl RemoteHostRuntime {
         if let Ok(mut pending) = self.pending_pairings.lock() {
             pending.clear();
         }
+    }
+
+    /// Send the confirmed transports back to the controller. This snapshots the
+    /// live iroh candidate and calls `send`, so it re-enters the transport and
+    /// MUST run off the transport's receive/pairing callback (the auto-confirm
+    /// path defers it for exactly this reason).
+    fn send_pairing_confirmed(&self, handshake: &RemoteTransportPairingRequest) -> RemoteSummary {
+        let settings = super::remote_settings_from_raw(&self.service().raw_settings());
+        let device_id = handshake.device_id.clone();
         let transports = self
             .transport_candidates_snapshot()
             .iter()
@@ -1209,6 +1223,16 @@ impl RemoteHostRuntime {
         summary.status = "connected".to_string();
         summary.message = "Pairing confirmed.".to_string();
         summary
+    }
+
+    /// Record the paired device, then send the confirmed transports back. Shared
+    /// by the auto-confirm path (a request whose code/secret matched the QR) and
+    /// the legacy operator confirm — on a match the QR's secret already proves
+    /// trust, so no dialog gates this. The auto-confirm path calls the two halves
+    /// separately so it can authorize synchronously and defer only the send.
+    fn finalize_remote_pairing(&self, handshake: &RemoteTransportPairingRequest) -> RemoteSummary {
+        self.record_paired_device(handshake);
+        self.send_pairing_confirmed(handshake)
     }
 
     pub fn confirm_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {

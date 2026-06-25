@@ -31,7 +31,23 @@ impl CoduxApp {
                             return;
                         }
                         if app.state.remote != remote {
+                            // The pairing sheet's own 1s poll watches
+                            // state.remote.pairing to notice a completed pairing
+                            // and close the sheet. This 500ms snapshot loop can
+                            // null that pairing first (auto-confirm clears it in
+                            // the runtime snapshot), which makes the poll exit
+                            // early and strands the sheet on its placeholder
+                            // spinner. Close it here when the pairing we were
+                            // showing disappears.
+                            let had_pairing = app.state.remote.pairing.is_some();
                             app.state.remote = remote;
+                            if had_pairing
+                                && app.state.remote.pairing.is_none()
+                                && app.remote_pairing_sheet_open
+                            {
+                                app.remote_pairing_sheet_open = false;
+                                app.remote_pairing_creating = false;
+                            }
                             app.normalize_selected_remote_device();
                             if app.remote_reconnecting && app.state.remote.status != "connecting" {
                                 app.remote_reconnecting = false;
