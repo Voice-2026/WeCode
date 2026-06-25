@@ -918,7 +918,7 @@ impl RemoteHostRuntime {
         );
     }
 
-    fn handle_transport_pairing_request(&self, handshake: RemoteTransportPairingRequest) {
+    fn handle_transport_pairing_request(self: &Arc<Self>, handshake: RemoteTransportPairingRequest) {
         crate::runtime_trace::runtime_trace(
             "remote",
             &format!(
@@ -976,8 +976,17 @@ impl RemoteHostRuntime {
                 handshake.device_id, active_pairing.pairing_id
             ),
         );
-        let summary = self.finalize_remote_pairing(&handshake);
-        self.update_snapshot(summary);
+        // Confirm OFF the transport's pairing callback. `finalize_remote_pairing`
+        // calls back into the transport (snapshot the iroh candidate + send
+        // `pairing.confirmed`); doing that synchronously here re-enters the
+        // transport from inside its own receive callback and stalls the reply, so
+        // the controller never receives the confirmation and the desktop's QR sits
+        // spinning. Defer it to the runtime so the callback returns first.
+        let runtime = Arc::clone(self);
+        crate::async_runtime::spawn(async move {
+            let summary = runtime.finalize_remote_pairing(&handshake);
+            runtime.update_snapshot(summary);
+        });
     }
 
     pub fn create_pairing(self: &Arc<Self>) -> Result<RemoteSummary, String> {
