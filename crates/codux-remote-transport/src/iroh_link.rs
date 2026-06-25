@@ -35,11 +35,16 @@ const IROH_RELAY_URL_ENV: &str = "CODUX_IROH_RELAY_URL";
 /// same-network direct connections — useful on networks that block multicast.
 const IROH_DISABLE_LAN_MDNS_ENV: &str = "CODUX_IROH_DISABLE_LAN_MDNS";
 const IROH_ONLINE_TIMEOUT: Duration = Duration::from_secs(12);
-/// Upper bound on a single controller→host dial. Without this, an unreachable
-/// peer (offline, on a relay we can't reach, no path) makes `endpoint.connect`
-/// hang forever, wedging the reconnect loop on one await with no retry, no
-/// backoff, and no recorded error.
-const IROH_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// Upper bound on a SINGLE controller→host dial attempt. Kept short on purpose:
+/// the first relay-routed dial to a peer routinely stalls while the relay primes
+/// the cross-path between the two nodes (measured: first dial times out, the very
+/// next one connects in ~18ms), so we want to give up on a stalled dial quickly
+/// and re-dial the same already-online endpoint rather than wait out a long hang.
+const IROH_DIAL_BASE_TIMEOUT: Duration = Duration::from_secs(4);
+/// How many times to re-dial on the same warm endpoint before surfacing an error
+/// to the reconnect loop (which then cold-starts a fresh endpoint). Each attempt
+/// gets `BASE + 2s * attempt`, so 4s + 6s + 8s = 18s of dialling on one online().
+const IROH_DIAL_ATTEMPTS: usize = 3;
 
 type IrohSender = mpsc::UnboundedSender<Vec<u8>>;
 
@@ -516,35 +521,56 @@ impl RemoteIrohControllerTransport {
                 online_started.elapsed().as_millis()
             ),
         );
-        // Bound the dial itself. A peer that is offline, on a relay we can't
-        // reach, or otherwise unreachable would hang this connect indefinitely —
-        // wedging the reconnect loop with no retry/backoff/error. On timeout we
-        // surface a real error so the loop records it, backs off, and retries.
-        let dial_started = std::time::Instant::now();
-        let connection = match tokio::time::timeout(
-            IROH_CONNECT_TIMEOUT,
-            endpoint.connect(endpoint_addr, CODUX_REMOTE_ALPN),
-        )
-        .await
-        {
-            Ok(Ok(connection)) => {
-                log_transport(
-                    &on_log,
-                    format!(
-                        "iroh_controller dial elapsed_ms={}",
-                        dial_started.elapsed().as_millis()
-                    ),
-                );
-                connection
+        // Dial with a short timeout and retry on the SAME, already-online
+        // endpoint. The first relay-routed dial routinely stalls while the relay
+        // primes the cross-path (the next dial then connects in ~milliseconds);
+        // re-dialling here keeps the relay-registration cost (online() above) paid
+        // once, instead of letting the Dart/reconnect layer tear the endpoint down
+        // and cold-start a fresh one — which pays online() all over again — for
+        // every attempt. Only after exhausting these does the reconnect loop get
+        // an error and fall back to a fresh endpoint.
+        let mut connection = None;
+        let mut last_dial_error = "iroh controller connect timeout".to_string();
+        for attempt in 0..IROH_DIAL_ATTEMPTS {
+            let dial_timeout = IROH_DIAL_BASE_TIMEOUT + Duration::from_secs(2 * attempt as u64);
+            let dial_started = std::time::Instant::now();
+            match tokio::time::timeout(
+                dial_timeout,
+                endpoint.connect(endpoint_addr.clone(), CODUX_REMOTE_ALPN),
+            )
+            .await
+            {
+                Ok(Ok(established)) => {
+                    log_transport(
+                        &on_log,
+                        format!(
+                            "iroh_controller dial elapsed_ms={} attempt={}",
+                            dial_started.elapsed().as_millis(),
+                            attempt + 1
+                        ),
+                    );
+                    connection = Some(established);
+                    break;
+                }
+                Ok(Err(error)) => {
+                    last_dial_error = format!("iroh controller connect failed: {error}");
+                }
+                Err(_) => {
+                    last_dial_error = "iroh controller connect timeout".to_string();
+                }
             }
-            Ok(Err(error)) => {
-                endpoint.close().await;
-                return Err(format!("iroh controller connect failed: {error}"));
-            }
-            Err(_) => {
-                endpoint.close().await;
-                return Err("iroh controller connect timeout".to_string());
-            }
+            log_transport(
+                &on_log,
+                format!(
+                    "iroh_controller dial retry attempt={} elapsed_ms={} reason={last_dial_error}",
+                    attempt + 1,
+                    dial_started.elapsed().as_millis()
+                ),
+            );
+        }
+        let Some(connection) = connection else {
+            endpoint.close().await;
+            return Err(last_dial_error);
         };
         let (send, recv) = connection
             .open_bi()
