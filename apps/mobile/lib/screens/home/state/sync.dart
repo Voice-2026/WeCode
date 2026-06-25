@@ -256,14 +256,6 @@ extension _HomePageSync on HomeController {
 
   void _resubscribeVisibleTerminal({required String reason}) {
     if (!_terminalViewportClaimable) return;
-    // Snap the host to our grid before the baseline resubscribe (same reason as
-    // the bind path): a reconnect / transport path-change may resume on a host
-    // the desktop drifted to its own width, and a baseline captured there would
-    // attach with a duplicate first prompt line.
-    final sessionId = _sessionId;
-    if (sessionId != null && sessionId.isNotEmpty) {
-      _prepareViewportForBind(sessionId);
-    }
     _terminalBindingCoordinator.resubscribeVisibleTerminal(
       transportConnected: _transportConnected,
       protocolReady: _remoteProtocolReady,

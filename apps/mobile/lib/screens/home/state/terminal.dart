@@ -372,29 +372,6 @@ extension _HomePageTerminal on HomeController {
     _terminalViewportController.markSent(id, resize);
   }
 
-  /// Snap the host PTY to the phone's grid BEFORE the baseline subscribe goes out
-  /// on (re)bind. The host captures the baseline at whatever width the PTY
-  /// currently is; if the desktop drifted it wider while we were the inactive
-  /// viewer, the baseline arrives at the desktop width and the follow-up resize
-  /// redraws it -> the duplicate/ghost first prompt line seen on attach. Forcing
-  /// the resize first (same control lane, so it is ordered ahead of the
-  /// subscribe) makes the host reflow to our width, so the baseline snapshot is
-  /// already single-width. If the host is already at our width its
-  /// resize_viewport short-circuits (no SIGWINCH, no redraw) -- a free no-op.
-  void _prepareViewportForBind(String sessionId) {
-    final id = sessionId.trim();
-    if (id.isEmpty) return;
-    if (!_terminalViewportClaimable) return;
-    final cols = _terminalViewportController.pendingCols;
-    final rows = _terminalViewportController.pendingRows;
-    if (cols == null || rows == null || cols <= 0 || rows <= 0) return;
-    if (!_canResizeTerminal(_terminalById(id))) return;
-    // Forget the size we think the host holds: the desktop may have re-widened
-    // it behind our back, so this corrective resize must not be deduped away.
-    _terminalViewportController.invalidateSentSize(id);
-    _sendTerminalResize(cols, rows, sessionId: id);
-  }
-
   void _claimTerminalViewport({String? sessionId, bool throttled = false}) {
     final id = sessionId ?? _sessionId;
     if (id == null || id.trim().isEmpty) return;
