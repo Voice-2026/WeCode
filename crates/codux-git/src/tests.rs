@@ -139,6 +139,89 @@ mod tests {
     }
 
     #[test]
+    fn stage_directory_path_recurses_into_tracked_and_untracked_children() {
+        let repo = temp_dir("git-stage-dir");
+        let p = repo.to_str().expect("repo").to_string();
+        GitService::init(&p).expect("init repo");
+        let repository = GitRepository::open(&repo).expect("open repo");
+        let mut config = repository.config().expect("config");
+        config
+            .set_str("user.email", "codux@example.test")
+            .expect("email");
+        config.set_str("user.name", "Codux").expect("name");
+        fs::create_dir_all(repo.join("src/nested")).expect("nested dir");
+        fs::write(repo.join("src/nested/lib.rs"), "old\n").expect("tracked file");
+        GitService::stage_file(&p, "src/nested/lib.rs").expect("stage nested");
+        GitService::commit_staged(&p, "initial").expect("commit");
+
+        // A tracked modification plus a brand-new untracked file, both under src/.
+        fs::write(repo.join("src/nested/lib.rs"), "new\n").expect("modify tracked");
+        fs::write(repo.join("src/added.rs"), "added\n").expect("untracked");
+
+        // Staging the directory marker must recurse, not error with
+        // "it is a directory" the way `index.add_path` did before.
+        GitService::stage_paths(&p, &["src".to_string()]).expect("stage directory");
+
+        let status = GitService::status(&p);
+        // The collapsed src/ marker now reports a staged (index) change and no
+        // remaining worktree-only change.
+        assert!(
+            status
+                .changed_files
+                .iter()
+                .any(|file| file.path == "src/" && !file.index_status.trim().is_empty()),
+            "directory stage should leave src/ with a staged index status: {:?}",
+            status.changed_files
+        );
+        // Drilling in, both the tracked modification and the untracked file are staged.
+        let nested =
+            GitService::path_status(&p, "src/nested").expect("nested status after staging");
+        assert!(
+            nested
+                .iter()
+                .any(|file| file.path == "src/nested/lib.rs"
+                    && file.index_status.trim() == "M"),
+            "tracked modification should be staged: {nested:?}"
+        );
+        let src = GitService::path_status(&p, "src").expect("src status after staging");
+        assert!(
+            src.iter()
+                .any(|file| file.path == "src/added.rs" && file.index_status.trim() == "A"),
+            "untracked child should be staged as added: {src:?}"
+        );
+    }
+
+    #[test]
+    fn stage_untracked_directory_marker_with_trailing_slash() {
+        let repo = temp_dir("git-stage-untracked-dir");
+        let p = repo.to_str().expect("repo").to_string();
+        GitService::init(&p).expect("init repo");
+        let repository = GitRepository::open(&repo).expect("open repo");
+        let mut config = repository.config().expect("config");
+        config
+            .set_str("user.email", "codux@example.test")
+            .expect("email");
+        config.set_str("user.name", "Codux").expect("name");
+        // Need a commit so HEAD exists; the untracked dir is separate from it.
+        fs::write(repo.join("seed.txt"), "seed\n").expect("seed");
+        GitService::stage_file(&p, "seed.txt").expect("stage seed");
+        GitService::commit_staged(&p, "seed").expect("commit seed");
+        fs::create_dir_all(repo.join("bulk/inner")).expect("bulk dir");
+        fs::write(repo.join("bulk/inner/a.txt"), "a\n").expect("untracked a");
+
+        // The sidebar hands an untracked-directory marker through with its
+        // trailing slash; staging it must still recurse.
+        GitService::stage_paths(&p, &["bulk/".to_string()]).expect("stage untracked dir");
+
+        let bulk = GitService::path_status(&p, "bulk/inner").expect("bulk status");
+        assert!(
+            bulk.iter()
+                .any(|file| file.path == "bulk/inner/a.txt" && file.index_status.trim() == "A"),
+            "untracked directory contents should be staged: {bulk:?}"
+        );
+    }
+
+    #[test]
     fn path_status_keeps_directory_markers_per_status_kind() {
         let files = vec![
             git_file("src/shared/tracked.rs", "M", " "),

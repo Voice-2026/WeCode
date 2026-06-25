@@ -21,7 +21,30 @@ fn stage_paths_git2(repo: &GitRepository, paths: &[String]) -> Result<(), String
                 let _ = index.remove_path(Path::new(&path));
                 continue;
             }
-            if repo_root(repo).join(&path).exists() {
+            let target = repo_root(repo).join(&path);
+            if target.is_dir() {
+                // A directory pathspec: recurse so every changed/untracked
+                // file beneath it is staged. git2's `add_path` rejects a
+                // directory outright ("... it is a directory"), so a folder
+                // staged from the sidebar (or an untracked-directory marker
+                // like "bulk/") has to go through `add_all` instead. The
+                // callback reuses the same memory-entrypoint skip the bulk
+                // branch above relies on.
+                let spec = path.trim_end_matches('/');
+                index
+                    .add_all(
+                        [spec].iter(),
+                        git2::IndexAddOption::DEFAULT,
+                        Some(&mut |entry, _| {
+                            if is_codux_managed_memory_entrypoint_path(repo, entry) {
+                                1
+                            } else {
+                                0
+                            }
+                        }),
+                    )
+                    .map_err(|error| error.message().to_string())?;
+            } else if target.exists() {
                 index
                     .add_path(Path::new(&path))
                     .map_err(|error| error.message().to_string())?;

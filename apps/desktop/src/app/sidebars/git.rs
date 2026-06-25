@@ -1890,6 +1890,7 @@ enum GitStatusVirtualRow {
         path: String,
         expanded: bool,
         depth: usize,
+        labels: Rc<GitFileMenuLabels>,
     },
     File {
         file: GitFileStatus,
@@ -1944,9 +1945,9 @@ impl GitStatusVirtualRow {
                 path,
                 expanded,
                 depth,
-            } => {
-                git_status_dir_row(section_id, &name, &path, expanded, depth, cx).into_any_element()
-            }
+                labels,
+            } => git_status_dir_row(section_id, &name, &path, expanded, depth, labels, cx)
+                .into_any_element(),
             Self::File {
                 file,
                 active,
@@ -2130,6 +2131,7 @@ fn append_git_status_virtual_directory_rows(
             path: dir.path.clone(),
             expanded,
             depth,
+            labels: file_menu_labels.clone(),
         });
         if expanded {
             if let Some(children) = tree_children.get(&tree_key) {
@@ -2446,10 +2448,26 @@ fn git_status_dir_row(
     path: &str,
     expanded: bool,
     depth: usize,
+    labels: Rc<GitFileMenuLabels>,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
     let directory_path = path.to_string();
     let directory_section = section_id.to_string();
+    // Mirror the file-row capabilities, but resolve them from the section the
+    // directory lives in rather than per-file status: a folder under "Staged"
+    // can only be unstaged, one under "Changes"/"Untracked" can be staged or
+    // discarded, and only an untracked folder can be added to .gitignore. The
+    // batched git path operations recurse through a directory pathspec, so a
+    // single folder path covers every changed file beneath it.
+    let can_stage = matches!(section_id, "changed" | "untracked");
+    let can_unstage = section_id == "staged";
+    let can_discard = matches!(section_id, "changed" | "untracked");
+    let can_ignore = section_id == "untracked";
+    let menu_path = path.to_string();
+    // .gitignore entries are directory-precise with a trailing slash, matching
+    // how an untracked-directory marker is ignored from the file row.
+    let ignore_path = format!("{}/", path.trim_end_matches('/'));
+    let app_entity = cx.entity();
 
     div()
         .id(SharedString::from(format!(
@@ -2498,6 +2516,74 @@ fn git_status_dir_row(
                         .child(name.to_string()),
                 ),
         )
+        .context_menu(move |menu, _window, _cx| {
+            let stage_entity = app_entity.clone();
+            let stage_path = menu_path.clone();
+            let unstage_entity = app_entity.clone();
+            let unstage_path = menu_path.clone();
+            let discard_entity = app_entity.clone();
+            let discard_path = menu_path.clone();
+            let ignore_entity = app_entity.clone();
+            let ignore_path = ignore_path.clone();
+
+            let menu = if can_stage {
+                menu.item(
+                    git_context_menu_item(labels.stage.clone(), HeroIconName::Plus).on_click(
+                        move |_, window, cx| {
+                            cx.update_entity(&stage_entity, |app, cx| {
+                                app.stage_git_paths(vec![stage_path.clone()], window, cx);
+                            });
+                        },
+                    ),
+                )
+            } else {
+                menu
+            };
+            let menu = if can_unstage {
+                menu.item(
+                    git_context_menu_item(labels.unstage.clone(), HeroIconName::Minus).on_click(
+                        move |_, window, cx| {
+                            cx.update_entity(&unstage_entity, |app, cx| {
+                                app.unstage_git_paths(vec![unstage_path.clone()], window, cx);
+                            });
+                        },
+                    ),
+                )
+            } else {
+                menu
+            };
+            let menu = if can_discard {
+                menu.separator().item(
+                    git_context_menu_item(
+                        labels.discard_changes.clone(),
+                        HeroIconName::ArrowUturnLeft,
+                    )
+                    .on_click(move |_, window, cx| {
+                        cx.update_entity(&discard_entity, |app, cx| {
+                            app.discard_git_paths(vec![discard_path.clone()], window, cx);
+                        });
+                    }),
+                )
+            } else {
+                menu
+            };
+            if can_ignore {
+                menu.item(
+                    git_context_menu_item(labels.add_gitignore.clone(), HeroIconName::XMark)
+                        .on_click(move |_, window, cx| {
+                            cx.update_entity(&ignore_entity, |app, cx| {
+                                app.append_project_gitignore_paths(
+                                    vec![ignore_path.clone()],
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                )
+            } else {
+                menu
+            }
+        })
 }
 
 fn git_status_file_row(
