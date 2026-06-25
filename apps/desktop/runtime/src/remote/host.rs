@@ -3120,10 +3120,21 @@ impl RemoteHostRuntime {
                 .terminals
                 .buffer_characters(session_id)
                 .unwrap_or_else(|_| start_offset + data.chars().count());
+            // Ship the screen keyframe ONLY for an alt-screen session. A normal
+            // shell's visible screen is fully reconstructed by replaying the raw
+            // history `data` above, so also replaying the keyframe on top redraws
+            // the current line a SECOND time -- and because the keyframe is
+            // encoded at the host's grid it lands at a different row/column in the
+            // viewer's reflowed grid, leaving the duplicate/ghost first prompt
+            // line seen on attach. The alternate buffer has no scrollback (absent
+            // from the raw history), so there the keyframe is the only way to
+            // restore the TUI. This matches subscribe_output()'s live-replay gate
+            // (terminal_pty.rs) so the baseline and live paths agree.
             let screen_data = self
                 .terminals
                 .screen_snapshot(session_id)
                 .ok()
+                .filter(|snapshot| snapshot.input_mode.alternate_screen)
                 .map(|snapshot| snapshot.data)
                 .filter(|data| !data.is_empty());
             drop(seq_guard);
@@ -5972,7 +5983,12 @@ mod tests {
     }
 
     #[test]
-    fn remote_terminal_buffer_window_tail_includes_headless_screen_baseline() {
+    fn remote_terminal_buffer_window_tail_omits_keyframe_for_normal_screen() {
+        // A normal-screen session reconstructs fully from the raw history tail, so
+        // the baseline must NOT also ship the screen keyframe: replaying both the
+        // history AND the keyframe redraws the current line and leaves a duplicate
+        // (ghost) first prompt line on the viewer. Alt-screen sessions still ship
+        // it -- see terminal_resource_subscribe_baseline_keyframe_for_alt_screen.
         let support_dir = temp_support_dir("codux-remote-terminal-buffer-screen-baseline");
         let terminals = Arc::new(TerminalManager::new());
         let runtime = RemoteHostRuntime::new_with_ai_history_and_terminals(
@@ -5995,31 +6011,34 @@ mod tests {
         let mut window = None;
         for _ in 0..20 {
             let current = runtime
-                .terminal_buffer_window(&session_id, 0, 16, Some("request-1".to_string()), true)
+                .terminal_buffer_window(&session_id, 0, 64, Some("request-1".to_string()), true)
                 .expect("terminal buffer window");
-            if current
-                .screen_data
-                .as_deref()
-                .is_some_and(|data| data.contains("visible tui"))
-            {
+            if current.data.contains("visible tui") {
                 window = Some(current);
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
-        let window = window.expect("terminal screen baseline");
-        let screen_data = window.screen_data.expect("screen data");
+        let window = window.expect("terminal buffer window");
 
+        // The raw history alone reconstructs the visible screen ...
         assert!(window.data.contains("visible tui"));
-        assert!(screen_data.contains("visible tui"));
-        assert!(!screen_data.contains("old line"));
+        // ... so a normal screen must NOT carry a redundant keyframe on top.
+        assert!(
+            window.screen_data.is_none(),
+            "normal-screen baseline must not ship a keyframe (it duplicates the prompt)"
+        );
         assert!(window.tail);
 
         fs::remove_dir_all(support_dir).ok();
     }
 
     #[test]
-    fn terminal_resource_subscribe_baseline_includes_tail_screen_keyframe() {
+    fn terminal_resource_subscribe_baseline_keyframe_for_alt_screen() {
+        // The alternate buffer has no scrollback, so a re-attaching viewer cannot
+        // reconstruct an alt-screen TUI from the raw history alone -- the baseline
+        // MUST carry the screen keyframe. (A normal screen does NOT; that path is
+        // covered by remote_terminal_buffer_window_tail_omits_keyframe_for_normal_screen.)
         let support_dir = temp_support_dir("codux-resource-subscribe-terminal-screen-baseline");
         write_paired_remote_settings(&support_dir);
         let terminals = Arc::new(TerminalManager::new());
@@ -6036,7 +6055,7 @@ mod tests {
             .create(
                 TerminalPtyConfig {
                     shell: Some("sh".to_string()),
-                    command: Some("printf 'old line\\n\\033[2J\\033[Hvisible tui'".to_string()),
+                    command: Some("printf '\\033[?1049h\\033[2J\\033[HALT_UI'".to_string()),
                     cwd: Some(support_dir.to_string_lossy().to_string()),
                     ..Default::default()
                 },
@@ -6044,10 +6063,13 @@ mod tests {
             )
             .expect("create terminal");
 
-        for _ in 0..20 {
+        // Wait for the alternate screen to be active and painted.
+        for _ in 0..40 {
             if terminals
                 .screen_snapshot(&session_id)
-                .map(|snapshot| snapshot.data.contains("visible tui"))
+                .map(|snapshot| {
+                    snapshot.input_mode.alternate_screen && snapshot.data.contains("ALT_UI")
+                })
                 .unwrap_or(false)
             {
                 break;
@@ -6064,7 +6086,7 @@ mod tests {
                 "resource": REMOTE_RESOURCE_TERMINALS,
                 "sessionId": session_id,
                 "baseline": true,
-                "maxChars": 16,
+                "maxChars": 64,
                 "requestId": "request-1",
             }),
         });
@@ -6087,23 +6109,14 @@ mod tests {
 
         assert_eq!(baseline["requestId"], "request-1");
         assert_eq!(baseline["tail"], true);
-        assert!(
-            baseline["data"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("visible tui")
-        );
+        // The keyframe is the only way to restore the alt-screen TUI, so it must
+        // be present and carry the alt UI.
         assert!(
             baseline["screenData"]
                 .as_str()
                 .unwrap_or_default()
-                .contains("visible tui")
-        );
-        assert!(
-            !baseline["screenData"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("old line")
+                .contains("ALT_UI"),
+            "alt-screen baseline must ship the screen keyframe"
         );
 
         fs::remove_dir_all(support_dir).ok();
