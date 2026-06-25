@@ -20,9 +20,9 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 
 pub const CODUX_REMOTE_ALPN: &[u8] = b"/codux/remote/1";
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
@@ -459,6 +459,93 @@ impl RemoteTransport for RemoteIrohHostTransport {
     }
 }
 
+/// One controller endpoint, shared across every controller connection in the
+/// process — pairing, the control link, and reconnects. The first connection
+/// pays bind + `online()` (relay registration, ~3s) AND primes the relay's route
+/// to the host (the costly part: the first dial to a peer stalls while the relay
+/// establishes that route, the next one connects in ~milliseconds). Pooling lets
+/// every later connection skip both, so the control link comes up instantly right
+/// after pairing instead of cold-starting a fresh endpoint. Keyed by relay so a
+/// relay change rebuilds; evicted when a dial keeps failing on it so a wedged
+/// endpoint can't poison every retry.
+struct SharedControllerEndpoint {
+    relay_key: String,
+    endpoint: Endpoint,
+}
+
+static SHARED_CONTROLLER_ENDPOINT: OnceLock<AsyncMutex<Option<SharedControllerEndpoint>>> =
+    OnceLock::new();
+
+fn controller_endpoint_key(relay_url: Option<&RelayUrl>, relay_authentication: &str) -> String {
+    format!(
+        "{}|{}",
+        relay_url.map(|url| url.to_string()).unwrap_or_default(),
+        relay_authentication.trim()
+    )
+}
+
+async fn acquire_controller_endpoint(
+    relay_url: Option<&RelayUrl>,
+    relay_authentication: &str,
+    on_log: &Option<RemoteTransportLogHandler>,
+) -> Result<Endpoint, String> {
+    let key = controller_endpoint_key(relay_url, relay_authentication);
+    let mut guard = SHARED_CONTROLLER_ENDPOINT
+        .get_or_init(|| AsyncMutex::new(None))
+        .lock()
+        .await;
+    if let Some(shared) = guard.as_ref() {
+        if shared.relay_key == key {
+            log_transport(on_log, "iroh_controller endpoint reused".to_string());
+            return Ok(shared.endpoint.clone());
+        }
+        // Relay changed under us — retire the old endpoint and build for the new one.
+        shared.endpoint.close().await;
+        *guard = None;
+    }
+    let online_started = std::time::Instant::now();
+    let endpoint = endpoint_builder(relay_url, relay_authentication, None)
+        .alpns(vec![iroh_blobs::ALPN.to_vec()])
+        .bind()
+        .await
+        .map_err(|error| format!("iroh controller bind failed: {error}"))?;
+    // Discover co-located hosts directly on the LAN, not just via the relay.
+    enable_local_discovery(&endpoint, on_log);
+    // Wait for our endpoint to register with its relay before we hand it out: a
+    // relay-routed dial cannot complete without a relay home.
+    if tokio::time::timeout(IROH_ONLINE_TIMEOUT, endpoint.online())
+        .await
+        .is_err()
+    {
+        endpoint.close().await;
+        return Err("iroh controller relay online timeout".to_string());
+    }
+    log_transport(
+        on_log,
+        format!(
+            "iroh_controller online elapsed_ms={}",
+            online_started.elapsed().as_millis()
+        ),
+    );
+    *guard = Some(SharedControllerEndpoint {
+        relay_key: key,
+        endpoint: endpoint.clone(),
+    });
+    Ok(endpoint)
+}
+
+/// Drop the pooled endpoint so the next connection rebuilds a fresh one — used
+/// when every dial on it failed (its relay home may have gone stale). The
+/// per-connection blob-accept loops watch their own close notifier, so retiring
+/// the endpoint here does not strand them.
+async fn evict_controller_endpoint() {
+    if let Some(cell) = SHARED_CONTROLLER_ENDPOINT.get() {
+        if let Some(shared) = cell.lock().await.take() {
+            shared.endpoint.close().await;
+        }
+    }
+}
+
 pub struct RemoteIrohControllerTransport {
     endpoint: Endpoint,
     blob_store: MemStore,
@@ -467,6 +554,7 @@ pub struct RemoteIrohControllerTransport {
     terminal_tx: Mutex<Option<IrohSender>>,
     upload_tx: Mutex<Option<mpsc::UnboundedSender<RemoteTransportUpload>>>,
     closed: Arc<AtomicBool>,
+    close_notify: Arc<Notify>,
 }
 
 impl RemoteIrohControllerTransport {
@@ -493,34 +581,13 @@ impl RemoteIrohControllerTransport {
             .cloned()
             .or_else(|| parse_relay_url(&candidate.relay_url).ok());
         let relay_authentication = candidate.relay_authentication.trim().to_string();
-        let endpoint = endpoint_builder(relay_url.as_ref(), &relay_authentication, None)
-            .alpns(vec![iroh_blobs::ALPN.to_vec()])
-            .bind()
-            .await
-            .map_err(|error| format!("iroh controller bind failed: {error}"))?;
-        // Discover co-located hosts directly on the LAN, not just via the relay.
-        enable_local_discovery(&endpoint, &on_log);
         on_state(String::new(), "connecting".to_string());
-        // Mirror the host path: wait for our own endpoint to register with its
-        // relay before dialling. A relay-routed connect cannot complete until we
-        // have a relay home; without this the dial below can block forever
-        // instead of failing fast (and reveals "can't reach the peer's relay" as
-        // a distinct, fast error).
-        let online_started = std::time::Instant::now();
-        if tokio::time::timeout(IROH_ONLINE_TIMEOUT, endpoint.online())
-            .await
-            .is_err()
-        {
-            endpoint.close().await;
-            return Err("iroh controller relay online timeout".to_string());
-        }
-        log_transport(
-            &on_log,
-            format!(
-                "iroh_controller online elapsed_ms={}",
-                online_started.elapsed().as_millis()
-            ),
-        );
+        // Reuse the process-shared, already-online controller endpoint: the first
+        // connection warms it (relay registration + route priming), every later
+        // one — the control link after pairing, reconnects — skips straight to the
+        // dial on the warmed path.
+        let endpoint =
+            acquire_controller_endpoint(relay_url.as_ref(), &relay_authentication, &on_log).await?;
         // Dial with a short timeout and retry on the SAME, already-online
         // endpoint. The first relay-routed dial routinely stalls while the relay
         // primes the cross-path (the next dial then connects in ~milliseconds);
@@ -569,7 +636,9 @@ impl RemoteIrohControllerTransport {
             );
         }
         let Some(connection) = connection else {
-            endpoint.close().await;
+            // Every dial on the pooled endpoint failed — retire it so the next
+            // attempt rebuilds a fresh one rather than re-dialling a wedged path.
+            evict_controller_endpoint().await;
             return Err(last_dial_error);
         };
         let (send, recv) = connection
@@ -593,6 +662,7 @@ impl RemoteIrohControllerTransport {
             terminal_tx: Mutex::new(Some(terminal_tx)),
             upload_tx: Mutex::new(Some(upload_tx)),
             closed: Arc::new(AtomicBool::new(false)),
+            close_notify: Arc::new(Notify::new()),
         });
         publish_path_state(&connection, &on_state);
         spawn_path_watcher(connection.clone(), Arc::clone(&on_state));
@@ -600,6 +670,7 @@ impl RemoteIrohControllerTransport {
             transport.endpoint.clone(),
             BlobsProtocol::new(blob_store.as_ref(), None),
             Arc::clone(&transport.closed),
+            Arc::clone(&transport.close_notify),
             on_log.clone(),
         );
         spawn_upload_writer(
@@ -641,6 +712,11 @@ impl RemoteIrohControllerTransport {
         if let Ok(mut connection) = self.connection.lock() {
             *connection = None;
         }
+        // Wake the blob-accept loop so it stops awaiting accept() on the shared
+        // endpoint and exits — the endpoint outlives this transport now, so it
+        // would otherwise linger forever. notify_one stores a permit if the loop
+        // is mid-iteration, so the signal is never lost.
+        self.close_notify.notify_one();
     }
 }
 
@@ -695,8 +771,11 @@ impl RemoteTransport for RemoteIrohControllerTransport {
     }
 
     async fn shutdown(&self) {
+        // Do NOT close the endpoint: it is process-shared (see
+        // acquire_controller_endpoint), so closing it here would kill every other
+        // controller connection and force the next one to cold-start. Dropping our
+        // connection (close_sender) is enough; the pool keeps the endpoint warm.
         self.close_sender();
-        self.endpoint.close().await;
     }
 }
 
@@ -704,11 +783,21 @@ fn spawn_blob_accept_loop(
     endpoint: Endpoint,
     blobs: BlobsProtocol,
     closed: Arc<AtomicBool>,
+    close_notify: Arc<Notify>,
     on_log: Option<RemoteTransportLogHandler>,
 ) {
     tokio::spawn(async move {
         while !closed.load(Ordering::SeqCst) {
-            let Some(incoming) = endpoint.accept().await else {
+            // The endpoint is process-shared and outlives this transport, so
+            // accept() never returns None on our own close — race it against the
+            // close signal so this loop exits instead of lingering on the shared
+            // endpoint (and racing the next transport's loop for incoming blobs).
+            let incoming = tokio::select! {
+                biased;
+                _ = close_notify.notified() => break,
+                incoming = endpoint.accept() => incoming,
+            };
+            let Some(incoming) = incoming else {
                 break;
             };
             let blobs = blobs.clone();
