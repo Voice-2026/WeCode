@@ -501,6 +501,7 @@ impl RemoteIrohControllerTransport {
         // have a relay home; without this the dial below can block forever
         // instead of failing fast (and reveals "can't reach the peer's relay" as
         // a distinct, fast error).
+        let online_started = std::time::Instant::now();
         if tokio::time::timeout(IROH_ONLINE_TIMEOUT, endpoint.online())
             .await
             .is_err()
@@ -508,17 +509,34 @@ impl RemoteIrohControllerTransport {
             endpoint.close().await;
             return Err("iroh controller relay online timeout".to_string());
         }
+        log_transport(
+            &on_log,
+            format!(
+                "iroh_controller online elapsed_ms={}",
+                online_started.elapsed().as_millis()
+            ),
+        );
         // Bound the dial itself. A peer that is offline, on a relay we can't
         // reach, or otherwise unreachable would hang this connect indefinitely —
         // wedging the reconnect loop with no retry/backoff/error. On timeout we
         // surface a real error so the loop records it, backs off, and retries.
+        let dial_started = std::time::Instant::now();
         let connection = match tokio::time::timeout(
             IROH_CONNECT_TIMEOUT,
             endpoint.connect(endpoint_addr, CODUX_REMOTE_ALPN),
         )
         .await
         {
-            Ok(Ok(connection)) => connection,
+            Ok(Ok(connection)) => {
+                log_transport(
+                    &on_log,
+                    format!(
+                        "iroh_controller dial elapsed_ms={}",
+                        dial_started.elapsed().as_millis()
+                    ),
+                );
+                connection
+            }
             Ok(Err(error)) => {
                 endpoint.close().await;
                 return Err(format!("iroh controller connect failed: {error}"));
