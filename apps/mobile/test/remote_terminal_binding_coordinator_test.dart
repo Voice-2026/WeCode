@@ -122,7 +122,7 @@ void main() {
     },
   );
 
-  test('bind restored cached session still refreshes host baseline', () {
+  test('bind restored gap-free cached session skips the baseline reload', () {
     final sent = <RelayEnvelope>[];
     final output = RemoteTerminalOutputController();
     output.accept(
@@ -155,12 +155,17 @@ void main() {
       restored: true,
     );
 
-    expect(result.baselineRequested, isTrue);
+    // A gap-free cached session reused on switch must NOT reload its baseline:
+    // replaying the trimmed raw history repaints residue for a repainting TUI,
+    // so the coordinator keeps the cached screen and lets the viewport re-claim
+    // push a fresh keyframe instead. It still (re)subscribes the project, but
+    // without requesting a baseline.
+    expect(result.baselineRequested, isFalse);
     expect(sent, hasLength(1));
     expect(sent.single.type, RemoteMessageType.resourceSubscribe);
     expect(sent.single.payload, containsPair('projectId', 'project-1'));
-    expect(sent.single.payload, containsPair('baseline', true));
-    expect(output.activeBufferRequestId('term-1'), isNotNull);
+    // A baseline-less subscribe omits the key entirely rather than sending false.
+    expect(sent.single.payload, isNot(contains('baseline')));
   });
 }
 

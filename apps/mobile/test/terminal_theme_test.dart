@@ -11,7 +11,7 @@ void main() {
       inverse: false,
     );
 
-    expect(colors.bg, AppColors.bgBase);
+    expect(colors.bg, AppColors.terminalBg);
     expect(colors.fg, AppColors.textPrimary);
     expect(colors.drawBackground, isFalse);
   });

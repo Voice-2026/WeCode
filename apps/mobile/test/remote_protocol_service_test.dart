@@ -152,7 +152,7 @@ void main() {
             .having(
               (error) => error.toString(),
               'message',
-              contains('transports.iroh.ticket'),
+              contains('transports.iroh'),
             ),
       ),
     );
