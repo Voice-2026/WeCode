@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.3] - 2026-06-25
+
+### Added
+
+- Direct LAN (peer-to-peer) remote connections: the desktop or phone discovers a Codux host on the same network via iroh mDNS and links directly instead of through a relay, with a direct-vs-relay indicator on the connection badge.
+- Persistent, multi-client remote terminals: switching projects or devices re-attaches the same host shell, several clients can share one agent terminal with viewport hand-off (click the phone badge to reclaim the viewport), and the headless host now forwards Ctrl-C and viewport scroll.
+- Git sidebar folders now have a right-click menu — stage, unstage, discard, or add a whole directory to .gitignore — matching the per-file actions.
+- Slimmer pairing QR (node id + relay url only) with device-role badges, plus a mobile fallback to import a pairing QR from a photo or screenshot when the live camera scan struggles.
+
+### Changed
+
+- Faster remote reconnects: a pooled controller endpoint and warm re-dial skip the cold start, and the now-unused per-output screen keyframe is no longer sent on the desktop or agent live path.
+- Unified the cross-device internals: one shared remote-terminal dispatch router, a shared terminal-stream lane classifier, shared pairing-QR parsing over FFI, and worktree create/merge/remove sunk into the shared codux-git engine.
+- Simplified desktop pairing into a match-then-confirm flow and dropped the separate operator dialog.
+
+### Fixed
+
+- Remote terminals: brought them fully online (blank panes, dropped first output, and attach-by-id root causes), stopped the screen duplicating on window resize and the duplicate/ghost first prompt on re-attach, reaped the host PTY when a terminal is closed, and guarded against double-attaching one terminal to two host PTYs.
+- Connection robustness: stopped cutting off slow iroh connects at 15s, stopped a late eviction from wedging a concurrent reconnect, closed the desktop pairing sheet on success, and stopped transport churn while pairing.
+- Remote projects and hosts: a host now advertises only its local projects, the status-bar badge counts saved outbound hosts correctly, and remote add-project / new-folder works across platforms with correct path handling.
+- Desktop resilience: auto-recover the file tree, Git, and watchers when a project drive remounts, stop caching a failed shell-env capture so codex self-heals after a drive blip, suppress the Windows console flash on file open, and hold the pet activity line to stop multi-agent flicker.
+
 ## [2.0.0-beta.2] - 2026-06-22
 
 ### Added
