@@ -4,6 +4,24 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-beta.3] - 2026-06-25
+
+### Added
+
+- Direct LAN (peer-to-peer) connection to a Codux host on the same network via iroh mDNS, with a direct-vs-relay indicator on the connection badge.
+- Persistent remote terminals: returning to a project re-attaches the same host shell, and the phone can share an agent terminal with the desktop and hand off the viewport (the desktop reclaims it by tapping the phone badge).
+- Import a pairing QR from a photo or screenshot as a fallback when the live camera scan struggles.
+
+### Changed
+
+- Clearer pairing scan: higher camera resolution and a loading state on recognition, plus a slimmer pairing QR (node id + relay url) with device-role badges.
+- Faster reconnects by reusing a warm connection, and stopped cutting off slower connects too early.
+
+### Fixed
+
+- Terminal: fixed viewport sizing and glyph rendering, the duplicate/ghost first prompt right after connecting, and switch/contention robustness; auto-recover stalled baselines to cut latency-driven jank.
+- Fixed QR scanning on some MediaTek/OPLUS devices by dropping the forced camera resolution and autozoom that starved or mis-framed the scan.
+
 ## [2.0.0-beta.2] - 2026-06-22
 
 ### Added
