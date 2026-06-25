@@ -50,6 +50,18 @@ class TerminalViewportController {
     _sentBySession.clear();
   }
 
+  /// Forget the size we last told the host for [sessionId] so the next resize is
+  /// NOT deduped. On reattach the desktop may have re-claimed the viewport and
+  /// re-widened the host PTY to its own grid while we were the inactive viewer;
+  /// our cache still records the phone width we last sent, so a rebind resize
+  /// matches the cache and is suppressed -- and the baseline is then captured at
+  /// the desktop's width, leaving a duplicate/ghost first prompt line on attach.
+  /// Dropping the entry forces the corrective resize through ahead of the
+  /// baseline subscribe so the snapshot is captured at our width.
+  void invalidateSentSize(String sessionId) {
+    _sentBySession.remove(sessionId.trim());
+  }
+
   /// Record the phone's freshly measured grid even when there is no session to
   /// resize yet (the terminal pane is laid out and measured BEFORE the first
   /// `terminal.create` is issued). Caching it here lets `_createTerminal` spawn

@@ -44,6 +44,7 @@ class HomeRuntimeCoordinator {
     required this.requestTerminalList,
     required this.sendProjectSelect,
     required this.focusTerminalViewSoon,
+    required this.prepareViewportForBind,
     required this.onSessionStateChanged,
   });
 
@@ -69,6 +70,11 @@ class HomeRuntimeCoordinator {
   final void Function(String projectId, {required String reason})
       sendProjectSelect;
   final VoidCallback focusTerminalViewSoon;
+
+  /// Force the host PTY to the phone's grid before the baseline subscribe on
+  /// (re)bind, so the baseline snapshot is captured at our width instead of the
+  /// desktop's (which would leave a duplicate first prompt line on attach).
+  final void Function(String sessionId) prepareViewportForBind;
   final void Function(HomeRuntimeSnapshot previous, String reason)
       onSessionStateChanged;
 
@@ -154,6 +160,10 @@ class HomeRuntimeCoordinator {
     // `syncRuntimeViewState()` earlier in this same apply pass, so the captured
     // field is stale here and would bind the session to the previous project.
     final boundProjectId = captureSnapshot().selectedProjectId ?? selectedProjectId;
+    // Snap the host to our grid FIRST so the baseline subscribe below is
+    // captured at the phone width -- avoids the attach-time duplicate prompt
+    // when the desktop had drifted the host PTY to its own (wider) grid.
+    prepareViewportForBind(bindSessionId);
     final bindResult = terminalBindingCoordinator.bindSession(
       plan: plan,
       bindSessionId: bindSessionId,

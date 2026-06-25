@@ -609,6 +609,7 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       sendProjectSelect: (projectId, {required reason}) =>
           _sendProjectSelect(projectId, reason: reason),
       focusTerminalViewSoon: _focusTerminalViewSoon,
+      prepareViewportForBind: _prepareViewportForBind,
       onSessionStateChanged: (previous, reason) {},
     );
   }
