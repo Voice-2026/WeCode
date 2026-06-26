@@ -17,7 +17,22 @@ platform-neutral. The service installer targets launchd (macOS), `systemd --user
 
 ## Install
 
-Download the `codux-agent-<version>-<os>-<arch>` binary from
+One line (macOS / Linux) — downloads the right prebuilt binary, installs it as
+`codux` on your `PATH`, no build toolchain needed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh
+```
+
+Flags: `--beta` (newest pre-release), `--version <x.y.z>` (pin a version),
+`--dir <path>` (install location), `--setup` (run `config` + `install` after).
+Pass them after `sh -s --`, e.g. install the beta and set it up as a service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/duxweb/codux/main/apps/agent/scripts/install.sh | sh -s -- --beta --setup
+```
+
+Or do it by hand — download the `codux-agent-<version>-<os>-<arch>` binary from
 [Releases](https://github.com/duxweb/codux/releases), put it on your `PATH`, then:
 
 ```bash
