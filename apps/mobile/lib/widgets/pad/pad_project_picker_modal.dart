@@ -89,7 +89,9 @@ Future<void> showPadProjectPicker(
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color: PadColors.textPrimary,
+                                        color: active
+                                            ? PadColors.textPrimary
+                                            : PadColors.textSecondary,
                                         fontSize: 14,
                                         fontWeight: FontWeight.w700,
                                       ),

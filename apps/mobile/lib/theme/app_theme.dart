@@ -25,13 +25,13 @@ class AppColors {
   // Light canvas is a clear gray (not near-white) so white cards/buttons pop now
   // that surfaces are borderless.
   static Color get bgBase =>
-      CoduxTheme._pick(const Color(0xFF0A0A0A), const Color(0xFFDCE1E7));
+      CoduxTheme._pick(const Color(0xFF141414), const Color(0xFFDCE1E7));
   static Color get bgSurface =>
-      CoduxTheme._pick(const Color(0xFF161616), const Color(0xFFFFFFFF));
+      CoduxTheme._pick(const Color(0xFF1F1F1F), const Color(0xFFFFFFFF));
   static Color get bgElevated =>
-      CoduxTheme._pick(const Color(0xFF242424), const Color(0xFFEAEEF2));
+      CoduxTheme._pick(const Color(0xFF2B2B2B), const Color(0xFFEAEEF2));
   static Color get border =>
-      CoduxTheme._pick(const Color(0xFF2C2C2C), const Color(0xFFD0D7DE));
+      CoduxTheme._pick(const Color(0xFF383838), const Color(0xFFD0D7DE));
 
   // Accent / brand (theme-independent; the live accent comes from colorScheme).
   static const accent = Color(0xFFD7FF61);
