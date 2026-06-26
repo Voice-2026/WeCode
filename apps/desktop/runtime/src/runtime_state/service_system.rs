@@ -239,6 +239,26 @@ impl RuntimeService {
         self.remote_host.broadcast_terminal_list_change();
     }
 
+    /// Notify connected controllers that the project list changed (created /
+    /// renamed / reordered / closed on the desktop) so they reconcile live
+    /// instead of waiting for a reconnect or pull-to-refresh.
+    pub fn broadcast_remote_project_list(&self) {
+        self.remote_host.broadcast_project_list_change();
+    }
+
+    /// Push refreshed git status to controllers after a desktop git mutation so
+    /// their git view reconciles instead of showing stale status.
+    pub fn broadcast_remote_git_status(&self, project_id: &str, project_path: &str) {
+        self.remote_host
+            .broadcast_git_status_change(project_id, project_path);
+    }
+
+    /// Notify controllers that an AI session was removed/changed on the desktop
+    /// so each refreshes its own session list (drops the deleted row live).
+    pub fn broadcast_remote_ai_session_changed(&self) {
+        self.remote_host.broadcast_ai_session_changed();
+    }
+
     /// Push freshly-indexed AI stats to remote devices that requested them while
     /// the project's index was still cold (see `flush_pending_ai_stats`).
     pub fn flush_remote_ai_stats(

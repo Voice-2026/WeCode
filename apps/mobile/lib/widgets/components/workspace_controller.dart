@@ -28,6 +28,7 @@ class WorkspaceController {
     required this.gitStatus,
     required this.onGitAction,
     required this.onRefreshGit,
+    required this.onRefreshLists,
     required this.onSshUpsert,
     required this.onSshRemove,
     required this.aiSessions,
@@ -97,6 +98,8 @@ class WorkspaceController {
   final RemoteGitStatusInfo? gitStatus;
   final void Function(String op, Map<String, dynamic> args) onGitAction;
   final VoidCallback onRefreshGit;
+  /// Force-refetch worktrees + AI sessions from the host (pad sidebar pull-to-refresh).
+  final VoidCallback onRefreshLists;
   final void Function(Map<String, dynamic> fields) onSshUpsert;
   final ValueChanged<String> onSshRemove;
   final List<AISessionRecord> aiSessions;

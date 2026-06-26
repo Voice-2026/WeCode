@@ -138,9 +138,12 @@ impl CoduxApp {
             .chain(layout.tabs.iter().map(|tab| tab.terminal_id.clone()))
             .filter(|terminal_id| !terminal_id.trim().is_empty())
             .collect();
-        if layout_ids.is_empty() {
-            return;
-        }
+        // An empty layout is NOT an early-out. reconcile runs only on a real
+        // TerminalLayoutChanged event (create/close/move) and reloads the
+        // just-persisted summary, so an empty result means the last terminal was
+        // genuinely closed (e.g. a controller closed the only terminal in a
+        // worktree) -- fall through and tear the now-stale desktop panes down
+        // instead of leaving an orphaned dead pane behind.
         let mut removed_stale = false;
         let mut removed_terminal_ids = Vec::new();
         for tab in &mut self.terminals {

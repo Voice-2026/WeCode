@@ -31,6 +31,7 @@ class PadWorkspaceSidebar extends StatelessWidget {
     required this.onSelectTerminal,
     required this.onCreateTerminal,
     required this.onCloseTerminal,
+    required this.onRefresh,
   });
 
   final ProjectInfo? project;
@@ -55,6 +56,8 @@ class PadWorkspaceSidebar extends StatelessWidget {
   final ValueChanged<TerminalInfo> onSelectTerminal;
   final VoidCallback onCreateTerminal;
   final ValueChanged<TerminalInfo> onCloseTerminal;
+  /// Force-refetch worktrees + sessions from the host (pull-to-refresh).
+  final VoidCallback onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -81,24 +84,37 @@ class PadWorkspaceSidebar extends StatelessWidget {
           ),
           Expanded(
             flex: 5,
-            child: worktrees.isEmpty
-                ? _EmptyHint(text: prefs.t('worktree.empty'))
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-                    itemCount: worktrees.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 6),
-                    itemBuilder: (context, index) {
-                      final item = worktrees[index];
-                      return _WorktreeRow(
-                        info: item,
-                        active: item.id == selectedWorktreeId,
-                        accent: accent,
-                        onTap: () => onSelectWorktree(item),
-                        onMerge: () => onMergeWorktree(item),
-                        onDelete: () => onDeleteWorktree(item),
-                      );
-                    },
-                  ),
+            child: RefreshIndicator(
+              onRefresh: () async => onRefresh(),
+              color: accent,
+              child: worktrees.isEmpty
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: 200,
+                          child: _EmptyHint(text: prefs.t('worktree.empty')),
+                        ),
+                      ],
+                    )
+                  : ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+                      itemCount: worktrees.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 6),
+                      itemBuilder: (context, index) {
+                        final item = worktrees[index];
+                        return _WorktreeRow(
+                          info: item,
+                          active: item.id == selectedWorktreeId,
+                          accent: accent,
+                          onTap: () => onSelectWorktree(item),
+                          onMerge: () => onMergeWorktree(item),
+                          onDelete: () => onDeleteWorktree(item),
+                        );
+                      },
+                    ),
+            ),
           ),
           _HeaderBar(
             title: prefs.t('workspace.sessions'),
@@ -107,19 +123,34 @@ class PadWorkspaceSidebar extends StatelessWidget {
           ),
           Expanded(
             flex: 6,
-            child: aiSessions.isNotEmpty
-                ? ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
-                    itemCount: aiSessions.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 4),
-                    itemBuilder: (context, index) => _HistorySessionRow(
-                      session: aiSessions[index],
-                      onOpen: onOpenSession,
-                      onRename: onRenameSession,
-                      onDelete: onDeleteSession,
+            child: RefreshIndicator(
+              onRefresh: () async => onRefresh(),
+              color: accent,
+              child: aiSessions.isNotEmpty
+                  ? ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+                      itemCount: aiSessions.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 4),
+                      itemBuilder: (context, index) => _HistorySessionRow(
+                        session: aiSessions[index],
+                        onOpen: onOpenSession,
+                        onRename: onRenameSession,
+                        onDelete: onDeleteSession,
+                      ),
+                    )
+                  : ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: [
+                        SizedBox(
+                          height: 200,
+                          child: _EmptyHint(
+                            text: prefs.t('workspace.sessionsEmpty'),
+                          ),
+                        ),
+                      ],
                     ),
-                  )
-                : _EmptyHint(text: prefs.t('workspace.sessionsEmpty')),
+            ),
           ),
         ],
       ),

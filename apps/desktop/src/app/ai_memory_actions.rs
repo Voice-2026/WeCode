@@ -320,6 +320,10 @@ impl CoduxApp {
                 self.normalize_selected_ai_session();
                 self.reload_selected_ai_session_detail();
                 self.status_message = "selected AI session removed from index".to_string();
+                // Tell connected controllers (pad/phone) to refresh their own AI
+                // session list so the deleted row disappears live instead of
+                // lingering until reconnect or pull-to-refresh.
+                self.runtime_service.broadcast_remote_ai_session_changed();
             }
             Err(error) => {
                 self.ai_session_delete_confirm_id = None;

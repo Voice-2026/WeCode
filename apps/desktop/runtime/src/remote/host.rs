@@ -287,6 +287,48 @@ impl RemoteHostRuntime {
         self.broadcast_terminal_list(None);
     }
 
+    /// Push the project list to subscribed controllers after a desktop-initiated
+    /// project mutation (create / rename / reorder / close), so a controller's
+    /// list updates live instead of only on reconnect or pull-to-refresh.
+    pub fn broadcast_project_list_change(&self) {
+        self.broadcast_project_list(None);
+    }
+
+    /// Push refreshed git status to controllers subscribed to this project after
+    /// a desktop-initiated git mutation (stage/commit/discard/branch/...), so the
+    /// controller's git view reconciles instead of showing stale status. Mirrors
+    /// the `git.status` request reply; a no-op when nothing is subscribed.
+    pub fn broadcast_git_status_change(&self, project_id: &str, project_path: &str) {
+        if project_id.trim().is_empty() || project_path.trim().is_empty() {
+            return;
+        }
+        let summary = crate::git::GitService::status(project_path);
+        self.broadcast_resource_payload(
+            REMOTE_GIT_STATUS,
+            REMOTE_RESOURCE_GIT_STATUS,
+            None,
+            Some(project_id),
+            None,
+            remote_git_status_payload(project_id.to_string(), project_path.to_string(), summary),
+        );
+    }
+
+    /// Tell controllers an AI history session changed on the desktop (e.g. the
+    /// user deleted one). We broadcast the lean `remove` signal -- NOT a session
+    /// list -- so each controller re-requests its OWN project/worktree scope and
+    /// drops the stale row, instead of adopting the desktop's list (which may be
+    /// a different project or worktree). Mirrors the reply a controller gets after
+    /// its own `ai.session` remove, which the mobile client already handles by
+    /// re-listing.
+    pub fn broadcast_ai_session_changed(&self) {
+        self.send(
+            REMOTE_AI_SESSION_RESULT,
+            None,
+            None,
+            json!({ "op": "remove", "result": Value::Null }),
+        );
+    }
+
     fn publish_remote_terminal_layout_changed(&self) {
         let generation = self
             .remote_terminal_layout_generation
@@ -3382,20 +3424,21 @@ impl RemoteHostRuntime {
         };
         let service = TerminalLayoutService::new(self.support_dir.clone());
         let mut layout = service.load(Some(&scope.layout_key));
-        let before_top = layout.top_panes.len();
-        let before_tabs = layout.tabs.len();
-        let before_total = before_top + before_tabs;
-        if before_total <= 1 {
-            return false;
-        }
+        let before_total = layout.top_panes.len() + layout.tabs.len();
         layout
             .top_panes
             .retain(|pane| pane.terminal_id != terminal_id);
         layout.tabs.retain(|tab| tab.terminal_id != terminal_id);
         let after_total = layout.top_panes.len() + layout.tabs.len();
-        if after_total == before_total || after_total == 0 {
+        // Nothing matched: this layout summary didn't actually own the terminal.
+        if after_total == before_total {
             return false;
         }
+        // A controller may close the LAST terminal in a layout (after_total == 0).
+        // Persist the now-empty summary so the desktop reconcile tears its pane
+        // down too. Previously closing the only terminal in a worktree bailed out
+        // here (before_total <= 1 / after_total == 0), so it silently no-opped on
+        // both ends -- the desktop split AND the pad tab both lingered.
         let _ = service.save_summary(&scope.layout_key, layout);
         true
     }

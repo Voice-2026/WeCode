@@ -565,6 +565,25 @@ impl TerminalSessionBinding {
         Ok(())
     }
 
+    /// Floor the shared grid at `rows` without taking ownership: used while this
+    /// desktop pane only MIRRORS a terminal a remote viewer owns. It lets the
+    /// desktop height raise (never lower) the shared grid so the desktop fills
+    /// even when a shorter remote owns the lease; the taller viewer wins and the
+    /// shorter one scrolls the bottom window. No-op for a remote binding -- there
+    /// this desktop is itself a controller and already forwards its own size.
+    fn grow_local_viewport_rows(&self, rows: u16) {
+        let session = {
+            let inner = self.inner.lock();
+            if inner.remote.is_some() {
+                return;
+            }
+            inner.session.clone()
+        };
+        if let Some(session) = session {
+            session.clone_handle().grow_viewport_rows(rows);
+        }
+    }
+
     fn claim_local_viewport(&self) -> Result<()> {
         let (session, last_resize) = {
             let inner = self.inner.lock();

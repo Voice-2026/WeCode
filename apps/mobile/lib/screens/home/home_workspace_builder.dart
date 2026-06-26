@@ -102,6 +102,7 @@ class HomeWorkspaceBuilder {
           gitStatus: shellData.gitStatus,
           onGitAction: onGitAction,
           onRefreshGit: onRefreshGit,
+          onRefreshLists: onRefreshLists,
           onSshUpsert: onSshUpsert,
           onSshRemove: onSshRemove,
           aiSessions: shellData.aiSessions,

@@ -107,6 +107,15 @@ impl Element for TerminalElement {
             {
                 eprintln!("failed to resize terminal pty: {error}");
             }
+        } else if !local_owner {
+            // Mirroring a terminal a remote viewer owns: that remote drives the
+            // shared grid, but a remote SHORTER than this pane would leave the
+            // desktop half-empty. Floor the grid at our own height (grow-only,
+            // never shrink) so the desktop fills too -- the taller of the two
+            // viewers wins and the shorter one scrolls the bottom window. This
+            // avoids the "resize the PTY on every frame of a window drag" hazard
+            // noted above because it no-ops once the grid already covers us.
+            self.session.grow_local_viewport_rows(rows as u16);
         }
 
         let snapshot = self

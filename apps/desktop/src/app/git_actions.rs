@@ -1604,6 +1604,8 @@ impl CoduxApp {
                     .is_some_and(|project| project.path == project_path);
                 if selected_matches {
                     self.state.git = summary;
+                    self.runtime_service
+                        .broadcast_remote_git_status(&project_id, &project_path);
                     self.normalize_selected_git_file();
                     self.normalize_selected_git_branch();
                     self.state.worktrees = self
@@ -1709,6 +1711,8 @@ impl CoduxApp {
                         self.sync_project_list_state(cx);
                     }
                     self.state.git = summary;
+                    self.runtime_service
+                        .broadcast_remote_git_status(&project_id, &project_path);
                     if completion.clear_commit_message {
                         self.git_commit_message.clear();
                         self.git_commit_message_revision =

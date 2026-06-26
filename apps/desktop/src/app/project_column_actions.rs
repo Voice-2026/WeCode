@@ -40,6 +40,11 @@ impl CoduxApp {
             state.set_activity(activity, cx);
             state.set_links(links, cx);
         });
+        // Mirror the refreshed project list to connected controllers (pad/phone)
+        // so a desktop-side create/rename/reorder/close shows up live instead of
+        // only after reconnect or pull-to-refresh. Idempotent + cheap: a no-op
+        // when nothing is connected/subscribed.
+        self.runtime_service.broadcast_remote_project_list();
     }
 
     pub(super) fn sync_project_activity_state(&mut self, cx: &mut Context<Self>) {

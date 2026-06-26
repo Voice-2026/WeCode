@@ -93,7 +93,19 @@ impl TerminalContent {
 
     fn with_visible_row_shift(mut self, visible_rows: usize) -> Self {
         self.visible_rows = visible_rows.min(self.screen_lines);
-        self.visible_row_shift = self.screen_lines.saturating_sub(self.visible_rows);
+        // Anchor the visible window on the CURSOR, not a fixed bottom slice. When
+        // a remote viewer grew the shared grid taller than this pane, a fresh
+        // shell's prompt sits near the TOP with empty rows below; a fixed bottom
+        // window would render only those empty rows -- a blank pane that can't be
+        // scrolled up to reach the prompt. Place the cursor on the last visible
+        // row when content overflows, but clamp to 0 so a top-anchored prompt
+        // shows. With screen_lines == visible_rows (the desktop owns the grid)
+        // max_shift is 0, so solo/owner rendering is unchanged.
+        let max_shift = self.screen_lines.saturating_sub(self.visible_rows);
+        let cursor_row = (self.cursor.row as usize).min(self.screen_lines.saturating_sub(1));
+        self.visible_row_shift = cursor_row
+            .saturating_sub(self.visible_rows.saturating_sub(1))
+            .min(max_shift);
         self
     }
 

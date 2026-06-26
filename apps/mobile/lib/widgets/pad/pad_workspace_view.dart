@@ -35,6 +35,7 @@ class PadWorkspaceView extends StatelessWidget {
   void Function(String op, Map<String, dynamic> args) get onGitAction =>
       controller.onGitAction;
   VoidCallback get onRefreshGit => controller.onRefreshGit;
+  VoidCallback get onRefreshLists => controller.onRefreshLists;
   void Function(Map<String, dynamic> fields) get onSshUpsert =>
       controller.onSshUpsert;
   ValueChanged<String> get onSshRemove => controller.onSshRemove;
@@ -205,6 +206,7 @@ class PadWorkspaceView extends StatelessWidget {
                                 terminals: terminals,
                                 activeTerminalId: activeTerminalId,
                                 aiSessions: aiSessions,
+                                onRefresh: onRefreshLists,
                                 onOpenSession: onOpenSession,
                                 onRenameSession: onRenameSession,
                                 onDeleteSession: onDeleteSession,
