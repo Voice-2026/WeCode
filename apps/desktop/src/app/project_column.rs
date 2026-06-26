@@ -892,10 +892,12 @@ fn project_row(
                         .child(
                             div()
                                 .text_sm()
-                                .text_color(color(if project.exists {
+                                .text_color(color(if !project.exists {
+                                    theme::TEXT_DIM
+                                } else if active {
                                     theme::TEXT
                                 } else {
-                                    theme::TEXT_DIM
+                                    theme::TEXT_MUTED
                                 }))
                                 .truncate()
                                 .child(project.name.clone()),

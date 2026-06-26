@@ -187,16 +187,39 @@ pub fn vibrancy_panel(base: Hsla) -> Hsla {
     }
 }
 
-/// Subtle darkening for raised surfaces on a frosted panel — title/section bars
-/// AND cards. They sit ON the panel's fill, so rather than stacking a second
-/// full fill (which reads as opaque) this lays a thin translucent dark tint over
-/// the panel: the surface stays see-through but reads a touch deeper than the
-/// panel behind it, giving depth. Opaque base in solid mode.
-pub fn vibrancy_raised(solid_base: Hsla) -> Hsla {
-    if window_is_solid() {
-        solid_base
+/// Whether the resolved app surface is dark — decides whether elevated surfaces
+/// brighten (dark UI) or deepen (light UI). Reads the live app background.
+fn surface_is_dark() -> bool {
+    let bg = DYNAMIC_BG.load(Ordering::Relaxed);
+    let r = ((bg >> 16) & 0xFF) as f32 / 255.0;
+    let g = ((bg >> 8) & 0xFF) as f32 / 255.0;
+    let b = (bg & 0xFF) as f32 / 255.0;
+    0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5
+}
+
+/// A solid surface one elevation step above (dark UI) / below (light UI) the
+/// given base. Uses a *blended* tone — not a translucent overlay — so stacked
+/// surfaces read as real depth instead of washing the frost out. `amount` is the
+/// blend strength toward white / black.
+pub fn elevate(base: Hsla, amount: f32) -> Hsla {
+    let target = if surface_is_dark() {
+        raw_color(0xFFFFFF)
     } else {
-        gpui::hsla(0.0, 0.0, 0.0, 0.06)
+        raw_color(0x000000)
+    };
+    mix_towards(base, target, amount)
+}
+
+/// Raised chrome on a frosted panel — title / section bars AND cards. Blends the
+/// base a step lighter (dark) / darker (light) so it reads as a genuine
+/// elevation over the panel behind it, then inherits the panel opacity so it
+/// still frosts. Opaque in solid mode.
+pub fn vibrancy_raised(base: Hsla) -> Hsla {
+    let raised = elevate(base, if surface_is_dark() { 0.09 } else { 0.06 });
+    if window_is_solid() {
+        raised
+    } else {
+        raised.opacity((vibrancy_alpha() + PANEL_ALPHA_BOOST).min(1.0))
     }
 }
 
@@ -627,7 +650,13 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
         let terminal_black = raw_color(terminal.black);
         let app_surface = mix_towards(terminal_background, terminal_black, 0.36);
         let column_surface = mix_towards(app_surface, terminal_background, 0.48);
-        let header_surface = mix_towards(app_surface, selection, 0.10);
+        // Header / chrome surfaces stay NEUTRAL — derived from the theme
+        // background and blended only toward white, never toward `selection`
+        // (which is blue in most palettes and tinted the whole frame cool).
+        let header_surface = mix_towards(app_surface, raw_color(0xFFFFFF), 0.04);
+        // Chrome (title bars, main header, status bar) sits a blended step
+        // lighter than the app background so the frame reads as raised, not flat.
+        let chrome_surface = mix_towards(app_surface, raw_color(0xFFFFFF), 0.05);
         (
             app_surface,
             raw_color(terminal.foreground),
@@ -638,8 +667,8 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
                 0.28,
             ),
             mix_towards(terminal_background, current_line, 0.30),
-            raw_color(0xFFFFFF).opacity(0.055),
-            raw_color(0xFFFFFF).opacity(0.085),
+            raw_color(0xFFFFFF).opacity(0.09),
+            raw_color(0xFFFFFF).opacity(0.14),
             raw_color(0xFFFFFF).opacity(0.075),
             accent_color.opacity(0.17),
             accent_color,
@@ -650,10 +679,10 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
             app_surface,
             header_surface,
             mix_towards(terminal_background, selection, 0.58),
-            app_surface,
+            chrome_surface,
             terminal_background,
             header_surface,
-            mix_towards(column_surface, selection, 0.08),
+            mix_towards(column_surface, raw_color(0xFFFFFF), 0.05),
             mix_towards(terminal_background, current_line, 0.42),
             raw_color(0x000000).opacity(0.42),
             raw_color(0xF87171),
@@ -695,7 +724,7 @@ fn configure_component_theme(cx: &mut App, terminal: TerminalThemePalette, accen
         )
     };
     let hover_surface = if is_dark {
-        raw_color(0xFFFFFF).opacity(0.10)
+        raw_color(0xFFFFFF).opacity(0.15)
     } else {
         raw_color(0x000000).opacity(0.07)
     };

@@ -662,9 +662,10 @@ fn assistant_panel_header(
 }
 
 fn ai_stats_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {
-    // Cards read a touch deeper than their frosted panel (same treatment as
-    // title bars): a thin translucent darkening, not a second opaque fill.
-    theme::vibrancy_raised(cx.theme().secondary)
+    // Cards sit a blended step above the panel they live on (the sidebar) — a
+    // solid lighter/darker tone with the panel opacity inherited, so they read
+    // as raised tiles rather than a darker translucent patch.
+    theme::vibrancy_raised(cx.theme().sidebar)
 }
 
 fn ai_stats_track_surface(cx: &mut Context<CoduxApp>) -> gpui::Hsla {

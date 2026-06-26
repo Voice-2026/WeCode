@@ -1268,10 +1268,10 @@ fn terminal_bottom_tabs_area(
                 .px_2()
                 .border_t_1()
                 .border_color(cx.theme().border)
-                // The tab strip is frosted chrome (app background + opacity),
-                // matching the headers/sidebar; the terminal body itself is the
-                // more-opaque surface derived from the same opacity setting.
-                .bg(theme::vibrancy(color(theme::BG_TERMINAL)))
+                // The tab strip is frosted chrome matching the title header:
+                // same base color (title_bar) and the same vibrancy opacity, so
+                // it reads as solid chrome rather than see-through terminal bg.
+                .bg(theme::vibrancy(cx.theme().title_bar))
                 .child(
                     div()
                         .flex()
