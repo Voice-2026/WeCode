@@ -119,5 +119,7 @@ RemoteTerminalPane _pane({ValueChanged<String>? onSendKey}) {
     onCopy: () {},
     onUpload: () {},
     onVoiceInput: () {},
+    handedAway: false,
+    onTakeOver: () {},
   );
 }

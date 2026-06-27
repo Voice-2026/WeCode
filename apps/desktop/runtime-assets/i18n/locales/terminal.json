@@ -48,7 +48,11 @@
       "terminal.tab.default_format": "Terminal %d",
       "terminal.split.default_format": "Split %d",
       "terminal.close.confirm_split": "Press %@ again to close the current split",
-      "terminal.close.confirm_tab": "Press %@ again to close the current tab"
+      "terminal.close.confirm_tab": "Press %@ again to close the current tab",
+      "terminal.handoff.phone": "Phone",
+      "terminal.handoff.tablet": "Tablet",
+      "terminal.handoff.inUse": "is using this terminal",
+      "terminal.handoff.takeOver": "Take over"
     },
     "es": {
       "terminal.closed": "Closed terminal.",
@@ -223,7 +227,11 @@
       "terminal.tab.default_format": "终端 %d",
       "terminal.split.default_format": "分屏 %d",
       "terminal.close.confirm_split": "再次按 %@ 关闭当前分屏",
-      "terminal.close.confirm_tab": "再次按 %@ 关闭当前标签页"
+      "terminal.close.confirm_tab": "再次按 %@ 关闭当前标签页",
+      "terminal.handoff.phone": "手机",
+      "terminal.handoff.tablet": "平板",
+      "terminal.handoff.inUse": "正在使用此终端",
+      "terminal.handoff.takeOver": "接管"
     },
     "zh-Hant": {
       "terminal.closed": "已關閉終端機。",
@@ -248,7 +256,11 @@
       "terminal.tab.default_format": "終端 %d",
       "terminal.split.default_format": "分屏 %d",
       "terminal.close.confirm_split": "再次按 %@ 關閉目前分割",
-      "terminal.close.confirm_tab": "再次按 %@ 關閉目前分頁"
+      "terminal.close.confirm_tab": "再次按 %@ 關閉目前分頁",
+      "terminal.handoff.phone": "手機",
+      "terminal.handoff.tablet": "平板",
+      "terminal.handoff.inUse": "正在使用此終端",
+      "terminal.handoff.takeOver": "接管"
     }
   }
 }

@@ -20,7 +20,7 @@ use gpui::{
     Subscription, Task, TextAlign, TextRun, TouchPhase, UTF16Selection, UnderlineStyle, WeakEntity,
     Window, div, px, quad, rgb, transparent_black,
 };
-use gpui_component::Icon;
+use gpui_component::{ActiveTheme, Icon};
 use gpui_component::scroll::{Scrollbar, ScrollbarAxis, ScrollbarHandle, ScrollbarShow};
 use parking_lot::Mutex;
 use regex::Regex;

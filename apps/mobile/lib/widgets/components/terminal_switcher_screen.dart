@@ -5,7 +5,7 @@ import '../../models/remote_models.dart';
 import '../../theme/app_theme.dart';
 import 'swipe_list_tile.dart';
 
-enum TerminalSwitcherSection { splits, tabs, worktrees }
+enum TerminalSwitcherSection { terminals, worktrees }
 
 class TerminalSwitcherScreen extends StatefulWidget {
   const TerminalSwitcherScreen({
@@ -19,13 +19,11 @@ class TerminalSwitcherScreen extends StatefulWidget {
     required this.selectedWorktreeId,
     required this.switchingWorktreeId,
     required this.loadingWorktrees,
-    required this.creatingSplit,
-    required this.creatingTab,
+    required this.creating,
     required this.creatingWorktree,
     required this.onBack,
     required this.onSelectTerminal,
-    required this.onCreateSplit,
-    required this.onCreateTab,
+    required this.onCreateTerminal,
     required this.onCloseTerminal,
     required this.onSelectWorktree,
     required this.onCreateWorktree,
@@ -45,13 +43,11 @@ class TerminalSwitcherScreen extends StatefulWidget {
   final String? selectedWorktreeId;
   final String? switchingWorktreeId;
   final bool loadingWorktrees;
-  final bool creatingSplit;
-  final bool creatingTab;
+  final bool creating;
   final bool creatingWorktree;
   final VoidCallback onBack;
   final ValueChanged<TerminalInfo> onSelectTerminal;
-  final VoidCallback onCreateSplit;
-  final VoidCallback onCreateTab;
+  final VoidCallback onCreateTerminal;
   final ValueChanged<TerminalInfo> onCloseTerminal;
   final ValueChanged<RemoteWorktreeInfo> onSelectWorktree;
   final VoidCallback onCreateWorktree;
@@ -66,18 +62,12 @@ class TerminalSwitcherScreen extends StatefulWidget {
 }
 
 class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
-  TerminalSwitcherSection _section = TerminalSwitcherSection.splits;
+  TerminalSwitcherSection _section = TerminalSwitcherSection.terminals;
 
   @override
   Widget build(BuildContext context) {
     final prefs = AppPreferences.of(context);
     final accent = Theme.of(context).colorScheme.secondary;
-    final splits = widget.terminals
-        .where((item) => _terminalLayoutKind(item) == 'split')
-        .toList();
-    final tabs = widget.terminals
-        .where((item) => _terminalLayoutKind(item) == 'tab')
-        .toList();
     final scopedWorktrees = widget.selectedProjectId == null
         ? widget.worktrees
         : widget.worktrees
@@ -140,25 +130,13 @@ class _TerminalSwitcherScreenState extends State<TerminalSwitcherScreen> {
                   await Future<void>.delayed(const Duration(milliseconds: 600));
                 },
                 child: switch (_section) {
-                TerminalSwitcherSection.splits => _TerminalList(
-                  listKey: 'split',
-                  terminals: splits,
+                TerminalSwitcherSection.terminals => _TerminalList(
+                  terminals: widget.terminals,
                   activeTerminalId: widget.activeTerminalId,
-                  addLabel: prefs.t('switcher.newSplit'),
-                  itemPrefix: prefs.t('switcher.split'),
-                  creating: widget.creatingSplit,
-                  onAdd: widget.onCreateSplit,
-                  onSelect: widget.onSelectTerminal,
-                  onClose: widget.onCloseTerminal,
-                ),
-                TerminalSwitcherSection.tabs => _TerminalList(
-                  listKey: 'tab',
-                  terminals: tabs,
-                  activeTerminalId: widget.activeTerminalId,
-                  addLabel: prefs.t('switcher.newTab'),
-                  itemPrefix: prefs.t('switcher.tab'),
-                  creating: widget.creatingTab,
-                  onAdd: widget.onCreateTab,
+                  addLabel: prefs.t('switcher.newTerminal'),
+                  itemPrefix: prefs.t('switcher.terminal'),
+                  creating: widget.creating,
+                  onAdd: widget.onCreateTerminal,
                   onSelect: widget.onSelectTerminal,
                   onClose: widget.onCloseTerminal,
                 ),
@@ -202,14 +180,9 @@ class _SectionTabs extends StatelessWidget {
       child: Row(
         children: [
           _Segment(
-            label: prefs.t('switcher.splits'),
-            active: value == TerminalSwitcherSection.splits,
-            onTap: () => onChanged(TerminalSwitcherSection.splits),
-          ),
-          _Segment(
-            label: prefs.t('switcher.tabs'),
-            active: value == TerminalSwitcherSection.tabs,
-            onTap: () => onChanged(TerminalSwitcherSection.tabs),
+            label: prefs.t('switcher.terminals'),
+            active: value == TerminalSwitcherSection.terminals,
+            onTap: () => onChanged(TerminalSwitcherSection.terminals),
           ),
           _Segment(
             label: prefs.t('switcher.worktrees'),
@@ -266,7 +239,6 @@ class _Segment extends StatelessWidget {
 
 class _TerminalList extends StatelessWidget {
   const _TerminalList({
-    required this.listKey,
     required this.terminals,
     required this.activeTerminalId,
     required this.addLabel,
@@ -277,7 +249,6 @@ class _TerminalList extends StatelessWidget {
     required this.onClose,
   });
 
-  final String listKey;
   final List<TerminalInfo> terminals;
   final String? activeTerminalId;
   final String addLabel;
@@ -298,7 +269,7 @@ class _TerminalList extends StatelessWidget {
         padding: EdgeInsets.zero,
         children: [
           SwipeListTile(
-            key: ValueKey('terminal-switcher-$listKey-add'),
+            key: const ValueKey('terminal-switcher-add'),
             title: addLabel,
             subtitle: creating ? prefs.t('terminal.creating') : itemPrefix,
             leadingIcon: Icons.add_rounded,
@@ -317,7 +288,7 @@ class _TerminalList extends StatelessWidget {
       itemBuilder: (context, index) {
         if (index == terminals.length) {
           return SwipeListTile(
-            key: ValueKey('terminal-switcher-$listKey-add'),
+            key: const ValueKey('terminal-switcher-add'),
             title: addLabel,
             subtitle: creating ? prefs.t('terminal.creating') : itemPrefix,
             leadingIcon: Icons.add_rounded,
@@ -329,7 +300,7 @@ class _TerminalList extends StatelessWidget {
         final terminal = terminals[index];
         final active = terminal.id == activeTerminalId;
         return SwipeListTile(
-          key: ValueKey('terminal-switcher-$listKey-terminal-${terminal.id}'),
+          key: ValueKey('terminal-switcher-terminal-${terminal.id}'),
           title: '$itemPrefix ${index + 1}',
           subtitle: _terminalSubtitle(terminal),
           leadingIcon: Icons.terminal_rounded,
@@ -487,12 +458,6 @@ class _InlineLoader extends StatelessWidget {
       child: CircularProgressIndicator(strokeWidth: 2, color: color),
     );
   }
-}
-
-String _terminalLayoutKind(TerminalInfo terminal) {
-  final value = terminal.layoutKind.trim().toLowerCase();
-  if (value == 'tab') return 'tab';
-  return 'split';
 }
 
 String _terminalSubtitle(TerminalInfo terminal) {

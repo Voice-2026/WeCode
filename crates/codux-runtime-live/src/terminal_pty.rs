@@ -462,6 +462,17 @@ impl TerminalManager {
         self.session(session_id)?.resize_viewport(owner, cols, rows)
     }
 
+    pub fn set_viewport_owner_label(
+        &self,
+        session_id: &str,
+        owner: &str,
+        label: Option<String>,
+    ) {
+        if let Ok(session) = self.session(session_id) {
+            session.set_viewport_owner_label(owner, label);
+        }
+    }
+
     pub fn viewport_state(&self, session_id: &str) -> Result<TerminalViewportState> {
         Ok(self.session(session_id)?.viewport_state())
     }
@@ -885,6 +896,7 @@ impl TerminalPtySession {
                 cols,
                 rows,
                 generation: 0,
+                owner_label: None,
             },
             expires_at: Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL,
         }));
@@ -970,6 +982,10 @@ impl TerminalPtySession {
         rows: u16,
     ) -> Result<Option<TerminalViewportState>> {
         self.clone_handle().resize_viewport(owner, cols, rows)
+    }
+
+    pub fn set_viewport_owner_label(&self, owner: &str, label: Option<String>) {
+        self.clone_handle().set_viewport_owner_label(owner, label)
     }
 
     pub fn viewport_state(&self) -> TerminalViewportState {
@@ -1265,30 +1281,17 @@ impl TerminalPtySessionHandle {
     ) -> Result<Option<TerminalViewportState>> {
         let owner = terminal_viewport_owner(owner);
         let cols = cols.max(20);
-        let mut rows = rows.max(8);
-        // A remote viewer drives the column count (so its narrow viewport does
-        // not force horizontal scrolling). Rows are shared by every viewer of
-        // this one PTY grid -- the desktop pane, a pad, a phone, or (on a
-        // headless agent host that has no local pane) only the remote clients --
-        // so we size them to the TALLEST active viewer: that viewer fills its
-        // pane exactly and shorter ones render the bottom window (the prompt
-        // stays visible) and scroll up for the rest.
-        //
-        // A remote may only GROW the shared grid, never shrink it. A shorter
-        // remote scrolls instead, and the no-shrink rule matters because a
-        // no-scrollback alt screen drops its top rows permanently when it
-        // shrinks. The local host still sets its own rows exactly (so a solo
-        // desktop window reflows normally on resize), and every resize pushes an
-        // authoritative screen keyframe once the repaint settles (see
-        // send_terminal_viewport_keyframe and its post-resize follow-up) so each
-        // viewer re-syncs to the host's real screen instead of guessing.
-        let is_remote = owner != terminal_viewport_local_owner();
+        let rows = rows.max(8);
+        // The current owner drives the FULL grid. Ownership is a HANDOFF token:
+        // whoever is actively using the session (the desktop, or a remote device
+        // it was handed off to) holds it, and the PTY reflows to THAT device's
+        // size so the session fits whoever is driving it -- terminal handoff, not
+        // simultaneous mirroring. A non-owner cannot resize (rejected just
+        // below); it pauses and shows the owner's last frame instead of trying to
+        // mirror a mismatched grid.
         let mut viewport = self.viewport.lock();
         if viewport.state.owner != owner {
             return Ok(None);
-        }
-        if is_remote && viewport.state.rows >= 8 {
-            rows = rows.max(viewport.state.rows);
         }
         viewport.expires_at = Instant::now() + TERMINAL_VIEWPORT_LEASE_TTL;
         if viewport.state.cols == cols && viewport.state.rows == rows {
@@ -1313,36 +1316,18 @@ impl TerminalPtySessionHandle {
         Ok(Some(state))
     }
 
-    /// Raise the shared grid to at least `rows` (never lower it), keeping the
-    /// current columns and owner. The local host calls this for a terminal it is
-    /// only mirroring -- a remote viewer owns the lease -- so the desktop pane
-    /// height floors the shared grid and the desktop fills even when a SHORTER
-    /// remote is the active owner. Growing is always safe (it never drops the top
-    /// rows of a no-scrollback alt screen); only shrinking is gated, and this
-    /// never shrinks. Returns the new state when it actually grew.
-    pub fn grow_viewport_rows(&self, rows: u16) -> Option<TerminalViewportState> {
-        let rows = rows.max(8);
+    /// Set the friendly name of the current owner (desktop "handed off" UI). No
+    /// effect unless `owner` is still the active owner. Emits on change.
+    pub fn set_viewport_owner_label(&self, owner: &str, label: Option<String>) {
+        let owner = terminal_viewport_owner(owner);
         let mut viewport = self.viewport.lock();
-        if viewport.state.rows >= rows {
-            return None;
+        if viewport.state.owner != owner || viewport.state.owner_label == label {
+            return;
         }
-        let cols = viewport.state.cols;
-        if self.pty_control.resize(cols, rows).is_err() {
-            return None;
-        }
-        {
-            let mut info = self.info.lock();
-            info.cols = cols;
-            info.rows = rows;
-            info.last_active_at = rfc3339_now();
-        }
-        self.screen.lock().resize(cols as usize, rows as usize);
-        viewport.state.rows = rows;
-        viewport.state.generation = viewport.state.generation.saturating_add(1);
+        viewport.state.owner_label = label;
         let state = viewport.state.clone();
         drop(viewport);
         self.emit_viewport_state(&state);
-        Some(state)
     }
 
     pub fn viewport_state(&self) -> TerminalViewportState {
@@ -3616,21 +3601,10 @@ mod tests {
             .expect("desktop resize while remote owns");
         assert!(ignored.is_none());
         assert_eq!(handle.viewport_state().owner, "remote:phone");
-        // A remote drives columns, and may GROW the shared grid but never shrink
-        // it: the 18-row request is below the host's 32, so rows stay 32.
+        // Remote drives columns only; rows stay the host's (32).
         assert_eq!(
             (handle.viewport_state().cols, handle.viewport_state().rows),
             (72, 32)
-        );
-        // A taller remote viewport DOES grow the shared grid so that viewer can
-        // fill its pane; shorter viewers then scroll the bottom window.
-        handle
-            .resize_viewport("remote:phone", 80, 50)
-            .expect("remote grow")
-            .expect("remote grow accepted");
-        assert_eq!(
-            (handle.viewport_state().cols, handle.viewport_state().rows),
-            (80, 50)
         );
 
         handle

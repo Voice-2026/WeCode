@@ -1,7 +1,7 @@
 struct TerminalModel {
     handle: TerminalStateHandle,
     stdin_writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    session_event_rx: mpsc::Receiver<TerminalUiEvent>,
+    session_event_rx: flume::Receiver<TerminalUiEvent>,
     events: VecDeque<TerminalInternalEvent>,
     pending_output_bytes: Vec<u8>,
     output_flush_pending: bool,
@@ -53,7 +53,7 @@ impl TerminalModel {
     fn new<W>(
         stdin_writer: W,
         bytes_rx: flume::Receiver<Vec<u8>>,
-        session_event_rx: mpsc::Receiver<TerminalUiEvent>,
+        session_event_rx: flume::Receiver<TerminalUiEvent>,
         config: &TerminalConfig,
         restored_output: Option<TerminalOutputSnapshot>,
         cx: &mut Context<Self>,
@@ -115,6 +115,34 @@ impl TerminalModel {
                 }
             }
         });
+        // Owner-change / exit / error events arrive on a channel separate from
+        // the PTY output bytes and are normally drained inside the output path
+        // (process_output_bytes). An IDLE terminal produces no output, so a
+        // handoff on a quiet terminal -- or the trailing event of a rapid
+        // claim/release burst -- would otherwise sit undrained and the desktop
+        // placeholder would never flip. This waker drives them the moment they
+        // arrive, independent of output. The output path still drains+orders
+        // events for the live case (resize-before-parse); this covers the quiet
+        // case the live path can never reach.
+        let event_rx = session_event_rx.clone();
+        cx.spawn(async move |this: WeakEntity<Self>, cx| {
+            while let Ok(event) = event_rx.recv_async().await {
+                // Output Wakeups are driven by the byte-stream path and would
+                // spam repaints here under heavy output; the waker only exists
+                // for owner-change / exit / error events, which can arrive on an
+                // otherwise-idle terminal with no output to piggyback on.
+                if matches!(event, TerminalUiEvent::Wakeup) {
+                    continue;
+                }
+                if this
+                    .update(cx, |model, cx| model.on_ui_event(event, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
         // Publish the real engine content (restored tail) right away: the
         // seeded published content is dimensions-only, and if any later
         // publish path stalls (no output, deferred sync state) the pane
@@ -315,6 +343,19 @@ impl TerminalModel {
             }
         }
         should_notify
+    }
+
+    /// Apply a single UI event delivered by the async waker (plus any that piled
+    /// up behind it) and repaint. Mirrors the event handling in the output path
+    /// so a quiet-terminal handoff converges identically to a live one.
+    fn on_ui_event(&mut self, event: TerminalUiEvent, cx: &mut Context<Self>) {
+        let mut should_notify = self.apply_ui_event(event);
+        should_notify |= self.process_pending_events(cx);
+        should_notify |= self.apply_model_events();
+        if should_notify {
+            self.request_snapshot_publish(cx);
+            cx.notify();
+        }
     }
 
     fn apply_ui_event(&mut self, event: TerminalUiEvent) -> bool {
@@ -838,7 +879,7 @@ impl TerminalModel {
 
     #[cfg(test)]
     fn new_for_test(cols: usize, rows: usize, scrollback: usize) -> Self {
-        let (_session_event_tx, session_event_rx) = mpsc::channel();
+        let (_session_event_tx, session_event_rx) = flume::unbounded();
         let written_bytes = Arc::new(Mutex::new(Vec::new()));
         let screen = Arc::new(Mutex::new(HeadlessTerminalScreen::new(
             cols, rows, scrollback,

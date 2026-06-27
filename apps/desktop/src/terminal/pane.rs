@@ -15,7 +15,7 @@ impl TerminalPane {
         C: AppContext,
     {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
-        let (session_event_tx, session_event_rx) = mpsc::channel();
+        let (session_event_tx, session_event_rx) = flume::unbounded();
         let emit = Arc::new(move |event| match event {
             TerminalEvent::Exit { .. } => session_event_tx.send(TerminalUiEvent::Exit).is_ok(),
             TerminalEvent::Error { message, .. } => session_event_tx
@@ -97,7 +97,7 @@ impl TerminalPane {
     {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let terminal_id = config.terminal_id.clone();
-        let (session_event_tx, session_event_rx) = mpsc::channel();
+        let (session_event_tx, session_event_rx) = flume::unbounded();
         let (output_tx, output_rx) = flume::unbounded();
         let (session, initial_layout_rx) = TerminalSessionBinding::pending(config.clone());
         let writer = TerminalSessionWriter::new(session.clone());
@@ -307,7 +307,7 @@ impl TerminalPane {
 pub struct PendingTerminalAttach {
     session: TerminalSessionBinding,
     output_tx: flume::Sender<Vec<u8>>,
-    session_event_tx: mpsc::Sender<TerminalUiEvent>,
+    session_event_tx: flume::Sender<TerminalUiEvent>,
     terminal_id: Option<String>,
     initial_layout_rx: mpsc::Receiver<(u16, u16)>,
 }
@@ -565,25 +565,6 @@ impl TerminalSessionBinding {
         Ok(())
     }
 
-    /// Floor the shared grid at `rows` without taking ownership: used while this
-    /// desktop pane only MIRRORS a terminal a remote viewer owns. It lets the
-    /// desktop height raise (never lower) the shared grid so the desktop fills
-    /// even when a shorter remote owns the lease; the taller viewer wins and the
-    /// shorter one scrolls the bottom window. No-op for a remote binding -- there
-    /// this desktop is itself a controller and already forwards its own size.
-    fn grow_local_viewport_rows(&self, rows: u16) {
-        let session = {
-            let inner = self.inner.lock();
-            if inner.remote.is_some() {
-                return;
-            }
-            inner.session.clone()
-        };
-        if let Some(session) = session {
-            session.clone_handle().grow_viewport_rows(rows);
-        }
-    }
-
     fn claim_local_viewport(&self) -> Result<()> {
         let (session, last_resize) = {
             let inner = self.inner.lock();
@@ -633,6 +614,16 @@ impl TerminalSessionBinding {
             .as_ref()
             .map(|session| session.viewport_state().owner == terminal_viewport_local_owner())
             .unwrap_or(true)
+    }
+
+    /// Friendly name of the remote device that currently owns the viewport (for
+    /// the "handed off" placeholder); None when locally owned / unknown.
+    fn viewport_owner_label(&self) -> Option<String> {
+        self.inner
+            .lock()
+            .session
+            .as_ref()
+            .and_then(|session| session.viewport_state().owner_label)
     }
 
     fn record_layout(&self, cols: u16, rows: u16) -> TerminalLayoutRecord {

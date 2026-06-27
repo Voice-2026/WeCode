@@ -112,9 +112,19 @@ extension _HomePageProtocol on HomeController {
         case final type when type == RemoteMessageType.projectSelected:
           _handleProjectSelected(message);
         case final type when type == RemoteMessageType.projectList:
-          _handleProjectList(message);
+          if (_remoteStateVersions.accept(
+            'projects',
+            version: remoteStateVersionFromPayload(message.payload),
+          )) {
+            _handleProjectList(message);
+          }
         case final type when type == RemoteMessageType.terminalList:
-          _handleTerminalList(message);
+          if (_remoteStateVersions.accept(
+            'terminals',
+            version: remoteStateVersionFromPayload(message.payload),
+          )) {
+            _handleTerminalList(message);
+          }
         case final type when type == RemoteMessageType.terminalCreated:
           _handleTerminalCreated(message);
         case final type when type == RemoteMessageType.terminalClosed:
@@ -136,7 +146,12 @@ extension _HomePageProtocol on HomeController {
           _showToast(_t('project.updated'));
         case final type when type == RemoteMessageType.aiStats:
           final payload = message.payload;
-          if (payload is Map) {
+          if (payload is Map &&
+              _remoteStateVersions.accept(
+                'ai.stats',
+                projectId: payload['projectId']?.toString(),
+                version: remoteStateVersionFromPayload(payload),
+              )) {
             final statsPayload = Map<String, dynamic>.from(payload);
             _applyState(() {
               _currentAIStats = AIStatsInfo.fromJson(statsPayload);
@@ -144,10 +159,18 @@ extension _HomePageProtocol on HomeController {
             });
           }
         case final type when type == RemoteMessageType.gitStatus:
-          final status = remoteGitStatusFromPayload(message.payload);
-          if (status != null) {
-            final plan = _remoteRuntime.applyGitStatus(status);
-            _applyRuntimePlan(plan, reason: 'git-status');
+          final payload = message.payload;
+          final accepted = _remoteStateVersions.accept(
+            'git.status',
+            projectId: payload is Map ? payload['projectId']?.toString() : null,
+            version: remoteStateVersionFromPayload(payload),
+          );
+          if (accepted) {
+            final status = remoteGitStatusFromPayload(message.payload);
+            if (status != null) {
+              final plan = _remoteRuntime.applyGitStatus(status);
+              _applyRuntimePlan(plan, reason: 'git-status');
+            }
           }
         case final type when type == RemoteMessageType.gitRead:
           _handleGitRead(message.payload);
@@ -280,9 +303,6 @@ extension _HomePageProtocol on HomeController {
       terminalVisible: _terminalDataVisible,
       terminalListLoaded: _terminalListLoaded,
     );
-    if (_creatingTerminalProjectId != null) {
-      _creatingTerminalLayoutKind = null;
-    }
     if (plan.bindSessionId != null && _selectedProjectId != null) {
       _clearProjectSelectAck(_selectedProjectId!);
     }
@@ -296,9 +316,6 @@ extension _HomePageProtocol on HomeController {
       '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId} worktree=${terminal.worktreeId ?? ''} kind=${terminal.layoutKind} order=${terminal.layoutOrder ?? -1}',
     );
     final plan = _remoteRuntime.terminalCreated(terminal);
-    if (_creatingTerminalProjectId != null) {
-      _creatingTerminalLayoutKind = null;
-    }
     _applyRuntimePlan(plan, reason: 'terminal-created');
   }
 
@@ -311,6 +328,17 @@ extension _HomePageProtocol on HomeController {
 
   void _handleWorktreeList(RelayEnvelope message) {
     _markHostResponsive('worktree.list');
+    // Guard only the list BROADCAST (it can be a stale/duplicate push); the
+    // worktree.updated mutation reply is left unguarded so a create->select flow
+    // is never dropped.
+    final payload = message.payload;
+    if (!_remoteStateVersions.accept(
+      'worktrees',
+      projectId: payload is Map ? payload['projectId']?.toString() : null,
+      version: remoteStateVersionFromPayload(payload),
+    )) {
+      return;
+    }
     _applyWorktreeState(message, allowRuntimeSelection: false);
   }
 
@@ -420,7 +448,6 @@ extension _HomePageProtocol on HomeController {
       _worktreeListLoading = false;
       _creatingWorktree = false;
       _pendingWorktreeSwitch = null;
-      _creatingTerminalLayoutKind = null;
       _blockingLoadingMessage = null;
       if (isActiveTerminalError) {
         _terminalOutputController.resetSessionTransient(message.sessionId!);

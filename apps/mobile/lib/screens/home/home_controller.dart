@@ -50,6 +50,9 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   Completer<void>? _terminalUploadCompletion;
   final TerminalViewportController _terminalViewportController =
       TerminalViewportController();
+  // Unified versioned state-sync: per-(resource,project,session) latest-wins
+  // guard shared by every replicated resource handler (git, worktrees, ...).
+  final RemoteStateVersions _remoteStateVersions = RemoteStateVersions();
   final RemoteTerminalOutputController _terminalOutputController =
       RemoteTerminalOutputController(maxBufferChars: _terminalBufferMaxChars);
   late final RemoteTerminalBindingCoordinator _terminalBindingCoordinator;
@@ -74,7 +77,6 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   String? _selectedProjectId;
   String? _sessionId;
   String? _creatingTerminalProjectId;
-  String? _creatingTerminalLayoutKind;
   String? _terminalSelectedText;
   bool _showSettings = false;
   bool _showScanner = false;
@@ -86,6 +88,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
   bool _showTerminalSwitcher = false;
   bool _terminalReady = false;
   bool _terminalViewportInteractive = false;
+  // Handoff: true when the desktop (or another device) took this session over —
+  // we YIELD (placeholder + stop claiming/resizing) instead of reclaiming it,
+  // which would ping-pong with the desktop's "Take over". Cleared when we take
+  // it back (selecting the terminal, or the on-screen "Take over here" button).
+  bool _remoteHandedAway = false;
   // When we last sent a viewport.claim, used to throttle the per-input claim so
   // a fling over a mouse-tracking TUI (which forwards a wheel event -- and used
   // to re-claim -- every cell-height) does not flood the transport with claims
@@ -350,9 +357,11 @@ class HomeController extends ChangeNotifier with WidgetsBindingObserver {
       if (_sessionId == null) return;
       // Renew only: a phone left idle on the terminal screen must not
       // steal the viewport back from an actively-used desktop. Explicit
-      // interaction (scroll, input) reclaims instead.
+      // interaction (scroll, input) reclaims instead. renewOnly makes the host
+      // renew our lease ONLY if we still own it -- after the desktop taps "Take
+      // over", this becomes a no-op there so the handoff sticks.
       if (!_terminalViewportInteractive) return;
-      _claimTerminalViewport();
+      _claimTerminalViewport(renewOnly: true);
     });
     WidgetsBinding.instance.addObserver(this);
     _edgeBackController = AnimationController(

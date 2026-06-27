@@ -73,6 +73,9 @@ pub struct TerminalViewportState {
     pub cols: u16,
     pub rows: u16,
     pub generation: u64,
+    /// Friendly name of the current REMOTE owner (for the desktop "handed off"
+    /// placeholder). None when the local host owns it or the name is unknown.
+    pub owner_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

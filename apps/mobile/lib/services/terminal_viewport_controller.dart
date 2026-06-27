@@ -24,10 +24,17 @@ class TerminalViewportController {
   int? _pendingRows;
   final Map<String, _ViewportSize> _sentBySession = {};
   final Map<String, int> _generationBySession = {};
+  final Map<String, String?> _ownerBySession = {};
   String? _owner;
   int _generation = 0;
 
   String? get owner => _owner;
+
+  /// The last-reported owner for [sessionId] specifically. Prefer this over
+  /// [owner] (which is just the last-applied across any session): with several
+  /// sessions switching quickly, the global field can momentarily reflect a
+  /// different session's owner.
+  String? ownerFor(String sessionId) => _ownerBySession[sessionId.trim()];
   int get generation => _generation;
   int? get pendingCols => _pendingCols;
   int? get pendingRows => _pendingRows;
@@ -76,7 +83,11 @@ class TerminalViewportController {
     if (sessionId.isNotEmpty) {
       _generationBySession[sessionId] = nextGeneration;
     }
-    _owner = payload['owner']?.toString();
+    final owner = payload['owner']?.toString();
+    _owner = owner;
+    if (sessionId.isNotEmpty) {
+      _ownerBySession[sessionId] = owner;
+    }
     final cols = _intValue(payload['cols']);
     final rows = _intValue(payload['rows']);
     if (sessionId.isNotEmpty &&

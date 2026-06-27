@@ -701,6 +701,7 @@ pub(in crate::app) fn terminal_config_for_settings(
     appearance: WindowAppearance,
 ) -> TerminalConfig {
     let mut config = terminal_config_with_font_family(&settings.terminal_font_family);
+    config.language = locale_from_language_setting(&settings.language);
     let font_size = settings
         .terminal_font_size
         .parse::<f32>()

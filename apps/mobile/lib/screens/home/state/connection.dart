@@ -384,6 +384,10 @@ extension _HomePageConnection on HomeController {
     _remoteRuntimeEpoch += 1;
     _remoteRuntime.reset(keepProjects: keepProjects);
     _terminalBindingCoordinator.reset();
+    // Drop version watermarks: a new connection / host restart restarts the
+    // host's per-key version sequence, so an old high watermark would wrongly
+    // reject the fresh snapshots.
+    _remoteStateVersions.reset();
     _terminalViewportInteractive = false;
     _syncRuntimeViewState();
   }
@@ -395,6 +399,7 @@ extension _HomePageConnection on HomeController {
     _remoteSyncController.resetSyncForCurrentGeneration();
     _remoteSyncController.resetProtocolReady();
     _terminalBindingCoordinator.reset();
+    _remoteStateVersions.reset();
     _terminalInputBatcher.reset();
     _terminalInputSender.clear();
     _terminalBufferRetry.reset();

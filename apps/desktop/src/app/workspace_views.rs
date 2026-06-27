@@ -1561,7 +1561,7 @@ fn terminal_bottom_add_button(
                 app_entity.clone(),
                 window,
                 cx,
-                |app, window, app_cx| app.add_terminal_tab(window, app_cx),
+                |app, window, app_cx| app.add_terminal(window, app_cx),
             );
         }))
         .child(Icon::new(HeroIconName::Plus).size_3p5())

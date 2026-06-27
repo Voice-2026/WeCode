@@ -9,10 +9,9 @@ part of '../home_page.dart';
 extension _HomePageWorkspace on HomeController {
   void _selectTerminal(TerminalInfo terminal) {
     _terminalActions.selectTerminal(terminal);
-  }
-
-  void _createCurrentProjectTerminal() {
-    _terminalActions.createTerminalForSelectedProject(_createTerminal);
+    // A: opening/selecting a terminal on mobile takes it over (handoff) — clears
+    // any handed-away state and reclaims so the host reflows the PTY to us.
+    _takeOverTerminalViewport(sessionId: terminal.id);
   }
 
   void _createCurrentProjectTabTerminal() {

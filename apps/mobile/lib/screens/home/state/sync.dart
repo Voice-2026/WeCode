@@ -283,9 +283,6 @@ extension _HomePageSync on HomeController {
     _selectedProjectId = _remoteRuntime.selectedProjectId;
     _sessionId = _remoteRuntime.activeSessionId;
     _creatingTerminalProjectId = _remoteRuntime.creatingTerminalProjectId;
-    if (_creatingTerminalProjectId == null) {
-      _creatingTerminalLayoutKind = null;
-    }
   }
 
   void _setTerminalBufferLoading(

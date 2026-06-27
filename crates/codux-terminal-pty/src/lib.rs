@@ -318,6 +318,7 @@ impl LocalPtySession {
                 cols,
                 rows,
                 generation: 0,
+                owner_label: None,
             }),
         })
     }

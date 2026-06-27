@@ -51,6 +51,7 @@ import '../../services/terminal_input_reliable_sender.dart';
 import '../../services/terminal_upload_metadata.dart';
 import '../../services/update_check_service.dart';
 import '../../services/terminal_viewport_controller.dart';
+import '../../services/remote_state_versions.dart';
 import '../../theme/app_theme.dart';
 import '../../services/worktree_utils.dart';
 import '../../widgets/components/codux_home_shell.dart';
@@ -332,17 +333,11 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       selectedWorktreeId: c._selectedWorktreeId,
       switchingWorktreeId: c._pendingWorktreeSwitch?.worktreeId,
       loadingWorktrees: c._worktreeListLoading,
-      creatingSplit:
-          c._creatingTerminalProjectId == c._selectedProjectId &&
-          c._creatingTerminalLayoutKind == 'split',
-      creatingTab:
-          c._creatingTerminalProjectId == c._selectedProjectId &&
-          c._creatingTerminalLayoutKind == 'tab',
+      creating: c._creatingTerminalProjectId == c._selectedProjectId,
       creatingWorktree: c._creatingWorktree,
       onBack: c._closeTerminalSwitcher,
       onSelectTerminal: c._selectTerminalFromSwitcher,
-      onCreateSplit: c._createCurrentProjectTerminal,
-      onCreateTab: c._createCurrentProjectTabTerminal,
+      onCreateTerminal: c._createCurrentProjectTabTerminal,
       onCloseTerminal: c._closeTerminal,
       onSelectWorktree: c._selectWorktree,
       onCreateWorktree: c._createWorktree,
@@ -412,6 +407,8 @@ class _CoduxHomePageState extends State<CoduxHomePage>
       onCopy: c._copyTerminalSelection,
       onUpload: c._chooseUploadForTerminal,
       onVoiceInput: c._startVoiceInput,
+      handedAway: c._remoteHandedAway,
+      onTakeOver: () => c._takeOverTerminalViewport(),
     );
 
     return _buildWorkspaceShell(topInset, terminalBody);

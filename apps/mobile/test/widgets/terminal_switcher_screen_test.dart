@@ -27,7 +27,7 @@ void main() {
             ),
           ],
           activeTerminalId: 'split-2',
-          creatingSplit: true,
+          creating: true,
         ),
       ),
     );
@@ -36,14 +36,14 @@ void main() {
 
     final addIcon = tester.widget<Icon>(
       find.descendant(
-        of: find.byKey(const ValueKey('terminal-switcher-split-add')),
+        of: find.byKey(const ValueKey('terminal-switcher-add')),
         matching: find.byIcon(Icons.add_rounded),
       ),
     );
     final activeIcon = tester.widget<Icon>(
       find.descendant(
         of: find.byKey(
-          const ValueKey('terminal-switcher-split-terminal-split-2'),
+          const ValueKey('terminal-switcher-terminal-split-2'),
         ),
         matching: find.byIcon(Icons.terminal_rounded),
       ),
@@ -68,7 +68,7 @@ Widget _wrap(Widget child) {
 TerminalSwitcherScreen _switcher({
   required List<TerminalInfo> terminals,
   required String? activeTerminalId,
-  bool creatingSplit = false,
+  bool creating = false,
 }) {
   return TerminalSwitcherScreen(
     topInset: 0,
@@ -80,13 +80,11 @@ TerminalSwitcherScreen _switcher({
     selectedWorktreeId: 'project-1',
     switchingWorktreeId: null,
     loadingWorktrees: false,
-    creatingSplit: creatingSplit,
-    creatingTab: false,
+    creating: creating,
     creatingWorktree: false,
     onBack: () {},
     onSelectTerminal: (_) {},
-    onCreateSplit: () {},
-    onCreateTab: () {},
+    onCreateTerminal: () {},
     onCloseTerminal: (_) {},
     onSelectWorktree: (_) {},
     onCreateWorktree: () {},

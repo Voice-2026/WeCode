@@ -2,11 +2,74 @@ use codux_protocol::{
     REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_UNSUBSCRIBE, RemoteEnvelope,
     RemoteResourceSubscriptionTarget, RemoteResourceSubscriptions,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Mutex;
+
+type ResourceVersionKey = (String, Option<String>, Option<String>);
+
+/// Monotonic version per replicated resource key `(resource, project_id,
+/// session_id)`. The host is the sole writer; every outbound state payload
+/// carries its key's version so clients apply latest-wins and reconcile on
+/// reconnect instead of relying on a single broadcast landing. Bumped only on
+/// state CHANGES (cold path), so the per-bump key allocation is irrelevant.
+///
+/// This generalizes what the terminal viewport already does with its
+/// `generation` field to every replicated resource (projects, git, ai, ...).
+#[derive(Default)]
+pub struct ResourceVersions {
+    versions: Mutex<HashMap<ResourceVersionKey, u64>>,
+}
+
+impl ResourceVersions {
+    fn key(
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> ResourceVersionKey {
+        (
+            resource.to_string(),
+            project_id.map(str::to_string),
+            session_id.map(str::to_string),
+        )
+    }
+
+    /// Bump and return the next version for a key. Call once per state change,
+    /// before fan-out, then stamp the returned value into the broadcast payload.
+    pub fn next(&self, resource: &str, project_id: Option<&str>, session_id: Option<&str>) -> u64 {
+        let mut versions = match self.versions.lock() {
+            Ok(versions) => versions,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let entry = versions
+            .entry(Self::key(resource, project_id, session_id))
+            .or_insert(0);
+        *entry += 1;
+        *entry
+    }
+
+    /// The current version for a key (0 if never bumped). Use for snapshot
+    /// replies so a freshly (re)subscribed client knows where it stands.
+    pub fn current(
+        &self,
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> u64 {
+        let versions = match self.versions.lock() {
+            Ok(versions) => versions,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        versions
+            .get(&Self::key(resource, project_id, session_id))
+            .copied()
+            .unwrap_or(0)
+    }
+}
 
 #[derive(Default)]
 pub struct RuntimeSubscriptionRouter {
     subscriptions: RemoteResourceSubscriptions,
+    versions: ResourceVersions,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,6 +164,29 @@ impl RuntimeSubscriptionRouter {
     ) -> HashSet<String> {
         self.subscriptions
             .devices_for(resource, project_id, session_id)
+    }
+
+    /// Bump and return the next version for a resource key. Stamp this onto the
+    /// payload right before fan-out so every subscriber (and the local UI) sees
+    /// the same monotonic version for this state change.
+    pub fn next_version(
+        &self,
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> u64 {
+        self.versions.next(resource, project_id, session_id)
+    }
+
+    /// The current version for a resource key, for version-stamping snapshot
+    /// replies on (re)subscribe.
+    pub fn current_version(
+        &self,
+        resource: &str,
+        project_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> u64 {
+        self.versions.current(resource, project_id, session_id)
     }
 }
 
@@ -218,6 +304,28 @@ mod tests {
             router.subscribe_envelope(&missing_device).unwrap_err(),
             "Device id is required."
         );
+    }
+
+    #[test]
+    fn resource_versions_bump_per_key_and_report_current() {
+        let versions = ResourceVersions::default();
+        assert_eq!(versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 0);
+        assert_eq!(versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 1);
+        assert_eq!(versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+        assert_eq!(versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+        // A different key versions independently.
+        assert_eq!(versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p2"), None), 1);
+        assert_eq!(versions.next(REMOTE_PROJECT_LIST, None, None), 1);
+        assert_eq!(versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+    }
+
+    #[test]
+    fn router_delegates_resource_versioning() {
+        let router = RuntimeSubscriptionRouter::new();
+        assert_eq!(router.next_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 1);
+        assert_eq!(router.next_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+        assert_eq!(router.current_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+        assert_eq!(router.current_version(REMOTE_RESOURCE_GIT_STATUS, Some("p2"), None), 0);
     }
 
     #[test]

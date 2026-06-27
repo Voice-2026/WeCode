@@ -11,30 +11,24 @@ extension _HomePageTerminal on HomeController {
     if (!applied) return;
     final sessionId = message.sessionId?.trim();
     if (sessionId == null || sessionId.isEmpty) return;
-    // Recover the viewport if the desktop took it back while we're the active
-    // viewer. The host hands ownership to the desktop when our lease lapses (or
-    // when the desktop actively repaints/resizes its own copy). Left there, the
-    // host renders at the desktop's wide grid (e.g. 111 cols) and our 47-col
-    // screen fills with reflowed/garbled bytes that only a manual project switch
-    // or re-enter would clear. Re-send our resize: it re-claims, snaps the host
-    // PTY back to our grid, and triggers a fresh keyframe -- so the screen
-    // self-heals. A bare claim wouldn't resize the host or refetch the screen.
-    // Only a local (desktop) owner is recovered; another remote viewer is left
-    // alone, and once we own it the next state reports a remote owner so this
-    // converges instead of ping-ponging.
-    if (sessionId == _sessionId &&
-        _terminalViewportInteractive &&
-        _terminalViewportClaimable) {
-      final owner = _terminalViewportController.owner ?? '';
-      if (owner.isNotEmpty && !owner.startsWith('remote:')) {
-        final cols = _terminalViewportController.pendingCols;
-        final rows = _terminalViewportController.pendingRows;
-        if (cols != null && rows != null && cols > 0 && rows > 0) {
-          _sendTerminalResize(cols, rows, sessionId: sessionId);
-        } else {
-          _claimTerminalViewport(sessionId: sessionId);
-        }
+    // Handoff: if the desktop (owner is local, not "remote:") took ownership,
+    // YIELD instead of reclaiming. Flag the session as handed-away so the UI
+    // shows a "taken over" placeholder and we stop auto-claiming/resizing (which
+    // would fight the new owner and ping-pong with its "Take over"). The user
+    // taps "Take over here" to grab it back. (Another remote viewer is left
+    // alone, as before.)
+    if (sessionId == _sessionId) {
+      final owner = _terminalViewportController.ownerFor(sessionId) ?? '';
+      final handedAway = owner.isNotEmpty && !owner.startsWith('remote:');
+      if (handedAway != _remoteHandedAway) {
+        _applyState(() {
+          _remoteHandedAway = handedAway;
+          if (handedAway) _terminalViewportInteractive = false;
+        });
       }
+      // Don't adopt the new owner's (wider) grid into our screen — it would
+      // garble; the placeholder covers it until we take over.
+      if (handedAway) return;
     }
     final size = _terminalViewportController.reportedSize(sessionId);
     if (size == null || size.cols <= 0 || size.rows <= 0) return;
@@ -307,6 +301,9 @@ extension _HomePageTerminal on HomeController {
     // so recording it here lets `_createTerminal` seed the host PTY with the
     // phone's width and avoid the connect-time duplicate prompt line.
     _terminalViewportController.recordMeasured(cols, rows);
+    // Handed off to another device: stay silent (claiming/resizing would steal
+    // it back). We still cached the measurement above for when we take over.
+    if (_remoteHandedAway) return;
     final id = sessionId ?? _sessionId;
     if (id == null) return;
     final resize = _terminalViewportController.resize(
@@ -347,6 +344,7 @@ extension _HomePageTerminal on HomeController {
   }
 
   void _flushPendingTerminalResize({bool force = false, String? sessionId}) {
+    if (_remoteHandedAway) return;
     final id = sessionId ?? _sessionId;
     if (id == null) return;
     if (!_terminalViewportClaimable) return;
@@ -372,7 +370,12 @@ extension _HomePageTerminal on HomeController {
     _terminalViewportController.markSent(id, resize);
   }
 
-  void _claimTerminalViewport({String? sessionId, bool throttled = false}) {
+  void _claimTerminalViewport({
+    String? sessionId,
+    bool throttled = false,
+    bool renewOnly = false,
+  }) {
+    if (_remoteHandedAway) return;
     final id = sessionId ?? _sessionId;
     if (id == null || id.trim().isEmpty) return;
     if (!_terminalViewportClaimable) return;
@@ -392,13 +395,20 @@ extension _HomePageTerminal on HomeController {
             _viewportClaimThrottle) {
       return;
     }
-    _terminalViewportInteractive = true;
-    _lastViewportClaimAt = DateTime.now();
-    _lastViewportClaimSession = id;
+    // renewOnly is the idle keepalive: it must NOT assert interactivity or steal.
+    // The host renews our lease only if we still hold it (handle_terminal_viewport_claim),
+    // so an idle phone can't yank an actively-driven desktop back. Explicit
+    // claims flip us interactive and reclaim (latest-writer-wins).
+    if (!renewOnly) {
+      _terminalViewportInteractive = true;
+      _lastViewportClaimAt = DateTime.now();
+      _lastViewportClaimSession = id;
+    }
     _sendTerminalEnvelope(
       RelayEnvelope(
         type: RemoteMessageType.terminalViewportClaim,
         sessionId: id,
+        payload: renewOnly ? const {'renewOnly': true} : null,
       ),
       terminal: terminal,
     );
@@ -417,6 +427,19 @@ extension _HomePageTerminal on HomeController {
       ),
       terminal: terminal,
     );
+  }
+
+  // Handoff: take the session back from whoever holds it now (desktop/another
+  // device). Clears the handed-away flag, then claims + resizes so the host
+  // reflows the PTY back to our grid.
+  void _takeOverTerminalViewport({String? sessionId}) {
+    final id = sessionId ?? _sessionId;
+    if (id == null || id.trim().isEmpty) return;
+    if (_remoteHandedAway) {
+      _applyState(() => _remoteHandedAway = false);
+    }
+    _claimTerminalViewport(sessionId: id);
+    _flushPendingTerminalResize(force: true, sessionId: id);
   }
 
   void _queueTerminalTyping(String data) {
@@ -490,7 +513,7 @@ extension _HomePageTerminal on HomeController {
     _sendTerminalOutputAck(sessionId, outputSeq, bufferLength);
   }
 
-  void _createTerminal([String? projectId, String layoutKind = 'split']) {
+  void _createTerminal([String? projectId, String layoutKind = 'tab']) {
     final target =
         projectId ??
         _selectedProjectId ??
@@ -509,7 +532,6 @@ extension _HomePageTerminal on HomeController {
       worktreeId: scope?.worktreeId,
       layoutKind: normalizedLayoutKind,
     );
-    _creatingTerminalLayoutKind = normalizedLayoutKind;
     _applyState(_syncRuntimeViewState);
     // Spawn the host PTY at the phone's measured grid (when known) so the shell
     // draws its prompt once at the final width. Without this the host spawns at

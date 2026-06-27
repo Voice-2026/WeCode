@@ -34,7 +34,8 @@ use crate::ai_history_indexer::{AIHistoryIndexer, AIHistoryProjectState};
 use crate::ai_history_normalized::AIHistoryProjectRequest;
 use crate::project_store::{ProjectCreateRequest, ProjectStore, ProjectUpdateRequest};
 use crate::terminal_layout::{
-    TerminalLayoutService, TerminalPaneSummary, TerminalTabSummary, terminal_layout_storage_key,
+    TerminalLayoutService, TerminalPaneSummary, TerminalTabSummary, next_terminal_layout_kind,
+    terminal_layout_storage_key,
 };
 use crate::terminal_pty::{
     TerminalEvent, TerminalManager, TerminalPtyConfig, TerminalSessionSnapshot,
@@ -70,6 +71,10 @@ use std::{
 
 const REMOTE_TERMINAL_OUTPUT_BATCH_MS: u64 = 32;
 const REMOTE_TERMINAL_BUFFER_BASELINE_TTL: Duration = Duration::from_secs(60);
+/// How often the live-output flush re-asserts the authoritative viewport owner
+/// to non-owner viewers (self-healing handoff, design 3). One in every N flushes;
+/// at the 32ms batch cadence that is ~4/s during continuous output, 0 when idle.
+const REMOTE_TERMINAL_OWNER_REASSERT_EVERY: i64 = 8;
 
 struct RemoteProjectScope {
     project_id: String,
@@ -2037,6 +2042,12 @@ impl RemoteHostRuntime {
         let Ok(state) = self.ai_history.project_state(request) else {
             return;
         };
+        // One version per push for this project; every watcher shares it. Keyed
+        // by project so a stale stats frame for a previously-selected project
+        // can't clobber the current one after a fast project switch.
+        let version =
+            self.resource_subscriptions
+                .next_version(REMOTE_RESOURCE_AI_STATS, Some(project_id), None);
         for (device_id, scope_id) in devices {
             let payload = match self.remote_ai_stats_payload(
                 project.id.clone(),
@@ -2047,6 +2058,7 @@ impl RemoteHostRuntime {
                 Ok(payload) => payload,
                 Err(_) => continue,
             };
+            let payload = with_resource_version(payload, version);
             self.send(REMOTE_AI_STATS, Some(device_id), None, payload);
         }
     }
@@ -2464,6 +2476,23 @@ impl RemoteHostRuntime {
         );
     }
 
+    /// Friendly name of a connected device, looked up by device_id in the
+    /// paired-device cache (for the desktop "handed off" placeholder). None when
+    /// unknown / unnamed.
+    fn device_name_for(&self, device_id: &str) -> Option<String> {
+        if device_id.trim().is_empty() {
+            return None;
+        }
+        let raw = self.service().raw_settings();
+        let settings = super::remote_settings_from_raw(&raw);
+        settings
+            .cached_devices
+            .into_iter()
+            .find(|device| device.id == device_id)
+            .map(|device| device.name)
+            .filter(|name| !name.trim().is_empty())
+    }
+
     fn handle_terminal_input(self: &Arc<Self>, envelope: &RemoteEnvelope) {
         let Some(session_id) = envelope.session_id.as_deref() else {
             self.send_error(envelope, "Terminal session is required.");
@@ -2474,8 +2503,31 @@ impl RemoteHostRuntime {
             return;
         };
         self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
-        self.terminals
-            .touch_viewport_lease(session_id, &self.remote_viewport_owner(envelope));
+        let owner = self.remote_viewport_owner(envelope);
+        // Handoff guard — the protocol-level "one writer": only the device that
+        // currently OWNS the viewport may write to the PTY. A non-owner's input
+        // is dropped here (it should be showing the "taken over" placeholder, not
+        // typing). UI occlusion is the first line of defence; this is the hard
+        // backstop so a stale/duplicate view can never inject keystrokes into a
+        // session another device is driving. An unknown/not-yet-started session
+        // falls through (unwrap_or(true)) so the first input can still create it.
+        let is_owner = self
+            .terminals
+            .viewport_state(session_id)
+            .map(|state| state.owner == owner)
+            .unwrap_or(true);
+        if !is_owner {
+            if let Some(input_id) = envelope.payload.get("inputId").and_then(Value::as_str) {
+                self.send_terminal_data(
+                    REMOTE_TERMINAL_INPUT_ACK,
+                    envelope.device_id.as_deref(),
+                    Some(session_id),
+                    json!({ "inputId": input_id, "ok": false, "accepted": false }),
+                );
+            }
+            return;
+        }
+        self.terminals.touch_viewport_lease(session_id, &owner);
         if let Some(input_id) = envelope.payload.get("inputId").and_then(Value::as_str) {
             self.send_terminal_data(
                 REMOTE_TERMINAL_INPUT_ACK,
@@ -2531,7 +2583,42 @@ impl RemoteHostRuntime {
         }
         self.register_terminal_viewer(session_id, envelope.device_id.as_deref());
         let owner = self.remote_viewport_owner(envelope);
+        // A "renewOnly" claim is the phone's idle keepalive: renew OUR lease if we
+        // still hold it, but NEVER steal it from a new owner. Without this, an idle
+        // phone's 8s keepalive lands as a fresh claim right after the desktop taps
+        // "Take over" and yanks the terminal straight back, so the handoff never
+        // sticks. Explicit interaction (input/scroll/Take over) omits the flag and
+        // reclaims as before (latest-writer-wins).
+        let renew_only = envelope
+            .payload
+            .get("renewOnly")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if renew_only {
+            self.terminals.touch_viewport_lease(session_id, &owner);
+            // Echo the authoritative owner back ONLY when the phone has actually
+            // lost the lease (desktop/another device took over): it needs to learn
+            // the new owner and flip to the placeholder. If it still owns, the
+            // keepalive is a silent lease renewal -- echoing its own ownership back
+            // every 8s would just trigger a redundant repaint on an idle terminal.
+            if let Ok(state) = self.terminals.viewport_state(session_id) {
+                if state.owner != owner {
+                    self.send_terminal_viewport_state_payload(
+                        session_id,
+                        envelope.device_id.as_deref(),
+                        &state,
+                    );
+                }
+            }
+            return;
+        }
         if let Ok(state) = self.terminals.claim_viewport(session_id, &owner) {
+            let label = envelope
+                .device_id
+                .as_deref()
+                .and_then(|id| self.device_name_for(id));
+            self.terminals
+                .set_viewport_owner_label(session_id, &owner, label);
             self.send_terminal_viewport_state_payload(
                 session_id,
                 envelope.device_id.as_deref(),
@@ -2580,6 +2667,12 @@ impl RemoteHostRuntime {
         rows: u16,
     ) {
         let owner = self.remote_viewport_owner(envelope);
+        let label = envelope
+            .device_id
+            .as_deref()
+            .and_then(|id| self.device_name_for(id));
+        self.terminals
+            .set_viewport_owner_label(session_id, &owner, label);
         match self
             .terminals
             .resize_viewport(session_id, &owner, cols, rows)
@@ -2678,7 +2771,11 @@ impl RemoteHostRuntime {
     }
 
     fn send_project_list(&self, device_id: Option<&str>) {
-        let payload = self.remote_project_list_payload(device_id);
+        let version = self
+            .resource_subscriptions
+            .current_version(REMOTE_RESOURCE_PROJECTS, None, None);
+        let payload =
+            with_resource_version(self.remote_project_list_payload(device_id), version);
         self.send(REMOTE_PROJECT_LIST, device_id, None, payload);
     }
 
@@ -2747,16 +2844,20 @@ impl RemoteHostRuntime {
     }
 
     fn send_terminal_list(&self, device_id: Option<&str>) {
-        let terminals = self.remote_terminals();
-        self.send(
-            REMOTE_TERMINAL_LIST,
-            device_id,
-            None,
-            json!({ "terminals": terminals }),
-        );
+        let version = self
+            .resource_subscriptions
+            .current_version(REMOTE_RESOURCE_TERMINALS, None, None);
+        let payload =
+            with_resource_version(json!({ "terminals": self.remote_terminals() }), version);
+        self.send(REMOTE_TERMINAL_LIST, device_id, None, payload);
     }
 
     fn broadcast_project_list(&self, source_device_id: Option<&str>) {
+        // Bump the version ONCE for this change so every recipient shares it; the
+        // no-subscriber fallback reads current_version (== the value just bumped).
+        let version = self
+            .resource_subscriptions
+            .next_version(REMOTE_RESOURCE_PROJECTS, None, None);
         let mut device_ids =
             self.resource_subscriptions
                 .devices_for(REMOTE_RESOURCE_PROJECTS, None, None);
@@ -2768,12 +2869,18 @@ impl RemoteHostRuntime {
             return;
         }
         for device_id in device_ids {
-            let payload = self.remote_project_list_payload(Some(&device_id));
+            let payload = with_resource_version(
+                self.remote_project_list_payload(Some(&device_id)),
+                version,
+            );
             self.send(REMOTE_PROJECT_LIST, Some(&device_id), None, payload);
         }
     }
 
     fn broadcast_terminal_list(&self, source_device_id: Option<&str>) {
+        let version = self
+            .resource_subscriptions
+            .next_version(REMOTE_RESOURCE_TERMINALS, None, None);
         let mut device_ids =
             self.resource_subscriptions
                 .devices_for(REMOTE_RESOURCE_TERMINALS, None, None);
@@ -2784,14 +2891,10 @@ impl RemoteHostRuntime {
             self.send_terminal_list(source_device_id);
             return;
         }
-        let payload = json!({ "terminals": self.remote_terminals() });
+        let payload =
+            with_resource_version(json!({ "terminals": self.remote_terminals() }), version);
         for device_id in device_ids {
-            self.send(
-                REMOTE_TERMINAL_LIST,
-                Some(&device_id),
-                None,
-                payload.clone(),
-            );
+            self.send(REMOTE_TERMINAL_LIST, Some(&device_id), None, payload.clone());
         }
     }
 
@@ -2854,8 +2957,18 @@ impl RemoteHostRuntime {
         source_device_id: Option<&str>,
         project_id: Option<&str>,
         session_id: Option<&str>,
-        payload: Value,
+        mut payload: Value,
     ) {
+        // Stamp the monotonic version for this resource key ONCE, before fan-out,
+        // so every subscriber (and any later snapshot reply) orders this change
+        // consistently and a client that missed a push reconciles by version
+        // instead of sticking on stale state. (Unified state-sync, design step 2.)
+        let version = self
+            .resource_subscriptions
+            .next_version(resource, project_id, session_id);
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("version".to_string(), json!(version));
+        }
         let mut device_ids = self
             .resource_subscriptions
             .devices_for(resource, project_id, session_id);
@@ -3646,7 +3759,12 @@ impl RemoteHostRuntime {
             title.trim()
         };
         let mut layout = layout;
-        if layout_kind == "tab" {
+        // Smart placement: fill split panes up to the cap, then fall back to a
+        // tab. The controller's requested layout_kind is now only a hint --
+        // desktop-local and remote (pad/phone) creates share this one rule. The
+        // reattach guard above keeps an existing terminal in its current bucket.
+        let _ = layout_kind;
+        if next_terminal_layout_kind(&layout) == "tab" {
             layout.tabs.push(TerminalTabSummary {
                 label: title.to_string(),
                 terminal_id: terminal_id.to_string(),
@@ -4137,22 +4255,49 @@ impl RemoteHostRuntime {
         // back to the per-device path if the payload can't be pre-serialized.
         match serde_json::value::to_raw_value(&payload) {
             Ok(payload_raw) => {
-                for device_id in batch.viewers {
+                for device_id in &batch.viewers {
                     self.send_terminal_output_raw(
-                        Some(&device_id),
+                        Some(device_id.as_str()),
                         Some(session_id),
                         &payload_raw,
                     );
                 }
             }
             Err(_) => {
-                for device_id in batch.viewers {
+                for device_id in &batch.viewers {
                     self.send_terminal_data(
                         REMOTE_TERMINAL_OUTPUT,
-                        Some(&device_id),
+                        Some(device_id.as_str()),
                         Some(session_id),
                         payload.clone(),
                     );
+                }
+            }
+        }
+        // Self-healing ownership (design 3): ride the authoritative viewport owner
+        // alongside the live output stream. A viewer that missed the one-shot
+        // owner-change broadcast -- dropped on the wire, backgrounded, or
+        // mid-reconnect when the desktop (or another device) took over -- would
+        // otherwise keep rendering the live grid forever. Re-sending the current
+        // owner on the output path makes any viewer converge on the next frame
+        // instead of relying on a single broadcast landing.
+        //
+        // Throttled to every 8th flush (~4/s during continuous output, 0 when
+        // idle) and sent ONLY to viewers that are NOT the current owner: the
+        // active owner already drives the grid and would just eat redundant
+        // resize/repaint ticks. The viewer's generation guard dedups the rest.
+        // Idle sessions (no output) self-heal via the keepalive echo; (re)subscribe
+        // self-heals via send_terminal_viewport_state on the subscribe path.
+        if output_seq % REMOTE_TERMINAL_OWNER_REASSERT_EVERY == 0 {
+            if let Ok(state) = self.terminals.viewport_state(session_id) {
+                for device_id in &batch.viewers {
+                    if state.owner != terminal_viewport_remote_owner(device_id) {
+                        self.send_terminal_viewport_state_payload(
+                            session_id,
+                            Some(device_id.as_str()),
+                            &state,
+                        );
+                    }
                 }
             }
         }
@@ -4272,6 +4417,16 @@ pub(crate) fn terminal_upload_path_input(path: &Path) -> String {
 
 pub(crate) fn unique_remote_upload_path(directory: &Path, file_name: &str) -> PathBuf {
     runtime_upload::unique_upload_path(directory, file_name)
+}
+
+/// Stamp a resource state payload with its unified version (no-op for non-object
+/// payloads). Used by the list broadcasters whose per-device/static payloads are
+/// built outside `broadcast_resource_payload`.
+fn with_resource_version(mut payload: Value, version: u64) -> Value {
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("version".to_string(), json!(version));
+    }
+    payload
 }
 
 pub(crate) fn remote_git_status_payload(
@@ -5741,7 +5896,10 @@ mod tests {
 
         let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
-        assert_eq!(layout.tabs.len(), 1);
+        // Smart placement: the requested `layoutKind: "tab"` is now only a hint;
+        // the first terminal fills a split pane before any tab is opened.
+        assert_eq!(layout.top_panes.len(), 1);
+        assert!(layout.tabs.is_empty());
         assert!(
             runtime
                 .drain_events()
@@ -5753,7 +5911,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_terminal_close_removes_layout_entry_but_keeps_last_terminal() {
+    fn remote_terminal_close_removes_layout_entry_and_kills_last_terminal() {
         let support_dir = temp_support_dir("codux-remote-close-layout-entry");
         write_two_project_state(&support_dir);
         let terminals = Arc::new(TerminalManager::new());
@@ -5836,7 +5994,9 @@ mod tests {
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
         assert_eq!(layout.top_panes.len(), 1);
         assert_eq!(layout.top_panes[0].terminal_id, session_a);
-        assert!(terminals.snapshot(&session_a).is_ok());
+        // Closing the last terminal now tears it down (previously it no-opped so
+        // the dead pane lingered on both the desktop split and the pad tab).
+        assert!(terminals.snapshot(&session_a).is_err());
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -6330,7 +6490,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 32);
+        assert_eq!(state.rows, 18);
 
         let ignored = terminals
             .resize_viewport(&session_id, "remote:device-2", 120, 40)
@@ -6341,7 +6501,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 32);
+        assert_eq!(state.rows, 18);
 
         let ignored = terminals
             .resize_viewport(&session_id, "desktop", 100, 32)
@@ -6352,7 +6512,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 32);
+        assert_eq!(state.rows, 18);
 
         terminals
             .claim_viewport(&session_id, "desktop")
@@ -6391,7 +6551,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 72);
-        assert_eq!(state.rows, 32);
+        assert_eq!(state.rows, 18);
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -6620,14 +6780,14 @@ mod tests {
             .viewport_state(&session_id)
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
-        assert_eq!((state.cols, state.rows), (72, 32));
+        assert_eq!((state.cols, state.rows), (72, 18));
 
         let expired = terminals
             .expire_viewport_lease_for_test(&session_id)
             .expect("expire viewport lease")
             .expect("expired viewport state");
         assert_eq!(expired.owner, "desktop");
-        assert_eq!((expired.cols, expired.rows), (72, 32));
+        assert_eq!((expired.cols, expired.rows), (72, 18));
 
         fs::remove_dir_all(support_dir).ok();
     }
@@ -6759,7 +6919,7 @@ mod tests {
             .expect("viewport state");
         assert_eq!(state.owner, "remote:device-1");
         assert_eq!(state.cols, 80);
-        assert_eq!(state.rows, 32);
+        assert_eq!(state.rows, 24);
 
         fs::remove_dir_all(support_dir).ok();
     }

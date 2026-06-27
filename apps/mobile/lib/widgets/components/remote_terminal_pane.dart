@@ -45,6 +45,8 @@ class RemoteTerminalPane extends StatefulWidget {
     required this.onCopy,
     required this.onUpload,
     required this.onVoiceInput,
+    required this.handedAway,
+    required this.onTakeOver,
   });
 
   final bool connected;
@@ -78,6 +80,10 @@ class RemoteTerminalPane extends StatefulWidget {
   final VoidCallback onCopy;
   final VoidCallback onUpload;
   final VoidCallback onVoiceInput;
+  // Handoff: the desktop (or another device) currently owns this session. Show a
+  // placeholder instead of the live terminal; onTakeOver reclaims it to here.
+  final bool handedAway;
+  final VoidCallback onTakeOver;
 
   @override
   State<RemoteTerminalPane> createState() => _RemoteTerminalPaneState();
@@ -94,8 +100,47 @@ class _RemoteTerminalPaneState extends State<RemoteTerminalPane> {
     }
   }
 
+  // Handoff placeholder: shown when the desktop/another device took the session
+  // over. We deliberately do NOT render the live grid (it would be the other
+  // device's size + would fight for ownership) — just a status + a button to
+  // take it back here.
+  Widget _buildHandedAwayPlaceholder(BuildContext context) {
+    final prefs = AppPreferences.of(context);
+    return ColoredBox(
+      color: AppColors.terminalBg,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.desktop_windows_outlined,
+              size: 44,
+              color: AppColors.terminalTextDim,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              prefs.t('terminal.handoff.takenOver'),
+              style: TextStyle(
+                fontSize: 15,
+                color: AppColors.terminalTextDim,
+              ),
+            ),
+            const SizedBox(height: 20),
+            FilledButton.tonal(
+              onPressed: widget.onTakeOver,
+              child: Text(prefs.t('terminal.handoff.takeBack')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.handedAway) {
+      return _buildHandedAwayPlaceholder(context);
+    }
     final showTerminalToolbar =
         widget.workspaceMode == WorkspaceMode.terminal && widget.connected;
     final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;

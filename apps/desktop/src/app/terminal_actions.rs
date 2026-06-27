@@ -395,6 +395,19 @@ impl CoduxApp {
         self.invalidate_terminal_workspace(cx);
     }
 
+    /// Smart "+": add a split while the main split is under the cap, otherwise
+    /// add a tab. This is the same rule the host applies to remote (pad/phone)
+    /// creates (`next_terminal_layout_kind`), so "+" behaves consistently on
+    /// every device. Explicit split/tab actions still exist for power users.
+    pub(in crate::app) fn add_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let split_count = self.main_terminal().map(|tab| tab.panes.len()).unwrap_or(0);
+        if split_count < codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+            self.split_terminal(window, cx);
+        } else {
+            self.add_terminal_tab(window, cx);
+        }
+    }
+
     pub(in crate::app) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         prepare_memory_launch_artifacts(&self.runtime_service, &self.state);
         let launch_context = self.current_terminal_launch_context();
@@ -405,8 +418,8 @@ impl CoduxApp {
         let Some(active_tab) = self.main_terminal() else {
             return;
         };
-        if active_tab.panes.len() >= 6 {
-            self.status_message = "main split limit reached: 6 panes".to_string();
+        if active_tab.panes.len() >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+            self.status_message = "main split limit reached".to_string();
             self.invalidate_terminal_workspace(cx);
             return;
         }
@@ -799,8 +812,8 @@ impl CoduxApp {
             self.invalidate_terminal_workspace(cx);
             return;
         };
-        if active_tab.panes.len() >= 6 {
-            self.status_message = "main split limit reached: 6 panes".to_string();
+        if active_tab.panes.len() >= codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
+            self.status_message = "main split limit reached".to_string();
             self.invalidate_terminal_workspace(cx);
             return;
         }

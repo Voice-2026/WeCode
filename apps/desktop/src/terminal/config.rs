@@ -9,6 +9,9 @@ pub struct TerminalConfig {
     pub padding: Edges<Pixels>,
     pub colors: ColorPalette,
     pub paste_images_as_paths: bool,
+    /// Resolved i18n locale (e.g. "en", "zh-Hans") for in-terminal UI like the
+    /// handoff placeholder. Empty = fall back to the provided default string.
+    pub language: String,
 }
 
 pub fn terminal_config() -> TerminalConfig {
@@ -44,6 +47,7 @@ pub fn terminal_config() -> TerminalConfig {
         padding: Edges::all(px(10.0)),
         colors,
         paste_images_as_paths: true,
+        language: String::new(),
     }
 }
 

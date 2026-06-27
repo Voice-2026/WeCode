@@ -409,6 +409,6 @@ fn terminal_bottom_add_button(cx: &mut Context<CoduxApp>) -> impl IntoElement {
         .cursor_pointer()
         .text_color(cx.theme().secondary_foreground)
         .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(|app, _event, window, cx| app.add_terminal_tab(window, cx)))
+        .on_click(cx.listener(|app, _event, window, cx| app.add_terminal(window, cx)))
         .child(Icon::new(HeroIconName::Plus).size_3p5())
 }

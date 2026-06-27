@@ -36,12 +36,6 @@ struct TerminalScrollHandleState {
     line_height: Pixels,
     total_lines: usize,
     viewport_lines: usize,
-    // The grid height. Scrollback (and thus the scrollbar range) is
-    // total_lines - screen_lines, NOT total_lines - viewport_lines: when a
-    // remote viewer grew the grid taller than this pane (viewport_lines <
-    // screen_lines) the extra grid rows are shown by the cursor-following
-    // visible_row_shift, not by scrolling, so they must not inflate the bar.
-    screen_lines: usize,
     display_offset: usize,
 }
 
@@ -57,7 +51,6 @@ impl TerminalScrollHandle {
             line_height: line_height.max(px(1.0)),
             total_lines: content.total_lines.max(content.screen_lines),
             viewport_lines: content.visible_rows(),
-            screen_lines: content.screen_lines,
             display_offset: content.display_offset,
         };
     }
@@ -70,14 +63,14 @@ impl TerminalScrollHandle {
 impl ScrollbarHandle for TerminalScrollHandle {
     fn offset(&self) -> Point<Pixels> {
         let state = self.state.borrow();
-        let max_offset = state.total_lines.saturating_sub(state.screen_lines);
+        let max_offset = state.total_lines.saturating_sub(state.viewport_lines);
         let scroll_offset = max_offset.saturating_sub(state.display_offset);
         Point::new(px(0.0), -(scroll_offset as f32 * state.line_height))
     }
 
     fn set_offset(&self, offset: Point<Pixels>) {
         let state = self.state.borrow();
-        let max_offset = state.total_lines.saturating_sub(state.screen_lines);
+        let max_offset = state.total_lines.saturating_sub(state.viewport_lines);
         let offset_delta = (offset.y / state.line_height).round() as i32;
         let display_offset = (max_offset as i32 + offset_delta).clamp(0, max_offset as i32);
         self.future_display_offset
@@ -88,9 +81,7 @@ impl ScrollbarHandle for TerminalScrollHandle {
         let state = self.state.borrow();
         Size {
             width: px(0.0),
-            height: (state.total_lines.saturating_sub(state.screen_lines) + state.viewport_lines)
-                as f32
-                * state.line_height,
+            height: state.total_lines as f32 * state.line_height,
         }
     }
 }
@@ -128,7 +119,7 @@ impl TerminalView {
     fn new<W>(
         stdin_writer: W,
         bytes_rx: flume::Receiver<Vec<u8>>,
-        session_event_rx: mpsc::Receiver<TerminalUiEvent>,
+        session_event_rx: flume::Receiver<TerminalUiEvent>,
         session: TerminalSessionBinding,
         config: TerminalConfig,
         restored_output: Option<TerminalOutputSnapshot>,
@@ -287,6 +278,17 @@ impl TerminalView {
         keystroke: &Keystroke,
         cx: &mut Context<Self>,
     ) -> bool {
+        // Handoff: typing on the desktop while a remote device holds the session
+        // reclaims it here first (reflowing the PTY back to the desktop's grid),
+        // so "walk back to the desk and type" takes over seamlessly — no need to
+        // hunt for the reclaim button. Reclaim is synchronous, so the bytes below
+        // land on the desktop-sized grid.
+        if !self.session.local_viewport_owns() {
+            if let Err(error) = self.session.restore_local_viewport() {
+                eprintln!("failed to reclaim terminal viewport on input: {error}");
+            }
+            cx.notify();
+        }
         let mode = self.model.read(cx).mode();
         let Some(bytes) = keystroke_to_bytes(keystroke, mode) else {
             return false;

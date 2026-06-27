@@ -8,6 +8,20 @@ pub fn terminal_layout_storage_key(project_id: &str, worktree_id: &str) -> Strin
     codux_terminal_core::runtime_scope_key(project_id, Some(worktree_id))
 }
 
+/// Max split panes (top_panes) before new terminals fall back to a tab. Matches
+/// the desktop main-split cap, so "smart placement" (fill splits first, then a
+/// tab) behaves the same for desktop-local AND remote (pad/phone) creates.
+pub const TERMINAL_SPLIT_CAP: usize = 6;
+
+/// Smart layout placement: a split while under the cap, otherwise a tab.
+pub fn next_terminal_layout_kind(layout: &TerminalLayoutSummary) -> &'static str {
+    if layout.top_panes.len() < TERMINAL_SPLIT_CAP {
+        "split"
+    } else {
+        "tab"
+    }
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalLayoutSummary {
