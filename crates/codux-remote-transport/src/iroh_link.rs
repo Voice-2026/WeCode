@@ -10,7 +10,7 @@ use futures_util::StreamExt;
 use iroh::{
     Endpoint, EndpointAddr, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
     endpoint::{Connection, PathEvent, RecvStream, SendStream, presets},
-    protocol::ProtocolHandler,
+    protocol::{AcceptError, ProtocolHandler, Router},
 };
 use iroh_blobs::{BlobsProtocol, store::mem::MemStore, ticket::BlobTicket};
 use iroh_mdns_address_lookup::MdnsAddressLookup;
@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 use tokio::sync::{Mutex as AsyncMutex, Notify, mpsc};
 
@@ -72,6 +72,26 @@ pub struct RemoteIrohHostTransport {
     on_state: RemoteTransportStateHandler,
     on_pairing: RemoteTransportPairingHandler,
     on_log: Option<RemoteTransportLogHandler>,
+    /// The iroh `Router` driving our accept loop. Stored so it stays alive (it
+    /// aborts on drop); set once right after construction.
+    router: OnceLock<Router>,
+}
+
+/// Adapts the host transport to iroh's `ProtocolHandler` so the `Router` drives
+/// incoming `CODUX_REMOTE_ALPN` connections. Holds a `Weak` back-ref so the
+/// router (owned by the transport) doesn't keep the transport alive in a cycle.
+#[derive(Debug, Clone)]
+struct CoduxRemoteProtocol {
+    transport: Weak<RemoteIrohHostTransport>,
+}
+
+impl ProtocolHandler for CoduxRemoteProtocol {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        if let Some(transport) = self.transport.upgrade() {
+            transport.handle_connection(connection).await;
+        }
+        Ok(())
+    }
 }
 
 impl RemoteIrohHostTransport {
@@ -123,12 +143,24 @@ impl RemoteIrohHostTransport {
             on_state,
             on_pairing,
             on_log,
+            router: OnceLock::new(),
         });
-        let accept_transport = Arc::clone(&transport);
+        // Run our star protocol as a standard iroh custom protocol: the Router
+        // owns the accept loop and dispatches by ALPN (our control/terminal
+        // streams vs iroh-blobs), replacing the hand-rolled accept+match. The
+        // handler holds a Weak back-ref so transport<->router don't form an Arc
+        // cycle; closing the transport shuts the Router down.
         let blob_protocol = BlobsProtocol::new(blob_store.as_ref(), None);
-        tokio::spawn(async move {
-            accept_transport.accept_loop(blob_protocol).await;
-        });
+        let router = Router::builder(transport.endpoint.clone())
+            .accept(
+                CODUX_REMOTE_ALPN,
+                CoduxRemoteProtocol {
+                    transport: Arc::downgrade(&transport),
+                },
+            )
+            .accept(iroh_blobs::ALPN, blob_protocol)
+            .spawn();
+        let _ = transport.router.set(router);
         Ok(transport)
     }
 
@@ -138,51 +170,6 @@ impl RemoteIrohHostTransport {
 
     pub fn relay_url(&self) -> &str {
         &self.relay_url
-    }
-
-    async fn accept_loop(self: Arc<Self>, blobs: BlobsProtocol) {
-        while !self.closed.load(Ordering::SeqCst) {
-            let Some(incoming) = self.endpoint.accept().await else {
-                break;
-            };
-            let transport = Arc::clone(&self);
-            let blobs = blobs.clone();
-            tokio::spawn(async move {
-                let mut accepting = match incoming.accept() {
-                    Ok(accepting) => accepting,
-                    Err(error) => {
-                        transport.log(format!("iroh_host_accept failed error={error}"));
-                        return;
-                    }
-                };
-                let alpn = match accepting.alpn().await {
-                    Ok(alpn) => alpn,
-                    Err(error) => {
-                        transport.log(format!("iroh_host_alpn failed error={error}"));
-                        return;
-                    }
-                };
-                let connection = match accepting.await {
-                    Ok(connection) => connection,
-                    Err(error) => {
-                        transport.log(format!("iroh_host_connect failed error={error}"));
-                        return;
-                    }
-                };
-                if alpn == CODUX_REMOTE_ALPN {
-                    transport.handle_connection(connection).await;
-                } else if alpn == iroh_blobs::ALPN {
-                    if let Err(error) = blobs.accept(connection).await {
-                        transport.log(format!("iroh_host_blobs failed error={error}"));
-                    }
-                } else {
-                    transport.log(format!(
-                        "iroh_host_unsupported_alpn alpn={}",
-                        String::from_utf8_lossy(&alpn)
-                    ));
-                }
-            });
-        }
     }
 
     async fn handle_connection(self: Arc<Self>, connection: Connection) {
@@ -454,6 +441,9 @@ impl RemoteTransport for RemoteIrohHostTransport {
         self.closed.store(true, Ordering::SeqCst);
         if let Ok(mut peers) = self.peers.lock() {
             peers.clear();
+        }
+        if let Some(router) = self.router.get() {
+            let _ = router.shutdown().await;
         }
         self.endpoint.close().await;
     }
