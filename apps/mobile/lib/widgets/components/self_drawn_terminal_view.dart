@@ -904,10 +904,22 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   }
 
   /// Control keys the terminal needs that the IME field has no text effect for
-  /// (or would mishandle). Enter and Backspace are intentionally excluded: the
-  /// hidden input maps a committed newline to Enter and an empty field to
-  /// Backspace, so intercepting them here would double-send.
+  /// (or would mishandle).
+  ///
+  /// Enter IS handled here: many keyboards (hardware, and soft IMEs like Sogou)
+  /// deliver Return as a KEY EVENT that the system consumes -- it never reaches
+  /// the hidden field as committed `\n` text, so the field's newline->Enter path
+  /// alone misses it (the symptom: Return does nothing). Intercepting here also
+  /// returns `handled`, which preempts the field's newline insertion, so the two
+  /// paths never double-send. (textInputAction.newline still covers the rarer
+  /// IME that delivers Return purely as a text commit with no key event.)
+  ///
+  /// Backspace stays excluded: the field maps an emptied input to Backspace and
+  /// it works, so intercepting it here would double-send.
   String? _hardwareKeyName(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.numpadEnter) {
+      return 'enter';
+    }
     if (key == LogicalKeyboardKey.tab) return 'tab';
     if (key == LogicalKeyboardKey.escape) return 'esc';
     if (key == LogicalKeyboardKey.arrowUp) return 'up';
@@ -951,6 +963,11 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
             // IME (incl. CJK composition / candidate bar) rather than MIUI's
             // basic/secure keyboard. Autocorrect stays off for terminal input.
             keyboardType: TextInputType.text,
+            // Enter must INSERT a newline (which _sendText maps to the Enter key)
+            // -- not fire the editor's default "done" action, which completes
+            // editing and drops terminal focus. This governs both the soft IME's
+            // return key and a connected hardware keyboard's Enter.
+            textInputAction: TextInputAction.newline,
             maxLines: null,
             autocorrect: false,
             enableSuggestions: true,
