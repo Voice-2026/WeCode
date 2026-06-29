@@ -5,6 +5,7 @@ tool_name="$1"
 shift
 wrapper_dir="$(cd "$(dirname "$0")" && pwd)"
 wrapper_bin_dir="${wrapper_dir}/bin"
+wrapper_helper="${wrapper_dir}/codux-wrapper-helper"
 current_path="${PATH:-}"
 orig_path="${DMUX_ORIGINAL_PATH:-}"
 search_path=""
@@ -159,6 +160,14 @@ log_line() {
   print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [wrapper] $1" >> "${DMUX_LOG_FILE}"
 }
 
+wrapper_helper_available() {
+  if [[ -x "${wrapper_helper}" ]]; then
+    return 0
+  fi
+  log_line "wrapper helper missing path=${wrapper_helper}"
+  return 1
+}
+
 memory_prompt_file() {
   [[ -n "${DMUX_AI_MEMORY_PROMPT_FILE:-}" && -f "${DMUX_AI_MEMORY_PROMPT_FILE}" ]] || return 1
   print -r -- "${DMUX_AI_MEMORY_PROMPT_FILE}"
@@ -167,29 +176,8 @@ memory_prompt_file() {
 tool_memory_injection_strategy() {
   local config_path="${wrapper_dir}/tool-drivers.json"
   [[ -f "${config_path}" ]] || return 0
-  TOOL_NAME="${tool_name}" CONFIG_PATH="${config_path}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-tool = os.environ.get("TOOL_NAME", "").strip().lower()
-path = os.environ.get("CONFIG_PATH", "")
-if not tool or not path:
-    raise SystemExit(0)
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    raise SystemExit(0)
-
-for driver in payload.get("tools", []):
-    aliases = driver.get("aliases")
-    if isinstance(aliases, list) and tool in aliases:
-        strategy = driver.get("memoryInjection")
-        if isinstance(strategy, str):
-            print(strategy)
-        break
-PY
+  wrapper_helper_available || return 0
+  TOOL_NAME="${tool_name}" CONFIG_PATH="${config_path}" "${wrapper_helper}" --codux-wrapper-helper tool-memory-injection
 }
 
 tool_uses_memory_injection() {
@@ -237,25 +225,8 @@ configured_permission_mode() {
       ;;
   esac
 
-  CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-path = os.environ.get("CONFIG_PATH", "")
-key = os.environ.get("CONFIG_KEY", "")
-if not path or not key:
-    raise SystemExit(0)
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    raise SystemExit(0)
-
-value = payload.get(key)
-if isinstance(value, str) and value:
-    print(value)
-PY
+  wrapper_helper_available || return 0
+  CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --codux-wrapper-helper json-string-key
 }
 
 
@@ -295,27 +266,8 @@ configured_tool_model() {
       ;;
   esac
 
-  CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-path = os.environ.get("CONFIG_PATH", "")
-key = os.environ.get("CONFIG_KEY", "")
-if not path or not key:
-    raise SystemExit(0)
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    raise SystemExit(0)
-
-value = payload.get(key)
-if isinstance(value, str):
-    value = value.strip()
-    if value:
-        print(value)
-PY
+  wrapper_helper_available || return 0
+  CONFIG_PATH="${config_path}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --codux-wrapper-helper json-string-key
 }
 
 configured_codex_effort() {
@@ -323,26 +275,8 @@ configured_codex_effort() {
   config_path="$(tool_permission_settings_path)"
   [[ -f "${config_path}" ]] || return 0
 
-  CONFIG_PATH="${config_path}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-path = os.environ.get("CONFIG_PATH", "")
-if not path:
-    raise SystemExit(0)
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    raise SystemExit(0)
-
-value = payload.get("codexEffort")
-if isinstance(value, str):
-    value = value.strip()
-    if value in {"none", "minimal", "low", "medium", "high", "xhigh"}:
-        print(value)
-PY
+  wrapper_helper_available || return 0
+  CONFIG_PATH="${config_path}" "${wrapper_helper}" --codux-wrapper-helper codex-effort
 }
 
 apply_configured_model_arg() {
@@ -454,12 +388,8 @@ apply_codex_memory_workspace_args() {
 
 codex_toml_string() {
   local value="$1"
-  VALUE="${value}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-print(json.dumps(os.environ.get("VALUE", ""), ensure_ascii=True))
-PY
+  wrapper_helper_available || return 1
+  VALUE="${value}" "${wrapper_helper}" --codux-wrapper-helper toml-string
 }
 
 apply_codex_memory_developer_instructions() {
@@ -513,29 +443,11 @@ run_wrapped_command() {
     local opencode_state_path="${DMUX_OPENCODE_SESSION_MAP_DIR}/opencode-session-${DMUX_SESSION_ID}.json"
     if [[ -f "${opencode_state_path}" ]]; then
       local resolved_state
-      resolved_state="$(
-        OPENCODE_STATE_PATH="${opencode_state_path}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-path = os.environ.get("OPENCODE_STATE_PATH", "")
-if not path:
-    raise SystemExit(0)
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    raise SystemExit(0)
-
-external = payload.get("externalSessionID")
-model = payload.get("model")
-if isinstance(external, str) and external:
-    print(external)
-if isinstance(model, str) and model:
-    print(model)
-PY
-)"
+      if wrapper_helper_available; then
+        resolved_state="$(OPENCODE_STATE_PATH="${opencode_state_path}" "${wrapper_helper}" --codux-wrapper-helper opencode-session-state)"
+      else
+        resolved_state=""
+      fi
       if [[ -n "${resolved_state}" ]]; then
         local resolved_lines
         resolved_lines=(${(f)resolved_state})

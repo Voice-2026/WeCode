@@ -232,6 +232,7 @@ impl AIRuntimeBridge {
             &wrapper_dir.join("tool-wrapper.sh"),
             true,
         )?;
+        self.stage_wrapper_helper(&wrapper_dir)?;
         self.stage_tool_launch_driver_config(&wrapper_dir)?;
         self.stage_tool_lifecycle_configs(&wrapper_dir)?;
         #[cfg(not(windows))]
@@ -264,7 +265,13 @@ impl AIRuntimeBridge {
             .flat_map(|driver| driver.wrapper_bins.iter().copied())
             .collect::<Vec<_>>();
         bin_names.push("codux-ssh");
-        for stale_bin_name in ["kiro", "codewhale-tui", "deepseek", "deepseek-tui"] {
+        for stale_bin_name in [
+            "kiro",
+            "codewhale-tui",
+            "deepseek",
+            "deepseek-tui",
+            "gemini",
+        ] {
             let _ = fs::remove_file(self.wrapper_bin_dir.join(stale_bin_name));
             let _ = fs::remove_file(self.wrapper_bin_dir.join(format!("{stale_bin_name}.ps1")));
             let _ = fs::remove_file(self.wrapper_bin_dir.join(format!("{stale_bin_name}.cmd")));
@@ -296,6 +303,28 @@ impl AIRuntimeBridge {
         let bytes = serde_json::to_vec_pretty(&ai_runtime_tool_launch_driver_config())
             .map_err(|error| error.to_string())?;
         fs::write(path, bytes).map_err(|error| error.to_string())
+    }
+
+    #[cfg(not(windows))]
+    fn stage_wrapper_helper(&self, wrapper_dir: &Path) -> Result<(), String> {
+        let helper_path = wrapper_dir.join("codux-wrapper-helper");
+        #[cfg(test)]
+        {
+            write_if_changed(&helper_path, test_wrapper_helper_script().as_bytes())?;
+            set_executable(&helper_path);
+        }
+        #[cfg(not(test))]
+        {
+            let current_exe = std::env::current_exe().map_err(|error| error.to_string())?;
+            write_if_changed_from_file(&helper_path, &current_exe)?;
+            set_executable(&helper_path);
+        }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn stage_wrapper_helper(&self, _wrapper_dir: &Path) -> Result<(), String> {
+        Ok(())
     }
 
     fn stage_tool_lifecycle_configs(&self, wrapper_dir: &Path) -> Result<(), String> {
@@ -460,6 +489,91 @@ fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
     ));
     fs::write(&tmp, bytes).map_err(|error| error.to_string())?;
     fs::rename(&tmp, path).map_err(|error| error.to_string())
+}
+
+#[cfg(all(not(test), unix))]
+fn write_if_changed_from_file(destination: &Path, source: &Path) -> Result<(), String> {
+    use std::os::unix::fs::symlink;
+
+    if matches!(fs::read_link(destination), Ok(existing) if existing == source) {
+        return Ok(());
+    }
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let tmp = destination.with_extension(format!(
+        "{}tmp",
+        destination
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| format!("{extension}."))
+            .unwrap_or_default()
+    ));
+    let _ = fs::remove_file(&tmp);
+    symlink(source, &tmp)
+        .or_else(|_| fs::copy(source, &tmp).map(|_| ()))
+        .map_err(|error| error.to_string())?;
+    fs::rename(&tmp, destination).map_err(|error| error.to_string())
+}
+
+#[cfg(unix)]
+fn set_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return;
+    }
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o755));
+}
+
+#[cfg(all(test, not(windows)))]
+fn test_wrapper_helper_script() -> &'static str {
+    r#"#!/bin/sh
+set -eu
+cmd="${2:-}"
+case "$cmd" in
+  tool-memory-injection)
+    case "${TOOL_NAME:-}" in
+      codex) printf '%s\n' codexDeveloperInstructions ;;
+      claude|claude-code|reclaude) printf '%s\n' claudeAppendSystemPrompt ;;
+    esac
+    ;;
+  json-string-key)
+    case "${CONFIG_KEY:-}" in
+      codex) sed -n 's/.*"codex"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      codexModel) sed -n 's/.*"codexModel"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      claudeCode) sed -n 's/.*"claudeCode"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      claudeCodeModel) sed -n 's/.*"claudeCodeModel"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      kimi) sed -n 's/.*"kimi"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      kimiModel) sed -n 's/.*"kimiModel"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      kiro) sed -n 's/.*"kiro"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      kiroModel) sed -n 's/.*"kiroModel"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      codewhale) sed -n 's/.*"codewhale"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+      codewhaleModel) sed -n 's/.*"codewhaleModel"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1 ;;
+    esac
+    ;;
+  codex-effort)
+    sed -n 's/.*"codexEffort"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${CONFIG_PATH}" | head -n 1
+    ;;
+  toml-string)
+    printf '"%s"\n' "$(printf '%s' "${VALUE:-}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    ;;
+  hook-session-id)
+    printf '%s' "${HOOK_PAYLOAD:-}" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p; s/.*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+    ;;
+  hook-first-field|hook-field)
+    first="${HOOK_FIELD_NAME:-${HOOK_FIELD_NAMES%% *}}"
+    [ -n "$first" ] || exit 0
+    printf '%s' "${HOOK_PAYLOAD:-}" | sed -n "s/.*\"$first\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" | head -n 1
+    ;;
+  hook-number-field)
+    first="${HOOK_FIELD_NAMES%% *}"
+    [ -n "$first" ] || exit 0
+    printf '%s' "${HOOK_PAYLOAD:-}" | sed -n "s/.*\"$first\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" | head -n 1
+    ;;
+  hook-notification-type|claude-memory-context|opencode-session-state|ssh-list-profiles|ssh-profile-shell)
+    ;;
+esac
+"#
 }
 
 fn codewhale_lifecycle_config_toml(
@@ -719,6 +833,7 @@ mod tests {
         fs::set_permissions(&fake_codex, permissions).unwrap();
 
         let home = dir.join("home");
+        fs::create_dir_all(&home).unwrap();
         fs::write(
             home.join(".zshrc"),
             format!(
@@ -783,6 +898,7 @@ mod tests {
         bridge.stage_assets().unwrap();
 
         let home = dir.join("home");
+        fs::create_dir_all(&home).unwrap();
         fs::write(
             home.join(".zshrc"),
             "export HISTFILE=\"$HOME/.custom_zsh_history\"\n",

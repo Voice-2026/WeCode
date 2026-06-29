@@ -4,6 +4,8 @@ set -uo pipefail
 zmodload zsh/datetime 2>/dev/null || true
 
 action="${1:-}"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+wrapper_helper="${script_dir}/codux-wrapper-helper"
 hook_owner=""
 if [[ "$#" -ge 3 ]]; then
   hook_owner="${2:-}"
@@ -15,6 +17,20 @@ fi
 read_hook_payload() {
   [[ ! -t 0 ]] || return 0
   cat
+}
+
+log_line() {
+  [[ -n "${DMUX_LOG_FILE:-}" ]] || return 0
+  /bin/mkdir -p -- "${DMUX_LOG_FILE:h}"
+  print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [hook-file] $1" >> "${DMUX_LOG_FILE}"
+}
+
+wrapper_helper_available() {
+  if [[ -x "${wrapper_helper}" ]]; then
+    return 0
+  fi
+  log_line "wrapper helper missing path=${wrapper_helper}"
+  return 1
 }
 
 hook_payload="$(read_hook_payload)"
@@ -31,37 +47,9 @@ fi
 
 case "${action}" in
   notification)
-    notification_type="$(HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-if not payload:
-    raise SystemExit(0)
-
-try:
-    obj = json.loads(payload)
-except Exception:
-    raise SystemExit(0)
-
-def first_string(mapping, *keys):
-    if not isinstance(mapping, dict):
-        return None
-    for key in keys:
-        value = mapping.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-value = first_string(obj, "notification_type")
-if value is None:
-    value = first_string(obj.get("notification"), "notification_type", "type", "kind", "reason")
-if value is None:
-    value = first_string(obj.get("data"), "notification_type", "type", "kind", "reason")
-if value:
-    print(value)
-PY
-)"
+    if wrapper_helper_available; then
+      notification_type="$(HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --codux-wrapper-helper hook-notification-type)"
+    fi
     ;;
   session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|pre-compact|post-compact|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-pre-tool-use|codex-post-tool-use|codex-permission-request|codex-stop|codex-session-end|codewhale-session-start|codewhale-message-submit|codewhale-tool-call-before|codewhale-tool-call-after|codewhale-error|codewhale-turn-end|codewhale-session-end)
     ;;
@@ -90,233 +78,41 @@ now() {
   fi
 }
 
-log_line() {
-  [[ -n "${DMUX_LOG_FILE:-}" ]] || return 0
-  /bin/mkdir -p -- "${DMUX_LOG_FILE:h}"
-  print -r -- "[$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')] [hook-file] $1" >> "${DMUX_LOG_FILE}"
-}
-
 claude_memory_additional_context() {
   [[ -n "${DMUX_AI_MEMORY_INDEX_FILE:-}" && -f "${DMUX_AI_MEMORY_INDEX_FILE}" ]] || return 0
-  MEMORY_INDEX_FILE="${DMUX_AI_MEMORY_INDEX_FILE}" CLAUDE_HOOK_EVENT_NAME="${CLAUDE_HOOK_EVENT_NAME:-UserPromptSubmit}" /usr/bin/python3 - <<'PY'
-import json
-import os
-from pathlib import Path
-
-path = Path(os.environ.get("MEMORY_INDEX_FILE", ""))
-try:
-    text = path.read_text(encoding="utf-8").strip()
-except Exception:
-    raise SystemExit(0)
-
-if not text:
-    raise SystemExit(0)
-
-prefix = (
-    "Codux memory refresh: the conversation may have been compacted, "
-    "or this is a new user turn. Re-apply relevant durable memory below. "
-    "Prefer current user instructions and repository state over stale memory. "
-    f"Memory index file: {path}\n\n"
-)
-limit = 9500
-payload = prefix + text
-if len(payload) > limit:
-    payload = payload[: limit - len("\n[Codux memory refresh truncated]")] + "\n[Codux memory refresh truncated]"
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": os.environ.get("CLAUDE_HOOK_EVENT_NAME") or "UserPromptSubmit",
-        "additionalContext": payload,
-    },
-    "suppressOutput": True,
-}, ensure_ascii=False, separators=(",", ":")))
-PY
+  wrapper_helper_available || return 0
+  MEMORY_INDEX_FILE="${DMUX_AI_MEMORY_INDEX_FILE}" CLAUDE_HOOK_EVENT_NAME="${CLAUDE_HOOK_EVENT_NAME:-UserPromptSubmit}" "${wrapper_helper}" --codux-wrapper-helper claude-memory-context
 }
 
 extract_hook_session_id() {
   [[ -n "${hook_payload}" ]] || return 0
-  HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
-import json
-import os
-import sys
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-if not payload:
-    raise SystemExit(0)
-
-try:
-    obj = json.loads(payload)
-except Exception:
-    raise SystemExit(0)
-
-stack = [obj]
-seen = set()
-while stack:
-    current = stack.pop()
-    ident = id(current)
-    if ident in seen:
-        continue
-    seen.add(ident)
-
-    if isinstance(current, dict):
-        for key in ("session_id", "sessionId"):
-            value = current.get(key)
-            if isinstance(value, str) and value:
-                print(value)
-                raise SystemExit(0)
-        stack.extend(current.values())
-    elif isinstance(current, list):
-        stack.extend(current)
-PY
+  wrapper_helper_available || return 0
+  HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --codux-wrapper-helper hook-session-id
 }
 
 extract_hook_field() {
   local field_name="$1"
   [[ -n "${hook_payload}" && -n "${field_name}" ]] || return 0
-  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAME="${field_name}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-field_name = os.environ.get("HOOK_FIELD_NAME", "")
-if not payload or not field_name:
-    raise SystemExit(0)
-
-try:
-    obj = json.loads(payload)
-except Exception:
-    raise SystemExit(0)
-
-stack = [obj]
-seen = set()
-while stack:
-    current = stack.pop()
-    ident = id(current)
-    if ident in seen:
-        continue
-    seen.add(ident)
-
-    if isinstance(current, dict):
-        value = current.get(field_name)
-        if isinstance(value, str) and value:
-            print(value)
-            raise SystemExit(0)
-        stack.extend(current.values())
-    elif isinstance(current, list):
-        stack.extend(current)
-PY
+  wrapper_helper_available || return 0
+  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAME="${field_name}" "${wrapper_helper}" --codux-wrapper-helper hook-field
 }
 
 extract_first_hook_field() {
   [[ -n "${hook_payload}" && "$#" -gt 0 ]] || return 0
-  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-field_names = [name for name in os.environ.get("HOOK_FIELD_NAMES", "").split(" ") if name]
-if not payload or not field_names:
-    raise SystemExit(0)
-
-try:
-    obj = json.loads(payload)
-except Exception:
-    raise SystemExit(0)
-
-stack = [obj]
-seen = set()
-while stack:
-    current = stack.pop()
-    ident = id(current)
-    if ident in seen:
-        continue
-    seen.add(ident)
-
-    if isinstance(current, dict):
-        for field_name in field_names:
-            value = current.get(field_name)
-            if isinstance(value, str) and value:
-                print(value)
-                raise SystemExit(0)
-        stack.extend(current.values())
-    elif isinstance(current, list):
-        stack.extend(current)
-PY
+  wrapper_helper_available || return 0
+  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" "${wrapper_helper}" --codux-wrapper-helper hook-first-field
 }
 
 extract_hook_number_field() {
   [[ -n "${hook_payload}" && "$#" -gt 0 ]] || return 0
-  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-field_names = [name for name in os.environ.get("HOOK_FIELD_NAMES", "").split(" ") if name]
-if not payload or not field_names:
-    raise SystemExit(0)
-
-try:
-    obj = json.loads(payload)
-except Exception:
-    raise SystemExit(0)
-
-stack = [obj]
-seen = set()
-while stack:
-    current = stack.pop()
-    ident = id(current)
-    if ident in seen:
-        continue
-    seen.add(ident)
-
-    if isinstance(current, dict):
-        for field_name in field_names:
-            value = current.get(field_name)
-            if isinstance(value, bool):
-                continue
-            if isinstance(value, int):
-                print(value)
-                raise SystemExit(0)
-            if isinstance(value, float) and value.is_integer():
-                print(int(value))
-                raise SystemExit(0)
-        stack.extend(current.values())
-    elif isinstance(current, list):
-        stack.extend(current)
-PY
+  wrapper_helper_available || return 0
+  HOOK_PAYLOAD="${hook_payload}" HOOK_FIELD_NAMES="$*" "${wrapper_helper}" --codux-wrapper-helper hook-number-field
 }
 
 extract_hook_notification_type() {
   [[ -n "${hook_payload}" ]] || return 0
-  HOOK_PAYLOAD="${hook_payload}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-payload = os.environ.get("HOOK_PAYLOAD", "")
-if not payload:
-    raise SystemExit(0)
-
-try:
-    obj = json.loads(payload)
-except Exception:
-    raise SystemExit(0)
-
-def first_string(mapping, *keys):
-    if not isinstance(mapping, dict):
-        return None
-    for key in keys:
-        value = mapping.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-value = first_string(obj, "notification_type")
-if value is None:
-    value = first_string(obj.get("notification"), "notification_type", "type", "kind", "reason")
-if value is None:
-    value = first_string(obj.get("data"), "notification_type", "type", "kind", "reason")
-if value:
-    print(value)
-PY
+  wrapper_helper_available || return 0
+  HOOK_PAYLOAD="${hook_payload}" "${wrapper_helper}" --codux-wrapper-helper hook-notification-type
 }
 
 resolved_claude_external_session_id() {
@@ -394,25 +190,8 @@ configured_permission_mode() {
       ;;
   esac
 
-  CONFIG_PATH="${DMUX_TOOL_PERMISSION_SETTINGS_FILE}" CONFIG_KEY="${config_key}" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-path = os.environ.get("CONFIG_PATH", "")
-key = os.environ.get("CONFIG_KEY", "")
-if not path or not key:
-    raise SystemExit(0)
-
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    raise SystemExit(0)
-
-value = payload.get(key)
-if isinstance(value, str) and value:
-    print(value)
-PY
+  wrapper_helper_available || return 0
+  CONFIG_PATH="${DMUX_TOOL_PERMISSION_SETTINGS_FILE}" CONFIG_KEY="${config_key}" "${wrapper_helper}" --codux-wrapper-helper json-string-key
 }
 
 has_full_access_permission() {

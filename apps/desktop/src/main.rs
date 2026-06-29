@@ -95,7 +95,17 @@ fn main() -> Result<()> {
 }
 
 fn handle_cli_args() -> bool {
-    match std::env::args().nth(1).as_deref() {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match codux_runtime::wrapper_helper::handle_args(&args) {
+        Ok(true) => return true,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(64);
+        }
+    }
+
+    match args.first().map(String::as_str) {
         Some("--version") | Some("-V") => {
             println!("codux {}", env!("CARGO_PKG_VERSION"));
             true

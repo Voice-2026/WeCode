@@ -58,3 +58,4 @@ pub mod terminal_runtime;
 pub mod tool_permissions;
 pub mod update;
 pub mod worktree;
+pub use codux_runtime_live::wrapper_helper;

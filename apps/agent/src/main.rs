@@ -78,6 +78,16 @@ enum Command {
 }
 
 fn main() {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    match codux_runtime_live::wrapper_helper::handle_args(&args) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(64);
+        }
+    }
+
     let cli = Cli::parse();
     let result = match cli.command {
         None => {

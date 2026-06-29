@@ -2,6 +2,7 @@
 set -uo pipefail
 
 profile_id="${1:-}"
+wrapper_helper="${0:A:h}/../codux-wrapper-helper"
 list_profiles=false
 if [[ "${profile_id}" == "-h" || "${profile_id}" == "--help" || "${profile_id}" == "help" ]]; then
   print -r -- "usage: codux-ssh list"
@@ -52,120 +53,20 @@ if [[ ! -r "${profiles_file}" ]]; then
 fi
 
 if [[ "${list_profiles}" == true ]]; then
-  CODUX_SSH_PROFILES_FILE="${profiles_file}" /usr/bin/python3 <<'PY'
-import json
-import os
-import sys
-
-profiles_file = os.environ.get("CODUX_SSH_PROFILES_FILE", "")
-
-try:
-    with open(profiles_file, "r", encoding="utf-8") as handle:
-        root = json.load(handle)
-except Exception as exc:
-    print(f"codux-ssh: failed to read SSH profiles: {exc}", file=sys.stderr)
-    raise SystemExit(66)
-
-profiles = root.get("sshProfiles") if isinstance(root, dict) else root
-if not isinstance(profiles, list):
-    print("codux-ssh: invalid SSH profile file", file=sys.stderr)
-    raise SystemExit(65)
-
-public_profiles = []
-for profile in profiles:
-    if not isinstance(profile, dict):
-        continue
-    profile_id = str(profile.get("id") or "").strip()
-    host = str(profile.get("host") or "").strip()
-    username = str(profile.get("username") or "").strip()
-    if not profile_id or not host or not username:
-        continue
-    name = str(profile.get("name") or "").strip() or f"{username}@{host}"
-    try:
-        port = int(profile.get("port") or 22)
-    except Exception:
-        port = 22
-    port = min(max(port, 1), 65535)
-    credential = str(profile.get("credentialKind") or "none")
-    public_profiles.append({
-        "id": profile_id,
-        "name": name,
-        "host": host,
-        "port": port,
-        "username": username,
-        "endpoint": f"{username}@{host}:{port}",
-        "credential": credential,
-    })
-
-print(json.dumps({"profiles": public_profiles}, ensure_ascii=False, indent=2))
-PY
+  if [[ ! -x "${wrapper_helper}" ]]; then
+    print -u2 -- "codux-ssh: bundled helper is missing"
+    exit 127
+  fi
+  CODUX_SSH_PROFILES_FILE="${profiles_file}" "${wrapper_helper}" --codux-wrapper-helper ssh-list-profiles
   exit $?
 fi
 
 profile_shell="$(
-  CODUX_SSH_PROFILE_ID="${profile_id}" CODUX_SSH_PROFILES_FILE="${profiles_file}" /usr/bin/python3 <<'PY'
-import json
-import os
-import shlex
-import sys
-
-profile_id = os.environ.get("CODUX_SSH_PROFILE_ID", "").lower()
-profiles_file = os.environ.get("CODUX_SSH_PROFILES_FILE", "")
-
-try:
-    with open(profiles_file, "r", encoding="utf-8") as handle:
-        root = json.load(handle)
-except Exception as exc:
-    print(f"codux-ssh: failed to read SSH profiles: {exc}", file=sys.stderr)
-    raise SystemExit(66)
-
-profiles = root.get("sshProfiles") if isinstance(root, dict) else root
-if not isinstance(profiles, list):
-    print("codux-ssh: invalid SSH profile file", file=sys.stderr)
-    raise SystemExit(65)
-
-profile = None
-for candidate in profiles:
-    if str(candidate.get("id", "")).lower() == profile_id:
-        profile = candidate
-        break
-
-if profile is None:
-    print("codux-ssh: SSH profile not found", file=sys.stderr)
-    raise SystemExit(67)
-
-host = str(profile.get("host") or "").strip()
-username = str(profile.get("username") or "").strip()
-if not host or not username:
-    print("codux-ssh: SSH profile is missing host or username", file=sys.stderr)
-    raise SystemExit(65)
-
-try:
-    port = int(profile.get("port") or 22)
-except Exception:
-    port = 22
-port = min(max(port, 1), 65535)
-
-credential_kind = str(profile.get("credentialKind") or "none")
-private_key_path = str(profile.get("privateKeyPath") or "").strip()
-password = str(profile.get("password") or "") if credential_kind == "password" else ""
-key_passphrase = str(profile.get("keyPassphrase") or "") if credential_kind == "privateKey" else ""
-
-ssh_args = ["ssh", "-p", str(port)]
-if credential_kind == "privateKey" and private_key_path:
-    ssh_args.extend(["-i", os.path.expanduser(private_key_path)])
-ssh_args.append(f"{username}@{host}")
-
-def emit_scalar(name, value):
-    print(f"{name}={shlex.quote(value)}")
-
-def emit_array(name, values):
-    print(f"{name}=({' '.join(shlex.quote(value) for value in values)})")
-
-emit_scalar("ssh_password", password)
-emit_scalar("ssh_key_passphrase", key_passphrase)
-emit_array("ssh_args", ssh_args)
-PY
+  if [[ ! -x "${wrapper_helper}" ]]; then
+    print -u2 -- "codux-ssh: bundled helper is missing"
+    exit 127
+  fi
+  CODUX_SSH_PROFILE_ID="${profile_id}" CODUX_SSH_PROFILES_FILE="${profiles_file}" "${wrapper_helper}" --codux-wrapper-helper ssh-profile-shell
 )"
 profile_status=$?
 if [[ ${profile_status} -ne 0 ]]; then
