@@ -6,6 +6,13 @@ use std::{ops::Neg, path::Path};
 
 const FILE_TREE_DRAG_AND_DROP: bool = true;
 
+#[derive(Clone, Copy)]
+pub(in crate::app) enum FileSidebarKeyAction {
+    Rename,
+    MoveSelection(isize),
+    Delete,
+}
+
 #[derive(Clone)]
 struct FileSidebarLabels {
     title: String,
@@ -135,11 +142,14 @@ pub(in crate::app) fn file_section(
                 // re-invalidates the file panel. Decide synchronously to keep
                 // key-swallow semantics, but defer the mutation so we don't
                 // re-enter FileSidebarView while it is mid-update.
-                let plain = !keystroke.modifiers.platform
+                let unmodified_action = !keystroke.modifiers.platform
                     && !keystroke.modifiers.control
                     && !keystroke.modifiers.alt
-                    && !keystroke.modifiers.function;
-                if plain && app_entity.read(cx).file_name_draft_kind.is_some() {
+                    && !keystroke.modifiers.shift;
+                if unmodified_action
+                    && !keystroke.modifiers.function
+                    && app_entity.read(cx).file_name_draft_kind.is_some()
+                {
                     let key = keystroke.key.as_str();
                     let confirm = matches!(key, "enter" | "Enter" | "return" | "Return");
                     let cancel = matches!(key, "escape" | "Escape");
@@ -153,6 +163,39 @@ pub(in crate::app) fn file_section(
                                 } else {
                                     app.cancel_file_name_draft(window, cx);
                                 }
+                            });
+                        });
+                    }
+                    return;
+                }
+                if unmodified_action {
+                    let key = keystroke.key.as_str();
+                    let action = if key.eq_ignore_ascii_case("f2") {
+                        Some(FileSidebarKeyAction::Rename)
+                    } else if key.eq_ignore_ascii_case("enter")
+                        || key.eq_ignore_ascii_case("return")
+                    {
+                        Some(FileSidebarKeyAction::Rename)
+                    } else if key.eq_ignore_ascii_case("up") || key.eq_ignore_ascii_case("arrowup")
+                    {
+                        Some(FileSidebarKeyAction::MoveSelection(-1))
+                    } else if key.eq_ignore_ascii_case("down")
+                        || key.eq_ignore_ascii_case("arrowdown")
+                    {
+                        Some(FileSidebarKeyAction::MoveSelection(1))
+                    } else if key.eq_ignore_ascii_case("delete")
+                        || key.eq_ignore_ascii_case("backspace")
+                    {
+                        Some(FileSidebarKeyAction::Delete)
+                    } else {
+                        None
+                    };
+                    if let Some(action) = action {
+                        cx.stop_propagation();
+                        let app_entity = app_entity.clone();
+                        window.defer(cx, move |window, cx| {
+                            cx.update_entity(&app_entity, |app, cx| {
+                                app.handle_file_sidebar_key_action(action, window, cx);
                             });
                         });
                     }
@@ -795,6 +838,7 @@ fn file_tree_entry_row(
         depth,
     } = row;
     let entry = file.clone();
+    let rename_entry = file.clone();
     let right_click_entry = file.clone();
     let drop_entry = file.clone();
     let is_dir = matches!(file.kind, FileKind::Directory);
@@ -925,6 +969,7 @@ fn file_tree_entry_row(
                 .into_any_element()
         } else {
             div()
+                .id(SharedString::from(format!("file-tree-row-name-{index}")))
                 .ml(px(8.0))
                 .flex_1()
                 .min_w_0()
@@ -932,6 +977,18 @@ fn file_tree_entry_row(
                 .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .truncate()
+                .on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
+                    if event.click_count() < 2 {
+                        return;
+                    }
+                    cx.stop_propagation();
+                    view.focus_handle.focus(window, cx);
+                    let relative_path = rename_entry.relative_path.clone();
+                    view.defer_app_update(window, cx, move |app, window, cx| {
+                        app.set_single_file_selection(relative_path);
+                        app.rename_selected_file_entry(window, cx);
+                    });
+                }))
                 .child(file.name)
                 .into_any_element()
         })

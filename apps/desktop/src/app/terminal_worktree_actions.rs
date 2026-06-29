@@ -695,6 +695,12 @@ impl CoduxApp {
         storage_key: Option<String>,
         runtime: TerminalRuntimeSummary,
     ) {
+        let previous_active_terminal_id = self
+            .state
+            .terminal_layout
+            .active_terminal_id
+            .trim()
+            .to_string();
         let layout_snapshot = self.terminal_layout_snapshot();
         if layout_snapshot.tabs.is_empty() && layout_snapshot.top_panes.is_empty() {
             self.runtime_trace(
@@ -720,6 +726,13 @@ impl CoduxApp {
         self.state.terminal_layout = layout;
         self.state.terminal_runtime = runtime;
         self.remember_active_bottom_terminal_for_current_scope();
+        if let Some(remembered) = restored_live_active_terminal_id(
+            &self.terminals,
+            &previous_active_terminal_id,
+            self.remembered_active_terminal_runtime_id().as_deref(),
+        ) {
+            self.state.terminal_layout.active_terminal_id = remembered;
+        }
         self.cache_current_terminal_layout_state();
         self.spawn_persist_terminal_layout_snapshot(storage_key, layout_snapshot);
     }
@@ -2129,6 +2142,36 @@ pub(in crate::app) fn active_terminal_slot_indices(
         .position(|tab| tab.id == active_tab_id)
         .or_else(|| (!terminals.is_empty()).then_some(0))?;
     (!terminals[tab_index].panes.is_empty()).then_some((tab_index, 0))
+}
+
+pub(in crate::app) fn terminal_runtime_id_exists_in(
+    terminals: &[TerminalTab],
+    terminal_id: &str,
+) -> bool {
+    let terminal_id = terminal_id.trim();
+    !terminal_id.is_empty()
+        && terminals.iter().any(|tab| {
+            tab.terminal_id.as_deref() == Some(terminal_id)
+                || tab
+                    .panes
+                    .iter()
+                    .any(|slot| slot.terminal_id.as_deref() == Some(terminal_id))
+        })
+}
+
+pub(in crate::app) fn restored_live_active_terminal_id(
+    terminals: &[TerminalTab],
+    previous_active_terminal_id: &str,
+    remembered_active_terminal_id: Option<&str>,
+) -> Option<String> {
+    let previous = previous_active_terminal_id.trim();
+    if terminal_runtime_id_exists_in(terminals, previous) {
+        return Some(previous.to_string());
+    }
+    remembered_active_terminal_id
+        .map(str::trim)
+        .filter(|terminal_id| terminal_runtime_id_exists_in(terminals, terminal_id))
+        .map(str::to_string)
 }
 
 fn worktree_confirm_display_name(worktree: &WorktreeInfo) -> String {

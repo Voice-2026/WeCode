@@ -17,6 +17,7 @@ mod tests {
                 terminal_restore_plan_for_language,
             },
             terminal_worktree_actions::active_terminal_slot_indices,
+            terminal_worktree_actions::restored_live_active_terminal_id,
             types::{TerminalPanePlan, TerminalRestorePlan, TerminalTabPlacement, TerminalTabPlan},
             ui_helpers::restored_terminal_preview_lines,
         },
@@ -30,6 +31,46 @@ mod tests {
         terminal_runtime::{TerminalRuntimeSessionSummary, TerminalRuntimeSummary},
     };
     use std::{collections::HashMap, path::PathBuf};
+
+    fn terminal_focus_test_tabs() -> Vec<crate::app::types::TerminalTab> {
+        vec![
+            crate::app::types::TerminalTab {
+                id: 1,
+                label: "Main".to_string(),
+                placement: TerminalTabPlacement::Top,
+                terminal_id: None,
+                panes: vec![
+                    crate::app::types::TerminalPaneSlot {
+                        title: "Split 1".to_string(),
+                        terminal_id: Some("top-1".to_string()),
+                        pane: None,
+                        restored_output_bytes: 0,
+                        restored_output_tail: String::new(),
+                    },
+                    crate::app::types::TerminalPaneSlot {
+                        title: "Split 2".to_string(),
+                        terminal_id: Some("top-2".to_string()),
+                        pane: None,
+                        restored_output_bytes: 0,
+                        restored_output_tail: String::new(),
+                    },
+                ],
+            },
+            crate::app::types::TerminalTab {
+                id: 2,
+                label: "Tab 1".to_string(),
+                placement: TerminalTabPlacement::Bottom,
+                terminal_id: Some("bottom-1".to_string()),
+                panes: vec![crate::app::types::TerminalPaneSlot {
+                    title: "Tab 1".to_string(),
+                    terminal_id: Some("bottom-1".to_string()),
+                    pane: None,
+                    restored_output_bytes: 0,
+                    restored_output_tail: String::new(),
+                }],
+            },
+        ]
+    }
 
     #[test]
     fn terminal_restore_plan_uses_terminal_ids_for_top_panes_and_bottom_tabs() {
@@ -401,43 +442,7 @@ mod tests {
 
     #[test]
     fn active_terminal_slot_indices_use_layout_terminal_id_not_last_pane() {
-        let terminals = vec![
-            crate::app::types::TerminalTab {
-                id: 1,
-                label: "Main".to_string(),
-                placement: TerminalTabPlacement::Top,
-                terminal_id: None,
-                panes: vec![
-                    crate::app::types::TerminalPaneSlot {
-                        title: "Split 1".to_string(),
-                        terminal_id: Some("top-1".to_string()),
-                        pane: None,
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    },
-                    crate::app::types::TerminalPaneSlot {
-                        title: "Split 2".to_string(),
-                        terminal_id: Some("top-2".to_string()),
-                        pane: None,
-                        restored_output_bytes: 0,
-                        restored_output_tail: String::new(),
-                    },
-                ],
-            },
-            crate::app::types::TerminalTab {
-                id: 2,
-                label: "Tab 1".to_string(),
-                placement: TerminalTabPlacement::Bottom,
-                terminal_id: Some("bottom-1".to_string()),
-                panes: vec![crate::app::types::TerminalPaneSlot {
-                    title: "Tab 1".to_string(),
-                    terminal_id: Some("bottom-1".to_string()),
-                    pane: None,
-                    restored_output_bytes: 0,
-                    restored_output_tail: String::new(),
-                }],
-            },
-        ];
+        let terminals = terminal_focus_test_tabs();
 
         assert_eq!(
             active_terminal_slot_indices(&terminals, "top-1", 1),
@@ -459,6 +464,24 @@ mod tests {
             active_terminal_slot_indices(&terminals, "top-1", 2),
             Some((0, 0)),
             "terminal focus may point at a top pane while the bottom tab UI keeps its own active id"
+        );
+    }
+
+    #[test]
+    fn restored_live_active_terminal_id_preserves_focused_top_pane() {
+        let terminals = terminal_focus_test_tabs();
+
+        assert_eq!(
+            restored_live_active_terminal_id(&terminals, "top-2", Some("bottom-1")).as_deref(),
+            Some("top-2")
+        );
+        assert_eq!(
+            restored_live_active_terminal_id(&terminals, "missing", Some("bottom-1")).as_deref(),
+            Some("bottom-1")
+        );
+        assert_eq!(
+            restored_live_active_terminal_id(&terminals, "missing", Some("gone")),
+            None
         );
     }
 

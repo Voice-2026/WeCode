@@ -534,6 +534,53 @@ impl CoduxApp {
         rows
     }
 
+    pub(super) fn handle_file_sidebar_key_action(
+        &mut self,
+        action: super::sidebars::FileSidebarKeyAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.file_name_draft_kind.is_some() {
+            return;
+        }
+        match action {
+            super::sidebars::FileSidebarKeyAction::Rename => {
+                if self.selected_file_entries.len() <= 1 {
+                    self.rename_selected_file_entry(window, cx);
+                }
+            }
+            super::sidebars::FileSidebarKeyAction::MoveSelection(delta) => {
+                self.move_file_sidebar_selection(delta, cx);
+            }
+            super::sidebars::FileSidebarKeyAction::Delete => {
+                self.request_delete_selected_file_entries(window, cx);
+            }
+        }
+    }
+
+    pub(super) fn move_file_sidebar_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let paths = self.visible_file_tree_paths();
+        if paths.is_empty() {
+            self.status_message = "no file items to select".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        }
+        let current_index = self
+            .selected_file_entry
+            .as_ref()
+            .and_then(|selected| paths.iter().position(|path| path == selected));
+        let next_index = current_index
+            .map(|index| {
+                index
+                    .saturating_add_signed(delta)
+                    .min(paths.len().saturating_sub(1))
+            })
+            .unwrap_or(0);
+        self.file_tree_scroll_handle
+            .scroll_to_item(next_index, gpui::ScrollStrategy::Nearest);
+        self.select_file_entry(paths[next_index].clone(), cx);
+    }
+
     pub(super) fn move_file_entries_to_directory(
         &mut self,
         paths: Vec<String>,

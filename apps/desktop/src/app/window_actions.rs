@@ -1016,9 +1016,10 @@ impl CoduxApp {
             return false;
         }
         let view = self.focused_terminal_view(window, cx).or_else(|| {
-            (self.workspace_view == WorkspaceView::Terminal)
-                .then(|| self.active_terminal_view())
-                .flatten()
+            (self.workspace_view == WorkspaceView::Terminal
+                && !self.file_sidebar_contains_focused(window, cx))
+            .then(|| self.active_terminal_view())
+            .flatten()
         });
         let Some(view) = view else {
             return false;
@@ -1026,6 +1027,13 @@ impl CoduxApp {
         view.update(cx, |terminal, cx| {
             terminal.handle_terminal_keystroke(&event.keystroke, cx)
         })
+    }
+
+    fn file_sidebar_contains_focused(&self, window: &Window, cx: &mut Context<Self>) -> bool {
+        self.file_sidebar_view
+            .as_ref()
+            .map(|view| view.read(cx).focus_handle())
+            .is_some_and(|focus_handle| focus_handle.contains_focused(window, cx))
     }
 
     pub(super) fn should_close_window_for_keystroke(&self, keystroke: &gpui::Keystroke) -> bool {

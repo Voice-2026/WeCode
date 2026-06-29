@@ -1147,6 +1147,9 @@ mod tests {
             raw_cached_input_tokens: 0,
             baseline_total_tokens: 0,
             baseline_cached_input_tokens: 0,
+            usage_amounts: Vec::new(),
+            raw_usage_amounts: Vec::new(),
+            baseline_usage_amounts: Vec::new(),
             source: "runtime".to_string(),
             plan: None,
         }
