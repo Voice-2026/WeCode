@@ -43,6 +43,11 @@ pub(super) struct CodexPayloadFields<'a> {
     pub(super) name: Option<Cow<'a, str>>,
     #[serde(borrow)]
     pub(super) arguments: Option<Cow<'a, str>>,
+    /// On `turn_context` rows: the session's approval policy (`never`,
+    /// `on-request`, `on-failure`, `untrusted`, ...). `never` means no command
+    /// approval can ever block, so a pending call there is codex working.
+    #[serde(borrow)]
+    pub(super) approval_policy: Option<Cow<'a, str>>,
 }
 
 #[derive(Default, Deserialize)]

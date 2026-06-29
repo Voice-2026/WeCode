@@ -11,11 +11,10 @@ pub trait TerminalDomainSession: TerminalSessionHandle {}
 
 impl<T> TerminalDomainSession for T where T: TerminalSessionHandle {}
 
-pub fn terminal_snapshot_payload(terminal: TerminalSessionSnapshot, layout_kind: &str) -> Value {
+pub fn terminal_snapshot_payload(terminal: TerminalSessionSnapshot) -> Value {
     json!({
         "id": terminal.id,
         "title": terminal.title,
-        "layoutKind": layout_kind,
         "displayTitle": if terminal.project_name.trim().is_empty() {
             terminal.title.clone()
         } else {
@@ -68,34 +67,30 @@ mod tests {
 
     #[test]
     fn terminal_payload_uses_project_title_for_display() {
-        let payload = terminal_snapshot_payload(
-            TerminalSessionSnapshot {
-                id: "term-1".to_string(),
-                title: "Codex".to_string(),
-                slot_id: "slot".to_string(),
-                session_key: None,
-                project_id: "project-1".to_string(),
-                worktree_id: Some("worktree-1".to_string()),
-                project_name: "Codux".to_string(),
-                cwd: "/tmp/codux".to_string(),
-                shell: "/bin/zsh".to_string(),
-                command: String::new(),
-                cols: 100,
-                rows: 32,
-                status: "running".to_string(),
-                is_running: true,
-                created_at: "1".to_string(),
-                last_active_at: "2".to_string(),
-                buffer_characters: 42,
-                has_buffer: true,
-                tool: Some("codex".to_string()),
-            },
-            "split",
-        );
+        let payload = terminal_snapshot_payload(TerminalSessionSnapshot {
+            id: "term-1".to_string(),
+            title: "Codex".to_string(),
+            slot_id: "slot".to_string(),
+            session_key: None,
+            project_id: "project-1".to_string(),
+            worktree_id: Some("worktree-1".to_string()),
+            project_name: "Codux".to_string(),
+            cwd: "/tmp/codux".to_string(),
+            shell: "/bin/zsh".to_string(),
+            command: String::new(),
+            cols: 100,
+            rows: 32,
+            status: "running".to_string(),
+            is_running: true,
+            created_at: "1".to_string(),
+            last_active_at: "2".to_string(),
+            buffer_characters: 42,
+            has_buffer: true,
+            tool: Some("codex".to_string()),
+        });
 
         assert_eq!(payload["displayTitle"], "Codux · Codex");
         assert_eq!(payload["worktreeId"], "worktree-1");
-        assert_eq!(payload["layoutKind"], "split");
         assert_eq!(payload["bufferCharacters"], 42);
     }
 }

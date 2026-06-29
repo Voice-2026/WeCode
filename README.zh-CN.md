@@ -32,7 +32,7 @@ AI 编程 CLI 很强——也极其容易失控。真正干活时，工作会散
 
 | AI 编程哪里容易乱 | Codux AI 给你什么 |
 | :---------------- | :---------------- |
-| 每个 AI CLI 各管各的状态 | 一个按项目组织的视图，统一 Codex、Claude Code、Gemini CLI、OpenCode、Kiro CLI、Kimi Code、CodeWhale、Agy。 |
+| 每个 AI CLI 各管各的状态 | 一个按项目组织的视图，统一 Codex、Claude Code、OpenCode、Kiro CLI、Kimi Code、CodeWhale、MiMo Code、Agy。 |
 | 长 agent 任务难恢复 | 实时运行状态、本地历史、会话恢复，还有跟着 worktree 走的上下文。 |
 | 并行任务互相打架 | 以 worktree 为核心：每个任务保留自己的终端、Git 状态、文件和 AI 会话。 |
 | Token 花销是个黑盒 | 按工具、模型、项目、worktree、日期统计用量——不用再记账。 |

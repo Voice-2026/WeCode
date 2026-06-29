@@ -25,6 +25,9 @@ pub fn runtime_trace_elapsed(category: &str, action: &str, started_at: Instant, 
     if details.trim().is_empty() {
         runtime_trace(category, &format!("{action} elapsed_ms={elapsed_ms}"));
     } else {
-        runtime_trace(category, &format!("{action} elapsed_ms={elapsed_ms} {details}"));
+        runtime_trace(
+            category,
+            &format!("{action} elapsed_ms={elapsed_ms} {details}"),
+        );
     }
 }

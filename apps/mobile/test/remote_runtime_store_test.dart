@@ -107,7 +107,6 @@ void main() {
           title: 'Three',
           projectId: 'project-2',
           worktreeId: 'worktree-2',
-          layoutKind: 'tab',
           layoutOrder: 1,
         ),
       ],
@@ -137,7 +136,6 @@ void main() {
         title: 'Three',
         projectId: 'project-2',
         worktreeId: 'worktree-2',
-        layoutKind: 'tab',
         layoutOrder: 1,
       ),
     );

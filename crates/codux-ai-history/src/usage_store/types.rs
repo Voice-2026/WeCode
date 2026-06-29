@@ -28,6 +28,7 @@ pub struct AIUsageBucket {
     pub output_tokens: i64,
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
+    pub usage_amounts: Vec<AIUsageAmount>,
     pub request_count: i64,
     pub active_duration_seconds: i64,
     pub first_seen_at: f64,
@@ -78,6 +79,7 @@ struct StoredUsageBucketRow {
     total_tokens: i64,
     cached_input_tokens: i64,
     request_count: i64,
+    usage_amounts: Vec<AIUsageAmount>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -96,6 +98,8 @@ struct PersistedSessionAccumulator {
     request_count: i64,
     today_tokens: i64,
     today_cached_input_tokens: i64,
+    usage_amounts: Vec<AIUsageAmount>,
+    today_usage_amounts: Vec<AIUsageAmount>,
     active_duration_seconds: i64,
 }
 

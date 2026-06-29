@@ -265,16 +265,11 @@ class RemoteRuntimeStore {
     return _planFromCore(_core.removeTerminal(terminalId));
   }
 
-  void beginTerminalCreate({
-    required String projectId,
-    String? worktreeId,
-    required String layoutKind,
-  }) {
+  void beginTerminalCreate({required String projectId, String? worktreeId}) {
     _core.beginTerminalCreate({
       'projectId': projectId,
       if (worktreeId != null && worktreeId.trim().isNotEmpty)
         'worktreeId': worktreeId,
-      'layoutKind': layoutKind,
     });
   }
 
@@ -369,7 +364,6 @@ Map<String, dynamic> _terminalToJson(TerminalInfo terminal) => {
   'id': terminal.id,
   'title': terminal.title,
   'projectId': terminal.projectId,
-  'layoutKind': terminal.layoutKind,
   if (terminal.worktreeId != null) 'worktreeId': terminal.worktreeId,
   if (terminal.layoutOrder != null) 'layoutOrder': terminal.layoutOrder,
   if (terminal.cols != null) 'cols': terminal.cols,

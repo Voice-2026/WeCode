@@ -4,7 +4,6 @@ mod agy;
 mod claude;
 mod codewhale;
 mod codex;
-mod gemini;
 mod kimi;
 mod kiro;
 mod mimo;
@@ -14,7 +13,6 @@ pub fn history_source_drivers() -> &'static [HistorySourceDriver] {
     &[
         claude::DRIVER,
         codex::DRIVER,
-        gemini::DRIVER,
         agy::DRIVER,
         kiro::DRIVER,
         codewhale::DRIVER,
@@ -28,7 +26,6 @@ pub fn history_source_progress(source: &str) -> f64 {
     match source {
         "claude" => 0.38,
         "codex" => 0.58,
-        "gemini" => 0.74,
         "agy" => 0.78,
         "kiro" => 0.82,
         "codewhale" => 0.86,

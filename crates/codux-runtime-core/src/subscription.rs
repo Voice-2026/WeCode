@@ -309,23 +309,53 @@ mod tests {
     #[test]
     fn resource_versions_bump_per_key_and_report_current() {
         let versions = ResourceVersions::default();
-        assert_eq!(versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 0);
-        assert_eq!(versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 1);
-        assert_eq!(versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
-        assert_eq!(versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+        assert_eq!(
+            versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            0
+        );
+        assert_eq!(
+            versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            1
+        );
+        assert_eq!(
+            versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            2
+        );
+        assert_eq!(
+            versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            2
+        );
         // A different key versions independently.
-        assert_eq!(versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p2"), None), 1);
+        assert_eq!(
+            versions.next(REMOTE_RESOURCE_GIT_STATUS, Some("p2"), None),
+            1
+        );
         assert_eq!(versions.next(REMOTE_PROJECT_LIST, None, None), 1);
-        assert_eq!(versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
+        assert_eq!(
+            versions.current(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            2
+        );
     }
 
     #[test]
     fn router_delegates_resource_versioning() {
         let router = RuntimeSubscriptionRouter::new();
-        assert_eq!(router.next_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 1);
-        assert_eq!(router.next_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
-        assert_eq!(router.current_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None), 2);
-        assert_eq!(router.current_version(REMOTE_RESOURCE_GIT_STATUS, Some("p2"), None), 0);
+        assert_eq!(
+            router.next_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            1
+        );
+        assert_eq!(
+            router.next_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            2
+        );
+        assert_eq!(
+            router.current_version(REMOTE_RESOURCE_GIT_STATUS, Some("p1"), None),
+            2
+        );
+        assert_eq!(
+            router.current_version(REMOTE_RESOURCE_GIT_STATUS, Some("p2"), None),
+            0
+        );
     }
 
     #[test]

@@ -1,10 +1,12 @@
 use super::{
     helpers::{deterministic_uuid, history_group_key, table_has_column},
-    types::{AIProjectUsageSummary, AISessionSummary, SessionDetailLink, SessionLink},
+    types::{
+        AIProjectUsageSummary, AISessionSummary, AIUsageAmount, SessionDetailLink, SessionLink,
+    },
 };
 use codux_ai_history::normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
 use rusqlite::{Connection, params};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub(super) fn load_sessions(
     conn: &Connection,
@@ -37,11 +39,20 @@ pub(super) fn load_sessions(
         )
         .map_err(|error| error.to_string())?;
 
+    let usage_amounts = load_session_usage_amounts(conn, Some(project_path))?;
     let rows = statement
         .query_map([project_path], |row| {
             let session_key = row.get::<_, String>(0)?;
             let external_session_id = row.get::<_, Option<String>>(1)?;
             let source = row.get::<_, String>(3)?;
+            let amounts = usage_amounts
+                .get(&(
+                    source.clone(),
+                    session_key.clone(),
+                    external_session_id.clone(),
+                ))
+                .cloned()
+                .unwrap_or_default();
             Ok(AISessionSummary {
                 id: deterministic_uuid(&history_group_key(
                     &source,
@@ -57,6 +68,7 @@ pub(super) fn load_sessions(
                 total_tokens: row.get(6)?,
                 cached_input_tokens: row.get(7)?,
                 request_count: row.get(8)?,
+                usage_amounts: amounts,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -94,11 +106,20 @@ pub(super) fn load_global_recent_sessions(
         )
         .map_err(|error| error.to_string())?;
 
+    let usage_amounts = load_session_usage_amounts(conn, None)?;
     let rows = statement
         .query_map([], |row| {
             let session_key = row.get::<_, String>(0)?;
             let external_session_id = row.get::<_, Option<String>>(1)?;
             let source = row.get::<_, String>(3)?;
+            let amounts = usage_amounts
+                .get(&(
+                    source.clone(),
+                    session_key.clone(),
+                    external_session_id.clone(),
+                ))
+                .cloned()
+                .unwrap_or_default();
             Ok(AISessionSummary {
                 id: deterministic_uuid(&history_group_key(
                     &source,
@@ -114,12 +135,99 @@ pub(super) fn load_global_recent_sessions(
                 total_tokens: row.get(6)?,
                 cached_input_tokens: row.get(7)?,
                 request_count: row.get(8)?,
+                usage_amounts: amounts,
             })
         })
         .map_err(|error| error.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())
+}
+
+type SessionUsageAmountMap = HashMap<(String, String, Option<String>), Vec<AIUsageAmount>>;
+
+fn load_session_usage_amounts(
+    conn: &Connection,
+    project_path: Option<&str>,
+) -> Result<SessionUsageAmountMap, String> {
+    if !table_exists(conn, "ai_history_file_usage_amount") {
+        return Ok(SessionUsageAmountMap::new());
+    }
+    let where_clause = if project_path.is_some() {
+        "WHERE a.project_path = ?1"
+    } else {
+        ""
+    };
+    let sql = format!(
+        r#"
+        SELECT
+            a.source,
+            a.session_key,
+            l.external_session_id,
+            a.unit,
+            COALESCE(SUM(a.value), 0.0) AS value
+        FROM ai_history_file_usage_amount a
+        LEFT JOIN ai_history_file_session_link l
+            ON l.project_path = a.project_path
+            AND l.source = a.source
+            AND l.file_path = a.file_path
+            AND l.session_key = a.session_key
+        {where_clause}
+        GROUP BY a.source, a.session_key, l.external_session_id, a.unit
+        "#
+    );
+    let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
+    let rows = if let Some(project_path) = project_path {
+        statement
+            .query_map([project_path], session_usage_amount_row)
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    } else {
+        statement
+            .query_map([], session_usage_amount_row)
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?
+    };
+    let mut map = SessionUsageAmountMap::new();
+    for (source, session_key, external_session_id, amount) in rows {
+        if amount.value <= 0.0 || amount.unit.trim().is_empty() {
+            continue;
+        }
+        let amounts = map
+            .entry((source, session_key, external_session_id))
+            .or_default();
+        if let Some(existing) = amounts.iter_mut().find(|item| item.unit == amount.unit) {
+            existing.value += amount.value;
+        } else {
+            amounts.push(amount);
+        }
+    }
+    Ok(map)
+}
+
+fn table_exists(conn: &Connection, table: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1 LIMIT 1",
+        [table],
+        |_| Ok(()),
+    )
+    .is_ok()
+}
+
+fn session_usage_amount_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<(String, String, Option<String>, AIUsageAmount)> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        AIUsageAmount {
+            unit: row.get(3)?,
+            value: row.get(4)?,
+        },
+    ))
 }
 
 pub(super) fn load_global_project_totals(
@@ -455,6 +563,7 @@ fn load_breakdown(
                 total_tokens: row.get(1)?,
                 cached_input_tokens: row.get(2)?,
                 request_count: row.get(3)?,
+                usage_amounts: Vec::new(),
             })
         })
         .map_err(|error| error.to_string())?;

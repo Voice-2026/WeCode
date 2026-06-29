@@ -12,7 +12,8 @@ mod tests {
             shortcuts::{normalized_shortcut_text, shortcut_matches},
             terminal_state::{
                 normalize_terminal_restore_state, restore_terminal_tabs_skeleton,
-                structural_terminal_layout, terminal_pane_terminal_id, terminal_restore_plan,
+                should_mount_restored_terminal_slot, structural_terminal_layout,
+                terminal_pane_terminal_id, terminal_restore_plan,
                 terminal_restore_plan_for_language,
             },
             terminal_worktree_actions::active_terminal_slot_indices,
@@ -108,6 +109,36 @@ mod tests {
         assert_eq!(plan.tabs[1].terminal_id.as_deref(), Some("term-c"));
         assert_eq!(plan.tabs[2].terminal_id.as_deref(), Some("term-d"));
         assert_eq!(plan.active_index, 2);
+    }
+
+    #[test]
+    fn restore_mounts_all_visible_top_panes_but_only_active_bottom_tab() {
+        let target = Some((2, 0));
+
+        assert!(should_mount_restored_terminal_slot(
+            TerminalTabPlacement::Top,
+            0,
+            0,
+            target
+        ));
+        assert!(should_mount_restored_terminal_slot(
+            TerminalTabPlacement::Top,
+            0,
+            1,
+            target
+        ));
+        assert!(!should_mount_restored_terminal_slot(
+            TerminalTabPlacement::Bottom,
+            1,
+            0,
+            target
+        ));
+        assert!(should_mount_restored_terminal_slot(
+            TerminalTabPlacement::Bottom,
+            2,
+            0,
+            target
+        ));
     }
 
     #[test]
@@ -521,6 +552,7 @@ mod tests {
             total_tokens: 0,
             cached_input_tokens: 0,
             request_count: 0,
+            usage_amounts: Vec::new(),
         };
 
         assert_eq!(
@@ -538,16 +570,24 @@ mod tests {
         session.external_session_id = None;
         assert_eq!(
             ai_session_restore_command(&session),
-            "opencode run --session 'session key'"
+            "opencode --session 'session key'"
         );
 
         session.source = "mimo".to_string();
         assert_eq!(
             ai_session_restore_command(&session),
-            "mimo run --session 'session key'"
+            "mimo --session 'session key'"
+        );
+
+        session.source = "kiro".to_string();
+        session.external_session_id = Some("session-1".to_string());
+        assert_eq!(
+            ai_session_restore_command(&session),
+            "kiro-cli --resume-id session-1"
         );
 
         session.source = "antigravity".to_string();
+        session.external_session_id = None;
         assert_eq!(
             ai_session_restore_command(&session),
             "agy resume 'session key'"
@@ -582,13 +622,12 @@ mod tests {
         }
         assert!(ai_session_fork_command(AISessionForkTarget::Codex, path).starts_with("codex "));
         assert!(ai_session_fork_command(AISessionForkTarget::Claude, path).starts_with("claude "));
-        assert!(ai_session_fork_command(AISessionForkTarget::Gemini, path).starts_with("gemini "));
         assert!(ai_session_fork_command(AISessionForkTarget::Agy, path).starts_with("agy "));
         assert!(
             ai_session_fork_command(AISessionForkTarget::OpenCode, path)
                 .starts_with("opencode run ")
         );
-        assert!(ai_session_fork_command(AISessionForkTarget::Kiro, path).starts_with("kiro "));
+        assert!(ai_session_fork_command(AISessionForkTarget::Kiro, path).starts_with("kiro-cli "));
         assert!(
             ai_session_fork_command(AISessionForkTarget::CodeWhale, path).starts_with("codewhale ")
         );

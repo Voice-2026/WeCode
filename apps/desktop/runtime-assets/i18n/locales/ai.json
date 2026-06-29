@@ -75,7 +75,8 @@
       "ai.today_level": "Heutiger Rang",
       "ai.today_tokens": "Token heute",
       "ai.today_usage": "Heutige Nutzung",
-      "ai.unknown_tool": "Unbekanntes Werkzeug"
+      "ai.unknown_tool": "Unbekanntes Werkzeug",
+      "ai.metric.total": "Gesamt"
     },
     "en": {
       "ai.action.refresh_current_project": "Refresh AI stats for the current project.",
@@ -152,7 +153,8 @@
       "ai.today_level": "Today's Level",
       "ai.today_tokens": "Today's Tokens",
       "ai.today_usage": "Today's Usage",
-      "ai.unknown_tool": "Unknown Tool"
+      "ai.unknown_tool": "Unknown Tool",
+      "ai.metric.total": "Total"
     },
     "es": {
       "ai.action.refresh_current_project": "Actualizar las estadísticas de IA del proyecto actual.",
@@ -229,7 +231,8 @@
       "ai.today_level": "Nivel de hoy",
       "ai.today_tokens": "Tokens de hoy",
       "ai.today_usage": "Uso de hoy",
-      "ai.unknown_tool": "Herramienta desconocida"
+      "ai.unknown_tool": "Herramienta desconocida",
+      "ai.metric.total": "Total"
     },
     "fr": {
       "ai.action.refresh_current_project": "Actualiser les statistiques IA du projet actuel.",
@@ -306,7 +309,8 @@
       "ai.today_level": "Niveau du jour",
       "ai.today_tokens": "Tokens du jour",
       "ai.today_usage": "Utilisation d'aujourd'hui",
-      "ai.unknown_tool": "Outil inconnu"
+      "ai.unknown_tool": "Outil inconnu",
+      "ai.metric.total": "Total"
     },
     "ja": {
       "ai.action.refresh_current_project": "現在のプロジェクトの AI 統計を更新します。",
@@ -383,7 +387,8 @@
       "ai.today_level": "今日のレベル",
       "ai.today_tokens": "本日のトークン",
       "ai.today_usage": "今日の使用量",
-      "ai.unknown_tool": "不明なツール"
+      "ai.unknown_tool": "不明なツール",
+      "ai.metric.total": "合計"
     },
     "ko": {
       "ai.action.refresh_current_project": "현재 프로젝트에 대한 AI 통계를 새로 고칩니다.",
@@ -460,7 +465,8 @@
       "ai.today_level": "오늘의 레벨",
       "ai.today_tokens": "오늘의 토큰",
       "ai.today_usage": "오늘 사용량",
-      "ai.unknown_tool": "알 수 없는 도구"
+      "ai.unknown_tool": "알 수 없는 도구",
+      "ai.metric.total": "총량"
     },
     "pt-BR": {
       "ai.action.refresh_current_project": "Atualizar as estatísticas de IA do projeto atual.",
@@ -537,7 +543,8 @@
       "ai.today_level": "Nível de hoje",
       "ai.today_tokens": "Tokens de hoje",
       "ai.today_usage": "Uso de hoje",
-      "ai.unknown_tool": "Ferramenta desconhecida"
+      "ai.unknown_tool": "Ferramenta desconhecida",
+      "ai.metric.total": "Total"
     },
     "ru": {
       "ai.action.refresh_current_project": "Обновить статистику ИИ для текущего проекта.",
@@ -614,7 +621,8 @@
       "ai.today_level": "Уровень за сегодня",
       "ai.today_tokens": "Токены за сегодня",
       "ai.today_usage": "Использование за сегодня",
-      "ai.unknown_tool": "Неизвестный инструмент"
+      "ai.unknown_tool": "Неизвестный инструмент",
+      "ai.metric.total": "Всего"
     },
     "zh-Hans": {
       "ai.action.refresh_current_project": "刷新当前项目的 AI 统计。",
@@ -691,7 +699,8 @@
       "ai.today_level": "今日等级",
       "ai.today_tokens": "今日 Token",
       "ai.today_usage": "今日用量",
-      "ai.unknown_tool": "未知工具"
+      "ai.unknown_tool": "未知工具",
+      "ai.metric.total": "总量"
     },
     "zh-Hant": {
       "ai.action.refresh_current_project": "刷新目前專案的 AI 統計資料。",
@@ -768,7 +777,8 @@
       "ai.today_level": "今日等級",
       "ai.today_tokens": "今日 Token",
       "ai.today_usage": "今日用量",
-      "ai.unknown_tool": "未知工具"
+      "ai.unknown_tool": "未知工具",
+      "ai.metric.total": "總量"
     }
   }
 }

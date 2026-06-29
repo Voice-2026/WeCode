@@ -42,33 +42,6 @@ pub(super) fn resolve_transcript_source(
                 )
             })
         }
-        "gemini" => {
-            let files = gemini_session_paths(&project.workspace_path);
-            let matching = session
-                .ai_session_id
-                .as_deref()
-                .and_then(|ai_session| normalized_string(Some(ai_session)))
-                .and_then(|ai_session| {
-                    files
-                        .iter()
-                        .find(|path| {
-                            path.file_name()
-                                .and_then(|value| value.to_str())
-                                .map(|name| name.contains(&ai_session))
-                                .unwrap_or(false)
-                        })
-                        .cloned()
-                })
-                .or_else(|| files.first().cloned());
-            matching.and_then(|path| {
-                transcript_source_if_readable(
-                    &path.display().to_string(),
-                    &tool,
-                    &session_id,
-                    false,
-                )
-            })
-        }
         "opencode" => transcript_source_if_readable(
             &opencode_database_path().display().to_string(),
             &tool,

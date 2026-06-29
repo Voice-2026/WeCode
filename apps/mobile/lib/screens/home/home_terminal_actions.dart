@@ -63,17 +63,12 @@ class HomeTerminalActions {
   }
 
   void createTerminalForSelectedProject(
-    void Function(String projectId, [String layoutKind]) createTerminal, {
-    String? layoutKind,
-  }) {
+    void Function(String projectId) createTerminal,
+  ) {
     final projectId = requireSelectedProjectId();
     if (projectId == null) return;
     showTerminalWorkspace();
-    if (layoutKind == null) {
-      createTerminal(projectId);
-    } else {
-      createTerminal(projectId, layoutKind);
-    }
+    createTerminal(projectId);
   }
 
   String? requireSelectedProjectId() {

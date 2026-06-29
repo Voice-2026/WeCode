@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../../services/remote_terminal_output_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/terminal_theme.dart';
+import 'terminal_builtin_glyphs.dart';
 
 /// Fallback for glyphs the primary font lacks. The bundled monochrome
 /// `TerminalSymbols` (a Noto Sans Symbols 2 subset) comes first so terminal
@@ -353,7 +354,8 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
     // Longest common prefix between the previous value and the new one.
     var prefix = 0;
     final limit = last.length < text.length ? last.length : text.length;
-    while (prefix < limit && last.codeUnitAt(prefix) == text.codeUnitAt(prefix)) {
+    while (prefix < limit &&
+        last.codeUnitAt(prefix) == text.codeUnitAt(prefix)) {
       prefix++;
     }
     final removed = last.length - prefix;
@@ -917,7 +919,8 @@ class _SelfDrawnTerminalViewState extends State<SelfDrawnTerminalView>
   /// Backspace stays excluded: the field maps an emptied input to Backspace and
   /// it works, so intercepting it here would double-send.
   String? _hardwareKeyName(LogicalKeyboardKey key) {
-    if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.numpadEnter) {
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
       return 'enter';
     }
     if (key == LogicalKeyboardKey.tab) return 'tab';
@@ -1076,7 +1079,9 @@ class _TerminalGridPainter extends CustomPainter {
     // any pre-rendered overscan rows (host-served scroll) above the viewport.
     canvas.translate(
       0,
-      snapshot.scrollPixelOffset - snapshot.marginRows * cellHeight + bottomShift,
+      snapshot.scrollPixelOffset -
+          snapshot.marginRows * cellHeight +
+          bottomShift,
     );
 
     final bgPaint = Paint();
@@ -1106,6 +1111,7 @@ class _TerminalGridPainter extends CustomPainter {
 
     for (final entry in rows.entries) {
       entry.value.sort((left, right) => left.col.compareTo(right.col));
+      _paintBuiltinGraphics(canvas, entry.value);
       for (final run in _rowRuns(entry.value)) {
         final paragraph = _paragraph(
           run.text,
@@ -1122,13 +1128,16 @@ class _TerminalGridPainter extends CustomPainter {
         // of leaving a gap that grows per character.
         final spanWidth = run.widthCols * cellWidth;
         final glyphWidth = paragraph.maxIntrinsicWidth;
-        final dx = run.startCol * cellWidth +
+        final dx =
+            run.startCol * cellWidth +
             (glyphWidth < spanWidth ? (spanWidth - glyphWidth) / 2 : 0);
         canvas.drawParagraph(
           paragraph,
           Offset(
             dx,
-            entry.key * cellHeight + glyphBaseline - _paragraphAscent(paragraph),
+            entry.key * cellHeight +
+                glyphBaseline -
+                _paragraphAscent(paragraph),
           ),
         );
       }
@@ -1137,6 +1146,33 @@ class _TerminalGridPainter extends CustomPainter {
     _paintSelection(canvas, snapshot);
     _paintCursor(canvas, snapshot);
     canvas.restore();
+  }
+
+  void _paintBuiltinGraphics(Canvas canvas, List<TerminalScreenCell> cells) {
+    for (final cell in cells) {
+      if (cell.hidden || cell.text.isEmpty) continue;
+      final graphic = terminalBuiltinGraphicForText(cell.text);
+      if (graphic == null) continue;
+      final colors = TerminalTheme.resolveCellColors(
+        fg: cell.fg,
+        bg: cell.bg,
+        inverse: cell.inverse,
+        bold: cell.bold,
+        dim: cell.dim,
+      );
+      final span = cell.width < 1 ? 1 : cell.width;
+      paintTerminalBuiltinGraphic(
+        canvas,
+        Rect.fromLTWH(
+          cell.col * cellWidth,
+          cell.row * cellHeight,
+          cellWidth * span,
+          cellHeight,
+        ),
+        colors.fg,
+        graphic,
+      );
+    }
   }
 
   void _paintSelection(Canvas canvas, TerminalScreenSnapshot snapshot) {
@@ -1223,6 +1259,14 @@ class _TerminalGridPainter extends CustomPainter {
     for (final cell in cells) {
       final span = cell.width < 1 ? 1 : cell.width;
       if (cell.hidden || cell.text.isEmpty) {
+        if (current != null) {
+          yield current;
+          current = null;
+        }
+        nextCol = cell.col + span;
+        continue;
+      }
+      if (terminalBuiltinGraphicForText(cell.text) != null) {
         if (current != null) {
           yield current;
           current = null;

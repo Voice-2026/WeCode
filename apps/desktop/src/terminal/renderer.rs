@@ -142,6 +142,7 @@ impl TerminalRenderer {
         let visible_rows = self.visible_row_range(bounds, padding, content, window);
 
         let mut background_rects = Vec::new();
+        let mut graphics = Vec::new();
         let mut text_runs = Vec::new();
         let mut lines = Vec::new();
         let mut cursor_cell = None;
@@ -170,15 +171,19 @@ impl TerminalRenderer {
             if let Some(hover_link) = hover_link
                 && hover_link.line == line
             {
+                let mut hover_graphics = Vec::new();
                 self.prepare_row_text(
                     row,
                     cells,
                     &mut text_runs,
+                    &mut hover_graphics,
                     Some(hover_link.range.clone()),
                 );
                 background_rects.extend(prepared.background_rects);
+                graphics.extend(hover_graphics);
             } else {
                 background_rects.extend(prepared.background_rects);
+                graphics.extend(prepared.graphics);
                 text_runs.extend(prepared.text_runs);
                 lines.extend(prepared.line);
             }
@@ -275,6 +280,7 @@ impl TerminalRenderer {
             origin,
             background: default_bg,
             background_rects,
+            graphics,
             text_runs,
             lines,
             cursor,
@@ -367,9 +373,10 @@ impl TerminalRenderer {
         }
 
         let mut background_rects = Vec::new();
+        let mut graphics = Vec::new();
         let mut text_runs = Vec::new();
         self.prepare_row_backgrounds(0, cells, default_bg, &mut background_rects);
-        self.prepare_row_text(0, cells, &mut text_runs, None);
+        self.prepare_row_text(0, cells, &mut text_runs, &mut graphics, None);
         // Prefer a single shaped line for simple rows; on success the per-span
         // runs are dropped so the row is shaped/painted once instead of N times.
         let line = self.combine_row_runs(&text_runs);
@@ -378,6 +385,7 @@ impl TerminalRenderer {
         }
         let prepared = TerminalPreparedRow {
             background_rects,
+            graphics,
             text_runs,
             line,
         };
@@ -444,6 +452,7 @@ impl TerminalRenderer {
         row: usize,
         cells: &[TerminalIndexedCell],
         text_runs: &mut Vec<TerminalTextRun>,
+        graphics: &mut Vec<TerminalGraphicCell>,
         underline_range: Option<Range<usize>>,
     ) {
         let mut current_run: Option<TerminalTextRun> = None;
@@ -458,6 +467,22 @@ impl TerminalRenderer {
             }
             if cell.hidden || cell.text.is_empty() {
                 pending_spaces = 0;
+                next_col = col.saturating_add(cell_width);
+                continue;
+            }
+            if let Some(graphic) = terminal_cell_codepoint(&cell.text).and_then(terminal_builtin_graphic) {
+                if let Some(current) = current_run.take() {
+                    text_runs.push(current);
+                }
+                pending_spaces = 0;
+                let (fg, _) = self.cell_render_colors(cell);
+                graphics.push(TerminalGraphicCell {
+                    row,
+                    col,
+                    width_cols: cell_width,
+                    color: fg,
+                    graphic,
+                });
                 next_col = col.saturating_add(cell_width);
                 continue;
             }
@@ -595,6 +620,9 @@ impl TerminalRenderer {
 
         for rect in &state.background_rects {
             rect.paint(self, state.origin, window);
+        }
+        for graphic in &state.graphics {
+            graphic.paint(self, state.origin, window);
         }
         for line in &state.lines {
             line.paint(self, state.origin, window, cx);

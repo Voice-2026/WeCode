@@ -9,17 +9,15 @@
 //! copy of the desktop host's batching/baseline machinery.
 
 use codux_protocol::{
-    REMOTE_ERROR, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS, REMOTE_RESOURCE_UNSUBSCRIBE,
-    REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATED,
-    REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
-    REMOTE_TERMINAL_VIEWPORT_STATE, RemoteTerminalBufferWindow, RemoteTerminalSubscriptions,
-    terminal_buffer_payloads, terminal_live_output_payload,
+    REMOTE_ERROR, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
+    REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSED,
+    REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST,
+    REMOTE_TERMINAL_OUTPUT, REMOTE_TERMINAL_VIEWPORT_STATE, RemoteTerminalBufferWindow,
+    RemoteTerminalSubscriptions, terminal_buffer_payloads, terminal_live_output_payload,
 };
 use codux_remote_transport::RemoteTransport;
 use codux_runtime_core::terminal::terminal_snapshot_payload;
-use codux_runtime_live::remote_terminal_dispatch::{
-    self, RemoteTerminalDispatch, TerminalMessage,
-};
+use codux_runtime_live::remote_terminal_dispatch::{self, RemoteTerminalDispatch, TerminalMessage};
 use codux_runtime_live::terminal_pty::{TerminalManager, TerminalPtyConfig};
 use codux_terminal_core::TerminalEvent;
 use serde_json::{Value, json};
@@ -48,7 +46,10 @@ impl TerminalFanout {
     }
 
     fn next_seq(&self, session_id: &str) -> i64 {
-        let mut map = self.output_seq.lock().unwrap_or_else(|err| err.into_inner());
+        let mut map = self
+            .output_seq
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         let next = map.get(session_id).copied().unwrap_or(0) + 1;
         map.insert(session_id.to_string(), next);
         next
@@ -83,10 +84,18 @@ impl TerminalFanout {
 /// subscribe/unsubscribe the headless host folds into its terminal handling.
 pub fn is_terminal_kind(kind: &str) -> bool {
     remote_terminal_dispatch::is_terminal_kind(kind)
-        || matches!(kind, REMOTE_RESOURCE_SUBSCRIBE | REMOTE_RESOURCE_UNSUBSCRIBE)
+        || matches!(
+            kind,
+            REMOTE_RESOURCE_SUBSCRIBE | REMOTE_RESOURCE_UNSUBSCRIBE
+        )
 }
 
-fn send(transport: &TransportSlot, device_id: Option<&str>, envelope: Value, terminal_stream: bool) {
+fn send(
+    transport: &TransportSlot,
+    device_id: Option<&str>,
+    envelope: Value,
+    terminal_stream: bool,
+) {
     let Ok(bytes) = serde_json::to_vec(&envelope) else {
         return;
     };
@@ -145,7 +154,7 @@ fn list_payload(driver: &TerminalManager) -> Value {
     let terminals = driver
         .list()
         .into_iter()
-        .map(|snapshot| terminal_snapshot_payload(snapshot, "headless"))
+        .map(terminal_snapshot_payload)
         .collect::<Vec<_>>();
     json!({ "terminals": terminals })
 }
@@ -338,9 +347,18 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                 .or_else(|| payload.get("projectPath"))
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            command: payload.get("command").and_then(Value::as_str).map(str::to_string),
-            cols: payload.get("cols").and_then(Value::as_u64).map(|v| v as u16),
-            rows: payload.get("rows").and_then(Value::as_u64).map(|v| v as u16),
+            command: payload
+                .get("command")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            cols: payload
+                .get("cols")
+                .and_then(Value::as_u64)
+                .map(|v| v as u16),
+            rows: payload
+                .get("rows")
+                .and_then(Value::as_u64)
+                .map(|v| v as u16),
             project_id: project_id.clone(),
             worktree_id: payload
                 .get("worktreeId")
@@ -356,13 +374,22 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                 .or_else(|| payload.get("sessionId"))
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            slot_id: payload.get("slotId").and_then(Value::as_str).map(str::to_string),
+            slot_id: payload
+                .get("slotId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             session_key: payload
                 .get("sessionKey")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            title: payload.get("title").and_then(Value::as_str).map(str::to_string),
-            tool: payload.get("tool").and_then(Value::as_str).map(str::to_string),
+            title: payload
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            tool: payload
+                .get("tool")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             support_dir: Some(crate::projects::agent_data_dir()),
             runtime_root: Some(codux_runtime_live::runtime_paths::runtime_root_dir()),
             tool_permissions_file: Some(
@@ -387,7 +414,9 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
         let transport_for_emit = Arc::clone(self.transport);
         let fanout_for_emit = self.fanout.clone();
         let emit = move |event: TerminalEvent| match event {
-            TerminalEvent::Output { session_id, bytes, .. } => {
+            TerminalEvent::Output {
+                session_id, bytes, ..
+            } => {
                 let data = String::from_utf8_lossy(&bytes).to_string();
                 let next = fanout_for_emit.next_seq(&session_id);
                 // Live output is a pure byte stream — no per-output screen
@@ -447,7 +476,12 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                     REMOTE_TERMINAL_CREATED,
                     json!({ "sessionId": session_id }),
                 );
-                reply(self.transport, device_id, REMOTE_TERMINAL_LIST, list_payload(self.driver));
+                reply(
+                    self.transport,
+                    device_id,
+                    REMOTE_TERMINAL_LIST,
+                    list_payload(self.driver),
+                );
             }
             Err(error) => reply(
                 self.transport,
@@ -459,7 +493,11 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
     }
 
     fn handle_terminal_input_msg(&self, msg: &TerminalMessage) {
-        let data = msg.payload.get("data").and_then(Value::as_str).unwrap_or("");
+        let data = msg
+            .payload
+            .get("data")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         match msg.session_id {
             Some(id) => match self.driver.write(id, data.as_bytes()) {
                 Ok(()) => {
@@ -489,8 +527,16 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
     }
 
     fn handle_terminal_resize_msg(&self, msg: &TerminalMessage) {
-        let cols = msg.payload.get("cols").and_then(Value::as_u64).unwrap_or(80) as u16;
-        let rows = msg.payload.get("rows").and_then(Value::as_u64).unwrap_or(24) as u16;
+        let cols = msg
+            .payload
+            .get("cols")
+            .and_then(Value::as_u64)
+            .unwrap_or(80) as u16;
+        let rows = msg
+            .payload
+            .get("rows")
+            .and_then(Value::as_u64)
+            .unwrap_or(24) as u16;
         if let Some(id) = msg.session_id {
             let _ = self.driver.resize(id, cols, rows);
         }
@@ -506,7 +552,12 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                 REMOTE_TERMINAL_CLOSED,
                 json!({ "sessionId": id }),
             );
-            reply(self.transport, msg.device_id, REMOTE_TERMINAL_LIST, list_payload(self.driver));
+            reply(
+                self.transport,
+                msg.device_id,
+                REMOTE_TERMINAL_LIST,
+                list_payload(self.driver),
+            );
         }
     }
 
@@ -522,8 +573,16 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
         if let (Some(id), Some(device_id)) = (msg.session_id, msg.device_id) {
             self.fanout.add_viewer(id, device_id);
             let owner = self.viewport_owner_for(Some(device_id));
-            let cols = msg.payload.get("cols").and_then(Value::as_u64).unwrap_or(80) as u16;
-            let rows = msg.payload.get("rows").and_then(Value::as_u64).unwrap_or(24) as u16;
+            let cols = msg
+                .payload
+                .get("cols")
+                .and_then(Value::as_u64)
+                .unwrap_or(80) as u16;
+            let rows = msg
+                .payload
+                .get("rows")
+                .and_then(Value::as_u64)
+                .unwrap_or(24) as u16;
             let _ = self.driver.resize_viewport(id, &owner, cols, rows);
         }
     }
@@ -570,4 +629,3 @@ pub fn handle_terminal(
         _ => {}
     }
 }
-

@@ -263,58 +263,71 @@ impl CoduxApp {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
-        let Some((tab_index, _)) = active_terminal_slot_indices(
+        let Some((tab_index, slot_index)) = active_terminal_slot_indices(
             &self.terminals,
             &self.state.terminal_layout.active_terminal_id,
             self.active_terminal_id,
         ) else {
             return Ok(());
         };
+        self.ensure_terminal_slot_mounted(tab_index, slot_index, cx)
+    }
+
+    pub(super) fn ensure_terminal_slot_mounted(
+        &mut self,
+        tab_index: usize,
+        slot_index: usize,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         let config = self.terminal_config_from_settings();
         let base_pty_config = self.current_terminal_base_pty_config();
         let terminal_pane_registry = self.terminal_pane_registry.clone();
-        let mut registrations = Vec::new();
         let mut pending = Vec::new();
-        let tab = &mut self.terminals[tab_index];
-        for slot in &mut tab.panes {
-            if slot.pane.is_some() {
-                continue;
-            }
-            let pty_config = terminal_pty_config_for_terminal_id(
-                &base_pty_config,
-                slot.terminal_id.as_deref(),
-                &slot.title,
-            );
-            if let Some(pane) = slot
-                .terminal_id
-                .as_deref()
-                .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
-                .filter(|pane| pane.matches_pty_config(&pty_config))
-                .cloned()
-            {
-                refresh_terminal_pane_config(&pane, &config, cx);
-                slot.pane = Some(pane);
-                continue;
-            }
-            let restored_output = TerminalOutputSnapshot {
-                bytes: slot.restored_output_bytes,
-                tail: slot.restored_output_tail.clone(),
-            };
-            let (pane, attach) = TerminalPane::pending_with_restored_output(
-                cx,
-                pty_config.clone(),
-                config.clone(),
-                Some(restored_output),
-            );
-            if let Some(terminal_id) = slot.terminal_id.clone() {
-                registrations.push((terminal_id, pane.clone()));
-            }
+
+        let Some(slot) = self
+            .terminals
+            .get_mut(tab_index)
+            .and_then(|tab| tab.panes.get_mut(slot_index))
+        else {
+            return Ok(());
+        };
+        if slot.pane.is_some() {
+            return Ok(());
+        }
+
+        let pty_config = terminal_pty_config_for_terminal_id(
+            &base_pty_config,
+            slot.terminal_id.as_deref(),
+            &slot.title,
+        );
+        if let Some(pane) = slot
+            .terminal_id
+            .as_deref()
+            .and_then(|terminal_id| terminal_pane_registry.get(terminal_id))
+            .filter(|pane| pane.matches_pty_config(&pty_config))
+            .cloned()
+        {
+            refresh_terminal_pane_config(&pane, &config, cx);
             slot.pane = Some(pane);
-            pending.push((pty_config, attach));
+            return Ok(());
         }
-        for (terminal_id, pane) in registrations {
-            self.register_terminal_pane(Some(&terminal_id), &pane, cx);
+
+        let restored_output = TerminalOutputSnapshot {
+            bytes: slot.restored_output_bytes,
+            tail: slot.restored_output_tail.clone(),
+        };
+        let terminal_id = slot.terminal_id.clone();
+        let (pane, attach) = TerminalPane::pending_with_restored_output(
+            cx,
+            pty_config.clone(),
+            config,
+            Some(restored_output),
+        );
+        slot.pane = Some(pane.clone());
+        if let Some(terminal_id) = terminal_id.as_deref() {
+            self.register_terminal_pane(Some(terminal_id), &pane, cx);
         }
+        pending.push((pty_config, attach));
         self.spawn_attach_pending_terminals(None, pending, cx);
         Ok(())
     }
@@ -546,6 +559,7 @@ impl CoduxApp {
             return;
         };
         let app = cx.entity().downgrade();
+        let app_for_link = app.clone();
         let terminal_id = terminal_id.to_string();
         let observer_terminal_id = terminal_id.clone();
         pane.view.update(cx, |terminal, _| {
@@ -553,6 +567,11 @@ impl CoduxApp {
                 let terminal_id = observer_terminal_id.clone();
                 let _ = app.update(cx, |app, cx| {
                     app.record_focused_terminal_runtime_id(&terminal_id, cx);
+                });
+            });
+            terminal.set_link_opener(move |url, _window, cx| {
+                let _ = app_for_link.update(cx, |app, cx| {
+                    app.open_terminal_web_link(url, cx);
                 });
             });
         });
@@ -616,6 +635,28 @@ impl CoduxApp {
             &format!("focus_in terminal_id={terminal_id} tab={tab_id} placement={placement:?}"),
         );
         self.invalidate_terminal_workspace(cx);
+    }
+
+    pub(super) fn open_terminal_web_link(&mut self, url: String, cx: &mut Context<Self>) {
+        let remote_device = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.clone());
+        if let Some(device_id) = remote_device {
+            self.open_remote_project_web_url(
+                device_id,
+                url,
+                "Open Web Tunnel Failed".to_string(),
+                cx,
+            );
+            return;
+        }
+        if let Err(error) = self.runtime_service.open_url(&url) {
+            self.status_message = "failed to open link".to_string();
+            self.show_system_error_alert("Open Link Failed".to_string(), error, cx);
+            self.invalidate_status_bar(cx);
+        }
     }
 
     pub(super) fn sync_terminal_state_after_layout_change(&mut self, _cx: &mut Context<Self>) {
@@ -775,34 +816,33 @@ impl CoduxApp {
                                 // runs once — without waiting it failed "not ready
                                 // yet" and the pane stayed blank. This is its own
                                 // thread, so the bounded wait is free.
-                                let result = if let Some(device_id) =
-                                    pty_config.host_device_id.clone()
-                                {
-                                    match runtime_service
-                                        .remote_controller_for_device_blocking(&device_id)
-                                    {
-                                        Ok(controller) => {
-                                            TerminalPane::attach_pending_session_remote(
-                                                controller,
-                                                pty_config,
-                                                terminal_config,
-                                                pending,
-                                            )
-                                            .map(|_| ())
-                                            .map_err(|error| error.to_string())
+                                let result =
+                                    if let Some(device_id) = pty_config.host_device_id.clone() {
+                                        match runtime_service
+                                            .remote_controller_for_device_blocking(&device_id)
+                                        {
+                                            Ok(controller) => {
+                                                TerminalPane::attach_pending_session_remote(
+                                                    controller,
+                                                    pty_config,
+                                                    terminal_config,
+                                                    pending,
+                                                )
+                                                .map(|_| ())
+                                                .map_err(|error| error.to_string())
+                                            }
+                                            Err(error) => Err(error),
                                         }
-                                        Err(error) => Err(error),
-                                    }
-                                } else {
-                                    TerminalPane::attach_pending_session(
-                                        terminal_manager,
-                                        pty_config,
-                                        terminal_config,
-                                        pending,
-                                    )
-                                    .map(|_| ())
-                                    .map_err(|error| error.to_string())
-                                };
+                                    } else {
+                                        TerminalPane::attach_pending_session(
+                                            terminal_manager,
+                                            pty_config,
+                                            terminal_config,
+                                            pending,
+                                        )
+                                        .map(|_| ())
+                                        .map_err(|error| error.to_string())
+                                    };
                                 (terminal_id, result)
                             })
                         })
@@ -1781,9 +1821,9 @@ impl CoduxApp {
                         })
                         .unwrap_or_else(|| AIHistorySummary {
                             is_loading: true,
-                        detail: "loading".to_string(),
-                        ..AIHistorySummary::default()
-                    });
+                            detail: "loading".to_string(),
+                            ..AIHistorySummary::default()
+                        });
                     let remote_ai_current_sessions = runtime_service
                         .remote_ai_current_sessions(
                             &project.path,

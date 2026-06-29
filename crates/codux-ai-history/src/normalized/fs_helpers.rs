@@ -69,6 +69,15 @@ fn file_modified_millis(path: &Path) -> Option<u128> {
         .map(|duration| duration.as_millis())
 }
 
+fn is_sqlite_history_database_path(path: &Path) -> bool {
+    path.extension().and_then(|value| value.to_str()) == Some("db")
+        || path.file_name().and_then(|value| value.to_str()) == Some("state_5.sqlite")
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    PathBuf::from(format!("{}{}", path.display(), suffix))
+}
+
 fn paths_equivalent(left: Option<&str>, right: &str) -> bool {
     let Some(left) = left.and_then(normalized_history_path) else {
         return false;

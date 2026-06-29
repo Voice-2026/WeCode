@@ -513,7 +513,7 @@ extension _HomePageTerminal on HomeController {
     _sendTerminalOutputAck(sessionId, outputSeq, bufferLength);
   }
 
-  void _createTerminal([String? projectId, String layoutKind = 'tab']) {
+  void _createTerminal([String? projectId]) {
     final target =
         projectId ??
         _selectedProjectId ??
@@ -523,14 +523,10 @@ extension _HomePageTerminal on HomeController {
       return;
     }
     if (_creatingTerminalProjectId == target) return;
-    final normalizedLayoutKind = layoutKind.trim().toLowerCase() == 'tab'
-        ? 'tab'
-        : 'split';
     final scope = _remoteRuntime.terminalScopeForProject(target);
     _remoteRuntime.beginTerminalCreate(
       projectId: target,
       worktreeId: scope?.worktreeId,
-      layoutKind: normalizedLayoutKind,
     );
     _applyState(_syncRuntimeViewState);
     // Spawn the host PTY at the phone's measured grid (when known) so the shell
@@ -552,7 +548,6 @@ extension _HomePageTerminal on HomeController {
               scope!.projectPath!.trim().isNotEmpty)
             'projectPath': scope.projectPath!,
           'command': '',
-          'layoutKind': layoutKind,
           if (spawnCols != null && spawnRows != null &&
               spawnCols > 0 && spawnRows > 0) ...{
             'cols': spawnCols,

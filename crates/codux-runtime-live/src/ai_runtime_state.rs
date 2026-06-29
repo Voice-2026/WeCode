@@ -1,7 +1,8 @@
 use crate::ai_runtime::{
     AIPlanSnapshot, AIProjectPhase, AIProjectTotals, AIRuntimeStateSnapshot, AISessionSnapshot,
+    AIUsageAmountSnapshot,
 };
-use codux_protocol::RemoteAICurrentSession;
+use codux_protocol::{RemoteAICurrentSession, RemoteAIUsageAmount};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::path::Path;
@@ -103,6 +104,12 @@ pub struct AIRuntimeSessionSummary {
     pub baseline_total_tokens: i64,
     #[serde(default)]
     pub baseline_cached_input_tokens: i64,
+    #[serde(default)]
+    pub usage_amounts: Vec<AIUsageAmountSnapshot>,
+    #[serde(default)]
+    pub raw_usage_amounts: Vec<AIUsageAmountSnapshot>,
+    #[serde(default)]
+    pub baseline_usage_amounts: Vec<AIUsageAmountSnapshot>,
     pub source: String,
 }
 
@@ -205,9 +212,27 @@ fn remote_current_session_from_runtime_session(
         model: session.model.clone(),
         status: session.state.clone(),
         is_running: session.state == "running",
-        total_tokens: session.total_tokens.max(0),
-        cached_input_tokens: session.cached_input_tokens.max(0),
+        total_tokens: session.raw_total_tokens.max(session.total_tokens).max(0),
+        cached_input_tokens: session
+            .raw_cached_input_tokens
+            .max(session.cached_input_tokens)
+            .max(0),
+        current_total_tokens: session.total_tokens.max(0),
+        current_cached_input_tokens: session.cached_input_tokens.max(0),
+        usage_amounts: remote_usage_amounts(&session.raw_usage_amounts),
+        current_usage_amounts: remote_usage_amounts(&session.usage_amounts),
     }
+}
+
+fn remote_usage_amounts(amounts: &[AIUsageAmountSnapshot]) -> Vec<RemoteAIUsageAmount> {
+    amounts
+        .iter()
+        .filter(|amount| !amount.unit.trim().is_empty() && amount.value > 0.0)
+        .map(|amount| RemoteAIUsageAmount {
+            unit: amount.unit.clone(),
+            value: amount.value,
+        })
+        .collect()
 }
 
 fn summary_from_raw(
@@ -453,8 +478,39 @@ fn session_from_runtime_snapshot(session: &AISessionSnapshot) -> AIRuntimeSessio
         raw_cached_input_tokens: session.cached_input_tokens.max(0),
         baseline_total_tokens: session.baseline_total_tokens.max(0),
         baseline_cached_input_tokens: session.baseline_cached_input_tokens.max(0),
+        usage_amounts: subtract_usage_amounts(
+            &session.usage_amounts,
+            &session.baseline_usage_amounts,
+        ),
+        raw_usage_amounts: session.usage_amounts.clone(),
+        baseline_usage_amounts: session.baseline_usage_amounts.clone(),
         source: "supervisor".to_string(),
     }
+}
+
+fn subtract_usage_amounts(
+    totals: &[AIUsageAmountSnapshot],
+    baselines: &[AIUsageAmountSnapshot],
+) -> Vec<AIUsageAmountSnapshot> {
+    totals
+        .iter()
+        .filter_map(|total| {
+            let unit = total.unit.trim();
+            if unit.is_empty() {
+                return None;
+            }
+            let baseline = baselines
+                .iter()
+                .find(|item| item.unit == total.unit)
+                .map(|item| item.value)
+                .unwrap_or(0.0);
+            let value = (total.value - baseline).max(0.0);
+            (value > 0.0).then(|| AIUsageAmountSnapshot {
+                unit: total.unit.clone(),
+                value,
+            })
+        })
+        .collect()
 }
 
 fn runtime_snapshot_session_state(session: &AISessionSnapshot) -> &'static str {
@@ -534,6 +590,14 @@ mod tests {
                     total_tokens: 150,
                     baseline_total_tokens: 50,
                     baseline_cached_input_tokens: 5,
+                    usage_amounts: vec![AIUsageAmountSnapshot {
+                        unit: "credit".to_string(),
+                        value: 0.041,
+                    }],
+                    baseline_usage_amounts: vec![AIUsageAmountSnapshot {
+                        unit: "credit".to_string(),
+                        value: 0.011,
+                    }],
                     baseline_resolved: false,
                     started_at: Some(10.0),
                     updated_at: 20.0,
@@ -577,6 +641,8 @@ mod tests {
                     total_tokens: 0,
                     baseline_total_tokens: 0,
                     baseline_cached_input_tokens: 0,
+                    usage_amounts: Vec::new(),
+                    baseline_usage_amounts: Vec::new(),
                     baseline_resolved: false,
                     started_at: Some(11.0),
                     updated_at: 30.0,
@@ -631,6 +697,16 @@ mod tests {
         assert_eq!(summary.sessions[1].model.as_deref(), Some("gpt-5"));
         assert_eq!(summary.sessions[1].total_tokens, 100);
         assert_eq!(summary.sessions[1].cached_input_tokens, 15);
+        let remote_sessions = remote_current_sessions_from_runtime_state(&summary, "project-a");
+        assert_eq!(remote_sessions.len(), 1);
+        assert_eq!(remote_sessions[0].total_tokens, 150);
+        assert_eq!(remote_sessions[0].cached_input_tokens, 20);
+        assert_eq!(remote_sessions[0].current_total_tokens, 100);
+        assert_eq!(remote_sessions[0].current_cached_input_tokens, 15);
+        assert_eq!(remote_sessions[0].usage_amounts[0].unit, "credit");
+        assert!((remote_sessions[0].usage_amounts[0].value - 0.041).abs() < f64::EPSILON);
+        assert_eq!(remote_sessions[0].current_usage_amounts[0].unit, "credit");
+        assert!((remote_sessions[0].current_usage_amounts[0].value - 0.03).abs() < 0.000_001);
         let plan = summary.sessions[1].plan.as_ref().expect("plan");
         assert_eq!(plan.items.len(), 1);
         assert_eq!(plan.items[0].text, "Patch parser");

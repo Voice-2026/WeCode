@@ -51,25 +51,38 @@ fn collect_source_fingerprints(
     fingerprints: &mut Vec<AIHistorySourceFileFingerprint>,
 ) {
     for path in paths {
-        let Ok(metadata) = fs::metadata(&path) else {
-            continue;
-        };
-        fingerprints.push(AIHistorySourceFileFingerprint {
-            source: source.to_string(),
-            path: normalized_source_path(&path),
-            modified_millis: metadata
-                .modified()
-                .ok()
-                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis())
-                .unwrap_or(0),
-            size: metadata.len(),
-        });
+        for fingerprint_path in sqlite_database_fingerprint_paths(&path) {
+            let Ok(metadata) = fs::metadata(&fingerprint_path) else {
+                continue;
+            };
+            fingerprints.push(AIHistorySourceFileFingerprint {
+                source: source.to_string(),
+                path: normalized_source_path(&fingerprint_path),
+                modified_millis: metadata
+                    .modified()
+                    .ok()
+                    .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|duration| duration.as_millis())
+                    .unwrap_or(0),
+                size: metadata.len(),
+            });
+        }
     }
 }
 
 fn normalized_source_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn sqlite_database_fingerprint_paths(path: &Path) -> Vec<PathBuf> {
+    if !is_sqlite_history_database_path(path) {
+        return vec![path.to_path_buf()];
+    }
+    let mut paths = Vec::with_capacity(3);
+    paths.push(path.to_path_buf());
+    paths.push(path_with_suffix(path, "-wal"));
+    paths.push(path_with_suffix(path, "-shm"));
+    paths
 }
 
 pub fn load_indexed_project_history(

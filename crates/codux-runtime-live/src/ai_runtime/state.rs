@@ -49,11 +49,7 @@ mod tests {
         );
         assert_eq!(canonical_tool_name("agy").as_deref(), Some("agy"));
         assert_eq!(
-            canonical_tool_name("codewhale-tui").as_deref(),
-            Some("codewhale")
-        );
-        assert_eq!(
-            canonical_tool_name("deepseek-tui").as_deref(),
+            canonical_tool_name("codewhale").as_deref(),
             Some("codewhale")
         );
         assert_eq!(canonical_tool_name("codex").as_deref(), Some("codex"));

@@ -16,6 +16,7 @@ is_wrapper_bin_dir() {
   local normalized="${dir:A}"
   [[ "$normalized" == "${wrapper_bin_dir:A}" ]] && return 0
   [[ "$normalized" == */Contents/Resources/runtime-root/scripts/wrappers/bin ]]
+  [[ "$normalized" == */runtime-root/scripts/wrappers/bin ]]
 }
 
 filtered_tool_search_path() {
@@ -71,20 +72,26 @@ apply_process_limit_cap() {
 }
 
 find_real_binary() {
+  local active_resolved_path="${DMUX_ACTIVE_AI_RESOLVED_PATH:-}"
+  local active_resolved_name="${active_resolved_path:t}"
   if [[ -n "${DMUX_ACTIVE_AI_RESOLVED_PATH:-}" \
-    && -x "${DMUX_ACTIVE_AI_RESOLVED_PATH}" ]] \
-    && ! is_wrapper_bin_dir "${DMUX_ACTIVE_AI_RESOLVED_PATH:h}"; then
-    print -r -- "${DMUX_ACTIVE_AI_RESOLVED_PATH}"
+    && -x "${active_resolved_path}" \
+    && "${active_resolved_name}" == "$tool_name" ]] \
+    && ! is_wrapper_bin_dir "${active_resolved_path:h}"; then
+    print -r -- "${active_resolved_path}"
     return 0
   fi
 
   local -a candidate_names=()
   case "$tool_name" in
     claude)
-      candidate_names=("claude" "claude-code")
+      candidate_names=("claude" "claude-code" "reclaude")
       ;;
     claude-code)
-      candidate_names=("claude-code" "claude")
+      candidate_names=("claude-code" "claude" "reclaude")
+      ;;
+    reclaude)
+      candidate_names=("reclaude" "claude" "claude-code")
       ;;
     *)
       candidate_names=("$tool_name")
@@ -101,7 +108,7 @@ find_real_binary() {
     fi
   done
 
-  if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
+  if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" || "$tool_name" == "reclaude" ]]; then
     local claude_code_root="${HOME}/Library/Application Support/Claude/claude-code"
     local -a bundle_candidates
     bundle_candidates=("${claude_code_root}"/*/claude.app/Contents/MacOS/claude(N))
@@ -134,6 +141,16 @@ json_escape() {
   value="${value//$'\r'/\\r}"
   value="${value//$'\t'/\\t}"
   print -rn -- "$value"
+}
+
+runtime_now() {
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    printf "%.3f" "${EPOCHREALTIME}"
+  elif [[ -n "${EPOCHSECONDS:-}" ]]; then
+    printf "%.3f" "${EPOCHSECONDS}"
+  else
+    /bin/date +%s | /usr/bin/awk '{ printf "%.3f", $1 }'
+  fi
 }
 
 log_line() {
@@ -194,11 +211,11 @@ configured_permission_mode() {
     codex)
       config_key="codex"
       ;;
-    claude|claude-code)
+    claude|claude-code|reclaude)
       config_key="claudeCode"
       ;;
-    gemini|agy)
-      config_key="gemini"
+    agy)
+      config_key="agy"
       ;;
     kimi|kimi-code)
       config_key="kimi"
@@ -209,7 +226,10 @@ configured_permission_mode() {
     mimo)
       config_key="mimo"
       ;;
-    codewhale|codewhale-tui|deepseek|deepseek-tui)
+    kiro-cli)
+      config_key="kiro"
+      ;;
+    codewhale)
       config_key="codewhale"
       ;;
     *)
@@ -249,11 +269,11 @@ configured_tool_model() {
     codex)
       config_key="codexModel"
       ;;
-    claude|claude-code)
+    claude|claude-code|reclaude)
       config_key="claudeCodeModel"
       ;;
-    gemini|agy)
-      config_key="geminiModel"
+    agy)
+      config_key="agyModel"
       ;;
     kimi|kimi-code)
       config_key="kimiModel"
@@ -264,7 +284,10 @@ configured_tool_model() {
     mimo)
       config_key="mimoModel"
       ;;
-    codewhale|codewhale-tui|deepseek|deepseek-tui)
+    kiro-cli)
+      config_key="kiroModel"
+      ;;
+    codewhale)
       config_key="codewhaleModel"
       ;;
     *)
@@ -336,7 +359,7 @@ apply_configured_model_arg() {
     codex)
       launch_args=("--model=${configured_model}" "${launch_args[@]}")
       ;;
-    claude|claude-code|gemini|agy|kimi|kimi-code|opencode|mimo|codewhale|codewhale-tui|deepseek|deepseek-tui)
+    claude|claude-code|reclaude|agy|kimi|kimi-code|opencode|mimo|codewhale)
       launch_args=(--model "${configured_model}" "${launch_args[@]}")
       ;;
   esac
@@ -529,15 +552,29 @@ PY
   return "${exit_code}"
 }
 
+emit_wrapper_session_end() {
+  [[ -x "${wrapper_dir}/dmux-ai-state.sh" ]] || return 0
+  [[ -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_EVENT_DIR:-}" ]] || return 0
+  "${wrapper_dir}/dmux-ai-state.sh" session-end "${DMUX_RUNTIME_OWNER:-}" "$tool_name" </dev/null >/dev/null 2>&1 || true
+}
+
+run_wrapped_ai_command() {
+  apply_managed_lifecycle_env
+  run_wrapped_command "$@"
+  local exit_code=$?
+  emit_wrapper_session_end
+  return "${exit_code}"
+}
+
 extract_resume_target() {
   local previous=""
   for arg in "$@"; do
     case "${previous}" in
-      --resume)
+      --resume|-r|--resume-id)
         [[ -n "$arg" && "$arg" != -* ]] && print -r -- "$arg"
         return 0
         ;;
-      --session)
+      --session|--session-id)
         [[ -n "$arg" && "$arg" != -* ]] && print -r -- "$arg"
         return 0
         ;;
@@ -553,6 +590,14 @@ extract_resume_target() {
         ;;
       --session=*)
         print -r -- "${arg#--session=}"
+        return 0
+        ;;
+      --session-id=*)
+        print -r -- "${arg#--session-id=}"
+        return 0
+        ;;
+      --resume-id=*)
+        print -r -- "${arg#--resume-id=}"
         return 0
         ;;
     esac
@@ -597,9 +642,62 @@ write_claude_session_map() {
   /bin/mv -f -- "${tmp}" "${path}"
 }
 
+write_runtime_binding() {
+  [[ -n "${DMUX_AI_RUNTIME_BINDING_DIR:-}" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_PROJECT_ID:-}" && -n "${tool_name:-}" ]] || return 0
+  local external_session_id="${1:-}"
+  local model_value="${2:-}"
+  local transcript_path="${3:-}"
+  local binding_id="${DMUX_SESSION_INSTANCE_ID:-${DMUX_SESSION_ID}}-${tool_name}"
+  local path="${DMUX_AI_RUNTIME_BINDING_DIR}/${DMUX_SESSION_ID}-${tool_name}.json"
+  local tmp="${path}.tmp"
+  local timestamp
+  timestamp="$(runtime_now)"
+  /bin/mkdir -p -- "${DMUX_AI_RUNTIME_BINDING_DIR}"
+  {
+    print -rn -- '{'
+    print -rn -- "\"runtimeBindingId\":\"$(json_escape "${binding_id}")\","
+    print -rn -- "\"terminalId\":\"$(json_escape "${DMUX_SESSION_ID}")\","
+    if [[ -n "${DMUX_SESSION_INSTANCE_ID:-}" ]]; then
+      print -rn -- "\"terminalInstanceId\":\"$(json_escape "${DMUX_SESSION_INSTANCE_ID}")\","
+    else
+      print -rn -- "\"terminalInstanceId\":null,"
+    fi
+    print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
+    print -rn -- "\"projectId\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
+    print -rn -- "\"projectName\":\"$(json_escape "${DMUX_PROJECT_NAME:-Workspace}")\","
+    print -rn -- "\"projectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
+    print -rn -- "\"sessionTitle\":\"$(json_escape "${DMUX_SESSION_TITLE:-Terminal}")\","
+    print -rn -- "\"launchStartedAt\":${timestamp},"
+    if [[ -n "${external_session_id}" ]]; then
+      print -rn -- "\"externalSessionId\":\"$(json_escape "${external_session_id}")\","
+    else
+      print -rn -- "\"externalSessionId\":null,"
+    fi
+    if [[ -n "${transcript_path}" ]]; then
+      print -rn -- "\"transcriptPath\":\"$(json_escape "${transcript_path}")\","
+    else
+      print -rn -- "\"transcriptPath\":null,"
+    fi
+    if [[ -n "${model_value}" ]]; then
+      print -rn -- "\"model\":\"$(json_escape "${model_value}")\","
+    else
+      print -rn -- "\"model\":null,"
+    fi
+    print -rn -- "\"updatedAt\":${timestamp}"
+    print -r -- '}'
+  } >| "${tmp}" && /bin/mv -f -- "${tmp}" "${path}" || /bin/rm -f -- "${tmp}" 2>/dev/null || true
+}
+
+apply_managed_lifecycle_env() {
+  local env_path="${wrapper_dir}/managed-env/${tool_name}.env"
+  [[ -f "${env_path}" ]] || return 0
+  source "${env_path}"
+  log_line "managed lifecycle env tool=${tool_name} path=${env_path}"
+}
+
 memory_injection_strategy="$(tool_memory_injection_strategy || true)"
 
-if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
+if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" || "$tool_name" == "reclaude" ]]; then
   helper_script="${wrapper_dir}/dmux-ai-state.sh"
   if [[ -x "$helper_script" && -n "${DMUX_SESSION_ID:-}" && -n "${DMUX_RUNTIME_EVENT_DIR:-}" ]]; then
     local_permission_mode="$(configured_permission_mode || true)"
@@ -638,12 +736,14 @@ if [[ "$tool_name" == "claude" || "$tool_name" == "claude-code" ]]; then
 
     if [[ "$skip_session_id" == true ]]; then
       resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-      run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$claude_launch_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+      write_runtime_binding "${resume_target}" "${launch_model}" ""
+      run_wrapped_ai_command "${resume_target}" "${launch_model}" "" env PATH="$claude_launch_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
       exit $?
     else
       claude_external_session_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
       write_claude_session_map "${claude_external_session_id}"
-      run_wrapped_command "${claude_external_session_id}" "${launch_model}" "" env PATH="$claude_launch_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --session-id "${claude_external_session_id}" "${launch_args[@]}"
+      write_runtime_binding "${claude_external_session_id}" "${launch_model}" ""
+      run_wrapped_ai_command "${claude_external_session_id}" "${launch_model}" "" env PATH="$claude_launch_path" DMUX_EXTERNAL_SESSION_ID="${claude_external_session_id}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --session-id "${claude_external_session_id}" "${launch_args[@]}"
       exit $?
     fi
   fi
@@ -671,12 +771,15 @@ if [[ "$tool_name" == "codex" ]]; then
     apply_codex_memory_workspace_args
     apply_codex_memory_developer_instructions
     launch_model="$(extract_model_target "${launch_args[@]}" || true)"
-    run_wrapped_command "" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable hooks "${launch_args[@]}"
+    resume_target=""
+    resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
+    write_runtime_binding "${resume_target}" "${launch_model}" ""
+    run_wrapped_ai_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" --enable hooks "${launch_args[@]}"
     exit $?
   fi
 fi
 
-if [[ "$tool_name" == "gemini" || "$tool_name" == "agy" ]]; then
+if [[ "$tool_name" == "agy" ]]; then
   local_permission_mode="$(configured_permission_mode || true)"
   launch_args=("$@")
   apply_configured_model_arg
@@ -690,7 +793,8 @@ if [[ "$tool_name" == "gemini" || "$tool_name" == "agy" ]]; then
   launch_model="$(extract_model_target "${launch_args[@]}" || true)"
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  write_runtime_binding "${resume_target}" "${launch_model}" ""
+  run_wrapped_ai_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 
@@ -700,7 +804,18 @@ if [[ "$tool_name" == "kimi" || "$tool_name" == "kimi-code" ]]; then
   launch_model="$(extract_model_target "${launch_args[@]}" || true)"
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
-  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  write_runtime_binding "${resume_target}" "${launch_model}" ""
+  run_wrapped_ai_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
+  exit $?
+fi
+
+if [[ "$tool_name" == "kiro-cli" ]]; then
+  launch_args=("$@")
+  launch_model="$(configured_tool_model || true)"
+  resume_target=""
+  resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
+  write_runtime_binding "${resume_target}" "${launch_model}" ""
+  run_wrapped_ai_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 
@@ -716,11 +831,12 @@ if [[ "$tool_name" == "opencode" || "$tool_name" == "mimo" ]]; then
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
   opencode_config_dir="${wrapper_dir}/opencode-config"
-  run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" DMUX_ACTIVE_AI_TOOL="${tool_name}" "$real_bin" "${launch_args[@]}"
+  write_runtime_binding "${resume_target}" "${launch_model}" ""
+  run_wrapped_ai_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" OPENCODE_CONFIG_DIR="${opencode_config_dir}" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" DMUX_ACTIVE_AI_TOOL="${tool_name}" "$real_bin" "${launch_args[@]}"
   exit $?
 fi
 
-if [[ "$tool_name" == "codewhale" || "$tool_name" == "codewhale-tui" || "$tool_name" == "deepseek" || "$tool_name" == "deepseek-tui" ]]; then
+if [[ "$tool_name" == "codewhale" ]]; then
   local_permission_mode="$(configured_permission_mode || true)"
   launch_args=("$@")
   apply_configured_model_arg
@@ -731,8 +847,12 @@ if [[ "$tool_name" == "codewhale" || "$tool_name" == "codewhale-tui" || "$tool_n
   launch_model="$(extract_model_target "${launch_args[@]}" || true)"
   resume_target=""
   resume_target="$(extract_resume_target "${launch_args[@]}" || true)"
+  write_runtime_binding "${resume_target}" "${launch_model}" ""
+  apply_managed_lifecycle_env
   run_wrapped_command "${resume_target}" "${launch_model}" "" env PATH="$runtime_path" DMUX_EXTERNAL_SESSION_ID="${resume_target}" DMUX_ACTIVE_AI_MODEL="${launch_model}" "$real_bin" "${launch_args[@]}"
-  exit $?
+  exit_code=$?
+  emit_wrapper_session_end
+  exit "${exit_code}"
 fi
 
 exec env PATH="$runtime_path" "$real_bin" "$@"

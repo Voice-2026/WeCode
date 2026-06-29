@@ -18,8 +18,8 @@ mod types;
 use std::path::PathBuf;
 
 pub use controller::{
-    parse_pairing_ticket, PairingTicket, RemoteController, RemoteControllerTarget,
-    RemoteDirectoryEntry, RemoteDirectoryListing,
+    PairingTicket, RemoteController, RemoteControllerTarget, RemoteDirectoryEntry,
+    RemoteDirectoryListing, parse_pairing_ticket,
 };
 pub use controller_manager::{ControllerLinkPath, ControllerLinkState, RemoteControllerManager};
 pub use controller_store::{RemoteControllerStore, SavedRemoteHost, SavedRemoteTransport};

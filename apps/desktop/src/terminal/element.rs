@@ -164,6 +164,7 @@ struct TerminalPaintState {
     origin: Point<Pixels>,
     background: Hsla,
     background_rects: Vec<TerminalBackgroundRect>,
+    graphics: Vec<TerminalGraphicCell>,
     text_runs: Vec<TerminalTextRun>,
     lines: Vec<TerminalRowLine>,
     cursor: Option<TerminalCursorPaint>,
@@ -192,6 +193,7 @@ struct TerminalRenderCache {
 #[derive(Clone)]
 struct TerminalPreparedRow {
     background_rects: Vec<TerminalBackgroundRect>,
+    graphics: Vec<TerminalGraphicCell>,
     text_runs: Vec<TerminalTextRun>,
     line: Option<TerminalRowLine>,
 }
@@ -201,6 +203,9 @@ impl TerminalPreparedRow {
         let mut prepared = self.clone();
         for rect in &mut prepared.background_rects {
             rect.row = row;
+        }
+        for graphic in &mut prepared.graphics {
+            graphic.row = row;
         }
         for text_run in &mut prepared.text_runs {
             text_run.row = row;
@@ -220,6 +225,15 @@ struct TerminalBackgroundRect {
     color: Hsla,
 }
 
+#[derive(Clone, Copy)]
+struct TerminalGraphicCell {
+    row: usize,
+    col: usize,
+    width_cols: usize,
+    color: Hsla,
+    graphic: TerminalCellGraphic,
+}
+
 struct TerminalCursorPaint {
     point: TerminalPoint,
     display_row: usize,
@@ -235,22 +249,209 @@ impl TerminalBackgroundRect {
             return;
         }
         window.paint_quad(quad(
-            Bounds {
-                origin: Point {
-                    x: origin.x + renderer.cell_width * self.start_col as f32,
-                    y: origin.y + renderer.cell_height * self.row as f32,
-                },
-                size: Size {
-                    width: renderer.cell_width * self.width_cols as f32,
-                    height: renderer.cell_height,
-                },
-            },
+            terminal_cell_bounds(renderer, origin, self.row, self.start_col, self.width_cols),
             px(0.0),
             self.color,
             Edges::<Pixels>::default(),
             transparent_black(),
             Default::default(),
         ));
+    }
+}
+
+impl TerminalGraphicCell {
+    fn paint(&self, renderer: &TerminalRenderer, origin: Point<Pixels>, window: &mut Window) {
+        let bounds = terminal_cell_bounds(renderer, origin, self.row, self.col, self.width_cols);
+        match self.graphic {
+            TerminalCellGraphic::Block(graphic) => {
+                self.paint_block(graphic, bounds, window);
+            }
+            TerminalCellGraphic::Box(graphic) => {
+                self.paint_box(graphic, bounds, window);
+            }
+        }
+    }
+
+    fn paint_block(
+        &self,
+        graphic: TerminalBlockGraphic,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) {
+        match graphic {
+            TerminalBlockGraphic::Full => self.paint_filled(bounds, window),
+            TerminalBlockGraphic::Upper(ratio) => {
+                self.paint_fraction(bounds, 0.0, 0.0, 1.0, ratio, window);
+            }
+            TerminalBlockGraphic::Lower(ratio) => {
+                self.paint_fraction(bounds, 0.0, 1.0 - ratio, 1.0, ratio, window);
+            }
+            TerminalBlockGraphic::Left(ratio) => {
+                self.paint_fraction(bounds, 0.0, 0.0, ratio, 1.0, window);
+            }
+            TerminalBlockGraphic::Right(ratio) => {
+                self.paint_fraction(bounds, 1.0 - ratio, 0.0, ratio, 1.0, window);
+            }
+            TerminalBlockGraphic::Quadrants {
+                upper_left,
+                upper_right,
+                lower_left,
+                lower_right,
+            } => {
+                if upper_left {
+                    self.paint_fraction(bounds, 0.0, 0.0, 0.5, 0.5, window);
+                }
+                if upper_right {
+                    self.paint_fraction(bounds, 0.5, 0.0, 0.5, 0.5, window);
+                }
+                if lower_left {
+                    self.paint_fraction(bounds, 0.0, 0.5, 0.5, 0.5, window);
+                }
+                if lower_right {
+                    self.paint_fraction(bounds, 0.5, 0.5, 0.5, 0.5, window);
+                }
+            }
+        }
+    }
+
+    fn paint_box(
+        &self,
+        graphic: TerminalBoxGraphic,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) {
+        if graphic.double {
+            self.paint_double_box(graphic, bounds, window);
+            return;
+        }
+
+        let thickness = match graphic.weight {
+            TerminalBoxWeight::Light => 1.0,
+            TerminalBoxWeight::Heavy => 2.0,
+        };
+        let x = f32::from(bounds.origin.x);
+        let y = f32::from(bounds.origin.y);
+        let right = x + f32::from(bounds.size.width);
+        let bottom = y + f32::from(bounds.size.height);
+        let center_x = (x + right) * 0.5;
+        let center_y = (y + bottom) * 0.5;
+        let half = thickness * 0.5;
+
+        if graphic.left {
+            self.paint_rect(x, center_y - half, center_x + half, center_y + half, window);
+        }
+        if graphic.right {
+            self.paint_rect(center_x - half, center_y - half, right, center_y + half, window);
+        }
+        if graphic.up {
+            self.paint_rect(center_x - half, y, center_x + half, center_y + half, window);
+        }
+        if graphic.down {
+            self.paint_rect(center_x - half, center_y - half, center_x + half, bottom, window);
+        }
+    }
+
+    fn paint_double_box(
+        &self,
+        graphic: TerminalBoxGraphic,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) {
+        let x = f32::from(bounds.origin.x);
+        let y = f32::from(bounds.origin.y);
+        let right = x + f32::from(bounds.size.width);
+        let bottom = y + f32::from(bounds.size.height);
+        let center_x = (x + right) * 0.5;
+        let center_y = (y + bottom) * 0.5;
+        let gap = 1.5;
+
+        for offset in [-gap, gap] {
+            if graphic.left {
+                self.paint_rect(x, center_y + offset, center_x, center_y + offset + 1.0, window);
+            }
+            if graphic.right {
+                self.paint_rect(center_x, center_y + offset, right, center_y + offset + 1.0, window);
+            }
+            if graphic.up {
+                self.paint_rect(center_x + offset, y, center_x + offset + 1.0, center_y, window);
+            }
+            if graphic.down {
+                self.paint_rect(center_x + offset, center_y, center_x + offset + 1.0, bottom, window);
+            }
+        }
+    }
+
+    fn paint_fraction(
+        &self,
+        bounds: Bounds<Pixels>,
+        x_ratio: f32,
+        y_ratio: f32,
+        width_ratio: f32,
+        height_ratio: f32,
+        window: &mut Window,
+    ) {
+        let x = f32::from(bounds.origin.x);
+        let y = f32::from(bounds.origin.y);
+        let width = f32::from(bounds.size.width);
+        let height = f32::from(bounds.size.height);
+        self.paint_rect(
+            x + width * x_ratio,
+            y + height * y_ratio,
+            x + width * (x_ratio + width_ratio),
+            y + height * (y_ratio + height_ratio),
+            window,
+        );
+    }
+
+    fn paint_rect(&self, x: f32, y: f32, right: f32, bottom: f32, window: &mut Window) {
+        self.paint_filled(snapped_bounds(x, y, right, bottom), window);
+    }
+
+    fn paint_filled(&self, bounds: Bounds<Pixels>, window: &mut Window) {
+        if bounds.size.width <= px(0.0) || bounds.size.height <= px(0.0) {
+            return;
+        }
+        window.paint_quad(quad(
+            bounds,
+            px(0.0),
+            self.color,
+            Edges::<Pixels>::default(),
+            transparent_black(),
+            Default::default(),
+        ));
+    }
+}
+
+fn terminal_cell_bounds(
+    renderer: &TerminalRenderer,
+    origin: Point<Pixels>,
+    row: usize,
+    col: usize,
+    width_cols: usize,
+) -> Bounds<Pixels> {
+    let x = origin.x + renderer.cell_width * col as f32;
+    let y = origin.y + renderer.cell_height * row as f32;
+    let right = x + renderer.cell_width * width_cols.max(1) as f32;
+    let bottom = y + renderer.cell_height;
+    snapped_bounds(
+        f32::from(x),
+        f32::from(y),
+        f32::from(right),
+        f32::from(bottom),
+    )
+}
+
+fn snapped_bounds(x: f32, y: f32, right: f32, bottom: f32) -> Bounds<Pixels> {
+    let x = x.floor();
+    let y = y.floor();
+    let right = right.ceil();
+    let bottom = bottom.ceil();
+    Bounds {
+        origin: Point { x: px(x), y: px(y) },
+        size: Size {
+            width: px((right - x).max(1.0)),
+            height: px((bottom - y).max(1.0)),
+        },
     }
 }
 

@@ -47,7 +47,10 @@ pub fn file_list_payload(path: Option<&str>, purpose: Option<&str>) -> Value {
                 .as_ref()
                 .map(|metadata| metadata.file_type().is_symlink())
                 .unwrap_or(false);
-            let size = metadata.as_ref().map(|metadata| metadata.len()).unwrap_or(0);
+            let size = metadata
+                .as_ref()
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
             let modified_at = metadata
                 .as_ref()
                 .and_then(|metadata| metadata.modified().ok())

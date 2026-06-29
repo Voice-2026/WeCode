@@ -104,6 +104,23 @@ impl RuntimeService {
         crate::app_info::open_url(url)
     }
 
+    pub fn open_url_with_http_proxy(
+        &self,
+        url: &str,
+        proxy_host: &str,
+        proxy_port: u16,
+    ) -> Result<(), String> {
+        crate::app_info::open_url_with_http_proxy(url, proxy_host, proxy_port)
+    }
+
+    pub fn open_blank_with_http_proxy(
+        &self,
+        proxy_host: &str,
+        proxy_port: u16,
+    ) -> Result<(), String> {
+        crate::app_info::open_blank_with_http_proxy(proxy_host, proxy_port)
+    }
+
     pub fn dispatch_notification_channels(
         &self,
         request: NotificationDispatchRequest,
@@ -261,10 +278,7 @@ impl RuntimeService {
 
     /// Push freshly-indexed AI stats to remote devices that requested them while
     /// the project's index was still cold (see `flush_pending_ai_stats`).
-    pub fn flush_remote_ai_stats(
-        &self,
-        state: &crate::ai_history_indexer::AIHistoryProjectState,
-    ) {
+    pub fn flush_remote_ai_stats(&self, state: &crate::ai_history_indexer::AIHistoryProjectState) {
         self.remote_host.flush_pending_ai_stats(state);
     }
 
@@ -545,8 +559,9 @@ impl RuntimeService {
         &self,
         active_project_ids: &HashSet<String>,
     ) -> Result<Vec<crate::ai_usage_store::AIUsageProjectTotal>, String> {
-        let project_totals = normalized_project_totals_since_at(self.ai_usage_database_path(), None)
-            .map_err(|error| error.to_string())?;
+        let project_totals =
+            normalized_project_totals_since_at(self.ai_usage_database_path(), None)
+                .map_err(|error| error.to_string())?;
         Ok(filter_active_indexed_project_totals(
             project_totals,
             active_project_ids,

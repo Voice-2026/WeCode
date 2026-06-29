@@ -1,4 +1,5 @@
 use codux_ai_history::normalized::{AIHeatmapDay, AITimeBucket, AIUsageBreakdownItem};
+use codux_protocol::RemoteAIUsageAmount;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -61,6 +62,8 @@ pub struct AISessionSummary {
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
     pub request_count: i64,
+    #[serde(default)]
+    pub usage_amounts: Vec<AIUsageAmount>,
 }
 
 impl From<AISessionSummary> for codux_protocol::RemoteAISessionSummary {
@@ -72,6 +75,14 @@ impl From<AISessionSummary> for codux_protocol::RemoteAISessionSummary {
             model: summary.last_model,
             time: summary.last_seen_at,
             size: summary.total_tokens,
+            usage_amounts: summary
+                .usage_amounts
+                .into_iter()
+                .map(|amount| RemoteAIUsageAmount {
+                    unit: amount.unit,
+                    value: amount.value,
+                })
+                .collect(),
         }
     }
 }
@@ -94,11 +105,47 @@ impl AIHistoryCurrentSessionView {
                 session.cached_input_tokens,
                 include_cached,
             ),
+            current_total_tokens: display_current_session_tokens(
+                session.current_total_tokens,
+                session.current_cached_input_tokens,
+                include_cached,
+            ),
+            usage_amounts: session
+                .usage_amounts
+                .into_iter()
+                .map(AIUsageAmount::from)
+                .collect(),
+            current_usage_amounts: session
+                .current_usage_amounts
+                .into_iter()
+                .map(AIUsageAmount::from)
+                .collect(),
             cached_input_tokens: if include_cached {
                 session.cached_input_tokens.max(0)
             } else {
                 0
             },
+            current_cached_input_tokens: if include_cached {
+                session.current_cached_input_tokens.max(0)
+            } else {
+                0
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIUsageAmount {
+    pub unit: String,
+    pub value: f64,
+}
+
+impl From<RemoteAIUsageAmount> for AIUsageAmount {
+    fn from(amount: RemoteAIUsageAmount) -> Self {
+        Self {
+            unit: amount.unit,
+            value: amount.value,
         }
     }
 }
@@ -149,7 +196,6 @@ pub struct AISessionDetail {
 pub enum AISessionForkTarget {
     Codex,
     Claude,
-    Gemini,
     Agy,
     OpenCode,
     Kiro,
@@ -163,7 +209,6 @@ impl AISessionForkTarget {
         match self {
             Self::Codex => "Codex",
             Self::Claude => "Claude",
-            Self::Gemini => "Gemini",
             Self::Agy => "Agy",
             Self::OpenCode => "OpenCode",
             Self::Kiro => "Kiro",
@@ -233,7 +278,15 @@ pub struct AIHistoryCurrentSessionView {
     pub is_running: bool,
     pub total_tokens: i64,
     #[serde(default)]
+    pub current_total_tokens: i64,
+    #[serde(default)]
+    pub usage_amounts: Vec<AIUsageAmount>,
+    #[serde(default)]
+    pub current_usage_amounts: Vec<AIUsageAmount>,
+    #[serde(default)]
     pub cached_input_tokens: i64,
+    #[serde(default)]
+    pub current_cached_input_tokens: i64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]

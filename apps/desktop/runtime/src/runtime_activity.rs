@@ -347,10 +347,7 @@ mod tests {
         assert!(is_ai_runtime_process(
             "/usr/bin/codex --project /Volumes/Web/codux-gpui"
         ));
-        assert!(is_ai_runtime_process("/usr/bin/codewhale-tui"));
-        assert!(is_ai_runtime_process(
-            "/usr/bin/deepseek resume session-1"
-        ));
+        assert!(is_ai_runtime_process("/usr/bin/codewhale resume session-1"));
         assert!(is_ai_runtime_process("/usr/bin/kimi-code"));
     }
 }

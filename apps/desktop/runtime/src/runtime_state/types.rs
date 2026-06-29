@@ -85,6 +85,7 @@ pub struct RuntimeService {
     power_manager: Arc<PowerManager>,
     remote_host: Arc<RemoteHostRuntime>,
     remote_controllers: Arc<crate::remote::RemoteControllerManager>,
+    host_browser_proxy: Arc<crate::host_browser::HostBrowserProxy>,
 }
 
 impl RuntimeService {

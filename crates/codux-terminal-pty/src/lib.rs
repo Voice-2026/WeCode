@@ -6,8 +6,9 @@ use parking_lot::Mutex;
 use portable_pty::{Child, ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::{
     collections::{HashMap, VecDeque},
+    fs,
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     thread,
     time::{SystemTime, UNIX_EPOCH},
@@ -50,6 +51,8 @@ struct LocalPtyProcessControl {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     pty_master: Mutex<Box<dyn MasterPty + Send>>,
+    // Captured at spawn; read without locking `child` (the wait thread holds that lock for the process lifetime → deadlock).
+    shell_pid: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -87,6 +90,11 @@ impl LocalPtyProcessHandle {
             .ok()
             .map(|status| i32::try_from(status.exit_code()).unwrap_or(i32::MAX))
     }
+
+    /// Spawn shell PID (its descendant is the AI CLI, for hook-free tool detection); reads the spawn-time value, never locks `child`.
+    pub fn process_id(&self) -> Option<u32> {
+        self.inner.shell_pid
+    }
 }
 
 pub fn spawn_local_pty(config: LocalPtySpawnConfig) -> Result<LocalPtyProcess, String> {
@@ -101,17 +109,33 @@ pub fn spawn_local_pty(config: LocalPtySpawnConfig) -> Result<LocalPtyProcess, S
             pixel_height: 0,
         })
         .map_err(|error| format!("failed to open PTY: {error}"))?;
-    let mut command_builder = build_shell_command(
-        &config.shell,
-        config.initial_command.as_deref(),
-        config.command_mode,
-    );
-    if let Some(cwd) = config
+    let requested_cwd = config
         .cwd
         .as_deref()
         .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
+    let cwd_is_available = requested_cwd
+        .as_deref()
+        .is_none_or(|cwd| path_is_directory(Path::new(cwd)));
+    let initial_command = if cwd_is_available {
+        config.initial_command.clone()
+    } else {
+        requested_cwd
+            .as_deref()
+            .map(|cwd| resilient_cwd_command(&config.shell, cwd, config.initial_command.as_deref()))
+    };
+    let mut command_builder = build_shell_command(
+        &config.shell,
+        initial_command.as_deref(),
+        config.command_mode,
+    );
+    if let Some(cwd) = requested_cwd
+        .as_deref()
+        .filter(|_| cwd_is_available)
+        .map(PathBuf::from)
+        .or_else(|| fallback_spawn_cwd(&config.env))
     {
-        command_builder.cwd(PathBuf::from(cwd));
+        command_builder.cwd(cwd);
     }
     if config.clear_env {
         command_builder.env_clear();
@@ -124,6 +148,8 @@ pub fn spawn_local_pty(config: LocalPtySpawnConfig) -> Result<LocalPtyProcess, S
         .spawn_command(command_builder)
         .map_err(|error| format!("failed to spawn shell {}: {error}", config.shell))?;
     let killer = child.clone_killer();
+    // Capture the PID now, before the wait thread takes `child.lock()` for good.
+    let shell_pid = child.process_id();
     drop(pair.slave);
 
     let writer = pair
@@ -139,6 +165,7 @@ pub fn spawn_local_pty(config: LocalPtySpawnConfig) -> Result<LocalPtyProcess, S
             child: Mutex::new(child),
             killer: Mutex::new(killer),
             pty_master: Mutex::new(pair.master),
+            shell_pid,
         }),
     };
 
@@ -608,6 +635,118 @@ fn build_shell_command(
     builder
 }
 
+fn path_is_directory(path: &Path) -> bool {
+    fs::metadata(path)
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+}
+
+fn fallback_spawn_cwd(env: &HashMap<String, String>) -> Option<PathBuf> {
+    home_from_env(env)
+        .or_else(process_home_dir)
+        .filter(|path| path_is_directory(path))
+        .or_else(|| {
+            let current = std::env::current_dir().ok()?;
+            path_is_directory(&current).then_some(current)
+        })
+        .or_else(root_spawn_cwd)
+}
+
+fn home_from_env(env: &HashMap<String, String>) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        env.get("USERPROFILE")
+            .or_else(|| env.get("HOME"))
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        env.get("HOME")
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+    }
+}
+
+fn process_home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+    }
+    #[cfg(not(windows))]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+}
+
+fn root_spawn_cwd() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("SystemDrive")
+            .map(PathBuf::from)
+            .filter(|path| path_is_directory(path))
+    }
+    #[cfg(not(windows))]
+    {
+        Some(PathBuf::from("/"))
+    }
+}
+
+#[cfg(unix)]
+fn resilient_cwd_command(shell: &str, cwd: &str, command: Option<&str>) -> String {
+    let fallback_shell = format!("exec {} -i -l", shell_quote(shell));
+    let mut script = format!(
+        "__codux_target={}; __codux_wait_logged=0; \
+         __codux_wait_count=0; \
+         until cd \"$__codux_target\" 2>/dev/null; do \
+         if [ \"$__codux_wait_logged\" = 0 ]; then \
+         printf '\\r\\nCodux: waiting for working directory to return: %s\\r\\n' \"$__codux_target\"; \
+         __codux_wait_logged=1; fi; \
+         __codux_wait_count=$((__codux_wait_count + 1)); \
+         if [ \"$__codux_wait_count\" -ge 30 ]; then \
+         printf 'Codux: working directory did not return; starting in HOME.\\r\\n'; \
+         cd \"$HOME\" 2>/dev/null || cd /; \
+         unset __codux_target __codux_wait_logged __codux_wait_count; \
+         {}; fi; sleep 2; done; \
+         if [ \"$__codux_wait_logged\" = 1 ]; then \
+         printf 'Codux: working directory is available again.\\r\\n'; fi; \
+         unset __codux_target __codux_wait_logged __codux_wait_count; ",
+        shell_quote(cwd),
+        fallback_shell,
+    );
+    if let Some(command) = command.filter(|value| !value.trim().is_empty()) {
+        script.push_str(command);
+    } else {
+        script.push_str(&fallback_shell);
+    }
+    script
+}
+
+#[cfg(windows)]
+fn resilient_cwd_command(_shell: &str, cwd: &str, command: Option<&str>) -> String {
+    let command = command.unwrap_or("powershell.exe -NoLogo -NoExit");
+    format!(
+        "$coduxTarget = {}; $coduxWaitCount = 0; while (-not (Test-Path -LiteralPath $coduxTarget -PathType Container)) {{ Write-Host \"Codux: waiting for working directory to return: $coduxTarget\"; Start-Sleep -Seconds 2; $coduxWaitCount += 1; if ($coduxWaitCount -ge 30) {{ Write-Host \"Codux: working directory did not return; starting in HOME.\"; Set-Location -LiteralPath $HOME; powershell.exe -NoLogo -NoExit; exit }} }}; Set-Location -LiteralPath $coduxTarget; {command}",
+        powershell_quote(cwd),
+    )
+}
+
+#[cfg(unix)]
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        "''".to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+#[cfg(windows)]
+fn powershell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 #[cfg(unix)]
 fn build_interactive_login_shell_command(shell: &str, command: Option<&str>) -> CommandBuilder {
     let shell_name = shell_name(shell);
@@ -747,6 +886,103 @@ mod tests {
             snapshot.contains("codux-pty-test"),
             "snapshot did not contain command output: {snapshot:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn spawn_waits_for_missing_cwd_to_return() {
+        let cwd = std::env::temp_dir().join(format!("codux-pty-cwd-{}", Uuid::new_v4()));
+        let cwd_text = cwd.display().to_string();
+        let mkdir_path = cwd.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            fs::create_dir_all(mkdir_path).expect("create delayed cwd");
+        });
+
+        let mut process = spawn_local_pty(LocalPtySpawnConfig {
+            shell: "/bin/sh".to_string(),
+            cwd: Some(cwd_text.clone()),
+            initial_command: Some("pwd; printf codux-recovered; exit".to_string()),
+            cols: 80,
+            rows: 24,
+            env: HashMap::from([(
+                "HOME".to_string(),
+                std::env::temp_dir().display().to_string(),
+            )]),
+            clear_env: false,
+            command_mode: LocalPtyCommandMode::Default,
+        })
+        .expect("spawn pty while cwd is missing");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut output = String::new();
+        let mut buffer = [0; 512];
+        while std::time::Instant::now() < deadline {
+            match process.reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    output.push_str(&String::from_utf8_lossy(&buffer[..count]));
+                    if output.contains("codux-recovered") {
+                        let _ = process.control.kill();
+                        let _ = fs::remove_dir_all(cwd);
+                        assert!(output.contains(&cwd_text), "output was {output:?}");
+                        return;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+
+        let _ = process.control.kill();
+        let _ = fs::remove_dir_all(cwd);
+        panic!("PTY did not recover after cwd returned; output was {output:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resilient_cwd_command_has_home_fallback() {
+        let script = resilient_cwd_command("/bin/sh", "/Volumes/Missing/project", None);
+
+        assert!(script.contains("__codux_wait_count"));
+        assert!(script.contains("-ge 30"));
+        assert!(script.contains("starting in HOME"));
+        assert!(script.contains("exec '/bin/sh' -i -l"));
+    }
+
+    // Regression: `process_id()` must not lock `child` — the wait thread holds that lock for the process lifetime, so doing so deadlocks.
+    #[cfg(unix)]
+    #[test]
+    fn process_id_does_not_deadlock_while_wait_thread_holds_child_lock() {
+        let process = spawn_local_pty(LocalPtySpawnConfig {
+            shell: "/bin/sh".to_string(),
+            cwd: None,
+            initial_command: Some("sleep 30".to_string()),
+            cols: 80,
+            rows: 24,
+            env: HashMap::new(),
+            clear_env: false,
+            command_mode: LocalPtyCommandMode::Default,
+        })
+        .expect("spawn pty");
+        let control = process.control.clone();
+
+        let waiter = control.clone();
+        std::thread::spawn(move || {
+            let _ = waiter.wait_exit_code();
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let probe = control.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(probe.process_id());
+        });
+        let pid = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("process_id() deadlocked while the wait thread held the child lock");
+        assert!(pid.is_some(), "process_id() should report the shell pid");
+
+        let _ = control.kill();
     }
 
     #[cfg(unix)]

@@ -15,10 +15,7 @@ extension _HomePageWorkspace on HomeController {
   }
 
   void _createCurrentProjectTabTerminal() {
-    _terminalActions.createTerminalForSelectedProject(
-      _createTerminal,
-      layoutKind: 'tab',
-    );
+    _terminalActions.createTerminalForSelectedProject(_createTerminal);
   }
 
   void _showTerminalWorkspace() {

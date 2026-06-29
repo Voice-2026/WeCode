@@ -218,6 +218,15 @@ mod grid_version_tests {
     }
 
     #[test]
+    fn row_hash_ignores_screen_row_for_scroll_reuse() {
+        let before = vec![test_indexed_cell(0, 0, "a")];
+        let mut after = vec![test_indexed_cell(1, 0, "a")];
+        after[0].cell.row = 1;
+
+        assert_eq!(terminal_row_hash(&before), terminal_row_hash(&after));
+    }
+
+    #[test]
     fn unchanged_rows_keep_versions() {
         let mut tracker = RowVersionTracker::default();
         let rows = [(0i32, 10u64), (1, 20), (2, 30)];

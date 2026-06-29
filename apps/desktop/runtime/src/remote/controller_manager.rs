@@ -8,7 +8,7 @@
 //! backoff reconnect loop is spawned. The desktop polls [`link_states`] to drive
 //! the per-project connection badge and to re-attach terminals on recovery.
 
-use super::controller::{new_device_id, parse_pairing_ticket, RemoteController};
+use super::controller::{RemoteController, new_device_id, parse_pairing_ticket};
 use super::controller_store::{RemoteControllerStore, SavedRemoteHost};
 use codux_remote_transport::RemoteTransportStateHandler;
 use std::collections::{HashMap, HashSet};
@@ -332,7 +332,9 @@ impl RemoteControllerManager {
                 Some(error) => Err(format!(
                     "Remote host {device_id} is connecting; not ready yet (last attempt failed: {error})."
                 )),
-                None => Err(format!("Remote host {device_id} is connecting; not ready yet.")),
+                None => Err(format!(
+                    "Remote host {device_id} is connecting; not ready yet."
+                )),
             }
         } else {
             Err(format!("No saved remote host for device {device_id}."))

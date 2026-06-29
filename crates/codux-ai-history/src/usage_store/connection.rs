@@ -62,6 +62,7 @@ fn merge_usage_buckets(existing: &[AIUsageBucket], delta: &[AIUsageBucket]) -> V
                 current.output_tokens += bucket.output_tokens;
                 current.total_tokens += bucket.total_tokens;
                 current.cached_input_tokens += bucket.cached_input_tokens;
+                merge_usage_amounts(&mut current.usage_amounts, &bucket.usage_amounts);
                 current.request_count += bucket.request_count;
                 current.active_duration_seconds += bucket.active_duration_seconds;
                 current.first_seen_at = min_nonzero(current.first_seen_at, bucket.first_seen_at);

@@ -1,5 +1,4 @@
 mod config;
 mod toml;
-mod trust;
 
-pub(super) use config::ensure_codex_config_installed;
+pub(super) use config::uninstall_codex_config;

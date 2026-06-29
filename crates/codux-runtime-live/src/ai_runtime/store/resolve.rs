@@ -16,8 +16,6 @@ pub(super) fn resolve_hook_event(
     match canonical_tool_name(&event.tool).as_deref() {
         Some("codex") => resolve_codex_hook_event(event, current_session),
         Some("claude") => resolve_claude_hook_event(event, current_session),
-        Some("gemini") => resolve_project_probe_hook_event(event, current_session, "gemini"),
-        Some("agy") => resolve_project_probe_hook_event(event, current_session, "agy"),
         Some("kiro") => resolve_project_probe_hook_event(event, current_session, "kiro"),
         Some("codewhale") => resolve_project_probe_hook_event(event, current_session, "codewhale"),
         _ => {
@@ -179,13 +177,30 @@ pub(in crate::ai_runtime::store) fn merge_snapshot_into_hook(
     snapshot: AIRuntimeContextSnapshot,
     fallback: Option<&AISessionSnapshot>,
 ) -> AIHookEventPayload {
+    let authoritative_codewhale_completion = event.kind == "turnCompleted"
+        && canonical_tool_name(&event.tool).as_deref() == Some("codewhale")
+        && event
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.source.as_deref())
+            .is_some_and(|source| {
+                matches!(source, "codewhale-lifecycle" | "terminal-progress-osc")
+            });
+    let event_interrupted_completion = event.kind == "turnCompleted"
+        && event
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.was_interrupted)
+            .unwrap_or(false);
     let prompt_turn_started_at = fallback
         .and_then(|session| session.active_turn_started_at.or(session.started_at))
         .unwrap_or(event.updated_at);
     let snapshot_completed_at = snapshot.completed_at.or_else(|| {
         (snapshot.was_interrupted || snapshot.has_completed_turn).then_some(snapshot.updated_at)
     });
-    let stale_completion = event.kind == "turnCompleted"
+    let stale_completion = !event_interrupted_completion
+        && !authoritative_codewhale_completion
+        && event.kind == "turnCompleted"
         && snapshot.response_state.as_deref() != Some("responding")
         && fallback
             .map(|session| session.state == "responding")
@@ -214,18 +229,30 @@ pub(in crate::ai_runtime::store) fn merge_snapshot_into_hook(
             ),
         );
     }
-    let was_interrupted = snapshot.was_interrupted
-        || event
-            .metadata
-            .as_ref()
-            .and_then(|metadata| metadata.was_interrupted)
-            .unwrap_or(false);
-    let has_completed_turn = snapshot.has_completed_turn
-        || event
+    let was_interrupted = if event_interrupted_completion {
+        true
+    } else {
+        snapshot.was_interrupted
+            || event
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.was_interrupted)
+                .unwrap_or(false)
+    };
+    let has_completed_turn = if event_interrupted_completion {
+        event
             .metadata
             .as_ref()
             .and_then(|metadata| metadata.has_completed_turn)
-            .unwrap_or(!was_interrupted);
+            .unwrap_or(false)
+    } else {
+        snapshot.has_completed_turn
+            || event
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.has_completed_turn)
+                .unwrap_or(!was_interrupted)
+    };
     let mut metadata = event.metadata.clone().unwrap_or(AIHookEventMetadata {
         transcript_path: None,
         notification_type: None,
@@ -247,8 +274,28 @@ pub(in crate::ai_runtime::store) fn merge_snapshot_into_hook(
     } else {
         has_completed_turn
     });
+    let total_tokens = if event.kind == "promptSubmitted"
+        && canonical_tool_name(&event.tool).as_deref() == Some("codewhale")
+    {
+        event
+            .total_tokens
+            .or_else(|| fallback.map(|session| session.total_tokens))
+    } else {
+        Some(
+            event
+                .total_tokens
+                .unwrap_or(0)
+                .max(fallback.map(|session| session.total_tokens).unwrap_or(0))
+                .max(snapshot.total_tokens),
+        )
+    };
+
     AIHookEventPayload {
-        kind: if snapshot.response_state.as_deref() == Some("responding") || stale_completion {
+        kind: if !event_interrupted_completion
+            && !authoritative_codewhale_completion
+            && event.kind != "sessionEnded"
+            && (snapshot.response_state.as_deref() == Some("responding") || stale_completion)
+        {
             "promptSubmitted".to_string()
         } else {
             event.kind
@@ -277,13 +324,7 @@ pub(in crate::ai_runtime::store) fn merge_snapshot_into_hook(
                 .or_else(|| fallback.map(|session| session.cached_input_tokens)),
             Some(snapshot.cached_input_tokens),
         )),
-        total_tokens: Some(
-            event
-                .total_tokens
-                .unwrap_or(0)
-                .max(fallback.map(|session| session.total_tokens).unwrap_or(0))
-                .max(snapshot.total_tokens),
-        ),
+        total_tokens,
         updated_at: event
             .updated_at
             .max(snapshot.completed_at.unwrap_or(0.0))

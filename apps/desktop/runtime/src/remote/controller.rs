@@ -11,27 +11,24 @@
 
 use base64::Engine;
 use codux_protocol::{
-    REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED,
-    REMOTE_FILE_COPY, REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_MOVE,
-    REMOTE_FILE_MOVED,
-    REMOTE_FILE_DELETED, REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_READ,
-    REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED, REMOTE_FILE_WRITE, REMOTE_FILE_WRITTEN,
-    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_FILE_BLOB, REMOTE_FILE_READ_BLOB,
-    REMOTE_FILE_WRITE_BLOB,
-    REMOTE_GIT_INVOKE, REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
-    REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT,
-    REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
-    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
-    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
-    REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
+    REMOTE_AI_SESSION, REMOTE_AI_SESSION_RESULT, REMOTE_AI_STATE, REMOTE_AI_STATS, REMOTE_ERROR,
+    REMOTE_FILE_BLOB, REMOTE_FILE_BYTES_WRITTEN, REMOTE_FILE_COPIED, REMOTE_FILE_COPY,
+    REMOTE_FILE_CREATE_DIRECTORY, REMOTE_FILE_DELETE, REMOTE_FILE_DELETED,
+    REMOTE_FILE_DIRECTORY_CREATED, REMOTE_FILE_LIST, REMOTE_FILE_MOVE, REMOTE_FILE_MOVED,
+    REMOTE_FILE_READ, REMOTE_FILE_READ_BLOB, REMOTE_FILE_RENAME, REMOTE_FILE_RENAMED,
+    REMOTE_FILE_WRITE, REMOTE_FILE_WRITE_BLOB, REMOTE_FILE_WRITTEN, REMOTE_GIT_INVOKE,
+    REMOTE_GIT_READ, REMOTE_GIT_STATUS, REMOTE_HOST_INFO, REMOTE_MEMORY_EXTRACT,
+    REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REJECTED,
+    REMOTE_PAIRING_REQUEST, REMOTE_PROJECT_LIST, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CLOSED,
     REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT,
-    REMOTE_TERMINAL_RESIZE, REMOTE_TRANSPORT_IROH,
+    REMOTE_TERMINAL_RESIZE, REMOTE_TRANSPORT_IROH, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
+    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteTransport, RemoteTransportCandidate,
-    RemoteTransportStateHandler,
+    RemoteTransportStateHandler, WebTunnelIoStream, WebTunnelTcpConnectRequest,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -126,8 +123,8 @@ pub fn parse_pairing_ticket(input: &str) -> Result<PairingTicket, String> {
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(encoded.as_bytes())
         .map_err(|error| format!("Pairing ticket is not valid base64url: {error}"))?;
-    let payload: Value =
-        serde_json::from_slice(&bytes).map_err(|error| format!("Pairing ticket is not valid: {error}"))?;
+    let payload: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Pairing ticket is not valid: {error}"))?;
 
     let field = |key: &str| {
         payload
@@ -284,7 +281,10 @@ impl ControllerInner {
     }
 
     fn remove_waiter(&self, id: u64) {
-        self.waiters.lock().unwrap().retain(|waiter| waiter.id != id);
+        self.waiters
+            .lock()
+            .unwrap()
+            .retain(|waiter| waiter.id != id);
     }
 }
 
@@ -495,6 +495,13 @@ impl RemoteController {
         self.transport.shutdown().await;
     }
 
+    pub fn web_tunnel_tcp_connect(
+        &self,
+        request: WebTunnelTcpConnectRequest,
+    ) -> Result<Box<dyn WebTunnelIoStream>, String> {
+        crate::async_runtime::block_on(self.transport.web_tunnel_tcp_connect(request))
+    }
+
     // ---- Typed domain helpers -----------------------------------------------
 
     pub fn host_info(&self) -> Result<Value, String> {
@@ -644,7 +651,11 @@ impl RemoteController {
     }
 
     pub fn delete_path(&self, path: &str) -> Result<Value, String> {
-        self.request(REMOTE_FILE_DELETED, REMOTE_FILE_DELETE, json!({ "path": path }))
+        self.request(
+            REMOTE_FILE_DELETED,
+            REMOTE_FILE_DELETE,
+            json!({ "path": path }),
+        )
     }
 
     pub fn rename_path(&self, path: &str, new_path: &str) -> Result<Value, String> {
@@ -683,7 +694,11 @@ impl RemoteController {
     }
 
     pub fn ai_stats(&self, project_id: &str) -> Result<Value, String> {
-        self.request(REMOTE_AI_STATS, REMOTE_AI_STATS, json!({ "projectId": project_id }))
+        self.request(
+            REMOTE_AI_STATS,
+            REMOTE_AI_STATS,
+            json!({ "projectId": project_id }),
+        )
     }
 
     /// Full `AIHistoryProjectState` for a hosted project (the desktop AI panel's
@@ -922,8 +937,7 @@ impl RemoteController {
 
     /// Send an envelope without awaiting a reply.
     fn fire(&self, kind: &str, payload: Value) -> bool {
-        let mut envelope =
-            json!({ "type": kind, "deviceId": self.device_id, "payload": payload });
+        let mut envelope = json!({ "type": kind, "deviceId": self.device_id, "payload": payload });
         // The host reads the session id from the envelope top level (`sessionId`,
         // see RemoteEnvelope), NOT from the payload. Lift it so session-keyed ops
         // (terminal.input / terminal.resize) actually target their session instead
@@ -941,6 +955,15 @@ impl RemoteController {
             Ok(bytes) => self.transport.send(bytes, None),
             Err(_) => false,
         }
+    }
+}
+
+impl crate::host_browser::HostBrowserController for RemoteController {
+    fn tcp_connect(
+        &self,
+        request: WebTunnelTcpConnectRequest,
+    ) -> Result<Box<dyn WebTunnelIoStream>, String> {
+        self.web_tunnel_tcp_connect(request)
     }
 }
 
@@ -1008,23 +1031,28 @@ mod e2e {
         crate::async_runtime::block_on(async {
             // A minimal host: auto-confirm pairing and answer host.info, replying
             // through its own transport handle (filled in after connect).
-            let host_slot: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>> = Arc::new(Mutex::new(None));
+            let host_slot: Arc<Mutex<Option<Arc<dyn RemoteTransport>>>> =
+                Arc::new(Mutex::new(None));
             let reply_slot = Arc::clone(&host_slot);
             let on_message = Arc::new(move |_source: String, data: Vec<u8>| {
                 let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
                     return;
                 };
-                let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+                let kind = envelope
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 let device_id = envelope.get("deviceId").and_then(Value::as_str);
                 let reply = match kind {
                     REMOTE_PAIRING_REQUEST => Some((
                         REMOTE_PAIRING_CONFIRMED,
                         json!({ "hostId": "host-it", "deviceId": device_id.unwrap_or_default(),
-                                "token": "", "hostName": "IT Host", "transports": [] }),
+                                "token": "device-token-it", "hostName": "IT Host", "transports": [] }),
                     )),
-                    REMOTE_HOST_INFO => {
-                        Some((REMOTE_HOST_INFO, json!({ "hostId": "host-it", "name": "IT Host" })))
-                    }
+                    REMOTE_HOST_INFO => Some((
+                        REMOTE_HOST_INFO,
+                        json!({ "hostId": "host-it", "name": "IT Host" }),
+                    )),
                     _ => None,
                 };
                 if let Some((reply_kind, reply_payload)) = reply {
@@ -1056,6 +1084,7 @@ mod e2e {
                 Arc::new(|_| Ok(())),
                 Arc::new(|_, _| {}),
                 Arc::new(|_| {}),
+                None,
                 None,
             )
             .await
@@ -1094,7 +1123,10 @@ mod e2e {
             .await
             .unwrap();
             assert_eq!(
-                info.1.expect("host.info reply").get("hostId").and_then(Value::as_str),
+                info.1
+                    .expect("host.info reply")
+                    .get("hostId")
+                    .and_then(Value::as_str),
                 Some("host-it")
             );
 
@@ -1115,13 +1147,16 @@ mod e2e {
             let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
                 return;
             };
-            let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+            let kind = envelope
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let device_id = envelope.get("deviceId").and_then(Value::as_str);
             let reply = match kind {
                 REMOTE_PAIRING_REQUEST => Some((
                     REMOTE_PAIRING_CONFIRMED,
                     json!({ "hostId": "host-it", "deviceId": device_id.unwrap_or_default(),
-                            "token": "", "hostName": "IT Host", "transports": [] }),
+                            "token": "device-token-it", "hostName": "IT Host", "transports": [] }),
                 )),
                 REMOTE_FILE_LIST => Some((
                     REMOTE_FILE_LIST,
@@ -1160,6 +1195,7 @@ mod e2e {
                 Arc::new(|_, _| {}),
                 Arc::new(|_| {}),
                 None,
+                None,
             )
             .await
             .expect("host connects");
@@ -1185,7 +1221,9 @@ mod e2e {
         std::fs::create_dir_all(&support).unwrap();
         let manager = RemoteControllerManager::new(support.clone());
 
-        let saved = manager.pair(&ticket_url, "test-desktop").expect("pair via manager");
+        let saved = manager
+            .pair(&ticket_url, "test-desktop")
+            .expect("pair via manager");
         assert_eq!(saved.host_id, "host-it");
         // Persisted to the store.
         assert_eq!(manager.saved_hosts().len(), 1);
@@ -1218,7 +1256,10 @@ mod e2e {
             let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
                 return;
             };
-            let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+            let kind = envelope
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let device_id = envelope.get("deviceId").and_then(Value::as_str);
             let send = |value: Value| {
                 if let (Ok(bytes), Ok(guard)) = (serde_json::to_vec(&value), reply_slot.lock()) {
@@ -1230,7 +1271,7 @@ mod e2e {
             match kind {
                 REMOTE_PAIRING_REQUEST => send(json!({
                     "type": REMOTE_PAIRING_CONFIRMED, "deviceId": device_id,
-                    "payload": { "hostId": "h", "deviceId": device_id.unwrap_or_default(), "token": "", "transports": [] },
+                    "payload": { "hostId": "h", "deviceId": device_id.unwrap_or_default(), "token": "device-token-it", "transports": [] },
                 })),
                 REMOTE_TERMINAL_CREATE => send(json!({
                     "type": REMOTE_TERMINAL_CREATED, "deviceId": device_id,
@@ -1270,6 +1311,7 @@ mod e2e {
                 Arc::new(|_, _| {}),
                 Arc::new(|_| {}),
                 None,
+                None,
             )
             .await
             .expect("host");
@@ -1293,7 +1335,9 @@ mod e2e {
             let controller = Arc::new(controller);
 
             // The router assembles terminal output, just like mobile does.
-            let router = Arc::new(Mutex::new(RemoteTerminalOutputRouter::new(100_000, 100_000)));
+            let router = Arc::new(Mutex::new(RemoteTerminalOutputRouter::new(
+                100_000, 100_000,
+            )));
             let router_for_sink = Arc::clone(&router);
             controller.set_terminal_sink(Box::new(move |envelope| {
                 if let Ok(mut router) = router_for_sink.lock() {
@@ -1347,7 +1391,10 @@ mod e2e {
             let Ok(envelope) = serde_json::from_slice::<Value>(&data) else {
                 return;
             };
-            let kind = envelope.get("type").and_then(Value::as_str).unwrap_or_default();
+            let kind = envelope
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             let device_id = envelope.get("deviceId").and_then(Value::as_str);
             let send = |value: Value| {
                 if let (Ok(bytes), Ok(guard)) = (serde_json::to_vec(&value), reply_slot.lock()) {
@@ -1409,6 +1456,7 @@ mod e2e {
                 Arc::new(|_, _| {}),
                 Arc::new(|_| {}),
                 None,
+                None,
             )
             .await
             .expect("host");
@@ -1428,12 +1476,18 @@ mod e2e {
             };
 
             // Controller A: create the session and verify output flows.
-            let controller_a =
-                Arc::new(RemoteController::connect(&target, Arc::new(|_, _| {})).await.expect("A"));
+            let controller_a = Arc::new(
+                RemoteController::connect(&target, Arc::new(|_, _| {}))
+                    .await
+                    .expect("A"),
+            );
             let (tx_a, rx_a) = mpsc::channel::<Vec<u8>>();
-            controller_a.register_terminal_output("t1", Box::new(move |bytes| {
-                let _ = tx_a.send(bytes);
-            }));
+            controller_a.register_terminal_output(
+                "t1",
+                Box::new(move |bytes| {
+                    let _ = tx_a.send(bytes);
+                }),
+            );
             let ca = Arc::clone(&controller_a);
             let got_a = crate::async_runtime::spawn_blocking(move || {
                 let session = ca
@@ -1451,12 +1505,18 @@ mod e2e {
             // Controller B: reconnect with the same device id, re-register the
             // forwarder for the SAME session (the desktop's rebind), and verify
             // the host routes the resumed session's output to this new connection.
-            let controller_b =
-                Arc::new(RemoteController::connect(&target, Arc::new(|_, _| {})).await.expect("B"));
+            let controller_b = Arc::new(
+                RemoteController::connect(&target, Arc::new(|_, _| {}))
+                    .await
+                    .expect("B"),
+            );
             let (tx_b, rx_b) = mpsc::channel::<Vec<u8>>();
-            controller_b.register_terminal_output("t1", Box::new(move |bytes| {
-                let _ = tx_b.send(bytes);
-            }));
+            controller_b.register_terminal_output(
+                "t1",
+                Box::new(move |bytes| {
+                    let _ = tx_b.send(bytes);
+                }),
+            );
             let cb = Arc::clone(&controller_b);
             let got_b = crate::async_runtime::spawn_blocking(move || {
                 cb.terminal_input("t1", "after-reconnect");
@@ -1583,7 +1643,7 @@ mod tests {
         let payload = json!({
             "hostId": "host-1",
             "deviceId": "dev-1",
-            "token": "",
+            "token": "device-token-1",
             "hostName": "Studio",
             "transports": [{ "kind": "iroh", "nodeId": "node-x", "relayUrl": "https://relay", "relayAuthentication": "" }],
         });
@@ -1591,6 +1651,7 @@ mod tests {
         assert_eq!(saved.host_id, "host-1");
         assert_eq!(saved.host_name, "Studio");
         assert_eq!(saved.device_id, "dev-1");
+        assert_eq!(saved.device_token, "device-token-1");
         assert_eq!(saved.transports.len(), 1);
         assert_eq!(saved.transports[0].node_id, "node-x");
         assert_eq!(saved.transports[0].relay_url, "https://relay");
@@ -1603,12 +1664,26 @@ mod tests {
         let (tx2, rx2) = mpsc::channel();
         {
             let mut waiters = inner.waiters.lock().unwrap();
-            waiters.push(Waiter { id: 1, expect: REMOTE_FILE_LIST.to_string(), tx: tx1 });
-            waiters.push(Waiter { id: 2, expect: REMOTE_FILE_LIST.to_string(), tx: tx2 });
+            waiters.push(Waiter {
+                id: 1,
+                expect: REMOTE_FILE_LIST.to_string(),
+                tx: tx1,
+            });
+            waiters.push(Waiter {
+                id: 2,
+                expect: REMOTE_FILE_LIST.to_string(),
+                tx: tx2,
+            });
         }
         inner.route(br#"{"type":"file.list","payload":{"n":1}}"#);
         inner.route(br#"{"type":"file.list","payload":{"n":2}}"#);
-        assert_eq!(rx1.recv_timeout(Duration::from_secs(1)).unwrap().unwrap()["n"], json!(1));
-        assert_eq!(rx2.recv_timeout(Duration::from_secs(1)).unwrap().unwrap()["n"], json!(2));
+        assert_eq!(
+            rx1.recv_timeout(Duration::from_secs(1)).unwrap().unwrap()["n"],
+            json!(1)
+        );
+        assert_eq!(
+            rx2.recv_timeout(Duration::from_secs(1)).unwrap().unwrap()["n"],
+            json!(2)
+        );
     }
 }

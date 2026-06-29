@@ -8,6 +8,7 @@ pub const LIVE_LOG_FILE_NAME: &str = "live-rust.log";
 pub const RUNTIME_LOG_PREVIEW_FILE_NAME: &str = "runtime-log-preview.txt";
 pub const CLAUDE_SESSION_MAP_DIR_NAME: &str = "claude-session-map";
 pub const OPENCODE_SESSION_MAP_DIR_NAME: &str = "opencode-session-map";
+pub const AI_RUNTIME_BINDING_DIR_NAME: &str = "ai-runtime-bindings";
 
 pub fn app_support_dir() -> PathBuf {
     app_support_candidates()
@@ -52,6 +53,10 @@ pub fn opencode_session_map_dir() -> PathBuf {
     opencode_session_map_dir_in(&runtime_temp_dir())
 }
 
+pub fn ai_runtime_binding_dir() -> PathBuf {
+    ai_runtime_binding_dir_in(&runtime_temp_dir())
+}
+
 pub fn runtime_log_path_in(app_support_dir: &Path) -> PathBuf {
     app_support_dir.join(RUNTIME_LOG_FILE_NAME)
 }
@@ -82,6 +87,10 @@ pub fn claude_session_map_dir_in(runtime_temp_dir: &Path) -> PathBuf {
 
 pub fn opencode_session_map_dir_in(runtime_temp_dir: &Path) -> PathBuf {
     runtime_temp_dir.join(OPENCODE_SESSION_MAP_DIR_NAME)
+}
+
+pub fn ai_runtime_binding_dir_in(runtime_temp_dir: &Path) -> PathBuf {
+    runtime_temp_dir.join(AI_RUNTIME_BINDING_DIR_NAME)
 }
 
 pub fn app_display_name() -> &'static str {

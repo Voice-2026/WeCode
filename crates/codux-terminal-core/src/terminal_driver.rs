@@ -86,7 +86,11 @@ pub struct TerminalSessionSnapshot {
     pub slot_id: String,
     pub session_key: Option<String>,
     pub project_id: String,
-    #[serde(default, rename = "worktreeId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "worktreeId",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub worktree_id: Option<String>,
     pub project_name: String,
     pub cwd: String,

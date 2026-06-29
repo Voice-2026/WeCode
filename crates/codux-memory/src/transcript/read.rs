@@ -56,7 +56,7 @@ pub(super) fn resolve_transcript_for_task_with_settings(
     if let Some(text) = structured_transcript_for_task(task, project, line_limit, token_limit) {
         return Ok(text);
     }
-    // Fallback (opencode, gemini, or unparseable JSONL): raw read + line compactor.
+    // Fallback (opencode or unparseable JSONL): raw read + line compactor.
     resolve_transcript_for_task_raw(task, project, line_limit, token_limit)
         .map(|text| prepare_transcript_for_memory(&text, settings))
 }
@@ -149,15 +149,6 @@ fn resolve_transcript_for_task_raw(
         }
         "codex" => {
             if let Some(path) = find_codex_rollout_path(&workspace_path, &task.session_id) {
-                if let Some(text) =
-                    read_transcript_file(&path.display().to_string(), line_limit, token_limit)
-                {
-                    return Ok(text);
-                }
-            }
-        }
-        "gemini" => {
-            for path in gemini_session_paths(&workspace_path) {
                 if let Some(text) =
                     read_transcript_file(&path.display().to_string(), line_limit, token_limit)
                 {

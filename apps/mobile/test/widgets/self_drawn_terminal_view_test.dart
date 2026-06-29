@@ -128,4 +128,51 @@ void main() {
     expect(selected, isNotNull);
     expect(selected, isNotEmpty);
   });
+
+  testWidgets('renders terminal built-in box drawing cells', (tester) async {
+    final controller = RemoteTerminalOutputController();
+    addTearDown(controller.dispose);
+    controller.bindSession('session-1', requireBaseline: true);
+    controller.accept(
+      const RelayEnvelope(
+        type: 'terminal.output',
+        sessionId: 'session-1',
+        payload: {
+          'data': '┌─┐\n│█│\n└─┘',
+          'screenData': '[2J[H┌─┐\r\n│█│\r\n└─┘',
+          'buffer': true,
+          'offset': 0,
+          'bufferLength': 11,
+          'tail': true,
+          'outputSeq': 1,
+        },
+      ),
+      activeSessionId: 'session-1',
+    );
+
+    final signal = ValueNotifier<int>(0);
+    addTearDown(signal.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 320,
+            height: 480,
+            child: SelfDrawnTerminalView(
+              sessionId: 'session-1',
+              controller: controller,
+              repaintSignal: signal,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byType(CustomPaint), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
 }

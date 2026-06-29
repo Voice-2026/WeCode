@@ -20,7 +20,9 @@ pub fn run(kind: &str) -> Result<String, String> {
         "pty" => run_pty_smoke(),
         "transport" => run_transport_smoke(),
         "serve" => run_serve_smoke(),
-        other => Err(format!("unknown smoke kind: {other} (pty | transport | serve)")),
+        other => Err(format!(
+            "unknown smoke kind: {other} (pty | transport | serve)"
+        )),
     }
 }
 
@@ -45,7 +47,7 @@ fn run_pty_smoke() -> Result<String, String> {
     while time::Instant::now() < deadline {
         let snapshot = session.snapshot();
         if snapshot.contains("codux-agent-pty-ok") {
-            let terminal = terminal_snapshot_payload(session.info(), "headless");
+            let terminal = terminal_snapshot_payload(session.info());
             let _ = session.kill();
             return Ok(format!(
                 "{snapshot}\nterminal={}",
@@ -94,6 +96,7 @@ async fn run_transport_smoke_async() -> Result<String, String> {
         Arc::new(|_| Ok(())),
         Arc::new(|_, _| {}),
         Arc::new(|_| {}),
+        None,
         None,
     )
     .await?;

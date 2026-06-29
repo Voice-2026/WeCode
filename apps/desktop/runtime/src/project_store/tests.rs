@@ -92,8 +92,7 @@ fn create_project_persists_host_device_id_round_trip() {
     assert_eq!(state["projects"][0]["hostDeviceId"], "device-xyz");
 
     // The typed record round-trips the field rather than dropping it.
-    let reloaded: Vec<ProjectRecord> =
-        serde_json::from_value(state["projects"].clone()).unwrap();
+    let reloaded: Vec<ProjectRecord> = serde_json::from_value(state["projects"].clone()).unwrap();
     assert_eq!(reloaded[0].host_device_id.as_deref(), Some("device-xyz"));
 
     fs::remove_dir_all(dir).ok();

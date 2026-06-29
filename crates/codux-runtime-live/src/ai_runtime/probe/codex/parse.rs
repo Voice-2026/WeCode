@@ -3,9 +3,9 @@ use super::{
     types::{CodexPayloadFields, CodexTokenInfo, CodexTranscriptRow},
 };
 use crate::ai_runtime::{
-    constants::{CODEX_LIVE_TRANSCRIPT_TAIL_BYTES, CODEX_LIVE_TRANSCRIPT_TAIL_LINES},
+    constants::CODEX_LIVE_TRANSCRIPT_TAIL_BYTES,
     probe::{
-        common::parse_iso8601_seconds,
+        common::{is_awaiting_user_decision, parse_iso8601_seconds},
         usage::{UsageTotals, resolve_runtime_usage, usage_totals_from_fields},
     },
     snapshot::{AIPlanItem, AIPlanSnapshot},
@@ -13,7 +13,6 @@ use crate::ai_runtime::{
 };
 use serde_json::Value;
 use std::{
-    collections::VecDeque,
     fs,
     io::{BufRead, BufReader, Seek},
     path::Path,
@@ -35,7 +34,46 @@ pub(super) struct CodexParsedState {
     pub(super) has_completed_turn: bool,
     pub(super) origin: String,
     pub(super) plan: Option<AIPlanSnapshot>,
+    /// The session's approval policy from the latest `turn_context`. `never`
+    /// means no command approval can block, so a pending call is codex working.
+    pub(super) approval_policy: Option<String>,
+    /// Most recent `function_call` and its `function_call_output`. While a
+    /// command/patch is blocked on approval the call is written with no output,
+    /// so `last_function_call_at > last_function_output_at` is the pending-call
+    /// signature behind `needsInput` detection.
+    pub(super) last_function_call_at: Option<f64>,
+    pub(super) last_function_output_at: Option<f64>,
     last_user_message_at: Option<f64>,
+}
+
+impl CodexParsedState {
+    /// Whether the approval policy can still raise a command prompt. Only
+    /// `never` silences every prompt; unknown/absent defaults to `true` so a
+    /// wait is never silently dropped.
+    pub(super) fn prompts_possible(&self) -> bool {
+        !matches!(self.approval_policy.as_deref(), Some("never"))
+    }
+
+    /// A `function_call` is written with no matching `function_call_output` yet.
+    pub(super) fn pending_function_call(&self) -> bool {
+        match (self.last_function_call_at, self.last_function_output_at) {
+            (Some(call_at), Some(output_at)) => call_at > output_at,
+            (Some(_), None) => true,
+            _ => false,
+        }
+    }
+
+    /// Mid-turn with a command/patch call written but unanswered past the idle
+    /// gap, under a policy that can still prompt -- codex is blocked on approval.
+    pub(super) fn needs_user_input(&self, now: f64) -> bool {
+        is_awaiting_user_decision(
+            self.response_state.as_deref() == Some("responding"),
+            self.prompts_possible(),
+            self.pending_function_call(),
+            self.last_function_call_at.unwrap_or(0.0),
+            now,
+        )
+    }
 }
 
 pub(super) fn parse_codex_runtime_state(
@@ -62,12 +100,7 @@ fn parse_codex_runtime_state_full(
 ) -> Option<CodexParsedState> {
     let file = fs::File::open(file_path).ok()?;
     let reader = BufReader::new(file);
-    parse_codex_runtime_lines(
-        reader.lines().map_while(Result::ok),
-        project_path,
-        None,
-        None,
-    )
+    parse_codex_runtime_reader(reader, project_path, None, None)
 }
 
 fn parse_codex_runtime_state_tail(
@@ -90,43 +123,15 @@ fn parse_codex_runtime_state_tail(
         let mut partial = String::new();
         reader.read_line(&mut partial).ok()?;
     }
-    let lines = read_recent_jsonl_lines(reader, CODEX_LIVE_TRANSCRIPT_TAIL_LINES)?;
-    parse_codex_runtime_lines(
-        lines.into_iter(),
+    parse_codex_runtime_reader(
+        reader,
         project_path,
         Some(fallback_started_at),
         Some(fallback_updated_at),
     )
 }
 
-fn read_recent_jsonl_lines<R>(mut reader: R, limit: usize) -> Option<Vec<String>>
-where
-    R: BufRead,
-{
-    if limit == 0 {
-        return Some(Vec::new());
-    }
-    let mut lines = VecDeque::with_capacity(limit);
-    loop {
-        let mut line = String::new();
-        let bytes = reader.read_line(&mut line).ok()?;
-        if bytes == 0 {
-            break;
-        }
-        while line.ends_with(['\n', '\r']) {
-            line.pop();
-        }
-        if line.is_empty() {
-            continue;
-        }
-        if lines.len() == limit {
-            lines.pop_front();
-        }
-        lines.push_back(line);
-    }
-    Some(lines.into_iter().collect())
-}
-
+#[cfg(test)]
 fn parse_codex_runtime_lines<I>(
     lines: I,
     project_path: Option<&str>,
@@ -144,49 +149,12 @@ where
     let mut usage_at_turn_start: Option<UsageTotals> = None;
 
     for line in lines {
-        let Ok(row) = serde_json::from_str::<CodexTranscriptRow>(&line) else {
-            continue;
-        };
-        let timestamp = row.timestamp.as_deref().and_then(parse_iso8601_seconds);
-        if let Some(timestamp) = timestamp {
-            state.updated_at = Some(state.updated_at.unwrap_or(timestamp).max(timestamp));
-        }
-        let row_type = row.row_type.as_deref();
-        let payload = row
-            .payload
-            .and_then(|payload| serde_json::from_str::<CodexPayloadFields>(payload.get()).ok())
-            .unwrap_or_default();
-
-        if let Some(preview) = codex_assistant_preview(row_type, &payload) {
-            state.assistant_preview = Some(preview);
-        }
-        if let Some(plan) = codex_update_plan(row_type, &payload, timestamp.or(state.updated_at)) {
-            state.plan = Some(plan);
-        }
-
-        if row_type == Some("turn_context") {
-            if project_path
-                .map(|project| payload.cwd.as_deref() == Some(project))
-                .unwrap_or(true)
-            {
-                if let Some(model) = payload
-                    .model
-                    .as_deref()
-                    .and_then(|value| normalized_string(Some(value)))
-                {
-                    state.model = Some(model);
-                }
-            }
-            continue;
-        }
-
-        update_codex_turn_state(
+        parse_codex_runtime_line(
+            &line,
             &mut state,
             &mut latest_cumulative_usage,
             &mut usage_at_turn_start,
-            row_type,
-            &payload,
-            timestamp,
+            project_path,
         );
     }
 
@@ -197,6 +165,127 @@ where
         fallback_started_at,
         fallback_updated_at,
     )
+}
+
+fn parse_codex_runtime_reader<R>(
+    mut reader: R,
+    project_path: Option<&str>,
+    fallback_started_at: Option<f64>,
+    fallback_updated_at: Option<f64>,
+) -> Option<CodexParsedState>
+where
+    R: BufRead,
+{
+    let mut state = CodexParsedState {
+        origin: "unknown".to_string(),
+        ..Default::default()
+    };
+    let mut latest_cumulative_usage: Option<UsageTotals> = None;
+    let mut usage_at_turn_start: Option<UsageTotals> = None;
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        let bytes = reader.read_line(&mut line).ok()?;
+        if bytes == 0 {
+            break;
+        }
+        parse_codex_runtime_line(
+            &line,
+            &mut state,
+            &mut latest_cumulative_usage,
+            &mut usage_at_turn_start,
+            project_path,
+        );
+    }
+
+    finish_codex_state(
+        state,
+        latest_cumulative_usage,
+        usage_at_turn_start,
+        fallback_started_at,
+        fallback_updated_at,
+    )
+}
+
+fn parse_codex_runtime_line(
+    line: &str,
+    state: &mut CodexParsedState,
+    latest_cumulative_usage: &mut Option<UsageTotals>,
+    usage_at_turn_start: &mut Option<UsageTotals>,
+    project_path: Option<&str>,
+) {
+    let Ok(row) = serde_json::from_str::<CodexTranscriptRow>(line) else {
+        return;
+    };
+    let timestamp = row.timestamp.as_deref().and_then(parse_iso8601_seconds);
+    if let Some(timestamp) = timestamp {
+        state.updated_at = Some(state.updated_at.unwrap_or(timestamp).max(timestamp));
+    }
+    let row_type = row.row_type.as_deref();
+    let payload = row
+        .payload
+        .and_then(|payload| serde_json::from_str::<CodexPayloadFields>(payload.get()).ok())
+        .unwrap_or_default();
+
+    if let Some(preview) = codex_assistant_preview(row_type, &payload) {
+        state.assistant_preview = Some(preview);
+    }
+    if let Some(plan) = codex_update_plan(row_type, &payload, timestamp.or(state.updated_at)) {
+        state.plan = Some(plan);
+    }
+
+    // Pending-call tracking. `update_plan` is an internal tool that never
+    // blocks on approval and answers itself immediately, so exclude it to avoid
+    // a spurious pending blip.
+    if row_type == Some("response_item") {
+        let at = timestamp.or(state.updated_at);
+        match payload.payload_type.as_deref() {
+            Some("function_call") if payload.name.as_deref() != Some("update_plan") => {
+                if at > state.last_function_call_at {
+                    state.last_function_call_at = at;
+                }
+            }
+            Some("function_call_output") => {
+                if at > state.last_function_output_at {
+                    state.last_function_output_at = at;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if row_type == Some("turn_context") {
+        if let Some(approval_policy) = payload
+            .approval_policy
+            .as_deref()
+            .and_then(|value| normalized_string(Some(value)))
+        {
+            state.approval_policy = Some(approval_policy);
+        }
+        if project_path
+            .map(|project| payload.cwd.as_deref() == Some(project))
+            .unwrap_or(true)
+        {
+            if let Some(model) = payload
+                .model
+                .as_deref()
+                .and_then(|value| normalized_string(Some(value)))
+            {
+                state.model = Some(model);
+            }
+        }
+        return;
+    }
+
+    update_codex_turn_state(
+        state,
+        latest_cumulative_usage,
+        usage_at_turn_start,
+        row_type,
+        &payload,
+        timestamp,
+    );
 }
 
 fn codex_update_plan(
@@ -419,6 +508,7 @@ fn finish_codex_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_runtime::constants::NEEDS_INPUT_IDLE_SECONDS;
 
     #[test]
     fn parses_latest_update_plan_from_response_item() {
@@ -451,5 +541,101 @@ mod tests {
         assert_eq!(plan.items[0].status, "completed");
         assert_eq!(plan.items[1].status, "in_progress");
         assert_eq!(plan.items[2].status, "pending");
+    }
+
+    fn line(value: serde_json::Value) -> String {
+        value.to_string()
+    }
+
+    #[test]
+    fn pending_function_call_under_promptable_policy_is_a_wait() {
+        let lines = vec![
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:00Z", "type": "turn_context",
+                "payload": {"approval_policy": "on-request", "cwd": "/tmp/p", "model": "gpt"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:01Z", "type": "event_msg",
+                "payload": {"type": "task_started"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:02Z", "type": "response_item",
+                "payload": {"type": "function_call", "name": "shell", "call_id": "c1", "arguments": "{}"}
+            })),
+        ];
+        let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)
+            .expect("codex state");
+
+        assert_eq!(state.approval_policy.as_deref(), Some("on-request"));
+        assert!(state.pending_function_call());
+        assert_eq!(state.response_state.as_deref(), Some("responding"));
+        let call_at = state.last_function_call_at.expect("call timestamp");
+        assert!(!state.needs_user_input(call_at + NEEDS_INPUT_IDLE_SECONDS - 0.5));
+        assert!(state.needs_user_input(call_at + NEEDS_INPUT_IDLE_SECONDS + 0.5));
+    }
+
+    #[test]
+    fn approval_never_never_waits() {
+        let lines = vec![
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:00Z", "type": "turn_context",
+                "payload": {"approval_policy": "never", "cwd": "/tmp/p"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:01Z", "type": "event_msg",
+                "payload": {"type": "task_started"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:02Z", "type": "response_item",
+                "payload": {"type": "function_call", "name": "shell", "arguments": "{}"}
+            })),
+        ];
+        let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)
+            .expect("codex state");
+
+        assert!(!state.prompts_possible());
+        assert!(state.pending_function_call());
+        assert!(!state.needs_user_input(1_000_000.0));
+    }
+
+    #[test]
+    fn answered_function_call_is_not_a_wait() {
+        let lines = vec![
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:01Z", "type": "event_msg",
+                "payload": {"type": "task_started"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:02Z", "type": "response_item",
+                "payload": {"type": "function_call", "name": "shell", "call_id": "c1", "arguments": "{}"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:03Z", "type": "response_item",
+                "payload": {"type": "function_call_output", "call_id": "c1"}
+            })),
+        ];
+        let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)
+            .expect("codex state");
+
+        assert!(!state.pending_function_call());
+        assert!(!state.needs_user_input(1_000_000.0));
+    }
+
+    #[test]
+    fn update_plan_call_does_not_count_as_pending() {
+        let lines = vec![
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:01Z", "type": "event_msg",
+                "payload": {"type": "task_started"}
+            })),
+            line(serde_json::json!({
+                "timestamp": "2026-01-01T00:00:02Z", "type": "response_item",
+                "payload": {"type": "function_call", "name": "update_plan", "arguments": "{\"plan\":[]}"}
+            })),
+        ];
+        let state = parse_codex_runtime_lines(lines.into_iter(), Some("/tmp/p"), None, None)
+            .expect("codex state");
+
+        assert!(!state.pending_function_call());
     }
 }

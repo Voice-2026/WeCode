@@ -10,22 +10,17 @@ use crate::{
 use serde_json::{Map, Value};
 use std::path::Path;
 
-pub fn hook_config_status(opencode_config_dir: &Path) -> AIRuntimeHookConfigStatus {
-    hook_config_status_in(&home_dir(), opencode_config_dir)
+pub fn hook_config_status(wrapper_dir: &Path) -> AIRuntimeHookConfigStatus {
+    hook_config_status_in(&home_dir(), wrapper_dir)
 }
 
-pub fn hook_config_status_in(
-    home_dir: &Path,
-    opencode_config_dir: &Path,
-) -> AIRuntimeHookConfigStatus {
+pub fn hook_config_status_in(home_dir: &Path, wrapper_dir: &Path) -> AIRuntimeHookConfigStatus {
     let mut codex = AIRuntimeToolHookConfigStatus::default();
     let mut claude = AIRuntimeToolHookConfigStatus::default();
-    let mut gemini = AIRuntimeToolHookConfigStatus::default();
-    let mut agy = AIRuntimeToolHookConfigStatus::default();
     let mut kiro = AIRuntimeToolHookConfigStatus::default();
     let mut codewhale = AIRuntimeToolHookConfigStatus::default();
     let mut kimi = AIRuntimeToolHookConfigStatus::default();
-    let opencode = opencode_hook_config_status(opencode_config_dir);
+    let opencode = opencode_hook_config_status(&wrapper_dir.join("opencode-config"));
     let mimo = opencode.clone();
 
     for driver in ai_runtime_tool_drivers() {
@@ -45,15 +40,21 @@ pub fn hook_config_status_in(
                         .as_slice(),
                 )
             }
-            AIRuntimeToolHookDriver::CodeWhaleToml => codewhale_hook_config_status_in(home_dir),
+            AIRuntimeToolHookDriver::CodeWhaleToml => {
+                let Some(config) = driver.lifecycle_config else {
+                    continue;
+                };
+                codewhale_hook_config_status_in(
+                    &wrapper_dir.join(config.relative_path),
+                    driver.lifecycle_hooks,
+                )
+            }
             AIRuntimeToolHookDriver::KimiToml => kimi_hook_config_status_in(home_dir),
             AIRuntimeToolHookDriver::OpenCodePlugin | AIRuntimeToolHookDriver::None => continue,
         };
         match driver.id {
             "codex" => codex = status,
             "claude" => claude = status,
-            "gemini" => gemini = status,
-            "agy" => agy = status,
             "kiro" => kiro = status,
             "codewhale" => codewhale = status,
             "kimi" => kimi = status,
@@ -64,8 +65,6 @@ pub fn hook_config_status_in(
     AIRuntimeHookConfigStatus {
         codex,
         claude,
-        gemini,
-        agy,
         opencode,
         mimo,
         kiro,
@@ -226,40 +225,6 @@ mod tests {
     }
 
     #[test]
-    fn tool_hook_config_status_accepts_kiro_flat_hooks() {
-        let root = std::env::temp_dir().join(format!("codux-kiro-hooks-{}.json", Uuid::new_v4()));
-        fs::write(
-            &root,
-            serde_json::json!({
-                "hooks": {
-                    "agentSpawn": [{
-                        "command": format!("'/tmp/dmux-ai-state.sh' 'session-start' '{}' 'kiro'", app_slug()),
-                        "timeout_ms": 5000,
-                        "matcher": ""
-                    }],
-                    "stop": [{
-                        "command": format!("'/tmp/dmux-ai-state.sh' 'session-end' '{}' 'kiro'", app_slug()),
-                        "timeout_ms": 5000,
-                        "matcher": ""
-                    }]
-                }
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-        let status = tool_hook_config_status(
-            &root,
-            "kiro",
-            &[("agentSpawn", "session-start"), ("stop", "session-end")],
-        );
-
-        assert!(status.configured);
-        assert!(status.missing.is_empty());
-        fs::remove_file(root).unwrap();
-    }
-
-    #[test]
     fn opencode_hook_config_status_matches_embedded_runtime_assets() {
         let home = std::env::temp_dir().join(format!("codux-opencode-hooks-{}", Uuid::new_v4()));
         let config = home.join("opencode-config");
@@ -276,10 +241,12 @@ mod tests {
 
     #[test]
     fn hook_config_status_reports_missing_codewhale_hooks() {
-        let home = std::env::temp_dir().join(format!("codux-codewhale-hooks-{}", Uuid::new_v4()));
-        fs::create_dir_all(&home).unwrap();
+        let root = std::env::temp_dir().join(format!("codux-codewhale-hooks-{}", Uuid::new_v4()));
+        let home = root.join("home");
+        let wrapper_dir = root.join("wrappers");
+        fs::create_dir_all(&wrapper_dir).unwrap();
 
-        let status = hook_config_status_in(&home, &home.join("opencode-config"));
+        let status = hook_config_status_in(&home, &wrapper_dir);
 
         assert!(!status.codewhale.configured);
         assert!(!status.codewhale.missing.is_empty());
@@ -287,50 +254,70 @@ mod tests {
             status
                 .codewhale
                 .config_path
-                .ends_with(".codewhale/config.toml")
+                .ends_with("managed-config/codewhale.toml")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn hook_config_status_accepts_staged_codewhale_lifecycle_config() {
+        let root = std::env::temp_dir().join(format!("codux-codewhale-hooks-{}", Uuid::new_v4()));
+        let home = root.join("home");
+        let wrapper_dir = root.join("wrappers");
+        let config = wrapper_dir.join("managed-config").join("codewhale.toml");
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(
+            &config,
+            format!(
+                r#"
+[hooks]
+enabled = true
+
+[[hooks.hooks]]
+name = "codux-codewhale-message-submit"
+event = "message_submit"
+command = "'/tmp/dmux-ai-state.sh' 'codewhale-message-submit' '{}' 'codewhale'"
+
+[[hooks.hooks]]
+name = "codux-codewhale-turn-end"
+event = "turn_end"
+command = "'/tmp/dmux-ai-state.sh' 'codewhale-turn-end' '{}' 'codewhale'"
+"#,
+                app_slug(),
+                app_slug()
+            ),
+        )
+        .unwrap();
+
+        let status = hook_config_status_in(&home, &wrapper_dir);
+
+        assert!(status.codewhale.configured);
+        assert!(status.codewhale.missing.is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn hook_config_status_omits_db_only_agy() {
+        let home = std::env::temp_dir().join(format!("codux-agy-hooks-{}", Uuid::new_v4()));
+        fs::create_dir_all(home.join(".gemini")).unwrap();
+
+        let status = hook_config_status_in(&home, &home.join("wrappers"));
+
+        assert!(!status.codex.configured);
+        assert!(!status.claude.configured);
         fs::remove_dir_all(home).unwrap();
     }
 
     #[test]
-    fn hook_config_status_tracks_agy_separately_from_gemini() {
-        let home = std::env::temp_dir().join(format!("codux-agy-hooks-{}", Uuid::new_v4()));
-        fs::create_dir_all(home.join(".gemini")).unwrap();
-        fs::write(
-            home.join(".gemini/settings.json"),
-            serde_json::json!({
-                "hooks": {
-                    "SessionStart": [{
-                        "matcher": "",
-                        "hooks": [{
-                            "type": "command",
-                            "command": format!("'/tmp/dmux-ai-state.sh' 'session-start' '{}' 'gemini'", app_slug()),
-                            "timeout": 5000,
-                            "statusMessage": "codux gemini live"
-                        }]
-                    }]
-                }
-            })
-            .to_string(),
-        )
-        .unwrap();
+    fn hook_config_status_omits_file_screen_only_kiro() {
+        let home = std::env::temp_dir().join(format!("codux-kiro-hooks-{}", Uuid::new_v4()));
+        fs::create_dir_all(home.join(".kiro").join("agents")).unwrap();
 
-        let status = hook_config_status_in(&home, &home.join("opencode-config"));
+        let status = hook_config_status_in(&home, &home.join("wrappers"));
 
-        assert!(
-            !status
-                .gemini
-                .missing
-                .iter()
-                .any(|item| item.starts_with("agy:"))
-        );
-        assert!(
-            status
-                .agy
-                .config_path
-                .ends_with(".gemini/antigravity-cli/settings.json")
-        );
-        assert!(!status.agy.missing.is_empty());
+        assert!(!status.kiro.configured);
+        assert!(status.kiro.config_path.is_empty());
+        assert!(status.kiro.missing.is_empty());
         fs::remove_dir_all(home).unwrap();
     }
 }

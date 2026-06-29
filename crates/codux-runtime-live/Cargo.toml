@@ -11,11 +11,13 @@ test-support = []
 [dependencies]
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+codux-ai-history = { path = "../codux-ai-history" }
 codux-protocol = { path = "../codux-protocol" }
 codux-terminal-core = { path = "../codux-terminal-core" }
 codux-terminal-pty = { path = "../codux-terminal-pty" }
 flume = "0.12"
 libc = "0.2"
+md-5 = "0.10"
 notify = "8"
 parking_lot = "0.12"
 rusqlite = { version = "0.32", features = ["bundled"] }

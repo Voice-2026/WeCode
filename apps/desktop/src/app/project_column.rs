@@ -505,9 +505,9 @@ fn project_more_button(
             let website_entity = menu_entity.clone();
             let github_entity = menu_entity.clone();
             let entries = project_help_menu_entries(&language);
-            entries
-                .into_iter()
-                .fold(menu.min_w(px(256.0)).max_w(px(360.0)), move |menu, entry| match entry {
+            entries.into_iter().fold(
+                menu.min_w(px(256.0)).max_w(px(360.0)),
+                move |menu, entry| match entry {
                     ProjectHelpMenuEntry::Separator => menu.separator(),
                     ProjectHelpMenuEntry::Item {
                         label,
@@ -533,7 +533,8 @@ fn project_more_button(
                             },
                         ))
                     }
-                })
+                },
+            )
         });
 
     if has_label {

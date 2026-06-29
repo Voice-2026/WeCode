@@ -9,8 +9,8 @@ use crate::normalized::{
     index_global_history_fresh_at, index_project_history_fresh_at, load_indexed_project_history_at,
     project_history_source_fingerprint,
 };
-use crate::usage_store::AIUsageStore;
 use crate::trace::{runtime_trace, runtime_trace_elapsed};
+use crate::usage_store::AIUsageStore;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;

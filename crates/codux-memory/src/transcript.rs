@@ -3,7 +3,7 @@ use crate::extraction::trim_memory_text;
 use crate::{
     MemoryProjectRecord, MemorySessionSnapshot, MemorySettings, home_dir, normalized_string,
     transcript_paths::{
-        claude_project_log_paths, find_codex_rollout_path, gemini_session_paths, paths_equivalent,
+        claude_project_log_paths, find_codex_rollout_path, paths_equivalent,
     },
 };
 use rusqlite::{Connection, params};

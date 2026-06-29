@@ -372,6 +372,7 @@ mod tests {
                 output_tokens,
                 cached_input_tokens: 5,
                 reasoning_output_tokens: 0,
+                usage_amounts: Vec::new(),
             }],
         }
     }

@@ -224,8 +224,10 @@ impl AIUsageStore {
                         total_output_tokens: row.get(13)?,
                         total_tokens: row.get(14)?,
                         cached_input_tokens: row.get(15)?,
+                        usage_amounts: Vec::new(),
                         today_tokens: row.get(16)?,
                         today_cached_input_tokens: row.get(17)?,
+                        today_usage_amounts: Vec::new(),
                     })
                 },
             )?

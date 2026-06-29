@@ -43,6 +43,7 @@ fn usage_bucket_from_session(
         output_tokens: 0,
         total_tokens: 0,
         cached_input_tokens: 0,
+        usage_amounts: Vec::new(),
         request_count: 0,
         active_duration_seconds: session.active_duration_seconds,
         first_seen_at: session.first_seen_at,

@@ -10,7 +10,7 @@ pub struct ToolPermissionsSummary {
     pub path: String,
     pub codex: String,
     pub claude_code: String,
-    pub gemini: String,
+    pub agy: String,
     pub opencode: String,
     pub kiro: String,
     pub codewhale: String,
@@ -18,7 +18,7 @@ pub struct ToolPermissionsSummary {
     pub mimo: String,
     pub codex_model: String,
     pub claude_code_model: String,
-    pub gemini_model: String,
+    pub agy_model: String,
     pub opencode_model: String,
     pub kiro_model: String,
     pub codewhale_model: String,
@@ -37,7 +37,7 @@ struct AIRuntimeToolSettings {
     #[serde(default = "default_permission_mode")]
     claude_code: String,
     #[serde(default = "default_permission_mode")]
-    gemini: String,
+    agy: String,
     #[serde(default = "default_permission_mode")]
     opencode: String,
     #[serde(default = "default_permission_mode")]
@@ -53,7 +53,7 @@ struct AIRuntimeToolSettings {
     #[serde(default)]
     claude_code_model: String,
     #[serde(default)]
-    gemini_model: String,
+    agy_model: String,
     #[serde(default)]
     opencode_model: String,
     #[serde(default)]
@@ -73,7 +73,7 @@ impl Default for AIRuntimeToolSettings {
         Self {
             codex: default_permission_mode(),
             claude_code: default_permission_mode(),
-            gemini: default_permission_mode(),
+            agy: default_permission_mode(),
             opencode: default_permission_mode(),
             kiro: default_permission_mode(),
             codewhale: default_permission_mode(),
@@ -81,7 +81,7 @@ impl Default for AIRuntimeToolSettings {
             mimo: default_permission_mode(),
             codex_model: String::new(),
             claude_code_model: String::new(),
-            gemini_model: String::new(),
+            agy_model: String::new(),
             opencode_model: String::new(),
             kiro_model: String::new(),
             codewhale_model: String::new(),
@@ -156,7 +156,7 @@ fn summary_from_settings(
     let full_access_count = [
         &settings.codex,
         &settings.claude_code,
-        &settings.gemini,
+        &settings.agy,
         &settings.opencode,
         &settings.kiro,
         &settings.codewhale,
@@ -171,7 +171,7 @@ fn summary_from_settings(
         path: output_path.display().to_string(),
         codex: settings.codex,
         claude_code: settings.claude_code,
-        gemini: settings.gemini,
+        agy: settings.agy,
         opencode: settings.opencode,
         kiro: settings.kiro,
         codewhale: settings.codewhale,
@@ -179,7 +179,7 @@ fn summary_from_settings(
         mimo: settings.mimo,
         codex_model: settings.codex_model,
         claude_code_model: settings.claude_code_model,
-        gemini_model: settings.gemini_model,
+        agy_model: settings.agy_model,
         opencode_model: settings.opencode_model,
         kiro_model: settings.kiro_model,
         codewhale_model: settings.codewhale_model,
@@ -194,15 +194,15 @@ fn summary_from_settings(
 fn sanitize_runtime_tool_settings(mut settings: AIRuntimeToolSettings) -> AIRuntimeToolSettings {
     settings.codex = sanitize_permission_mode(&settings.codex);
     settings.claude_code = sanitize_permission_mode(&settings.claude_code);
-    settings.gemini = sanitize_permission_mode(&settings.gemini);
+    settings.agy = sanitize_permission_mode(&settings.agy);
     settings.opencode = sanitize_permission_mode(&settings.opencode);
-    settings.kiro = sanitize_permission_mode(&settings.kiro);
+    settings.kiro = default_permission_mode();
     settings.codewhale = sanitize_permission_mode(&settings.codewhale);
-    settings.kimi = sanitize_permission_mode(&settings.kimi);
+    settings.kimi = default_permission_mode();
     settings.mimo = sanitize_permission_mode(&settings.mimo);
     settings.codex_model = sanitize_model(&settings.codex_model);
     settings.claude_code_model = sanitize_model(&settings.claude_code_model);
-    settings.gemini_model = sanitize_model(&settings.gemini_model);
+    settings.agy_model = sanitize_model(&settings.agy_model);
     settings.opencode_model = sanitize_model(&settings.opencode_model);
     settings.kiro_model = sanitize_model(&settings.kiro_model);
     settings.codewhale_model = sanitize_model(&settings.codewhale_model);
@@ -265,7 +265,7 @@ mod tests {
                     "runtimeTools": {
                         "codex": "fullAccess",
                         "claudeCode": "bad",
-                        "gemini": "fullAccess",
+                        "agy": "fullAccess",
                         "opencode": "default",
                         "kiro": "fullAccess",
                         "codewhale": "fullAccess",
@@ -293,8 +293,10 @@ mod tests {
             serde_json::from_str::<Value>(&fs::read_to_string(output_path).unwrap()).unwrap();
 
         assert!(summary.available);
-        assert_eq!(summary.full_access_count, 6);
+        assert_eq!(summary.full_access_count, 4);
         assert_eq!(summary.claude_code, "default");
+        assert_eq!(summary.kiro, "default");
+        assert_eq!(summary.kimi, "default");
         assert_eq!(summary.codex_model, "gpt-5.5");
         assert_eq!(summary.codewhale_model, "deepseek-chat");
         assert_eq!(summary.kimi_model, "kimi-k2");
@@ -302,7 +304,8 @@ mod tests {
         assert_eq!(written["codex"], "fullAccess");
         assert_eq!(written["codewhale"], "fullAccess");
         assert_eq!(written["codewhaleModel"], "deepseek-chat");
-        assert_eq!(written["kimi"], "fullAccess");
+        assert_eq!(written["kiro"], "default");
+        assert_eq!(written["kimi"], "default");
         assert_eq!(written["kimiModel"], "kimi-k2");
         assert_eq!(written["mimo"], "fullAccess");
         assert_eq!(written["mimoModel"], "kimi-k2");

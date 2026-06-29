@@ -13,12 +13,12 @@ use super::protocol::{
     REMOTE_PROJECT_UPDATED, REMOTE_RESOURCE_AI_STATS, REMOTE_RESOURCE_GIT_STATUS,
     REMOTE_RESOURCE_PROJECTS, REMOTE_RESOURCE_SUBSCRIBE, REMOTE_RESOURCE_TERMINALS,
     REMOTE_RESOURCE_UNSUBSCRIBE, REMOTE_RESOURCE_WORKTREES, REMOTE_SSH_LIST,
-    REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT,
-    REMOTE_TERMINAL_BUFFER_MAX_CHARS, REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATED,
-    REMOTE_TERMINAL_INPUT_ACK, REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT,
-    REMOTE_TERMINAL_UPLOADED, REMOTE_TERMINAL_VIEWPORT_STATE, REMOTE_TRANSPORT_PING,
-    REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST,
-    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_SELECT, REMOTE_WORKTREE_UPDATED,
+    REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT, REMOTE_TERMINAL_BUFFER_MAX_CHARS,
+    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT_ACK,
+    REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT, REMOTE_TERMINAL_UPLOADED,
+    REMOTE_TERMINAL_VIEWPORT_STATE, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
+    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_DELETE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE,
+    REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_SELECT, REMOTE_WORKTREE_UPDATED,
     RemoteTerminalBufferWindow, RemoteTerminalSubscriptionTarget, RemoteTerminalSubscriptions,
     terminal_buffer_payloads, terminal_live_output_payload,
 };
@@ -34,8 +34,7 @@ use crate::ai_history_indexer::{AIHistoryIndexer, AIHistoryProjectState};
 use crate::ai_history_normalized::AIHistoryProjectRequest;
 use crate::project_store::{ProjectCreateRequest, ProjectStore, ProjectUpdateRequest};
 use crate::terminal_layout::{
-    TerminalLayoutService, TerminalPaneSummary, TerminalTabSummary, next_terminal_layout_kind,
-    terminal_layout_storage_key,
+    TerminalLayoutService, TerminalPaneSummary, TerminalTabSummary, terminal_layout_storage_key,
 };
 use crate::terminal_pty::{
     TerminalEvent, TerminalManager, TerminalPtyConfig, TerminalSessionSnapshot,
@@ -44,7 +43,7 @@ use crate::terminal_pty::{
 use crate::worktree::{
     WorktreeCreateRequest, WorktreeMergeRequest, WorktreeRemoveRequest, WorktreeService,
 };
-use codux_remote_transport::RemoteTransportUpload;
+use codux_remote_transport::{RemoteTransportUpload, WebTunnelTcpConnectRequest};
 use codux_runtime_core::{
     ai_stats as runtime_ai_stats, file as runtime_file, git as runtime_git, host as runtime_host,
     project as runtime_project, subscription::RuntimeSubscriptionRouter,
@@ -88,13 +87,11 @@ struct RemoteTerminalPlan {
     config: TerminalPtyConfig,
     scope: RemoteProjectScope,
     title: String,
-    layout_kind: String,
 }
 
 struct RemoteTerminalLayoutScope {
     layout_key: String,
     project_id: String,
-    layout_kind: String,
     worktree_id: String,
     layout_order: usize,
 }
@@ -695,6 +692,7 @@ impl RemoteHostRuntime {
         let weak_for_upload = Arc::downgrade(self);
         let weak_for_state = Arc::downgrade(self);
         let weak_for_pairing = Arc::downgrade(self);
+        let weak_for_web_tunnel = Arc::downgrade(self);
         let state_generation = generation;
         let transport = RemoteTransportFactory::connect_host(
             &settings,
@@ -721,6 +719,13 @@ impl RemoteHostRuntime {
                     runtime.handle_transport_pairing_request(handshake);
                 }
             }),
+            Some(Arc::new(move |request| {
+                if let Some(runtime) = weak_for_web_tunnel.upgrade() {
+                    runtime.authorize_web_tunnel_tcp_connect(request)
+                } else {
+                    Err("remote runtime is not available".to_string())
+                }
+            })),
         )
         .await?;
         if generation != self.connection_generation.load(Ordering::SeqCst) {
@@ -863,6 +868,17 @@ impl RemoteHostRuntime {
         Ok(())
     }
 
+    fn authorize_web_tunnel_tcp_connect(
+        &self,
+        request: WebTunnelTcpConnectRequest,
+    ) -> Result<(), String> {
+        if self.is_authorized_device_token(Some(&request.device_id), Some(&request.device_token)) {
+            Ok(())
+        } else {
+            Err("device is not authorized".to_string())
+        }
+    }
+
     fn handle_remote_envelope(self: &Arc<Self>, envelope: RemoteEnvelope) {
         match envelope.kind.as_str() {
             REMOTE_HOST_INFO => self.send_host_info(envelope.device_id.as_deref()),
@@ -965,7 +981,10 @@ impl RemoteHostRuntime {
         );
     }
 
-    fn handle_transport_pairing_request(self: &Arc<Self>, handshake: RemoteTransportPairingRequest) {
+    fn handle_transport_pairing_request(
+        self: &Arc<Self>,
+        handshake: RemoteTransportPairingRequest,
+    ) {
         crate::runtime_trace::runtime_trace(
             "remote",
             &format!(
@@ -1032,10 +1051,10 @@ impl RemoteHostRuntime {
         // (snapshot the iroh candidate + send `pairing.confirmed`); doing that
         // synchronously stalls this callback and the controller never sees the
         // confirmation, so defer just that to the runtime.
-        self.record_paired_device(&handshake);
+        let device_token = self.record_paired_device(&handshake);
         let runtime = Arc::clone(self);
         crate::async_runtime::spawn(async move {
-            let summary = runtime.send_pairing_confirmed(&handshake);
+            let summary = runtime.send_pairing_confirmed(&handshake, device_token);
             runtime.update_snapshot(summary);
         });
     }
@@ -1210,16 +1229,18 @@ impl RemoteHostRuntime {
     /// own pairing callback, which is exactly what the auto-confirm path does to
     /// authorize the device before returning (see
     /// [`Self::handle_transport_pairing_request`]).
-    fn record_paired_device(&self, handshake: &RemoteTransportPairingRequest) {
+    fn record_paired_device(&self, handshake: &RemoteTransportPairingRequest) -> String {
         let mut raw = self.service().raw_settings();
         let mut settings = super::remote_settings_from_raw(&raw);
         let device_id = handshake.device_id.clone();
+        let device_token = super::crypto::remote_random_token();
         let now = chrono::Utc::now().to_rfc3339();
         settings
             .cached_devices
             .retain(|device| device.id != device_id);
         settings.cached_devices.push(RemoteDeviceSettings {
             id: device_id.clone(),
+            device_token: device_token.clone(),
             host_id: settings.host_id.clone(),
             name: handshake.device_name.clone(),
             public_key: String::new(),
@@ -1239,13 +1260,18 @@ impl RemoteHostRuntime {
         if let Ok(mut pending) = self.pending_pairings.lock() {
             pending.clear();
         }
+        device_token
     }
 
     /// Send the confirmed transports back to the controller. This snapshots the
     /// live iroh candidate and calls `send`, so it re-enters the transport and
     /// MUST run off the transport's receive/pairing callback (the auto-confirm
     /// path defers it for exactly this reason).
-    fn send_pairing_confirmed(&self, handshake: &RemoteTransportPairingRequest) -> RemoteSummary {
+    fn send_pairing_confirmed(
+        &self,
+        handshake: &RemoteTransportPairingRequest,
+        device_token: String,
+    ) -> RemoteSummary {
         let settings = super::remote_settings_from_raw(&self.service().raw_settings());
         let device_id = handshake.device_id.clone();
         let transports = self
@@ -1260,7 +1286,7 @@ impl RemoteHostRuntime {
             json!({
                 "hostId": settings.host_id,
                 "deviceId": device_id,
-                "token": "",
+                "token": device_token,
                 "hostName": remote_host_name(),
                 "platform": std::env::consts::OS,
                 "transports": transports,
@@ -1278,8 +1304,8 @@ impl RemoteHostRuntime {
     /// trust, so no dialog gates this. The auto-confirm path calls the two halves
     /// separately so it can authorize synchronously and defer only the send.
     fn finalize_remote_pairing(&self, handshake: &RemoteTransportPairingRequest) -> RemoteSummary {
-        self.record_paired_device(handshake);
-        self.send_pairing_confirmed(handshake)
+        let device_token = self.record_paired_device(handshake);
+        self.send_pairing_confirmed(handshake, device_token)
     }
 
     pub fn confirm_pairing(&self, pairing_id: &str) -> Result<RemoteSummary, String> {
@@ -2023,7 +2049,10 @@ impl RemoteHostRuntime {
         project_id: &str,
         watchers: &HashMap<String, HashMap<String, String>>,
     ) {
-        let Some(devices) = watchers.get(project_id).filter(|devices| !devices.is_empty()) else {
+        let Some(devices) = watchers
+            .get(project_id)
+            .filter(|devices| !devices.is_empty())
+        else {
             return;
         };
         let project_store = ProjectStore::new(self.support_dir.clone());
@@ -2045,9 +2074,11 @@ impl RemoteHostRuntime {
         // One version per push for this project; every watcher shares it. Keyed
         // by project so a stale stats frame for a previously-selected project
         // can't clobber the current one after a fast project switch.
-        let version =
-            self.resource_subscriptions
-                .next_version(REMOTE_RESOURCE_AI_STATS, Some(project_id), None);
+        let version = self.resource_subscriptions.next_version(
+            REMOTE_RESOURCE_AI_STATS,
+            Some(project_id),
+            None,
+        );
         for (device_id, scope_id) in devices {
             let payload = match self.remote_ai_stats_payload(
                 project.id.clone(),
@@ -2334,14 +2365,14 @@ impl RemoteHostRuntime {
             .get("terminalId")
             .and_then(Value::as_str)
             .filter(|value| !value.trim().is_empty());
-        let plan = match self.remote_terminal_plan_from_envelope(envelope, requested_terminal_id, false)
-        {
-            Ok(plan) => plan,
-            Err(error) => {
-                self.send_error(envelope, &error);
-                return;
-            }
-        };
+        let plan =
+            match self.remote_terminal_plan_from_envelope(envelope, requested_terminal_id, false) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    self.send_error(envelope, &error);
+                    return;
+                }
+            };
         self.set_remote_project_scope(envelope.device_id.as_deref(), &plan.scope.project_id);
         // Subscribe the creating device to this project's terminal output BEFORE
         // the shell starts. `queue_terminal_output_batch` drops output while a
@@ -2390,7 +2421,6 @@ impl RemoteHostRuntime {
                     &plan.scope.layout_key,
                     &session_id,
                     &plan.title,
-                    &plan.layout_kind,
                 );
                 self.publish_remote_terminal_layout_changed();
                 self.mark_terminal_event_subscription(&session_id);
@@ -2712,20 +2742,21 @@ impl RemoteHostRuntime {
             self.send_terminal_list(envelope.device_id.as_deref());
             return;
         }
-        match self.terminals.kill(session_id) {
-            Ok(()) => {
-                self.clear_terminal_output_seq(session_id);
-                self.publish_remote_terminal_layout_changed();
-                self.send_terminal_data(
-                    REMOTE_TERMINAL_CLOSED,
-                    envelope.device_id.as_deref(),
-                    Some(session_id),
-                    json!({ "id": session_id }),
-                );
-                self.send_terminal_list(envelope.device_id.as_deref());
-            }
-            Err(error) => self.send_error(envelope, &error.to_string()),
+        self.clear_terminal_output_seq(session_id);
+        self.publish_remote_terminal_layout_changed();
+        if let Err(error) = self.terminals.kill(session_id) {
+            crate::runtime_trace::runtime_trace(
+                "remote",
+                &format!("terminal close kill skipped session={session_id} error={error}"),
+            );
         }
+        self.send_terminal_data(
+            REMOTE_TERMINAL_CLOSED,
+            envelope.device_id.as_deref(),
+            Some(session_id),
+            json!({ "id": session_id }),
+        );
+        self.send_terminal_list(envelope.device_id.as_deref());
     }
 
     fn write_terminal_upload_file(
@@ -2771,11 +2802,10 @@ impl RemoteHostRuntime {
     }
 
     fn send_project_list(&self, device_id: Option<&str>) {
-        let version = self
-            .resource_subscriptions
-            .current_version(REMOTE_RESOURCE_PROJECTS, None, None);
-        let payload =
-            with_resource_version(self.remote_project_list_payload(device_id), version);
+        let version =
+            self.resource_subscriptions
+                .current_version(REMOTE_RESOURCE_PROJECTS, None, None);
+        let payload = with_resource_version(self.remote_project_list_payload(device_id), version);
         self.send(REMOTE_PROJECT_LIST, device_id, None, payload);
     }
 
@@ -2805,7 +2835,11 @@ impl RemoteHostRuntime {
         let selected_project_id = self
             .remote_project_scope_id(device_id)
             .filter(|id| local_ids.contains(id))
-            .or_else(|| baseline.selected_project_id.filter(|id| local_ids.contains(id)))
+            .or_else(|| {
+                baseline
+                    .selected_project_id
+                    .filter(|id| local_ids.contains(id))
+            })
             .or_else(|| {
                 baseline
                     .projects
@@ -2844,9 +2878,9 @@ impl RemoteHostRuntime {
     }
 
     fn send_terminal_list(&self, device_id: Option<&str>) {
-        let version = self
-            .resource_subscriptions
-            .current_version(REMOTE_RESOURCE_TERMINALS, None, None);
+        let version =
+            self.resource_subscriptions
+                .current_version(REMOTE_RESOURCE_TERMINALS, None, None);
         let payload =
             with_resource_version(json!({ "terminals": self.remote_terminals() }), version);
         self.send(REMOTE_TERMINAL_LIST, device_id, None, payload);
@@ -2855,9 +2889,9 @@ impl RemoteHostRuntime {
     fn broadcast_project_list(&self, source_device_id: Option<&str>) {
         // Bump the version ONCE for this change so every recipient shares it; the
         // no-subscriber fallback reads current_version (== the value just bumped).
-        let version = self
-            .resource_subscriptions
-            .next_version(REMOTE_RESOURCE_PROJECTS, None, None);
+        let version =
+            self.resource_subscriptions
+                .next_version(REMOTE_RESOURCE_PROJECTS, None, None);
         let mut device_ids =
             self.resource_subscriptions
                 .devices_for(REMOTE_RESOURCE_PROJECTS, None, None);
@@ -2869,18 +2903,16 @@ impl RemoteHostRuntime {
             return;
         }
         for device_id in device_ids {
-            let payload = with_resource_version(
-                self.remote_project_list_payload(Some(&device_id)),
-                version,
-            );
+            let payload =
+                with_resource_version(self.remote_project_list_payload(Some(&device_id)), version);
             self.send(REMOTE_PROJECT_LIST, Some(&device_id), None, payload);
         }
     }
 
     fn broadcast_terminal_list(&self, source_device_id: Option<&str>) {
-        let version = self
-            .resource_subscriptions
-            .next_version(REMOTE_RESOURCE_TERMINALS, None, None);
+        let version =
+            self.resource_subscriptions
+                .next_version(REMOTE_RESOURCE_TERMINALS, None, None);
         let mut device_ids =
             self.resource_subscriptions
                 .devices_for(REMOTE_RESOURCE_TERMINALS, None, None);
@@ -2894,7 +2926,12 @@ impl RemoteHostRuntime {
         let payload =
             with_resource_version(json!({ "terminals": self.remote_terminals() }), version);
         for device_id in device_ids {
-            self.send(REMOTE_TERMINAL_LIST, Some(&device_id), None, payload.clone());
+            self.send(
+                REMOTE_TERMINAL_LIST,
+                Some(&device_id),
+                None,
+                payload.clone(),
+            );
         }
     }
 
@@ -3126,6 +3163,35 @@ impl RemoteHostRuntime {
             .iter()
             .any(|device| {
                 device.id == device_id
+                    && device
+                        .revoked_at
+                        .as_deref()
+                        .map(str::trim)
+                        .unwrap_or("")
+                        .is_empty()
+            })
+    }
+
+    fn is_authorized_device_token(
+        &self,
+        device_id: Option<&str>,
+        device_token: Option<&str>,
+    ) -> bool {
+        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
+            return false;
+        };
+        let Some(device_token) = device_token
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return false;
+        };
+        super::remote_settings_from_raw(&self.service().raw_settings())
+            .cached_devices
+            .iter()
+            .any(|device| {
+                device.id == device_id
+                    && device.device_token == device_token
                     && device
                         .revoked_at
                         .as_deref()
@@ -3434,9 +3500,6 @@ impl RemoteHostRuntime {
                 let fallback_worktree_id = terminal.project_id.clone();
                 let workspace_scope = workspace_scopes.get(&terminal.project_id);
                 let layout_scope = scopes.get(&terminal.id);
-                let layout_kind = layout_scope
-                    .map(|scope| scope.layout_kind.as_str())
-                    .unwrap_or("split");
                 let project_id = layout_scope
                     .map(|scope| scope.project_id.as_str())
                     .or_else(|| workspace_scope.map(|(project_id, _)| project_id.as_str()));
@@ -3448,12 +3511,8 @@ impl RemoteHostRuntime {
                             .then_some(fallback_worktree_id.as_str())
                     });
                 let layout_order = layout_scope.map(|scope| scope.layout_order);
-                let mut payload = remote_terminal_snapshot_payload(
-                    terminal,
-                    layout_kind,
-                    worktree_id,
-                    layout_order,
-                );
+                let mut payload =
+                    remote_terminal_snapshot_payload(terminal, worktree_id, layout_order);
                 if let Some(project_id) = project_id.filter(|value| !value.trim().is_empty()) {
                     payload["projectId"] = json!(project_id);
                 }
@@ -3504,7 +3563,6 @@ impl RemoteHostRuntime {
                     RemoteTerminalLayoutScope {
                         layout_key: layout_key.clone(),
                         project_id: project_id.clone(),
-                        layout_kind: "split".to_string(),
                         worktree_id: worktree_id.clone(),
                         layout_order,
                     },
@@ -3517,7 +3575,6 @@ impl RemoteHostRuntime {
                     RemoteTerminalLayoutScope {
                         layout_key: layout_key.clone(),
                         project_id: project_id.clone(),
-                        layout_kind: "tab".to_string(),
                         worktree_id: worktree_id.clone(),
                         layout_order,
                     },
@@ -3622,7 +3679,6 @@ impl RemoteHostRuntime {
             config,
             scope,
             title,
-            layout_kind: remote_terminal_layout_kind(&envelope.payload),
         })
     }
 
@@ -3644,12 +3700,7 @@ impl RemoteHostRuntime {
         self.terminals
             .create(plan.config, emit)
             .map_err(|error| error.to_string())?;
-        self.persist_remote_terminal_layout(
-            &plan.scope.layout_key,
-            session_id,
-            &plan.title,
-            &plan.layout_kind,
-        );
+        self.persist_remote_terminal_layout(&plan.scope.layout_key, session_id, &plan.title);
         self.publish_remote_terminal_layout_changed();
         self.mark_terminal_event_subscription(session_id);
         self.send_terminal_list(envelope.device_id.as_deref());
@@ -3697,7 +3748,7 @@ impl RemoteHostRuntime {
             .terminals
             .create(config, emit)
             .map_err(|error| error.to_string())?;
-        self.persist_remote_terminal_layout(&scope.layout_key, &session_id, &title, "split");
+        self.persist_remote_terminal_layout(&scope.layout_key, &session_id, &title);
         self.publish_remote_terminal_layout_changed();
         self.mark_terminal_event_subscription(&session_id);
         self.register_terminal_viewer(&session_id, device_id);
@@ -3731,13 +3782,7 @@ impl RemoteHostRuntime {
             .filter(|id| !id.trim().is_empty())
     }
 
-    fn persist_remote_terminal_layout(
-        &self,
-        layout_key: &str,
-        terminal_id: &str,
-        title: &str,
-        layout_kind: &str,
-    ) {
+    fn persist_remote_terminal_layout(&self, layout_key: &str, terminal_id: &str, title: &str) {
         if layout_key.trim().is_empty() {
             return;
         }
@@ -3757,19 +3802,15 @@ impl RemoteHostRuntime {
             title.trim()
         };
         let mut layout = layout;
-        // Smart placement: fill split panes up to the cap, then fall back to a
-        // tab. The controller's requested layout_kind is now only a hint --
-        // desktop-local and remote (pad/phone) creates share this one rule. The
-        // reattach guard above keeps an existing terminal in its current bucket.
-        let _ = layout_kind;
-        if next_terminal_layout_kind(&layout) == "tab" {
-            layout.tabs.push(TerminalTabSummary {
-                label: title.to_string(),
+        // First terminal seeds the main split; later remote/host creates land as bottom tabs (splits are desktop-only).
+        if layout.top_panes.is_empty() && layout.tabs.is_empty() {
+            layout.top_panes.push(TerminalPaneSummary {
+                title: title.to_string(),
                 terminal_id: terminal_id.to_string(),
             });
         } else {
-            layout.top_panes.push(TerminalPaneSummary {
-                title: title.to_string(),
+            layout.tabs.push(TerminalTabSummary {
+                label: title.to_string(),
                 terminal_id: terminal_id.to_string(),
             });
         }
@@ -4483,11 +4524,10 @@ fn terminal_buffer_baseline_key(session_id: &str, request_id: &str) -> String {
 
 pub(crate) fn remote_terminal_snapshot_payload(
     terminal: TerminalSessionSnapshot,
-    layout_kind: &str,
     worktree_id: Option<&str>,
     layout_order: Option<usize>,
 ) -> Value {
-    let mut payload = runtime_terminal::terminal_snapshot_payload(terminal, layout_kind);
+    let mut payload = runtime_terminal::terminal_snapshot_payload(terminal);
     if let Some(worktree_id) = worktree_id.filter(|value| !value.trim().is_empty()) {
         payload["worktreeId"] = json!(worktree_id);
     }
@@ -4495,19 +4535,6 @@ pub(crate) fn remote_terminal_snapshot_payload(
         payload["layoutOrder"] = json!(layout_order);
     }
     payload
-}
-
-fn remote_terminal_layout_kind(payload: &Value) -> String {
-    match payload
-        .get("layoutKind")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .map(str::to_lowercase)
-        .as_deref()
-    {
-        Some("tab") => "tab".to_string(),
-        _ => "split".to_string(),
-    }
 }
 
 fn remote_terminal_pty_config(
@@ -4576,7 +4603,10 @@ fn trim_remote_path_tail(path: &str) -> String {
 }
 
 fn remote_worktree_base_branches(git: &crate::git::GitSummary) -> Vec<String> {
-    runtime_worktree::worktree_base_branches(&git.branch, &crate::git::wire::wire_branches(&git.branches))
+    runtime_worktree::worktree_base_branches(
+        &git.branch,
+        &crate::git::wire::wire_branches(&git.branches),
+    )
 }
 
 fn remote_default_worktree_base_branch(git: &crate::git::GitSummary) -> String {
@@ -4771,6 +4801,46 @@ mod tests {
         fs::remove_dir_all(support_dir).ok();
     }
 
+    #[test]
+    fn web_tunnel_requires_paired_device_token() {
+        let support_dir = temp_support_dir("codux-remote-web-tunnel-token");
+        write_paired_remote_settings(&support_dir);
+        let runtime = RemoteHostRuntime::new(support_dir.clone());
+
+        assert!(
+            runtime
+                .authorize_web_tunnel_tcp_connect(WebTunnelTcpConnectRequest {
+                    device_id: "device-1".to_string(),
+                    device_token: "device-token-1".to_string(),
+                    host: "localhost".to_string(),
+                    port: 5173,
+                })
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .authorize_web_tunnel_tcp_connect(WebTunnelTcpConnectRequest {
+                    device_id: "device-1".to_string(),
+                    device_token: "wrong-token".to_string(),
+                    host: "localhost".to_string(),
+                    port: 5173,
+                })
+                .is_err()
+        );
+        assert!(
+            runtime
+                .authorize_web_tunnel_tcp_connect(WebTunnelTcpConnectRequest {
+                    device_id: "unknown-device".to_string(),
+                    device_token: "device-token-1".to_string(),
+                    host: "localhost".to_string(),
+                    port: 5173,
+                })
+                .is_err()
+        );
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
     fn write_paired_remote_settings(support_dir: &Path) {
         fs::write(
             support_dir.join("settings.json"),
@@ -4782,6 +4852,7 @@ mod tests {
                     "cachedDevices": [
                         {
                             "id": "device-1",
+                            "token": "device-token-1",
                             "hostId": "host-1",
                             "name": "Phone"
                         }
@@ -5810,7 +5881,7 @@ mod tests {
                     device_id: Some("device-1".to_string()),
                     session_id: None,
                     seq: None,
-                    payload: json!({"layoutKind": "tab"}),
+                    payload: json!({}),
                 },
                 None,
                 false,
@@ -5824,7 +5895,6 @@ mod tests {
             create_plan.config.cwd.as_deref(),
             Some(expected_worktree_path.as_ref())
         );
-        assert_eq!(create_plan.layout_kind, "tab");
 
         let restore_plan = runtime
             .remote_terminal_plan_from_envelope(
@@ -5862,7 +5932,7 @@ mod tests {
         let runtime = RemoteHostRuntime::new(support_dir.clone());
         let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
 
-        runtime.persist_remote_terminal_layout(&layout_key, "terminal-mobile-b", "Mobile", "split");
+        runtime.persist_remote_terminal_layout(&layout_key, "terminal-mobile-b", "Mobile");
 
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
         assert_eq!(layout.active_terminal_id, "");
@@ -5888,14 +5958,12 @@ mod tests {
             payload: json!({
                 "projectId": "project-b",
                 "worktreeId": "worktree-b",
-                "layoutKind": "tab",
             }),
         });
 
         let layout_key = terminal_layout_storage_key("project-b", "worktree-b");
         let layout = TerminalLayoutService::new(support_dir.clone()).load(Some(&layout_key));
-        // Smart placement: the requested `layoutKind: "tab"` is now only a hint;
-        // the first terminal fills a split pane before any tab is opened.
+        // First terminal in an empty scope seeds the main split.
         assert_eq!(layout.top_panes.len(), 1);
         assert!(layout.tabs.is_empty());
         assert!(

@@ -4,6 +4,9 @@ impl SettingsService {
         tool_key: &str,
         permission: &str,
     ) -> Result<SettingsSummary, String> {
+        if matches!(tool_key, "kiro" | "kimi") {
+            return self.update_runtime_tool_string(tool_key, "default".to_string());
+        }
         self.update_runtime_tool_string(tool_key, sanitize_tool_permission(permission))
     }
 

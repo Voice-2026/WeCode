@@ -287,7 +287,11 @@ fn provider_endpoint(provider: &LlmProvider) -> Result<String, String> {
 
 fn normalized_provider_base_url(base_url: &str, fallback: &str) -> String {
     let trimmed = base_url.trim();
-    let value = if trimmed.is_empty() { fallback } else { trimmed };
+    let value = if trimmed.is_empty() {
+        fallback
+    } else {
+        trimmed
+    };
     if value.ends_with('/') {
         value.to_string()
     } else {

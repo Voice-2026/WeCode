@@ -20,14 +20,14 @@ pub fn link() -> Result<(), String> {
 pub fn qrcode() -> Result<(), String> {
     let ticket = ensure_ticket()?;
     if let Some(status) = runstate::read_status() {
-        println!("Host running · started {} · device “{}”", status.started_at, status.device_name);
+        println!(
+            "Host running · started {} · device “{}”",
+            status.started_at, status.device_name
+        );
     }
     println!();
     let code = QrCode::new(ticket.as_bytes()).map_err(|error| error.to_string())?;
-    let rendered = code
-        .render::<unicode::Dense1x2>()
-        .quiet_zone(true)
-        .build();
+    let rendered = code.render::<unicode::Dense1x2>().quiet_zone(true).build();
     println!("{rendered}");
     println!("Scan with the Codux mobile app, or paste the link below on desktop:");
     println!("{ticket}");

@@ -274,11 +274,7 @@ pub extern "C" fn codux_remote_runtime_model_begin_terminal_create_json(
         .get("worktreeId")
         .and_then(|value| value.as_str())
         .map(str::to_string);
-    let layout_kind = request
-        .get("layoutKind")
-        .and_then(|value| value.as_str())
-        .map(str::to_string);
-    model.begin_terminal_create(project_id, worktree_id, layout_kind);
+    model.begin_terminal_create(project_id, worktree_id);
 }
 
 #[unsafe(no_mangle)]

@@ -26,8 +26,6 @@ pub struct RemoteRuntimeTerminal {
         skip_serializing_if = "Option::is_none"
     )]
     pub worktree_id: Option<String>,
-    #[serde(default = "default_terminal_layout_kind")]
-    pub layout_kind: String,
     #[serde(
         default,
         rename = "layoutOrder",
@@ -181,7 +179,6 @@ pub struct RemoteRuntimeStateSnapshot {
 struct PendingTerminalCreateRequest {
     project_id: String,
     worktree_id: Option<String>,
-    layout_kind: String,
     existing_terminal_ids: HashSet<String>,
 }
 
@@ -866,7 +863,6 @@ impl RemoteRuntimeModel {
         &mut self,
         project_id: Option<String>,
         worktree_id: Option<String>,
-        layout_kind: Option<String>,
     ) {
         let Some(project_id) = clean_optional_string(project_id) else {
             self.creating_terminal_project_id = None;
@@ -880,7 +876,6 @@ impl RemoteRuntimeModel {
                 worktree_id
             };
         let normalized_worktree_id = normalize_worktree_scope(&project_id, requested_worktree_id);
-        let layout_kind = normalize_terminal_layout_kind(layout_kind.as_deref());
         let existing_terminal_ids = self
             .terminals
             .iter()
@@ -893,7 +888,6 @@ impl RemoteRuntimeModel {
         self.pending_terminal_create_request = Some(PendingTerminalCreateRequest {
             project_id,
             worktree_id: normalized_worktree_id,
-            layout_kind,
             existing_terminal_ids,
         });
     }
@@ -1275,12 +1269,7 @@ impl RemoteRuntimeModel {
             return None;
         }
         candidates.sort_by(|left, right| compare_remote_terminals(left, right));
-        candidates
-            .iter()
-            .rev()
-            .find(|terminal| terminal_layout_kind(terminal) == request.layout_kind)
-            .copied()
-            .or_else(|| candidates.last().copied())
+        candidates.last().copied()
     }
 
     fn focus_created_terminal(&mut self, terminal: &RemoteRuntimeTerminal) {
@@ -1299,10 +1288,6 @@ impl RemoteRuntimeModel {
         self.pending_created_terminal = None;
         self.pending_created_terminal_confirmed = false;
     }
-}
-
-fn default_terminal_layout_kind() -> String {
-    "split".to_string()
 }
 
 fn default_true() -> bool {
@@ -1467,12 +1452,6 @@ fn preferred_terminal_for_project<'a>(
     {
         return Some(*terminal);
     }
-    if let Some(terminal) = list
-        .iter()
-        .find(|terminal| terminal_layout_kind(terminal) == "split")
-    {
-        return Some(*terminal);
-    }
     list.first().copied()
 }
 
@@ -1490,26 +1469,6 @@ fn compare_remote_terminals(
                 .cmp(right.created_at.as_deref().unwrap_or_default())
         })
         .then_with(|| left.id.cmp(&right.id))
-}
-
-fn terminal_layout_kind(terminal: &RemoteRuntimeTerminal) -> &str {
-    if terminal.layout_kind.trim().eq_ignore_ascii_case("tab") {
-        "tab"
-    } else {
-        "split"
-    }
-}
-
-fn normalize_terminal_layout_kind(layout_kind: Option<&str>) -> String {
-    if layout_kind
-        .unwrap_or_default()
-        .trim()
-        .eq_ignore_ascii_case("tab")
-    {
-        "tab".to_string()
-    } else {
-        "split".to_string()
-    }
 }
 
 fn terminal_matches_selected_worktree(

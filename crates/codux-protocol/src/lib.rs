@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-pub const REMOTE_PROTOCOL_VERSION: &str = "v3.1";
+pub const REMOTE_PROTOCOL_VERSION: &str = "v3.2";
 pub const REMOTE_TERMINAL_BUFFER_MAX_CHARS: usize = 200_000;
 pub const REMOTE_TERMINAL_BUFFER_CHUNK_CHARS: usize = 16_384;
 pub const REMOTE_RELAY_TICKET_TTL_SECS: u64 = 60;
@@ -172,6 +172,15 @@ pub struct RemoteAISessionSummary {
     pub time: f64,
     /// Total tokens (the "size" of the session).
     pub size: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usage_amounts: Vec<RemoteAIUsageAmount>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAIUsageAmount {
+    pub unit: String,
+    pub value: f64,
 }
 
 /// One live AI runtime session sent inside `ai.stats.currentSessions`.
@@ -200,10 +209,22 @@ pub struct RemoteAICurrentSession {
     pub status: String,
     #[serde(default, rename = "isRunning")]
     pub is_running: bool,
+    /// Historical total for the underlying AI session.
     #[serde(default, rename = "totalTokens")]
     pub total_tokens: i64,
+    /// Historical cached input total for the underlying AI session.
     #[serde(default, rename = "cachedInputTokens")]
     pub cached_input_tokens: i64,
+    /// Tokens added since this local terminal opened/resumed the session.
+    #[serde(default, rename = "currentTotalTokens")]
+    pub current_total_tokens: i64,
+    /// Cached input tokens added since this local terminal opened/resumed.
+    #[serde(default, rename = "currentCachedInputTokens")]
+    pub current_cached_input_tokens: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usage_amounts: Vec<RemoteAIUsageAmount>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub current_usage_amounts: Vec<RemoteAIUsageAmount>,
 }
 
 /// One saved SSH profile sent over `ssh.list`. The host owns the profiles
@@ -993,6 +1014,12 @@ pub fn host_capabilities() -> Value {
             "state": true,
             "scroll": true,
         },
+        "webTunnel": {
+            "version": 1,
+            "hostBrowser": true,
+            "tcpConnect": true,
+            "webSocket": true,
+        },
     })
 }
 
@@ -1168,6 +1195,10 @@ mod tests {
         // still does — hence terminalBuffer.screenData above but not here.
         assert!(capabilities["terminalOutput"].get("screenData").is_none());
         assert_eq!(capabilities["terminalViewport"]["ownership"], true);
+        assert_eq!(capabilities["webTunnel"]["version"], 1);
+        assert_eq!(capabilities["webTunnel"]["hostBrowser"], true);
+        assert_eq!(capabilities["webTunnel"]["tcpConnect"], true);
+        assert_eq!(capabilities["webTunnel"]["webSocket"], true);
     }
 
     #[test]

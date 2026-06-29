@@ -458,6 +458,143 @@ runtime launch context
     }
 
     #[test]
+    fn indexes_current_opencode_sqlite_history() {
+        let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
+        let project_path = root.join("project-a").to_string_lossy().to_string();
+        let db_dir = root.join(".local/share/opencode");
+        fs::create_dir_all(&db_dir).unwrap();
+        let database_path = db_dir.join("opencode.db");
+        let conn = Connection::open(&database_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE session (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                directory TEXT NOT NULL,
+                path TEXT,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                time_archived INTEGER,
+                model TEXT,
+                tokens_input INTEGER DEFAULT 0 NOT NULL,
+                tokens_output INTEGER DEFAULT 0 NOT NULL,
+                tokens_reasoning INTEGER DEFAULT 0 NOT NULL,
+                tokens_cache_read INTEGER DEFAULT 0 NOT NULL
+            );
+            CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT NOT NULL
+            );
+            CREATE TABLE part (
+                id TEXT PRIMARY KEY,
+                message_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                time_created INTEGER NOT NULL,
+                time_updated INTEGER NOT NULL,
+                data TEXT NOT NULL
+            );
+            "#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO session (
+                id, project_id, title, directory, path, time_created, time_updated,
+                time_archived, model, tokens_input, tokens_output, tokens_reasoning,
+                tokens_cache_read
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10, ?11, ?12);",
+            rusqlite::params![
+                "ses_current",
+                "proj_current",
+                "OpenCode Current",
+                project_path,
+                "",
+                1_700_000_010_000i64,
+                1_700_000_013_000i64,
+                r#"{"id":"gpt-5.4","providerID":"rightcode","variant":"high"}"#,
+                120i64,
+                12i64,
+                3i64,
+                8704i64,
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?5);",
+            rusqlite::params![
+                "msg_user",
+                "ses_current",
+                1_700_000_010_500i64,
+                1_700_000_010_500i64,
+                r#"{"role":"user","time":{"created":1700000010500}}"#,
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO message (id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?5);",
+            rusqlite::params![
+                "msg_assistant",
+                "ses_current",
+                1_700_000_011_000i64,
+                1_700_000_013_000i64,
+                r#"{"role":"assistant","modelID":"gpt-5.4","time":{"created":1700000011000,"completed":1700000013000},"finish":"stop"}"#,
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
+            rusqlite::params![
+                "part_text",
+                "msg_assistant",
+                "ses_current",
+                1_700_000_012_000i64,
+                1_700_000_012_500i64,
+                r#"{"type":"text","text":"done"}"#,
+            ],
+        )
+        .unwrap();
+
+        let snapshot = load_project_history_without_store(
+            AIHistoryProjectRequest {
+                id: "project-1".to_string(),
+                name: "Project".to_string(),
+                path: project_path,
+            },
+            &root,
+            &mut |_, _| {},
+        );
+
+        assert_eq!(snapshot.project_summary.project_total_tokens, 135);
+        assert_eq!(snapshot.project_summary.project_cached_input_tokens, 8704);
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].last_tool.as_deref(), Some("opencode"));
+        assert_eq!(
+            snapshot.sessions[0].last_model.as_deref(),
+            Some("gpt-5.4")
+        );
+        assert_eq!(snapshot.sessions[0].request_count, 1);
+        assert!(
+            snapshot
+                .tool_breakdown
+                .iter()
+                .any(|item| item.key == "opencode" && item.total_tokens == 135)
+        );
+        assert!(
+            snapshot
+                .model_breakdown
+                .iter()
+                .any(|item| item.key == "gpt-5.4" && item.total_tokens == 135)
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn parses_kiro_history_json() {
         let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
         let project_path = root.join("project-a").to_string_lossy().to_string();
@@ -506,6 +643,73 @@ runtime launch context
     }
 
     #[test]
+    fn parses_kiro_210_credit_usage_without_tokens() {
+        let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
+        let project_path = root.join("project-a").to_string_lossy().to_string();
+        let session_dir = root.join(".kiro/sessions/cli");
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(
+            session_dir.join("14d0cee2-bca4-45ab-a085-7613abbb692c.json"),
+            serde_json::json!({
+                "session_id": "14d0cee2-bca4-45ab-a085-7613abbb692c",
+                "cwd": project_path,
+                "title": "hi",
+                "created_at": "2026-06-28T13:40:41.491371Z",
+                "updated_at": "2026-06-28T13:41:48.600845Z",
+                "session_state": {
+                    "rts_model_state": {
+                        "model_info": { "model_id": "auto" }
+                    },
+                    "conversation_metadata": {
+                        "user_turn_metadatas": [{
+                            "result": {
+                                "Ok": {
+                                    "role": "assistant",
+                                    "content": [{ "kind": "text", "data": "Hi! How can I help you?" }],
+                                    "meta": { "timestamp": 1782654108 }
+                                }
+                            },
+                            "end_timestamp": "2026-06-28T13:41:48.600069Z",
+                            "input_token_count": 0,
+                            "output_token_count": 0,
+                            "metering_usage": [{
+                                "value": 0.03090351028192372,
+                                "unit": "credit",
+                                "unitPlural": "credits"
+                            }]
+                        }]
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let snapshot = load_project_history_without_store(
+            AIHistoryProjectRequest {
+                id: "project-1".to_string(),
+                name: "Project".to_string(),
+                path: project_path,
+            },
+            &root,
+            &mut |_, _| {},
+        );
+
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].total_tokens, 0);
+        assert_eq!(snapshot.sessions[0].last_model.as_deref(), Some("auto"));
+        assert_eq!(snapshot.sessions[0].usage_amounts[0].unit, "credit");
+        assert!((snapshot.sessions[0].usage_amounts[0].value - 0.03090351028192372).abs() < 0.0001);
+        assert!(
+            snapshot
+                .tool_breakdown
+                .iter()
+                .any(|item| item.key == "kiro" && item.usage_amounts[0].unit == "credit")
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn parses_codewhale_history_json() {
         let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
         let project_path = root.join("project-a").to_string_lossy().to_string();
@@ -546,23 +750,24 @@ runtime launch context
 
         assert_eq!(snapshot.project_summary.project_total_tokens, 123);
         assert_eq!(snapshot.sessions.len(), 1);
-        assert_eq!(
-            snapshot.sessions[0].last_tool.as_deref(),
-            Some("codewhale")
-        );
+        assert_eq!(snapshot.sessions[0].last_tool.as_deref(), Some("codewhale"));
         assert_eq!(
             snapshot.sessions[0].last_model.as_deref(),
             Some("deepseek-v4-pro")
         );
         assert_eq!(snapshot.sessions[0].request_count, 1);
-        assert!(snapshot
-            .tool_breakdown
-            .iter()
-            .any(|item| item.key == "codewhale" && item.total_tokens == 123));
-        assert!(snapshot
-            .model_breakdown
-            .iter()
-            .any(|item| item.key == "deepseek-v4-pro" && item.total_tokens == 123));
+        assert!(
+            snapshot
+                .tool_breakdown
+                .iter()
+                .any(|item| item.key == "codewhale" && item.total_tokens == 123)
+        );
+        assert!(
+            snapshot
+                .model_breakdown
+                .iter()
+                .any(|item| item.key == "deepseek-v4-pro" && item.total_tokens == 123)
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -628,39 +833,24 @@ runtime launch context
         assert_eq!(snapshot.sessions[0].last_tool.as_deref(), Some("kimi"));
         assert_eq!(snapshot.sessions[0].last_model.as_deref(), Some("kimi-k2"));
         assert_eq!(snapshot.sessions[0].request_count, 1);
-        assert!(snapshot
-            .tool_breakdown
-            .iter()
-            .any(|item| item.key == "kimi" && item.total_tokens == 55));
+        assert!(
+            snapshot
+                .tool_breakdown
+                .iter()
+                .any(|item| item.key == "kimi" && item.total_tokens == 55)
+        );
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn separates_gemini_and_agy_history_roots() {
+    fn agy_history_uses_antigravity_conversation_db_only() {
         let root = std::env::temp_dir().join(format!("codux-history-test-{}", Uuid::new_v4()));
         let project_path = root.join("project-a").to_string_lossy().to_string();
-        let gemini_chat_dir = root.join(".gemini/tmp/gemini-project/chats");
-        let agy_chat_dir = root.join(".gemini/antigravity-cli/tmp/agy-project/chats");
-        fs::create_dir_all(&gemini_chat_dir).unwrap();
-        fs::create_dir_all(&agy_chat_dir).unwrap();
-        fs::write(
-            root.join(".gemini/projects.json"),
-            serde_json::json!({ "projects": { project_path.clone(): "gemini-project" } })
-                .to_string(),
-        )
-        .unwrap();
-        fs::write(
-            root.join(".gemini/antigravity-cli/projects.json"),
-            serde_json::json!({ "projects": { project_path.clone(): "agy-project" } }).to_string(),
-        )
-        .unwrap();
-        let gemini_file = gemini_chat_dir.join("session-gemini.json");
-        let agy_file = agy_chat_dir.join("session-agy.json");
-        fs::write(&gemini_file, "{}").unwrap();
-        fs::write(&agy_file, "{}").unwrap();
+        let conversations_dir = root.join(".gemini/antigravity-cli/conversations");
+        fs::create_dir_all(&conversations_dir).unwrap();
+        fs::write(conversations_dir.join("not-a-conversation.json"), "{}").unwrap();
 
-        assert_eq!(gemini_session_paths(&project_path, &root), vec![gemini_file]);
-        assert_eq!(agy_session_paths(&project_path, &root), vec![agy_file]);
+        assert!(agy_session_paths(&project_path, &root).is_empty());
         let _ = fs::remove_dir_all(root);
     }
 }

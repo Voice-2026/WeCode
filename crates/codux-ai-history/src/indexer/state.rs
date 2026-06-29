@@ -1,7 +1,5 @@
 use super::{AIHistoryIndexerState, AIHistoryProjectState};
-use crate::normalized::{
-    AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint,
-};
+use crate::normalized::{AIHistoryProjectRequest, AIHistorySnapshot, AIHistorySourceFingerprint};
 use std::sync::{Arc, Mutex};
 
 pub fn current_project_state(

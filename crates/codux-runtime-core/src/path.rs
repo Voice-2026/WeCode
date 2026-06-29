@@ -179,7 +179,11 @@ mod tests {
         let targets: Vec<String> = segments.into_iter().map(|(_, target)| target).collect();
         assert_eq!(
             targets,
-            vec![r"C:\".to_string(), r"C:\Users".to_string(), r"C:\Users\dux".to_string()]
+            vec![
+                r"C:\".to_string(),
+                r"C:\Users".to_string(),
+                r"C:\Users\dux".to_string()
+            ]
         );
     }
 

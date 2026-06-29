@@ -14,9 +14,13 @@ mod control_messages;
 mod iroh_link;
 mod local_memory;
 mod url_rules;
+mod web_tunnel;
 
 pub use iroh_link::{CODUX_REMOTE_ALPN, RemoteIrohControllerTransport, RemoteIrohHostTransport};
 pub use local_memory::{LocalMemoryTransport, LocalMemoryTransportHub};
+pub use web_tunnel::{
+    CODUX_WEB_TUNNEL_ALPN, WebTunnelIoStream, WebTunnelResponse, WebTunnelTcpConnectRequest,
+};
 
 pub use url_rules::{
     DEFAULT_RELAY_SERVER_URL, GLOBAL_IROH_RELAY_SERVER_URL, GLOBAL_RELAY_SERVER_URL,
@@ -35,6 +39,8 @@ pub type RemoteTransportPairingHandler =
 pub type RemoteTransportControlHandler =
     Arc<dyn Fn(String, RemoteEnvelope) -> bool + Send + Sync + 'static>;
 pub type RemoteTransportLogHandler = Arc<dyn Fn(String) + Send + Sync + 'static>;
+pub type WebTunnelTcpConnectHandler =
+    Arc<dyn Fn(WebTunnelTcpConnectRequest) -> Result<(), String> + Send + Sync + 'static>;
 
 #[cfg(target_os = "android")]
 static ANDROID_JNI_CONTEXT_INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -90,6 +96,14 @@ pub trait RemoteTransport: Send + Sync {
     async fn fetch_blob(&self, _ticket: &str) -> Result<Vec<u8>, String> {
         Err("blob transfer is not supported by this transport".to_string())
     }
+    /// Open a transparent TCP stream from the controller-side browser to a
+    /// host-side target using the host's DNS, hosts file, VPN, and LAN view.
+    async fn web_tunnel_tcp_connect(
+        &self,
+        _request: WebTunnelTcpConnectRequest,
+    ) -> Result<Box<dyn WebTunnelIoStream>, String> {
+        Err("web tunnel TCP connect is not supported by this transport".to_string())
+    }
     async fn shutdown(&self);
 }
 
@@ -142,11 +156,18 @@ impl RemoteTransportFactory {
         on_upload: RemoteTransportUploadHandler,
         on_state: RemoteTransportStateHandler,
         on_pairing: RemoteTransportPairingHandler,
+        on_web_tunnel_tcp_connect: Option<WebTunnelTcpConnectHandler>,
         on_log: Option<RemoteTransportLogHandler>,
     ) -> Result<Arc<dyn RemoteTransport>, String> {
         install_rustls_crypto_provider();
         RemoteIrohHostTransport::connect(
-            config, on_message, on_upload, on_state, on_pairing, on_log,
+            config,
+            on_message,
+            on_upload,
+            on_state,
+            on_pairing,
+            on_web_tunnel_tcp_connect,
+            on_log,
         )
         .await
         .map(|transport| transport as Arc<dyn RemoteTransport>)

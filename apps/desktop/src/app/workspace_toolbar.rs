@@ -23,6 +23,11 @@ impl CoduxApp {
         };
         let pet_snapshot = self.pet_snapshot.clone();
         let has_project_context = self.state.selected_project.is_some();
+        let remote_project_device_id = self
+            .state
+            .selected_project
+            .as_ref()
+            .and_then(|project| project.host_device_id.clone());
         let pet_sprite_frame = self.visible_pet_sprite_frame(PET_IDLE_FRAME_COUNT);
         let pet_button = if self.state.settings.pet_enabled {
             if has_project_context {
@@ -94,6 +99,9 @@ impl CoduxApp {
                             &self.state.settings.language,
                             cx,
                         ))
+                        .when_some(remote_project_device_id, |this, device_id| {
+                            this.child(workspace_remote_browser_button(device_id, cx))
+                        })
                         .child(workspace_assistant_button(
                             "AI",
                             AssistantPanel::AIStats,
@@ -129,6 +137,35 @@ impl CoduxApp {
             cx,
         )
     }
+}
+
+fn workspace_remote_browser_button(
+    device_id: String,
+    cx: &mut Context<CoduxApp>,
+) -> impl IntoElement {
+    let app_entity = cx.entity();
+    let tooltip_entity = app_entity.clone();
+
+    let button = Button::new("workspace-open-remote-browser")
+        .compact()
+        .secondary()
+        .h(px(28.0))
+        .w(px(38.0))
+        .cursor_pointer()
+        .text_color(cx.theme().foreground)
+        .on_click(move |_, _window, cx| {
+            cx.update_entity(&app_entity, |app, cx| {
+                app.open_remote_project_browser_session(device_id.clone(), cx);
+            });
+        })
+        .child(Icon::new(HeroIconName::GlobeAlt).size_3p5());
+
+    with_codux_tooltip(
+        tooltip_entity,
+        "workspace-open-remote-browser-tooltip",
+        button,
+        "Open Web Tunnel Browser",
+    )
 }
 
 fn workspace_open_button(

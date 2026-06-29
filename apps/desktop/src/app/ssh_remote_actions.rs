@@ -983,10 +983,8 @@ impl CoduxApp {
     pub(super) fn submit_remote_connect(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let ticket = self.remote_connect_ticket.trim().to_string();
         if ticket.is_empty() {
-            self.remote_connect_error = Some(self.text(
-                "remote.connect.ticket_required",
-                "Paste a pairing ticket.",
-            ));
+            self.remote_connect_error =
+                Some(self.text("remote.connect.ticket_required", "Paste a pairing ticket."));
             self.invalidate_remote_panel(cx);
             return;
         }

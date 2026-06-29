@@ -80,6 +80,7 @@ fn parse_codewhale_history_file(
             output_tokens: 0,
             cached_input_tokens: 0,
             reasoning_output_tokens: 0,
+            usage_amounts: Vec::new(),
         });
     }
     result

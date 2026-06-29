@@ -120,7 +120,7 @@ mod tests {
             device_id: "dev-1".to_string(),
             host_id: "host-1".to_string(),
             host_name: "Studio".to_string(),
-            device_token: String::new(),
+            device_token: "device-token-1".to_string(),
             platform: "macos".to_string(),
             transports: vec![SavedRemoteTransport {
                 kind: "iroh".to_string(),

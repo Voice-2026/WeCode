@@ -1,4 +1,3 @@
-use super::command::hook_command;
 use crate::{ai_runtime::bridge::AIRuntimeToolHookConfigStatus, runtime_paths::app_slug};
 use std::{
     fs,
@@ -25,18 +24,33 @@ pub(in crate::ai_runtime::hooks) fn kimi_config_path_in(home_dir: &Path) -> Path
     home_dir.join(".kimi-code").join("config.toml")
 }
 
-pub(in crate::ai_runtime::hooks) fn install_kimi_hooks_in(
-    home_dir: &Path,
-    managed_hook_script: &Path,
-) -> Result<(), String> {
+/// Strip codux-managed kimi hook blocks, leaving the user's config intact. Never
+/// creates the file if absent and skips the write when nothing changed.
+pub(in crate::ai_runtime::hooks) fn uninstall_kimi_hooks_in(home_dir: &Path) -> Result<(), String> {
     let path = kimi_config_path_in(home_dir);
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    let updated = updated_kimi_config_text(&existing, managed_hook_script);
+    let Ok(existing) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let mut lines = existing
+        .replace("\r\n", "\n")
+        .split('\n')
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    while lines
+        .last()
+        .map(|line| line.trim().is_empty())
+        .unwrap_or(false)
+    {
+        lines.pop();
+    }
+    let cleaned = remove_managed_kimi_hook_blocks(lines);
+    let updated = if cleaned.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", cleaned.join("\n"))
+    };
     if existing == updated {
         return Ok(());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     fs::write(path, updated).map_err(|error| error.to_string())
 }
@@ -57,48 +71,6 @@ pub(in crate::ai_runtime::hooks) fn kimi_hook_config_status_in(
         config_path: path.display().to_string(),
         missing,
     }
-}
-
-fn updated_kimi_config_text(existing_text: &str, managed_hook_script: &Path) -> String {
-    let mut lines = existing_text
-        .replace("\r\n", "\n")
-        .split('\n')
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    while lines
-        .last()
-        .map(|line| line.trim().is_empty())
-        .unwrap_or(false)
-    {
-        lines.pop();
-    }
-
-    lines = remove_managed_kimi_hook_blocks(lines);
-
-    if !lines.is_empty() && !lines.last().unwrap_or(&String::new()).trim().is_empty() {
-        lines.push(String::new());
-    }
-    let owner = app_slug();
-    for (event, action) in KIMI_HOOKS {
-        lines.push("[[hooks]]".to_string());
-        lines.push(format!("event = {}", toml_string(event)));
-        lines.push("matcher = \"*\"".to_string());
-        lines.push(format!(
-            "command = {}",
-            toml_string(&hook_command(managed_hook_script, action, owner, "kimi"))
-        ));
-        lines.push("timeout = 5".to_string());
-        lines.push(String::new());
-    }
-
-    while lines
-        .last()
-        .map(|line| line.trim().is_empty())
-        .unwrap_or(false)
-    {
-        lines.pop();
-    }
-    format!("{}\n", lines.join("\n"))
 }
 
 fn remove_managed_kimi_hook_blocks(lines: Vec<String>) -> Vec<String> {
@@ -179,18 +151,19 @@ fn array_table_end(lines: &[String], start: usize) -> usize {
     index
 }
 
-fn toml_string(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use uuid::Uuid;
 
     #[test]
-    fn kimi_config_preserves_user_hooks_and_replaces_managed_hooks() {
-        let existing = r#"
+    fn uninstall_kimi_strips_managed_hooks_and_keeps_user_config() {
+        let home = std::env::temp_dir().join(format!("codux-kimi-{}", Uuid::new_v4()));
+        let path = kimi_config_path_in(&home);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"
 model = "kimi-k2"
 
 [[hooks]]
@@ -202,36 +175,23 @@ command = "echo custom"
 name = "codux-kimi-prompt-submit"
 event = "UserPromptSubmit"
 command = "'/old/dmux-ai-state.sh' 'prompt-submit' 'codux' 'kimi'"
-"#;
-        let updated = updated_kimi_config_text(existing, Path::new("/tmp/dmux-ai-state.sh"));
+"#,
+        )
+        .unwrap();
 
+        uninstall_kimi_hooks_in(&home).unwrap();
+
+        let updated = fs::read_to_string(&path).unwrap();
+        // The user's model and their own hook survive; the codux-managed block is
+        // removed.
         assert!(updated.contains("model = \"kimi-k2\""));
         assert!(updated.contains("command = \"echo custom\""));
         assert!(!updated.contains("/old/dmux-ai-state.sh"));
-        assert!(updated.contains("matcher = \"*\""));
-        assert!(updated.contains("event = \"SessionStart\""));
-        assert!(updated.contains("event = \"UserPromptSubmit\""));
-        assert!(updated.contains("event = \"SessionEnd\""));
-        assert!(has_kimi_managed_hook(
+        assert!(!has_kimi_managed_hook(
             &updated,
             "UserPromptSubmit",
             "prompt-submit"
         ));
-    }
-
-    #[test]
-    fn install_kimi_hooks_reports_real_status() {
-        let home = std::env::temp_dir().join(format!("codux-kimi-{}", Uuid::new_v4()));
-        fs::create_dir_all(&home).unwrap();
-
-        let before = kimi_hook_config_status_in(&home);
-        assert!(!before.configured);
-
-        install_kimi_hooks_in(&home, Path::new("/tmp/dmux-ai-state.sh")).unwrap();
-        let after = kimi_hook_config_status_in(&home);
-        assert!(after.configured);
-        assert!(after.missing.is_empty());
-
         fs::remove_dir_all(home).unwrap();
     }
 }

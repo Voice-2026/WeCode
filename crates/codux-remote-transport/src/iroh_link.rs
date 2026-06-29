@@ -2,7 +2,12 @@ use crate::{
     RemoteControllerTransportConfig, RemoteHostTransportConfig, RemoteTransport,
     RemoteTransportCandidate, RemoteTransportLogHandler, RemoteTransportMessageHandler,
     RemoteTransportPairingHandler, RemoteTransportStateHandler, RemoteTransportUpload,
-    RemoteTransportUploadHandler,
+    RemoteTransportUploadHandler, WebTunnelIoStream, WebTunnelResponse, WebTunnelTcpConnectHandler,
+    WebTunnelTcpConnectRequest,
+    web_tunnel::{
+        CODUX_WEB_TUNNEL_ALPN, WEB_TUNNEL_KIND_TCP_CONNECT, WebTunnelHeader,
+        WebTunnelRequestEnvelope, WebTunnelResponseEnvelope,
+    },
 };
 use async_trait::async_trait;
 use codux_protocol::{REMOTE_TERMINAL_UPLOAD_BLOB, RemoteEnvelope, RemoteTransportKind};
@@ -17,11 +22,15 @@ use iroh_mdns_address_lookup::MdnsAddressLookup;
 use iroh_tickets::endpoint::EndpointTicket;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::io;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
 pub const CODUX_REMOTE_ALPN: &[u8] = b"/codux/remote/1";
@@ -70,6 +79,7 @@ pub struct RemoteIrohHostTransport {
     on_upload: RemoteTransportUploadHandler,
     on_state: RemoteTransportStateHandler,
     on_pairing: RemoteTransportPairingHandler,
+    on_web_tunnel_tcp_connect: Option<WebTunnelTcpConnectHandler>,
     on_log: Option<RemoteTransportLogHandler>,
     /// The iroh `Router` driving our accept loop. Stored so it stays alive (it
     /// aborts on drop); set once right after construction.
@@ -84,10 +94,27 @@ struct CoduxRemoteProtocol {
     transport: Weak<RemoteIrohHostTransport>,
 }
 
+/// Separate ALPN used for host-browser web proxy traffic. Browser requests are
+/// intentionally isolated from the control/terminal ALPN so large pages cannot
+/// block regular remote-control messages.
+#[derive(Debug, Clone)]
+struct CoduxWebTunnelProtocol {
+    transport: Weak<RemoteIrohHostTransport>,
+}
+
 impl ProtocolHandler for CoduxRemoteProtocol {
     async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
         if let Some(transport) = self.transport.upgrade() {
             transport.handle_connection(connection).await;
+        }
+        Ok(())
+    }
+}
+
+impl ProtocolHandler for CoduxWebTunnelProtocol {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        if let Some(transport) = self.transport.upgrade() {
+            transport.handle_web_tunnel_connection(connection).await;
         }
         Ok(())
     }
@@ -100,6 +127,7 @@ impl RemoteIrohHostTransport {
         on_upload: RemoteTransportUploadHandler,
         on_state: RemoteTransportStateHandler,
         on_pairing: RemoteTransportPairingHandler,
+        on_web_tunnel_tcp_connect: Option<WebTunnelTcpConnectHandler>,
         on_log: Option<RemoteTransportLogHandler>,
     ) -> Result<Arc<Self>, String> {
         let configured_relay_url = iroh_relay_url(config)?;
@@ -109,7 +137,11 @@ impl RemoteIrohHostTransport {
             &relay_authentication,
             host_secret_key(config).as_ref(),
         )
-        .alpns(vec![CODUX_REMOTE_ALPN.to_vec(), iroh_blobs::ALPN.to_vec()])
+        .alpns(vec![
+            CODUX_REMOTE_ALPN.to_vec(),
+            CODUX_WEB_TUNNEL_ALPN.to_vec(),
+            iroh_blobs::ALPN.to_vec(),
+        ])
         .bind()
         .await
         .map_err(|error| format!("iroh host bind failed: {error}"))?;
@@ -140,6 +172,7 @@ impl RemoteIrohHostTransport {
             on_upload,
             on_state,
             on_pairing,
+            on_web_tunnel_tcp_connect,
             on_log,
             router: OnceLock::new(),
         });
@@ -153,6 +186,12 @@ impl RemoteIrohHostTransport {
             .accept(
                 CODUX_REMOTE_ALPN,
                 CoduxRemoteProtocol {
+                    transport: Arc::downgrade(&transport),
+                },
+            )
+            .accept(
+                CODUX_WEB_TUNNEL_ALPN,
+                CoduxWebTunnelProtocol {
                     transport: Arc::downgrade(&transport),
                 },
             )
@@ -248,6 +287,90 @@ impl RemoteIrohHostTransport {
         }
         self.remove_peer_aliases(&peer_senders);
         (self.on_state)(peer_key, "closed".to_string());
+    }
+
+    async fn handle_web_tunnel_connection(self: Arc<Self>, connection: Connection) {
+        let peer_key = connection.remote_id().to_string();
+        loop {
+            let (send, recv) = match connection.accept_bi().await {
+                Ok(streams) => streams,
+                Err(error) => {
+                    self.log(format!(
+                        "iroh_web_tunnel_accept_stream failed peer={peer_key} error={error}"
+                    ));
+                    break;
+                }
+            };
+            let transport = Arc::clone(&self);
+            let peer = peer_key.clone();
+            tokio::spawn(async move {
+                if let Err(error) = transport.handle_web_tunnel_stream(send, recv).await {
+                    transport.log(format!(
+                        "iroh_web_tunnel_stream failed peer={peer} error={error}"
+                    ));
+                }
+            });
+        }
+    }
+
+    async fn handle_web_tunnel_stream(
+        &self,
+        mut send: SendStream,
+        mut recv: RecvStream,
+    ) -> Result<(), String> {
+        let Some(header) = read_frame(&mut recv).await? else {
+            return Err("missing web tunnel request header".to_string());
+        };
+        let envelope: WebTunnelRequestEnvelope =
+            serde_json::from_slice(&header).map_err(|error| error.to_string())?;
+        if envelope.kind != WEB_TUNNEL_KIND_TCP_CONNECT {
+            return Err("unsupported web tunnel request kind".to_string());
+        }
+        let target_host = envelope.target_host;
+        let target_port = envelope.target_port;
+        let Some(handler) = self.on_web_tunnel_tcp_connect.as_ref() else {
+            write_web_tunnel_response(
+                &mut send,
+                WebTunnelResponse::error(503, "web tunnel is not enabled on this host"),
+            )
+            .await?;
+            return Ok(());
+        };
+        if let Err(error) = handler(WebTunnelTcpConnectRequest {
+            device_id: envelope.device_id,
+            device_token: envelope.device_token,
+            host: target_host.clone(),
+            port: target_port,
+        }) {
+            write_web_tunnel_response(&mut send, WebTunnelResponse::error(401, error)).await?;
+            return Ok(());
+        }
+        let host_stream =
+            match tokio::net::TcpStream::connect((target_host.as_str(), target_port)).await {
+                Ok(stream) => stream,
+                Err(error) => {
+                    write_web_tunnel_response(
+                        &mut send,
+                        WebTunnelResponse::error(502, error.to_string()),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            };
+        write_web_tunnel_response(
+            &mut send,
+            WebTunnelResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: Vec::new(),
+                error: None,
+            },
+        )
+        .await?;
+        let _ = relay_bidirectional(TunnelStream { recv, send }, host_stream)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn spawn_peer_reader(
@@ -514,7 +637,10 @@ async fn acquire_controller_endpoint(
     }
     let online_started = std::time::Instant::now();
     let endpoint = endpoint_builder(relay_url, relay_authentication, None)
-        .alpns(vec![iroh_blobs::ALPN.to_vec()])
+        .alpns(vec![
+            CODUX_WEB_TUNNEL_ALPN.to_vec(),
+            iroh_blobs::ALPN.to_vec(),
+        ])
         .bind()
         .await
         .map_err(|error| format!("iroh controller bind failed: {error}"))?;
@@ -541,7 +667,10 @@ async fn acquire_controller_endpoint(
     // loops racing on the shared endpoint.
     let blob_store = MemStore::new();
     let router = Router::builder(endpoint.clone())
-        .accept(iroh_blobs::ALPN, BlobsProtocol::new(blob_store.as_ref(), None))
+        .accept(
+            iroh_blobs::ALPN,
+            BlobsProtocol::new(blob_store.as_ref(), None),
+        )
         .spawn();
     let generation = SHARED_CONTROLLER_ENDPOINT_GENERATION.fetch_add(1, Ordering::Relaxed);
     *guard = Some(SharedControllerEndpoint {
@@ -742,6 +871,20 @@ impl RemoteIrohControllerTransport {
             *connection = None;
         }
     }
+
+    async fn open_web_tunnel_connection(&self) -> Result<Connection, String> {
+        let Some(remote_id) =
+            self.connection.lock().ok().and_then(|connection| {
+                connection.as_ref().map(|connection| connection.remote_id())
+            })
+        else {
+            return Err("iroh controller is not connected".to_string());
+        };
+        self.endpoint
+            .connect(remote_id, CODUX_WEB_TUNNEL_ALPN)
+            .await
+            .map_err(|error| format!("iroh web tunnel connect failed: {error}"))
+    }
 }
 
 #[async_trait]
@@ -794,6 +937,37 @@ impl RemoteTransport for RemoteIrohControllerTransport {
         fetch_blob_bytes(&self.blob_store, &self.endpoint, ticket).await
     }
 
+    async fn web_tunnel_tcp_connect(
+        &self,
+        request: WebTunnelTcpConnectRequest,
+    ) -> Result<Box<dyn WebTunnelIoStream>, String> {
+        let connection = self.open_web_tunnel_connection().await?;
+        let (mut send, mut recv) = connection
+            .open_bi()
+            .await
+            .map_err(|error| format!("iroh web tunnel open stream failed: {error}"))?;
+        let envelope = WebTunnelRequestEnvelope {
+            kind: WEB_TUNNEL_KIND_TCP_CONNECT.to_string(),
+            device_id: request.device_id,
+            device_token: request.device_token,
+            target_host: request.host,
+            target_port: request.port,
+        };
+        let header = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
+        write_frame(&mut send, &header).await?;
+        let Some(response_header) = read_frame(&mut recv).await? else {
+            return Err("missing web tunnel connect response header".to_string());
+        };
+        let response: WebTunnelResponseEnvelope =
+            serde_json::from_slice(&response_header).map_err(|error| error.to_string())?;
+        if !(200..300).contains(&response.status) {
+            return Err(response
+                .error
+                .unwrap_or_else(|| format!("web tunnel connect failed: {}", response.status)));
+        }
+        Ok(Box::new(TunnelStream { recv, send }))
+    }
+
     async fn shutdown(&self) {
         // Do NOT close the endpoint: it is process-shared (see
         // acquire_controller_endpoint), so closing it here would kill every other
@@ -801,6 +975,47 @@ impl RemoteTransport for RemoteIrohControllerTransport {
         // connection (close_sender) is enough; the pool keeps the endpoint warm.
         self.close_sender();
     }
+}
+
+struct TunnelStream {
+    recv: RecvStream,
+    send: SendStream,
+}
+
+impl AsyncRead for TunnelStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.recv).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for TunnelStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        AsyncWrite::poll_write(Pin::new(&mut self.send), cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncWrite::poll_flush(Pin::new(&mut self.send), cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        AsyncWrite::poll_shutdown(Pin::new(&mut self.send), cx)
+    }
+}
+
+async fn relay_bidirectional<A, B>(mut left: A, mut right: B) -> io::Result<(u64, u64)>
+where
+    A: AsyncRead + AsyncWrite + Unpin,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    tokio::io::copy_bidirectional(&mut left, &mut right).await
 }
 
 fn log_transport(on_log: &Option<RemoteTransportLogHandler>, message: String) {
@@ -854,6 +1069,28 @@ pub(crate) async fn read_frame(recv: &mut RecvStream) -> Result<Option<Vec<u8>>,
         .await
         .map_err(|error| error.to_string())?;
     Ok(Some(buf))
+}
+
+async fn write_web_tunnel_response(
+    send: &mut SendStream,
+    response: WebTunnelResponse,
+) -> Result<(), String> {
+    let envelope = WebTunnelResponseEnvelope {
+        status: response.status,
+        headers: response
+            .headers
+            .into_iter()
+            .map(WebTunnelHeader::from)
+            .collect(),
+        body_len: response.body.len() as u64,
+        error: response.error,
+    };
+    let header = serde_json::to_vec(&envelope).map_err(|error| error.to_string())?;
+    write_frame(send, &header).await?;
+    if !response.body.is_empty() {
+        write_frame(send, &response.body).await?;
+    }
+    Ok(())
 }
 
 async fn read_loop(

@@ -266,7 +266,6 @@ class TerminalInfo {
     required this.id,
     required this.title,
     required this.projectId,
-    this.layoutKind = 'split',
     this.worktreeId,
     this.layoutOrder,
     this.cols,
@@ -278,7 +277,6 @@ class TerminalInfo {
   final String id;
   final String title;
   final String projectId;
-  final String layoutKind;
   final String? worktreeId;
   final int? layoutOrder;
   final int? cols;
@@ -291,7 +289,6 @@ class TerminalInfo {
     id: '${json['id'] ?? ''}',
     title: '${json['title'] ?? 'Terminal'}',
     projectId: '${json['projectId'] ?? ''}',
-    layoutKind: '${json['layoutKind'] ?? 'split'}',
     worktreeId: json['worktreeId']?.toString(),
     layoutOrder: json['layoutOrder'] is num
         ? (json['layoutOrder'] as num).toInt()

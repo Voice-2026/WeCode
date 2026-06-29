@@ -263,7 +263,6 @@ impl DisplayCursor {
 }
 
 fn terminal_cell_hash(cell: &TerminalScreenCellSnapshot, hasher: &mut DefaultHasher) {
-    cell.row.hash(hasher);
     cell.col.hash(hasher);
     cell.text.hash(hasher);
     cell.width.hash(hasher);

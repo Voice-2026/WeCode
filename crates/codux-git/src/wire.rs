@@ -147,10 +147,12 @@ pub fn read(repo: &str, op: &str, args: &Value) -> Result<Value, String> {
         "diff" => GitService::file_diff(path, s("filePath")).map(|diff| json!({ "diff": diff })),
         "review_diff" => GitService::review_file_diff(path, s("filePath"), base().as_deref())
             .map(|diff| json!({ "diff": diff })),
-        "review_file_content" => {
-            serde_json::to_value(GitService::review_file_content(path, s("filePath"), base().as_deref()))
-                .map_err(|error| error.to_string())
-        }
+        "review_file_content" => serde_json::to_value(GitService::review_file_content(
+            path,
+            s("filePath"),
+            base().as_deref(),
+        ))
+        .map_err(|error| error.to_string()),
         "path_status" => GitService::path_status(path, s("directoryPath"))
             .and_then(|entries| serde_json::to_value(entries).map_err(|error| error.to_string()))
             .map(|entries| json!({ "entries": entries })),

@@ -1,20 +1,3 @@
-pub(super) fn toml_section_end(lines: &[String], start: usize) -> usize {
-    let mut index = start + 1;
-    while index < lines.len() && !is_toml_table_header(&lines[index]) {
-        index += 1;
-    }
-    index
-}
-
-pub(super) fn toml_key_name(line: &str) -> Option<String> {
-    let trimmed = normalized_line(line);
-    if trimmed.is_empty() || trimmed.starts_with('#') {
-        return None;
-    }
-    let (key, _) = trimmed.split_once('=')?;
-    Some(key.trim().to_string())
-}
-
 pub(super) fn codex_hook_state_key(line: &str) -> Option<String> {
     let trimmed = normalized_line(line);
     let raw = trimmed
@@ -61,24 +44,4 @@ pub(super) fn is_toml_table_header(line: &str) -> bool {
 
 pub(super) fn normalized_line(line: &str) -> String {
     line.trim().to_string()
-}
-
-pub(super) fn toml_quoted_string(value: &str) -> String {
-    let mut output = String::from("\"");
-    for character in value.chars() {
-        match character {
-            '"' => output.push_str("\\\""),
-            '\\' => output.push_str("\\\\"),
-            '\n' => output.push_str("\\n"),
-            '\r' => output.push_str("\\r"),
-            '\t' => output.push_str("\\t"),
-            _ => output.push(character),
-        }
-    }
-    output.push('"');
-    output
-}
-
-pub(super) fn json_string_literal(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
 }

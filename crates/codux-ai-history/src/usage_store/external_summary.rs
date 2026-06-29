@@ -2,6 +2,7 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
         DROP TABLE IF EXISTS ai_history_file_usage_bucket;
+        DROP TABLE IF EXISTS ai_history_file_usage_amount;
         DROP TABLE IF EXISTS ai_history_file_session_link;
         DROP TABLE IF EXISTS ai_history_file_time_bucket;
         DROP TABLE IF EXISTS ai_history_file_day_usage;
@@ -99,6 +100,7 @@ fn external_file_summary_from_parsed(
         bucket.output_tokens += entry.output_tokens;
         bucket.total_tokens += entry.total_tokens();
         bucket.cached_input_tokens += entry.cached_input_tokens;
+        merge_usage_amounts(&mut bucket.usage_amounts, &entry.usage_amounts);
     }
 
     for event in &parsed.events {

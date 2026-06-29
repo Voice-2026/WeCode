@@ -3,6 +3,7 @@ use codux_remote_transport::{
     RemoteControllerTransportConfig, RemoteHostTransportConfig, RemoteTransport,
     RemoteTransportFactory as SharedTransportFactory, RemoteTransportMessageHandler,
     RemoteTransportPairingHandler, RemoteTransportStateHandler, RemoteTransportUploadHandler,
+    WebTunnelTcpConnectHandler,
 };
 use std::sync::Arc;
 
@@ -33,6 +34,7 @@ impl RemoteTransportFactory {
         on_upload: RemoteTransportUploadHandler,
         on_state: RemoteTransportStateHandler,
         on_pairing: RemoteTransportPairingHandler,
+        on_web_tunnel_tcp_connect: Option<WebTunnelTcpConnectHandler>,
     ) -> Result<Arc<dyn RemoteTransport>, String> {
         SharedTransportFactory::connect_host(
             &host_transport_config(settings),
@@ -40,6 +42,7 @@ impl RemoteTransportFactory {
             on_upload,
             on_state,
             on_pairing,
+            on_web_tunnel_tcp_connect,
             Some(Arc::new(|message| {
                 crate::runtime_trace::runtime_trace("remote", &message);
             })),

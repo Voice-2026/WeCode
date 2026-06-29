@@ -1,4 +1,8 @@
 use crate::ai_runtime::{
+    binding::{
+        AIRuntimeBindingFileEvent, AIRuntimeBindingScanState, read_changed_runtime_binding,
+        runtime_file_signature, scan_runtime_bindings,
+    },
     constants::{POLL_INTERVAL_SECONDS, TRANSCRIPT_MONITOR_INTERVAL_MS},
     event_file::drain_runtime_event_dir,
     frame::runtime_frame_to_hook,
@@ -7,9 +11,12 @@ use crate::ai_runtime::{
     payload::AIRuntimeEvent,
     probe::probe_runtime,
     registry::AIRuntimeRegistry,
+    screen_signal::detect_screen_signal,
     snapshot::{AIRuntimeCompletionEvent, AIRuntimeStateSnapshot},
+    state::canonical_tool_name,
     store::{AIRuntimeStateMutation, AIRuntimeStateStore},
     store::{probe_request_for_session, should_poll_runtime_session},
+    tool_driver::{runtime_screen_patterns, screen_starts_idle_tool},
 };
 use serde::Serialize;
 use std::{
@@ -27,6 +34,9 @@ enum AIRuntimeSupervisorMessage {
     HookFrame(Vec<u8>),
     DrainEventDir,
     Poll,
+    ScreenSignal(String),
+    ScanBindings,
+    ScanBindingFile(AIRuntimeBindingFileEvent),
     TranscriptTail(Vec<String>),
 }
 
@@ -49,6 +59,7 @@ pub struct AIRuntimeSupervisor {
     rx: Mutex<Option<Receiver<AIRuntimeSupervisorMessage>>>,
     state: Arc<AIRuntimeStateStore>,
     transcript_monitors: TranscriptMonitorMap,
+    binding_scan: Arc<Mutex<AIRuntimeBindingScanState>>,
     events: Arc<Mutex<Vec<AIRuntimeSupervisorEvent>>>,
 }
 
@@ -60,6 +71,7 @@ impl AIRuntimeSupervisor {
             rx: Mutex::new(Some(rx)),
             state: Arc::new(AIRuntimeStateStore::default()),
             transcript_monitors: Arc::new(Mutex::new(Default::default())),
+            binding_scan: Arc::new(Mutex::new(Default::default())),
             events: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -68,6 +80,7 @@ impl AIRuntimeSupervisor {
         &self,
         registry: Arc<AIRuntimeRegistry>,
         runtime_event_dir: PathBuf,
+        binding_dir: PathBuf,
     ) -> Result<(), String> {
         let mut receiver = self
             .rx
@@ -79,8 +92,11 @@ impl AIRuntimeSupervisor {
         start_poll_loop(self.tx.clone());
         start_transcript_monitor_loop(self.tx.clone(), Arc::clone(&self.transcript_monitors));
         start_event_dir_watcher(self.tx.clone(), runtime_event_dir.clone());
+        start_binding_dir_watcher(self.tx.clone(), binding_dir.clone());
+        let _ = self.tx.try_send(AIRuntimeSupervisorMessage::ScanBindings);
         let state = Arc::clone(&self.state);
         let transcript_monitors = Arc::clone(&self.transcript_monitors);
+        let binding_scan = Arc::clone(&self.binding_scan);
         let events = Arc::clone(&self.events);
         thread::Builder::new()
             .name("codux-ai-runtime-supervisor".to_string())
@@ -90,8 +106,10 @@ impl AIRuntimeSupervisor {
                     registry,
                     state,
                     transcript_monitors,
+                    binding_scan,
                     events,
                     runtime_event_dir,
+                    binding_dir,
                 )
             })
             .map_err(|error| error.to_string())?;
@@ -126,6 +144,14 @@ impl AIRuntimeSupervisor {
         self.state.note_output_activity(terminal_id, now)
     }
 
+    pub fn refresh_screen_signal(&self, terminal_id: &str) -> bool {
+        self.tx
+            .try_send(AIRuntimeSupervisorMessage::ScreenSignal(
+                terminal_id.to_string(),
+            ))
+            .is_ok()
+    }
+
     pub fn drain_events(&self) -> Vec<AIRuntimeSupervisorEvent> {
         self.events
             .lock()
@@ -145,8 +171,10 @@ fn supervisor_loop(
     registry: Arc<AIRuntimeRegistry>,
     state: Arc<AIRuntimeStateStore>,
     transcript_monitors: TranscriptMonitorMap,
+    binding_scan: Arc<Mutex<AIRuntimeBindingScanState>>,
     events: Arc<Mutex<Vec<AIRuntimeSupervisorEvent>>>,
     runtime_event_dir: PathBuf,
+    binding_dir: PathBuf,
 ) {
     while let Ok(message) = rx.recv() {
         match message {
@@ -161,8 +189,20 @@ fn supervisor_loop(
                     handle_hook_frame(&frame, &state, &transcript_monitors, &events);
                 }
             }
+            AIRuntimeSupervisorMessage::ScanBindings => {
+                let mutation = handle_binding_scan(&state, &binding_scan, &binding_dir);
+                after_mutation(&state, &transcript_monitors, &events, mutation);
+            }
+            AIRuntimeSupervisorMessage::ScanBindingFile(file_event) => {
+                let mutation = handle_binding_file_event(&state, &binding_scan, file_event);
+                after_mutation(&state, &transcript_monitors, &events, mutation);
+            }
             AIRuntimeSupervisorMessage::Poll => {
                 let mutation = poll_runtime_sessions(&state, &registry, "interval", None);
+                after_mutation(&state, &transcript_monitors, &events, mutation);
+            }
+            AIRuntimeSupervisorMessage::ScreenSignal(terminal_id) => {
+                let mutation = apply_screen_signal_for_terminal(&state, &registry, &terminal_id);
                 after_mutation(&state, &transcript_monitors, &events, mutation);
             }
             AIRuntimeSupervisorMessage::TranscriptTail(terminal_ids) => {
@@ -182,6 +222,58 @@ fn supervisor_loop(
     }
 }
 
+fn handle_binding_scan(
+    state: &AIRuntimeStateStore,
+    binding_scan: &Arc<Mutex<AIRuntimeBindingScanState>>,
+    binding_dir: &PathBuf,
+) -> AIRuntimeStateMutation {
+    let events = binding_scan
+        .lock()
+        .map(|mut scan| scan_runtime_bindings(binding_dir, &mut scan))
+        .unwrap_or_default();
+    let mut mutation = AIRuntimeStateMutation::default();
+    for event in events {
+        runtime_log_line(
+            "runtime-binding",
+            &format!(
+                "event path={} tool={} terminal={} size={} modified={}",
+                event.path.display(),
+                event.binding.tool,
+                event.binding.terminal_id,
+                event.size,
+                event.modified_millis
+            ),
+        );
+        mutation.merge(state.apply_binding(event.binding));
+    }
+    mutation
+}
+
+fn handle_binding_file_event(
+    state: &AIRuntimeStateStore,
+    binding_scan: &Arc<Mutex<AIRuntimeBindingScanState>>,
+    file_event: AIRuntimeBindingFileEvent,
+) -> AIRuntimeStateMutation {
+    let event = binding_scan.lock().ok().and_then(|mut scan| {
+        read_changed_runtime_binding(file_event.path, file_event.signature, &mut scan)
+    });
+    let Some(event) = event else {
+        return AIRuntimeStateMutation::default();
+    };
+    runtime_log_line(
+        "runtime-binding",
+        &format!(
+            "event path={} tool={} terminal={} size={} modified={}",
+            event.path.display(),
+            event.binding.tool,
+            event.binding.terminal_id,
+            event.size,
+            event.modified_millis
+        ),
+    );
+    state.apply_binding(event.binding)
+}
+
 fn handle_hook_frame(
     frame: &[u8],
     state: &AIRuntimeStateStore,
@@ -195,6 +287,16 @@ fn handle_hook_frame(
         );
         return;
     };
+    if canonical_tool_name(&payload.tool).as_deref() == Some("agy") {
+        runtime_log_line(
+            "runtime-ingress",
+            &format!(
+                "drop hook-frame reason=agy-db-only kind={} terminal={} project={}",
+                payload.kind, payload.terminal_id, payload.project_id
+            ),
+        );
+        return;
+    }
     runtime_log_line(
         "runtime-ingress",
         &format!(
@@ -253,6 +355,21 @@ fn poll_runtime_sessions(
     let terminal_snapshot = registry.snapshot();
     let mut mutation = state.reconcile_bridge_snapshot(&terminal_snapshot);
     let now = now_seconds();
+    // Interval poll only (keeps `ps` to once per interval): detect each terminal's AI tool and create an idle session the loop below refines.
+    if terminal_ids.is_none() && detection_enabled() {
+        let shell_pids = registry.shell_pids_snapshot();
+        if let Some(detected) =
+            crate::ai_runtime::process_detect::detect_terminal_tools(&shell_pids)
+        {
+            mutation.merge(state.ensure_detected_sessions(&terminal_snapshot, &detected, now));
+            mutation.merge(state.retire_undetected_hookless_sessions(
+                &terminal_snapshot,
+                &shell_pids,
+                &detected,
+                now,
+            ));
+        }
+    }
     let sessions = terminal_ids
         .map(|ids| state.sessions_for_terminals(ids))
         .unwrap_or_else(|| state.runtime_tracked_sessions(now));
@@ -264,8 +381,41 @@ fn poll_runtime_sessions(
         if let Some(snapshot) = probe_runtime(&request) {
             mutation.merge(state.apply_runtime_snapshot(&session.terminal_id, snapshot));
         }
+        // Universal hook-free screen detection. Most tools only need this while
+        // active (responding/needsInput). Kiro and CodeWhale also need it while
+        // freshly idle: their persisted state can lag live generation, so the
+        // rendered busy footer is the live-start signal.
+        if matches!(session.state.as_str(), "responding" | "needsInput")
+            || screen_starts_idle_tool(&session.tool)
+        {
+            mutation.merge(apply_screen_signal_for_session(state, registry, &session));
+        }
     }
     mutation
+}
+
+fn apply_screen_signal_for_terminal(
+    state: &AIRuntimeStateStore,
+    registry: &AIRuntimeRegistry,
+    terminal_id: &str,
+) -> AIRuntimeStateMutation {
+    let sessions = state.sessions_for_terminals(&HashSet::from([terminal_id.to_string()]));
+    let Some(session) = sessions.first() else {
+        return AIRuntimeStateMutation::default();
+    };
+    apply_screen_signal_for_session(state, registry, session)
+}
+
+fn apply_screen_signal_for_session(
+    state: &AIRuntimeStateStore,
+    registry: &AIRuntimeRegistry,
+    session: &crate::ai_runtime::AISessionSnapshot,
+) -> AIRuntimeStateMutation {
+    let signal = registry
+        .screen_text(&session.terminal_id)
+        .map(|text| detect_screen_signal(&text, &runtime_screen_patterns(&session.tool)))
+        .unwrap_or(crate::ai_runtime::screen_signal::ScreenSignal::Unknown);
+    state.apply_screen_signal(&session.terminal_id, signal)
 }
 
 fn start_poll_loop(tx: SyncSender<AIRuntimeSupervisorMessage>) {
@@ -340,8 +490,8 @@ fn start_event_dir_watcher(tx: SyncSender<AIRuntimeSupervisorMessage>, runtime_e
             }
 
             let nudge_tx = tx.clone();
-            let mut watcher = match notify::recommended_watcher(
-                move |result: notify::Result<notify::Event>| {
+            let mut watcher =
+                match notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
                     let Ok(event) = result else {
                         return;
                     };
@@ -350,17 +500,16 @@ fn start_event_dir_watcher(tx: SyncSender<AIRuntimeSupervisorMessage>, runtime_e
                         // this nudge is harmless — the queued drain covers it.
                         let _ = nudge_tx.try_send(AIRuntimeSupervisorMessage::DrainEventDir);
                     }
-                },
-            ) {
-                Ok(watcher) => watcher,
-                Err(error) => {
-                    runtime_log_line(
-                        "runtime-ingress",
-                        &format!("event-watcher init failed error={error}"),
-                    );
-                    return;
-                }
-            };
+                }) {
+                    Ok(watcher) => watcher,
+                    Err(error) => {
+                        runtime_log_line(
+                            "runtime-ingress",
+                            &format!("event-watcher init failed error={error}"),
+                        );
+                        return;
+                    }
+                };
 
             if let Err(error) = watcher.watch(&runtime_event_dir, RecursiveMode::NonRecursive) {
                 runtime_log_line(
@@ -383,10 +532,83 @@ fn start_event_dir_watcher(tx: SyncSender<AIRuntimeSupervisorMessage>, runtime_e
         });
 }
 
+fn start_binding_dir_watcher(tx: SyncSender<AIRuntimeSupervisorMessage>, binding_dir: PathBuf) {
+    let _ = thread::Builder::new()
+        .name("codux-ai-runtime-binding-watcher".to_string())
+        .spawn(move || {
+            use notify::{EventKind, RecursiveMode, Watcher};
+
+            if let Err(error) = std::fs::create_dir_all(&binding_dir) {
+                runtime_log_line(
+                    "runtime-binding",
+                    &format!("watcher create-dir failed error={error}"),
+                );
+                return;
+            }
+
+            let nudge_tx = tx.clone();
+            let mut watcher =
+                match notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+                    let Ok(event) = result else {
+                        return;
+                    };
+                    if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
+                        for path in event.paths {
+                            let Some(signature) = runtime_file_signature(&path) else {
+                                continue;
+                            };
+                            let _ = nudge_tx.try_send(AIRuntimeSupervisorMessage::ScanBindingFile(
+                                AIRuntimeBindingFileEvent { path, signature },
+                            ));
+                        }
+                    }
+                }) {
+                    Ok(watcher) => watcher,
+                    Err(error) => {
+                        runtime_log_line(
+                            "runtime-binding",
+                            &format!("watcher init failed error={error}"),
+                        );
+                        return;
+                    }
+                };
+
+            if let Err(error) = watcher.watch(&binding_dir, RecursiveMode::NonRecursive) {
+                runtime_log_line(
+                    "runtime-binding",
+                    &format!("watcher watch failed error={error}"),
+                );
+                return;
+            }
+            runtime_log_line(
+                "runtime-binding",
+                &format!("watcher active dir={}", binding_dir.display()),
+            );
+
+            let _ = tx.send(AIRuntimeSupervisorMessage::ScanBindings);
+            loop {
+                thread::park();
+            }
+        });
+}
+
 fn push_event(events: &Arc<Mutex<Vec<AIRuntimeSupervisorEvent>>>, event: AIRuntimeSupervisorEvent) {
     if let Ok(mut events) = events.lock() {
         events.push(event);
     }
+}
+
+// Process-tree detection is the hook-free bootstrap path: it creates the live
+// terminal session that file probes then refine. It must be on by default, or a
+// plain `codex` launched in a terminal has no current-session/loading state.
+// Keep an explicit off switch for emergency diagnostics.
+fn detection_enabled() -> bool {
+    !std::env::var("CODUX_AI_RUNTIME_DETECT").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no"
+        )
+    })
 }
 
 fn now_seconds() -> f64 {
@@ -405,8 +627,9 @@ mod tests {
         let supervisor = AIRuntimeSupervisor::new();
         let registry = AIRuntimeRegistry::shared();
         let dir = std::env::temp_dir().join(format!("codux-supervisor-{}", uuid::Uuid::new_v4()));
+        let binding_dir = dir.join("bindings");
         supervisor
-            .start(Arc::clone(&registry), dir.clone())
+            .start(Arc::clone(&registry), dir.clone(), binding_dir)
             .unwrap();
         supervisor
             .submit_frame(
@@ -432,6 +655,30 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_ignores_legacy_agy_hook_frames() {
+        let supervisor = AIRuntimeSupervisor::new();
+        let registry = AIRuntimeRegistry::shared();
+        let dir =
+            std::env::temp_dir().join(format!("codux-supervisor-agy-{}", uuid::Uuid::new_v4()));
+        let binding_dir = dir.join("bindings");
+        supervisor
+            .start(Arc::clone(&registry), dir.clone(), binding_dir)
+            .unwrap();
+        supervisor
+            .submit_frame(
+                br#"{"kind":"ai-hook","payload":{"kind":"promptSubmitted","terminalID":"term-agy","projectID":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Agy","tool":"agy","updatedAt":10}}"#
+                    .to_vec(),
+            )
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        let snapshot = supervisor.state_snapshot();
+        assert!(snapshot.sessions.is_empty());
+        assert!(supervisor.drain_events().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn supervisor_drains_claude_hook_event_files() {
         let supervisor = AIRuntimeSupervisor::new();
         let registry = Arc::new(AIRuntimeRegistry::default());
@@ -439,6 +686,7 @@ mod tests {
             "codux-supervisor-claude-events-{}",
             uuid::Uuid::new_v4()
         ));
+        let binding_dir = dir.join("bindings");
         std::fs::create_dir_all(&dir).unwrap();
         let updated_at = now_seconds();
         std::fs::write(
@@ -449,7 +697,9 @@ mod tests {
         )
         .unwrap();
 
-        supervisor.start(registry, dir.clone()).unwrap();
+        supervisor
+            .start(registry, dir.clone(), binding_dir)
+            .unwrap();
         wait_for(|| supervisor.state_snapshot().running_count == 1);
 
         let snapshot = supervisor.state_snapshot();
@@ -462,10 +712,83 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_applies_runtime_binding_files_without_process_detection() {
+        let supervisor = AIRuntimeSupervisor::new();
+        let registry = Arc::new(AIRuntimeRegistry::default());
+        let dir =
+            std::env::temp_dir().join(format!("codux-supervisor-binding-{}", uuid::Uuid::new_v4()));
+        let binding_dir = dir.join("bindings");
+        std::fs::create_dir_all(&binding_dir).unwrap();
+        let started_at = now_seconds();
+        std::fs::write(
+            binding_dir.join("term-1-codex.json"),
+            format!(
+                r#"{{"runtimeBindingId":"instance-1-codex","terminalId":"term-1","terminalInstanceId":"instance-1","tool":"codex","projectId":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Codex","launchStartedAt":{started_at},"updatedAt":{started_at}}}"#
+            ),
+        )
+        .unwrap();
+
+        supervisor
+            .start(registry, dir.clone(), binding_dir)
+            .unwrap();
+        wait_for(|| !supervisor.state_snapshot().sessions.is_empty());
+
+        let snapshot = supervisor.state_snapshot();
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].terminal_id, "term-1");
+        assert_eq!(
+            snapshot.sessions[0].terminal_instance_id.as_deref(),
+            Some("instance-1")
+        );
+        assert_eq!(snapshot.sessions[0].tool, "codex");
+        assert_eq!(snapshot.sessions[0].state, "idle");
+        assert_eq!(snapshot.running_count, 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn binding_file_event_applies_only_changed_file() {
+        let state = AIRuntimeStateStore::default();
+        let binding_scan = Arc::new(Mutex::new(AIRuntimeBindingScanState::default()));
+        let dir =
+            std::env::temp_dir().join(format!("codux-binding-file-event-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("term-1-codex.json");
+        std::fs::write(
+            &path,
+            r#"{"runtimeBindingId":"instance-1-codex","terminalId":"term-1","terminalInstanceId":"instance-1","tool":"codex","projectId":"project-1","projectName":"Codux","projectPath":"/tmp/project","sessionTitle":"Codex","launchStartedAt":1000.0,"updatedAt":1000.0}"#,
+        )
+        .unwrap();
+        let signature = runtime_file_signature(&path).unwrap();
+
+        let mutation = handle_binding_file_event(
+            &state,
+            &binding_scan,
+            AIRuntimeBindingFileEvent {
+                path: path.clone(),
+                signature: signature.clone(),
+            },
+        );
+        assert!(mutation.did_change);
+        let duplicate = handle_binding_file_event(
+            &state,
+            &binding_scan,
+            AIRuntimeBindingFileEvent { path, signature },
+        );
+        assert!(!duplicate.did_change);
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].terminal_id, "term-1");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn supervisor_uses_terminal_registry_to_keep_running_session_live() {
         let supervisor = AIRuntimeSupervisor::new();
         let registry = AIRuntimeRegistry::shared();
         let dir = std::env::temp_dir().join(format!("codux-supervisor-{}", uuid::Uuid::new_v4()));
+        let binding_dir = dir.join("bindings");
         let started_at = now_seconds();
         let prompt_at = started_at + 1.0;
         registry.upsert(crate::ai_runtime::registry::AIRuntimeTerminalBinding {
@@ -480,7 +803,7 @@ mod tests {
             terminal_instance_id: Some("instance-1".to_string()),
         });
         supervisor
-            .start(Arc::clone(&registry), dir.clone())
+            .start(Arc::clone(&registry), dir.clone(), binding_dir)
             .unwrap();
         supervisor
             .submit_frame(
@@ -517,78 +840,73 @@ mod tests {
     }
 
     #[test]
-    fn supervisor_creates_running_session_from_terminal_registry_without_hooks() {
-        let supervisor = AIRuntimeSupervisor::new();
-        let registry = Arc::new(AIRuntimeRegistry::default());
-        let dir = std::env::temp_dir().join(format!(
-            "codux-supervisor-registry-only-{}",
-            uuid::Uuid::new_v4()
-        ));
+    fn poll_ignores_codewhale_screen_signal_while_idle() {
+        let state = AIRuntimeStateStore::default();
+        let registry = AIRuntimeRegistry::shared();
         registry.upsert(crate::ai_runtime::registry::AIRuntimeTerminalBinding {
-            terminal_id: "term-1".to_string(),
+            terminal_id: "term-codewhale".to_string(),
             project_id: "project-1".to_string(),
             slot_id: "slot-1".to_string(),
-            title: "Codex".to_string(),
-            cwd: "/tmp/project".to_string(),
-            tool: Some("codex".to_string()),
+            title: "CodeWhale".to_string(),
+            cwd: "/tmp/codewhale-project".to_string(),
+            tool: Some("codewhale".to_string()),
             is_active: true,
             session_key: Some("session-key-1".to_string()),
             terminal_instance_id: Some("instance-1".to_string()),
         });
-        supervisor
-            .start(Arc::clone(&registry), dir.clone())
-            .unwrap();
-        supervisor.poll_once().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        let screen = Arc::new(parking_lot::Mutex::new(
+            codux_terminal_core::HeadlessTerminalScreen::new(80, 24, 100),
+        ));
+        screen
+            .lock()
+            .process(b"\xe2\x9c\xb6 Thinking... (3s \xc2\xb7 esc to interrupt)");
+        registry.register_screen("term-codewhale", Arc::downgrade(&screen));
+        state.apply_binding(crate::ai_runtime::binding::AIRuntimeBinding {
+            runtime_binding_id: "instance-1-codewhale".to_string(),
+            terminal_id: "term-codewhale".to_string(),
+            terminal_instance_id: Some("instance-1".to_string()),
+            tool: "codewhale".to_string(),
+            project_id: "project-1".to_string(),
+            project_name: "Codux".to_string(),
+            project_path: Some("/tmp/codewhale-project".to_string()),
+            session_title: "CodeWhale".to_string(),
+            launch_started_at: now_seconds(),
+            external_session_id: None,
+            transcript_path: None,
+            model: None,
+            updated_at: now_seconds(),
+        });
 
-        let snapshot = supervisor.state_snapshot();
-        assert_eq!(snapshot.running_count, 1);
-        assert_eq!(snapshot.sessions[0].terminal_id, "term-1");
-        assert_eq!(snapshot.sessions[0].tool, "codex");
-        assert_eq!(snapshot.sessions[0].state, "responding");
-        let _ = std::fs::remove_dir_all(dir);
+        let mutation = poll_runtime_sessions(&state, &registry, "interval", None);
+
+        assert!(!mutation.did_change);
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.running_count, 0);
+        assert_eq!(snapshot.sessions[0].tool, "codewhale");
+        assert_eq!(snapshot.sessions[0].state, "idle");
     }
 
     #[test]
-    fn supervisor_does_not_create_registry_session_without_active_session_key() {
-        let supervisor = AIRuntimeSupervisor::new();
-        let registry = Arc::new(AIRuntimeRegistry::default());
-        let dir = std::env::temp_dir().join(format!(
-            "codux-supervisor-registry-guard-{}",
-            uuid::Uuid::new_v4()
-        ));
-        registry.upsert(crate::ai_runtime::registry::AIRuntimeTerminalBinding {
-            terminal_id: "inactive-term".to_string(),
-            project_id: "project-1".to_string(),
-            slot_id: "slot-1".to_string(),
-            title: "Codex".to_string(),
-            cwd: "/tmp/project".to_string(),
-            tool: Some("codex".to_string()),
-            is_active: false,
-            session_key: Some("session-key-1".to_string()),
-            terminal_instance_id: Some("instance-1".to_string()),
-        });
-        registry.upsert(crate::ai_runtime::registry::AIRuntimeTerminalBinding {
-            terminal_id: "missing-key-term".to_string(),
-            project_id: "project-1".to_string(),
-            slot_id: "slot-2".to_string(),
-            title: "Codex".to_string(),
-            cwd: "/tmp/project".to_string(),
-            tool: Some("codex".to_string()),
-            is_active: true,
-            session_key: None,
-            terminal_instance_id: Some("instance-2".to_string()),
-        });
-        supervisor
-            .start(Arc::clone(&registry), dir.clone())
-            .unwrap();
-        supervisor.poll_once().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
-        let snapshot = supervisor.state_snapshot();
-        assert_eq!(snapshot.running_count, 0);
-        assert!(snapshot.sessions.is_empty());
-        let _ = std::fs::remove_dir_all(dir);
+    fn process_detection_is_enabled_unless_explicitly_disabled() {
+        unsafe {
+            std::env::remove_var("CODUX_AI_RUNTIME_DETECT");
+        }
+        assert!(detection_enabled());
+        unsafe {
+            std::env::set_var("CODUX_AI_RUNTIME_DETECT", "0");
+        }
+        assert!(!detection_enabled());
+        unsafe {
+            std::env::set_var("CODUX_AI_RUNTIME_DETECT", "false");
+        }
+        assert!(!detection_enabled());
+        unsafe {
+            std::env::set_var("CODUX_AI_RUNTIME_DETECT", "1");
+        }
+        assert!(detection_enabled());
+        unsafe {
+            std::env::remove_var("CODUX_AI_RUNTIME_DETECT");
+        }
     }
 
     fn wait_for(condition: impl Fn() -> bool) {

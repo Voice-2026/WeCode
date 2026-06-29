@@ -3,6 +3,7 @@
 //! snapshots. Extracted from the desktop runtime so the headless agent can host
 //! the same AI stats over the remote protocol with full parity. GPUI-free.
 
+pub mod agy_db;
 pub mod indexer;
 pub mod normalized;
 pub mod paths;

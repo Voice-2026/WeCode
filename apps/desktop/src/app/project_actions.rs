@@ -1,6 +1,6 @@
 use super::*;
-use crate::app::app_state::RemoteBrowseEntry;
 use crate::app::app_events::{ChildWindowUpdateKind, publish_child_window_update};
+use crate::app::app_state::RemoteBrowseEntry;
 use crate::app::terminal_worktree_actions::TerminalLayoutSnapshot;
 use crate::app::window_actions::{AuxiliaryWindowSlot, AuxiliaryWindowSpec};
 
@@ -1294,17 +1294,21 @@ impl CoduxApp {
         let terminal_pane_registry = self.terminal_pane_registry.clone();
         let mut pending = Vec::new();
         let mut registrations = Vec::new();
+        let mount_target = terminal_restore_mount_target(restore_plan, &self.terminals);
         for (tab_index, tab) in self.terminals.iter_mut().enumerate() {
             let Some(tab_plan) = restore_plan.tabs.get(tab_index) else {
                 continue;
             };
-            let mount_tab = tab_index == restore_plan.active_index
-                || tab.id == self.active_terminal_id
-                || tab_plan.placement == TerminalTabPlacement::Top;
-            if !mount_tab {
-                continue;
-            }
-            for slot in &mut tab.panes {
+            let _ = tab_plan;
+            for (slot_index, slot) in tab.panes.iter_mut().enumerate() {
+                if !should_mount_restored_terminal_slot(
+                    tab.placement,
+                    tab_index,
+                    slot_index,
+                    mount_target,
+                ) {
+                    continue;
+                }
                 if slot.pane.is_some() {
                     continue;
                 }
@@ -1477,6 +1481,70 @@ impl CoduxApp {
             }
         }
         self.invalidate_project_management(cx);
+    }
+
+    pub(super) fn open_remote_project_web_url(
+        &mut self,
+        device_id: String,
+        url: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.open_host_browser_url(&device_id, &url) {
+            Ok(opened) => {
+                match self.runtime_service.open_url_with_http_proxy(
+                    &opened.original_url,
+                    &opened.proxy_host,
+                    opened.proxy_port,
+                ) {
+                    Ok(()) => {
+                        self.status_message =
+                            format!("opened through web tunnel: {}", opened.original_url);
+                    }
+                    Err(error) => {
+                        self.status_message = "failed to open web tunnel".to_string();
+                        self.show_system_error_alert(title, error, cx);
+                    }
+                }
+            }
+            Err(error) => {
+                self.status_message = "web tunnel unavailable".to_string();
+                self.show_system_error_alert(title, error, cx);
+            }
+        }
+        self.invalidate_status_bar(cx);
+    }
+
+    pub(super) fn open_remote_project_browser_session(
+        &mut self,
+        device_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        match self.runtime_service.open_host_browser_session(&device_id) {
+            Ok(opened) => {
+                match self
+                    .runtime_service
+                    .open_blank_with_http_proxy(&opened.proxy_host, opened.proxy_port)
+                {
+                    Ok(()) => {
+                        self.status_message = "opened web tunnel browser".to_string();
+                    }
+                    Err(error) => {
+                        self.status_message = "failed to open web tunnel browser".to_string();
+                        self.show_system_error_alert(
+                            "Open Web Tunnel Browser".to_string(),
+                            error,
+                            cx,
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                self.status_message = "web tunnel unavailable".to_string();
+                self.show_system_error_alert("Open Web Tunnel Browser".to_string(), error, cx);
+            }
+        }
+        self.invalidate_status_bar(cx);
     }
 
     pub(super) fn open_project_folder_from_dialog(
@@ -2218,7 +2286,12 @@ impl CoduxApp {
                     Ok((device_id, reload_path)) => {
                         app.project_editor_browse_new_folder.clear();
                         app.file_picker_new_folder_active = false;
-                        app.load_project_editor_browse(device_id, Some(reload_path), window_handle, cx);
+                        app.load_project_editor_browse(
+                            device_id,
+                            Some(reload_path),
+                            window_handle,
+                            cx,
+                        );
                     }
                     Err(error) => {
                         app.project_editor_browse_error = Some(error);
@@ -2256,16 +2329,15 @@ impl CoduxApp {
             // first browse of a remote host waits (bounded) for it to connect,
             // and that wait must not occupy the single-worker priority queue —
             // doing so would freeze every other blocking load until it returns.
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                match device_id.as_deref() {
+            let result =
+                codux_runtime::async_runtime::spawn_blocking(move || match device_id.as_deref() {
                     Some(device_id) => {
                         runtime_service.remote_browse_directory(device_id, path_for_call.as_deref())
                     }
                     None => runtime_service.browse_local_directory(path_for_call.as_deref()),
-                }
-            })
-            .await
-            .unwrap_or_else(|error| Err(format!("failed to join browse: {error}")));
+                })
+                .await
+                .unwrap_or_else(|error| Err(format!("failed to join browse: {error}")));
 
             // Update the entity directly. The previous code nested this inside a
             // `window_handle.update(...)` whose `Err` was discarded; when that
@@ -2284,7 +2356,10 @@ impl CoduxApp {
         .detach();
     }
 
-    fn apply_project_editor_browse(&mut self, listing: codux_runtime::remote::RemoteDirectoryListing) {
+    fn apply_project_editor_browse(
+        &mut self,
+        listing: codux_runtime::remote::RemoteDirectoryListing,
+    ) {
         self.project_editor_browse_path = listing.path;
         self.project_editor_browse_parent = listing.parent;
         // Folder mode lists only directories; file/save modes list files too

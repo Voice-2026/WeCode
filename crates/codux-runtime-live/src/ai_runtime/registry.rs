@@ -1,7 +1,9 @@
+use crate::ai_runtime::screen_signal::screen_text_from_cells;
+use codux_terminal_core::HeadlessTerminalScreen;
 use serde::Serialize;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +36,12 @@ pub struct AIRuntimeTerminalBinding {
 #[derive(Default)]
 pub struct AIRuntimeRegistry {
     terminals: Mutex<HashMap<String, AIRuntimeTerminalBinding>>,
+    // Cycle-safe: a Weak to each terminal's rendered screen, so the supervisor
+    // can scrape the screen for the universal "waiting for approval" signal
+    // (`screen_signal`) without keeping the session alive.
+    screens: Mutex<HashMap<String, Weak<parking_lot::Mutex<HeadlessTerminalScreen>>>>,
+    // Each terminal's shell PID for process-tree tool detection (side map keeps the binding struct untouched).
+    shell_pids: Mutex<HashMap<String, u32>>,
 }
 
 impl AIRuntimeRegistry {
@@ -47,9 +55,59 @@ impl AIRuntimeRegistry {
         }
     }
 
+    /// Register a terminal's rendered screen (held weakly) so the runtime can
+    /// scrape it for the screen-based `needsInput` signal.
+    pub fn register_screen(
+        &self,
+        terminal_id: &str,
+        screen: Weak<parking_lot::Mutex<HeadlessTerminalScreen>>,
+    ) {
+        if let Ok(mut screens) = self.screens.lock() {
+            screens.insert(terminal_id.to_string(), screen);
+        }
+    }
+
+    /// Scrape the terminal's rendered screen into plain visible text. Empty
+    /// when the screen is gone; callers own tool-specific pattern matching.
+    pub fn screen_text(&self, terminal_id: &str) -> Option<String> {
+        let weak = match self.screens.lock() {
+            Ok(screens) => screens.get(terminal_id).cloned(),
+            Err(_) => None,
+        };
+        let Some(screen) = weak.and_then(|weak| weak.upgrade()) else {
+            return None;
+        };
+        // Skip the keyframe string (cells-only); wait for the worker reply
+        // outside the lock, mirroring `TerminalPtySession::screen_snapshot`.
+        let request = screen.lock().snapshot_request(false);
+        let snapshot = request.snapshot();
+        Some(screen_text_from_cells(&snapshot))
+    }
+
+    /// Record a terminal's shell PID for hook-free tool discovery.
+    pub fn register_shell_pid(&self, terminal_id: &str, shell_pid: u32) {
+        if let Ok(mut pids) = self.shell_pids.lock() {
+            pids.insert(terminal_id.to_string(), shell_pid);
+        }
+    }
+
+    /// `(terminal_id, shell_pid)` pairs for the process-tree tool detector.
+    pub fn shell_pids_snapshot(&self) -> Vec<(String, u32)> {
+        self.shell_pids
+            .lock()
+            .map(|pids| pids.iter().map(|(id, pid)| (id.clone(), *pid)).collect())
+            .unwrap_or_default()
+    }
+
     pub fn remove(&self, terminal_id: &str) {
         if let Ok(mut terminals) = self.terminals.lock() {
             terminals.remove(terminal_id);
+        }
+        if let Ok(mut screens) = self.screens.lock() {
+            screens.remove(terminal_id);
+        }
+        if let Ok(mut pids) = self.shell_pids.lock() {
+            pids.remove(terminal_id);
         }
     }
 

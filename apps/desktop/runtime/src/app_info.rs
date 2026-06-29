@@ -293,6 +293,26 @@ pub fn open_url(url: &str) -> Result<(), String> {
     }
 }
 
+pub fn open_url_with_http_proxy(
+    url: &str,
+    proxy_host: &str,
+    proxy_port: u16,
+) -> Result<(), String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("URL cannot be empty.".to_string());
+    }
+    let parsed = Url::parse(url).map_err(|error| format!("Invalid URL: {error}"))?;
+    match parsed.scheme() {
+        "http" | "https" => open_target_with_http_proxy(parsed.as_str(), proxy_host, proxy_port),
+        _ => Err("Only http and https URLs can be opened with a proxy.".to_string()),
+    }
+}
+
+pub fn open_blank_with_http_proxy(proxy_host: &str, proxy_port: u16) -> Result<(), String> {
+    open_target_with_http_proxy("about:blank", proxy_host, proxy_port)
+}
+
 fn open_or_create_text_file(path: &Path, initial_content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -787,11 +807,95 @@ fn open_target(target: &str) -> Result<(), String> {
     }
 }
 
+fn open_target_with_http_proxy(
+    target: &str,
+    proxy_host: &str,
+    proxy_port: u16,
+) -> Result<(), String> {
+    let proxy_arg = format!("--proxy-server=http://{proxy_host}:{proxy_port}");
+    let proxy_bypass_arg = "--proxy-bypass-list=<-loopback>";
+    let user_data_dir = runtime_temp_dir().join(format!("web-tunnel-browser-{proxy_port}"));
+    let user_data_arg = format!("--user-data-dir={}", user_data_dir.to_string_lossy());
+    #[cfg(target_os = "macos")]
+    {
+        let browsers = [
+            "Google Chrome",
+            "Chromium",
+            "Microsoft Edge",
+            "Brave Browser",
+        ];
+        for browser in browsers {
+            if open_macos_app_with_args(
+                browser,
+                &[&proxy_arg, proxy_bypass_arg, &user_data_arg, target],
+            )
+            .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        return Err("No Chromium-based browser found for Web Tunnel proxy mode.".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let browsers = ["chrome", "msedge", "chromium", "brave"];
+        for browser in browsers {
+            if spawn_open_command(
+                browser,
+                &[&proxy_arg, proxy_bypass_arg, &user_data_arg, target],
+            )
+            .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        return Err("No Chromium-based browser found for Web Tunnel proxy mode.".to_string());
+    }
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let browsers = [
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+            "microsoft-edge",
+            "brave-browser",
+        ];
+        for browser in browsers {
+            if spawn_open_command(
+                browser,
+                &[&proxy_arg, proxy_bypass_arg, &user_data_arg, target],
+            )
+            .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        Err("No Chromium-based browser found for Web Tunnel proxy mode.".to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_macos_app_with_args(app_name: &str, args: &[&str]) -> Result<(), String> {
+    let mut command = Command::new("open");
+    command.args(["-na", app_name, "--args"]);
+    command.args(args);
+    apply_no_window(&mut command);
+    let status = command.status().map_err(|error| error.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("{app_name} is not available"))
+    }
+}
+
 fn spawn_open_command(program: &str, args: &[&str]) -> Result<(), String> {
     let mut command = Command::new(program);
     command.args(args);
     apply_no_window(&mut command);
-    command.spawn().map(|_| ()).map_err(|error| error.to_string())
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 /// On Windows, launch the helper process without flashing a console window.

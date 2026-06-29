@@ -25,6 +25,10 @@ pub struct AISessionSnapshot {
     pub total_tokens: i64,
     pub baseline_total_tokens: i64,
     pub baseline_cached_input_tokens: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usage_amounts: Vec<AIUsageAmountSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub baseline_usage_amounts: Vec<AIUsageAmountSnapshot>,
     #[serde(skip_serializing)]
     pub baseline_resolved: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,6 +101,13 @@ pub struct AIProjectTotals {
     pub running: usize,
     pub needs_input: usize,
     pub completed: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIUsageAmountSnapshot {
+    pub unit: String,
+    pub value: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -172,6 +183,10 @@ pub struct AIRuntimeContextSnapshot {
     pub output_tokens: i64,
     pub cached_input_tokens: i64,
     pub total_tokens: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usage_amounts: Vec<AIUsageAmountSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub baseline_usage_amounts: Vec<AIUsageAmountSnapshot>,
     pub updated_at: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<f64>,

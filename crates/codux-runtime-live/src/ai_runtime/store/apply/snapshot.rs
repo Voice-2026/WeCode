@@ -3,10 +3,52 @@ use crate::ai_runtime::{
         COMPLETION_TIMESTAMP_SKEW_SECONDS, RESPONDING_RENEWAL_MAX_SECONDS,
         RUNNING_STATE_RENEWAL_SECONDS,
     },
-    snapshot::{AIRuntimeContextSnapshot, AISessionSnapshot},
+    screen_signal::ScreenSignal,
+    snapshot::{AIRuntimeContextSnapshot, AISessionSnapshot, AIUsageAmountSnapshot},
     state::{canonical_tool_name, normalized_string, status_for_runtime_state},
     store::{AIRuntimeStateCore, helpers::note_latest_active_started_at, helpers::now_seconds},
 };
+
+/// Apply the universal screen-scrape signal. For most tools this only refines an
+/// already-active turn between `responding` and `needsInput`. Kiro is the
+/// exception: current Kiro CLI writes its json/jsonl only after the turn
+/// completes, so the rendered "Thinking... (esc to cancel)" footer is the only
+/// authoritative live-start signal.
+pub(in crate::ai_runtime::store) fn apply_screen_signal_unlocked(
+    core: &mut AIRuntimeStateCore,
+    terminal_id: &str,
+    signal: ScreenSignal,
+    allow_idle_start: bool,
+) -> bool {
+    let Some(session) = core.sessions.get(terminal_id).cloned() else {
+        return false;
+    };
+    let next_state = match signal {
+        ScreenSignal::Waiting if session.state == "responding" => "needsInput",
+        ScreenSignal::Running if session.state == "needsInput" => "responding",
+        ScreenSignal::Running if allow_idle_start && session.state == "idle" => "responding",
+        _ => return false,
+    };
+    let mut next = session;
+    next.state = next_state.to_string();
+    next.status = status_for_runtime_state(next_state).to_string();
+    next.is_running = next_state == "responding";
+    if next_state == "responding" {
+        let now = now_seconds();
+        next.active_turn_started_at = next.active_turn_started_at.or(Some(now));
+        next.runtime_turn_started_at = next.runtime_turn_started_at.or(Some(now));
+        next.updated_at = next.updated_at.max(now);
+        next.was_interrupted = false;
+        next.has_completed_turn = false;
+        next.completed_turn_started_at = None;
+        note_latest_active_started_at(core, &next.project_id, now);
+    }
+    if core.sessions.get(terminal_id) == Some(&next) {
+        return false;
+    }
+    core.sessions.insert(terminal_id.to_string(), next);
+    true
+}
 
 pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
     core: &mut AIRuntimeStateCore,
@@ -16,6 +58,16 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
     let Some(session) = core.sessions.get(terminal_id).cloned() else {
         return false;
     };
+    let snapshot_tool = canonical_tool_name(&snapshot.tool).unwrap_or_else(|| session.tool.clone());
+    let codewhale_finished_turn_is_authoritative = snapshot_tool == "codewhale"
+        && session.state == "idle"
+        && (session.was_interrupted || session.has_completed_turn);
+    if codewhale_finished_turn_is_authoritative
+        && snapshot.response_state.as_deref() == Some("responding")
+    {
+        return false;
+    }
+
     let mut snapshot_updated_at = snapshot.updated_at.max(session.updated_at);
     let now = now_seconds();
     if snapshot.response_state.as_deref() == Some("responding")
@@ -48,7 +100,6 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
         .active_turn_started_at
         .or(session.started_at)
         .unwrap_or(session.updated_at);
-
     if snapshot.response_state.as_deref() == Some("responding") {
         if session.state == "responding"
             || (!session.was_interrupted
@@ -62,7 +113,8 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
             // distinguishes a genuine resume from a still-pending prompt, and is
             // robust to the started_at/hook-clock skew the clause below is not.
             || (session.state == "needsInput" && snapshot_is_newer)
-            || snapshot_started_after_prompt_turn(&snapshot, prompt_turn_started_at)
+            || (!codewhale_finished_turn_is_authoritative
+                && snapshot_started_after_prompt_turn(&snapshot, prompt_turn_started_at))
         {
             state = "responding".to_string();
             was_interrupted = false;
@@ -76,6 +128,32 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
             active_turn_started_at = Some(started);
             runtime_turn_started_at = Some(started);
         }
+    } else if snapshot.response_state.as_deref() == Some("needsInput")
+        && (session.state == "responding"
+            || session.state == "needsInput"
+            || (!session.was_interrupted
+                && !session.has_completed_turn
+                && (snapshot_is_newer || session.state == "idle"))
+            || snapshot_started_after_prompt_turn(&snapshot, prompt_turn_started_at))
+    {
+        // Pure-file permission/elicitation wait surfaced by the probe: a tool
+        // call is written with no result, the mode can still prompt, and the
+        // transcript has been idle past the threshold. The turn is still open --
+        // just blocked on the user -- so keep its timers and stay out of the
+        // completed/interrupted states. Recovery back to `responding` (user
+        // approved, log advanced) and resolution to `idle` (turn ended) are both
+        // already handled by the branches above/below.
+        state = "needsInput".to_string();
+        was_interrupted = false;
+        has_completed_turn = false;
+        completed_turn_started_at = None;
+        let started = session
+            .active_turn_started_at
+            .or(session.runtime_turn_started_at)
+            .or(session.started_at)
+            .unwrap_or(prompt_turn_started_at);
+        active_turn_started_at = Some(started);
+        runtime_turn_started_at = Some(started);
     } else if snapshot.response_state.as_deref() == Some("idle")
         && (session.state == "responding"
             || session.state == "needsInput"
@@ -85,7 +163,9 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
         let turn_completed_at = snapshot.completed_at.or_else(|| {
             (snapshot.was_interrupted || snapshot.has_completed_turn).then_some(snapshot.updated_at)
         });
-        let can_resolve_idle = if snapshot.was_interrupted || snapshot.has_completed_turn {
+        let can_resolve_idle = if snapshot_tool == "kiro" && snapshot.has_completed_turn {
+            true
+        } else if snapshot.was_interrupted || snapshot.has_completed_turn {
             turn_completed_at
                 .map(|completed_at| {
                     completed_at + COMPLETION_TIMESTAMP_SKEW_SECONDS >= prompt_turn_started_at
@@ -125,29 +205,48 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
         note_latest_active_started_at(core, &session.project_id, started_at);
     }
 
-    let (baseline_total_tokens, baseline_cached_input_tokens, baseline_resolved) =
-        if session.baseline_resolved {
-            (
-                session.baseline_total_tokens,
-                session.baseline_cached_input_tokens,
-                true,
-            )
-        } else if snapshot.session_origin == "restored" {
-            (
-                snapshot.total_tokens.max(0),
-                snapshot.cached_input_tokens.max(0),
-                true,
-            )
-        } else {
-            (
-                session.baseline_total_tokens,
-                session.baseline_cached_input_tokens,
-                true,
-            )
-        };
+    let (
+        baseline_total_tokens,
+        baseline_cached_input_tokens,
+        baseline_usage_amounts,
+        baseline_resolved,
+    ) = if !snapshot.baseline_usage_amounts.is_empty() {
+        (
+            session.baseline_total_tokens,
+            session.baseline_cached_input_tokens,
+            max_usage_amounts(
+                &session.baseline_usage_amounts,
+                &snapshot.baseline_usage_amounts,
+            ),
+            true,
+        )
+    } else if session.baseline_resolved {
+        (
+            session.baseline_total_tokens,
+            session.baseline_cached_input_tokens,
+            session.baseline_usage_amounts.clone(),
+            true,
+        )
+    } else if snapshot.session_origin == "restored"
+        || first_snapshot_is_prelaunch_history(&session, &snapshot)
+    {
+        (
+            snapshot.total_tokens.max(0),
+            snapshot.cached_input_tokens.max(0),
+            snapshot.usage_amounts.clone(),
+            true,
+        )
+    } else {
+        (
+            session.baseline_total_tokens,
+            session.baseline_cached_input_tokens,
+            session.baseline_usage_amounts.clone(),
+            true,
+        )
+    };
 
     let next = AISessionSnapshot {
-        tool: canonical_tool_name(&snapshot.tool).unwrap_or(session.tool.clone()),
+        tool: snapshot_tool,
         ai_session_id: normalized_string(snapshot.external_session_id.as_deref())
             .or(session.ai_session_id.clone()),
         transcript_path: normalized_string(snapshot.transcript_path.as_deref())
@@ -164,6 +263,8 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
         total_tokens: session.total_tokens.max(snapshot.total_tokens.max(0)),
         baseline_total_tokens,
         baseline_cached_input_tokens,
+        usage_amounts: max_usage_amounts(&session.usage_amounts, &snapshot.usage_amounts),
+        baseline_usage_amounts,
         baseline_resolved,
         updated_at: snapshot_updated_at,
         active_turn_started_at,
@@ -201,6 +302,25 @@ pub(in crate::ai_runtime::store) fn apply_runtime_snapshot_unlocked(
     true
 }
 
+fn max_usage_amounts(
+    current: &[AIUsageAmountSnapshot],
+    snapshot: &[AIUsageAmountSnapshot],
+) -> Vec<AIUsageAmountSnapshot> {
+    let mut amounts = current.to_vec();
+    for next in snapshot {
+        let unit = next.unit.trim();
+        if unit.is_empty() || next.value <= 0.0 {
+            continue;
+        }
+        if let Some(existing) = amounts.iter_mut().find(|item| item.unit == next.unit) {
+            existing.value = existing.value.max(next.value);
+        } else {
+            amounts.push(next.clone());
+        }
+    }
+    amounts
+}
+
 fn snapshot_started_after_prompt_turn(
     snapshot: &AIRuntimeContextSnapshot,
     prompt_turn_started_at: f64,
@@ -222,4 +342,34 @@ fn runtime_turn_started_at_for_responding_snapshot(
         }
     }
     snapshot.updated_at.max(fallback)
+}
+
+fn first_snapshot_is_prelaunch_history(
+    session: &AISessionSnapshot,
+    snapshot: &AIRuntimeContextSnapshot,
+) -> bool {
+    if session.state != "idle"
+        || session.has_completed_turn
+        || session.was_interrupted
+        || session.active_turn_started_at.is_some()
+        || session.runtime_turn_started_at.is_some()
+        || session.completed_turn_started_at.is_some()
+    {
+        return false;
+    }
+    if matches!(
+        snapshot.response_state.as_deref(),
+        Some("responding" | "needsInput")
+    ) {
+        return false;
+    }
+    let Some(session_started_at) = session.started_at else {
+        return false;
+    };
+    let snapshot_last_activity_at = snapshot.completed_at.or_else(|| {
+        (snapshot.has_completed_turn || snapshot.was_interrupted).then_some(snapshot.updated_at)
+    });
+    snapshot_last_activity_at
+        .or(snapshot.started_at)
+        .is_some_and(|activity_at| activity_at + 1.0 < session_started_at)
 }

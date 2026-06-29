@@ -516,7 +516,6 @@ fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
             has_buffer: true,
             tool: None,
         },
-        "tab",
         Some("worktree-1"),
         Some(3),
     );
@@ -524,12 +523,6 @@ fn remote_terminal_snapshot_payload_uses_compact_terminal_identity_shape() {
     assert_eq!(
         payload.get("id").and_then(serde_json::Value::as_str),
         Some("term-1")
-    );
-    assert_eq!(
-        payload
-            .get("layoutKind")
-            .and_then(serde_json::Value::as_str),
-        Some("tab")
     );
     assert_eq!(
         payload

@@ -84,29 +84,48 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
         base.map(|session| session.cached_input_tokens),
         event.cached_input_tokens,
     );
-    let baseline_total_tokens = base
-        .map(|session| session.baseline_total_tokens)
-        .or_else(|| {
-            logical_key
-                .as_ref()
-                .and_then(|key| core.logical_baselines.get(key).copied())
-        })
-        .unwrap_or(total_tokens);
-    let baseline_cached_input_tokens = base
-        .map(|session| session.baseline_cached_input_tokens)
-        .or_else(|| {
-            logical_key
-                .as_ref()
-                .and_then(|key| core.logical_cached_baselines.get(key).copied())
-        })
-        .unwrap_or(cached_input_tokens);
+    let prompt_sets_codewhale_baseline =
+        tool == "codewhale" && event.kind == "promptSubmitted" && event.total_tokens.is_some();
+    let baseline_total_tokens = if prompt_sets_codewhale_baseline {
+        total_tokens
+    } else {
+        base.map(|session| session.baseline_total_tokens)
+            .or_else(|| {
+                logical_key
+                    .as_ref()
+                    .and_then(|key| core.logical_baselines.get(key).copied())
+            })
+            .unwrap_or(total_tokens)
+    };
+    let baseline_cached_input_tokens = if prompt_sets_codewhale_baseline {
+        cached_input_tokens
+    } else {
+        base.map(|session| session.baseline_cached_input_tokens)
+            .or_else(|| {
+                logical_key
+                    .as_ref()
+                    .and_then(|key| core.logical_cached_baselines.get(key).copied())
+            })
+            .unwrap_or(cached_input_tokens)
+    };
+    let baseline_resolved = base
+        .map(|session| session.baseline_resolved)
+        .unwrap_or(false)
+        || prompt_sets_codewhale_baseline;
     if let Some(key) = logical_key {
-        core.logical_baselines
-            .entry(key.clone())
-            .or_insert(baseline_total_tokens);
-        core.logical_cached_baselines
-            .entry(key)
-            .or_insert(baseline_cached_input_tokens);
+        if prompt_sets_codewhale_baseline {
+            core.logical_baselines
+                .insert(key.clone(), baseline_total_tokens);
+            core.logical_cached_baselines
+                .insert(key, baseline_cached_input_tokens);
+        } else {
+            core.logical_baselines
+                .entry(key.clone())
+                .or_insert(baseline_total_tokens);
+            core.logical_cached_baselines
+                .entry(key)
+                .or_insert(baseline_cached_input_tokens);
+        }
     }
 
     let state = runtime_state_for_hook_kind(&event.kind, event.metadata.as_ref());
@@ -202,9 +221,13 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
         total_tokens,
         baseline_total_tokens,
         baseline_cached_input_tokens,
-        baseline_resolved: base
-            .map(|session| session.baseline_resolved)
-            .unwrap_or(false),
+        usage_amounts: base
+            .map(|session| session.usage_amounts.clone())
+            .unwrap_or_default(),
+        baseline_usage_amounts: base
+            .map(|session| session.baseline_usage_amounts.clone())
+            .unwrap_or_default(),
+        baseline_resolved,
         started_at: base.and_then(|session| session.started_at).or(Some(now)),
         updated_at: base
             .map(|session| session.updated_at)

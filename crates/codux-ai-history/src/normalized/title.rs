@@ -98,20 +98,6 @@ fn codex_response_title(payload: &Value) -> Option<String> {
     None
 }
 
-fn parse_gemini_title(content: Option<&Value>) -> Option<String> {
-    match content? {
-        Value::String(text) => Some(truncate_title(text)),
-        Value::Array(items) => items.iter().find_map(|item| {
-            item.get("text")
-                .and_then(|value| value.as_str())
-                .and_then(normalized_history_title_candidate)
-                .map(|text| truncate_title(&text))
-                .or_else(|| parse_gemini_title(item.get("content")))
-        }),
-        _ => None,
-    }
-}
-
 fn normalized_history_title_candidate(value: &str) -> Option<String> {
     strip_codux_launch_context(value).and_then(|value| normalized_string(&value))
 }
@@ -143,11 +129,7 @@ fn last_codux_context_close_index(value: &str) -> Option<usize> {
         "</collaboration_mode>",
     ]
     .iter()
-    .filter_map(|marker| {
-        value
-            .rfind(marker)
-            .map(|index| index + marker.len())
-    })
+    .filter_map(|marker| value.rfind(marker).map(|index| index + marker.len()))
     .max()
 }
 

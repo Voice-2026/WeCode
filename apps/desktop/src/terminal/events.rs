@@ -8,7 +8,6 @@ struct TerminalWindowSize {
 
 #[derive(Clone)]
 enum TerminalUiEvent {
-    Wakeup,
     Error(String),
     Viewport {
         remote_owner: bool,

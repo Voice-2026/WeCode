@@ -296,7 +296,7 @@ extension _HomePageProtocol on HomeController {
       '[codux-flutter-terminal] recv terminal.list count=${next.length} selected=${_selectedProjectId ?? ''} worktree=${_selectedWorktreeId ?? ''} active=${_sessionId ?? ''} projects=${next.map((item) => item.projectId).toSet().join(',')}',
     );
     CoduxLog.debug(
-      '[codux-flutter-terminal] terminal.list items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}:${item.layoutKind}:${item.layoutOrder ?? -1}').join('|')}',
+      '[codux-flutter-terminal] terminal.list items=${next.map((item) => '${item.projectId}/${item.worktreeId ?? '-'}:${item.id}:${item.layoutOrder ?? -1}').join('|')}',
     );
     final plan = _remoteRuntime.applyTerminalList(
       terminals: next,
@@ -313,7 +313,7 @@ extension _HomePageProtocol on HomeController {
     final terminal = remoteTerminalFromPayload(message.payload);
     if (terminal == null) return;
     CoduxLog.info(
-      '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId} worktree=${terminal.worktreeId ?? ''} kind=${terminal.layoutKind} order=${terminal.layoutOrder ?? -1}',
+      '[codux-flutter-terminal] created session=${terminal.id} project=${terminal.projectId} worktree=${terminal.worktreeId ?? ''} order=${terminal.layoutOrder ?? -1}',
     );
     final plan = _remoteRuntime.terminalCreated(terminal);
     _applyRuntimePlan(plan, reason: 'terminal-created');

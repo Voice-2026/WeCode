@@ -1,12 +1,51 @@
 use super::helpers::{deterministic_uuid, history_group_key, local_today_start_seconds};
 use super::*;
-use codux_ai_history::normalized::{AITimeBucket, AIUsageBreakdownItem};
 use rusqlite::params;
 use std::{
     fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+#[test]
+fn restore_command_uses_interactive_session_flags() {
+    let mut session = AISessionSummary {
+        id: "local-id".to_string(),
+        session_key: "session key".to_string(),
+        external_session_id: Some("external-1".to_string()),
+        title: "Task".to_string(),
+        source: "codex".to_string(),
+        last_model: None,
+        last_seen_at: 0.0,
+        total_tokens: 0,
+        cached_input_tokens: 0,
+        request_count: 0,
+        usage_amounts: Vec::new(),
+    };
+
+    assert_eq!(session_restore_command(&session), "codex resume external-1");
+
+    session.source = "opencode".to_string();
+    session.external_session_id = Some("ses_0f1e6192effe3vkDd6vSiCMDrF".to_string());
+    assert_eq!(
+        session_restore_command(&session),
+        "opencode --session ses_0f1e6192effe3vkDd6vSiCMDrF"
+    );
+
+    session.source = "mimo".to_string();
+    session.external_session_id = None;
+    assert_eq!(
+        session_restore_command(&session),
+        "mimo --session 'session key'"
+    );
+
+    session.source = "kiro".to_string();
+    session.external_session_id = Some("session-1".to_string());
+    assert_eq!(
+        session_restore_command(&session),
+        "kiro-cli --resume-id session-1"
+    );
+}
 
 #[test]
 fn rename_and_remove_project_sessions_preserve_summary_totals() {

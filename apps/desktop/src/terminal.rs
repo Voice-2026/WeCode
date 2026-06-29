@@ -2,7 +2,7 @@ use crate::heroicons::HeroIconName;
 use anyhow::Result;
 use codux_runtime::remote::RemoteController;
 use codux_runtime::terminal_pty::{
-    TerminalEvent, TerminalInputSnapshot, TerminalManager, TerminalOutputSnapshot,
+    EventSink, TerminalEvent, TerminalInputSnapshot, TerminalManager, TerminalOutputSnapshot,
     TerminalPtyConfig, TerminalPtySession, terminal_viewport_local_owner,
 };
 use codux_terminal_core::{
@@ -20,8 +20,8 @@ use gpui::{
     Subscription, Task, TextAlign, TextRun, TouchPhase, UTF16Selection, UnderlineStyle, WeakEntity,
     Window, div, px, quad, rgb, transparent_black,
 };
-use gpui_component::{ActiveTheme, Icon};
 use gpui_component::scroll::{Scrollbar, ScrollbarAxis, ScrollbarHandle, ScrollbarShow};
+use gpui_component::{ActiveTheme, Icon};
 use parking_lot::Mutex;
 use regex::Regex;
 use std::{
@@ -47,6 +47,7 @@ include!("terminal/render.rs");
 include!("terminal/model.rs");
 include!("terminal/content.rs");
 include!("terminal/grid_version.rs");
+include!("terminal/builtin_glyphs.rs");
 include!("terminal/element.rs");
 include!("terminal/input.rs");
 include!("terminal/events.rs");

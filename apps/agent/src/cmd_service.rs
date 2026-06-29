@@ -13,7 +13,10 @@ const SERVICE_LABEL: &str = "com.codux.host";
 pub fn status() -> Result<(), String> {
     let running = runstate::is_running();
     let devices = device_store::list().len();
-    println!("Codux host: {}", if running { "running" } else { "stopped" });
+    println!(
+        "Codux host: {}",
+        if running { "running" } else { "stopped" }
+    );
     if running {
         if let Some(status) = runstate::read_status() {
             println!("  started:  {}", status.started_at);
@@ -117,7 +120,9 @@ pub fn install() -> Result<(), String> {
 "#
     );
     std::fs::write(&path, plist).map_err(|error| error.to_string())?;
-    let _ = Command::new("launchctl").args(["unload", &path.to_string_lossy()]).status();
+    let _ = Command::new("launchctl")
+        .args(["unload", &path.to_string_lossy()])
+        .status();
     let loaded = Command::new("launchctl")
         .args(["load", "-w", &path.to_string_lossy()])
         .status()
@@ -134,7 +139,9 @@ pub fn install() -> Result<(), String> {
 #[cfg(target_os = "macos")]
 pub fn uninstall() -> Result<(), String> {
     let path = plist_path();
-    let _ = Command::new("launchctl").args(["unload", "-w", &path.to_string_lossy()]).status();
+    let _ = Command::new("launchctl")
+        .args(["unload", "-w", &path.to_string_lossy()])
+        .status();
     let _ = std::fs::remove_file(&path);
     let _ = stop();
     println!("Removed launchd service.");
@@ -164,14 +171,18 @@ pub fn install() -> Result<(), String> {
          [Install]\nWantedBy=default.target\n"
     );
     std::fs::write(&path, unit).map_err(|error| error.to_string())?;
-    let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+    let _ = Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status();
     let ok = Command::new("systemctl")
         .args(["--user", "enable", "--now", "codux.service"])
         .status()
         .map(|status| status.success())
         .unwrap_or(false);
     if !ok {
-        return Err("failed to enable the systemd service (is `systemctl --user` available?)".to_string());
+        return Err(
+            "failed to enable the systemd service (is `systemctl --user` available?)".to_string(),
+        );
     }
     println!("Installed systemd user service: {}", path.display());
     println!("Tip: run `loginctl enable-linger $USER` to keep it running after logout.");
@@ -184,7 +195,9 @@ pub fn uninstall() -> Result<(), String> {
         .args(["--user", "disable", "--now", "codux.service"])
         .status();
     let _ = std::fs::remove_file(unit_path());
-    let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
+    let _ = Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status();
     println!("Removed systemd user service.");
     Ok(())
 }
@@ -209,7 +222,9 @@ pub fn install() -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 pub fn uninstall() -> Result<(), String> {
-    let _ = Command::new("schtasks").args(["/Delete", "/F", "/TN", "Codux"]).status();
+    let _ = Command::new("schtasks")
+        .args(["/Delete", "/F", "/TN", "Codux"])
+        .status();
     let _ = stop();
     println!("Removed Codux scheduled task.");
     Ok(())

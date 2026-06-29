@@ -3687,10 +3687,7 @@ fn git_review_code_line(cell: GitReviewAlignedCell, content_width: Pixels) -> An
         .child(
             // Natural width, single line — long content overflows and is reached
             // via the list's horizontal scroll instead of being clipped.
-            div()
-                .flex_none()
-                .whitespace_nowrap()
-                .child(cell.text),
+            div().flex_none().whitespace_nowrap().child(cell.text),
         )
         .into_any_element()
 }

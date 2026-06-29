@@ -186,7 +186,7 @@ fn ai_live_session_row(
     language: &str,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    let session_total_label = ai_sidebar_text(language, "ai.metric.session_total", "Session Total");
+    let session_total_label = ai_sidebar_text(language, "ai.metric.total", "Total");
     div()
         .mb(px(8.0))
         .rounded(px(8.0))
@@ -231,7 +231,7 @@ fn ai_live_session_row(
                         .text_size(rems(1.0))
                         .line_height(rems(1.125))
                         .text_color(color(theme::TEXT))
-                        .child(compact_number(session.total_tokens)),
+                        .child(current_session_usage_label(session)),
                 )
                 .child(
                     div()
@@ -239,9 +239,57 @@ fn ai_live_session_row(
                         .text_size(rems(0.75))
                         .line_height(rems(1.0))
                         .text_color(color(theme::TEXT_MUTED))
-                        .child(session_total_label),
+                        .child(format!(
+                            "{} {}",
+                            session_total_label,
+                            total_session_usage_label(session)
+                        )),
                 ),
         )
+}
+
+fn current_session_usage_label(
+    session: &codux_runtime::ai_history::AIHistoryCurrentSessionView,
+) -> String {
+    if session.current_total_tokens > 0 || session.current_usage_amounts.is_empty() {
+        return compact_token_unit(session.current_total_tokens);
+    }
+    usage_amount_label(&session.current_usage_amounts).unwrap_or_else(|| compact_token_unit(0))
+}
+
+fn total_session_usage_label(
+    session: &codux_runtime::ai_history::AIHistoryCurrentSessionView,
+) -> String {
+    if session.total_tokens > 0 || session.usage_amounts.is_empty() {
+        return compact_token_unit(session.total_tokens);
+    }
+    usage_amount_label(&session.usage_amounts).unwrap_or_else(|| compact_token_unit(0))
+}
+
+fn usage_amount_label(amounts: &[codux_runtime::ai_history::AIUsageAmount]) -> Option<String> {
+    amounts
+        .iter()
+        .find(|amount| amount.value > 0.0 && !amount.unit.trim().is_empty())
+        .map(|amount| format_usage_amount(amount.value, &amount.unit))
+}
+
+fn format_usage_amount(value: f64, unit: &str) -> String {
+    let unit = unit.trim();
+    if value >= 100.0 {
+        format!("{value:.0} {unit}")
+    } else if value >= 10.0 {
+        format!("{value:.1} {unit}")
+    } else {
+        format!("{value:.3} {unit}")
+    }
+}
+
+fn compact_token_unit(value: i64) -> String {
+    if value == 0 {
+        "0k".to_string()
+    } else {
+        compact_number(value).to_ascii_lowercase()
+    }
 }
 
 pub(in crate::app) fn memory_manager_window_workspace(

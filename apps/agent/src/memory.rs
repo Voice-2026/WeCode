@@ -45,7 +45,10 @@ pub async fn memory_extract_payload(payload: &Value) -> Value {
         .cloned()
         .and_then(|value| serde_json::from_value(value).ok())
         .unwrap_or_default();
-    let output_locale = payload.get("outputLocale").and_then(Value::as_str).unwrap_or("");
+    let output_locale = payload
+        .get("outputLocale")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let projects = memory_records();
     // The host's indexed AI sessions are the extraction candidates; the agent
     // runs no live AI supervisor, so there are no runtime snapshots.
@@ -132,8 +135,14 @@ pub fn memory_read_payload(payload: &Value) -> Value {
             Err(_) => Value::Null,
         },
         "manager" => {
-            let scope = payload.get("scope").and_then(Value::as_str).unwrap_or("project");
-            let tab = payload.get("tab").and_then(Value::as_str).unwrap_or("active");
+            let scope = payload
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("project");
+            let tab = payload
+                .get("tab")
+                .and_then(Value::as_str)
+                .unwrap_or("active");
             let limit = payload.get("limit").and_then(Value::as_i64).unwrap_or(500);
             serde_json::to_value(service().manager_snapshot(
                 &memory_projects(),

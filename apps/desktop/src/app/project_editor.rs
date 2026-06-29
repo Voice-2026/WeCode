@@ -58,7 +58,9 @@ impl CoduxApp {
                                             host.host_name
                                         }
                                     })
-                                    .unwrap_or_else(|| tr("project.editor.device.remote", "Device")),
+                                    .unwrap_or_else(|| {
+                                        tr("project.editor.device.remote", "Device")
+                                    }),
                                 true,
                             ),
                         };
@@ -113,7 +115,6 @@ impl CoduxApp {
                 cx,
             ))
     }
-
 }
 
 impl CoduxApp {
@@ -140,7 +141,8 @@ impl CoduxApp {
             FilePickerMode::Save => tr("file.picker.save.confirm", "Save"),
         };
         let current = self.project_editor_browse_path.clone();
-        let can_confirm = self.file_picker_result_path().is_some() && !self.project_editor_browse_busy;
+        let can_confirm =
+            self.file_picker_result_path().is_some() && !self.project_editor_browse_busy;
 
         // Left: the device sidebar (Local + each paired host). Clicking a
         // device re-lists from its root.
@@ -207,7 +209,10 @@ impl CoduxApp {
         if self.file_picker_new_folder_active {
             list = list.child(file_picker_new_folder_row(
                 &self.project_editor_browse_new_folder,
-                tr("project.editor.browse.new_folder_placeholder", "New folder name"),
+                tr(
+                    "project.editor.browse.new_folder_placeholder",
+                    "New folder name",
+                ),
                 window,
                 cx,
             ));
@@ -266,14 +271,16 @@ impl CoduxApp {
             .child(list);
         // Save mode: a filename row (prefilled when an existing file is clicked).
         if mode == FilePickerMode::Save {
-            right = right.child(div().min_w_0().px(px(16.0)).pb(px(12.0)).child(project_editor_input(
-                "file-picker-filename",
-                &self.file_picker_filename,
-                "File name",
-                window,
-                cx,
-                |app, value, window, cx| app.set_file_picker_filename(value, window, cx),
-            )));
+            right = right.child(div().min_w_0().px(px(16.0)).pb(px(12.0)).child(
+                project_editor_input(
+                    "file-picker-filename",
+                    &self.file_picker_filename,
+                    "File name",
+                    window,
+                    cx,
+                    |app, value, window, cx| app.set_file_picker_filename(value, window, cx),
+                ),
+            ));
         }
         if let Some(error) = self.project_editor_browse_error.as_ref() {
             right = right.child(
@@ -286,12 +293,7 @@ impl CoduxApp {
             );
         }
 
-        let body = div()
-            .min_h_0()
-            .flex_1()
-            .flex()
-            .child(devices)
-            .child(right);
+        let body = div().min_h_0().flex_1().flex().child(devices).child(right);
 
         let new_folder_disabled =
             self.project_editor_browse_busy || self.project_editor_browse_path.trim().is_empty();
@@ -522,7 +524,12 @@ fn file_picker_breadcrumb(
     // device label (e.g. "Local" / a host name) navigating to the root target
     // (`/` on POSIX, the drive list on Windows).
     let (root_target, segments) = file_picker_breadcrumb_model(trimmed);
-    let mut row = bar.child(file_picker_root_crumb(root_label, &root_target, is_remote, cx));
+    let mut row = bar.child(file_picker_root_crumb(
+        root_label,
+        &root_target,
+        is_remote,
+        cx,
+    ));
     for segment in segments {
         row = row.child(file_picker_crumb_separator());
         row = row.child(file_picker_crumb(
@@ -996,21 +1003,16 @@ fn project_editor_path_field(
                 .child(label),
         )
         .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(path_box)
-                .child(
-                    Button::new("project-editor-choose-path")
-                        .secondary()
-                        .compact()
-                        .text_color(cx.theme().secondary_foreground)
-                        .child(dialog_button_label(choose_label))
-                        .on_click(cx.listener(|app, _event, window, cx| {
-                            app.choose_project_editor_directory(window, cx);
-                        })),
-                ),
+            div().flex().items_center().gap_2().child(path_box).child(
+                Button::new("project-editor-choose-path")
+                    .secondary()
+                    .compact()
+                    .text_color(cx.theme().secondary_foreground)
+                    .child(dialog_button_label(choose_label))
+                    .on_click(cx.listener(|app, _event, window, cx| {
+                        app.choose_project_editor_directory(window, cx);
+                    })),
+            ),
         )
         .into_any_element()
 }

@@ -32,7 +32,7 @@ AI coding CLIs are incredibly powerful — and incredibly easy to lose control o
 
 | When AI coding gets messy | Codux AI gives you |
 | :------------------------ | :----------------- |
-| Every AI CLI has its own state | One project-aware view across Codex, Claude Code, Gemini CLI, OpenCode, Kiro CLI, Kimi Code, CodeWhale, and Agy. |
+| Every AI CLI has its own state | One project-aware view across Codex, Claude Code, OpenCode, Kiro CLI, Kimi Code, CodeWhale, MiMo Code, and Agy. |
 | Long agent runs are hard to resume | Live status, local history, session restore, and context that follows each worktree. |
 | Parallel tasks collide | A worktree-first model where every task keeps its own terminals, Git state, files, and AI sessions. |
 | Token spend is a black box | Usage by tool, model, project, worktree, and day — no spreadsheets. |

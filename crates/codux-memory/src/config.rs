@@ -76,8 +76,8 @@ impl Default for MemorySettings {
             summary_target_token_budget: default_memory_summary_target_token_budget(),
             max_injected_summary_tokens: default_memory_max_injected_summary_tokens(),
             extraction_idle_delay_seconds: default_memory_extraction_idle_delay_seconds(),
-            session_extraction_cooldown_seconds:
-                default_memory_session_extraction_cooldown_seconds(),
+            session_extraction_cooldown_seconds: default_memory_session_extraction_cooldown_seconds(
+            ),
             max_index_sessions: default_memory_max_index_sessions(),
             max_extraction_transcript_lines: default_memory_max_extraction_transcript_lines(),
             max_extraction_transcript_tokens: default_memory_max_extraction_transcript_tokens(),

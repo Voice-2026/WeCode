@@ -53,61 +53,6 @@ pub(crate) fn claude_project_log_paths(project_path: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-pub(crate) fn gemini_session_paths(project_path: &str) -> Vec<PathBuf> {
-    gemini_session_paths_for_roots(project_path, &[home_dir().join(".gemini")])
-}
-
-
-fn gemini_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    for root_dir in roots {
-        let temp_dir = root_dir.join("tmp");
-        let projects_path = root_dir.join("projects.json");
-        if let Ok(data) = fs::read(&projects_path) {
-            if let Ok(root) = serde_json::from_slice::<Value>(&data) {
-                if let Some(projects) = root.get("projects").and_then(|value| value.as_object()) {
-                    for (stored_path, value) in projects {
-                        if paths_equivalent(Some(stored_path), project_path) {
-                            if let Some(directory) = value
-                                .as_str()
-                                .and_then(|value| normalized_string(Some(value)))
-                            {
-                                dirs.push(temp_dir.join(directory));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if let Ok(entries) = fs::read_dir(&temp_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
-                let marker = path.join(".project_root");
-                if let Ok(value) = fs::read_to_string(marker) {
-                    if paths_equivalent(Some(value.trim()), project_path) {
-                        dirs.push(path);
-                    }
-                }
-            }
-        }
-    }
-    let mut files = Vec::new();
-    for dir in dirs {
-        files.extend(directory_files(&dir.join("chats"), "json"));
-    }
-    files.retain(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name.starts_with("session-"))
-            .unwrap_or(false)
-    });
-    files.sort_by_key(|path| std::cmp::Reverse(file_modified_millis(path).unwrap_or(0)));
-    files
-}
-
 pub(super) fn directory_files(dir: &Path, extension: &str) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();

@@ -437,23 +437,32 @@ where
 {
     let (mut tabs, active_terminal_id, next_id) =
         restore_terminal_tabs_skeleton(plan, launch_context);
-    for (tab_plan_index, tab_plan) in plan.tabs.iter().enumerate() {
-        let mount_tab = tab_plan_index == plan.active_index
-            || tabs
-                .get(tab_plan_index)
-                .is_some_and(|tab| tab.id == active_terminal_id)
-            || tab_plan.placement == TerminalTabPlacement::Top;
-        if mount_tab && let Some(tab) = tabs.get_mut(tab_plan_index) {
-            mount_terminal_tab_panes(
-                tab,
-                terminal_manager.clone(),
-                base_pty_config,
-                &terminal_config,
-                terminal_pane_registry,
-                pending_out.as_deref_mut(),
-                cx,
-            )?;
-        }
+    let mount_target = terminal_restore_mount_target(plan, &tabs);
+    for tab_index in 0..tabs.len() {
+        let Some(tab) = tabs.get_mut(tab_index) else {
+            continue;
+        };
+        let target_slot_index = if tab.placement == TerminalTabPlacement::Top {
+            None
+        } else {
+            let Some((target_tab_index, target_slot_index)) = mount_target else {
+                continue;
+            };
+            if tab_index != target_tab_index {
+                continue;
+            }
+            Some(target_slot_index)
+        };
+        mount_terminal_tab_panes(
+            tab,
+            terminal_manager.clone(),
+            base_pty_config,
+            &terminal_config,
+            terminal_pane_registry,
+            target_slot_index,
+            pending_out.as_deref_mut(),
+            cx,
+        )?;
     }
     Ok((tabs, active_terminal_id, next_id))
 }
@@ -464,13 +473,17 @@ fn mount_terminal_tab_panes<C>(
     base_pty_config: &TerminalPtyConfig,
     terminal_config: &TerminalConfig,
     terminal_pane_registry: &HashMap<String, TerminalPane>,
+    target_slot_index: Option<usize>,
     mut pending_out: Option<&mut Vec<(TerminalPtyConfig, crate::terminal::PendingTerminalAttach)>>,
     cx: &mut C,
 ) -> Result<()>
 where
     C: gpui::AppContext,
 {
-    for slot in &mut tab.panes {
+    for (slot_index, slot) in tab.panes.iter_mut().enumerate() {
+        if target_slot_index.is_some_and(|target| target != slot_index) {
+            continue;
+        }
         if slot.pane.is_some() {
             continue;
         }
@@ -515,6 +528,45 @@ where
         )?);
     }
     Ok(())
+}
+
+pub(in crate::app) fn terminal_restore_mount_target(
+    plan: &TerminalRestorePlan,
+    tabs: &[TerminalTab],
+) -> Option<(usize, usize)> {
+    let active_terminal_id = plan
+        .active_terminal_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|terminal_id| !terminal_id.is_empty());
+    if let Some(active_terminal_id) = active_terminal_id {
+        if let Some(target) = tabs.iter().enumerate().find_map(|(tab_index, tab)| {
+            tab.panes
+                .iter()
+                .position(|slot| slot.terminal_id.as_deref() == Some(active_terminal_id))
+                .map(|slot_index| (tab_index, slot_index))
+        }) {
+            return Some(target);
+        }
+    }
+
+    let tab_index = plan.active_index.min(tabs.len().saturating_sub(1));
+    tabs.get(tab_index)
+        .and_then(|tab| (!tab.panes.is_empty()).then_some((tab_index, 0)))
+}
+
+pub(in crate::app) fn should_mount_restored_terminal_slot(
+    placement: TerminalTabPlacement,
+    tab_index: usize,
+    slot_index: usize,
+    mount_target: Option<(usize, usize)>,
+) -> bool {
+    if placement == TerminalTabPlacement::Top {
+        return true;
+    }
+    mount_target.is_some_and(|(target_tab, target_slot)| {
+        target_tab == tab_index && target_slot == slot_index
+    })
 }
 
 pub(in crate::app) fn refresh_terminal_pane_config<C>(

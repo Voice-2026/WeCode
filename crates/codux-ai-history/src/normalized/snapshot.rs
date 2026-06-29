@@ -38,6 +38,8 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
     let mut project_cached_input_tokens = 0;
     let mut today_total_tokens = 0;
     let mut today_cached_input_tokens = 0;
+    let mut project_usage_amounts = Vec::new();
+    let mut today_usage_amounts = Vec::new();
 
     for entry in &parsed.entries {
         let total_tokens = entry.total_tokens();
@@ -64,17 +66,21 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
         session.output_tokens += entry.output_tokens;
         session.cached_input_tokens += entry.cached_input_tokens;
         session.reasoning_output_tokens += entry.reasoning_output_tokens;
+        merge_usage_amounts(&mut session.usage_amounts, &entry.usage_amounts);
         session.active_duration_seconds = session.active_duration_seconds.max(active_duration);
         if entry.timestamp >= today_start {
             session.today_tokens += total_tokens;
             session.today_cached_input_tokens += entry.cached_input_tokens;
+            merge_usage_amounts(&mut session.today_usage_amounts, &entry.usage_amounts);
         }
 
         project_total_tokens += total_tokens;
         project_cached_input_tokens += entry.cached_input_tokens;
+        merge_usage_amounts(&mut project_usage_amounts, &entry.usage_amounts);
         if entry.timestamp >= today_start {
             today_total_tokens += total_tokens;
             today_cached_input_tokens += entry.cached_input_tokens;
+            merge_usage_amounts(&mut today_usage_amounts, &entry.usage_amounts);
         }
 
         accumulate_breakdown(
@@ -82,6 +88,7 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
             &entry.source,
             total_tokens,
             entry.cached_input_tokens,
+            &entry.usage_amounts,
         );
         if let Some(model) = displayable_model_name(entry.model.as_deref()) {
             accumulate_breakdown(
@@ -89,6 +96,7 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                 model,
                 total_tokens,
                 entry.cached_input_tokens,
+                &entry.usage_amounts,
             );
         }
 
@@ -151,6 +159,17 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
             let tool_key = event.source.clone();
             if let Some(item) = tool_breakdown.get_mut(&tool_key) {
                 item.request_count += 1;
+            } else {
+                tool_breakdown.insert(
+                    tool_key.clone(),
+                    AIUsageBreakdownItem {
+                        key: tool_key,
+                        total_tokens: 0,
+                        cached_input_tokens: 0,
+                        request_count: 1,
+                        usage_amounts: Vec::new(),
+                    },
+                );
             }
         }
     }
@@ -163,6 +182,7 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                 + session.reasoning_output_tokens
                 + session.request_count
                 > 0
+                || !session.usage_amounts.is_empty()
         })
         .map(|session| {
             let total_tokens =
@@ -183,6 +203,7 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                 total_output_tokens: session.output_tokens,
                 total_tokens,
                 cached_input_tokens: session.cached_input_tokens,
+                usage_amounts: session.usage_amounts,
                 active_duration_seconds: session.active_duration_seconds.min(
                     (session.last_seen_at - session.first_seen_at)
                         .max(0.0)
@@ -190,6 +211,7 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                 ),
                 today_tokens: session.today_tokens,
                 today_cached_input_tokens: session.today_cached_input_tokens,
+                today_usage_amounts: session.today_usage_amounts,
             }
         })
         .collect::<Vec<_>>();
@@ -215,6 +237,8 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
             project_cached_input_tokens,
             today_total_tokens,
             today_cached_input_tokens,
+            usage_amounts: project_usage_amounts,
+            today_usage_amounts,
             current_tool: latest_session
                 .as_ref()
                 .and_then(|session| session.last_tool.clone()),

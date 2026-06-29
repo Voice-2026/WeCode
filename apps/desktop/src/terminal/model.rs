@@ -54,6 +54,7 @@ impl TerminalModel {
         stdin_writer: W,
         bytes_rx: flume::Receiver<Vec<u8>>,
         session_event_rx: flume::Receiver<TerminalUiEvent>,
+        session_event_wake_rx: flume::Receiver<()>,
         config: &TerminalConfig,
         restored_output: Option<TerminalOutputSnapshot>,
         cx: &mut Context<Self>,
@@ -116,26 +117,14 @@ impl TerminalModel {
             }
         });
         // Owner-change / exit / error events arrive on a channel separate from
-        // the PTY output bytes and are normally drained inside the output path
-        // (process_output_bytes). An IDLE terminal produces no output, so a
-        // handoff on a quiet terminal -- or the trailing event of a rapid
-        // claim/release burst -- would otherwise sit undrained and the desktop
-        // placeholder would never flip. This waker drives them the moment they
-        // arrive, independent of output. The output path still drains+orders
-        // events for the live case (resize-before-parse); this covers the quiet
-        // case the live path can never reach.
-        let event_rx = session_event_rx.clone();
+        // PTY output. The wake channel carries only a unit notification so the
+        // foreground task is woken only for real UI events; the model then
+        // drains the event queue synchronously, preserving resize-before-output
+        // ordering without competing consumers on the event receiver.
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
-            while let Ok(event) = event_rx.recv_async().await {
-                // Output Wakeups are driven by the byte-stream path and would
-                // spam repaints here under heavy output; the waker only exists
-                // for owner-change / exit / error events, which can arrive on an
-                // otherwise-idle terminal with no output to piggyback on.
-                if matches!(event, TerminalUiEvent::Wakeup) {
-                    continue;
-                }
+            while session_event_wake_rx.recv_async().await.is_ok() {
                 if this
-                    .update(cx, |model, cx| model.on_ui_event(event, cx))
+                    .update(cx, |model, cx| model.process_event_wake(cx))
                     .is_err()
                 {
                     break;
@@ -345,12 +334,8 @@ impl TerminalModel {
         should_notify
     }
 
-    /// Apply a single UI event delivered by the async waker (plus any that piled
-    /// up behind it) and repaint. Mirrors the event handling in the output path
-    /// so a quiet-terminal handoff converges identically to a live one.
-    fn on_ui_event(&mut self, event: TerminalUiEvent, cx: &mut Context<Self>) {
-        let mut should_notify = self.apply_ui_event(event);
-        should_notify |= self.process_pending_events(cx);
+    fn process_event_wake(&mut self, cx: &mut Context<Self>) {
+        let mut should_notify = self.process_pending_events(cx);
         should_notify |= self.apply_model_events();
         if should_notify {
             self.request_snapshot_publish(cx);
@@ -360,7 +345,6 @@ impl TerminalModel {
 
     fn apply_ui_event(&mut self, event: TerminalUiEvent) -> bool {
         match event {
-            TerminalUiEvent::Wakeup => !self.output_flush_pending,
             TerminalUiEvent::Viewport {
                 remote_owner,
                 generation,

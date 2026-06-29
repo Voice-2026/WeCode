@@ -1,15 +1,20 @@
 use crate::ai_runtime::{
     probe::claude::probe_claude_runtime,
     tool_driver::{
-        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeMemoryInjectionDriver,
-        AIRuntimeToolDriver, AIRuntimeToolHookDriver, hook,
+        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeLifecycleHookFormat,
+        AIRuntimeMemoryInjectionDriver, AIRuntimeToolDriver, AIRuntimeToolHookDriver,
+        NO_SCREEN_PATTERNS, hook,
     },
 };
 
 pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
     id: "claude",
-    aliases: &["claude", "claude-code"],
-    wrapper_bins: &["claude", "claude-code"],
+    aliases: &["claude", "claude-code", "reclaude"],
+    process_names: &["claude", "claude-code", "reclaude"],
+    wrapper_bins: &["claude", "claude-code", "reclaude"],
+    liveness_from_process: false,
+    screen_starts_idle: false,
+    screen_patterns: NO_SCREEN_PATTERNS,
     hook: AIRuntimeToolHookDriver::Json(AIRuntimeJsonHookDriver {
         tool: "claude",
         path_segments: &[".claude", "settings.json"],
@@ -29,5 +34,9 @@ pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
         ],
     }),
     probe: Some(probe_claude_runtime),
+    resource_paths: Some(crate::ai_runtime::tool_driver::transcript_resource_paths),
     memory_injection: AIRuntimeMemoryInjectionDriver::ClaudeAppendSystemPrompt,
+    lifecycle_hook_format: AIRuntimeLifecycleHookFormat::None,
+    lifecycle_hooks: &[],
+    lifecycle_config: None,
 };

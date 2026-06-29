@@ -109,6 +109,38 @@ impl CoduxApp {
         Some(TerminalCloseTarget::Split { pane_index })
     }
 
+    pub(in crate::app) fn select_terminal_pane(
+        &mut self,
+        pane_index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.refresh_terminal_slot_snapshots();
+        let Some(tab_index) = self
+            .terminals
+            .iter()
+            .position(|tab| tab.placement == TerminalTabPlacement::Top)
+        else {
+            return;
+        };
+        let Some(terminal_id) = self.terminals[tab_index]
+            .panes
+            .get(pane_index)
+            .and_then(|slot| slot.terminal_id.clone())
+        else {
+            return;
+        };
+        self.select_active_terminal_runtime_id(Some(&terminal_id));
+        if let Err(error) = self.ensure_terminal_slot_mounted(tab_index, pane_index, cx) {
+            self.status_message = format!("failed to select terminal split: {error}");
+            self.invalidate_terminal_workspace(cx);
+            return;
+        }
+        self.focus_active_terminal(window, cx);
+        self.sync_terminal_state_after_layout_change(cx);
+        self.invalidate_terminal_workspace(cx);
+    }
+
     /// Reconcile the in-memory terminal layout with sessions a connected mobile
     /// client created (split/tab) for the current scope. Mobile-created PTYs are
     /// already live in the shared `TerminalManager` and persisted into the
@@ -393,19 +425,6 @@ impl CoduxApp {
         self.sync_terminal_state_after_layout_change(cx);
         self.spawn_attach_pending_terminals(None, vec![(pty_config, attach)], cx);
         self.invalidate_terminal_workspace(cx);
-    }
-
-    /// Smart "+": add a split while the main split is under the cap, otherwise
-    /// add a tab. This is the same rule the host applies to remote (pad/phone)
-    /// creates (`next_terminal_layout_kind`), so "+" behaves consistently on
-    /// every device. Explicit split/tab actions still exist for power users.
-    pub(in crate::app) fn add_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let split_count = self.main_terminal().map(|tab| tab.panes.len()).unwrap_or(0);
-        if split_count < codux_runtime::terminal_layout::TERMINAL_SPLIT_CAP {
-            self.split_terminal(window, cx);
-        } else {
-            self.add_terminal_tab(window, cx);
-        }
     }
 
     pub(in crate::app) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -112,6 +112,7 @@ fn parse_claude_history_file_snapshot(
             output_tokens,
             cached_input_tokens,
             reasoning_output_tokens: 0,
+            usage_amounts: Vec::new(),
         });
         last_processed_offset = end_offset;
         true
@@ -286,6 +287,7 @@ fn parse_codex_history_file_snapshot(
             output_tokens: usage.output_tokens,
             cached_input_tokens: usage.cached_input_tokens,
             reasoning_output_tokens: usage.reasoning_output_tokens,
+            usage_amounts: Vec::new(),
         });
         model = Some(resolved_model);
         last_processed_offset = end_offset;

@@ -4,22 +4,60 @@ fn accumulate_breakdown(
     total_tokens: i64,
     cached_input_tokens: i64,
     request_count: i64,
+    usage_amounts: &[AIUsageAmount],
 ) {
     let item = map.entry(key.to_string()).or_insert(AIUsageBreakdownItem {
         key: key.to_string(),
         total_tokens: 0,
         cached_input_tokens: 0,
         request_count: 0,
+        usage_amounts: Vec::new(),
     });
     item.total_tokens += total_tokens;
     item.cached_input_tokens += cached_input_tokens;
     item.request_count += request_count;
+    merge_usage_amounts(&mut item.usage_amounts, usage_amounts);
 }
 
 fn sorted_breakdown(mut map: HashMap<String, AIUsageBreakdownItem>) -> Vec<AIUsageBreakdownItem> {
     let mut values = map.drain().map(|(_, value)| value).collect::<Vec<_>>();
-    values.sort_by(|left, right| right.total_tokens.cmp(&left.total_tokens));
+    values.sort_by(|left, right| {
+        right
+            .total_tokens
+            .cmp(&left.total_tokens)
+            .then_with(|| {
+                right
+                    .usage_amounts
+                    .iter()
+                    .map(|amount| amount.value)
+                    .sum::<f64>()
+                    .total_cmp(
+                        &left
+                            .usage_amounts
+                            .iter()
+                            .map(|amount| amount.value)
+                            .sum::<f64>(),
+                    )
+            })
+    });
     values
+}
+
+fn merge_usage_amount(amounts: &mut Vec<AIUsageAmount>, next: AIUsageAmount) {
+    if next.unit.trim().is_empty() || next.value <= 0.0 {
+        return;
+    }
+    if let Some(existing) = amounts.iter_mut().find(|item| item.unit == next.unit) {
+        existing.value += next.value;
+    } else {
+        amounts.push(next);
+    }
+}
+
+fn merge_usage_amounts(amounts: &mut Vec<AIUsageAmount>, next: &[AIUsageAmount]) {
+    for amount in next {
+        merge_usage_amount(amounts, amount.clone());
+    }
 }
 
 fn sorted_values<T>(map: HashMap<i64, T>) -> Vec<T> {
@@ -168,6 +206,30 @@ fn modified_seconds(metadata: &fs::Metadata) -> f64 {
         .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
         .map(duration_seconds)
         .unwrap_or(0.0)
+}
+
+fn history_file_version(path: &Path, metadata: &fs::Metadata) -> (f64, i64) {
+    let mut modified_at = modified_seconds(metadata);
+    let mut file_size = metadata.len().min(i64::MAX as u64) as i64;
+    if is_sqlite_history_database_path(path) {
+        for sidecar in [path_with_suffix(path, "-wal"), path_with_suffix(path, "-shm")] {
+            let Ok(metadata) = fs::metadata(sidecar) else {
+                continue;
+            };
+            modified_at = modified_at.max(modified_seconds(&metadata));
+            file_size = file_size.saturating_add(metadata.len().min(i64::MAX as u64) as i64);
+        }
+    }
+    (modified_at, file_size)
+}
+
+fn is_sqlite_history_database_path(path: &Path) -> bool {
+    path.extension().and_then(|value| value.to_str()) == Some("db")
+        || path.file_name().and_then(|value| value.to_str()) == Some("state_5.sqlite")
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    PathBuf::from(format!("{}{}", path.display(), suffix))
 }
 
 fn duration_seconds(duration: std::time::Duration) -> f64 {

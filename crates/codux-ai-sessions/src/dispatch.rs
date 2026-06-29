@@ -81,7 +81,11 @@ pub fn session_op_result(service: &AIHistoryService, project_path: &str, payload
 }
 
 /// Convenience wrapper returning the full `{op, result}` envelope both hosts send.
-pub fn session_op_payload(service: &AIHistoryService, project_path: &str, payload: &Value) -> Value {
+pub fn session_op_payload(
+    service: &AIHistoryService,
+    project_path: &str,
+    payload: &Value,
+) -> Value {
     let op = payload.get("op").and_then(Value::as_str).unwrap_or("");
     json!({ "op": op, "result": session_op_result(service, project_path, payload) })
 }

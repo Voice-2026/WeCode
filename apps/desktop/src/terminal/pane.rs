@@ -4,6 +4,45 @@ pub struct TerminalPane {
     session: TerminalSessionBinding,
 }
 
+fn terminal_ui_event_sink(
+    session_event_tx: flume::Sender<TerminalUiEvent>,
+    session_event_wake_tx: flume::Sender<()>,
+) -> EventSink {
+    Arc::new(move |event| match event {
+        TerminalEvent::Exit { .. } => {
+            let sent = session_event_tx.send(TerminalUiEvent::Exit).is_ok();
+            let _ = session_event_wake_tx.try_send(());
+            sent
+        }
+        TerminalEvent::Error { message, .. } => {
+            let sent = session_event_tx
+                .send(TerminalUiEvent::Error(message))
+                .is_ok();
+            let _ = session_event_wake_tx.try_send(());
+            sent
+        }
+        TerminalEvent::Output { .. } => true,
+        TerminalEvent::Viewport {
+            owner,
+            generation,
+            cols,
+            rows,
+            ..
+        } => {
+            let sent = session_event_tx
+                .send(TerminalUiEvent::Viewport {
+                    remote_owner: owner != terminal_viewport_local_owner(),
+                    generation,
+                    cols,
+                    rows,
+                })
+                .is_ok();
+            let _ = session_event_wake_tx.try_send(());
+            sent
+        }
+    })
+}
+
 impl TerminalPane {
     pub fn spawn_with_pty_config<C>(
         cx: &mut C,
@@ -16,27 +55,8 @@ impl TerminalPane {
     {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let (session_event_tx, session_event_rx) = flume::unbounded();
-        let emit = Arc::new(move |event| match event {
-            TerminalEvent::Exit { .. } => session_event_tx.send(TerminalUiEvent::Exit).is_ok(),
-            TerminalEvent::Error { message, .. } => session_event_tx
-                .send(TerminalUiEvent::Error(message))
-                .is_ok(),
-            TerminalEvent::Output { .. } => session_event_tx.send(TerminalUiEvent::Wakeup).is_ok(),
-            TerminalEvent::Viewport {
-                owner,
-                generation,
-                cols,
-                rows,
-                ..
-            } => session_event_tx
-                .send(TerminalUiEvent::Viewport {
-                    remote_owner: owner != terminal_viewport_local_owner(),
-                    generation,
-                    cols,
-                    rows,
-                })
-                .is_ok(),
-        });
+        let (session_event_wake_tx, session_event_wake_rx) = flume::bounded(1);
+        let emit = terminal_ui_event_sink(session_event_tx, session_event_wake_tx);
         let terminal_id = config.terminal_id.clone();
         let attach_started_at = Instant::now();
         let (session, output_rx) =
@@ -57,6 +77,7 @@ impl TerminalPane {
                 writer,
                 output_rx,
                 session_event_rx,
+                session_event_wake_rx,
                 session.clone(),
                 terminal_config,
                 None,
@@ -98,6 +119,7 @@ impl TerminalPane {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let terminal_id = config.terminal_id.clone();
         let (session_event_tx, session_event_rx) = flume::unbounded();
+        let (session_event_wake_tx, session_event_wake_rx) = flume::bounded(1);
         let (output_tx, output_rx) = flume::unbounded();
         let (session, initial_layout_rx) = TerminalSessionBinding::pending(config.clone());
         let writer = TerminalSessionWriter::new(session.clone());
@@ -115,6 +137,7 @@ impl TerminalPane {
                 writer,
                 output_rx,
                 session_event_rx,
+                session_event_wake_rx,
                 session.clone(),
                 terminal_config,
                 restored_output,
@@ -140,6 +163,7 @@ impl TerminalPane {
                 session,
                 output_tx,
                 session_event_tx,
+                session_event_wake_tx,
                 terminal_id,
                 initial_layout_rx,
             },
@@ -159,27 +183,8 @@ impl TerminalPane {
         let config = terminal_pty_config_with_view(pty_config, &terminal_config);
         let terminal_id = config.terminal_id.clone();
         let session_event_tx = pending.session_event_tx.clone();
-        let emit = Arc::new(move |event| match event {
-            TerminalEvent::Exit { .. } => session_event_tx.send(TerminalUiEvent::Exit).is_ok(),
-            TerminalEvent::Error { message, .. } => session_event_tx
-                .send(TerminalUiEvent::Error(message))
-                .is_ok(),
-            TerminalEvent::Output { .. } => session_event_tx.send(TerminalUiEvent::Wakeup).is_ok(),
-            TerminalEvent::Viewport {
-                owner,
-                generation,
-                cols,
-                rows,
-                ..
-            } => session_event_tx
-                .send(TerminalUiEvent::Viewport {
-                    remote_owner: owner != terminal_viewport_local_owner(),
-                    generation,
-                    cols,
-                    rows,
-                })
-                .is_ok(),
-        });
+        let session_event_wake_tx = pending.session_event_wake_tx.clone();
+        let emit = terminal_ui_event_sink(session_event_tx, session_event_wake_tx);
         let attach_started_at = Instant::now();
         let (session, output_rx) =
             terminal_manager.attach_or_create_with_context(config, None, emit)?;
@@ -308,6 +313,7 @@ pub struct PendingTerminalAttach {
     session: TerminalSessionBinding,
     output_tx: flume::Sender<Vec<u8>>,
     session_event_tx: flume::Sender<TerminalUiEvent>,
+    session_event_wake_tx: flume::Sender<()>,
     terminal_id: Option<String>,
     initial_layout_rx: mpsc::Receiver<(u16, u16)>,
 }

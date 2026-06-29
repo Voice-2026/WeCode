@@ -429,17 +429,16 @@ impl CoduxApp {
                 .step(0.01)
                 .default_value(vibrancy_default)
         });
-        let vibrancy_sub =
-            cx.subscribe(&vibrancy_state, |app, _state, event, cx| match event {
-                gpui_component::slider::SliderEvent::Change(value) => {
-                    theme::set_vibrancy_alpha(value.start());
-                    let _ = app;
-                    cx.refresh_windows();
-                }
-                gpui_component::slider::SliderEvent::Release(value) => {
-                    app.persist_window_opacity((value.start() * 100.0).round() as i64, cx);
-                }
-            });
+        let vibrancy_sub = cx.subscribe(&vibrancy_state, |app, _state, event, cx| match event {
+            gpui_component::slider::SliderEvent::Change(value) => {
+                theme::set_vibrancy_alpha(value.start());
+                let _ = app;
+                cx.refresh_windows();
+            }
+            gpui_component::slider::SliderEvent::Release(value) => {
+                app.persist_window_opacity((value.start() * 100.0).round() as i64, cx);
+            }
+        });
         self.appearance_vibrancy_slider = Some(vibrancy_state);
         self._appearance_slider_subscriptions = vec![vibrancy_sub];
     }

@@ -59,54 +59,46 @@ fn codex_history_usage(value: Option<&Value>) -> Option<HistoryUsage> {
     (usage.total_tokens() > 0 || usage.cached_input_tokens > 0).then_some(usage)
 }
 
-fn gemini_tokens_usage(value: &Value) -> HistoryUsage {
-    let cached = json_i64(value.get("cached"));
-    let reasoning = json_i64(value.get("thoughts"));
-    HistoryUsage {
-        input_tokens: (json_i64(value.get("input")) - cached).max(0),
-        output_tokens: (json_i64(value.get("output")) - reasoning).max(0),
-        cached_input_tokens: cached.max(0),
-        reasoning_output_tokens: reasoning.max(0),
-    }
-}
-
-fn gemini_usage_metadata(value: &Value) -> HistoryUsage {
-    let cached = json_i64(value.get("cachedContentTokenCount"));
-    let reasoning = json_i64(value.get("thoughtsTokenCount"));
-    HistoryUsage {
-        input_tokens: (json_i64(value.get("promptTokenCount"))
-            + json_i64(value.get("input_tokens"))
-            - cached)
-            .max(0),
-        output_tokens: (json_i64(value.get("candidatesTokenCount"))
-            + json_i64(value.get("output_tokens"))
-            - reasoning)
-            .max(0),
-        cached_input_tokens: cached.max(0),
-        reasoning_output_tokens: reasoning.max(0),
-    }
-}
-
 fn accumulate_breakdown(
     map: &mut HashMap<String, AIUsageBreakdownItem>,
     key: &str,
     total_tokens: i64,
     cached_input_tokens: i64,
+    usage_amounts: &[AIUsageAmount],
 ) {
     let item = map.entry(key.to_string()).or_insert(AIUsageBreakdownItem {
         key: key.to_string(),
         total_tokens: 0,
         cached_input_tokens: 0,
         request_count: 0,
+        usage_amounts: Vec::new(),
     });
     item.total_tokens += total_tokens;
     item.cached_input_tokens += cached_input_tokens;
+    merge_usage_amounts(&mut item.usage_amounts, usage_amounts);
 }
 
 fn sorted_breakdown(mut map: HashMap<String, AIUsageBreakdownItem>) -> Vec<AIUsageBreakdownItem> {
     let mut values = map.drain().map(|(_, value)| value).collect::<Vec<_>>();
     values.sort_by(|left, right| right.total_tokens.cmp(&left.total_tokens));
     values
+}
+
+fn merge_usage_amount(amounts: &mut Vec<AIUsageAmount>, next: AIUsageAmount) {
+    if next.unit.trim().is_empty() || next.value <= 0.0 {
+        return;
+    }
+    if let Some(existing) = amounts.iter_mut().find(|item| item.unit == next.unit) {
+        existing.value += next.value;
+    } else {
+        amounts.push(next);
+    }
+}
+
+fn merge_usage_amounts(amounts: &mut Vec<AIUsageAmount>, next: &[AIUsageAmount]) {
+    for amount in next {
+        merge_usage_amount(amounts, amount.clone());
+    }
 }
 
 fn sorted_values<T>(map: HashMap<i64, T>) -> Vec<T> {

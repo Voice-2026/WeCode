@@ -430,9 +430,11 @@ fn pet_stats_use_session_shape_without_flat_placeholder_values() {
         total_output_tokens: 900,
         total_tokens: 3_300,
         cached_input_tokens: 0,
+        usage_amounts: Vec::new(),
         active_duration_seconds: 900,
         today_tokens: 3_300,
         today_cached_input_tokens: 0,
+        today_usage_amounts: Vec::new(),
     }]);
 
     let max_trait = [

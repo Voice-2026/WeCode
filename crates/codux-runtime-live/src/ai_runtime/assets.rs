@@ -6,7 +6,9 @@ use std::os::unix::fs::PermissionsExt;
 const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     (
         "scripts/shell-hooks/dmux-ai-hook.zsh",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/shell-hooks/dmux-ai-hook.zsh"
+        ),
     ),
     (
         "scripts/shell-hooks/zsh/.zlogin",
@@ -42,11 +44,21 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ),
     (
         "scripts/wrappers/bin/claude-code.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude-code.ps1"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude-code.ps1"
+        ),
     ),
     (
         "scripts/wrappers/bin/claude.ps1",
         include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/claude.ps1"),
+    ),
+    (
+        "scripts/wrappers/bin/reclaude",
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/reclaude"),
+    ),
+    (
+        "scripts/wrappers/bin/reclaude.ps1",
+        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/reclaude.ps1"),
     ),
     (
         "scripts/wrappers/bin/codex",
@@ -61,16 +73,10 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale"),
     ),
     (
-        "scripts/wrappers/bin/codewhale-tui",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale-tui"),
-    ),
-    (
-        "scripts/wrappers/bin/codewhale-tui.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale-tui.ps1"),
-    ),
-    (
         "scripts/wrappers/bin/codewhale.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale.ps1"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codewhale.ps1"
+        ),
     ),
     (
         "scripts/wrappers/bin/codux-ssh",
@@ -78,35 +84,9 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ),
     (
         "scripts/wrappers/bin/codux-ssh.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codux-ssh.ps1"),
-    ),
-    (
-        "scripts/wrappers/bin/deepseek",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek"),
-    ),
-    (
-        "scripts/wrappers/bin/deepseek-tui",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek-tui"),
-    ),
-    (
-        "scripts/wrappers/bin/deepseek-tui.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek-tui.ps1"),
-    ),
-    (
-        "scripts/wrappers/bin/deepseek.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/deepseek.ps1"),
-    ),
-    (
-        "scripts/wrappers/bin/gemini",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/gemini"),
-    ),
-    (
-        "scripts/wrappers/bin/gemini.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/gemini.ps1"),
-    ),
-    (
-        "scripts/wrappers/bin/kiro",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/codux-ssh.ps1"
+        ),
     ),
     (
         "scripts/wrappers/bin/kiro-cli",
@@ -115,10 +95,6 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     (
         "scripts/wrappers/bin/kiro-cli.ps1",
         include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro-cli.ps1"),
-    ),
-    (
-        "scripts/wrappers/bin/kiro.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kiro.ps1"),
     ),
     (
         "scripts/wrappers/bin/kimi",
@@ -130,7 +106,9 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ),
     (
         "scripts/wrappers/bin/kimi-code.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kimi-code.ps1"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/bin/kimi-code.ps1"
+        ),
     ),
     (
         "scripts/wrappers/bin/kimi.ps1",
@@ -154,7 +132,9 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ),
     (
         "scripts/wrappers/codux-ssh-expect.exp",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/codux-ssh-expect.exp"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/codux-ssh-expect.exp"
+        ),
     ),
     (
         "scripts/wrappers/codux-ssh.ps1",
@@ -162,7 +142,9 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ),
     (
         "scripts/wrappers/dmux-ai-state.ps1",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/dmux-ai-state.ps1"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/dmux-ai-state.ps1"
+        ),
     ),
     (
         "scripts/wrappers/dmux-ai-state.sh",
@@ -170,7 +152,9 @@ const RUNTIME_ASSETS: &[(&str, &[u8])] = &[
     ),
     (
         "scripts/wrappers/opencode-config/package.json",
-        include_bytes!("../../../../apps/desktop/runtime-assets/scripts/wrappers/opencode-config/package.json"),
+        include_bytes!(
+            "../../../../apps/desktop/runtime-assets/scripts/wrappers/opencode-config/package.json"
+        ),
     ),
     (
         "scripts/wrappers/opencode-config/plugins/dmux-runtime.js",

@@ -1,3 +1,4 @@
+use super::ui_helpers::dialog_primary_button;
 use super::{CoduxApp, UiRegion, empty_label};
 use crate::app::{
     AIProviderTestResult,
@@ -15,11 +16,10 @@ use codux_runtime::{
     tool_permissions::ToolPermissionsSummary,
     update::UpdateSummary,
 };
-use super::ui_helpers::dialog_primary_button;
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea,
-    div, img, prelude::FluentBuilder as _, px, relative, rems,
+    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea, div,
+    img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
@@ -1104,7 +1104,11 @@ fn remote_connect_overlay(
                 .text_size(rems(1.125))
                 .line_height(rems(1.5))
                 .text_color(cx.theme().foreground)
-                .child(settings_text(language, "remote.connect.title", "Connect to a device")),
+                .child(settings_text(
+                    language,
+                    "remote.connect.title",
+                    "Connect to a device",
+                )),
         )
         .child(
             div()
@@ -2169,7 +2173,11 @@ fn appearance_style_card(
     }
 
     settings_card(
-        Some(settings_text(language, "settings.window_style.title", "App Style")),
+        Some(settings_text(
+            language,
+            "settings.window_style.title",
+            "App Style",
+        )),
         None,
         children,
         cx,
@@ -2653,6 +2661,7 @@ fn settings_ai_pane(
             &permissions.codex_model,
             "gpt-5.5",
             true,
+            true,
             &permissions.codex_effort,
             language,
             window,
@@ -2670,6 +2679,7 @@ fn settings_ai_pane(
             &permissions.claude_code,
             &permissions.claude_code_model,
             "claude-sonnet-4.5",
+            true,
             false,
             &permissions.codex_effort,
             language,
@@ -2682,12 +2692,13 @@ fn settings_ai_pane(
                 "settings.ai.tool.configuration_format",
                 "%@ Configuration",
             )
-            .replace("%@", "Gemini"),
-            "gemini",
-            "geminiModel",
-            &permissions.gemini,
-            &permissions.gemini_model,
+            .replace("%@", "Agy"),
+            "agy",
+            "agyModel",
+            &permissions.agy,
+            &permissions.agy_model,
             "gemini-2.5-pro",
+            true,
             false,
             &permissions.codex_effort,
             language,
@@ -2706,6 +2717,7 @@ fn settings_ai_pane(
             &permissions.opencode,
             &permissions.opencode_model,
             "gpt-5.5",
+            true,
             false,
             &permissions.codex_effort,
             language,
@@ -2725,6 +2737,7 @@ fn settings_ai_pane(
             &permissions.kiro_model,
             "auto",
             false,
+            false,
             &permissions.codex_effort,
             language,
             window,
@@ -2742,6 +2755,7 @@ fn settings_ai_pane(
             &permissions.codewhale,
             &permissions.codewhale_model,
             "deepseek-chat",
+            true,
             false,
             &permissions.codex_effort,
             language,
@@ -2761,6 +2775,7 @@ fn settings_ai_pane(
             &permissions.kimi_model,
             "kimi-k2",
             false,
+            false,
             &permissions.codex_effort,
             language,
             window,
@@ -2778,6 +2793,7 @@ fn settings_ai_pane(
             &permissions.mimo,
             &permissions.mimo_model,
             "kimi-k2",
+            true,
             false,
             &permissions.codex_effort,
             language,
@@ -3211,105 +3227,105 @@ fn settings_remote_pane(
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     let mut device_rows: Vec<AnyElement> = remote
-            .device_list
-            .iter()
-            .cloned()
-            .map(|device| {
-                let device_id = device.id.clone();
-                let remove_id = device.id.clone();
-                div()
-                    .id(SharedString::from(format!(
-                        "settings-remote-device-{}",
-                        device.id
-                    )))
-                    .min_h(px(64.0))
-                    .py(px(12.0))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(18.0))
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |app, _event, window, cx| {
-                        app.select_remote_device(device_id.clone(), window, cx)
-                    }))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.0))
-                                    // Devices in this segment paired INTO this
-                                    // machine, so the peer is a controller.
-                                    .child(settings_status_tag(
-                                        settings_text(
-                                            language,
-                                            "settings.remote.role.controller",
-                                            "Controller",
-                                        ),
-                                        theme::ACCENT,
-                                    ))
-                                    .child(
-                                        div()
-                                            .min_w_0()
-                                            .text_size(rems(0.9375))
-                                            .line_height(rems(1.25))
-                                            .text_color(color(theme::TEXT))
-                                            .truncate()
-                                            .child(empty_label(&device.name)),
+        .device_list
+        .iter()
+        .cloned()
+        .map(|device| {
+            let device_id = device.id.clone();
+            let remove_id = device.id.clone();
+            div()
+                .id(SharedString::from(format!(
+                    "settings-remote-device-{}",
+                    device.id
+                )))
+                .min_h(px(64.0))
+                .py(px(12.0))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(18.0))
+                .cursor_pointer()
+                .on_click(cx.listener(move |app, _event, window, cx| {
+                    app.select_remote_device(device_id.clone(), window, cx)
+                }))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                // Devices in this segment paired INTO this
+                                // machine, so the peer is a controller.
+                                .child(settings_status_tag(
+                                    settings_text(
+                                        language,
+                                        "settings.remote.role.controller",
+                                        "Controller",
                                     ),
+                                    theme::ACCENT,
+                                ))
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .text_size(rems(0.9375))
+                                        .line_height(rems(1.25))
+                                        .text_color(color(theme::TEXT))
+                                        .truncate()
+                                        .child(empty_label(&device.name)),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .mt(px(3.0))
+                                .text_size(rems(0.75))
+                                .line_height(rems(1.0))
+                                .text_color(color(theme::TEXT_DIM))
+                                .truncate()
+                                .child(device_type_label(&device.platform, language)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.0))
+                        .child(if device.online.unwrap_or(false) {
+                            settings_status_tag(
+                                settings_text(
+                                    language,
+                                    "remote.status.connected_label",
+                                    "Connected",
+                                ),
+                                theme::GREEN,
                             )
-                            .child(
-                                div()
-                                    .mt(px(3.0))
-                                    .text_size(rems(0.75))
-                                    .line_height(rems(1.0))
-                                    .text_color(color(theme::TEXT_DIM))
-                                    .truncate()
-                                    .child(device_type_label(&device.platform, language)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(12.0))
-                            .child(if device.online.unwrap_or(false) {
-                                settings_status_tag(
-                                    settings_text(
-                                        language,
-                                        "remote.status.connected_label",
-                                        "Connected",
-                                    ),
-                                    theme::GREEN,
-                                )
-                            } else {
-                                settings_status_tag(
-                                    settings_text(
-                                        language,
-                                        "remote.status.disconnected_label",
-                                        "Disconnected",
-                                    ),
-                                    theme::TEXT_DIM,
-                                )
-                            })
-                            .child(settings_icon_button_state(
-                                SharedString::from(format!("settings-remote-remove-{}", device.id)),
-                                HeroIconName::Trash,
-                                false,
-                                cx,
-                                move |app, _event, window, cx| {
-                                    app.select_remote_device(remove_id.clone(), window, cx);
-                                    app.revoke_selected_remote_device(window, cx);
-                                },
-                            )),
-                    )
-                    .into_any_element()
-            })
-            .collect::<Vec<_>>();
+                        } else {
+                            settings_status_tag(
+                                settings_text(
+                                    language,
+                                    "remote.status.disconnected_label",
+                                    "Disconnected",
+                                ),
+                                theme::TEXT_DIM,
+                            )
+                        })
+                        .child(settings_icon_button_state(
+                            SharedString::from(format!("settings-remote-remove-{}", device.id)),
+                            HeroIconName::Trash,
+                            false,
+                            cx,
+                            move |app, _event, window, cx| {
+                                app.select_remote_device(remove_id.clone(), window, cx);
+                                app.revoke_selected_remote_device(window, cx);
+                            },
+                        )),
+                )
+                .into_any_element()
+        })
+        .collect::<Vec<_>>();
 
     // Connected hosts (the desktops / headless agents this Mac pairs to as a
     // controller) share the same list, tagged "Host", with a Forget action.
@@ -3322,7 +3338,10 @@ fn settings_remote_pane(
         };
         device_rows.push(
             div()
-                .id(SharedString::from(format!("settings-remote-host-{}", host.device_id)))
+                .id(SharedString::from(format!(
+                    "settings-remote-host-{}",
+                    host.device_id
+                )))
                 .min_h(px(64.0))
                 .py(px(12.0))
                 .flex()
@@ -3376,7 +3395,10 @@ fn settings_remote_pane(
                             language,
                         ))
                         .child(settings_icon_button_state(
-                            SharedString::from(format!("settings-remote-forget-{}", host.device_id)),
+                            SharedString::from(format!(
+                                "settings-remote-forget-{}",
+                                host.device_id
+                            )),
                             HeroIconName::Trash,
                             false,
                             cx,
@@ -3513,14 +3535,11 @@ fn settings_remote_pane(
                         .flex()
                         .items_center()
                         .gap(px(8.0))
-                        .child(
-                            div()
-                                .child(remote_add_dropdown(
-                                    language,
-                                    remote_pairing_creating || !remote.enabled,
-                                    cx,
-                                )),
-                        )
+                        .child(div().child(remote_add_dropdown(
+                            language,
+                            remote_pairing_creating || !remote.enabled,
+                            cx,
+                        )))
                         .child(settings_icon_button_state(
                             "settings-remote-refresh",
                             HeroIconName::ArrowPath,
@@ -3983,6 +4002,7 @@ fn settings_runtime_tool_block(
     permission: &str,
     model: &str,
     placeholder: &'static str,
+    include_permission: bool,
     include_codex_effort: bool,
     codex_effort: &str,
     language: &str,
@@ -3996,7 +4016,9 @@ fn settings_runtime_tool_block(
             .text_color(color(theme::TEXT))
             .child(label)
             .into_any_element(),
-        settings_row(
+    ];
+    if include_permission {
+        children.push(settings_row(
             settings_text(
                 language,
                 "settings.ai.permission.full_access_toggle",
@@ -4015,7 +4037,9 @@ fn settings_runtime_tool_block(
                 },
             ),
         )
-        .into_any_element(),
+        .into_any_element());
+    }
+    children.push(
         settings_row(
             settings_text(language, "settings.ai.tool.default_model", "Default Model"),
             None,
@@ -4032,7 +4056,7 @@ fn settings_runtime_tool_block(
             ),
         )
         .into_any_element(),
-    ];
+    );
     if include_codex_effort {
         children.push(
             settings_row(

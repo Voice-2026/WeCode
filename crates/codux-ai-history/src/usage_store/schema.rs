@@ -1,3 +1,8 @@
+// Bumped 8 -> 9 to add unit-aware usage amounts (Kiro credits) while keeping
+// token totals unchanged. On launch a version mismatch drops the index tables
+// and re-parses every log from offset 0 so Kiro sessions with 0 token but
+// metering usage are visible.
+//
 // Bumped 7 -> 8 to force a full re-index of historical logs after the token
 // parser fixes (Claude cache_creation backfill + codex cumulative-delta
 // de-inflation). On launch a version mismatch drops the index tables and
@@ -5,7 +10,7 @@
 // preserved by construction: it sums total_tokens (cached excluded, so the
 // Claude fix is invisible to it) and only accumulates positive deltas against a
 // high-water mark (so the codex de-inflation cannot lower it).
-const NORMALIZED_HISTORY_SCHEMA_VERSION: &str = "8";
+const NORMALIZED_HISTORY_SCHEMA_VERSION: &str = "9";
 const RECENT_HISTORY_SESSION_LIMIT: usize = 80;
 
 const SCHEMA_STATEMENTS: &[&str] = &[
@@ -59,6 +64,19 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     );
     "#,
     r#"
+    CREATE TABLE IF NOT EXISTS ai_history_file_usage_amount (
+        source TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        session_key TEXT NOT NULL,
+        model TEXT NOT NULL,
+        bucket_start REAL NOT NULL,
+        unit TEXT NOT NULL,
+        value REAL NOT NULL,
+        PRIMARY KEY (source, file_path, project_path, session_key, model, bucket_start, unit)
+    );
+    "#,
+    r#"
     CREATE TABLE IF NOT EXISTS ai_history_project_index_state (
         project_path TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -84,5 +102,6 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_session_link_project_path ON ai_history_file_session_link(project_path);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_project_path ON ai_history_file_usage_bucket(project_path, bucket_start);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_bucket_bucket_start ON ai_history_file_usage_bucket(bucket_start);",
+    "CREATE INDEX IF NOT EXISTS idx_ai_history_file_usage_amount_project_path ON ai_history_file_usage_amount(project_path, bucket_start);",
     "CREATE INDEX IF NOT EXISTS idx_ai_history_project_index_state_indexed_at ON ai_history_project_index_state(indexed_at DESC);",
 ];

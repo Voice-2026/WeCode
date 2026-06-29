@@ -13,10 +13,9 @@ pub(in crate::app) fn ai_session_restore_command(session: &AISessionSummary) -> 
     codux_runtime::ai_history::session_restore_command(session)
 }
 
-pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 9] = [
+pub(in crate::app) const AI_SESSION_FORK_TARGETS: [AISessionForkTarget; 8] = [
     AISessionForkTarget::Codex,
     AISessionForkTarget::Claude,
-    AISessionForkTarget::Gemini,
     AISessionForkTarget::Agy,
     AISessionForkTarget::OpenCode,
     AISessionForkTarget::Kiro,
@@ -33,10 +32,9 @@ pub(in crate::app) fn ai_session_fork_command(
     match target {
         AISessionForkTarget::Codex => format!("codex {prompt}"),
         AISessionForkTarget::Claude => format!("claude {prompt}"),
-        AISessionForkTarget::Gemini => format!("gemini {prompt}"),
         AISessionForkTarget::Agy => format!("agy {prompt}"),
         AISessionForkTarget::OpenCode => format!("opencode run {prompt}"),
-        AISessionForkTarget::Kiro => format!("kiro {prompt}"),
+        AISessionForkTarget::Kiro => format!("kiro-cli {prompt}"),
         AISessionForkTarget::CodeWhale => format!("codewhale {prompt}"),
         AISessionForkTarget::Kimi => format!("kimi {prompt}"),
         AISessionForkTarget::MiMo => format!("mimo run {prompt}"),
@@ -191,6 +189,14 @@ fn normalized_ai_session_to_summary(
         total_tokens: session.total_tokens,
         cached_input_tokens: session.cached_input_tokens,
         request_count: session.request_count,
+        usage_amounts: session
+            .usage_amounts
+            .into_iter()
+            .map(|amount| codux_runtime::ai_history::AIUsageAmount {
+                unit: amount.unit,
+                value: amount.value,
+            })
+            .collect(),
     }
 }
 
@@ -221,6 +227,7 @@ mod tests {
                 total_tokens: 1,
                 cached_input_tokens: 0,
                 request_count: 1,
+                usage_amounts: Vec::new(),
             }],
             ..AIHistorySummary::default()
         }

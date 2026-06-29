@@ -55,6 +55,8 @@ function Filter-Wrapper-Path([string]$Value) {
   foreach ($part in $parts) {
     if ([string]::IsNullOrWhiteSpace($part)) { continue }
     if (Same-Directory $part $wrapperBin) { continue }
+    $normalized = (Normalize-Directory $part).Replace('\', '/')
+    if ($normalized.EndsWith("/runtime-root/scripts/wrappers/bin", [StringComparison]::OrdinalIgnoreCase)) { continue }
     $filtered += $part
   }
   return Join-PathList $filtered
@@ -65,8 +67,9 @@ function Find-Real-Binary([string]$Name, [string]$SearchPath) {
   try {
     $env:PATH = $SearchPath
     $candidateNames = switch ($Name) {
-      "claude" { @("claude.ps1", "claude.exe", "claude-code.ps1", "claude-code.exe"); break }
-      "claude-code" { @("claude-code.ps1", "claude-code.exe", "claude.ps1", "claude.exe"); break }
+      "claude" { @("claude.ps1", "claude.exe", "claude-code.ps1", "claude-code.exe", "reclaude.ps1", "reclaude.exe"); break }
+      "claude-code" { @("claude-code.ps1", "claude-code.exe", "claude.ps1", "claude.exe", "reclaude.ps1", "reclaude.exe"); break }
+      "reclaude" { @("reclaude.ps1", "reclaude.exe", "claude.ps1", "claude.exe", "claude-code.ps1", "claude-code.exe"); break }
       default { @("$Name.ps1", "$Name.exe") }
     }
     foreach ($candidate in $candidateNames) {
@@ -109,21 +112,27 @@ function Tool-Memory-Injection-Strategy([string]$Name) {
   return ""
 }
 
+function Apply-Managed-Lifecycle-Env([string]$Name) {
+  $path = Join-Path $wrapperDir "managed-env\$Name.ps1"
+  if (Test-Path -LiteralPath $path) {
+    . $path
+    Write-Live-Log "managed lifecycle env tool=$Name path=$path"
+  }
+}
+
 function Tool-Config-Key([string]$Name) {
   switch ($Name) {
     "codex" { "codex" }
     "claude" { "claudeCode" }
     "claude-code" { "claudeCode" }
-    "gemini" { "gemini" }
-    "agy" { "gemini" }
+    "reclaude" { "claudeCode" }
+    "agy" { "agy" }
     "kimi" { "kimi" }
     "kimi-code" { "kimi" }
     "opencode" { "opencode" }
     "mimo" { "mimo" }
+    "kiro-cli" { "kiro" }
     "codewhale" { "codewhale" }
-    "codewhale-tui" { "codewhale" }
-    "deepseek" { "codewhale" }
-    "deepseek-tui" { "codewhale" }
     default { "" }
   }
 }
@@ -133,16 +142,14 @@ function Tool-Model-Key([string]$Name) {
     "codex" { "codexModel" }
     "claude" { "claudeCodeModel" }
     "claude-code" { "claudeCodeModel" }
-    "gemini" { "geminiModel" }
-    "agy" { "geminiModel" }
+    "reclaude" { "claudeCodeModel" }
+    "agy" { "agyModel" }
     "kimi" { "kimiModel" }
     "kimi-code" { "kimiModel" }
     "opencode" { "opencodeModel" }
     "mimo" { "mimoModel" }
+    "kiro-cli" { "kiroModel" }
     "codewhale" { "codewhaleModel" }
-    "codewhale-tui" { "codewhaleModel" }
-    "deepseek" { "codewhaleModel" }
-    "deepseek-tui" { "codewhaleModel" }
     default { "" }
   }
 }
@@ -227,6 +234,31 @@ function Extract-Model([string[]]$Args) {
   return ""
 }
 
+function Extract-Resume-Target([string[]]$Args) {
+  for ($index = 0; $index -lt $Args.Count; $index++) {
+    $arg = $Args[$index]
+    if (($arg -eq "--resume" -or
+          $arg -eq "-r" -or
+          $arg -eq "--resume-id" -or
+          $arg -eq "--session" -or
+          $arg -eq "--session-id") -and
+        $index + 1 -lt $Args.Count -and
+        -not $Args[$index + 1].StartsWith("-", [StringComparison]::Ordinal)) {
+      return $Args[$index + 1]
+    }
+    if ($arg -eq "resume" -and
+        $index + 1 -lt $Args.Count -and
+        -not $Args[$index + 1].StartsWith("-", [StringComparison]::Ordinal)) {
+      return $Args[$index + 1]
+    }
+    if ($arg.StartsWith("--resume=", [StringComparison]::Ordinal)) { return $arg.Substring("--resume=".Length) }
+    if ($arg.StartsWith("--resume-id=", [StringComparison]::Ordinal)) { return $arg.Substring("--resume-id=".Length) }
+    if ($arg.StartsWith("--session=", [StringComparison]::Ordinal)) { return $arg.Substring("--session=".Length) }
+    if ($arg.StartsWith("--session-id=", [StringComparison]::Ordinal)) { return $arg.Substring("--session-id=".Length) }
+  }
+  return ""
+}
+
 function Is-Metadata-Invocation([string[]]$CommandArgs) {
   if ($CommandArgs.Count -eq 0) { return $false }
   foreach ($arg in $CommandArgs) {
@@ -307,6 +339,55 @@ function Invoke-Real-Binary([string]$Binary, [string[]]$CommandArgs, [string]$Se
   }
 }
 
+function Emit-Wrapper-SessionEnd {
+  if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_ID) -or
+      [string]::IsNullOrWhiteSpace($env:DMUX_RUNTIME_EVENT_DIR)) {
+    return
+  }
+  $helper = Join-Path $wrapperDir "dmux-ai-state.ps1"
+  if (-not (Test-Path -LiteralPath $helper)) { return }
+  try {
+    & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $helper "session-end" "$env:DMUX_RUNTIME_OWNER" "$Tool" *> $null
+  } catch {
+  }
+}
+
+function Write-Runtime-Binding([string]$ExternalSessionId, [string]$Model, [string]$TranscriptPath) {
+  if ([string]::IsNullOrWhiteSpace($env:DMUX_AI_RUNTIME_BINDING_DIR) -or
+      [string]::IsNullOrWhiteSpace($env:DMUX_SESSION_ID) -or
+      [string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_ID) -or
+      [string]::IsNullOrWhiteSpace($Tool)) {
+    return
+  }
+  try {
+    New-Item -ItemType Directory -Force -Path $env:DMUX_AI_RUNTIME_BINDING_DIR | Out-Null
+    $bindingIdSeed = if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_INSTANCE_ID)) { $env:DMUX_SESSION_ID } else { $env:DMUX_SESSION_INSTANCE_ID }
+    $payload = [ordered]@{
+      runtimeBindingId = "$bindingIdSeed-$Tool"
+      terminalId = $env:DMUX_SESSION_ID
+      terminalInstanceId = if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_INSTANCE_ID)) { $null } else { $env:DMUX_SESSION_INSTANCE_ID }
+      tool = $Tool
+      projectId = $env:DMUX_PROJECT_ID
+      projectName = if ([string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_NAME)) { "Workspace" } else { $env:DMUX_PROJECT_NAME }
+      projectPath = if ([string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_PATH)) { $null } else { $env:DMUX_PROJECT_PATH }
+      sessionTitle = if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_TITLE)) { "Terminal" } else { $env:DMUX_SESSION_TITLE }
+      launchStartedAt = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0)
+      externalSessionId = if ([string]::IsNullOrWhiteSpace($ExternalSessionId)) { $null } else { $ExternalSessionId }
+      transcriptPath = if ([string]::IsNullOrWhiteSpace($TranscriptPath)) { $null } else { $TranscriptPath }
+      model = if ([string]::IsNullOrWhiteSpace($Model)) { $null } else { $Model }
+      updatedAt = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0)
+    }
+    $path = Join-Path $env:DMUX_AI_RUNTIME_BINDING_DIR "$($env:DMUX_SESSION_ID)-$Tool.json"
+    $tmp = "$path.tmp"
+    $json = $payload | ConvertTo-Json -Depth 8 -Compress
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tmp, $json, $utf8NoBom)
+    Move-Item -Force -LiteralPath $tmp -Destination $path
+  } catch {
+    Write-Live-Log "failed to write runtime binding: $($_.Exception.Message)"
+  }
+}
+
 $searchPath = Filter-Wrapper-Path $env:PATH
 if ([string]::IsNullOrWhiteSpace($searchPath)) {
   $searchPath = Filter-Wrapper-Path $env:DMUX_ORIGINAL_PATH
@@ -329,7 +410,7 @@ $configuredModel = if ($settings -and $modelKey) { [string]$settings.$modelKey }
 $codexEffort = if ($settings) { [string]$settings.codexEffort } else { "" }
 
 $launchArgs = @($ToolArgs)
-if (-not [string]::IsNullOrWhiteSpace($configuredModel) -and -not (Has-Option-Value $launchArgs @("--model", "-m"))) {
+if ($Tool -ne "kiro-cli" -and -not [string]::IsNullOrWhiteSpace($configuredModel) -and -not (Has-Option-Value $launchArgs @("--model", "-m"))) {
   if ($Tool -eq "codex") {
     $launchArgs = @("--model=$configuredModel") + $launchArgs
   } else {
@@ -397,25 +478,25 @@ if ($permissionMode -eq "fullAccess") {
         -not (Has-Option-Value $launchArgs @("--sandbox", "--ask-for-approval", "-s", "-a"))) {
       $launchArgs = @("--dangerously-bypass-approvals-and-sandbox") + $launchArgs
     }
-  } elseif ($Tool -eq "claude" -or $Tool -eq "claude-code") {
+  } elseif ($Tool -eq "claude" -or $Tool -eq "claude-code" -or $Tool -eq "reclaude") {
     if (-not (Has-Arg $launchArgs "--dangerously-skip-permissions") -and
         -not (Has-Arg $launchArgs "--allow-dangerously-skip-permissions") -and
         -not (Has-Option-Value $launchArgs @("--permission-mode"))) {
       $launchArgs = @("--dangerously-skip-permissions") + $launchArgs
     }
-  } elseif ($Tool -eq "gemini" -or $Tool -eq "agy") {
+  } elseif ($Tool -eq "agy") {
     if (-not (Has-Option-Value $launchArgs @("--approval-mode")) -and
         -not (Has-Arg $launchArgs "--yolo") -and
         -not (Has-Arg $launchArgs "-y")) {
       $launchArgs = @("--approval-mode", "yolo") + $launchArgs
     }
   } elseif ($Tool -eq "kimi" -or $Tool -eq "kimi-code") {
-    # Kimi Code uses the generic model flag, but its permission flags differ from Gemini/Agy.
+    # Kimi Code uses the generic model flag, but its permission flags differ from agy.
   } elseif ($Tool -eq "opencode" -or $Tool -eq "mimo") {
     if (-not (Has-Arg $launchArgs "--dangerously-skip-permissions")) {
       $launchArgs = @("--dangerously-skip-permissions") + $launchArgs
     }
-  } elseif ($Tool -eq "codewhale" -or $Tool -eq "codewhale-tui" -or $Tool -eq "deepseek" -or $Tool -eq "deepseek-tui") {
+  } elseif ($Tool -eq "codewhale") {
     if (-not (Has-Arg $launchArgs "--yolo")) {
       $launchArgs = @("--yolo") + $launchArgs
     }
@@ -433,15 +514,24 @@ if ($memoryInjectionStrategy -eq "claudeAppendSystemPrompt" -and
   }
 }
 
-$launchModel = Extract-Model $launchArgs
+$launchModel = if ($Tool -eq "kiro-cli") { $configuredModel } else { Extract-Model $launchArgs }
+$resumeTarget = Extract-Resume-Target $launchArgs
+$bindingExternalSessionId = if (-not [string]::IsNullOrWhiteSpace($resumeTarget)) { $resumeTarget } else { $env:DMUX_EXTERNAL_SESSION_ID }
 $env:DMUX_ACTIVE_AI_MODEL = $launchModel
+if (-not [string]::IsNullOrWhiteSpace($resumeTarget)) {
+  $env:DMUX_EXTERNAL_SESSION_ID = $resumeTarget
+}
 
 if ($Tool -eq "opencode" -or $Tool -eq "mimo") {
   $env:OPENCODE_CONFIG_DIR = Join-Path $wrapperDir "opencode-config"
   $env:DMUX_ACTIVE_AI_TOOL = $Tool
 }
 
+Apply-Managed-Lifecycle-Env $Tool
+
 $launchDir = ""
+Write-Runtime-Binding $bindingExternalSessionId $launchModel ""
 Invoke-Real-Binary $realBin $launchArgs $runtimePath $launchDir
 $exitCode = if ($null -eq $script:DMUX_WRAPPER_EXIT_CODE) { 0 } else { $script:DMUX_WRAPPER_EXIT_CODE }
+Emit-Wrapper-SessionEnd
 exit $exitCode

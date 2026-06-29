@@ -37,6 +37,10 @@ if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_ID) -or
   exit 0
 }
 
+if ([string]::Equals($Tool, "agy", [StringComparison]::OrdinalIgnoreCase)) {
+  exit 0
+}
+
 function Write-LiveLog([string]$Category, [string]$Message) {
   if ([string]::IsNullOrWhiteSpace($env:DMUX_LOG_FILE)) { return }
   try {
@@ -135,7 +139,7 @@ function Resolve-Model($Payload) {
   $model = Find-FirstString $Payload @("model", "model_name", "modelName")
   if (-not [string]::IsNullOrWhiteSpace($model)) { return $model }
   if (-not [string]::IsNullOrWhiteSpace($env:DMUX_ACTIVE_AI_MODEL)) { return $env:DMUX_ACTIVE_AI_MODEL }
-  if ($Tool -eq "codewhale" -or $Tool -eq "codewhale-tui" -or $Tool -eq "deepseek" -or $Tool -eq "deepseek-tui") {
+  if ($Tool -eq "codewhale") {
     return Get-CodeWhaleDefaultModel
   }
   return $null
@@ -170,10 +174,8 @@ function Get-ConfiguredPermissionMode {
     "codex" { "codex" }
     "claude" { "claudeCode" }
     "claude-code" { "claudeCode" }
-    "gemini" { "gemini" }
-    "agy" { "gemini" }
+    "agy" { "agy" }
     "opencode" { "opencode" }
-    "kiro" { "kiro" }
     default { "" }
   }
   if ([string]::IsNullOrWhiteSpace($key)) { return "" }
@@ -349,6 +351,43 @@ function Write-AIHookEvent([string]$Kind, $Payload) {
   $loggedModel = if ([string]::IsNullOrWhiteSpace($model)) { "nil" } else { $model }
   $loggedTokens = if ($null -eq $totalTokens) { "nil" } else { $totalTokens }
   Write-LiveLog "hook-file" ("hook written action={0} tool={1} kind={2} file={3} session={4} transcript={5} model={6} tokens={7}" -f $Action, $Tool, $Kind, $name, $env:DMUX_SESSION_ID, $loggedTranscript, $loggedModel, $loggedTokens)
+}
+
+function Write-LifecycleHookEvent {
+  $payload = ConvertFrom-HookPayload $HookPayload
+  if ($null -eq $payload) {
+    $payload = $null
+  }
+  $eventPayload = [ordered]@{
+    action = $Action
+    terminalID = $env:DMUX_SESSION_ID
+    terminalInstanceID = if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_INSTANCE_ID)) { $null } else { $env:DMUX_SESSION_INSTANCE_ID }
+    projectID = $env:DMUX_PROJECT_ID
+    projectName = if ([string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_NAME)) { "Workspace" } else { $env:DMUX_PROJECT_NAME }
+    projectPath = if ([string]::IsNullOrWhiteSpace($env:DMUX_PROJECT_PATH)) { $null } else { $env:DMUX_PROJECT_PATH }
+    sessionTitle = if ([string]::IsNullOrWhiteSpace($env:DMUX_SESSION_TITLE)) { "Terminal" } else { $env:DMUX_SESSION_TITLE }
+    tool = $Tool
+    model = if ([string]::IsNullOrWhiteSpace($env:DMUX_ACTIVE_AI_MODEL)) { $null } else { $env:DMUX_ACTIVE_AI_MODEL }
+    updatedAt = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() / 1000.0)
+    payload = $payload
+  }
+  $envelope = [ordered]@{
+    kind = "ai-lifecycle-hook"
+    payload = $eventPayload
+  }
+
+  New-Item -ItemType Directory -Force -Path $env:DMUX_RUNTIME_EVENT_DIR | Out-Null
+  $name = "{0}-{1}.json" -f ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()), ([guid]::NewGuid().ToString("N"))
+  $path = Join-Path $env:DMUX_RUNTIME_EVENT_DIR $name
+  $json = $envelope | ConvertTo-Json -Depth 32 -Compress
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText($path, $json, $utf8NoBom)
+  Write-LiveLog "hook-file" ("lifecycle hook written action={0} tool={1} file={2} session={3}" -f $Action, $Tool, $name, $env:DMUX_SESSION_ID)
+}
+
+if ($Tool -eq "codewhale" -and $Action -eq "codewhale-turn-end") {
+  Write-LifecycleHookEvent
+  exit 0
 }
 
 $kind = Get-EventKind $Action

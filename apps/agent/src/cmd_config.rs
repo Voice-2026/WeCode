@@ -58,7 +58,10 @@ pub fn run() -> Result<(), String> {
             Ok(()) => println!("ok"),
             Err(error) => {
                 println!("unreachable ({error})");
-                return Err("the custom relay is not reachable; fix the URL and re-run `codux config`".to_string());
+                return Err(
+                    "the custom relay is not reachable; fix the URL and re-run `codux config`"
+                        .to_string(),
+                );
             }
         }
         config.relay_url = url;
@@ -100,17 +103,13 @@ fn check_relay(url: &str) -> Result<(), String> {
         .timeout(std::time::Duration::from_secs(6))
         .build()
         .map_err(|error| error.to_string())?;
-    client
-        .get(url)
-        .send()
-        .map(|_| ())
-        .map_err(|error| {
-            if error.is_timeout() {
-                "timed out".to_string()
-            } else if error.is_connect() {
-                "connection failed".to_string()
-            } else {
-                error.to_string()
-            }
-        })
+    client.get(url).send().map(|_| ()).map_err(|error| {
+        if error.is_timeout() {
+            "timed out".to_string()
+        } else if error.is_connect() {
+            "connection failed".to_string()
+        } else {
+            error.to_string()
+        }
+    })
 }

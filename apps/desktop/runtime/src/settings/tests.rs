@@ -90,7 +90,7 @@ mod tests {
                 "runtimeTools": {
                   "codex": "default",
                   "claudeCode": "default",
-                  "gemini": "default",
+                  "agy": "default",
                   "opencode": "default",
                   "kiro": "default",
                   "codewhale": "default",
@@ -98,7 +98,7 @@ mod tests {
                   "mimo": "default",
                   "codexModel": "",
                   "claudeCodeModel": "",
-                  "geminiModel": "",
+                  "agyModel": "",
                   "opencodeModel": "",
                   "kiroModel": "",
                   "codewhaleModel": "",
@@ -701,6 +701,37 @@ mod tests {
         assert_eq!(tools.get("codex").and_then(|value| value.as_str()), Some("fullAccess"));
         assert_eq!(tools.get("codexModel").and_then(|value| value.as_str()), Some("gpt-5.6"));
         assert_eq!(tools.get("codexEffort").and_then(|value| value.as_str()), Some("xhigh"));
+
+        fs::remove_dir_all(support_dir).ok();
+    }
+
+    #[test]
+    fn unsupported_runtime_tool_permissions_stay_default() {
+        let support_dir = temp_dir("settings-runtime-tools-unsupported-permission");
+        let service = SettingsService::new(support_dir.clone());
+
+        service
+            .set_runtime_tool_permission("kiro", "fullAccess")
+            .expect("set kiro permission");
+        service
+            .set_runtime_tool_permission("kimi", "fullAccess")
+            .expect("set kimi permission");
+
+        let tool_permissions = crate::tool_permissions::ToolPermissionsService::new(support_dir.clone())
+            .sync();
+        assert_eq!(tool_permissions.kiro, "default");
+        assert_eq!(tool_permissions.kimi, "default");
+
+        crate::config::flush_all_config_writes();
+        let saved = fs::read_to_string(support_dir.join("settings.json")).expect("saved settings");
+        let saved: serde_json::Value = serde_json::from_str(&saved).expect("saved json");
+        let tools = saved
+            .get("ai")
+            .and_then(|value| value.get("runtimeTools"))
+            .and_then(|value| value.as_object())
+            .expect("runtime tools object");
+        assert_eq!(tools.get("kiro").and_then(|value| value.as_str()), Some("default"));
+        assert_eq!(tools.get("kimi").and_then(|value| value.as_str()), Some("default"));
 
         fs::remove_dir_all(support_dir).ok();
     }

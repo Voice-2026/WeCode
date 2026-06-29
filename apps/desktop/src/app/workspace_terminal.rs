@@ -178,8 +178,7 @@ impl CoduxApp {
             .when_some(link_overlay, |this, overlay| {
                 this.child(terminal_link_overlay(overlay))
             })
-            .children(
-            active.panes.iter().enumerate().map(|(index, slot)| {
+            .children(active.panes.iter().enumerate().map(|(index, slot)| {
                 let close_id = SharedString::from(format!("terminal-pane-close-{index}"));
                 let float_id = SharedString::from(format!("terminal-pane-float-{index}"));
                 let add_id = SharedString::from(format!("terminal-pane-add-{index}"));
@@ -203,12 +202,17 @@ impl CoduxApp {
                                 .cached(gpui::StyleRefinement::default().flex().size_full())
                                 .into_any_element(),
                             None => div()
+                                .id(SharedString::from(format!("terminal-pane-mount-{index}")))
                                 .size_full()
                                 .flex()
                                 .items_center()
                                 .justify_center()
+                                .cursor_pointer()
                                 .text_color(color(theme::TEXT_DIM))
-                                .child("Terminal mounting...")
+                                .on_click(cx.listener(move |app, _event, window, cx| {
+                                    app.select_terminal_pane(index, window, cx);
+                                }))
+                                .child("Click to open terminal")
                                 .into_any_element(),
                         }),
                     )
@@ -250,8 +254,7 @@ impl CoduxApp {
                             )),
                     )
                     .into_any_element()
-            }),
-        )
+            }))
     }
 }
 
@@ -409,6 +412,6 @@ fn terminal_bottom_add_button(cx: &mut Context<CoduxApp>) -> impl IntoElement {
         .cursor_pointer()
         .text_color(cx.theme().secondary_foreground)
         .hover(|style| style.bg(cx.theme().secondary_hover))
-        .on_click(cx.listener(|app, _event, window, cx| app.add_terminal(window, cx)))
+        .on_click(cx.listener(|app, _event, window, cx| app.add_terminal_tab(window, cx)))
         .child(Icon::new(HeroIconName::Plus).size_3p5())
 }

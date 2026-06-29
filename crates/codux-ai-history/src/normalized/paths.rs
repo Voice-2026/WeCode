@@ -6,63 +6,23 @@ fn claude_project_log_paths(project_path: &str, home: &Path) -> Vec<PathBuf> {
     )
 }
 
-fn gemini_session_paths(project_path: &str, home: &Path) -> Vec<PathBuf> {
-    gemini_session_paths_for_roots(project_path, &[home.join(".gemini")])
-}
-
 fn agy_session_paths(project_path: &str, home: &Path) -> Vec<PathBuf> {
-    agy_session_paths_for_roots(project_path, &[home.join(".gemini").join("antigravity-cli")])
-}
-
-fn gemini_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    for root_dir in roots {
-        let temp_dir = root_dir.join("tmp");
-        let projects_path = root_dir.join("projects.json");
-        if let Ok(data) = fs::read(projects_path) {
-            if let Ok(root) = serde_json::from_slice::<Value>(&data) {
-                if let Some(projects) = root.get("projects").and_then(|value| value.as_object()) {
-                    for (stored_path, value) in projects {
-                        if paths_equivalent(Some(stored_path), project_path) {
-                            if let Some(directory) = value.as_str().and_then(normalized_string) {
-                                dirs.push(temp_dir.join(directory));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if let Ok(entries) = fs::read_dir(&temp_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_dir() {
-                    continue;
-                }
-                let marker = path.join(".project_root");
-                if let Ok(value) = fs::read_to_string(marker) {
-                    if paths_equivalent(Some(value.trim()), project_path) {
-                        dirs.push(path);
-                    }
-                }
-            }
-        }
-    }
+    let root_dir = home.join(".gemini").join("antigravity-cli");
     let mut files = Vec::new();
-    for dir in dirs {
-        files.extend(directory_files(&dir.join("chats"), "json"));
-    }
-    files.retain(|path| {
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .map(|name| name.starts_with("session-"))
-            .unwrap_or(false)
-    });
+    files.extend(
+        directory_files(&root_dir.join("conversations"), "db")
+            .into_iter()
+            .filter(|path| agy_db_belongs_to_project(path, project_path)),
+    );
     files.sort_by_key(|path| std::cmp::Reverse(file_modified_millis(path).unwrap_or(0)));
     files
 }
 
-fn agy_session_paths_for_roots(project_path: &str, roots: &[PathBuf]) -> Vec<PathBuf> {
-    gemini_session_paths_for_roots(project_path, roots)
+fn agy_db_belongs_to_project(path: &Path, project_path: &str) -> bool {
+    crate::agy_db::parse_agy_conversation_db(path)
+        .and_then(|conversation| conversation.project_path)
+        .map(|path| paths_equivalent(Some(&path), project_path))
+        .unwrap_or(false)
 }
 
 fn codex_session_paths(project_path: &str, home: &Path) -> Vec<PathBuf> {
@@ -232,6 +192,7 @@ fn kiro_file_belongs_to_project(file_path: &Path, project_path: &str) -> bool {
 fn kiro_session_id(value: &Value, file_path: &Path) -> Option<String> {
     value
         .get("sessionId")
+        .or_else(|| value.get("session_id"))
         .and_then(|v| v.as_str())
         .and_then(normalized_string)
         .or_else(|| {
@@ -282,6 +243,15 @@ fn kiro_model(value: &Value) -> Option<String> {
         .and_then(normalized_string)
         .or_else(|| {
             value
+                .get("session_state")
+                .and_then(|v| v.get("rts_model_state"))
+                .and_then(|v| v.get("model_info"))
+                .and_then(|v| v.get("model_id"))
+                .and_then(|v| v.as_str())
+                .and_then(normalized_string)
+        })
+        .or_else(|| {
+            value
                 .get("session")
                 .and_then(|v| v.get("model"))
                 .and_then(|v| v.as_str())
@@ -320,10 +290,41 @@ fn kiro_history_timestamps(value: &Value) -> Vec<f64> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    if let Some(turns) = value
+        .get("session_state")
+        .and_then(|v| v.get("conversation_metadata"))
+        .and_then(|v| v.get("user_turn_metadatas"))
+        .and_then(|v| v.as_array())
+    {
+        for turn in turns {
+            if let Some(end_timestamp) = turn
+                .get("end_timestamp")
+                .and_then(value_to_string)
+                .and_then(|value| parse_iso8601_seconds(&value))
+            {
+                let duration_seconds = turn_duration_seconds(turn);
+                timestamps.push((end_timestamp - duration_seconds).max(0.0));
+                timestamps.push(end_timestamp);
+            } else if let Some(assistant_timestamp) = turn
+                .get("result")
+                .and_then(|v| v.get("Ok"))
+                .and_then(|v| v.get("meta"))
+                .and_then(|v| v.get("timestamp"))
+                .and_then(kiro_numeric_timestamp)
+            {
+                timestamps.push(assistant_timestamp);
+            }
+        }
+    }
     if timestamps.is_empty() {
         if let Some(value) = value
             .get("updatedAt")
-            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|value| value as f64)))
+            .or_else(|| value.get("updated_at"))
+            .and_then(|v| {
+                v.as_f64()
+                    .or_else(|| v.as_i64().map(|value| value as f64))
+                    .or_else(|| v.as_str().and_then(parse_iso8601_seconds))
+            })
         {
             timestamps.push(value);
         }
@@ -334,7 +335,7 @@ fn kiro_history_timestamps(value: &Value) -> Vec<f64> {
 
 fn kiro_usage(value: &Value) -> HistoryUsage {
     let usage = value.get("usage").unwrap_or(&Value::Null);
-    HistoryUsage {
+    let mut result = HistoryUsage {
         input_tokens: json_i64(
             usage
                 .get("input")
@@ -359,7 +360,79 @@ fn kiro_usage(value: &Value) -> HistoryUsage {
                 .get("reasoning")
                 .or_else(|| value.get("reasoningTokens")),
         ),
+    };
+    if let Some(turns) = value
+        .get("session_state")
+        .and_then(|v| v.get("conversation_metadata"))
+        .and_then(|v| v.get("user_turn_metadatas"))
+        .and_then(|v| v.as_array())
+    {
+        for turn in turns {
+            result.input_tokens += json_i64(turn.get("input_token_count"));
+            result.output_tokens += json_i64(turn.get("output_token_count"));
+        }
     }
+    result
+}
+
+fn kiro_usage_amounts(value: &Value) -> Vec<AIUsageAmount> {
+    let mut amounts = Vec::new();
+    if let Some(turns) = value
+        .get("session_state")
+        .and_then(|v| v.get("conversation_metadata"))
+        .and_then(|v| v.get("user_turn_metadatas"))
+        .and_then(|v| v.as_array())
+    {
+        for turn in turns {
+            for amount in turn
+                .get("metering_usage")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|item| {
+                    let unit = item
+                        .get("unit")
+                        .and_then(|value| value.as_str())
+                        .and_then(normalized_string)?;
+                    let value = item.get("value").and_then(|value| value.as_f64())?;
+                    (value > 0.0).then_some(AIUsageAmount { unit, value })
+                })
+            {
+                merge_usage_amount(&mut amounts, amount);
+            }
+        }
+    }
+    amounts
+}
+
+fn turn_duration_seconds(turn: &Value) -> f64 {
+    turn.get("turn_duration")
+        .map(|duration| {
+            duration
+                .get("secs")
+                .and_then(|value| value.as_f64().or_else(|| value.as_i64().map(|value| value as f64)))
+                .unwrap_or(0.0)
+                + duration
+                    .get("nanos")
+                    .and_then(|value| value.as_f64().or_else(|| value.as_i64().map(|value| value as f64)))
+                    .unwrap_or(0.0)
+                    / 1_000_000_000.0
+        })
+        .unwrap_or(0.0)
+}
+
+fn kiro_numeric_timestamp(value: &Value) -> Option<f64> {
+    value
+        .as_i64()
+        .map(|value| value as f64)
+        .or_else(|| value.as_f64())
+        .map(|value| {
+            if value >= 10_000_000_000.0 {
+                value / 1000.0
+            } else {
+                value
+            }
+        })
 }
 
 fn opencode_legacy_message_paths(home: &Path) -> Vec<PathBuf> {

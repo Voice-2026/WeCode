@@ -1,7 +1,31 @@
 use serde_json::{Map, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::ai_runtime::state::normalized_string;
+use crate::ai_runtime::{constants::NEEDS_INPUT_IDLE_SECONDS, state::normalized_string};
+
+/// The one shared rule for the pure-file "waiting on the user" (`needsInput`)
+/// state, fed by every driver that can detect it. No CLI records the moment a
+/// tool blocks on an approval/elicitation, so it is derived identically from
+/// three signals each driver's probe extracts in its own format:
+///   1. the turn is live (`responding`),
+///   2. the session's permission mode can still raise a prompt, and
+///   3. the latest tool/function call sits written-but-unanswered past the idle
+///      gap (measured from the call row's own timestamp, not `updated_at`, which
+///      timestamp-less metadata rows can pin to `now`).
+/// Keeping it here -- not re-implemented per tool -- is the layering: drivers
+/// supply tool-specific signals, the rule lives once.
+pub(super) fn is_awaiting_user_decision(
+    is_responding: bool,
+    prompts_possible: bool,
+    pending_call: bool,
+    last_call_at: f64,
+    now: f64,
+) -> bool {
+    is_responding
+        && prompts_possible
+        && pending_call
+        && now - last_call_at >= NEEDS_INPUT_IDLE_SECONDS
+}
 
 pub(super) fn parse_iso8601_seconds(value: &str) -> Option<f64> {
     chrono::DateTime::parse_from_rfc3339(value)

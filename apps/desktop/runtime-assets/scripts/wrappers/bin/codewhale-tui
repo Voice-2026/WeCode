@@ -1,2 +1,0 @@
-#!/bin/zsh
-exec "$(dirname "$0")/../tool-wrapper.sh" "codewhale-tui" "$@"

@@ -20,12 +20,12 @@ pub fn session_restore_command(session: &AISessionSummary) -> String {
         format!("claude --resume {quoted_id}")
     } else if tool.contains("agy") || tool.contains("antigravity") {
         format!("agy resume {quoted_id}")
-    } else if tool.contains("gemini") {
-        format!("gemini resume {quoted_id}")
     } else if tool.contains("opencode") {
-        format!("opencode run --session {quoted_id}")
+        format!("opencode --session {quoted_id}")
     } else if tool.contains("mimo") {
-        format!("mimo run --session {quoted_id}")
+        format!("mimo --session {quoted_id}")
+    } else if tool.contains("kiro") {
+        format!("kiro-cli --resume-id {quoted_id}")
     } else if tool.contains("codewhale") || tool.contains("deepseek") {
         format!("codewhale resume {quoted_id}")
     } else if tool.contains("kimi") {

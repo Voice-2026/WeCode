@@ -1,8 +1,9 @@
+pub(crate) mod agy;
 pub(crate) mod claude;
 pub(crate) mod codewhale;
 pub(crate) mod codex;
 mod common;
-pub(crate) mod gemini;
+pub(crate) mod kimi;
 pub(crate) mod kiro;
 pub(crate) mod opencode;
 pub(crate) mod paths;

@@ -88,6 +88,29 @@ pub struct AIToolUsageEnvelope {
     pub cached_input_tokens: Option<i64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AILifecycleHookEnvelope {
+    pub action: String,
+    #[serde(rename = "terminalID")]
+    pub terminal_id: String,
+    #[serde(rename = "terminalInstanceID")]
+    pub terminal_instance_id: Option<String>,
+    #[serde(rename = "projectID")]
+    pub project_id: String,
+    #[serde(rename = "projectName")]
+    pub project_name: String,
+    #[serde(rename = "projectPath")]
+    pub project_path: Option<String>,
+    #[serde(rename = "sessionTitle")]
+    pub session_title: String,
+    pub tool: String,
+    pub model: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: f64,
+    pub payload: Value,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AIRuntimeEvent {

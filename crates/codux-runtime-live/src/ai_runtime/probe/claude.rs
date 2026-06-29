@@ -1,9 +1,10 @@
 use crate::ai_runtime::{
     probe::{
         common::{
-            first_object_deep, first_string_deep, json_i64, now_seconds, parse_iso8601_seconds,
+            first_object_deep, first_string_deep, is_awaiting_user_decision, json_i64, now_seconds,
+            parse_iso8601_seconds,
         },
-        paths::{claude_project_log_paths, paths_equivalent},
+        paths::{claude_project_log_paths, newest_claude_session_id_since, paths_equivalent},
         preview::sanitized_preview_from_values,
     },
     snapshot::{AIPlanItem, AIPlanSnapshot, AIRuntimeContextSnapshot, AIRuntimeProbeRequest},
@@ -21,14 +22,25 @@ pub(crate) fn probe_claude_runtime(
     request: &AIRuntimeProbeRequest,
 ) -> Option<AIRuntimeContextSnapshot> {
     let project_path = normalized_string(request.project_path.as_deref())?;
-    let external_id = normalized_string(request.external_session_id.as_deref())?;
+    // Unknown session id → derive it from the freshest transcript for this cwd.
+    let external_id = normalized_string(request.external_session_id.as_deref())
+        .or_else(|| newest_claude_session_id_since(&project_path, request.started_at))?;
     let file_urls = claude_project_log_paths(&project_path);
     let mut aggregate: Option<ClaudeAggregate> = None;
+    // Track the matched file with the most recent activity so the supervisor can
+    // size+mtime watch it (parity with codex); claude sessions are otherwise
+    // only re-probed on the 5s interval.
+    let mut transcript_path: Option<String> = None;
+    let mut transcript_seen_at = f64::MIN;
     for file_url in file_urls {
         let Some(next) = parse_claude_log_runtime_state(&file_url, &project_path, &external_id)
         else {
             continue;
         };
+        if next.updated_at >= transcript_seen_at {
+            transcript_seen_at = next.updated_at;
+            transcript_path = Some(file_url.display().to_string());
+        }
         aggregate = Some(match aggregate {
             Some(existing) => existing.merge(next),
             None => next,
@@ -38,19 +50,24 @@ pub(crate) fn probe_claude_runtime(
     let plan = aggregate.plan(&external_id);
     let started_at = aggregate.started_at();
     let completed_at = aggregate.completed_at();
-    let response_state = aggregate.response_state();
+    let mut response_state = aggregate.response_state();
+    if aggregate.needs_user_input(now_seconds()) {
+        response_state = Some("needsInput".to_string());
+    }
     let was_interrupted = aggregate.was_interrupted();
     let has_completed_turn = aggregate.has_completed_turn();
     Some(AIRuntimeContextSnapshot {
         tool: "claude".to_string(),
         external_session_id: Some(external_id),
-        transcript_path: None,
+        transcript_path,
         model: aggregate.model,
         assistant_preview: aggregate.assistant_preview,
         input_tokens: aggregate.input_tokens,
         output_tokens: aggregate.output_tokens,
         cached_input_tokens: aggregate.cached_input_tokens,
         total_tokens: aggregate.total_tokens,
+        usage_amounts: Vec::new(),
+        baseline_usage_amounts: Vec::new(),
         updated_at: aggregate.updated_at.max(request.updated_at),
         started_at,
         completed_at,
@@ -76,6 +93,17 @@ struct ClaudeAggregate {
     last_completion_at: f64,
     last_interrupted_at: f64,
     last_completed_turn_at: f64,
+    /// Most recent assistant message carrying a `tool_use` block, and the most
+    /// recent user message carrying its `tool_result`. While a tool is blocked on
+    /// a permission prompt the `tool_use` is written but no `tool_result`
+    /// follows, so `last_tool_use_at > last_tool_result_at` is the pending-call
+    /// signature behind `needsInput` detection.
+    last_tool_use_at: f64,
+    last_tool_result_at: f64,
+    /// Last `permission-mode` entry's mode (e.g. `bypassPermissions`, `default`,
+    /// `acceptEdits`, `plan`). `bypassPermissions` means no prompt can ever fire,
+    /// so a pending call there is the CLI working, not waiting.
+    permission_mode: Option<String>,
     tasks: BTreeMap<String, AIPlanItem>,
     task_list: Option<Vec<AIPlanItem>>,
     task_updated_at: f64,
@@ -97,6 +125,9 @@ impl ClaudeAggregate {
             last_completed_turn_at: self
                 .last_completed_turn_at
                 .max(other.last_completed_turn_at),
+            last_tool_use_at: self.last_tool_use_at.max(other.last_tool_use_at),
+            last_tool_result_at: self.last_tool_result_at.max(other.last_tool_result_at),
+            permission_mode: other.permission_mode.or(self.permission_mode),
             tasks: merge_claude_tasks(self.tasks, other.tasks),
             task_list: other.task_list.or(self.task_list),
             task_updated_at: self.task_updated_at.max(other.task_updated_at),
@@ -151,6 +182,50 @@ impl ClaudeAggregate {
         let latest_conflicting_at = self.last_user_at.max(self.last_interrupted_at);
         self.last_completed_turn_at >= latest_conflicting_at
     }
+
+    /// Whether the session's permission mode can still raise an approval prompt.
+    /// Only `bypassPermissions` (codux's `--dangerously-skip-permissions`) silences
+    /// every prompt; `default`/`acceptEdits`/`plan` all still gate some action.
+    /// Unknown/absent (older CLIs) defaults to `true` so a wait is never silently
+    /// dropped.
+    fn prompts_possible(&self) -> bool {
+        !matches!(self.permission_mode.as_deref(), Some("bypassPermissions"))
+    }
+
+    /// A `tool_use` is written with no matching `tool_result` yet -- the call is
+    /// in flight. Combined with an idle gap (in the caller) this is the
+    /// permission/elicitation wait signature.
+    fn pending_tool_call(&self) -> bool {
+        self.last_tool_use_at > 0.0 && self.last_tool_use_at > self.last_tool_result_at
+    }
+
+    /// The session is mid-turn with a tool call that has been written but left
+    /// unanswered past the idle gap, in a mode that can still prompt -- i.e. the
+    /// CLI is blocked waiting on the user. Idle is measured from the tool-use
+    /// row's own timestamp, not `updated_at`, because timestamp-less metadata
+    /// rows (permission-mode/mode/ai-title) pin `updated_at` to `now` on every
+    /// read.
+    fn needs_user_input(&self, now: f64) -> bool {
+        is_awaiting_user_decision(
+            self.response_state().as_deref() == Some("responding"),
+            self.prompts_possible(),
+            self.pending_tool_call(),
+            self.last_tool_use_at,
+            now,
+        )
+    }
+}
+
+fn claude_message_has_block(message: &Value, block_type: &str) -> bool {
+    message
+        .get("content")
+        .and_then(|content| content.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .any(|item| item.get("type").and_then(|value| value.as_str()) == Some(block_type))
+        })
+        .unwrap_or(false)
 }
 
 fn parse_claude_log_runtime_state(
@@ -159,11 +234,19 @@ fn parse_claude_log_runtime_state(
     external_session_id: &str,
 ) -> Option<ClaudeAggregate> {
     let file = fs::File::open(file_path).ok()?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
     let mut aggregate = ClaudeAggregate::default();
     let mut matched = false;
+    let mut line = String::new();
 
-    for line in reader.lines().map_while(Result::ok) {
+    loop {
+        line.clear();
+        let Ok(bytes) = reader.read_line(&mut line) else {
+            break;
+        };
+        if bytes == 0 {
+            break;
+        }
         let Ok(row) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -182,12 +265,31 @@ fn parse_claude_log_runtime_state(
             .and_then(parse_iso8601_seconds)
             .unwrap_or_else(now_seconds);
         aggregate.updated_at = aggregate.updated_at.max(timestamp);
+        // The current permission mode rides its own row (no message/role, and --
+        // unlike message rows -- no timestamp). Capture it for the prompt-wait
+        // gate; last one in file order wins.
+        if row.get("type").and_then(|value| value.as_str()) == Some("permission-mode") {
+            if let Some(mode) = row
+                .get("permissionMode")
+                .and_then(|value| value.as_str())
+                .and_then(|value| normalized_string(Some(value)))
+            {
+                aggregate.permission_mode = Some(mode);
+            }
+            continue;
+        }
         let message = row.get("message").unwrap_or(&Value::Null);
         let role = message
             .get("role")
             .and_then(|value| value.as_str())
             .or_else(|| row.get("type").and_then(|value| value.as_str()));
         if role == Some("user") {
+            // A `tool_result` answers a pending `tool_use`; record it so the
+            // pending-call signature clears once the result lands. Tool results
+            // are never interruptions, so track them regardless of the branch.
+            if claude_message_has_block(message, "tool_result") {
+                aggregate.last_tool_result_at = aggregate.last_tool_result_at.max(timestamp);
+            }
             if is_claude_interrupted_row(&row) {
                 aggregate.last_interrupted_at = aggregate.last_interrupted_at.max(timestamp);
                 aggregate.last_completion_at = aggregate.last_completion_at.max(timestamp);
@@ -195,6 +297,9 @@ fn parse_claude_log_runtime_state(
                 aggregate.last_user_at = aggregate.last_user_at.max(timestamp);
             }
         } else if role == Some("assistant") {
+            if claude_message_has_block(message, "tool_use") {
+                aggregate.last_tool_use_at = aggregate.last_tool_use_at.max(timestamp);
+            }
             let stop_reason = message.get("stop_reason").and_then(|value| value.as_str());
             if stop_reason == Some("end_turn") {
                 aggregate.last_completed_turn_at = aggregate.last_completed_turn_at.max(timestamp);
@@ -431,6 +536,7 @@ fn claude_user_message_text(row: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_runtime::constants::NEEDS_INPUT_IDLE_SECONDS;
 
     #[test]
     fn parses_task_list_result_into_plan() {
@@ -539,6 +645,83 @@ mod tests {
         let aggregate = parse_claude_log_runtime_state(&path, "/tmp/p", "s1").expect("aggregate");
         assert_eq!(aggregate.response_state().as_deref(), Some("responding"));
         assert!(!aggregate.was_interrupted());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn pending_tool_use_past_idle_gap_is_a_user_wait() {
+        let aggregate = ClaudeAggregate {
+            last_user_at: 10.0,
+            last_tool_use_at: 12.0,
+            ..Default::default()
+        };
+        assert!(aggregate.pending_tool_call());
+        assert!(aggregate.prompts_possible());
+        assert_eq!(aggregate.response_state().as_deref(), Some("responding"));
+        // Still fresh -> could be a fast auto-approved call, not a wait yet.
+        assert!(!aggregate.needs_user_input(12.0 + NEEDS_INPUT_IDLE_SECONDS - 0.5));
+        // Idle past the gap -> blocked on the user.
+        assert!(aggregate.needs_user_input(12.0 + NEEDS_INPUT_IDLE_SECONDS + 0.5));
+    }
+
+    #[test]
+    fn bypass_permissions_never_waits() {
+        let aggregate = ClaudeAggregate {
+            last_user_at: 10.0,
+            last_tool_use_at: 12.0,
+            permission_mode: Some("bypassPermissions".to_string()),
+            ..Default::default()
+        };
+        assert!(!aggregate.prompts_possible());
+        assert!(!aggregate.needs_user_input(1_000.0));
+    }
+
+    #[test]
+    fn answered_tool_call_is_not_a_wait() {
+        let aggregate = ClaudeAggregate {
+            last_user_at: 10.0,
+            last_tool_use_at: 12.0,
+            last_tool_result_at: 13.0,
+            ..Default::default()
+        };
+        assert!(!aggregate.pending_tool_call());
+        assert!(!aggregate.needs_user_input(1_000.0));
+    }
+
+    #[test]
+    fn parses_permission_mode_and_pending_tool_use_from_transcript() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("codux-claude-wait-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.jsonl");
+        let mut file = std::fs::File::create(&path).unwrap();
+        // permission-mode rides its own (timestamp-less) row.
+        writeln!(
+            file,
+            r#"{{"type":"permission-mode","permissionMode":"default","sessionId":"s1"}}"#
+        )
+        .unwrap();
+        writeln!(
+            file,
+            r#"{{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:00Z","type":"user","message":{{"role":"user","content":"run the build"}}}}"#
+        )
+        .unwrap();
+        // Assistant emits a tool_use (stop_reason tool_use), no tool_result follows.
+        writeln!(
+            file,
+            r#"{{"sessionId":"s1","cwd":"/tmp/p","timestamp":"2026-01-01T00:00:02Z","type":"assistant","message":{{"role":"assistant","stop_reason":"tool_use","content":[{{"type":"tool_use","id":"t1","name":"Bash","input":{{"command":"make"}}}}]}}}}"#
+        )
+        .unwrap();
+        drop(file);
+
+        let aggregate = parse_claude_log_runtime_state(&path, "/tmp/p", "s1").expect("aggregate");
+        assert_eq!(aggregate.permission_mode.as_deref(), Some("default"));
+        assert!(aggregate.pending_tool_call());
+        assert!(aggregate.last_tool_use_at > 0.0);
+        assert_eq!(aggregate.response_state().as_deref(), Some("responding"));
+        assert!(
+            aggregate.needs_user_input(aggregate.last_tool_use_at + NEEDS_INPUT_IDLE_SECONDS + 1.0)
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 }

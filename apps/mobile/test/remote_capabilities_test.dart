@@ -9,7 +9,7 @@ void main() {
 
   test('parses terminal buffer capability from host info', () {
     final capability = TerminalBufferCapability.fromHostInfo({
-      'protocolVersion': 'v3.1',
+      'protocolVersion': 'v3.2',
       'capabilities': {
         'terminalBuffer': {
           'chunking': true,
@@ -27,7 +27,7 @@ void main() {
 
   test('parses request id capability', () {
     final capability = TerminalBufferCapability.fromHostInfo({
-      'protocolVersion': 'v3.1',
+      'protocolVersion': 'v3.2',
       'capabilities': {
         'terminalBuffer': {
           'chunking': true,
@@ -43,7 +43,7 @@ void main() {
 
   test('limits terminal buffer capability to mobile default', () {
     final capability = TerminalBufferCapability.fromHostInfo({
-      'protocolVersion': 'v3.1',
+      'protocolVersion': 'v3.2',
       'capabilities': {
         'terminalBuffer': {
           'chunking': true,

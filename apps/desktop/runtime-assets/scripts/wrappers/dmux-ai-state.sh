@@ -63,7 +63,7 @@ if value:
 PY
 )"
     ;;
-  session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|pre-compact|post-compact|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-pre-tool-use|codex-post-tool-use|codex-permission-request|codex-stop|codex-session-end|codewhale-session-start|codewhale-message-submit|codewhale-tool-call-before|codewhale-tool-call-after|codewhale-error|codewhale-session-end)
+  session-start|prompt-submit|before-agent|permission-request|permission-denied|elicitation|elicitation-result|pre-compact|post-compact|stop|stop-failure|session-end|idle|after-agent|codex-session-start|codex-prompt-submit|codex-pre-tool-use|codex-post-tool-use|codex-permission-request|codex-stop|codex-session-end|codewhale-session-start|codewhale-message-submit|codewhale-tool-call-before|codewhale-tool-call-after|codewhale-error|codewhale-turn-end|codewhale-session-end)
     ;;
   *)
     exit 0
@@ -346,7 +346,7 @@ resolved_hook_model() {
   fi
 
   case "${tool_name}" in
-    codewhale|codewhale-tui|deepseek|deepseek-tui)
+    codewhale)
       codewhale_default_model
       ;;
   esac
@@ -377,20 +377,17 @@ configured_permission_mode() {
     codex)
       config_key="codex"
       ;;
-    claude|claude-code)
+    claude|claude-code|reclaude)
       config_key="claudeCode"
       ;;
-    gemini|agy)
-      config_key="gemini"
+    agy)
+      config_key="agy"
       ;;
     opencode)
       config_key="opencode"
       ;;
     mimo)
       config_key="mimo"
-      ;;
-    kiro)
-      config_key="kiro"
       ;;
     *)
       return 0
@@ -536,6 +533,38 @@ write_ai_hook_event() {
   send_runtime_event "${event_json}"
 }
 
+write_lifecycle_hook_event() {
+  local payload_json="${hook_payload:-}"
+  [[ -n "${payload_json}" ]] || payload_json="null"
+  local event_json
+  event_json="$(
+    {
+      print -rn -- '{"kind":"ai-lifecycle-hook","payload":{'
+      print -rn -- "\"action\":\"$(json_escape "${action}")\","
+      print -rn -- "\"terminalID\":\"$(json_escape "${DMUX_SESSION_ID}")\","
+      if [[ -n "${DMUX_SESSION_INSTANCE_ID:-}" ]]; then
+        print -rn -- "\"terminalInstanceID\":\"$(json_escape "${DMUX_SESSION_INSTANCE_ID}")\","
+      else
+        print -rn -- "\"terminalInstanceID\":null,"
+      fi
+      print -rn -- "\"projectID\":\"$(json_escape "${DMUX_PROJECT_ID}")\","
+      print -rn -- "\"projectName\":\"$(json_escape "${DMUX_PROJECT_NAME:-Workspace}")\","
+      print -rn -- "\"projectPath\":\"$(json_escape "${DMUX_PROJECT_PATH:-}")\","
+      print -rn -- "\"sessionTitle\":\"$(json_escape "${DMUX_SESSION_TITLE:-Terminal}")\","
+      print -rn -- "\"tool\":\"$(json_escape "${tool_name}")\","
+      if [[ -n "${DMUX_ACTIVE_AI_MODEL:-}" ]]; then
+        print -rn -- "\"model\":\"$(json_escape "${DMUX_ACTIVE_AI_MODEL}")\","
+      else
+        print -rn -- "\"model\":null,"
+      fi
+      print -rn -- "\"updatedAt\":$(now),"
+      print -rn -- "\"payload\":${payload_json}"
+      print -rn -- '}}'
+    }
+  )"
+  send_runtime_event "${event_json}"
+}
+
 case "${action}" in
   codex-session-start)
     write_ai_hook_event \
@@ -636,7 +665,7 @@ case "${action}" in
     ;;
 esac
 
-if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
+if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" || "${tool_name}" == "reclaude" ]]; then
   case "${action}" in
     session-start)
       CLAUDE_HOOK_EVENT_NAME="SessionStart"
@@ -795,75 +824,7 @@ if [[ "${tool_name}" == "claude" || "${tool_name}" == "claude-code" ]]; then
   esac
 fi
 
-if [[ "${tool_name}" == "gemini" || "${tool_name}" == "agy" ]]; then
-  case "${action}" in
-    session-start|before-agent|after-agent)
-      gemini_total_tokens="$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
-      [[ -z "${gemini_total_tokens}" ]] && gemini_total_tokens="null"
-      case "${action}" in
-        session-start)
-          write_ai_hook_event \
-            "sessionStarted" \
-            "$(extract_hook_session_id)" \
-            "$(resolved_hook_model)" \
-            "${gemini_total_tokens}" \
-            "" \
-            "" \
-            "$(extract_first_hook_field source)"
-          ;;
-        before-agent)
-          write_ai_hook_event \
-            "promptSubmitted" \
-            "$(extract_hook_session_id)" \
-            "$(resolved_hook_model)" \
-            "${gemini_total_tokens}" \
-            "" \
-            "" \
-            "user-input"
-          ;;
-        after-agent)
-          write_ai_hook_event \
-            "turnCompleted" \
-            "$(extract_hook_session_id)" \
-            "$(resolved_hook_model)" \
-            "${gemini_total_tokens}"
-          ;;
-      esac
-      log_line "gemini hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
-      ;;
-    notification)
-      gemini_notification_type="$(extract_hook_notification_type)"
-      if [[ -n "${gemini_notification_type}" ]]; then
-        write_ai_hook_event \
-          "needsInput" \
-          "$(extract_hook_session_id)" \
-          "$(resolved_hook_model)" \
-          "null" \
-          "" \
-          "${gemini_notification_type}" \
-          "" \
-          "${gemini_notification_type}" \
-          "" \
-          "$(extract_first_hook_field tool_name toolName tool)" \
-          "$(extract_first_hook_field message)"
-      fi
-      ;;
-    session-end)
-      write_ai_hook_event \
-        "sessionEnded" \
-        "$(extract_hook_session_id)" \
-        "$(resolved_hook_model)" \
-        "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
-        "" \
-        "" \
-        "" \
-        "$(extract_first_hook_field reason)"
-      log_line "gemini hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
-      ;;
-  esac
-fi
-
-if [[ "${tool_name}" == "codewhale" || "${tool_name}" == "codewhale-tui" || "${tool_name}" == "deepseek" || "${tool_name}" == "deepseek-tui" ]]; then
+if [[ "${tool_name}" == "codewhale" ]]; then
   case "${action}" in
     codewhale-session-start)
       write_ai_hook_event \
@@ -919,6 +880,10 @@ if [[ "${tool_name}" == "codewhale" || "${tool_name}" == "codewhale-tui" || "${t
         "$(extract_first_hook_field reason error message)" \
         "$(extract_first_hook_field workspace cwd current_working_directory working_directory)"
       log_line "codewhale hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
+      ;;
+    codewhale-turn-end)
+      write_lifecycle_hook_event
+      log_line "codewhale lifecycle action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
       ;;
     codewhale-session-end)
       write_ai_hook_event \
@@ -1057,52 +1022,24 @@ if [[ "${tool_name}" == "kimi" ]]; then
   esac
 fi
 
-if [[ "${tool_name}" == "kiro" || "${tool_name}" == "kiro-cli" ]]; then
-  kiro_tokens="$(extract_hook_number_field total_tokens totalTokenCount totalTokens)"
-  [[ -z "${kiro_tokens}" ]] && kiro_tokens="null"
-  case "${action}" in
-    session-start)
-      write_ai_hook_event \
-        "sessionStarted" \
-        "$(extract_hook_session_id)" \
-        "$(resolved_hook_model)" \
-        "${kiro_tokens}" \
-        "" \
-        "" \
-        "$(extract_first_hook_field source)" \
-        "" \
-        "$(extract_first_hook_field cwd current_working_directory working_directory)"
-      log_line "kiro hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
-      ;;
-    prompt-submit)
-      write_ai_hook_event \
-        "promptSubmitted" \
-        "$(extract_hook_session_id)" \
-        "$(resolved_hook_model)" \
-        "${kiro_tokens}" \
-        "" \
-        "" \
-        "user-input" \
-        "" \
-        "$(extract_first_hook_field cwd current_working_directory working_directory)"
-      log_line "kiro hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
-      ;;
-    stop)
-      write_ai_hook_event \
-        "turnCompleted" \
-        "$(extract_hook_session_id)" \
-        "$(resolved_hook_model)" \
-        "${kiro_tokens}" \
-        "" \
-        "" \
-        "" \
-        "$(extract_first_hook_field reason stop_reason)" \
-        "$(extract_first_hook_field cwd current_working_directory working_directory)"
-      log_line "kiro hook action=${action} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
-      ;;
-  esac
-fi
-
 if [[ "${should_emit_claude_memory_context}" == true ]]; then
   claude_memory_additional_context
+fi
+
+if [[ "${action}" == "session-end" ]]; then
+  case "${tool_name}" in
+    claude|claude-code|reclaude|codewhale|kimi)
+      exit 0
+      ;;
+  esac
+  write_ai_hook_event \
+    "sessionEnded" \
+    "$(extract_hook_session_id)" \
+    "$(resolved_hook_model)" \
+    "$(extract_hook_number_field total_tokens totalTokenCount totalTokens)" \
+    "" \
+    "" \
+    "" \
+    "$(extract_first_hook_field reason)"
+  log_line "generic hook action=${action} tool=${tool_name} session=${DMUX_SESSION_ID} project=${DMUX_PROJECT_ID:-}"
 fi

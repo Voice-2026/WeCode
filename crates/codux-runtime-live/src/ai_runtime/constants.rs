@@ -16,6 +16,16 @@ pub const RUNNING_STATE_RENEWAL_SECONDS: f64 = 30.0;
 /// only releases turns that have been silent for an extreme duration.
 pub const RESPONDING_RENEWAL_MAX_SECONDS: f64 = 1_800.0;
 pub const COMPLETION_TIMESTAMP_SKEW_SECONDS: f64 = 1.0;
+/// How long a tool call may sit written-but-unanswered in the transcript before
+/// the probe treats it as a user-decision wait (`needsInput`) rather than a
+/// call about to be auto-answered. Neither Claude nor codex records the moment a
+/// tool blocks on an approval/elicitation, so the wait is derived from the
+/// pending-call signature plus this idle gap. The gap is comfortably above the
+/// sub-second flush between a fast auto-approved call and its result, so quick
+/// tool turnarounds never register as a wait. Disambiguating a genuine wait from
+/// a slow *running* tool needs the process-tree check (Layer 3); until then this
+/// only fires when the session's permission mode can still prompt at all.
+pub const NEEDS_INPUT_IDLE_SECONDS: f64 = 4.0;
 pub const CODEX_INTERVAL_POLL_MINIMUM_SECONDS: f64 = 60.0;
 pub const CODEX_LIVE_TRANSCRIPT_TAIL_BYTES: u64 = 128 * 1024;
 pub const CODEX_LIVE_TRANSCRIPT_TAIL_LINES: usize = 260;

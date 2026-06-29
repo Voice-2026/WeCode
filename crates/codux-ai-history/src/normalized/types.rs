@@ -56,6 +56,10 @@ pub struct AIProjectUsageSummary {
     pub project_cached_input_tokens: i64,
     pub today_total_tokens: i64,
     pub today_cached_input_tokens: i64,
+    #[serde(default)]
+    pub usage_amounts: Vec<AIUsageAmount>,
+    #[serde(default)]
+    pub today_usage_amounts: Vec<AIUsageAmount>,
     pub current_tool: Option<String>,
     pub current_model: Option<String>,
     pub current_session_updated_at: Option<f64>,
@@ -79,9 +83,13 @@ pub struct AISessionSummary {
     pub total_output_tokens: i64,
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
+    #[serde(default)]
+    pub usage_amounts: Vec<AIUsageAmount>,
     pub active_duration_seconds: i64,
     pub today_tokens: i64,
     pub today_cached_input_tokens: i64,
+    #[serde(default)]
+    pub today_usage_amounts: Vec<AIUsageAmount>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +118,8 @@ pub struct AIUsageBreakdownItem {
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
     pub request_count: i64,
+    #[serde(default)]
+    pub usage_amounts: Vec<AIUsageAmount>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,12 +134,20 @@ pub struct HistoryEntry {
     pub output_tokens: i64,
     pub cached_input_tokens: i64,
     pub reasoning_output_tokens: i64,
+    pub usage_amounts: Vec<AIUsageAmount>,
 }
 
 impl HistoryEntry {
     pub fn total_tokens(&self) -> i64 {
         self.input_tokens + self.output_tokens + self.reasoning_output_tokens
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AIUsageAmount {
+    pub unit: String,
+    pub value: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -186,5 +204,7 @@ struct SessionAccumulator {
     request_count: i64,
     today_tokens: i64,
     today_cached_input_tokens: i64,
+    usage_amounts: Vec<AIUsageAmount>,
+    today_usage_amounts: Vec<AIUsageAmount>,
     active_duration_seconds: i64,
 }

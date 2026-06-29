@@ -1,7 +1,8 @@
 use super::{
     assets::{stage_runtime_asset, stage_runtime_dir},
+    binding::clear_runtime_bindings,
     event_file::clear_runtime_event_dir,
-    hooks::{hook_config_status_in, install_managed_hook_configs_in},
+    hooks::{hook_config_status_in, uninstall_managed_hook_configs_in},
     log::runtime_log_line,
     paths::runtime_root_dir,
     payload::AIHookEventPayload,
@@ -10,8 +11,8 @@ use super::{
     tool_driver::{ai_runtime_tool_drivers, ai_runtime_tool_launch_driver_config},
 };
 use crate::runtime_paths::{
-    claude_session_map_dir_in, home_dir, opencode_session_map_dir_in, runtime_event_dir_in,
-    runtime_temp_dir,
+    ai_runtime_binding_dir_in, claude_session_map_dir_in, home_dir, opencode_session_map_dir_in,
+    runtime_event_dir_in, runtime_temp_dir,
 };
 use serde::Serialize;
 use std::{
@@ -38,8 +39,6 @@ pub struct AIRuntimeBridgeSnapshot {
 pub struct AIRuntimeHookConfigStatus {
     pub codex: AIRuntimeToolHookConfigStatus,
     pub claude: AIRuntimeToolHookConfigStatus,
-    pub gemini: AIRuntimeToolHookConfigStatus,
-    pub agy: AIRuntimeToolHookConfigStatus,
     pub opencode: AIRuntimeToolHookConfigStatus,
     pub mimo: AIRuntimeToolHookConfigStatus,
     pub kiro: AIRuntimeToolHookConfigStatus,
@@ -60,6 +59,7 @@ pub struct AIRuntimeBridge {
     wrapper_bin_dir: PathBuf,
     managed_hook_script: PathBuf,
     runtime_event_dir: PathBuf,
+    binding_dir: PathBuf,
     temp_dir: PathBuf,
     home_dir: PathBuf,
     registry: Arc<AIRuntimeRegistry>,
@@ -85,6 +85,7 @@ impl AIRuntimeBridge {
             wrapper_bin_dir,
             managed_hook_script,
             runtime_event_dir: runtime_event_dir_in(&temp_dir),
+            binding_dir: ai_runtime_binding_dir_in(&temp_dir),
             temp_dir,
             home_dir,
             registry: AIRuntimeRegistry::shared(),
@@ -97,22 +98,27 @@ impl AIRuntimeBridge {
 
     pub fn prepare(&self) -> Result<(), String> {
         self.stage_assets()?;
-        self.ensure_hook_configs_installed("prepare")
+        self.strip_managed_hook_configs("prepare")
     }
 
-    fn ensure_hook_configs_installed(&self, phase: &str) -> Result<(), String> {
+    /// The runtime is non-intrusive by design: it never installs hooks into the
+    /// CLIs' own config files. Live state comes from process-tree tool detection
+    /// + transcript probes + screen scraping. This only strips any codux hook
+    /// entries a prior build left behind, leaving each CLI genuinely hookless.
+    /// Idempotent and no-write once clean, so it is safe to run on every start.
+    fn strip_managed_hook_configs(&self, phase: &str) -> Result<(), String> {
         let _guard = self
             .hook_config_lock
             .lock()
             .map_err(|_| "AI runtime hook config lock poisoned.".to_string())?;
-        install_managed_hook_configs_in(&self.home_dir, &self.managed_hook_script)?;
+        uninstall_managed_hook_configs_in(&self.home_dir)?;
         self.log_hook_config_status(phase);
         Ok(())
     }
 
     pub fn start_event_processing_background(&self) -> Result<(), String> {
         if self.started.load(Ordering::Acquire) {
-            self.ensure_hook_configs_installed("ensure-started")?;
+            self.strip_managed_hook_configs("ensure-started")?;
             return Ok(());
         }
         let _guard = self
@@ -120,7 +126,7 @@ impl AIRuntimeBridge {
             .lock()
             .map_err(|_| "AI runtime startup lock poisoned.".to_string())?;
         if self.started.load(Ordering::Acquire) {
-            self.ensure_hook_configs_installed("ensure-started")?;
+            self.strip_managed_hook_configs("ensure-started")?;
             return Ok(());
         }
         self.prepare()?;
@@ -129,8 +135,16 @@ impl AIRuntimeBridge {
             "runtime-startup",
             &format!("cleared stale runtime event files count={removed}"),
         );
-        self.supervisor
-            .start(Arc::clone(&self.registry), self.runtime_event_dir.clone())?;
+        let removed_bindings = clear_runtime_bindings(&self.binding_dir);
+        runtime_log_line(
+            "runtime-startup",
+            &format!("cleared stale runtime binding files count={removed_bindings}"),
+        );
+        self.supervisor.start(
+            Arc::clone(&self.registry),
+            self.runtime_event_dir.clone(),
+            self.binding_dir.clone(),
+        )?;
         self.started.store(true, Ordering::Release);
         Ok(())
     }
@@ -176,10 +190,9 @@ impl AIRuntimeBridge {
         fs::create_dir_all(self.zsh_hook_dir()).map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.temp_dir).map_err(|error| error.to_string())?;
         fs::create_dir_all(&self.runtime_event_dir).map_err(|error| error.to_string())?;
+        fs::create_dir_all(&self.binding_dir).map_err(|error| error.to_string())?;
         fs::create_dir_all(self.claude_session_map_dir()).map_err(|error| error.to_string())?;
         fs::create_dir_all(self.opencode_session_map_dir()).map_err(|error| error.to_string())?;
-        fs::create_dir_all(self.home_dir.join(".kiro").join("agents"))
-            .map_err(|error| error.to_string())?;
 
         stage_runtime_asset(
             "scripts/shell-hooks/dmux-ai-hook.zsh",
@@ -220,6 +233,7 @@ impl AIRuntimeBridge {
             true,
         )?;
         self.stage_tool_launch_driver_config(&wrapper_dir)?;
+        self.stage_tool_lifecycle_configs(&wrapper_dir)?;
         #[cfg(not(windows))]
         stage_runtime_asset(
             "scripts/wrappers/codux-ssh-expect.exp",
@@ -250,6 +264,11 @@ impl AIRuntimeBridge {
             .flat_map(|driver| driver.wrapper_bins.iter().copied())
             .collect::<Vec<_>>();
         bin_names.push("codux-ssh");
+        for stale_bin_name in ["kiro", "codewhale-tui", "deepseek", "deepseek-tui"] {
+            let _ = fs::remove_file(self.wrapper_bin_dir.join(stale_bin_name));
+            let _ = fs::remove_file(self.wrapper_bin_dir.join(format!("{stale_bin_name}.ps1")));
+            let _ = fs::remove_file(self.wrapper_bin_dir.join(format!("{stale_bin_name}.cmd")));
+        }
         for bin_name in bin_names {
             #[cfg(not(windows))]
             stage_runtime_asset(
@@ -277,6 +296,57 @@ impl AIRuntimeBridge {
         let bytes = serde_json::to_vec_pretty(&ai_runtime_tool_launch_driver_config())
             .map_err(|error| error.to_string())?;
         fs::write(path, bytes).map_err(|error| error.to_string())
+    }
+
+    fn stage_tool_lifecycle_configs(&self, wrapper_dir: &Path) -> Result<(), String> {
+        for driver in ai_runtime_tool_drivers() {
+            let Some(config) = driver.lifecycle_config else {
+                continue;
+            };
+            if driver.lifecycle_hook_format
+                != super::tool_driver::AIRuntimeLifecycleHookFormat::CodeWhaleToml
+            {
+                continue;
+            }
+            let config_path = wrapper_dir.join(config.relative_path);
+            #[cfg(windows)]
+            let helper_command = codewhale_lifecycle_helper_command(
+                &wrapper_dir.join("dmux-ai-state.ps1"),
+                "${action}",
+                "${tool}",
+            );
+            #[cfg(not(windows))]
+            let helper_command = codewhale_lifecycle_helper_command(
+                &wrapper_dir.join("dmux-ai-state.sh"),
+                "${action}",
+                "${tool}",
+            );
+            let content = codewhale_lifecycle_config_toml(
+                driver.id,
+                driver.lifecycle_hooks,
+                &helper_command,
+            )?;
+            write_if_changed(&config_path, content.as_bytes())?;
+            let shell_env_path = wrapper_dir
+                .join("managed-env")
+                .join(format!("{}.env", driver.id));
+            let shell_env = format!(
+                "export {}={}\n",
+                config.env_var,
+                shell_quote(&config_path.display().to_string())
+            );
+            write_if_changed(&shell_env_path, shell_env.as_bytes())?;
+            let ps1_env_path = wrapper_dir
+                .join("managed-env")
+                .join(format!("{}.ps1", driver.id));
+            let ps1_env = format!(
+                "$env:{} = {}\n",
+                config.env_var,
+                powershell_single_quote(&config_path.display().to_string())
+            );
+            write_if_changed(&ps1_env_path, ps1_env.as_bytes())?;
+        }
+        Ok(())
     }
 
     pub fn wrapper_bin_dir(&self) -> &Path {
@@ -318,6 +388,13 @@ impl AIRuntimeBridge {
         self.supervisor.note_output_activity(terminal_id, now)
     }
 
+    /// Ask the supervisor to scrape this terminal's current screen and apply
+    /// the resulting runtime signal. Used by PTY output to avoid waiting for
+    /// the 5s poll when CLIs like Kiro expose live state only in the TUI.
+    pub fn refresh_screen_signal(&self, terminal_id: &str) -> bool {
+        self.supervisor.refresh_screen_signal(terminal_id)
+    }
+
     pub fn claude_session_map_dir(&self) -> PathBuf {
         claude_session_map_dir_in(&self.temp_dir)
     }
@@ -333,11 +410,7 @@ impl AIRuntimeBridge {
             managed_hook_script_path: self.managed_hook_script.display().to_string(),
             hook_config: hook_config_status_in(
                 &self.home_dir,
-                &self
-                    .root_dir
-                    .join("scripts")
-                    .join("wrappers")
-                    .join("opencode-config"),
+                &self.root_dir.join("scripts").join("wrappers"),
             ),
             terminals: self.registry.snapshot(),
         }
@@ -346,20 +419,14 @@ impl AIRuntimeBridge {
     fn log_hook_config_status(&self, phase: &str) {
         let status = hook_config_status_in(
             &self.home_dir,
-            &self
-                .root_dir
-                .join("scripts")
-                .join("wrappers")
-                .join("opencode-config"),
+            &self.root_dir.join("scripts").join("wrappers"),
         );
         super::runtime_log_line(
             "runtime-hooks",
             &format!(
-                "{phase} codex={} claude={} gemini={} agy={} opencode={} mimo={} kiro={} codewhale={} kimi={} claude_missing={}",
+                "{phase} codex={} claude={} opencode={} mimo={} kiro={} codewhale={} kimi={} claude_missing={}",
                 status.codex.configured,
                 status.claude.configured,
-                status.gemini.configured,
-                status.agy.configured,
                 status.opencode.configured,
                 status.mimo.configured,
                 status.kiro.configured,
@@ -375,6 +442,95 @@ impl Default for AIRuntimeBridge {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    if matches!(fs::read(path), Ok(existing) if existing == bytes) {
+        return Ok(());
+    }
+    let tmp = path.with_extension(format!(
+        "{}tmp",
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| format!("{extension}."))
+            .unwrap_or_default()
+    ));
+    fs::write(&tmp, bytes).map_err(|error| error.to_string())?;
+    fs::rename(&tmp, path).map_err(|error| error.to_string())
+}
+
+fn codewhale_lifecycle_config_toml(
+    tool: &str,
+    hooks: &[super::tool_driver::AIRuntimeLifecycleHookDefinition],
+    helper_command_template: &str,
+) -> Result<String, String> {
+    let mut content = String::new();
+    content.push_str("[hooks]\n");
+    content.push_str("enabled = true\n\n");
+    for hook in hooks {
+        let timeout_secs = hook.timeout_secs.max(1);
+        let background = if hook.background { "true" } else { "false" };
+        let command = helper_command_template
+            .replace("${action}", hook.action)
+            .replace("${tool}", tool);
+        content.push_str("[[hooks.hooks]]\n");
+        content.push_str(&format!(
+            "name = {}\n",
+            toml_string(&format!("codux-{tool}-{}", hook.action))?
+        ));
+        content.push_str(&format!("event = {}\n", toml_string(hook.event_key)?));
+        content.push_str(&format!("command = {}\n", toml_string(&command)?));
+        content.push_str(&format!("timeout_secs = {timeout_secs}\n"));
+        content.push_str(&format!("background = {background}\n"));
+        content.push_str("continue_on_error = true\n\n");
+    }
+    Ok(content)
+}
+
+#[cfg(not(windows))]
+fn codewhale_lifecycle_helper_command(helper_path: &Path, action: &str, tool: &str) -> String {
+    [
+        helper_path.display().to_string(),
+        action.into(),
+        tool.into(),
+    ]
+    .iter()
+    .map(|part| shell_quote(part))
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+#[cfg(windows)]
+fn codewhale_lifecycle_helper_command(helper_path: &Path, action: &str, tool: &str) -> String {
+    format!(
+        "powershell -NoProfile -ExecutionPolicy Bypass -File {} {} {}",
+        windows_cmd_quote(&helper_path.display().to_string()),
+        windows_cmd_quote(action),
+        windows_cmd_quote(tool)
+    )
+}
+
+fn toml_string(value: &str) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|error| error.to_string())
+}
+
+fn shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn powershell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(windows)]
+fn windows_cmd_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\\\""))
 }
 
 #[cfg(test)]
@@ -393,22 +549,28 @@ mod tests {
         assert!(bridge.managed_hook_script().is_file());
         #[cfg(not(windows))]
         {
+            fs::write(bridge.wrapper_bin_dir().join("kiro"), "stale").unwrap();
+            bridge.stage_assets().unwrap();
+
             assert!(bridge.wrapper_bin_dir().join("codex").is_file());
+            assert!(bridge.wrapper_bin_dir().join("kiro-cli").is_file());
+            assert!(!bridge.wrapper_bin_dir().join("kiro").exists());
             assert!(bridge.wrapper_bin_dir().join("codewhale").is_file());
-            assert!(bridge.wrapper_bin_dir().join("codewhale-tui").is_file());
-            assert!(bridge.wrapper_bin_dir().join("deepseek").is_file());
-            assert!(bridge.wrapper_bin_dir().join("deepseek-tui").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi-code").is_file());
             assert!(bridge.wrapper_bin_dir().join("mimo").is_file());
         }
         #[cfg(windows)]
         {
+            fs::write(bridge.wrapper_bin_dir().join("kiro.ps1"), "stale").unwrap();
+            fs::write(bridge.wrapper_bin_dir().join("kiro.cmd"), "stale").unwrap();
+            bridge.stage_assets().unwrap();
+
             assert!(bridge.wrapper_bin_dir().join("codex.ps1").is_file());
+            assert!(bridge.wrapper_bin_dir().join("kiro-cli.ps1").is_file());
+            assert!(!bridge.wrapper_bin_dir().join("kiro.ps1").exists());
+            assert!(!bridge.wrapper_bin_dir().join("kiro.cmd").exists());
             assert!(bridge.wrapper_bin_dir().join("codewhale.ps1").is_file());
-            assert!(bridge.wrapper_bin_dir().join("codewhale-tui.ps1").is_file());
-            assert!(bridge.wrapper_bin_dir().join("deepseek.ps1").is_file());
-            assert!(bridge.wrapper_bin_dir().join("deepseek-tui.ps1").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi.ps1").is_file());
             assert!(bridge.wrapper_bin_dir().join("kimi-code.ps1").is_file());
             assert!(bridge.wrapper_bin_dir().join("mimo.ps1").is_file());
@@ -417,6 +579,26 @@ mod tests {
         assert!(
             dir.join("root")
                 .join("scripts/wrappers/opencode-config/package.json")
+                .is_file()
+        );
+        let codewhale_config = dir
+            .join("root")
+            .join("scripts/wrappers/managed-config/codewhale.toml");
+        assert!(codewhale_config.is_file());
+        let codewhale_config_text = fs::read_to_string(&codewhale_config).unwrap();
+        assert!(codewhale_config_text.contains("[[hooks.hooks]]"));
+        assert!(codewhale_config_text.contains("event = \"message_submit\""));
+        assert!(codewhale_config_text.contains("event = \"turn_end\""));
+        assert!(codewhale_config_text.contains("codewhale-turn-end"));
+        assert!(!codewhale_config_text.contains(crate::runtime_paths::app_slug()));
+        assert!(
+            dir.join("root")
+                .join("scripts/wrappers/managed-env/codewhale.env")
+                .is_file()
+        );
+        assert!(
+            dir.join("root")
+                .join("scripts/wrappers/managed-env/codewhale.ps1")
                 .is_file()
         );
         let launch_config: serde_json::Value = serde_json::from_slice(
@@ -432,6 +614,44 @@ mod tests {
                 .any(|tool| tool["id"] == "claude"
                     && tool["memoryInjection"] == "claudeAppendSystemPrompt")
         );
+        let codewhale_driver = launch_config["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["id"] == "codewhale")
+            .unwrap();
+        assert_eq!(
+            codewhale_driver["lifecycleConfig"]["envVar"].as_str(),
+            Some("DEEPSEEK_MANAGED_CONFIG_PATH")
+        );
+        assert_eq!(
+            codewhale_driver["lifecycleConfig"]["relativePath"].as_str(),
+            Some("managed-config/codewhale.toml")
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bridge_start_clears_stale_runtime_bindings_before_scan() {
+        let dir = std::env::temp_dir().join(format!("codux-ai-bridge-bindings-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+        let binding_path = dir
+            .join("temp")
+            .join(crate::runtime_paths::AI_RUNTIME_BINDING_DIR_NAME)
+            .join("old-term-codex.json");
+        fs::write(
+            &binding_path,
+            r#"{"runtimeBindingId":"old-instance-codex","terminalId":"old-term","terminalInstanceId":"old-instance","tool":"codex","projectId":"project-1","projectName":"Project","projectPath":"/tmp/project","sessionTitle":"Old","launchStartedAt":1000.0,"updatedAt":1000.0}"#,
+        )
+        .unwrap();
+
+        bridge.ensure_started().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        assert!(!binding_path.exists());
+        assert!(bridge.runtime_state_snapshot().sessions.is_empty());
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -619,7 +839,7 @@ mod tests {
             serde_json::json!({
                 "codex": "fullAccess",
                 "claudeCode": "default",
-                "gemini": "default",
+                "agy": "default",
                 "opencode": "default",
                 "kiro": "default",
                 "codexModel": "gpt-5.1",
@@ -678,6 +898,59 @@ mod tests {
 
     #[cfg(not(windows))]
     #[test]
+    fn codex_wrapper_writes_resume_session_id_to_runtime_binding() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let dir =
+            std::env::temp_dir().join(format!("codux-codex-wrapper-resume-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+
+        let real_bin = dir.join("real-bin");
+        fs::create_dir_all(&real_bin).unwrap();
+        let fake_codex = real_bin.join("codex");
+        fs::write(&fake_codex, "#!/bin/sh\nexit 0\n").unwrap();
+        let mut permissions = fs::metadata(&fake_codex).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_codex, permissions).unwrap();
+
+        let binding_dir = dir.join("bindings");
+        let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
+        let output = Command::new(bridge.wrapper_bin_dir().join("codex"))
+            .args(["resume", "019f0c1b-f835-7c33-a4f4-3e737d2fbf90"])
+            .env("PATH", &search_path)
+            .env("DMUX_ORIGINAL_PATH", &search_path)
+            .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
+            .env("DMUX_PROJECT_ID", "project-1")
+            .env("DMUX_PROJECT_NAME", "Project")
+            .env("DMUX_PROJECT_PATH", dir.join("project"))
+            .env("DMUX_SESSION_TITLE", "Codex")
+            .env("DMUX_RUNTIME_EVENT_DIR", dir.join("events"))
+            .env("DMUX_AI_RUNTIME_BINDING_DIR", &binding_dir)
+            .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wrapper should execute fake codex, stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let binding: serde_json::Value =
+            serde_json::from_slice(&fs::read(binding_dir.join("terminal-1-codex.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            binding["externalSessionId"].as_str(),
+            Some("019f0c1b-f835-7c33-a4f4-3e737d2fbf90")
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn claude_wrapper_applies_driver_memory_prompt_injection() {
         use std::os::unix::fs::PermissionsExt;
         use std::process::Command;
@@ -722,120 +995,48 @@ mod tests {
     }
 
     #[test]
-    fn bridge_prepare_installs_claude_hooks_and_preserves_settings() {
-        let dir = std::env::temp_dir().join(format!("codux-ai-bridge-{}", Uuid::new_v4()));
+    fn bridge_prepare_strips_codux_hooks_and_keeps_user_hooks() {
+        let dir = std::env::temp_dir().join(format!("codux-ai-bridge-file-{}", Uuid::new_v4()));
         let home = dir.join("home");
         let claude_settings = home.join(".claude").join("settings.json");
         fs::create_dir_all(claude_settings.parent().unwrap()).unwrap();
         fs::write(
             &claude_settings,
             serde_json::json!({
-                "env": {
-                    "ANTHROPIC_AUTH_TOKEN": "PROXY_MANAGED",
-                    "ANTHROPIC_BASE_URL": "http://127.0.0.1:15721"
-                },
+                "env": { "ANTHROPIC_AUTH_TOKEN": "PROXY_MANAGED" },
                 "includeCoAuthoredBy": false,
-                "skipDangerousModePermissionPrompt": true,
                 "hooks": {
                     "UserPromptSubmit": [{
                         "matcher": "",
-                        "hooks": [{
-                            "type": "command",
-                            "command": "'/old/dmux-ai-state.sh' 'prompt-submit' 'codux' 'claude'"
-                        }]
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "'/old/dmux-ai-state.sh' 'prompt-submit' 'codux' 'claude'"
+                            },
+                            { "type": "command", "command": "echo user-hook" }
+                        ]
                     }]
                 }
             })
             .to_string(),
         )
         .unwrap();
+        // The runtime is non-intrusive: prepare() STRIPS codux hooks, never installs.
         let bridge = AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), home);
 
         bridge.prepare().unwrap();
 
         let settings: serde_json::Value =
             serde_json::from_slice(&fs::read(&claude_settings).unwrap()).unwrap();
+        // The user's own settings and hook survive; only codux's entry is gone.
         assert_eq!(
             settings["env"]["ANTHROPIC_AUTH_TOKEN"].as_str(),
             Some("PROXY_MANAGED")
         );
         assert_eq!(settings["includeCoAuthoredBy"].as_bool(), Some(false));
-        let command = settings["hooks"]["UserPromptSubmit"]
-            .as_array()
-            .unwrap()
-            .last()
-            .unwrap()["hooks"]
-            .as_array()
-            .unwrap()[0]["command"]
-            .as_str()
-            .unwrap();
-        assert!(command.contains("dmux-ai-state.sh"));
-        assert!(command.contains("'prompt-submit'"));
-        assert!(command.contains("'claude'"));
-        assert!(!settings.to_string().contains("/old/dmux-ai-state.sh"));
-        assert!(settings["hooks"]["Stop"].as_array().is_some());
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn bridge_prepare_installs_codex_config_in_bridge_home() {
-        let dir = std::env::temp_dir().join(format!("codux-codex-config-{}", Uuid::new_v4()));
-        let home = dir.join("home");
-        let config = home.join(".codex").join("config.toml");
-        fs::create_dir_all(config.parent().unwrap()).unwrap();
-        fs::write(&config, "[profiles.work]\nmodel = \"gpt-5\"\n").unwrap();
-        let bridge = AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), home);
-
-        bridge.prepare().unwrap();
-
-        let text = fs::read_to_string(&config).unwrap();
-        assert!(text.contains("suppress_unstable_features_warning = true"));
-        assert!(text.contains("[features]\nhooks = true"));
-        assert!(text.contains("[profiles.work]\nmodel = \"gpt-5\""));
-        assert!(
-            text.contains(&format!(
-                "[hooks.state.\"{}",
-                dir.join("home").join(".codex").join("hooks.json").display()
-            )),
-            "{text}"
-        );
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn bridge_prepare_installs_codewhale_hooks() {
-        let dir = std::env::temp_dir().join(format!("codux-codewhale-hooks-{}", Uuid::new_v4()));
-        let home = dir.join("home");
-        let config = home.join(".codewhale").join("config.toml");
-        fs::create_dir_all(config.parent().unwrap()).unwrap();
-        fs::write(
-            &config,
-            r#"
-[model]
-name = "deepseek"
-
-[hooks]
-enabled = false
-
-[[hooks.hooks]]
-name = "custom"
-event = "message_submit"
-command = "echo custom"
-"#,
-        )
-        .unwrap();
-        let bridge = AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), home);
-
-        bridge.prepare().unwrap();
-
-        let text = fs::read_to_string(&config).unwrap();
-        assert!(text.contains("[model]\nname = \"deepseek\""));
-        assert!(text.contains("enabled = true"));
-        assert!(text.contains("command = \"echo custom\""));
-        assert!(text.contains("event = \"session_start\""));
-        assert!(text.contains("event = \"message_submit\""));
-        assert!(text.contains("codewhale-message-submit"));
-        assert!(text.contains("dmux-ai-state.sh"));
+        let serialized = settings.to_string();
+        assert!(!serialized.contains("dmux-ai-state.sh"));
+        assert!(serialized.contains("echo user-hook"));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -855,12 +1056,17 @@ command = "echo custom"
         let fake_codewhale = real_bin.join("codewhale");
         fs::write(
             &fake_codewhale,
-            "#!/bin/sh\nprintf 'external=%s\\n' \"$DMUX_EXTERNAL_SESSION_ID\"\nprintf 'model=%s\\n' \"$DMUX_ACTIVE_AI_MODEL\"\nprintf '%s\\n' \"$@\"\n",
+            "#!/bin/sh\nprintf 'external=%s\\n' \"$DMUX_EXTERNAL_SESSION_ID\"\nprintf 'model=%s\\n' \"$DMUX_ACTIVE_AI_MODEL\"\nprintf 'managed=%s\\n' \"$DEEPSEEK_MANAGED_CONFIG_PATH\"\nprintf '%s\\n' \"$@\"\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&fake_codewhale).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&fake_codewhale, permissions).unwrap();
+        let fake_codex = real_bin.join("codex");
+        fs::write(&fake_codex, "#!/bin/sh\nprintf 'wrong-codex\\n'\n").unwrap();
+        let mut permissions = fs::metadata(&fake_codex).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_codex, permissions).unwrap();
 
         let permissions_file = dir.join("tool-permissions.json");
         fs::write(
@@ -873,15 +1079,27 @@ command = "echo custom"
         )
         .unwrap();
 
+        let binding_dir = dir.join("bindings");
         let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
         let output = Command::new(bridge.wrapper_bin_dir().join("codewhale"))
-            .args(["resume", "session-1"])
+            .args([
+                "--config",
+                "/tmp/user-codewhale.toml",
+                "resume",
+                "session-1",
+            ])
             .env("PATH", &search_path)
             .env("DMUX_ORIGINAL_PATH", &search_path)
             .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
+            .env("DMUX_PROJECT_ID", "project-1")
+            .env("DMUX_PROJECT_NAME", "Project")
+            .env("DMUX_PROJECT_PATH", dir.join("project"))
+            .env("DMUX_SESSION_TITLE", "CodeWhale")
             .env("DMUX_RUNTIME_EVENT_DIR", dir.join("events"))
+            .env("DMUX_AI_RUNTIME_BINDING_DIR", &binding_dir)
             .env("DMUX_TOOL_PERMISSION_SETTINGS_FILE", &permissions_file)
-            .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
+            .env("DMUX_ACTIVE_AI_RESOLVED_PATH", real_bin.join("codex"))
             .output()
             .unwrap();
 
@@ -893,11 +1111,22 @@ command = "echo custom"
         let args = String::from_utf8_lossy(&output.stdout);
         assert!(args.lines().any(|arg| arg == "external=session-1"));
         assert!(args.lines().any(|arg| arg == "model=deepseek-chat"));
+        assert!(
+            args.lines()
+                .any(|arg| arg.ends_with("managed-config/codewhale.toml"))
+        );
         assert!(args.lines().any(|arg| arg == "--yolo"));
         assert!(args.lines().any(|arg| arg == "--model"));
         assert!(args.lines().any(|arg| arg == "deepseek-chat"));
+        assert!(args.lines().any(|arg| arg == "--config"));
+        assert!(args.lines().any(|arg| arg == "/tmp/user-codewhale.toml"));
         assert!(args.lines().any(|arg| arg == "resume"));
         assert!(args.lines().any(|arg| arg == "session-1"));
+        let binding: serde_json::Value = serde_json::from_slice(
+            &fs::read(binding_dir.join("terminal-1-codewhale.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(binding["externalSessionId"].as_str(), Some("session-1"));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -959,6 +1188,83 @@ command = "echo custom"
 
     #[cfg(not(windows))]
     #[test]
+    fn kiro_cli_wrapper_writes_runtime_binding_and_model_without_permission_args() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let dir = std::env::temp_dir().join(format!("codux-kiro-wrapper-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+
+        let real_bin = dir.join("real-bin");
+        fs::create_dir_all(&real_bin).unwrap();
+        let fake_kiro = real_bin.join("kiro-cli");
+        fs::write(
+            &fake_kiro,
+            "#!/bin/sh\nprintf 'external=%s\\n' \"$DMUX_EXTERNAL_SESSION_ID\"\nprintf 'model=%s\\n' \"$DMUX_ACTIVE_AI_MODEL\"\nprintf '%s\\n' \"$@\"\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_kiro).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_kiro, permissions).unwrap();
+
+        let permissions_file = dir.join("tool-permissions.json");
+        fs::write(
+            &permissions_file,
+            serde_json::json!({
+                "kiro": "fullAccess",
+                "kiroModel": "auto"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let binding_dir = dir.join("bindings");
+        let search_path = format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", real_bin.display());
+        let output = Command::new(bridge.wrapper_bin_dir().join("kiro-cli"))
+            .args(["--resume-id", "session-1"])
+            .env("PATH", &search_path)
+            .env("DMUX_ORIGINAL_PATH", &search_path)
+            .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
+            .env("DMUX_PROJECT_ID", "project-1")
+            .env("DMUX_PROJECT_NAME", "Project")
+            .env("DMUX_PROJECT_PATH", dir.join("project"))
+            .env("DMUX_SESSION_TITLE", "Kiro")
+            .env("DMUX_RUNTIME_EVENT_DIR", dir.join("events"))
+            .env("DMUX_AI_RUNTIME_BINDING_DIR", &binding_dir)
+            .env("DMUX_TOOL_PERMISSION_SETTINGS_FILE", &permissions_file)
+            .env_remove("DMUX_ACTIVE_AI_RESOLVED_PATH")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wrapper should execute fake kiro-cli, stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let args = String::from_utf8_lossy(&output.stdout);
+        assert!(args.lines().any(|arg| arg == "external=session-1"));
+        assert!(args.lines().any(|arg| arg == "model=auto"));
+        assert!(!args.lines().any(|arg| arg == "--model"), "{args}");
+        assert!(args.lines().any(|arg| arg == "--resume-id"), "{args}");
+        assert!(args.lines().any(|arg| arg == "session-1"), "{args}");
+        assert!(!args.lines().any(|arg| arg == "--approval-mode"), "{args}");
+        assert!(!args.lines().any(|arg| arg == "yolo"), "{args}");
+
+        let binding: serde_json::Value = serde_json::from_slice(
+            &fs::read(binding_dir.join("terminal-1-kiro-cli.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(binding["tool"].as_str(), Some("kiro-cli"));
+        assert_eq!(binding["externalSessionId"].as_str(), Some("session-1"));
+        assert_eq!(binding["model"].as_str(), Some("auto"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn codewhale_hook_writes_runtime_event() {
         use std::process::{Command, Stdio};
 
@@ -970,8 +1276,7 @@ command = "echo custom"
         fs::create_dir_all(&events).unwrap();
 
         let mut child = Command::new(bridge.managed_hook_script())
-            .args(["codewhale-message-submit", "codux", "codewhale"])
-            .env("DMUX_RUNTIME_OWNER", "codux")
+            .args(["codewhale-message-submit", "codewhale"])
             .env("DMUX_SESSION_ID", "terminal-1")
             .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
             .env("DMUX_PROJECT_ID", "project-1")
@@ -1027,8 +1332,7 @@ command = "echo custom"
         fs::create_dir_all(&events).unwrap();
 
         let output = Command::new(bridge.managed_hook_script())
-            .args(["codewhale-message-submit", "codux", "codewhale"])
-            .env("DMUX_RUNTIME_OWNER", "codux")
+            .args(["codewhale-message-submit", "codewhale"])
             .env("DMUX_SESSION_ID", "terminal-1")
             .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
             .env("DMUX_PROJECT_ID", "project-1")
@@ -1057,6 +1361,67 @@ command = "echo custom"
         assert_eq!(value["payload"]["tool"], "codewhale");
         assert_eq!(value["payload"]["aiSessionID"], serde_json::Value::Null);
         assert_eq!(value["payload"]["metadata"]["source"], "user-input");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn codewhale_turn_end_hook_writes_interrupted_lifecycle_event() {
+        use std::process::{Command, Stdio};
+
+        let dir = std::env::temp_dir().join(format!("codux-codewhale-turn-end-{}", Uuid::new_v4()));
+        let bridge =
+            AIRuntimeBridge::with_paths(dir.join("root"), dir.join("temp"), dir.join("home"));
+        bridge.stage_assets().unwrap();
+        let events = dir.join("events");
+        fs::create_dir_all(&events).unwrap();
+
+        let mut child = Command::new(bridge.managed_hook_script())
+            .args(["codewhale-turn-end", "codewhale"])
+            .env("DMUX_SESSION_ID", "terminal-1")
+            .env("DMUX_SESSION_INSTANCE_ID", "instance-1")
+            .env("DMUX_PROJECT_ID", "project-1")
+            .env("DMUX_PROJECT_NAME", "Project")
+            .env("DMUX_PROJECT_PATH", "/tmp/project")
+            .env("DMUX_SESSION_TITLE", "CodeWhale")
+            .env("DMUX_ACTIVE_AI_MODEL", "deepseek-chat")
+            .env("DMUX_RUNTIME_EVENT_DIR", &events)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        {
+            use std::io::Write;
+            let stdin = child.stdin.as_mut().unwrap();
+            stdin
+                .write_all(
+                    br#"{"event":"turn_end","session_id":"cw-session-1","status":"interrupted","totals":{"session_tokens":42}}"#,
+                )
+                .unwrap();
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "hook failed stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let mut entries = fs::read_dir(&events)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        assert_eq!(entries.len(), 1);
+        let value = fs::read(&entries[0]).unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&value).unwrap();
+        assert_eq!(envelope["kind"], "ai-lifecycle-hook");
+        let hook = super::super::frame::runtime_frame_to_hook(&value).expect("hook");
+        assert_eq!(hook.kind, "turnCompleted");
+        assert_eq!(hook.tool, "codewhale");
+        assert_eq!(hook.ai_session_id.as_deref(), Some("cw-session-1"));
+        assert_eq!(hook.total_tokens, Some(42));
+        let metadata = hook.metadata.expect("metadata");
+        assert_eq!(metadata.was_interrupted, Some(true));
+        assert_eq!(metadata.has_completed_turn, Some(false));
         fs::remove_dir_all(dir).unwrap();
     }
 }

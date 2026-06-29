@@ -1,30 +1,34 @@
 use crate::ai_runtime::{
-    probe::kiro::probe_kiro_runtime,
+    probe::{kiro::probe_kiro_runtime, paths::kiro_runtime_resource_paths},
+    snapshot::AISessionSnapshot,
     tool_driver::{
-        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeMemoryInjectionDriver,
-        AIRuntimeToolDriver, AIRuntimeToolHookDriver, hook,
+        AIRuntimeLifecycleHookFormat, AIRuntimeMemoryInjectionDriver, AIRuntimeToolDriver,
+        AIRuntimeToolHookDriver, KIRO_SCREEN_PATTERNS,
     },
 };
+use std::path::PathBuf;
+
+fn resource_paths(session: &AISessionSnapshot) -> Vec<PathBuf> {
+    kiro_runtime_resource_paths(
+        session.project_path.as_deref(),
+        session.ai_session_id.as_deref(),
+        session.started_at,
+    )
+}
 
 pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
     id: "kiro",
-    aliases: &["kiro", "kiro-cli"],
-    wrapper_bins: &["kiro", "kiro-cli"],
-    hook: AIRuntimeToolHookDriver::Json(AIRuntimeJsonHookDriver {
-        tool: "kiro",
-        path_segments: &[".kiro", "agents", "codux-managed.json"],
-        format: AIRuntimeJsonHookFormat::Kiro,
-        definitions: &[
-            // Kiro fires `userPromptSubmit` when the user submits (responding)
-            // and `stop` at the END OF EACH TURN -- not at session end -- when
-            // the assistant finishes responding (completed). The previous wiring
-            // had no responding hook and mis-mapped `stop` to session-end, so
-            // Kiro showed completion but never a running/loading state.
-            hook("agentSpawn", "session-start", 5000, false),
-            hook("userPromptSubmit", "prompt-submit", 5000, false),
-            hook("stop", "stop", 5000, false),
-        ],
-    }),
+    aliases: &["kiro-cli"],
+    process_names: &["kiro-cli", "kiro-cli-chat"],
+    wrapper_bins: &["kiro-cli"],
+    liveness_from_process: true,
+    screen_starts_idle: true,
+    screen_patterns: KIRO_SCREEN_PATTERNS,
+    hook: AIRuntimeToolHookDriver::None,
     probe: Some(probe_kiro_runtime),
+    resource_paths: Some(resource_paths),
     memory_injection: AIRuntimeMemoryInjectionDriver::None,
+    lifecycle_hook_format: AIRuntimeLifecycleHookFormat::None,
+    lifecycle_hooks: &[],
+    lifecycle_config: None,
 };

@@ -1,22 +1,34 @@
-use super::GEMINI_HOOKS;
 use crate::ai_runtime::{
-    probe::gemini::probe_gemini_runtime,
+    probe::{agy::probe_agy_runtime, paths::agy_runtime_resource_paths},
+    snapshot::AISessionSnapshot,
     tool_driver::{
-        AIRuntimeJsonHookDriver, AIRuntimeJsonHookFormat, AIRuntimeMemoryInjectionDriver,
-        AIRuntimeToolDriver, AIRuntimeToolHookDriver,
+        AIRuntimeLifecycleHookFormat, AIRuntimeMemoryInjectionDriver, AIRuntimeToolDriver,
+        AIRuntimeToolHookDriver, NO_SCREEN_PATTERNS,
     },
 };
+use std::path::PathBuf;
+
+fn resource_paths(session: &AISessionSnapshot) -> Vec<PathBuf> {
+    agy_runtime_resource_paths(
+        session.project_path.as_deref(),
+        session.ai_session_id.as_deref(),
+        session.started_at,
+    )
+}
 
 pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
     id: "agy",
     aliases: &["agy"],
+    process_names: &["agy"],
     wrapper_bins: &["agy"],
-    hook: AIRuntimeToolHookDriver::Json(AIRuntimeJsonHookDriver {
-        tool: "agy",
-        path_segments: &[".gemini", "antigravity-cli", "settings.json"],
-        format: AIRuntimeJsonHookFormat::Standard,
-        definitions: GEMINI_HOOKS,
-    }),
-    probe: Some(probe_gemini_runtime),
+    liveness_from_process: false,
+    screen_starts_idle: false,
+    screen_patterns: NO_SCREEN_PATTERNS,
+    hook: AIRuntimeToolHookDriver::None,
+    probe: Some(probe_agy_runtime),
+    resource_paths: Some(resource_paths),
     memory_injection: AIRuntimeMemoryInjectionDriver::None,
+    lifecycle_hook_format: AIRuntimeLifecycleHookFormat::None,
+    lifecycle_hooks: &[],
+    lifecycle_config: None,
 };

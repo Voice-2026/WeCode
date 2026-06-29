@@ -13,8 +13,7 @@ impl AIUsageStore {
         let metadata = fs::metadata(file_path)
             .with_context(|| format!("failed to read AI history file {}", file_path.display()))?;
         let normalized_file_path = normalized_path(file_path);
-        let modified_at = modified_seconds(&metadata);
-        let file_size = metadata.len().min(i64::MAX as u64) as i64;
+        let (modified_at, file_size) = history_file_version(file_path, &metadata);
 
         if let Some(summary) = self.stored_external_summary(
             conn,
@@ -65,8 +64,7 @@ impl AIUsageStore {
         let metadata = fs::metadata(file_path)
             .with_context(|| format!("failed to read AI history file {}", file_path.display()))?;
         let normalized_file_path = normalized_path(file_path);
-        let modified_at = modified_seconds(&metadata);
-        let file_size = metadata.len().min(i64::MAX as u64) as i64;
+        let (modified_at, file_size) = history_file_version(file_path, &metadata);
         let stored_summary =
             self.stored_external_summary(conn, source, &normalized_file_path, &project.path, None)?;
         let checkpoint =
@@ -207,6 +205,10 @@ impl AIUsageStore {
                 params![summary.source, summary.file_path, summary.project_path],
             )?;
             conn.execute(
+                "DELETE FROM ai_history_file_usage_amount WHERE source = ?1 AND file_path = ?2 AND project_path = ?3;",
+                params![summary.source, summary.file_path, summary.project_path],
+            )?;
+            conn.execute(
                 r#"
                 INSERT INTO ai_history_file_state (source, file_path, project_path, file_modified_at)
                 VALUES (?1, ?2, ?3, ?4)
@@ -302,6 +304,28 @@ impl AIUsageStore {
                         bucket.request_count,
                     ],
                 )?;
+                for amount in &bucket.usage_amounts {
+                    if amount.unit.trim().is_empty() || amount.value <= 0.0 {
+                        continue;
+                    }
+                    conn.execute(
+                        r#"
+                        INSERT INTO ai_history_file_usage_amount (
+                            source, file_path, project_path, session_key, model, bucket_start, unit, value
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);
+                        "#,
+                        params![
+                            summary.source,
+                            summary.file_path,
+                            summary.project_path,
+                            bucket.session_key,
+                            bucket.model.clone().unwrap_or_default(),
+                            bucket.bucket_start,
+                            amount.unit,
+                            amount.value,
+                        ],
+                    )?;
+                }
             }
             Ok(())
         })();

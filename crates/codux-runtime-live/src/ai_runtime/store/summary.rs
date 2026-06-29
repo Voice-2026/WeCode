@@ -180,7 +180,12 @@ pub(super) fn completed_phase_unlocked(
     project_id: &str,
     now: f64,
 ) -> AIProjectPhase {
-    completed_phase_from(&sorted_project_sessions(core, project_id), core, project_id, now)
+    completed_phase_from(
+        &sorted_project_sessions(core, project_id),
+        core,
+        project_id,
+        now,
+    )
 }
 
 #[cfg(test)]

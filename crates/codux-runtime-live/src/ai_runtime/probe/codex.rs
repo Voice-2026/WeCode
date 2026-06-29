@@ -3,7 +3,10 @@ mod preview;
 mod types;
 
 use crate::ai_runtime::{
-    probe::paths::find_codex_rollout_path,
+    probe::common::now_seconds,
+    probe::paths::{
+        codex_session_id_from_rollout, find_codex_rollout_by_cwd_since, find_codex_rollout_path,
+    },
     snapshot::{AIRuntimeContextSnapshot, AIRuntimeProbeRequest},
     state::normalized_string,
 };
@@ -17,8 +20,11 @@ pub(crate) fn probe_codex_runtime(
     let file_path = normalized_string(request.transcript_path.as_deref())
         .map(std::path::PathBuf::from)
         .or_else(|| {
-            let external_id = normalized_string(request.external_session_id.as_deref())?;
-            find_codex_rollout_path(&project_path, &external_id)
+            // Known id → match by name; otherwise locate the live rollout by cwd.
+            match normalized_string(request.external_session_id.as_deref()) {
+                Some(external_id) => find_codex_rollout_path(&project_path, &external_id),
+                None => find_codex_rollout_by_cwd_since(&project_path, request.started_at),
+            }
         })?;
     let transcript_path = file_path.display().to_string();
     let parsed = parse_codex_runtime_state(
@@ -27,7 +33,17 @@ pub(crate) fn probe_codex_runtime(
         request.started_at,
         request.updated_at,
     )?;
-    let external_session_id = normalized_string(request.external_session_id.as_deref());
+    // Pure-file approval wait: a command/patch call is written with no result
+    // yet, the approval policy can still prompt, and it has sat idle past the
+    // gap. (codex sessions re-probe on a quiet-session interval, so for
+    // non-`never` policies this can surface a few seconds late; `never` -- the
+    // common headless setup -- gates it off entirely.)
+    let mut response_state = parsed.response_state.clone();
+    if parsed.needs_user_input(now_seconds()) {
+        response_state = Some("needsInput".to_string());
+    }
+    let external_session_id = normalized_string(request.external_session_id.as_deref())
+        .or_else(|| codex_session_id_from_rollout(&file_path));
     let mut plan = parsed.plan;
     if let (Some(plan), Some(session_id)) = (plan.as_mut(), external_session_id.as_ref()) {
         plan.session_id = session_id.clone();
@@ -42,10 +58,12 @@ pub(crate) fn probe_codex_runtime(
         output_tokens: parsed.output_tokens.unwrap_or(0),
         cached_input_tokens: parsed.cached_input_tokens.unwrap_or(0),
         total_tokens: parsed.total_tokens.unwrap_or(0),
+        usage_amounts: Vec::new(),
+        baseline_usage_amounts: Vec::new(),
         updated_at: parsed.updated_at.unwrap_or(request.updated_at),
         started_at: parsed.started_at,
         completed_at: parsed.completed_at,
-        response_state: parsed.response_state,
+        response_state,
         was_interrupted: parsed.was_interrupted,
         has_completed_turn: parsed.has_completed_turn,
         session_origin: parsed.origin,

@@ -19,11 +19,11 @@
 
 use codux_protocol::{
     REMOTE_TERMINAL_BUFFER, REMOTE_TERMINAL_CLOSE, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_INPUT,
-    REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE, REMOTE_TERMINAL_SIGNAL,
-    REMOTE_TERMINAL_SUBSCRIBE, REMOTE_TERMINAL_UNSUBSCRIBE, REMOTE_TERMINAL_VIEWPORT_CLAIM,
-    REMOTE_TERMINAL_VIEWPORT_RELEASE, REMOTE_TERMINAL_VIEWPORT_RESIZE,
-    REMOTE_TERMINAL_VIEWPORT_SCROLL, REMOTE_TERMINAL_VIEWPORT_SCROLLED,
-    REMOTE_TERMINAL_VIEWPORT_STATE,
+    REMOTE_TERMINAL_LIST, REMOTE_TERMINAL_OUTPUT_ACK, REMOTE_TERMINAL_RESIZE,
+    REMOTE_TERMINAL_SIGNAL, REMOTE_TERMINAL_SUBSCRIBE, REMOTE_TERMINAL_UNSUBSCRIBE,
+    REMOTE_TERMINAL_VIEWPORT_CLAIM, REMOTE_TERMINAL_VIEWPORT_RELEASE,
+    REMOTE_TERMINAL_VIEWPORT_RESIZE, REMOTE_TERMINAL_VIEWPORT_SCROLL,
+    REMOTE_TERMINAL_VIEWPORT_SCROLLED, REMOTE_TERMINAL_VIEWPORT_STATE,
 };
 use codux_terminal_core::TerminalViewportState;
 use serde_json::{Value, json};
@@ -197,8 +197,12 @@ pub trait RemoteTerminalDispatch {
             .and_then(Value::as_u64)
             .map(|value| value as usize)
         {
-            self.terminal_manager()
-                .remote_viewport_snapshot(session_id, display_offset, overscan_rows, max_lines)
+            self.terminal_manager().remote_viewport_snapshot(
+                session_id,
+                display_offset,
+                overscan_rows,
+                max_lines,
+            )
         } else if msg
             .payload
             .get("toBottom")
@@ -213,7 +217,8 @@ pub trait RemoteTerminalDispatch {
                 .and_then(Value::as_i64)
                 .unwrap_or(0)
                 .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            self.terminal_manager().scroll_screen_lines(session_id, lines)
+            self.terminal_manager()
+                .scroll_screen_lines(session_id, lines)
         };
         let Ok(snapshot) = snapshot else {
             return;

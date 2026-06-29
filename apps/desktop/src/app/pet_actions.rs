@@ -495,11 +495,7 @@ impl CoduxApp {
             } else {
                 0.0
             };
-            self.desktop_pet_line_visible_until = if has_line {
-                now + 10.0
-            } else {
-                0.0
-            };
+            self.desktop_pet_line_visible_until = if has_line { now + 10.0 } else { 0.0 };
             self.runtime_service
                 .desktop_pet_set_bubble_visible(!self.desktop_pet_line.trim().is_empty());
             self.invalidate_ui_region(cx, UiRegion::Root);

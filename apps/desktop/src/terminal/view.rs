@@ -18,6 +18,7 @@ pub struct TerminalView {
     focus_in_subscription: Option<Subscription>,
     focus_out_subscription: Option<Subscription>,
     focus_observer: Option<Arc<dyn Fn(&mut Window, &mut Context<TerminalView>)>>,
+    link_opener: Option<Arc<dyn Fn(String, &mut Window, &mut Context<TerminalView>)>>,
     selection_autoscroll: Option<SelectionAutoScroll>,
     _observe_model: Subscription,
     _observe_blink_manager: Subscription,
@@ -120,6 +121,7 @@ impl TerminalView {
         stdin_writer: W,
         bytes_rx: flume::Receiver<Vec<u8>>,
         session_event_rx: flume::Receiver<TerminalUiEvent>,
+        session_event_wake_rx: flume::Receiver<()>,
         session: TerminalSessionBinding,
         config: TerminalConfig,
         restored_output: Option<TerminalOutputSnapshot>,
@@ -133,6 +135,7 @@ impl TerminalView {
                 stdin_writer,
                 bytes_rx,
                 session_event_rx,
+                session_event_wake_rx,
                 &config,
                 restored_output,
                 cx,
@@ -169,6 +172,7 @@ impl TerminalView {
             focus_in_subscription: None,
             focus_out_subscription: None,
             focus_observer: None,
+            link_opener: None,
             selection_autoscroll: None,
             _observe_model: observe_model,
             _observe_blink_manager: observe_blink_manager,
@@ -246,6 +250,13 @@ impl TerminalView {
         self.focus_observer = Some(Arc::new(observer));
     }
 
+    pub fn set_link_opener<F>(&mut self, opener: F)
+    where
+        F: Fn(String, &mut Window, &mut Context<TerminalView>) + 'static,
+    {
+        self.link_opener = Some(Arc::new(opener));
+    }
+
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if is_copy_keystroke(&event.keystroke) {
             if self.copy_selected_text(cx) {
@@ -316,7 +327,9 @@ impl TerminalView {
             && event.modifiers.secondary()
             && let Some(link) = model_point.and_then(|point| self.link_at_cell(point, cx))
         {
-            if let Err(error) = codux_runtime::app_commands::app_open_url(link.url.clone()) {
+            if let Some(opener) = self.link_opener.clone() {
+                opener(link.url.clone(), window, cx);
+            } else if let Err(error) = codux_runtime::app_commands::app_open_url(link.url.clone()) {
                 eprintln!("failed to open terminal link {}: {error}", link.url);
             }
             self.hover_link = Some(link);

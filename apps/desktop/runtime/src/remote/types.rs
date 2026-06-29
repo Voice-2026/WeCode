@@ -99,6 +99,8 @@ pub(crate) struct RemoteSettings {
 pub(crate) struct RemoteDeviceSettings {
     #[serde(default)]
     pub(crate) id: String,
+    #[serde(default, rename = "token", alias = "deviceToken")]
+    pub(crate) device_token: String,
     #[serde(default)]
     pub(crate) host_id: String,
     #[serde(default)]

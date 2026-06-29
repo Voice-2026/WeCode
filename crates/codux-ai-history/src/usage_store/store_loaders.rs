@@ -61,13 +61,18 @@ impl AIUsageStore {
                     total_tokens: row.get(6)?,
                     cached_input_tokens: row.get(7)?,
                     request_count: row.get(8)?,
+                    usage_amounts: Vec::new(),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        let usage_amounts =
+            self.load_usage_amounts_by_bucket(conn, source, file_path, project_path)?;
         let usage_buckets = rows
             .into_iter()
             .filter_map(|row| {
                 let session = session_links.get(&row.session_key)?;
+                let model_key = row.model.clone().unwrap_or_default();
+                let amount_key = (row.session_key.clone(), model_key, row.bucket_start as i64);
                 Some(AIUsageBucket {
                     source: row.source,
                     session_key: row.session_key,
@@ -82,6 +87,7 @@ impl AIUsageStore {
                     output_tokens: row.output_tokens,
                     total_tokens: row.total_tokens,
                     cached_input_tokens: row.cached_input_tokens,
+                    usage_amounts: usage_amounts.get(&amount_key).cloned().unwrap_or_default(),
                     request_count: row.request_count,
                     active_duration_seconds: session.active_duration_seconds,
                     first_seen_at: session.first_seen_at,
@@ -90,6 +96,45 @@ impl AIUsageStore {
             })
             .collect();
         Ok(usage_buckets)
+    }
+
+    fn load_usage_amounts_by_bucket(
+        &self,
+        conn: &Connection,
+        source: &str,
+        file_path: &str,
+        project_path: &str,
+    ) -> Result<HashMap<(String, String, i64), Vec<AIUsageAmount>>> {
+        let mut statement = conn.prepare(
+            r#"
+            SELECT session_key, model, bucket_start, unit, value
+            FROM ai_history_file_usage_amount
+            WHERE source = ?1 AND file_path = ?2 AND project_path = ?3
+            ORDER BY bucket_start ASC, session_key ASC, model ASC, unit ASC;
+            "#,
+        )?;
+        let rows = statement
+            .query_map(params![source, file_path, project_path], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, f64>(2)? as i64,
+                    AIUsageAmount {
+                        unit: row.get(3)?,
+                        value: row.get(4)?,
+                    },
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut map = HashMap::<(String, String, i64), Vec<AIUsageAmount>>::new();
+        for (session_key, model, bucket_start, amount) in rows {
+            merge_usage_amount(
+                map.entry((session_key, model, bucket_start))
+                    .or_default(),
+                amount,
+            );
+        }
+        Ok(map)
     }
 
     fn load_session_links(
@@ -192,10 +237,59 @@ impl AIUsageStore {
                     total_tokens: row.get(7)?,
                     cached_input_tokens: row.get(8)?,
                     request_count: row.get(9)?,
+                    usage_amounts: Vec::new(),
                 })
             })?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(Into::into);
-        rows
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut rows = rows;
+        let amounts = self.project_usage_amounts_by_bucket(conn, project_path)?;
+        for row in &mut rows {
+            let key = (
+                row.source.clone(),
+                row.session_key.clone(),
+                row.model.clone().unwrap_or_default(),
+                row.bucket_start as i64,
+            );
+            row.usage_amounts = amounts.get(&key).cloned().unwrap_or_default();
+        }
+        Ok(rows)
+    }
+
+    fn project_usage_amounts_by_bucket(
+        &self,
+        conn: &Connection,
+        project_path: &str,
+    ) -> Result<HashMap<(String, String, String, i64), Vec<AIUsageAmount>>> {
+        let mut statement = conn.prepare(
+            r#"
+            SELECT source, session_key, model, bucket_start, unit, value
+            FROM ai_history_file_usage_amount
+            WHERE project_path = ?1
+            ORDER BY bucket_start ASC, source ASC, session_key ASC, model ASC, unit ASC;
+            "#,
+        )?;
+        let rows = statement
+            .query_map(params![project_path], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, f64>(3)? as i64,
+                    AIUsageAmount {
+                        unit: row.get(4)?,
+                        value: row.get(5)?,
+                    },
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut map = HashMap::<(String, String, String, i64), Vec<AIUsageAmount>>::new();
+        for (source, session_key, model, bucket_start, amount) in rows {
+            merge_usage_amount(
+                map.entry((source, session_key, model, bucket_start))
+                    .or_default(),
+                amount,
+            );
+        }
+        Ok(map)
     }
 }

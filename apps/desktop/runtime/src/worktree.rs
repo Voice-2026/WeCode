@@ -20,9 +20,7 @@ use state::{
     StateFile, WorktreeRecord, WorktreeTaskRecord, enrich_scanned_snapshot_from_state,
     merge_worktree_snapshot, raw_snapshot, save_raw_snapshot, selected_worktree_id_from_state,
 };
-use std::{
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 type GitRepository = git2::Repository;
 const WORKTREE_GIT_SUMMARY_NAMESPACE: &str = "worktree-git-summary";

@@ -10,6 +10,8 @@ use crate::paths;
 pub struct PairedDevice {
     pub id: String,
     #[serde(default)]
+    pub token: String,
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub platform: String,
@@ -40,12 +42,15 @@ fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
-/// Upsert a device on (re)pairing: refresh name/platform/last_seen, preserving
-/// the original pairing time.
-pub fn record(id: &str, name: &str, platform: &str) {
+/// Upsert a device on (re)pairing: refresh token/name/platform/last_seen,
+/// preserving the original pairing time.
+pub fn record(id: &str, token: &str, name: &str, platform: &str) {
     let mut devices = load();
     let timestamp = now();
     if let Some(existing) = devices.iter_mut().find(|device| device.id == id) {
+        if !token.trim().is_empty() {
+            existing.token = token.to_string();
+        }
         if !name.trim().is_empty() {
             existing.name = name.to_string();
         }
@@ -56,6 +61,7 @@ pub fn record(id: &str, name: &str, platform: &str) {
     } else {
         devices.push(PairedDevice {
             id: id.to_string(),
+            token: token.to_string(),
             name: name.to_string(),
             platform: platform.to_string(),
             paired_at: timestamp.clone(),

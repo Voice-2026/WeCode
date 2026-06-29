@@ -16,13 +16,14 @@ use codux_protocol::{
     REMOTE_MEMORY_READ, REMOTE_MEMORY_RESULT, REMOTE_PAIRING_CONFIRMED, REMOTE_PAIRING_REQUEST,
     REMOTE_PROJECT_ADD, REMOTE_PROJECT_LIST, REMOTE_PROJECT_REMOVE, REMOTE_SSH_LIST,
     REMOTE_SSH_LIST_RESULT, REMOTE_SSH_REMOVE, REMOTE_SSH_UPSERT, REMOTE_TERMINAL_CLOSE,
-    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE,
-    REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT, REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH,
-    REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG, REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST,
-    REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE, REMOTE_WORKTREE_UPDATED,
+    REMOTE_TERMINAL_CLOSED, REMOTE_TERMINAL_CREATE, REMOTE_TERMINAL_CREATED, REMOTE_TERMINAL_INPUT,
+    REMOTE_TERMINAL_OUTPUT, REMOTE_TRANSPORT_IROH, REMOTE_TRANSPORT_PING, REMOTE_TRANSPORT_PONG,
+    REMOTE_WORKTREE_CREATE, REMOTE_WORKTREE_LIST, REMOTE_WORKTREE_MERGE, REMOTE_WORKTREE_REMOVE,
+    REMOTE_WORKTREE_UPDATED,
 };
 use codux_remote_transport::{
     RemoteHostTransportConfig, RemoteTransport, RemoteTransportCandidate, RemoteTransportFactory,
+    WebTunnelTcpConnectRequest,
 };
 use codux_runtime_core::{
     file::{
@@ -34,8 +35,7 @@ use codux_runtime_core::{
     project::project_list_payload,
 };
 use codux_runtime_live::{
-    ai_runtime::AIRuntimeBridge,
-    ai_runtime_state::AIRuntimeStateService,
+    ai_runtime::AIRuntimeBridge, ai_runtime_state::AIRuntimeStateService,
     terminal_pty::TerminalManager,
 };
 
@@ -43,6 +43,8 @@ use crate::projects::AgentProjectStore;
 use codux_ai_history::indexer::AIHistoryIndexer;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 /// What the agent needs to stand up a host endpoint.
@@ -262,7 +264,13 @@ fn make_handler(
                     .get("platform")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                crate::device_store::record(&confirm_device, device_name, device_platform);
+                let device_token = random_token();
+                crate::device_store::record(
+                    &confirm_device,
+                    &device_token,
+                    device_name,
+                    device_platform,
+                );
                 let mut transports = Vec::new();
                 if let Ok(guard) = candidate.lock() {
                     if let Some((node_id, relay_url)) = guard.as_ref() {
@@ -286,7 +294,7 @@ fn make_handler(
                     json!({
                         "hostId": host_id.clone(),
                         "deviceId": confirm_device,
-                        "token": "",
+                        "token": device_token,
                         "hostName": name.clone(),
                         "platform": std::env::consts::OS,
                         "transports": transports,
@@ -459,7 +467,11 @@ fn make_handler(
                     .unwrap_or("");
                 Some((
                     REMOTE_GIT_STATUS,
-                    git_status_payload(project_id, project_path, codux_git::wire::status(project_path)),
+                    git_status_payload(
+                        project_id,
+                        project_path,
+                        codux_git::wire::status(project_path),
+                    ),
                 ))
             }
             REMOTE_GIT_INVOKE => {
@@ -512,7 +524,9 @@ fn make_handler(
                     ))
                 } else {
                     match codux_git::wire::read(project_path, op, &args) {
-                        Ok(result) => Some((REMOTE_GIT_READ, json!({ "op": op, "result": result }))),
+                        Ok(result) => {
+                            Some((REMOTE_GIT_READ, json!({ "op": op, "result": result })))
+                        }
                         Err(error) => Some((REMOTE_ERROR, json!({ "message": error }))),
                     }
                 }
@@ -598,7 +612,8 @@ fn make_handler(
                     Some(project) => {
                         // Register the requesting device as a watcher (one project
                         // per device) so the poller re-pushes on runtime change.
-                        if let Some(device_id) = device_id.filter(|value| !value.trim().is_empty()) {
+                        if let Some(device_id) = device_id.filter(|value| !value.trim().is_empty())
+                        {
                             if let Ok(mut watchers) = ai_stats_watchers.lock() {
                                 for (id, devices) in watchers.iter_mut() {
                                     if id != &project.id {
@@ -703,6 +718,64 @@ fn make_handler(
     })
 }
 
+fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    if getrandom::getrandom(&mut bytes).is_ok() {
+        return bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    }
+    short_token(
+        &format!(
+            "{}:{}:{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+            uuid_like_counter()
+        ),
+        7,
+    )
+}
+
+fn uuid_like_counter() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+fn authorize_web_tunnel_tcp_connect(request: WebTunnelTcpConnectRequest) -> Result<(), String> {
+    if !is_authorized_device_token(&request.device_id, &request.device_token) {
+        return Err("device is not authorized".to_string());
+    }
+    if is_forbidden_host(&request.host) {
+        return Err("target is not allowed".to_string());
+    }
+    Ok(())
+}
+
+fn is_authorized_device_token(device_id: &str, device_token: &str) -> bool {
+    let device_id = device_id.trim();
+    let device_token = device_token.trim();
+    if device_id.is_empty() || device_token.is_empty() {
+        return false;
+    }
+    crate::device_store::list()
+        .into_iter()
+        .any(|device| device.id == device_id && device.token == device_token)
+}
+
+fn is_forbidden_host(host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']);
+    if let Ok(ip) = IpAddr::from_str(host) {
+        return is_forbidden_ip(ip);
+    }
+    false
+}
+
+fn is_forbidden_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => ip.octets() == [169, 254, 169, 254],
+        IpAddr::V6(ip) => ip.is_unspecified(),
+    }
+}
+
 /// Connect a host transport with the dispatch handler. Returns the transport
 /// handle and the slot it has been stored in (for replies).
 async fn connect_serving_host(
@@ -764,6 +837,7 @@ async fn connect_serving_host(
         Arc::new(|_| Ok(())),
         Arc::new(|_, _| {}),
         Arc::new(|_| {}),
+        Some(Arc::new(authorize_web_tunnel_tcp_connect)),
         None,
     )
     .await?;
@@ -879,8 +953,7 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
         // ticket) so it stays small and phone-scannable — matching the desktop
         // host's format. The controller dials from nodeId + relayUrl and the full
         // ticket is exchanged after it connects.
-        let pairing =
-            pairing_ticket_url(&cfg.host_id, &node_id, &relay, &cfg.relay_authentication);
+        let pairing = pairing_ticket_url(&cfg.host_id, &node_id, &relay, &cfg.relay_authentication);
         println!("pairingTicket={pairing}");
         // Publish for `codux link` / `codux qrcode` to read.
         crate::runstate::write_ticket(&pairing);

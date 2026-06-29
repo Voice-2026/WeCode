@@ -815,11 +815,7 @@ fn runtime_model_keeps_active_terminal_when_created_split_arrives_from_terminal_
     runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
     runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
 
-    runtime.begin_terminal_create(
-        Some("project-2".to_string()),
-        None,
-        Some("split".to_string()),
-    );
+    runtime.begin_terminal_create(Some("project-2".to_string()), None);
 
     let new_terminal = RemoteRuntimeTerminal {
         layout_order: Some(1),
@@ -872,11 +868,7 @@ fn runtime_model_keeps_immediately_selected_created_split_across_stale_list() {
     runtime.apply_project_list(projects(), Some("project-2".to_string()), None, true, false);
     runtime.apply_terminal_list(vec![terminal("old-split", "project-2")], true, true);
 
-    runtime.begin_terminal_create(
-        Some("project-2".to_string()),
-        None,
-        Some("split".to_string()),
-    );
+    runtime.begin_terminal_create(Some("project-2".to_string()), None);
 
     let new_terminal = RemoteRuntimeTerminal {
         layout_order: Some(1),
@@ -1188,7 +1180,6 @@ fn runtime_model_binds_selected_worktree_active_terminal_without_project_select(
             },
             RemoteRuntimeTerminal {
                 worktree_id: Some("worktree-2".to_string()),
-                layout_kind: "tab".to_string(),
                 layout_order: Some(1),
                 ..terminal("worktree-tab", "project-2")
             },
@@ -1225,7 +1216,6 @@ fn runtime_model_binds_selected_worktree_active_terminal_without_project_select(
 
     runtime.select_terminal(RemoteRuntimeTerminal {
         worktree_id: Some("worktree-2".to_string()),
-        layout_kind: "tab".to_string(),
         layout_order: Some(1),
         ..terminal("worktree-tab", "project-2")
     });
@@ -1976,7 +1966,6 @@ fn terminal(id: &str, project_id: &str) -> RemoteRuntimeTerminal {
         title: id.to_string(),
         project_id: project_id.to_string(),
         worktree_id: None,
-        layout_kind: "split".to_string(),
         layout_order: None,
         cols: None,
         rows: None,

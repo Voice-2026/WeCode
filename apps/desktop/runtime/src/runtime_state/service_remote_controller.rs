@@ -12,6 +12,44 @@
 const REMOTE_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
 impl RuntimeService {
+    pub fn open_host_browser_url(
+        &self,
+        device_id: &str,
+        target_url: &str,
+    ) -> Result<crate::host_browser::HostBrowserOpenResult, String> {
+        let controller = self.remote_controllers.controller_for(device_id)?;
+        let saved = self
+            .remote_controllers
+            .saved_hosts()
+            .into_iter()
+            .find(|host| host.device_id == device_id)
+            .ok_or_else(|| format!("No saved remote host for device {device_id}."))?;
+        self.host_browser_proxy.open(
+            saved.device_id,
+            saved.device_token,
+            target_url,
+            controller as std::sync::Arc<dyn crate::host_browser::HostBrowserController>,
+        )
+    }
+
+    pub fn open_host_browser_session(
+        &self,
+        device_id: &str,
+    ) -> Result<crate::host_browser::HostBrowserOpenResult, String> {
+        let controller = self.remote_controllers.controller_for(device_id)?;
+        let saved = self
+            .remote_controllers
+            .saved_hosts()
+            .into_iter()
+            .find(|host| host.device_id == device_id)
+            .ok_or_else(|| format!("No saved remote host for device {device_id}."))?;
+        self.host_browser_proxy.open_session(
+            saved.device_id,
+            saved.device_token,
+            controller as std::sync::Arc<dyn crate::host_browser::HostBrowserController>,
+        )
+    }
+
     /// Pair with a remote host from a pasted `codux://pair` ticket, persist it,
     /// and cache the live connection.
     pub fn pair_remote_host(
@@ -106,7 +144,10 @@ impl RuntimeService {
             None => drive_root_parent(),
         };
         let mut entries = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|error| error.to_string())?.flatten() {
+        for entry in std::fs::read_dir(&dir)
+            .map_err(|error| error.to_string())?
+            .flatten()
+        {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('.') {
                 continue;
@@ -138,7 +179,9 @@ impl RuntimeService {
 
     /// Fetch a remote host's identity/capabilities (also a reachability check).
     pub fn remote_host_info(&self, device_id: &str) -> Result<serde_json::Value, String> {
-        self.remote_controllers.controller_for(device_id)?.host_info()
+        self.remote_controllers
+            .controller_for(device_id)?
+            .host_info()
     }
 
     /// The live controller for a device (used by the terminal UI to drive a
@@ -233,7 +276,10 @@ impl RuntimeService {
             .and_then(|controller| controller.worktree_list(project_id, project_path))
         {
             Ok(value) => crate::worktree::WorktreeSummary {
-                available: value.get("available").and_then(serde_json::Value::as_bool).unwrap_or(true),
+                available: value
+                    .get("available")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true),
                 selected_worktree_id: value
                     .get("selectedWorktreeId")
                     .and_then(serde_json::Value::as_str)
@@ -241,7 +287,10 @@ impl RuntimeService {
                 worktrees: parse_typed(&value, "worktrees"),
                 tasks: parse_typed(&value, "tasks"),
                 active_git,
-                error: value.get("error").and_then(serde_json::Value::as_str).map(str::to_string),
+                error: value
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
             },
             Err(error) => crate::worktree::WorktreeSummary {
                 active_git,
@@ -435,7 +484,10 @@ fn git_summary_from_payload(value: &serde_json::Value) -> crate::git::GitSummary
             .get("isRepository")
             .and_then(Value::as_bool)
             .unwrap_or(false),
-        error: value.get("error").and_then(Value::as_str).map(str::to_string),
+        error: value
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         changed_files: parse_typed(value, "changedFiles"),
         branches: parse_typed(value, "branches"),
         remote_branches: parse_typed(value, "remoteBranches"),
@@ -456,7 +508,10 @@ fn worktree_snapshot_from_payload(value: &serde_json::Value) -> crate::worktree:
                 .iter()
                 .map(|item| {
                     let str_field = |key: &str| {
-                        item.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+                        item.get(key)
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string()
                     };
                     crate::worktree::ProjectWorktreeSnapshot {
                         id: str_field("id"),
@@ -465,7 +520,10 @@ fn worktree_snapshot_from_payload(value: &serde_json::Value) -> crate::worktree:
                         branch: str_field("branch"),
                         path: str_field("path"),
                         status: str_field("status"),
-                        is_default: item.get("isDefault").and_then(Value::as_bool).unwrap_or(false),
+                        is_default: item
+                            .get("isDefault")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
                         created_at: 0,
                         updated_at: 0,
                         git_summary: item
@@ -479,7 +537,11 @@ fn worktree_snapshot_from_payload(value: &serde_json::Value) -> crate::worktree:
         })
         .unwrap_or_default();
     crate::worktree::WorktreeSnapshot {
-        project_id: value.get("projectId").and_then(Value::as_str).unwrap_or_default().to_string(),
+        project_id: value
+            .get("projectId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
         selected_worktree_id: value
             .get("selectedWorktreeId")
             .and_then(Value::as_str)
@@ -487,7 +549,10 @@ fn worktree_snapshot_from_payload(value: &serde_json::Value) -> crate::worktree:
             .to_string(),
         worktrees,
         tasks: Vec::new(),
-        error: value.get("error").and_then(Value::as_str).map(str::to_string),
+        error: value
+            .get("error")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     }
 }
 

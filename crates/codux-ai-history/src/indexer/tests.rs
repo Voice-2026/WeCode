@@ -135,6 +135,8 @@ fn test_snapshot() -> AIHistorySnapshot {
             project_cached_input_tokens: 0,
             today_total_tokens: 10,
             today_cached_input_tokens: 0,
+            usage_amounts: Vec::new(),
+            today_usage_amounts: Vec::new(),
             current_tool: None,
             current_model: None,
             current_session_updated_at: None,

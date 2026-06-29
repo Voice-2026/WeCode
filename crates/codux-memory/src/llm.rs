@@ -5,7 +5,9 @@
 
 use crate::MemoryProvider;
 
-pub use codux_llm::{LlmCompletionOptions as LLMProviderCompletionOptions, LlmJsonSchema as LLMJsonSchema};
+pub use codux_llm::{
+    LlmCompletionOptions as LLMProviderCompletionOptions, LlmJsonSchema as LLMJsonSchema,
+};
 
 pub async fn complete_with_provider_options(
     provider: &MemoryProvider,

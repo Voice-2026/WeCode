@@ -13,6 +13,8 @@ fn build_snapshot_from_rows(
     let mut project_cached_input_tokens = 0;
     let mut today_total_tokens = 0;
     let mut today_cached_input_tokens = 0;
+    let mut project_usage_amounts = Vec::new();
+    let mut today_usage_amounts = Vec::new();
     let link_group_keys = links
         .iter()
         .map(|link| {
@@ -80,6 +82,7 @@ fn build_snapshot_from_rows(
         session.output_tokens += bucket.output_tokens;
         session.total_tokens += bucket.total_tokens;
         session.cached_input_tokens += bucket.cached_input_tokens;
+        merge_usage_amounts(&mut session.usage_amounts, &bucket.usage_amounts);
         session.request_count += bucket.request_count;
         session.first_seen_at = min_nonzero(session.first_seen_at, bucket.bucket_start);
         session.last_seen_at = session.last_seen_at.max(bucket.bucket_end);
@@ -87,13 +90,16 @@ fn build_snapshot_from_rows(
         if bucket.bucket_start >= today_start {
             session.today_tokens += bucket.total_tokens;
             session.today_cached_input_tokens += bucket.cached_input_tokens;
+            merge_usage_amounts(&mut session.today_usage_amounts, &bucket.usage_amounts);
         }
 
         project_total_tokens += bucket.total_tokens;
         project_cached_input_tokens += bucket.cached_input_tokens;
+        merge_usage_amounts(&mut project_usage_amounts, &bucket.usage_amounts);
         if bucket.bucket_start >= today_start {
             today_total_tokens += bucket.total_tokens;
             today_cached_input_tokens += bucket.cached_input_tokens;
+            merge_usage_amounts(&mut today_usage_amounts, &bucket.usage_amounts);
         }
 
         accumulate_breakdown(
@@ -102,6 +108,7 @@ fn build_snapshot_from_rows(
             bucket.total_tokens,
             bucket.cached_input_tokens,
             bucket.request_count,
+            &bucket.usage_amounts,
         );
         if let Some(model) = displayable_model_name(bucket.model.as_deref()) {
             accumulate_breakdown(
@@ -110,6 +117,7 @@ fn build_snapshot_from_rows(
                 bucket.total_tokens,
                 bucket.cached_input_tokens,
                 bucket.request_count,
+                &bucket.usage_amounts,
             );
         }
 
@@ -144,6 +152,7 @@ fn build_snapshot_from_rows(
         .into_values()
         .filter(|session| {
             session.total_tokens + session.cached_input_tokens + session.request_count > 0
+                || !session.usage_amounts.is_empty()
         })
         .map(|session| AISessionSummary {
             session_id: deterministic_uuid(&history_key(&session.source, &session.session_key)),
@@ -161,6 +170,7 @@ fn build_snapshot_from_rows(
             total_output_tokens: session.output_tokens,
             total_tokens: session.total_tokens,
             cached_input_tokens: session.cached_input_tokens,
+            usage_amounts: session.usage_amounts,
             active_duration_seconds: session.active_duration_seconds.max(
                 (session.last_seen_at - session.first_seen_at)
                     .max(0.0)
@@ -168,6 +178,7 @@ fn build_snapshot_from_rows(
             ),
             today_tokens: session.today_tokens,
             today_cached_input_tokens: session.today_cached_input_tokens,
+            today_usage_amounts: session.today_usage_amounts,
         })
         .collect::<Vec<_>>();
     sessions.sort_by(|left, right| right.last_seen_at.total_cmp(&left.last_seen_at));
@@ -192,6 +203,8 @@ fn build_snapshot_from_rows(
             project_cached_input_tokens,
             today_total_tokens,
             today_cached_input_tokens,
+            usage_amounts: project_usage_amounts,
+            today_usage_amounts,
             current_tool: latest_session
                 .as_ref()
                 .and_then(|session| session.last_tool.clone()),

@@ -462,12 +462,7 @@ impl TerminalManager {
         self.session(session_id)?.resize_viewport(owner, cols, rows)
     }
 
-    pub fn set_viewport_owner_label(
-        &self,
-        session_id: &str,
-        owner: &str,
-        label: Option<String>,
-    ) {
+    pub fn set_viewport_owner_label(&self, session_id: &str, owner: &str, label: Option<String>) {
         if let Ok(session) = self.session(session_id) {
             session.set_viewport_owner_label(owner, label);
         }
@@ -516,11 +511,13 @@ impl TerminalManager {
                         for (session_id, session) in entries {
                             // On expiry, hand off to another active viewer the
                             // host's resolver names; fall back to the host.
-                            session.clone_handle().reclaim_expired_viewport_lease(|expired| {
-                                resolver
-                                    .as_ref()
-                                    .and_then(|resolve| resolve(&session_id, expired))
-                            });
+                            session
+                                .clone_handle()
+                                .reclaim_expired_viewport_lease(|expired| {
+                                    resolver
+                                        .as_ref()
+                                        .and_then(|resolve| resolve(&session_id, expired))
+                                });
                         }
                     }
                 })
@@ -619,6 +616,18 @@ impl TerminalManager {
             return;
         };
         ai_runtime.registry().upsert(session.ai_runtime_binding());
+        // Hand the runtime a weak ref to the rendered screen so it can scrape the
+        // universal "waiting for approval" prompt (works for every CLI, even the
+        // ones that never persist that state to a file).
+        ai_runtime
+            .registry()
+            .register_screen(session.id(), Arc::downgrade(&session.screen));
+        // Shell PID → walk the process tree to identify the terminal's AI tool (hook-free).
+        if let Some(shell_pid) = session.pty_control.process_id() {
+            ai_runtime
+                .registry()
+                .register_shell_pid(session.id(), shell_pid);
+        }
         attach_ai_runtime_terminal_output_watcher(session, Arc::clone(ai_runtime));
     }
 
@@ -1813,7 +1822,7 @@ fn attach_ai_runtime_terminal_output_watcher(
 ) {
     let binding = session.ai_runtime_binding();
     let watcher = Arc::new(parking_lot::Mutex::new(
-        CodeWhaleTerminalProgressWatcher::new(binding, ai_runtime),
+        AIRuntimeTerminalOutputWatcher::new(binding, ai_runtime),
     ));
     session.subscribe_events(Arc::new(move |event| {
         watcher.lock().handle_terminal_event(&event);
@@ -1899,24 +1908,27 @@ fn terminal_progress_osc_value(body: &[u8]) -> Option<(u8, usize)> {
     None
 }
 
-struct CodeWhaleTerminalProgressWatcher {
+struct AIRuntimeTerminalOutputWatcher {
     binding: AIRuntimeTerminalBinding,
     ai_runtime: Arc<AIRuntimeBridge>,
     parser: TerminalProgressOscParser,
     last_activity_at: f64,
+    last_screen_signal_at: f64,
 }
 
 /// Throttle output heartbeats so a chatty turn does not lock the state store on
 /// every byte; one refresh per second is ample against the 90s staleness sweep.
 const OUTPUT_ACTIVITY_THROTTLE_SECONDS: f64 = 1.0;
+const SCREEN_SIGNAL_THROTTLE_SECONDS: f64 = 0.25;
 
-impl CodeWhaleTerminalProgressWatcher {
+impl AIRuntimeTerminalOutputWatcher {
     fn new(binding: AIRuntimeTerminalBinding, ai_runtime: Arc<AIRuntimeBridge>) -> Self {
         Self {
             binding,
             ai_runtime,
             parser: TerminalProgressOscParser::default(),
             last_activity_at: 0.0,
+            last_screen_signal_at: 0.0,
         }
     }
 
@@ -1939,9 +1951,18 @@ impl CodeWhaleTerminalProgressWatcher {
             self.ai_runtime
                 .note_output_activity(&self.binding.terminal_id, now);
         }
+        if now - self.last_screen_signal_at >= SCREEN_SIGNAL_THROTTLE_SECONDS {
+            self.last_screen_signal_at = now;
+            self.ai_runtime
+                .refresh_screen_signal(&self.binding.terminal_id);
+        }
         for progress in self.parser.push(bytes) {
             match progress {
-                TerminalProgressOsc::Started => {}
+                TerminalProgressOsc::Started => {
+                    if self.current_session_is_codewhale() {
+                        self.submit_progress_hook("promptSubmitted", false);
+                    }
+                }
                 TerminalProgressOsc::Completed => {
                     if self.current_session_is_running() {
                         self.submit_progress_hook("turnCompleted", true);
@@ -1952,6 +1973,21 @@ impl CodeWhaleTerminalProgressWatcher {
     }
 
     fn current_session_is_running(&self) -> bool {
+        self.current_session_is_codewhale_with_state(|state| {
+            matches!(state, "responding" | "needsInput")
+        })
+    }
+
+    fn current_session_is_codewhale(&self) -> bool {
+        self.current_session_is_codewhale_with_state(|state| {
+            matches!(state, "idle" | "responding" | "needsInput")
+        })
+    }
+
+    fn current_session_is_codewhale_with_state(
+        &self,
+        state_matches: impl Fn(&str) -> bool,
+    ) -> bool {
         self.ai_runtime
             .runtime_state_snapshot()
             .sessions
@@ -1959,7 +1995,7 @@ impl CodeWhaleTerminalProgressWatcher {
             .any(|session| {
                 session.terminal_id == self.binding.terminal_id
                     && canonical_tool_name(&session.tool).as_deref() == Some("codewhale")
-                    && matches!(session.state.as_str(), "responding" | "needsInput")
+                    && state_matches(session.state.as_str())
             })
     }
 
@@ -2262,6 +2298,12 @@ pub fn terminal_environment(
     values.insert(
         "DMUX_OPENCODE_SESSION_MAP_DIR".to_string(),
         crate::runtime_paths::opencode_session_map_dir()
+            .display()
+            .to_string(),
+    );
+    values.insert(
+        "DMUX_AI_RUNTIME_BINDING_DIR".to_string(),
+        crate::runtime_paths::ai_runtime_binding_dir()
             .display()
             .to_string(),
     );
@@ -3496,9 +3538,10 @@ mod tests {
             .release_expired_viewport_lease()
             .expect("expired viewport state");
         assert_eq!(expired.owner, terminal_viewport_local_owner());
-        // The remote viewer drives columns only; the row count stays the host's
-        // (32), so the desktop never adopts a grid taller than its viewport.
-        assert_eq!((expired.cols, expired.rows), (72, 32));
+        // Ownership is a handoff token: the remote drove the FULL grid (72x18)
+        // while it held the lease, so on expiry the grid keeps that size until
+        // the desktop reclaims it by resizing (next assertion).
+        assert_eq!((expired.cols, expired.rows), (72, 18));
 
         let accepted = handle
             .resize_viewport(terminal_viewport_local_owner(), 100, 32)
@@ -3515,8 +3558,10 @@ mod tests {
     #[test]
     fn expired_remote_viewport_hands_off_to_another_active_viewer() {
         let manager = TerminalManager::new();
-        let temp = std::env::temp_dir()
-            .join(format!("codux-terminal-viewport-handoff-{}", Uuid::new_v4()));
+        let temp = std::env::temp_dir().join(format!(
+            "codux-terminal-viewport-handoff-{}",
+            Uuid::new_v4()
+        ));
         fs::create_dir_all(&temp).unwrap();
         let session_id = manager
             .create(
@@ -3534,7 +3579,9 @@ mod tests {
         let session = manager.session(&session_id).expect("session");
         let handle = session.clone_handle();
 
-        handle.claim_viewport("remote:phone-a").expect("phone-a claim");
+        handle
+            .claim_viewport("remote:phone-a")
+            .expect("phone-a claim");
         {
             let mut viewport = session.viewport.lock();
             viewport.expires_at = Instant::now() - Duration::from_secs(1);
@@ -3601,10 +3648,11 @@ mod tests {
             .expect("desktop resize while remote owns");
         assert!(ignored.is_none());
         assert_eq!(handle.viewport_state().owner, "remote:phone");
-        // Remote drives columns only; rows stay the host's (32).
+        // The owning remote drives the FULL grid (cols AND rows), so it reflows
+        // to its 72x18 -- a handoff, not a host-floored mirror.
         assert_eq!(
             (handle.viewport_state().cols, handle.viewport_state().rows),
-            (72, 32)
+            (72, 18)
         );
 
         handle
@@ -3967,6 +4015,73 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn codewhale_terminal_progress_osc_starts_idle_session() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-codewhale-terminal-progress-start-{}",
+            Uuid::new_v4()
+        ));
+        let bridge = Arc::new(AIRuntimeBridge::with_paths(
+            dir.join("root"),
+            dir.join("temp"),
+            dir.join("home"),
+        ));
+        bridge.ensure_started().expect("runtime should start");
+        let terminal_id = format!("test-codewhale-terminal-start-{}", Uuid::new_v4());
+        let binding = AIRuntimeTerminalBinding {
+            terminal_id: terminal_id.clone(),
+            project_id: "project-1".to_string(),
+            slot_id: "slot-1".to_string(),
+            title: "Terminal".to_string(),
+            cwd: "/tmp/project".to_string(),
+            tool: None,
+            is_active: false,
+            session_key: Some("codewhale-session-1".to_string()),
+            terminal_instance_id: Some("terminal-instance-1".to_string()),
+        };
+        let mut watcher = AIRuntimeTerminalOutputWatcher::new(binding.clone(), Arc::clone(&bridge));
+        bridge
+            .submit_hook_event(AIHookEventPayload {
+                kind: "sessionStarted".to_string(),
+                terminal_id: terminal_id.clone(),
+                terminal_instance_id: binding.terminal_instance_id.clone(),
+                project_id: "project-1".to_string(),
+                project_name: "Codux".to_string(),
+                project_path: Some("/tmp/project".to_string()),
+                session_title: "Terminal".to_string(),
+                tool: "codewhale".to_string(),
+                ai_session_id: Some("codewhale-session-1".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                cached_input_tokens: None,
+                total_tokens: None,
+                updated_at: now_seconds(),
+                metadata: None,
+            })
+            .expect("session hook should submit");
+        wait_for_session_state(&bridge, &terminal_id, "idle", Duration::from_secs(2));
+
+        watcher.handle_terminal_event(&TerminalEvent::Output {
+            session_id: terminal_id.clone(),
+            text: String::new(),
+            bytes: b"\x1b]9;4;1\x07".to_vec(),
+        });
+
+        wait_for_session_state(&bridge, &terminal_id, "responding", Duration::from_secs(2));
+        let session = bridge
+            .runtime_state_snapshot()
+            .sessions
+            .into_iter()
+            .find(|session| session.terminal_id == terminal_id)
+            .expect("session should exist");
+        assert_eq!(session.tool, "codewhale");
+        assert!(!session.has_completed_turn);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn codewhale_terminal_progress_osc_completes_running_session() {
         let dir = std::env::temp_dir().join(format!(
             "codux-codewhale-terminal-progress-{}",
@@ -3990,8 +4105,7 @@ mod tests {
             session_key: Some("codewhale-session-1".to_string()),
             terminal_instance_id: Some("terminal-instance-1".to_string()),
         };
-        let mut watcher =
-            CodeWhaleTerminalProgressWatcher::new(binding.clone(), Arc::clone(&bridge));
+        let mut watcher = AIRuntimeTerminalOutputWatcher::new(binding.clone(), Arc::clone(&bridge));
         bridge
             .submit_hook_event(AIHookEventPayload {
                 kind: "promptSubmitted".to_string(),
@@ -4058,8 +4172,7 @@ mod tests {
             session_key: Some("codex-session-1".to_string()),
             terminal_instance_id: Some("terminal-instance-1".to_string()),
         };
-        let mut watcher =
-            CodeWhaleTerminalProgressWatcher::new(binding.clone(), Arc::clone(&bridge));
+        let mut watcher = AIRuntimeTerminalOutputWatcher::new(binding.clone(), Arc::clone(&bridge));
         bridge
             .submit_hook_event(AIHookEventPayload {
                 kind: "promptSubmitted".to_string(),
@@ -4098,6 +4211,74 @@ mod tests {
         assert_eq!(session.tool, "codex");
         assert_eq!(session.state, "responding");
         assert!(!session.has_completed_turn);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_output_refreshes_kiro_screen_signal_without_poll() {
+        let dir = std::env::temp_dir().join(format!(
+            "codux-kiro-terminal-screen-signal-{}",
+            Uuid::new_v4()
+        ));
+        let bridge = Arc::new(AIRuntimeBridge::with_paths(
+            dir.join("root"),
+            dir.join("temp"),
+            dir.join("home"),
+        ));
+        bridge.ensure_started().expect("runtime should start");
+        let terminal_id = format!("test-kiro-terminal-{}", Uuid::new_v4());
+        let binding = AIRuntimeTerminalBinding {
+            terminal_id: terminal_id.clone(),
+            project_id: "project-1".to_string(),
+            slot_id: "slot-1".to_string(),
+            title: "Kiro".to_string(),
+            cwd: "/tmp/project".to_string(),
+            tool: Some("kiro".to_string()),
+            is_active: false,
+            session_key: Some("kiro-session-1".to_string()),
+            terminal_instance_id: Some("terminal-instance-1".to_string()),
+        };
+        bridge.registry().upsert(binding.clone());
+        let screen = Arc::new(parking_lot::Mutex::new(HeadlessTerminalScreen::new(
+            80, 24, 100,
+        )));
+        bridge
+            .registry()
+            .register_screen(&terminal_id, Arc::downgrade(&screen));
+        let mut watcher = AIRuntimeTerminalOutputWatcher::new(binding.clone(), Arc::clone(&bridge));
+        bridge
+            .submit_hook_event(AIHookEventPayload {
+                kind: "sessionStarted".to_string(),
+                terminal_id: terminal_id.clone(),
+                terminal_instance_id: binding.terminal_instance_id.clone(),
+                project_id: "project-1".to_string(),
+                project_name: "Codux".to_string(),
+                project_path: Some("/tmp/project".to_string()),
+                session_title: "Kiro".to_string(),
+                tool: "kiro".to_string(),
+                ai_session_id: Some("kiro-session-1".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                cached_input_tokens: None,
+                total_tokens: None,
+                updated_at: now_seconds(),
+                metadata: None,
+            })
+            .expect("session hook should submit");
+        wait_for_session_state(&bridge, &terminal_id, "idle", Duration::from_secs(2));
+
+        let output = "kiro_default · auto\nKiro is working · Type to steer · Ctrl+S to queue";
+        screen.lock().process(output.as_bytes());
+        watcher.handle_terminal_event(&TerminalEvent::Output {
+            session_id: terminal_id.clone(),
+            text: output.to_string(),
+            bytes: output.as_bytes().to_vec(),
+        });
+
+        wait_for_session_state(&bridge, &terminal_id, "responding", Duration::from_secs(2));
 
         let _ = std::fs::remove_dir_all(dir);
     }

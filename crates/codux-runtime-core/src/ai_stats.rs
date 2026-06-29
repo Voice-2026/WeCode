@@ -141,7 +141,9 @@ mod tests {
                 "status": "running",
                 "isRunning": true,
                 "totalTokens": 10,
-                "cachedInputTokens": 4
+                "cachedInputTokens": 4,
+                "currentTotalTokens": 3,
+                "currentCachedInputTokens": 1
             }]
         }));
 
@@ -149,5 +151,7 @@ mod tests {
         assert_eq!(sessions[0].terminal_id.as_deref(), Some("term-1"));
         assert_eq!(sessions[0].total_tokens, 10);
         assert_eq!(sessions[0].cached_input_tokens, 4);
+        assert_eq!(sessions[0].current_total_tokens, 3);
+        assert_eq!(sessions[0].current_cached_input_tokens, 1);
     }
 }

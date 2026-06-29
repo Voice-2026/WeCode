@@ -404,7 +404,7 @@ fn runtime_tool_count(value: &Value) -> usize {
     const TOOL_KEYS: [&str; 8] = [
         "codex",
         "claudeCode",
-        "gemini",
+        "agy",
         "opencode",
         "kiro",
         "codewhale",

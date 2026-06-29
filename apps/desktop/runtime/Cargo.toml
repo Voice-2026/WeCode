@@ -46,7 +46,7 @@ notify = "8"
 notify-rust = { version = "4.17.0", default-features = false }
 rand = "0.8"
 zed-font-kit = { git = "https://github.com/zed-industries/font-kit", rev = "94b0f28166665e8fd2f53ff6d268a14955c82269", package = "zed-font-kit", version = "0.14.1-zed" }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "net", "rt", "rt-multi-thread", "sync", "time"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 rfd = { version = "0.17.2", default-features = false, features = ["common-controls-v6"] }

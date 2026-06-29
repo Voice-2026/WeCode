@@ -85,8 +85,8 @@ pub fn merge_worktree(
     remove_after: bool,
 ) -> Result<(), String> {
     let root = repository_root(repo_path).ok_or_else(|| "Not a Git repository.".to_string())?;
-    let branch =
-        current_branch(worktree_path).ok_or_else(|| "Worktree branch cannot be resolved.".to_string())?;
+    let branch = current_branch(worktree_path)
+        .ok_or_else(|| "Worktree branch cannot be resolved.".to_string())?;
     let base_branch = base
         .map(str::trim)
         .filter(|value| !value.is_empty())

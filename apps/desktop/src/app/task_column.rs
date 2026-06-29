@@ -31,6 +31,7 @@ struct TaskSessionRow {
     source: String,
     last_seen_at: f64,
     total_tokens: i64,
+    usage_amounts: Vec<codux_runtime::ai_history::AIUsageAmount>,
 }
 
 impl Render for TaskColumnView {
@@ -115,6 +116,7 @@ fn task_session_row(session: &AISessionSummary) -> TaskSessionRow {
         source: session.source.clone(),
         last_seen_at: session.last_seen_at,
         total_tokens: session.total_tokens,
+        usage_amounts: session.usage_amounts.clone(),
     }
 }
 
@@ -365,19 +367,19 @@ fn task_column_content(
                 .overflow_hidden()
                 .bg(theme::vibrancy_panel(color(theme::BG_COLUMN)))
                 .child(
-                v_resizable("task-column-resizable")
-                    .child(
-                        resizable_panel()
-                            .size(px(320.0))
-                            .size_range(px(96.0)..px(560.0))
-                            .child(gpui::AnyView::from(worktree_list_view)),
-                    )
-                    .child(
-                        resizable_panel()
-                            .size_range(px(96.0)..px(640.0))
-                            .child(gpui::AnyView::from(session_list_view)),
-                    ),
-            ),
+                    v_resizable("task-column-resizable")
+                        .child(
+                            resizable_panel()
+                                .size(px(320.0))
+                                .size_range(px(96.0)..px(560.0))
+                                .child(gpui::AnyView::from(worktree_list_view)),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size_range(px(96.0)..px(640.0))
+                                .child(gpui::AnyView::from(session_list_view)),
+                        ),
+                ),
         )
 }
 
@@ -890,7 +892,7 @@ fn ai_session_compact_row(
                         .text_sm()
                         .text_color(color(theme::TEXT))
                         .truncate()
-                        .child(session.title),
+                        .child(session.title.clone()),
                 )
                 .child(
                     div()
@@ -910,12 +912,18 @@ fn ai_session_compact_row(
                 .min_w_0()
                 .text_size(rems(0.75))
                 .text_color(color(theme::TEXT_DIM))
-                .child(div().min_w_0().flex_1().truncate().child(session.source))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .truncate()
+                        .child(session.source.clone()),
+                )
                 .child(
                     div()
                         .flex_shrink_0()
                         .text_right()
-                        .child(compact_number(session.total_tokens)),
+                        .child(session_usage_label(&session)),
                 ),
         )
         .context_menu(move |menu, _window, _cx| {
@@ -976,4 +984,27 @@ fn ai_session_compact_row(
                     }),
             )
         })
+}
+
+fn session_usage_label(session: &TaskSessionRow) -> String {
+    if session.total_tokens > 0 {
+        return compact_number(session.total_tokens);
+    }
+    session
+        .usage_amounts
+        .iter()
+        .find(|amount| amount.value > 0.0 && !amount.unit.trim().is_empty())
+        .map(|amount| format_usage_amount(amount.value, &amount.unit))
+        .unwrap_or_else(|| compact_number(0))
+}
+
+fn format_usage_amount(value: f64, unit: &str) -> String {
+    let unit = unit.trim();
+    if value >= 100.0 {
+        format!("{value:.0} {unit}")
+    } else if value >= 10.0 {
+        format!("{value:.1} {unit}")
+    } else {
+        format!("{value:.3} {unit}")
+    }
 }
