@@ -287,6 +287,7 @@ fn project_tools_snapshot(
     if collapsed {
         let add_project_label =
             project_column_text(language, "sidebar.footer.add_project", "Add Project");
+        let stats_label = project_column_text(language, "sidebar.footer.ai_usage", "AI Usage");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
         let more_label = project_column_text(language, "sidebar.footer.more", "More");
         base.flex_col()
@@ -308,6 +309,16 @@ fn project_tools_snapshot(
                 window,
                 cx,
                 |app, _event, window, cx| app.open_project_create_window(window, cx),
+            ))
+            .child(project_tool_button(
+                HeroIconName::ChartBar,
+                None,
+                stats_label,
+                "project-ai-usage-footer",
+                app_entity.clone(),
+                window,
+                cx,
+                |app, _event, window, cx| app.show_stats_workspace_view(window, cx),
             ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
@@ -333,6 +344,7 @@ fn project_tools_snapshot(
     } else {
         let add_project_label =
             project_column_text(language, "sidebar.footer.add_project", "Add Project");
+        let stats_label = project_column_text(language, "sidebar.footer.ai_usage", "AI Usage");
         let settings_label = project_column_text(language, "menu.settings", "Settings");
         let more_label = project_column_text(language, "sidebar.footer.more", "More");
         let toggle_label = project_column_text(language, "sidebar.collapse", "Collapse Sidebar");
@@ -355,6 +367,16 @@ fn project_tools_snapshot(
                 window,
                 cx,
                 |app, _event, window, cx| app.open_project_create_window(window, cx),
+            ))
+            .child(project_tool_button(
+                HeroIconName::ChartBar,
+                Some(stats_label.clone()),
+                stats_label,
+                "project-ai-usage-footer",
+                app_entity.clone(),
+                window,
+                cx,
+                |app, _event, window, cx| app.show_stats_workspace_view(window, cx),
             ))
             .child(project_tool_button(
                 HeroIconName::Cog6Tooth,
@@ -694,6 +716,7 @@ fn project_row(
         let drag_project = project.clone();
         let drop_app_entity = app_entity.clone();
         let drop_project_order = project_order.clone();
+        let drag_app_entity = app_entity.clone();
         return div()
             .id(SharedString::from(format!("project-{}", project.id)))
             .on_drag(
@@ -704,6 +727,7 @@ fn project_row(
                     collapsed: true,
                 },
                 move |drag, _, _, cx| {
+                    drag_app_entity.update(cx, |app, cx| app.clear_codux_tooltip(cx));
                     cx.new(|_| ProjectRowDrag {
                         project_id: drag.project_id.clone(),
                         project: drag.project.clone(),
@@ -798,6 +822,7 @@ fn project_row(
     let target_project_id = project.id.clone();
     let drag_project = project.clone();
     let drop_app_entity = app_entity.clone();
+    let drag_app_entity = app_entity.clone();
     div()
         .id(SharedString::from(format!("project-{}", project.id)))
         .on_drag(
@@ -808,6 +833,7 @@ fn project_row(
                 collapsed: false,
             },
             move |drag, _, _, cx| {
+                drag_app_entity.update(cx, |app, cx| app.clear_codux_tooltip(cx));
                 cx.new(|_| ProjectRowDrag {
                     project_id: drag.project_id.clone(),
                     project: drag.project.clone(),

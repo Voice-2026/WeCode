@@ -237,7 +237,7 @@ fn rank_rows<'a>(rows: impl Iterator<Item = (&'a str, i64)>) -> Vec<AIHistoryRan
     let mut rows = totals.into_iter().collect::<Vec<_>>();
     rows.sort_by(|left, right| right.1.cmp(&left.1));
     rows.into_iter()
-        .take(4)
+        .take(8)
         .map(|(label, value)| AIHistoryRankRow {
             label,
             value,

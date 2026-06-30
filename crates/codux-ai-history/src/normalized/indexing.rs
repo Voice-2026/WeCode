@@ -193,12 +193,76 @@ pub fn index_global_history_fresh_at(
         project_count += 1;
     }
 
+    if let Ok(conn) = store.connect() {
+        let now = now_seconds();
+        if let (
+            Ok(project_totals),
+            Ok(sessions),
+            Ok(heatmap),
+            Ok(today_time_buckets),
+            Ok(recent_time_buckets),
+            Ok(tool_breakdown),
+            Ok(model_breakdown),
+            Ok(range_summaries),
+        ) = (
+            store.indexed_global_project_totals(&conn),
+            store.indexed_sessions_since(&conn, None),
+            store.indexed_global_heatmap(&conn),
+            store.indexed_global_today_buckets(&conn),
+            store.indexed_global_recent_buckets(&conn),
+            store.indexed_global_breakdown(&conn, "source"),
+            store.indexed_global_breakdown(&conn, "model"),
+            indexed_global_range_summaries(&store, &conn, now),
+        ) {
+            let (
+                total_tokens,
+                cached_input_tokens,
+                today_total_tokens,
+                today_cached_input_tokens,
+            ) = project_totals.iter().fold(
+                (0, 0, 0, 0),
+                |(total, cached, today, today_cached), project| {
+                    (
+                        total + project.total_tokens,
+                        cached + project.cached_input_tokens,
+                        today + project.today_total_tokens,
+                        today_cached + project.today_cached_input_tokens,
+                    )
+                },
+            );
+            let project_count = project_totals.len();
+            return AIGlobalHistorySnapshot {
+                total_tokens,
+                cached_input_tokens,
+                today_total_tokens,
+                today_cached_input_tokens,
+                sessions,
+                project_totals,
+                heatmap,
+                today_time_buckets,
+                recent_time_buckets,
+                tool_breakdown,
+                model_breakdown,
+                range_summaries,
+                project_count,
+                indexed_at: now,
+            };
+        }
+    }
+
     AIGlobalHistorySnapshot {
         total_tokens,
         cached_input_tokens,
         today_total_tokens,
         today_cached_input_tokens,
         sessions: Vec::new(),
+        project_totals: Vec::new(),
+        heatmap: Vec::new(),
+        today_time_buckets: Vec::new(),
+        recent_time_buckets: Vec::new(),
+        tool_breakdown: Vec::new(),
+        model_breakdown: Vec::new(),
+        range_summaries: Vec::new(),
         project_count,
         indexed_at: now_seconds(),
     }
@@ -225,42 +289,70 @@ fn load_indexed_global_history_with_store(
 ) -> Result<Option<AIGlobalHistorySnapshot>> {
     let conn = store.connect()?;
     let now = now_seconds();
-    let mut total_tokens = 0;
-    let mut cached_input_tokens = 0;
-    let mut today_total_tokens = 0;
-    let mut today_cached_input_tokens = 0;
-    let mut indexed_count = 0;
     let requested_count = projects
         .iter()
         .filter(|project| !project.path.trim().is_empty())
         .count();
+    let project_totals = store.indexed_global_project_totals(&conn)?;
+    let indexed_count = project_totals
+        .iter()
+        .filter(|project| {
+            projects
+                .iter()
+                .any(|requested| requested.path == project.project_path)
+        })
+        .count();
 
-    for project in projects {
-        if project.path.trim().is_empty() {
-            continue;
-        }
-        let Some(snapshot) = store.indexed_project_snapshot(&conn, project)? else {
-            continue;
-        };
-        total_tokens += snapshot.project_summary.project_total_tokens;
-        cached_input_tokens += snapshot.project_summary.project_cached_input_tokens;
-        today_total_tokens += snapshot.project_summary.today_total_tokens;
-        today_cached_input_tokens += snapshot.project_summary.today_cached_input_tokens;
-        indexed_count += 1;
-    }
-
-    if requested_count > 0 && indexed_count == 0 {
+    if requested_count > 0 && indexed_count == 0 && project_totals.is_empty() {
         return Ok(None);
     }
+    let (total_tokens, cached_input_tokens, today_total_tokens, today_cached_input_tokens) =
+        project_totals
+            .iter()
+            .fold((0, 0, 0, 0), |(total, cached, today, today_cached), project| {
+                (
+                    total + project.total_tokens,
+                    cached + project.cached_input_tokens,
+                    today + project.today_total_tokens,
+                    today_cached + project.today_cached_input_tokens,
+                )
+            });
+    let range_summaries = indexed_global_range_summaries(store, &conn, now)?;
+    let project_count = project_totals.len();
     Ok(Some(AIGlobalHistorySnapshot {
         total_tokens,
         cached_input_tokens,
         today_total_tokens,
         today_cached_input_tokens,
-        sessions: Vec::new(),
-        project_count: indexed_count,
+        sessions: store.indexed_sessions_since(&conn, None)?,
+        project_totals,
+        heatmap: store.indexed_global_heatmap(&conn)?,
+        today_time_buckets: store.indexed_global_today_buckets(&conn)?,
+        recent_time_buckets: store.indexed_global_recent_buckets(&conn)?,
+        tool_breakdown: store.indexed_global_breakdown(&conn, "source")?,
+        model_breakdown: store.indexed_global_breakdown(&conn, "model")?,
+        range_summaries,
+        project_count,
         indexed_at: now,
     }))
+}
+
+fn indexed_global_range_summaries(
+    store: &AIUsageStore,
+    conn: &Connection,
+    now: f64,
+) -> Result<Vec<AIGlobalHistoryRangeSummary>> {
+    let today = local_day_start_seconds(now);
+    let ranges = [
+        ("today", Some(today)),
+        ("sevenDays", Some(now - 7.0 * 86_400.0)),
+        ("thirtyDays", Some(now - 30.0 * 86_400.0)),
+        ("all", None),
+    ];
+    ranges
+        .into_iter()
+        .map(|(key, cutoff)| store.indexed_global_range_summary(conn, key, cutoff))
+        .collect()
 }
 
 pub fn global_today_normalized_tokens() -> Result<i64> {

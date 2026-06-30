@@ -10,7 +10,8 @@
       "sidebar.project.edit": "Projekt bearbeiten",
       "sidebar.project.open_folder": "Ordner öffnen",
       "sidebar.project.remove": "Projekt entfernen",
-      "sidebar.workspace": "Arbeitsbereich"
+      "sidebar.workspace": "Arbeitsbereich",
+      "sidebar.footer.ai_usage": "KI-Nutzung"
     },
     "en": {
       "sidebar.collapse": "Collapse Sidebar",
@@ -22,7 +23,8 @@
       "sidebar.project.edit": "Edit Project",
       "sidebar.project.open_folder": "Open Folder",
       "sidebar.project.remove": "Remove Project",
-      "sidebar.workspace": "Workspace"
+      "sidebar.workspace": "Workspace",
+      "sidebar.footer.ai_usage": "AI Usage"
     },
     "es": {
       "sidebar.collapse": "Contraer barra lateral",
@@ -34,7 +36,8 @@
       "sidebar.project.edit": "Editar proyecto",
       "sidebar.project.open_folder": "Abrir carpeta",
       "sidebar.project.remove": "Eliminar proyecto",
-      "sidebar.workspace": "Espacio de trabajo"
+      "sidebar.workspace": "Espacio de trabajo",
+      "sidebar.footer.ai_usage": "Uso de IA"
     },
     "fr": {
       "sidebar.collapse": "Réduire la barre latérale",
@@ -46,7 +49,8 @@
       "sidebar.project.edit": "Modifier le projet",
       "sidebar.project.open_folder": "Ouvrir le dossier",
       "sidebar.project.remove": "Supprimer le projet",
-      "sidebar.workspace": "Espace de travail"
+      "sidebar.workspace": "Espace de travail",
+      "sidebar.footer.ai_usage": "Utilisation IA"
     },
     "ja": {
       "sidebar.collapse": "サイドバーを折りたたむ",
@@ -58,7 +62,8 @@
       "sidebar.project.edit": "プロジェクトの編集",
       "sidebar.project.open_folder": "フォルダーを開く",
       "sidebar.project.remove": "プロジェクトの削除",
-      "sidebar.workspace": "ワークスペース"
+      "sidebar.workspace": "ワークスペース",
+      "sidebar.footer.ai_usage": "AI使用量"
     },
     "ko": {
       "sidebar.collapse": "사이드바 접기",
@@ -70,7 +75,8 @@
       "sidebar.project.edit": "프로젝트 편집",
       "sidebar.project.open_folder": "폴더 열기",
       "sidebar.project.remove": "프로젝트 제거",
-      "sidebar.workspace": "워크스페이스"
+      "sidebar.workspace": "워크스페이스",
+      "sidebar.footer.ai_usage": "AI 사용량"
     },
     "pt-BR": {
       "sidebar.collapse": "Recolher barra lateral",
@@ -82,7 +88,8 @@
       "sidebar.project.edit": "Editar projeto",
       "sidebar.project.open_folder": "Abrir pasta",
       "sidebar.project.remove": "Remover projeto",
-      "sidebar.workspace": "Espaço de trabalho"
+      "sidebar.workspace": "Espaço de trabalho",
+      "sidebar.footer.ai_usage": "Uso de IA"
     },
     "ru": {
       "sidebar.collapse": "Свернуть боковую панель",
@@ -94,7 +101,8 @@
       "sidebar.project.edit": "Редактировать проект",
       "sidebar.project.open_folder": "Открыть папку",
       "sidebar.project.remove": "Удалить проект",
-      "sidebar.workspace": "Рабочая область"
+      "sidebar.workspace": "Рабочая область",
+      "sidebar.footer.ai_usage": "Использование ИИ"
     },
     "zh-Hans": {
       "sidebar.collapse": "收起侧栏",
@@ -106,7 +114,8 @@
       "sidebar.project.edit": "编辑项目",
       "sidebar.project.open_folder": "打开文件夹",
       "sidebar.project.remove": "移除项目",
-      "sidebar.workspace": "工作区"
+      "sidebar.workspace": "工作区",
+      "sidebar.footer.ai_usage": "AI 用量"
     },
     "zh-Hant": {
       "sidebar.collapse": "收起側欄",
@@ -118,7 +127,8 @@
       "sidebar.project.edit": "編輯項目",
       "sidebar.project.open_folder": "開啟資料夾",
       "sidebar.project.remove": "刪除項目",
-      "sidebar.workspace": "工作區"
+      "sidebar.workspace": "工作區",
+      "sidebar.footer.ai_usage": "AI 用量"
     }
   }
 }

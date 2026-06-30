@@ -1,9 +1,13 @@
 use super::helpers::local_today_start_seconds;
 use super::queries::{
-    load_global_project_totals, load_global_recent_sessions, load_global_today_cached_tokens,
-    load_project_aggregates, load_sessions, load_today_tokens,
+    load_global_project_totals, load_global_recent_sessions, load_global_recent_time_buckets,
+    load_global_today_cached_tokens, load_global_today_time_buckets, load_project_aggregates,
+    load_sessions, load_today_tokens,
 };
-use super::{AIGlobalHistorySummary, AIHistoryService, AIHistorySummary};
+use super::{
+    AIGlobalHistoryRangeSummary, AIGlobalHistorySummary, AIHistoryService, AIHistorySummary,
+    AIProjectUsageSummary,
+};
 use rusqlite::{Connection, OptionalExtension};
 
 impl AIHistoryService {
@@ -107,6 +111,11 @@ impl AIHistoryService {
             }
         };
         let recent_sessions = load_global_recent_sessions(&conn).unwrap_or_default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        let recent_start = ((now / 1800.0).floor() + 1.0) * 1800.0 - 48.0 * 3600.0;
         let (total_tokens, cached_input_tokens, today_total_tokens) =
             project_totals.iter().fold((0, 0, 0), |acc, project| {
                 (
@@ -119,6 +128,51 @@ impl AIHistoryService {
             .iter()
             .map(|project| project.session_count)
             .sum();
+        let today_cached_input_tokens =
+            load_global_today_cached_tokens(&conn, today_start).unwrap_or(0);
+
+        let indexed_snapshot = can_read_normalized_snapshot(&conn)
+            .then(|| {
+                codux_ai_history::normalized::load_indexed_global_history_at(
+                    self.database_path.clone(),
+                    Vec::new(),
+                )
+                .ok()
+                .flatten()
+            })
+            .flatten();
+        let (
+            heatmap,
+            today_time_buckets,
+            recent_time_buckets,
+            tool_breakdown,
+            model_breakdown,
+            range_summaries,
+        ) = indexed_snapshot
+            .map(|snapshot| {
+                (
+                    snapshot.heatmap,
+                    snapshot.today_time_buckets,
+                    snapshot.recent_time_buckets,
+                    snapshot.tool_breakdown,
+                    snapshot.model_breakdown,
+                    snapshot
+                        .range_summaries
+                        .into_iter()
+                        .map(normalized_range_summary_to_summary)
+                        .collect(),
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    Vec::new(),
+                    load_global_recent_time_buckets(&conn, recent_start).unwrap_or_default(),
+                    load_global_today_time_buckets(&conn, today_start).unwrap_or_default(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                )
+            });
 
         AIGlobalHistorySummary {
             indexed_project_count: project_totals.len(),
@@ -126,11 +180,98 @@ impl AIHistoryService {
             total_tokens,
             cached_input_tokens,
             today_total_tokens,
-            today_cached_input_tokens: load_global_today_cached_tokens(&conn, today_start)
-                .unwrap_or(0),
+            today_cached_input_tokens,
             project_totals,
+            heatmap,
+            today_time_buckets,
+            recent_time_buckets,
+            tool_breakdown,
+            model_breakdown,
+            range_summaries,
             recent_sessions,
             error: None,
         }
+    }
+}
+
+fn can_read_normalized_snapshot(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT value FROM ai_history_meta WHERE key = 'normalized_history_schema_version' LIMIT 1",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .is_ok()
+}
+
+fn normalized_project_total_to_summary(
+    project: codux_ai_history::normalized::AIProjectUsageTotal,
+) -> AIProjectUsageSummary {
+    AIProjectUsageSummary {
+        project_id: project.project_id,
+        project_path: project.project_path,
+        project_name: project.project_name,
+        session_count: project.session_count,
+        input_tokens: project.input_tokens,
+        output_tokens: project.output_tokens,
+        total_tokens: project.total_tokens,
+        cached_input_tokens: project.cached_input_tokens,
+        request_count: project.request_count,
+        active_duration_seconds: project.active_duration_seconds,
+        today_total_tokens: project.today_total_tokens,
+        today_cached_input_tokens: project.today_cached_input_tokens,
+    }
+}
+
+fn normalized_range_summary_to_summary(
+    summary: codux_ai_history::normalized::AIGlobalHistoryRangeSummary,
+) -> AIGlobalHistoryRangeSummary {
+    AIGlobalHistoryRangeSummary {
+        key: summary.key,
+        input_tokens: summary.input_tokens,
+        output_tokens: summary.output_tokens,
+        total_tokens: summary.total_tokens,
+        cached_input_tokens: summary.cached_input_tokens,
+        request_count: summary.request_count,
+        session_count: summary.session_count,
+        active_duration_seconds: summary.active_duration_seconds,
+        sessions: summary
+            .sessions
+            .into_iter()
+            .map(|session| super::AISessionSummary {
+                id: session.session_id.clone(),
+                session_key: session
+                    .external_session_id
+                    .clone()
+                    .unwrap_or_else(|| session.session_id.clone()),
+                external_session_id: session.external_session_id,
+                title: session.session_title,
+                source: session.last_tool.unwrap_or_else(|| "ai".to_string()),
+                project_name: Some(session.project_name),
+                project_path: Some(session.project_path),
+                last_model: session.last_model,
+                last_seen_at: session.last_seen_at,
+                input_tokens: session.total_input_tokens,
+                output_tokens: session.total_output_tokens,
+                total_tokens: session.total_tokens,
+                cached_input_tokens: session.cached_input_tokens,
+                request_count: session.request_count,
+                active_duration_seconds: session.active_duration_seconds,
+                usage_amounts: session
+                    .usage_amounts
+                    .into_iter()
+                    .map(|amount| super::AIUsageAmount {
+                        unit: amount.unit,
+                        value: amount.value,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        project_totals: summary
+            .project_totals
+            .into_iter()
+            .map(normalized_project_total_to_summary)
+            .collect(),
+        tool_breakdown: summary.tool_breakdown,
+        model_breakdown: summary.model_breakdown,
     }
 }

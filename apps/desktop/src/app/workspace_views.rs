@@ -48,7 +48,12 @@ impl WorkspaceColumnView {
 }
 
 impl Render for WorkspaceColumnView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let assistant_snapshot = self.assistant_view.read(cx);
+        let show_assistant = assistant_snapshot.snapshot.panel.is_some_and(|panel| {
+            assistant_snapshot.snapshot.has_project || panel == AssistantPanel::SSH
+        });
+
         div()
             .flex()
             .flex_col()
@@ -73,8 +78,43 @@ impl Render for WorkspaceColumnView {
                     .min_w_0()
                     .min_h_0()
                     .overflow_hidden()
-                    .child(gpui::AnyView::from(self.body_view.clone()))
-                    .child(gpui::AnyView::from(self.assistant_view.clone())),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .flex_basis(px(0.0))
+                            .h_full()
+                            .min_w_0()
+                            .min_h_0()
+                            .overflow_hidden()
+                            .child(
+                                gpui::AnyView::from(self.body_view.clone()).cached(
+                                    gpui::StyleRefinement::default()
+                                        .flex()
+                                        .size_full()
+                                        .min_w(px(0.0))
+                                        .min_h(px(0.0)),
+                                ),
+                            ),
+                    )
+                    .when(show_assistant, |this| {
+                        this.child(
+                            div()
+                                .flex()
+                                .flex_none()
+                                .flex_shrink_0()
+                                .w(px(ASSISTANT_PANEL_WIDTH))
+                                .min_w(px(ASSISTANT_PANEL_WIDTH))
+                                .max_w(px(ASSISTANT_PANEL_WIDTH))
+                                .h_full()
+                                .overflow_hidden()
+                                .child(
+                                    gpui::AnyView::from(self.assistant_view.clone()).cached(
+                                        gpui::StyleRefinement::default().flex().size_full(),
+                                    ),
+                                ),
+                        )
+                    }),
             )
     }
 }
@@ -126,6 +166,7 @@ pub(in crate::app) struct WorkspaceBodyView {
     pub(in crate::app) file_editor_workspace_view:
         Option<gpui::Entity<file_editor::FileEditorWorkspaceView>>,
     pub(in crate::app) review_workspace_view: Option<gpui::Entity<ReviewWorkspaceView>>,
+    pub(in crate::app) stats_workspace_view: Option<gpui::Entity<StatsWorkspaceView>>,
 }
 
 impl WorkspaceBodyView {
@@ -135,6 +176,7 @@ impl WorkspaceBodyView {
             terminal_workspace_view: None,
             file_editor_workspace_view: None,
             review_workspace_view: None,
+            stats_workspace_view: None,
         }
     }
 }
@@ -143,10 +185,11 @@ impl Render for WorkspaceBodyView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let app_entity = self.app_entity.clone();
         self.app_entity.update(cx, |app, app_cx| {
-            if app.state.selected_project.is_none() {
+            if app.state.selected_project.is_none() && app.workspace_view != WorkspaceView::Stats {
                 self.terminal_workspace_view = None;
                 self.file_editor_workspace_view = None;
                 self.review_workspace_view = None;
+                self.stats_workspace_view = None;
                 return app
                     .empty_project_workspace(window, app_cx)
                     .into_any_element();
@@ -165,7 +208,7 @@ impl Render for WorkspaceBodyView {
                 let split_file_editor = app.workspace_split == Some(WorkspaceSplitKind::FileEditor)
                     && !app.file_editor_tabs.is_empty();
                 if !split_file_editor {
-                    return gpui::AnyView::from(terminal_view).into_any_element();
+                    return workspace_body_any_view(terminal_view).into_any_element();
                 }
                 // Split mode: terminal on the left, the existing file-editor
                 // workspace (with its own tab bar) on the right, in a draggable
@@ -210,7 +253,7 @@ impl Render for WorkspaceBodyView {
                     self.file_editor_workspace_view = Some(view.clone());
                     view
                 };
-                gpui::AnyView::from(file_editor_view).into_any_element()
+                workspace_body_any_view(file_editor_view).into_any_element()
             } else if app.workspace_view == WorkspaceView::Review {
                 let snapshot = app.review_workspace_snapshot();
                 let review_view = if let Some(view) = &self.review_workspace_view {
@@ -221,12 +264,41 @@ impl Render for WorkspaceBodyView {
                     self.review_workspace_view = Some(view.clone());
                     view
                 };
-                gpui::AnyView::from(review_view).into_any_element()
+                workspace_body_any_view(review_view).into_any_element()
+            } else if app.workspace_view == WorkspaceView::Stats {
+                let snapshot = app.stats_workspace_snapshot();
+                let stats_view = if let Some(view) = &self.stats_workspace_view {
+                    view.update(app_cx, |view, cx| view.set_snapshot(snapshot, cx));
+                    view.clone()
+                } else {
+                    let view = app_cx.new(|cx| {
+                        StatsWorkspaceView::new(app_entity.clone(), snapshot, window, cx)
+                    });
+                    self.stats_workspace_view = Some(view.clone());
+                    view
+                };
+                workspace_body_any_view(stats_view).into_any_element()
             } else {
                 app.workspace_body(window, app_cx).into_any_element()
             }
         })
     }
+}
+
+fn workspace_body_any_view<V>(view: gpui::Entity<V>) -> impl IntoElement
+where
+    V: Render + 'static,
+{
+    gpui::AnyView::from(view).cached(
+        gpui::StyleRefinement::default()
+            .flex()
+            .flex_1()
+            .flex_basis(px(0.0))
+            .w_full()
+            .h_full()
+            .min_w(px(0.0))
+            .min_h(px(0.0)),
+    )
 }
 
 impl CoduxApp {
@@ -338,6 +410,75 @@ pub(in crate::app) struct ReviewWorkspaceView {
     snapshot: super::workspace_review::ReviewWorkspaceSnapshot,
     file_list_view: Option<gpui::Entity<ReviewFileListView>>,
     diff_content_view: Option<gpui::Entity<ReviewDiffContentView>>,
+}
+
+pub(in crate::app) struct StatsWorkspaceView {
+    app_entity: gpui::Entity<CoduxApp>,
+    snapshot: super::workspace_stats::StatsWorkspaceSnapshot,
+    scroll_handle: gpui::ScrollHandle,
+    project_table: gpui::Entity<
+        gpui_component::table::TableState<super::workspace_stats::StatsProjectTableDelegate>,
+    >,
+}
+
+impl StatsWorkspaceView {
+    fn new(
+        app_entity: gpui::Entity<CoduxApp>,
+        snapshot: super::workspace_stats::StatsWorkspaceSnapshot,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let project_table = cx.new(|cx| {
+            gpui_component::table::TableState::new(
+                super::workspace_stats::StatsProjectTableDelegate::new(
+                    snapshot.project_rows(),
+                    snapshot.language().to_string(),
+                ),
+                window,
+                cx,
+            )
+            .col_selectable(false)
+            .col_movable(false)
+        });
+        Self {
+            app_entity,
+            snapshot,
+            scroll_handle: gpui::ScrollHandle::default(),
+            project_table,
+        }
+    }
+
+    pub(in crate::app) fn set_snapshot(
+        &mut self,
+        snapshot: super::workspace_stats::StatsWorkspaceSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        if self.snapshot == snapshot {
+            return;
+        }
+        self.project_table.update(cx, |table, cx| {
+            table
+                .delegate_mut()
+                .set_rows(snapshot.project_rows(), snapshot.language().to_string());
+            table.refresh(cx);
+            cx.notify();
+        });
+        self.snapshot = snapshot;
+        cx.notify();
+    }
+}
+
+impl Render for StatsWorkspaceView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        super::workspace_stats::stats_workspace_body(
+            self.app_entity.clone(),
+            self.project_table.clone(),
+            self.scroll_handle.clone(),
+            self.snapshot.clone(),
+            cx,
+        )
+        .into_any_element()
+    }
 }
 
 impl ReviewWorkspaceView {
@@ -688,6 +829,7 @@ fn workspace_view_key(view: WorkspaceView) -> &'static str {
         WorkspaceView::Terminal => "terminal",
         WorkspaceView::Files => "files",
         WorkspaceView::Review => "review",
+        WorkspaceView::Stats => "stats",
     }
 }
 
@@ -960,6 +1102,19 @@ impl CoduxApp {
             return false;
         };
         let snapshot = self.review_workspace_snapshot();
+        view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+        true
+    }
+
+    pub(in crate::app) fn update_stats_workspace_view(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(view) = self
+            .workspace_body_view
+            .as_ref()
+            .and_then(|view| view.read(cx).stats_workspace_view.clone())
+        else {
+            return false;
+        };
+        let snapshot = self.stats_workspace_snapshot();
         view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
         true
     }

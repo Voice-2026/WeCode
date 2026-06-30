@@ -248,12 +248,12 @@ pub(in crate::app) fn review_workspace_body(
             h_resizable("git-review-workspace-split")
                 .child(
                     resizable_panel()
-                        .size(px(360.0))
-                        .size_range(px(260.0)..px(520.0))
+                        .size(px(320.0))
+                        .size_range(px(180.0)..px(520.0))
                         .child(gpui::AnyView::from(file_list_view)),
                 )
                 .child(
-                    resizable_panel().size_range(px(520.0)..Pixels::MAX).child(
+                    resizable_panel().size_range(px(280.0)..Pixels::MAX).child(
                         div()
                             .size_full()
                             .min_w_0()

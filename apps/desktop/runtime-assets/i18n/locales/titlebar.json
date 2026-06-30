@@ -15,7 +15,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "Standby",
       "titlebar.tab": "Tab",
-      "titlebar.level.detail_format": "KI-Level · Lv.%@ · %@ · Heute %@"
+      "titlebar.level.detail_format": "KI-Level · Lv.%@ · %@ · Heute %@",
+      "titlebar.stats": "Statistiken"
     },
     "en": {
       "titlebar.agent_standby": "Agent standby",
@@ -32,7 +33,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "Standby",
       "titlebar.tab": "Tab",
-      "titlebar.level.detail_format": "AI Level · Lv.%@ · %@ · Today %@"
+      "titlebar.level.detail_format": "AI Level · Lv.%@ · %@ · Today %@",
+      "titlebar.stats": "Stats"
     },
     "es": {
       "titlebar.agent_standby": "Agente en espera",
@@ -49,7 +51,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "Espera",
       "titlebar.tab": "Pestaña",
-      "titlebar.level.detail_format": "Nivel IA · Lv.%@ · %@ · Hoy %@"
+      "titlebar.level.detail_format": "Nivel IA · Lv.%@ · %@ · Hoy %@",
+      "titlebar.stats": "Estadísticas"
     },
     "fr": {
       "titlebar.agent_standby": "Agent en veille",
@@ -66,7 +69,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "Veille",
       "titlebar.tab": "Onglet",
-      "titlebar.level.detail_format": "Niveau IA · Lv.%@ · %@ · Aujourd’hui %@"
+      "titlebar.level.detail_format": "Niveau IA · Lv.%@ · %@ · Aujourd’hui %@",
+      "titlebar.stats": "Stats"
     },
     "ja": {
       "titlebar.agent_standby": "エージェント待機中",
@@ -83,7 +87,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "待機",
       "titlebar.tab": "タブ",
-      "titlebar.level.detail_format": "AI レベル · Lv.%@ · %@ · 今日 %@"
+      "titlebar.level.detail_format": "AI レベル · Lv.%@ · %@ · 今日 %@",
+      "titlebar.stats": "統計"
     },
     "ko": {
       "titlebar.agent_standby": "에이전트 대기 중",
@@ -100,7 +105,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "대기",
       "titlebar.tab": "탭",
-      "titlebar.level.detail_format": "AI 레벨 · Lv.%@ · %@ · 오늘 %@"
+      "titlebar.level.detail_format": "AI 레벨 · Lv.%@ · %@ · 오늘 %@",
+      "titlebar.stats": "통계"
     },
     "pt-BR": {
       "titlebar.agent_standby": "Agente em espera",
@@ -117,7 +123,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "Espera",
       "titlebar.tab": "Aba",
-      "titlebar.level.detail_format": "Nível de IA · Lv.%@ · %@ · Hoje %@"
+      "titlebar.level.detail_format": "Nível de IA · Lv.%@ · %@ · Hoje %@",
+      "titlebar.stats": "Estatísticas"
     },
     "ru": {
       "titlebar.agent_standby": "Агент в ожидании",
@@ -134,7 +141,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "Ожидание",
       "titlebar.tab": "Вкладка",
-      "titlebar.level.detail_format": "Уровень ИИ · Lv.%@ · %@ · Сегодня %@"
+      "titlebar.level.detail_format": "Уровень ИИ · Lv.%@ · %@ · Сегодня %@",
+      "titlebar.stats": "Статистика"
     },
     "zh-Hans": {
       "titlebar.agent_standby": "智能体待机中",
@@ -151,7 +159,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "待机",
       "titlebar.tab": "标签页",
-      "titlebar.level.detail_format": "AI 等级 · Lv.%@ · %@ · 今日 %@"
+      "titlebar.level.detail_format": "AI 等级 · Lv.%@ · %@ · 今日 %@",
+      "titlebar.stats": "统计"
     },
     "zh-Hant": {
       "titlebar.agent_standby": "智能體待機中",
@@ -168,7 +177,8 @@
       "titlebar.ssh": "SSH",
       "titlebar.standby": "待機",
       "titlebar.tab": "分頁",
-      "titlebar.level.detail_format": "AI 等級 · Lv.%@ · %@ · 今日 %@"
+      "titlebar.level.detail_format": "AI 等級 · Lv.%@ · %@ · 今日 %@",
+      "titlebar.stats": "統計"
     }
   }
 }

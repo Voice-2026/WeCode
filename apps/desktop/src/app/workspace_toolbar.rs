@@ -20,6 +20,7 @@ impl CoduxApp {
             WorkspaceView::Terminal => 0,
             WorkspaceView::Files => 1,
             WorkspaceView::Review => 2,
+            WorkspaceView::Stats => 3,
         };
         let pet_snapshot = self.pet_snapshot.clone();
         let has_project_context = self.state.selected_project.is_some();
@@ -383,6 +384,7 @@ fn workspace_segmented_tabs(
     let terminal_label = translate(&locale, "workspace.create_split.terminal", "Terminal");
     let files_label = translate(&locale, "titlebar.files", "Files");
     let review_label = translate(&locale, "titlebar.review", "Review");
+    let stats_label = translate(&locale, "titlebar.stats", "Stats");
     div()
         .flex()
         .items_center()
@@ -413,6 +415,14 @@ fn workspace_segmented_tabs(
             review_label,
             HeroIconName::ArrowPathRoundedSquare,
             active_index == 2,
+            enabled,
+            cx,
+        ))
+        .child(workspace_segmented_tab(
+            3,
+            stats_label,
+            HeroIconName::ChartBar,
+            active_index == 3,
             enabled,
             cx,
         ))
@@ -457,12 +467,16 @@ fn workspace_segmented_tab(
                     }
                 })
                 .on_click(cx.listener(move |app, _event, window, cx| {
-                    let view = match index {
-                        0 => WorkspaceView::Terminal,
-                        1 => WorkspaceView::Files,
-                        _ => WorkspaceView::Review,
-                    };
-                    app.set_workspace_view(view, window, cx);
+                    if index == 3 {
+                        app.show_stats_workspace_view(window, cx);
+                    } else {
+                        let view = match index {
+                            0 => WorkspaceView::Terminal,
+                            1 => WorkspaceView::Files,
+                            _ => WorkspaceView::Review,
+                        };
+                        app.set_workspace_view(view, window, cx);
+                    }
                 }))
         })
         .child(

@@ -80,6 +80,12 @@ impl CoduxApp {
                             view.update(cx, |_view, cx| cx.notify());
                         }
                     }
+                } else if self.workspace_view == WorkspaceView::Stats {
+                    if !self.update_stats_workspace_view(cx) {
+                        if let Some(view) = &self.workspace_body_view {
+                            view.update(cx, |_view, cx| cx.notify());
+                        }
+                    }
                 } else if let Some(view) = &self.workspace_body_view {
                     view.update(cx, |_view, cx| cx.notify());
                 }
@@ -89,6 +95,9 @@ impl CoduxApp {
                 if let Some(view) = &self.workspace_assistant_view {
                     let snapshot = self.workspace_assistant_snapshot();
                     view.update(cx, |view, cx| view.set_snapshot(snapshot, cx));
+                }
+                if let Some(view) = &self.workspace_column_view {
+                    view.update(cx, |_view, cx| cx.notify());
                 }
             }
             UiRegion::AIStatsSidebar => {

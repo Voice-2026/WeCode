@@ -41,8 +41,61 @@ pub struct AIGlobalHistorySnapshot {
     pub today_total_tokens: i64,
     pub today_cached_input_tokens: i64,
     pub sessions: Vec<AISessionSummary>,
+    #[serde(default)]
+    pub project_totals: Vec<AIProjectUsageTotal>,
+    #[serde(default)]
+    pub heatmap: Vec<AIHeatmapDay>,
+    #[serde(default)]
+    pub today_time_buckets: Vec<AITimeBucket>,
+    #[serde(default)]
+    pub recent_time_buckets: Vec<AITimeBucket>,
+    #[serde(default)]
+    pub tool_breakdown: Vec<AIUsageBreakdownItem>,
+    #[serde(default)]
+    pub model_breakdown: Vec<AIUsageBreakdownItem>,
+    #[serde(default)]
+    pub range_summaries: Vec<AIGlobalHistoryRangeSummary>,
     pub project_count: usize,
     pub indexed_at: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIProjectUsageTotal {
+    pub project_id: String,
+    pub project_name: String,
+    pub project_path: String,
+    pub session_count: usize,
+    #[serde(default)]
+    pub input_tokens: i64,
+    #[serde(default)]
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub cached_input_tokens: i64,
+    #[serde(default)]
+    pub request_count: i64,
+    #[serde(default)]
+    pub active_duration_seconds: i64,
+    pub today_total_tokens: i64,
+    pub today_cached_input_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIGlobalHistoryRangeSummary {
+    pub key: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub request_count: i64,
+    #[serde(default)]
+    pub session_count: usize,
+    pub active_duration_seconds: i64,
+    pub sessions: Vec<AISessionSummary>,
+    pub project_totals: Vec<AIProjectUsageTotal>,
+    pub tool_breakdown: Vec<AIUsageBreakdownItem>,
+    pub model_breakdown: Vec<AIUsageBreakdownItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +159,10 @@ pub struct AIHeatmapDay {
 pub struct AITimeBucket {
     pub start: f64,
     pub end: f64,
+    #[serde(default)]
+    pub input_tokens: i64,
+    #[serde(default)]
+    pub output_tokens: i64,
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
     pub request_count: i64,

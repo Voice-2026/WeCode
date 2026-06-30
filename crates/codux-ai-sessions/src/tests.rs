@@ -15,11 +15,16 @@ fn restore_command_uses_interactive_session_flags() {
         external_session_id: Some("external-1".to_string()),
         title: "Task".to_string(),
         source: "codex".to_string(),
+        project_name: None,
+        project_path: None,
         last_model: None,
         last_seen_at: 0.0,
+        input_tokens: 0,
+        output_tokens: 0,
         total_tokens: 0,
         cached_input_tokens: 0,
         request_count: 0,
+        active_duration_seconds: 0,
         usage_amounts: Vec::new(),
     };
 

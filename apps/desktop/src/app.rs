@@ -144,6 +144,7 @@ mod workspace_files;
 mod workspace_pet_widgets;
 mod workspace_review;
 mod workspace_shared;
+mod workspace_stats;
 mod workspace_terminal;
 mod workspace_toolbar;
 mod workspace_views;

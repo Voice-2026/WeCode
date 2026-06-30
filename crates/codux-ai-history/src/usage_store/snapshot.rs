@@ -138,10 +138,14 @@ fn build_snapshot_from_rows(
                 .or_insert(AITimeBucket {
                     start: bucket.bucket_start,
                     end: bucket.bucket_end,
+                    input_tokens: 0,
+                    output_tokens: 0,
                     total_tokens: 0,
                     cached_input_tokens: 0,
                     request_count: 0,
                 });
+            item.input_tokens += bucket.input_tokens;
+            item.output_tokens += bucket.output_tokens;
             item.total_tokens += bucket.total_tokens;
             item.cached_input_tokens += bucket.cached_input_tokens;
             item.request_count += bucket.request_count;

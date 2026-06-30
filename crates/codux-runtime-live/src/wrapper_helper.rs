@@ -49,7 +49,9 @@ fn tool_memory_injection_strategy(tool: &str) -> Option<&'static str> {
         AIRuntimeMemoryInjectionDriver::CodexDeveloperInstructions => {
             Some("codexDeveloperInstructions")
         }
-        AIRuntimeMemoryInjectionDriver::ClaudeAppendSystemPrompt => Some("claudeAppendSystemPrompt"),
+        AIRuntimeMemoryInjectionDriver::ClaudeAppendSystemPrompt => {
+            Some("claudeAppendSystemPrompt")
+        }
     }
 }
 

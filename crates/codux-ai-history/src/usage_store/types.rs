@@ -41,6 +41,17 @@ pub struct AIUsageProjectTotal {
     pub total_tokens: i64,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AIGlobalRangeTotals {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub request_count: i64,
+    pub active_duration_seconds: i64,
+    pub session_count: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct AIExternalFileCheckpoint {
     pub source: String,

@@ -1,3 +1,8 @@
+// Bumped 9 -> 10 to fold reasoning output into persisted output_tokens. The
+// raw normalized entries keep reasoning separate, but indexed buckets expose
+// output as the user-facing output bucket so total_tokens = input + output and
+// cached_input_tokens stays an independent cache-read bucket.
+//
 // Bumped 8 -> 9 to add unit-aware usage amounts (Kiro credits) while keeping
 // token totals unchanged. On launch a version mismatch drops the index tables
 // and re-parses every log from offset 0 so Kiro sessions with 0 token but
@@ -10,7 +15,7 @@
 // preserved by construction: it sums total_tokens (cached excluded, so the
 // Claude fix is invisible to it) and only accumulates positive deltas against a
 // high-water mark (so the codex de-inflation cannot lower it).
-const NORMALIZED_HISTORY_SCHEMA_VERSION: &str = "9";
+const NORMALIZED_HISTORY_SCHEMA_VERSION: &str = "10";
 const RECENT_HISTORY_SESSION_LIMIT: usize = 80;
 
 const SCHEMA_STATEMENTS: &[&str] = &[

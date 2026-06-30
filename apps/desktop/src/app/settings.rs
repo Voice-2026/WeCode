@@ -4018,26 +4018,28 @@ fn settings_runtime_tool_block(
             .into_any_element(),
     ];
     if include_permission {
-        children.push(settings_row(
-            settings_text(
-                language,
-                "settings.ai.permission.full_access_toggle",
-                "Full Access",
-            ),
-            None,
-            settings_select_impl(
-                tool_key,
-                permission,
-                runtime_tool_permission_options(language),
-                window,
-                cx,
-                language,
-                move |app, value, window, cx| {
-                    app.set_runtime_tool_permission(tool_key, value, window, cx)
-                },
-            ),
-        )
-        .into_any_element());
+        children.push(
+            settings_row(
+                settings_text(
+                    language,
+                    "settings.ai.permission.full_access_toggle",
+                    "Full Access",
+                ),
+                None,
+                settings_select_impl(
+                    tool_key,
+                    permission,
+                    runtime_tool_permission_options(language),
+                    window,
+                    cx,
+                    language,
+                    move |app, value, window, cx| {
+                        app.set_runtime_tool_permission(tool_key, value, window, cx)
+                    },
+                ),
+            )
+            .into_any_element(),
+        );
     }
     children.push(
         settings_row(

@@ -314,7 +314,7 @@ impl CoduxApp {
                     self.state.ai_history = summary;
                     self.state.refresh_ai_history_stats();
                 }
-                self.refresh_ai_global_history_summary();
+                self.refresh_ai_global_history_summary(cx);
                 self.selected_ai_session_id = None;
                 self.ai_session_delete_confirm_id = None;
                 self.normalize_selected_ai_session();
@@ -398,21 +398,46 @@ impl CoduxApp {
         self.invalidate_memory_panel(cx);
     }
 
-    pub(super) fn refresh_ai_global_history_summary(&mut self) {
-        let projects = ai_history_project_requests(&self.state.projects);
-        match self
-            .runtime_service
-            .indexed_global_ai_history_summary(projects)
-        {
-            Ok(snapshot) => {
-                self.state.ai_global_history =
-                    normalized_global_ai_history_snapshot_to_summary(snapshot);
-            }
-            Err(error) => {
-                self.state.ai_global_history = self.runtime_service.reload_global_ai_history();
-                self.state.ai_global_history.error = Some(error);
-            }
+    pub(super) fn refresh_ai_global_history_summary(&mut self, cx: &mut Context<Self>) {
+        if self.ai_global_history_refreshing {
+            self.ai_global_history_refresh_pending = true;
+            return;
         }
+        self.ai_global_history_refreshing = true;
+        self.ai_global_history_refresh_pending = false;
+        let projects = ai_history_project_requests(&self.state.projects);
+        let service = self.runtime_service.clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking(move || {
+                service
+                    .indexed_global_ai_history_summary(projects)
+                    .map(normalized_global_ai_history_snapshot_to_summary)
+                    .or_else(|error| {
+                        let mut fallback = service.reload_global_ai_history();
+                        fallback.error = Some(error);
+                        Ok::<_, String>(fallback)
+                    })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+            let _ = this.update(cx, |app, cx| {
+                app.ai_global_history_refreshing = false;
+                if let Ok(summary) = result {
+                    app.state.ai_global_history = summary;
+                }
+                let rerun = app.ai_global_history_refresh_pending;
+                app.ai_global_history_refresh_pending = false;
+                app.invalidate_ui(cx, [UiRegion::StatusBar]);
+                if app.workspace_view == WorkspaceView::Stats {
+                    app.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+                }
+                if rerun {
+                    app.refresh_ai_global_history_summary(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn restore_selected_ai_session(

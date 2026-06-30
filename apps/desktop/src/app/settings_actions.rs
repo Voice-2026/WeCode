@@ -615,6 +615,7 @@ impl CoduxApp {
                     app.invalidate_ui(
                         cx,
                         [
+                            UiRegion::WorkspaceBody,
                             UiRegion::WorkspaceAssistant,
                             UiRegion::AIStatsSidebar,
                             UiRegion::StatusBar,

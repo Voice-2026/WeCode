@@ -67,6 +67,11 @@ impl CoduxApp {
         placement: CoduxTooltipPlacement,
         cx: &mut Context<Self>,
     ) {
+        if hovered && cx.has_active_drag() {
+            self.clear_codux_tooltip(cx);
+            return;
+        }
+
         if !hovered {
             self.hide_codux_tooltip(&id, cx);
             return;
@@ -104,6 +109,10 @@ impl CoduxApp {
     }
 
     pub(in crate::app) fn codux_tooltip_layer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        if cx.has_active_drag() {
+            return div().hidden().into_any_element();
+        }
+
         let Some(_) = self.tooltip_state.id.as_ref() else {
             return div().hidden().into_any_element();
         };

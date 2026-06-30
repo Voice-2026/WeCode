@@ -118,10 +118,14 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                 .or_insert(AITimeBucket {
                     start: bucket_start,
                     end: bucket_start + 30.0 * 60.0,
+                    input_tokens: 0,
+                    output_tokens: 0,
                     total_tokens: 0,
                     cached_input_tokens: 0,
                     request_count: 0,
                 });
+            bucket.input_tokens += entry.input_tokens;
+            bucket.output_tokens += entry.output_tokens + entry.reasoning_output_tokens;
             bucket.total_tokens += total_tokens;
             bucket.cached_input_tokens += entry.cached_input_tokens;
         }
@@ -150,6 +154,8 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                     .or_insert(AITimeBucket {
                         start: bucket_start,
                         end: bucket_start + 30.0 * 60.0,
+                        input_tokens: 0,
+                        output_tokens: 0,
                         total_tokens: 0,
                         cached_input_tokens: 0,
                         request_count: 0,
@@ -200,7 +206,7 @@ fn build_snapshot(project: AIHistoryProjectRequest, parsed: ParsedHistory) -> AI
                 last_model: session.model,
                 request_count: session.request_count,
                 total_input_tokens: session.input_tokens,
-                total_output_tokens: session.output_tokens,
+                total_output_tokens: session.output_tokens + session.reasoning_output_tokens,
                 total_tokens,
                 cached_input_tokens: session.cached_input_tokens,
                 usage_amounts: session.usage_amounts,

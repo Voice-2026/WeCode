@@ -2,7 +2,10 @@ use gpui_component::{InteractiveElementExt as _, menu::ContextMenuExt as _};
 
 use super::ai_runtime_status::AIActivityState;
 use super::ui_helpers::{codux_tooltip_container, titlebar_drag_area};
-use super::{formatting::relative_time_label_for_language, *};
+use super::{
+    formatting::{relative_time_label_for_language, usage_amount_label},
+    *,
+};
 
 pub(in crate::app) struct TaskColumnView {
     header_view: gpui::Entity<TaskColumnHeaderView>,
@@ -990,21 +993,5 @@ fn session_usage_label(session: &TaskSessionRow) -> String {
     if session.total_tokens > 0 {
         return compact_number(session.total_tokens);
     }
-    session
-        .usage_amounts
-        .iter()
-        .find(|amount| amount.value > 0.0 && !amount.unit.trim().is_empty())
-        .map(|amount| format_usage_amount(amount.value, &amount.unit))
-        .unwrap_or_else(|| compact_number(0))
-}
-
-fn format_usage_amount(value: f64, unit: &str) -> String {
-    let unit = unit.trim();
-    if value >= 100.0 {
-        format!("{value:.0} {unit}")
-    } else if value >= 10.0 {
-        format!("{value:.1} {unit}")
-    } else {
-        format!("{value:.3} {unit}")
-    }
+    usage_amount_label(&session.usage_amounts).unwrap_or_else(|| compact_number(0))
 }

@@ -242,6 +242,8 @@ pub struct CoduxApp {
     pub(in crate::app) ai_index_progress_generation: u64,
     pub(in crate::app) ai_history_active_index_count: usize,
     pub(in crate::app) ai_history_refreshing: bool,
+    pub(in crate::app) ai_global_history_refreshing: bool,
+    pub(in crate::app) ai_global_history_refresh_pending: bool,
     pub(in crate::app) project_switch_generation: u64,
     pub(in crate::app) scheduled_work_in_flight: HashSet<String>,
     pub(in crate::app) scheduled_work_last_started_at: HashMap<String, f64>,
@@ -296,6 +298,7 @@ pub struct CoduxApp {
     /// Whether the Devices card "+" menu (Share / Connect) is open.
     pub(in crate::app) recording_shortcut_id: Option<String>,
     pub(in crate::app) workspace_view: WorkspaceView,
+    pub(in crate::app) stats_time_range: StatsTimeRange,
     /// Secondary body panel shown next to the terminal workspace (split mode).
     /// `None` = single full-body view (the default). Session-only; not persisted.
     pub(in crate::app) workspace_split: Option<WorkspaceSplitKind>,

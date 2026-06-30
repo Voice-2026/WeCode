@@ -291,6 +291,8 @@ impl CoduxApp {
             ai_index_progress_generation: 0,
             ai_history_active_index_count: 0,
             ai_history_refreshing: false,
+            ai_global_history_refreshing: false,
+            ai_global_history_refresh_pending: false,
             project_switch_generation: 0,
             scheduled_work_in_flight: HashSet::new(),
             scheduled_work_last_started_at: HashMap::new(),
@@ -343,6 +345,7 @@ impl CoduxApp {
             remote_connect_busy: false,
             recording_shortcut_id: None,
             workspace_view: WorkspaceView::Terminal,
+            stats_time_range: StatsTimeRange::ThirtyDays,
             workspace_split: None,
             assistant_panel: None,
             project_column_collapsed: true,
@@ -1463,6 +1466,9 @@ impl CoduxApp {
                 self.status_message = "no active review item to close".to_string();
                 self.invalidate_git_panel(cx);
             }
+            WorkspaceView::Stats => {
+                self.set_workspace_view(WorkspaceView::Terminal, window, cx);
+            }
         }
     }
 
@@ -1483,6 +1489,10 @@ impl CoduxApp {
                 self.refresh_git_panel_state_async(cx);
                 self.ensure_selected_git_review_file_loaded_async(cx);
             }
+            WorkspaceView::Stats => {
+                self.assistant_panel = None;
+                self.refresh_stats_workspace_data(false, cx);
+            }
             WorkspaceView::Terminal => {
                 self.activate_first_terminal();
                 if let Err(error) = self.ensure_active_terminal_mounted(cx) {
@@ -1494,6 +1504,43 @@ impl CoduxApp {
         }
         self.invalidate_workspace(cx);
         self.invalidate_status_bar(cx);
+    }
+
+    pub(in crate::app) fn show_stats_workspace_view(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace_view == WorkspaceView::Stats {
+            self.set_workspace_view(WorkspaceView::Terminal, window, cx);
+        } else {
+            self.set_workspace_view(WorkspaceView::Stats, window, cx);
+        }
+    }
+
+    pub(in crate::app) fn refresh_stats_workspace_data(
+        &mut self,
+        show_progress: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.refresh_ai_global_history_summary(cx);
+        if self.state.selected_project.is_some() {
+            self.start_ai_history_refresh(show_progress, cx);
+        } else {
+            self.invalidate_ui(cx, [UiRegion::WorkspaceBody, UiRegion::StatusBar]);
+        }
+    }
+
+    pub(in crate::app) fn set_stats_time_range(
+        &mut self,
+        range: StatsTimeRange,
+        cx: &mut Context<Self>,
+    ) {
+        if self.stats_time_range == range {
+            return;
+        }
+        self.stats_time_range = range;
+        self.invalidate_ui(cx, [UiRegion::WorkspaceBody]);
     }
 
     pub(super) fn set_settings_pane(&mut self, pane: SettingsPane, cx: &mut Context<Self>) {
@@ -1689,6 +1736,12 @@ impl CoduxApp {
             native_menu::ViewReview,
             |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
                 app.set_workspace_view(WorkspaceView::Review, window, cx)
+            }
+        );
+        register!(
+            native_menu::ViewStats,
+            |app: &mut CoduxApp, window: &mut Window, cx: &mut Context<CoduxApp>| {
+                app.set_workspace_view(WorkspaceView::Stats, window, cx)
             }
         );
         register!(

@@ -34,6 +34,13 @@ pub struct AIGlobalHistorySummary {
     pub today_total_tokens: i64,
     pub today_cached_input_tokens: i64,
     pub project_totals: Vec<AIProjectUsageSummary>,
+    pub heatmap: Vec<AIHeatmapDay>,
+    pub today_time_buckets: Vec<AITimeBucket>,
+    #[serde(default)]
+    pub recent_time_buckets: Vec<AITimeBucket>,
+    pub tool_breakdown: Vec<AIUsageBreakdownItem>,
+    pub model_breakdown: Vec<AIUsageBreakdownItem>,
+    pub range_summaries: Vec<AIGlobalHistoryRangeSummary>,
     pub recent_sessions: Vec<AISessionSummary>,
     pub error: Option<String>,
 }
@@ -41,12 +48,42 @@ pub struct AIGlobalHistorySummary {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIProjectUsageSummary {
+    #[serde(default)]
+    pub project_id: String,
     pub project_path: String,
     pub project_name: String,
     pub session_count: usize,
+    #[serde(default)]
+    pub input_tokens: i64,
+    #[serde(default)]
+    pub output_tokens: i64,
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
+    #[serde(default)]
+    pub request_count: i64,
+    #[serde(default)]
+    pub active_duration_seconds: i64,
     pub today_total_tokens: i64,
+    #[serde(default)]
+    pub today_cached_input_tokens: i64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIGlobalHistoryRangeSummary {
+    pub key: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    pub cached_input_tokens: i64,
+    pub request_count: i64,
+    #[serde(default)]
+    pub session_count: usize,
+    pub active_duration_seconds: i64,
+    pub sessions: Vec<AISessionSummary>,
+    pub project_totals: Vec<AIProjectUsageSummary>,
+    pub tool_breakdown: Vec<AIUsageBreakdownItem>,
+    pub model_breakdown: Vec<AIUsageBreakdownItem>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,11 +94,21 @@ pub struct AISessionSummary {
     pub external_session_id: Option<String>,
     pub title: String,
     pub source: String,
+    #[serde(default)]
+    pub project_name: Option<String>,
+    #[serde(default)]
+    pub project_path: Option<String>,
     pub last_model: Option<String>,
     pub last_seen_at: f64,
+    #[serde(default)]
+    pub input_tokens: i64,
+    #[serde(default)]
+    pub output_tokens: i64,
     pub total_tokens: i64,
     pub cached_input_tokens: i64,
     pub request_count: i64,
+    #[serde(default)]
+    pub active_duration_seconds: i64,
     #[serde(default)]
     pub usage_amounts: Vec<AIUsageAmount>,
 }

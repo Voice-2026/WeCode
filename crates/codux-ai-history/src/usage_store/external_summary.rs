@@ -97,7 +97,7 @@ fn external_file_summary_from_parsed(
                 usage_bucket_from_session(source, session, project, &model, bucket_start)
             });
         bucket.input_tokens += entry.input_tokens;
-        bucket.output_tokens += entry.output_tokens;
+        bucket.output_tokens += entry.output_tokens + entry.reasoning_output_tokens;
         bucket.total_tokens += entry.total_tokens();
         bucket.cached_input_tokens += entry.cached_input_tokens;
         merge_usage_amounts(&mut bucket.usage_amounts, &entry.usage_amounts);

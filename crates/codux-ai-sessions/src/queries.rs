@@ -12,8 +12,20 @@ pub(super) fn load_sessions(
     conn: &Connection,
     project_path: &str,
 ) -> Result<Vec<AISessionSummary>, String> {
+    let input_tokens_expr =
+        if table_has_column(conn, "ai_history_file_usage_bucket", "input_tokens") {
+            "COALESCE(SUM(b.input_tokens), 0)"
+        } else {
+            "0"
+        };
+    let output_tokens_expr =
+        if table_has_column(conn, "ai_history_file_usage_bucket", "output_tokens") {
+            "COALESCE(SUM(b.output_tokens), 0)"
+        } else {
+            "0"
+        };
     let mut statement = conn
-        .prepare(
+        .prepare(&format!(
             r#"
             SELECT
                 l.session_key,
@@ -22,6 +34,8 @@ pub(super) fn load_sessions(
                 l.source,
                 l.last_model,
                 l.last_seen_at,
+                {input_tokens_expr} AS input_tokens,
+                {output_tokens_expr} AS output_tokens,
                 COALESCE(SUM(b.total_tokens), 0) AS total_tokens,
                 COALESCE(SUM(b.cached_input_tokens), 0) AS cached_input_tokens,
                 COALESCE(SUM(b.request_count), 0) AS request_count
@@ -35,8 +49,8 @@ pub(super) fn load_sessions(
             GROUP BY l.session_key, l.external_session_id, l.session_title, l.source, l.last_model, l.last_seen_at
             ORDER BY l.last_seen_at DESC
             LIMIT 12
-            "#,
-        )
+            "#
+        ))
         .map_err(|error| error.to_string())?;
 
     let usage_amounts = load_session_usage_amounts(conn, Some(project_path))?;
@@ -63,11 +77,16 @@ pub(super) fn load_sessions(
                 external_session_id,
                 title: row.get(2)?,
                 source,
+                project_name: Some(project_path.to_string()),
+                project_path: Some(project_path.to_string()),
                 last_model: row.get(4)?,
                 last_seen_at: row.get(5)?,
-                total_tokens: row.get(6)?,
-                cached_input_tokens: row.get(7)?,
-                request_count: row.get(8)?,
+                input_tokens: row.get(6)?,
+                output_tokens: row.get(7)?,
+                total_tokens: row.get(8)?,
+                cached_input_tokens: row.get(9)?,
+                request_count: row.get(10)?,
+                active_duration_seconds: 0,
                 usage_amounts: amounts,
             })
         })
@@ -80,31 +99,52 @@ pub(super) fn load_sessions(
 pub(super) fn load_global_recent_sessions(
     conn: &Connection,
 ) -> Result<Vec<AISessionSummary>, String> {
-    let mut statement = conn
-        .prepare(
-            r#"
-            SELECT
-                l.session_key,
-                l.external_session_id,
-                l.session_title,
-                l.source,
-                l.last_model,
-                MAX(l.last_seen_at) AS last_seen_at,
-                COALESCE(SUM(b.total_tokens), 0) AS total_tokens,
-                COALESCE(SUM(b.cached_input_tokens), 0) AS cached_input_tokens,
-                COALESCE(SUM(b.request_count), 0) AS request_count
-            FROM ai_history_file_session_link l
-            LEFT JOIN ai_history_file_usage_bucket b
-                ON b.project_path = l.project_path
-                AND b.source = l.source
-                AND b.file_path = l.file_path
-                AND b.session_key = l.session_key
-            GROUP BY l.source, l.session_key, l.external_session_id, l.session_title, l.last_model
-            ORDER BY last_seen_at DESC
-            LIMIT 10
-            "#,
-        )
-        .map_err(|error| error.to_string())?;
+    let project_name_expr =
+        if table_has_column(conn, "ai_history_file_session_link", "project_name") {
+            "COALESCE(NULLIF(MAX(l.project_name), ''), MAX(l.project_path))"
+        } else {
+            "MAX(l.project_path)"
+        };
+    let input_tokens_expr =
+        if table_has_column(conn, "ai_history_file_usage_bucket", "input_tokens") {
+            "COALESCE(SUM(b.input_tokens), 0)"
+        } else {
+            "0"
+        };
+    let output_tokens_expr =
+        if table_has_column(conn, "ai_history_file_usage_bucket", "output_tokens") {
+            "COALESCE(SUM(b.output_tokens), 0)"
+        } else {
+            "0"
+        };
+    let sql = format!(
+        r#"
+        SELECT
+            l.session_key,
+            l.external_session_id,
+            l.session_title,
+            l.source,
+            {project_name_expr} AS project_name,
+            MAX(l.project_path) AS project_path,
+            l.last_model,
+            MAX(l.last_seen_at) AS last_seen_at,
+            {input_tokens_expr} AS input_tokens,
+            {output_tokens_expr} AS output_tokens,
+            COALESCE(SUM(b.total_tokens), 0) AS total_tokens,
+            COALESCE(SUM(b.cached_input_tokens), 0) AS cached_input_tokens,
+            COALESCE(SUM(b.request_count), 0) AS request_count
+        FROM ai_history_file_session_link l
+        LEFT JOIN ai_history_file_usage_bucket b
+            ON b.project_path = l.project_path
+            AND b.source = l.source
+            AND b.file_path = l.file_path
+            AND b.session_key = l.session_key
+        GROUP BY l.source, l.session_key, l.external_session_id, l.session_title, l.last_model
+        ORDER BY last_seen_at DESC
+        LIMIT 80
+        "#
+    );
+    let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
 
     let usage_amounts = load_session_usage_amounts(conn, None)?;
     let rows = statement
@@ -130,11 +170,16 @@ pub(super) fn load_global_recent_sessions(
                 external_session_id,
                 title: row.get(2)?,
                 source,
-                last_model: row.get(4)?,
-                last_seen_at: row.get(5)?,
-                total_tokens: row.get(6)?,
-                cached_input_tokens: row.get(7)?,
-                request_count: row.get(8)?,
+                project_name: row.get(4)?,
+                project_path: row.get(5)?,
+                last_model: row.get(6)?,
+                last_seen_at: row.get(7)?,
+                input_tokens: row.get(8)?,
+                output_tokens: row.get(9)?,
+                total_tokens: row.get(10)?,
+                cached_input_tokens: row.get(11)?,
+                request_count: row.get(12)?,
+                active_duration_seconds: 0,
                 usage_amounts: amounts,
             })
         })
@@ -240,15 +285,27 @@ pub(super) fn load_global_project_totals(
         } else {
             "l.project_path"
         };
+    let project_id_expr = if table_has_column(conn, "ai_history_project_index_state", "project_id")
+    {
+        "COALESCE(NULLIF(MAX(p.project_id), ''), l.project_path)"
+    } else {
+        "l.project_path"
+    };
     let sql = format!(
         r#"
         SELECT
+            {project_id_expr} AS project_id,
             l.project_path,
             {project_name_expr} AS project_name,
             COUNT(DISTINCT l.source || ':' || l.session_key) AS session_count,
+            COALESCE(SUM(b.input_tokens), 0) AS input_tokens,
+            COALESCE(SUM(b.output_tokens), 0) AS output_tokens,
             COALESCE(SUM(b.total_tokens), 0) AS total_tokens,
             COALESCE(SUM(b.cached_input_tokens), 0) AS cached_input_tokens,
-            COALESCE(SUM(CASE WHEN b.bucket_start >= ?1 THEN b.total_tokens ELSE 0 END), 0) AS today_total_tokens
+            COALESCE(SUM(b.request_count), 0) AS request_count,
+            COALESCE(SUM(DISTINCT l.active_duration_seconds), 0) AS active_duration_seconds,
+            COALESCE(SUM(CASE WHEN b.bucket_start >= ?1 THEN b.total_tokens ELSE 0 END), 0) AS today_total_tokens,
+            COALESCE(SUM(CASE WHEN b.bucket_start >= ?2 THEN b.cached_input_tokens ELSE 0 END), 0) AS today_cached_input_tokens
         FROM ai_history_file_session_link l
         LEFT JOIN ai_history_project_index_state p
             ON p.project_path = l.project_path
@@ -259,19 +316,24 @@ pub(super) fn load_global_project_totals(
             AND b.session_key = l.session_key
         GROUP BY l.project_path
         ORDER BY total_tokens DESC, l.project_path ASC
-        LIMIT 12
         "#
     );
     let mut statement = conn.prepare(&sql).map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map([today_start], |row| {
+        .query_map([today_start, today_start], |row| {
             Ok(AIProjectUsageSummary {
-                project_path: row.get(0)?,
-                project_name: row.get(1)?,
-                session_count: row.get::<_, i64>(2)?.max(0) as usize,
-                total_tokens: row.get(3)?,
-                cached_input_tokens: row.get(4)?,
-                today_total_tokens: row.get(5)?,
+                project_id: row.get(0)?,
+                project_path: row.get(1)?,
+                project_name: row.get(2)?,
+                session_count: row.get::<_, i64>(3)?.max(0) as usize,
+                input_tokens: row.get(4)?,
+                output_tokens: row.get(5)?,
+                total_tokens: row.get(6)?,
+                cached_input_tokens: row.get(7)?,
+                request_count: row.get(8)?,
+                active_duration_seconds: row.get(9)?,
+                today_total_tokens: row.get(10)?,
+                today_cached_input_tokens: row.get(11)?,
             })
         })
         .map_err(|error| error.to_string())?;
@@ -449,29 +511,31 @@ fn load_heatmap(conn: &Connection, project_path: &str) -> Result<Vec<AIHeatmapDa
         .prepare(
             r#"
             SELECT
-                CAST(bucket_start / 86400 AS INTEGER) * 86400 AS day,
+                bucket_start,
                 COALESCE(SUM(total_tokens), 0) AS total_tokens,
                 COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
                 COALESCE(SUM(request_count), 0) AS request_count
             FROM ai_history_file_usage_bucket
             WHERE project_path = ?1
-            GROUP BY day
-            ORDER BY day ASC
+            GROUP BY bucket_start
+            ORDER BY bucket_start ASC
             "#,
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([project_path], |row| {
-            Ok(AIHeatmapDay {
-                day: row.get::<_, i64>(0)? as f64,
-                total_tokens: row.get(1)?,
-                cached_input_tokens: row.get(2)?,
-                request_count: row.get(3)?,
-            })
+            Ok((
+                row.get::<_, f64>(0)?,
+                row.get::<_, i64>(1)?.max(0),
+                row.get::<_, i64>(2)?.max(0),
+                row.get::<_, i64>(3)?.max(0),
+            ))
         })
         .map_err(|error| error.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())
+    let rows = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    Ok(heatmap_days_from_buckets(rows))
 }
 
 fn load_today_time_buckets(
@@ -501,6 +565,8 @@ fn load_today_time_buckets(
             Ok(AITimeBucket {
                 start,
                 end: start + 30.0 * 60.0,
+                input_tokens: 0,
+                output_tokens: 0,
                 total_tokens: row.get(1)?,
                 cached_input_tokens: row.get(2)?,
                 request_count: row.get(3)?,
@@ -520,6 +586,94 @@ fn load_today_time_buckets(
                 .unwrap_or(AITimeBucket {
                     start,
                     end: start + 30.0 * 60.0,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    total_tokens: 0,
+                    cached_input_tokens: 0,
+                    request_count: 0,
+                })
+        })
+        .collect())
+}
+
+pub(super) fn load_global_today_time_buckets(
+    conn: &Connection,
+    today_start: f64,
+) -> Result<Vec<AITimeBucket>, String> {
+    load_global_time_buckets(conn, today_start, today_start)
+}
+
+pub(super) fn load_global_recent_time_buckets(
+    conn: &Connection,
+    range_start: f64,
+) -> Result<Vec<AITimeBucket>, String> {
+    load_global_time_buckets(conn, range_start, range_start)
+}
+
+fn load_global_time_buckets(
+    conn: &Connection,
+    query_start: f64,
+    display_start: f64,
+) -> Result<Vec<AITimeBucket>, String> {
+    let input_tokens_expr =
+        if table_has_column(conn, "ai_history_file_usage_bucket", "input_tokens") {
+            "COALESCE(SUM(input_tokens), 0)"
+        } else {
+            "0"
+        };
+    let output_tokens_expr =
+        if table_has_column(conn, "ai_history_file_usage_bucket", "output_tokens") {
+            "COALESCE(SUM(output_tokens), 0)"
+        } else {
+            "0"
+        };
+    let mut rows_by_start = BTreeMap::<i64, AITimeBucket>::new();
+    let mut statement = conn
+        .prepare(&format!(
+            r#"
+            SELECT
+                bucket_start,
+                {input_tokens_expr} AS input_tokens,
+                {output_tokens_expr} AS output_tokens,
+                COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+                COALESCE(SUM(request_count), 0) AS request_count
+            FROM ai_history_file_usage_bucket
+            WHERE bucket_start >= ?1
+            GROUP BY bucket_start
+            ORDER BY bucket_start ASC
+            "#
+        ))
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([query_start], |row| {
+            let start = row.get::<_, f64>(0)?;
+            Ok(AITimeBucket {
+                start,
+                end: start + 30.0 * 60.0,
+                input_tokens: row.get::<_, i64>(1)?.max(0),
+                output_tokens: row.get::<_, i64>(2)?.max(0),
+                total_tokens: row.get::<_, i64>(3)?.max(0),
+                cached_input_tokens: row.get::<_, i64>(4)?.max(0),
+                request_count: row.get::<_, i64>(5)?.max(0),
+            })
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let row = row.map_err(|error| error.to_string())?;
+        rows_by_start.insert(row.start as i64, row);
+    }
+
+    Ok((0..48)
+        .map(|index| {
+            let start = display_start + f64::from(index) * 30.0 * 60.0;
+            rows_by_start
+                .remove(&(start as i64))
+                .unwrap_or(AITimeBucket {
+                    start,
+                    end: start + 30.0 * 60.0,
+                    input_tokens: 0,
+                    output_tokens: 0,
                     total_tokens: 0,
                     cached_input_tokens: 0,
                     request_count: 0,
@@ -569,4 +723,21 @@ fn load_breakdown(
         .map_err(|error| error.to_string())?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())
+}
+
+fn heatmap_days_from_buckets(rows: Vec<(f64, i64, i64, i64)>) -> Vec<AIHeatmapDay> {
+    let mut days = BTreeMap::<i64, AIHeatmapDay>::new();
+    for (bucket_start, total_tokens, cached_input_tokens, request_count) in rows {
+        let day = codux_ai_history::normalized::local_day_start_seconds(bucket_start);
+        let item = days.entry(day as i64).or_insert(AIHeatmapDay {
+            day,
+            total_tokens: 0,
+            cached_input_tokens: 0,
+            request_count: 0,
+        });
+        item.total_tokens += total_tokens;
+        item.cached_input_tokens += cached_input_tokens;
+        item.request_count += request_count;
+    }
+    days.into_values().collect()
 }

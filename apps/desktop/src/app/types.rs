@@ -103,6 +103,15 @@ pub(in crate::app) enum WorkspaceView {
     Terminal,
     Files,
     Review,
+    Stats,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(in crate::app) enum StatsTimeRange {
+    Today,
+    SevenDays,
+    ThirtyDays,
+    All,
 }
 
 /// Secondary panel shown alongside the terminal workspace when a file is opened

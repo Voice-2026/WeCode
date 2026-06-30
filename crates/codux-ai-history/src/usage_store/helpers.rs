@@ -74,6 +74,8 @@ fn fixed_today_time_buckets(mut map: HashMap<i64, AITimeBucket>) -> Vec<AITimeBu
             map.remove(&(start as i64)).unwrap_or(AITimeBucket {
                 start,
                 end: start + 30.0 * 60.0,
+                input_tokens: 0,
+                output_tokens: 0,
                 total_tokens: 0,
                 cached_input_tokens: 0,
                 request_count: 0,

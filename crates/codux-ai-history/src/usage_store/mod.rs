@@ -1,8 +1,9 @@
 use crate::normalized::{
-    AIHeatmapDay, AIHistoryProjectRequest, AIHistorySnapshot, AIProjectUsageSummary,
-    AISessionSummary, AITimeBucket, AIUsageAmount, AIUsageBreakdownItem, HistoryEntry,
-    HistoryEvent, HistoryRole, JSONLParseSnapshot, ParsedHistory, deterministic_uuid,
-    half_hour_bucket_start, history_key, local_day_start_seconds, now_seconds,
+    AIGlobalHistoryRangeSummary, AIHeatmapDay, AIHistoryProjectRequest, AIHistorySnapshot,
+    AIProjectUsageSummary, AIProjectUsageTotal, AISessionSummary, AITimeBucket, AIUsageAmount,
+    AIUsageBreakdownItem, HistoryEntry, HistoryEvent, HistoryRole, JSONLParseSnapshot,
+    ParsedHistory, deterministic_uuid, half_hour_bucket_start, history_key,
+    local_day_start_seconds, now_seconds,
 };
 use crate::paths::app_support_dir;
 use anyhow::{Context, Result};

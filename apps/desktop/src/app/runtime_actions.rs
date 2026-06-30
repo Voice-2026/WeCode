@@ -303,6 +303,9 @@ impl CoduxApp {
                     UiRegion::StatusBar,
                 ],
             );
+            if self.workspace_view == WorkspaceView::Stats {
+                self.invalidate_ui_region(cx, UiRegion::WorkspaceBody);
+            }
         }
         if result.memory_events > 0 {
             self.invalidate_ui(cx, [UiRegion::WorkspaceAssistant, UiRegion::StatusBar]);

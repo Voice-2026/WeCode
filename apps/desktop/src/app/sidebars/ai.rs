@@ -1,3 +1,4 @@
+use super::super::formatting::{compact_token_unit, usage_amount_label};
 use super::*;
 use crate::app::ui_helpers::{centered_empty_state, codux_tooltip_container, with_codux_tooltip};
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
@@ -264,32 +265,6 @@ fn total_session_usage_label(
         return compact_token_unit(session.total_tokens);
     }
     usage_amount_label(&session.usage_amounts).unwrap_or_else(|| compact_token_unit(0))
-}
-
-fn usage_amount_label(amounts: &[codux_runtime::ai_history::AIUsageAmount]) -> Option<String> {
-    amounts
-        .iter()
-        .find(|amount| amount.value > 0.0 && !amount.unit.trim().is_empty())
-        .map(|amount| format_usage_amount(amount.value, &amount.unit))
-}
-
-fn format_usage_amount(value: f64, unit: &str) -> String {
-    let unit = unit.trim();
-    if value >= 100.0 {
-        format!("{value:.0} {unit}")
-    } else if value >= 10.0 {
-        format!("{value:.1} {unit}")
-    } else {
-        format!("{value:.3} {unit}")
-    }
-}
-
-fn compact_token_unit(value: i64) -> String {
-    if value == 0 {
-        "0k".to_string()
-    } else {
-        compact_number(value).to_ascii_lowercase()
-    }
 }
 
 pub(in crate::app) fn memory_manager_window_workspace(
@@ -2472,6 +2447,7 @@ fn ai_ranking_card(
             .flex_col()
             .children(
                 rows.into_iter()
+                    .take(4)
                     .map(|row| ai_ranking_row(cx.entity(), row, track_surface).into_any_element()),
             )
             .into_any_element()

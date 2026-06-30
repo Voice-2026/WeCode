@@ -17,6 +17,8 @@ fn stats_view_owns_display_token_mode_and_project_filtering() {
         today_time_buckets: vec![AITimeBucket {
             start: today_start,
             end: today_start + 1800.0,
+            input_tokens: 20,
+            output_tokens: 10,
             total_tokens: 30,
             cached_input_tokens: 10,
             request_count: 2,

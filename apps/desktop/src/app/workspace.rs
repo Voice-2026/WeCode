@@ -23,6 +23,11 @@ impl CoduxApp {
                     .size_full()
                     .bg(color(theme::BG_TERMINAL))
                     .into_any_element(),
+                WorkspaceView::Stats => div()
+                    .flex_1()
+                    .size_full()
+                    .bg(color(theme::BG_TERMINAL))
+                    .into_any_element(),
             })
     }
 }

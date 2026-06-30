@@ -1,5 +1,8 @@
 use codux_runtime::{
-    ai_history::{AIGlobalHistorySummary, AIHistorySummary, AISessionForkTarget, AISessionSummary},
+    ai_history::{
+        AIGlobalHistoryRangeSummary, AIGlobalHistorySummary, AIHistorySummary,
+        AIProjectUsageSummary, AISessionForkTarget, AISessionSummary,
+    },
     ai_history_indexer::AIHistoryProjectState,
     ai_history_normalized::{AIGlobalHistorySnapshot, AIHistoryProjectRequest, AIHistorySnapshot},
     runtime_state::ProjectInfo,
@@ -132,11 +135,25 @@ pub(in crate::app) fn normalized_global_ai_history_snapshot_to_summary(
         cached_input_tokens: snapshot.cached_input_tokens,
         today_total_tokens: snapshot.today_total_tokens,
         today_cached_input_tokens: snapshot.today_cached_input_tokens,
-        project_totals: Vec::new(),
+        project_totals: snapshot
+            .project_totals
+            .into_iter()
+            .map(normalized_project_total_to_summary)
+            .collect(),
+        heatmap: snapshot.heatmap,
+        today_time_buckets: snapshot.today_time_buckets,
+        recent_time_buckets: snapshot.recent_time_buckets,
+        tool_breakdown: snapshot.tool_breakdown,
+        model_breakdown: snapshot.model_breakdown,
+        range_summaries: snapshot
+            .range_summaries
+            .into_iter()
+            .map(normalized_range_summary_to_summary)
+            .collect(),
         recent_sessions: snapshot
             .sessions
             .into_iter()
-            .take(10)
+            .take(80)
             .map(normalized_ai_session_to_summary)
             .collect(),
         error: None,
@@ -184,11 +201,16 @@ fn normalized_ai_session_to_summary(
         external_session_id: session.external_session_id,
         title: session.session_title,
         source: session.last_tool.unwrap_or_else(|| "ai".to_string()),
+        project_name: Some(session.project_name),
+        project_path: Some(session.project_path),
         last_model: session.last_model,
         last_seen_at: session.last_seen_at,
+        input_tokens: session.total_input_tokens,
+        output_tokens: session.total_output_tokens,
         total_tokens: session.total_tokens,
         cached_input_tokens: session.cached_input_tokens,
         request_count: session.request_count,
+        active_duration_seconds: session.active_duration_seconds,
         usage_amounts: session
             .usage_amounts
             .into_iter()
@@ -197,6 +219,52 @@ fn normalized_ai_session_to_summary(
                 value: amount.value,
             })
             .collect(),
+    }
+}
+
+fn normalized_project_total_to_summary(
+    project: codux_runtime::ai_history_normalized::AIProjectUsageTotal,
+) -> AIProjectUsageSummary {
+    AIProjectUsageSummary {
+        project_id: project.project_id,
+        project_path: project.project_path,
+        project_name: project.project_name,
+        session_count: project.session_count,
+        input_tokens: project.input_tokens,
+        output_tokens: project.output_tokens,
+        total_tokens: project.total_tokens,
+        cached_input_tokens: project.cached_input_tokens,
+        request_count: project.request_count,
+        active_duration_seconds: project.active_duration_seconds,
+        today_total_tokens: project.today_total_tokens,
+        today_cached_input_tokens: project.today_cached_input_tokens,
+    }
+}
+
+fn normalized_range_summary_to_summary(
+    summary: codux_runtime::ai_history_normalized::AIGlobalHistoryRangeSummary,
+) -> AIGlobalHistoryRangeSummary {
+    AIGlobalHistoryRangeSummary {
+        key: summary.key,
+        input_tokens: summary.input_tokens,
+        output_tokens: summary.output_tokens,
+        total_tokens: summary.total_tokens,
+        cached_input_tokens: summary.cached_input_tokens,
+        request_count: summary.request_count,
+        session_count: summary.session_count,
+        active_duration_seconds: summary.active_duration_seconds,
+        sessions: summary
+            .sessions
+            .into_iter()
+            .map(normalized_ai_session_to_summary)
+            .collect(),
+        project_totals: summary
+            .project_totals
+            .into_iter()
+            .map(normalized_project_total_to_summary)
+            .collect(),
+        tool_breakdown: summary.tool_breakdown,
+        model_breakdown: summary.model_breakdown,
     }
 }
 
@@ -222,11 +290,16 @@ mod tests {
                 external_session_id: Some("session".to_string()),
                 title: "Session".to_string(),
                 source: "codex".to_string(),
+                project_name: None,
+                project_path: None,
                 last_model: None,
                 last_seen_at,
+                input_tokens: 0,
+                output_tokens: 0,
                 total_tokens: 1,
                 cached_input_tokens: 0,
                 request_count: 1,
+                active_duration_seconds: 0,
                 usage_amounts: Vec::new(),
             }],
             ..AIHistorySummary::default()

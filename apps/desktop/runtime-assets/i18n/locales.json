@@ -1,6 +1,17 @@
 {
   "sourceLanguage": "en",
-  "locales": ["de", "en", "es", "fr", "ja", "ko", "pt-BR", "ru", "zh-Hans", "zh-Hant"],
+  "locales": [
+    "de",
+    "en",
+    "es",
+    "fr",
+    "ja",
+    "ko",
+    "pt-BR",
+    "ru",
+    "zh-Hans",
+    "zh-Hant"
+  ],
   "shards": [
     "locales/about.json",
     "locales/agent.json",
@@ -22,6 +33,7 @@
     "locales/sidebar.json",
     "locales/sleep_prevention.json",
     "locales/ssh.json",
+    "locales/stats.json",
     "locales/startup.json",
     "locales/task_memo.json",
     "locales/terminal.json",
