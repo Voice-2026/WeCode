@@ -84,7 +84,7 @@ struct TaskColumnLabels {
     language: String,
     no_project: String,
     no_worktrees_title: String,
-    no_worktrees_hint: String,
+    no_sessions_title: String,
     no_branch: String,
     sessions: String,
     changed_format: String,
@@ -104,10 +104,7 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
         language: language.to_string(),
         no_project: tr("files.panel.no_project", "No project selected"),
         no_worktrees_title: tr("worktree.sidebar.empty_title", "No worktrees yet"),
-        no_worktrees_hint: tr(
-            "worktree.sidebar.empty_hint",
-            "Open a Git repository or create a worktree to see it here.",
-        ),
+        no_sessions_title: tr("ai.sessions.empty", "No Sessions"),
         no_branch: tr("git.branch.none", "No Branch"),
         sessions: tr("ai.sessions.history", "Session History"),
         changed_format: tr("worktree.sidebar.changed_format", "%@ changed"),
@@ -515,7 +512,7 @@ fn task_list_area(
             .p_4()
             .child(task_empty_state(
                 labels.no_worktrees_title,
-                labels.no_worktrees_hint,
+                HeroIconName::Square3Stack3d,
                 cx,
             ))
             .into_any_element();
@@ -560,8 +557,8 @@ fn task_list_area(
 
 fn task_empty_state(
     title: String,
-    hint: String,
-    cx: &mut Context<TaskWorktreeListView>,
+    icon: HeroIconName,
+    cx: &mut Context<impl Render>,
 ) -> AnyElement {
     div()
         .size_full()
@@ -585,7 +582,7 @@ fn task_empty_state(
                         .justify_center()
                         .bg(cx.theme().secondary)
                         .child(
-                            Icon::new(HeroIconName::Square3Stack3d)
+                            Icon::new(icon)
                                 .size_4()
                                 .text_color(cx.theme().muted_foreground),
                         ),
@@ -596,13 +593,6 @@ fn task_empty_state(
                         .line_height(rems(1.125))
                         .text_color(cx.theme().foreground)
                         .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(rems(0.75))
-                        .line_height(rems(1.0))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(hint),
                 ),
         )
         .into_any_element()
@@ -640,27 +630,32 @@ fn recent_session_area(
                 .min_h_0()
                 .p_2()
                 .overflow_hidden()
-                .child(codux_uniform_list_with_sizing(
-                    "task-column-recent-sessions",
-                    sessions,
-                    scroll_handle,
-                    None,
-                    ListSizingBehavior::Auto,
-                    cx,
-                    move |session, _index, _window, cx| {
-                        div()
-                            .w_full()
-                            .min_w_0()
-                            .pb(px(4.0))
-                            .child(ai_session_compact_row(
-                                session,
-                                row_labels.clone(),
-                                row_app_entity.clone(),
-                                cx,
-                            ))
-                            .into_any_element()
-                    },
-                )),
+                .child(if session_count == 0 {
+                    task_empty_state(labels.no_sessions_title, HeroIconName::CommandLine, cx)
+                } else {
+                    codux_uniform_list_with_sizing(
+                        "task-column-recent-sessions",
+                        sessions,
+                        scroll_handle,
+                        None,
+                        ListSizingBehavior::Auto,
+                        cx,
+                        move |session, _index, _window, cx| {
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .pb(px(4.0))
+                                .child(ai_session_compact_row(
+                                    session,
+                                    row_labels.clone(),
+                                    row_app_entity.clone(),
+                                    cx,
+                                ))
+                                .into_any_element()
+                        },
+                    )
+                    .into_any_element()
+                }),
         )
 }
 
