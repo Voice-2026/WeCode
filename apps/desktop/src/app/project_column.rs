@@ -4,6 +4,13 @@ use super::ui_helpers::{codux_tooltip_container_with_placement, titlebar_drag_ar
 use super::*;
 use codux_runtime::remote::ControllerLinkState;
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
+use gpui::Rems;
+
+const PROJECT_TOOL_TEXT_SIZE: Rems = Rems(0.875);
+const PROJECT_TOOL_LINE_HEIGHT: Rems = Rems(1.125);
+const PROJECT_TOOL_ICON_SLOT_WIDTH: f32 = 20.0;
+const PROJECT_TOOL_LABEL_WIDTH: f32 = 212.0;
+const PROJECT_TOOL_ICON_WIDTH: f32 = 40.0;
 
 #[derive(Clone)]
 struct ProjectRowDrag {
@@ -415,8 +422,13 @@ fn project_tool_button(
     let has_label = label.is_some();
     let button = Button::new(SharedString::from(format!("project-tool-{id}")))
         .ghost()
+        .with_size(Size::Medium)
         .text_color(cx.theme().secondary_foreground)
-        .w(if has_label { px(212.0) } else { px(40.0) });
+        .w(if has_label {
+            px(PROJECT_TOOL_LABEL_WIDTH)
+        } else {
+            px(PROJECT_TOOL_ICON_WIDTH)
+        });
 
     let button = if has_label {
         button.justify_start()
@@ -456,7 +468,7 @@ fn project_tool_content(
             .gap(px(16.0))
             .child(
                 div()
-                    .w(px(20.0))
+                    .w(px(PROJECT_TOOL_ICON_SLOT_WIDTH))
                     .flex()
                     .justify_center()
                     .text_color(cx.theme().secondary_foreground)
@@ -464,7 +476,8 @@ fn project_tool_content(
             )
             .child(
                 div()
-                    .text_size(rems(0.75))
+                    .text_size(PROJECT_TOOL_TEXT_SIZE)
+                    .line_height(PROJECT_TOOL_LINE_HEIGHT)
                     .text_color(cx.theme().secondary_foreground)
                     .child(label),
             )
@@ -477,7 +490,7 @@ fn project_tool_content(
             .justify_center()
             .child(
                 div()
-                    .w(px(20.0))
+                    .w(px(PROJECT_TOOL_ICON_SLOT_WIDTH))
                     .flex()
                     .justify_center()
                     .text_color(cx.theme().secondary_foreground)
@@ -501,8 +514,13 @@ fn project_more_button(
     let language = language.to_string();
     let button = Button::new("project-tool-project-more-footer")
         .ghost()
+        .with_size(Size::Medium)
         .text_color(cx.theme().secondary_foreground)
-        .w(if has_label { px(212.0) } else { px(40.0) });
+        .w(if has_label {
+            px(PROJECT_TOOL_LABEL_WIDTH)
+        } else {
+            px(PROJECT_TOOL_ICON_WIDTH)
+        });
     let button = if has_label {
         button.justify_start()
     } else {
@@ -671,8 +689,13 @@ fn project_column_toggle_button(
     let has_label = label.is_some();
     let button = Button::new("project-column-toggle")
         .ghost()
+        .with_size(Size::Medium)
         .text_color(cx.theme().secondary_foreground)
-        .w(if has_label { px(212.0) } else { px(40.0) })
+        .w(if has_label {
+            px(PROJECT_TOOL_LABEL_WIDTH)
+        } else {
+            px(PROJECT_TOOL_ICON_WIDTH)
+        })
         .when(has_label, |this| this.justify_start())
         .on_click(window.listener_for(&app_entity, |app, _event, window, cx| {
             app.toggle_project_column(window, cx)

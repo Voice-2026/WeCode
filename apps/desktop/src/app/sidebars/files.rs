@@ -838,7 +838,6 @@ fn file_tree_entry_row(
         depth,
     } = row;
     let entry = file.clone();
-    let rename_entry = file.clone();
     let right_click_entry = file.clone();
     let drop_entry = file.clone();
     let is_dir = matches!(file.kind, FileKind::Directory);
@@ -977,18 +976,6 @@ fn file_tree_entry_row(
                 .line_height(rems(1.0))
                 .text_color(color(theme::TEXT_MUTED))
                 .truncate()
-                .on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
-                    if event.click_count() < 2 {
-                        return;
-                    }
-                    cx.stop_propagation();
-                    view.focus_handle.focus(window, cx);
-                    let relative_path = rename_entry.relative_path.clone();
-                    view.defer_app_update(window, cx, move |app, window, cx| {
-                        app.set_single_file_selection(relative_path);
-                        app.rename_selected_file_entry(window, cx);
-                    });
-                }))
                 .child(file.name)
                 .into_any_element()
         })

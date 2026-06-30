@@ -55,10 +55,14 @@ impl CoduxConfig {
         paths::config_path().exists()
     }
 
-    /// Fill in a stable identity (host id + token) if absent. Returns whether
-    /// anything was generated, so the caller can persist.
+    /// Fill in a useful display name and stable identity if absent. Returns
+    /// whether anything was generated, so the caller can persist.
     pub fn ensure_identity(&mut self) -> bool {
         let mut generated = false;
+        if is_placeholder_device_name(&self.device_name) {
+            self.device_name = default_device_name();
+            generated = true;
+        }
         if self.host_id.trim().is_empty() {
             self.host_id = format!("codux-{}", random_hex(6));
             generated = true;
@@ -95,10 +99,81 @@ pub fn random_hex(bytes: usize) -> String {
 
 /// A sensible default device name (the machine's hostname).
 pub fn default_device_name() -> String {
-    std::env::var("HOSTNAME")
-        .ok()
+    display_host_name(platform_host_name(), platform_user_name())
         .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .or_else(|| std::env::var("HOSTNAME").ok())
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "codux-agent".to_string())
+}
+
+fn is_placeholder_device_name(value: &str) -> bool {
+    let value = value.trim();
+    value.is_empty() || value.eq_ignore_ascii_case("codux-agent")
+}
+
+fn display_host_name(host_name: Option<String>, user_name: Option<String>) -> Option<String> {
+    let host_name = host_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())?;
+    if !is_generic_apple_host_name(&host_name) {
+        return Some(host_name);
+    }
+    user_name
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && value != "root")
+        .map(|user| format!("{user}的Apple电脑"))
+        .or(Some(host_name))
+}
+
+fn is_generic_apple_host_name(value: &str) -> bool {
+    let normalized: String = value
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '\'' && *ch != '’')
+        .flat_map(char::to_lowercase)
+        .collect();
+    matches!(
+        normalized.as_str(),
+        "apple的apple电脑" | "apple的mac" | "applemac" | "applecomputer" | "apple的电脑"
+    )
+}
+
+fn platform_user_name() -> Option<String> {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .or_else(|_| std::env::var("USERNAME"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty() && value != "root")
+}
+
+#[cfg(target_os = "macos")]
+fn platform_host_name() -> Option<String> {
+    command_output("/usr/sbin/scutil", &["--get", "ComputerName"])
+        .or_else(|| command_output("/usr/sbin/scutil", &["--get", "LocalHostName"]))
+        .or_else(|| command_output("hostname", &[]))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_host_name() -> Option<String> {
+    command_output("hostname", &[])
+}
+
+#[cfg(windows)]
+fn platform_host_name() -> Option<String> {
+    std::env::var("COMPUTERNAME").ok()
+}
+
+fn command_output(command: &str, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new(command)
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8(output.stdout)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }

@@ -8,6 +8,7 @@ use codux_runtime::{
         LocalizedSaveDialogRequest,
     },
 };
+use gpui_component::{Size, progress::Progress};
 
 /// Days the app must have been installed before the GitHub-star nudge auto-pops.
 const STAR_PROMPT_AFTER_DAYS: i64 = 3;
@@ -989,19 +990,10 @@ fn update_progress_view(
                 }),
         )
         .child(
-            div()
-                .w_full()
-                .h(px(8.0))
-                .rounded(px(999.0))
-                .overflow_hidden()
-                .bg(cx.theme().secondary)
-                .child(
-                    div()
-                        .h(px(8.0))
-                        .w(relative(ratio.unwrap_or(0.35)))
-                        .rounded(px(999.0))
-                        .bg(cx.theme().primary),
-                ),
+            Progress::new("update-download-progress")
+                .value(ratio.unwrap_or(0.35) * 100.0)
+                .with_size(Size::Medium)
+                .color(cx.theme().primary),
         )
         .child(
             div()

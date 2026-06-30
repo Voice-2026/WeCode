@@ -5,10 +5,12 @@ use crate::app::{
         workspace_header_badge_button_content, workspace_header_button, workspace_i18n,
     },
 };
-use gpui::{Anchor, relative};
+use gpui::Anchor;
 use gpui_component::{
+    Size,
     input::{Input, InputEvent, InputState},
     popover::Popover,
+    progress::Progress,
 };
 
 pub(in crate::app) fn workspace_pet_button(
@@ -440,19 +442,11 @@ fn workspace_pet_meter(
                 ),
         )
         .child(
-            div()
+            Progress::new("workspace-pet-xp-progress")
                 .mt(px(6.0))
-                .h(px(7.0))
-                .rounded_full()
-                .overflow_hidden()
-                .bg(color(accent).opacity(0.15))
-                .child(
-                    div()
-                        .h_full()
-                        .w(relative(progress.clamp(0.0, 1.0) as f32))
-                        .rounded_full()
-                        .bg(color(accent)),
-                ),
+                .value((progress.clamp(0.0, 1.0) * 100.0) as f32)
+                .with_size(Size::Size(px(7.0)))
+                .color(color(accent)),
         )
 }
 
@@ -487,20 +481,12 @@ fn workspace_pet_trait(
             .child(label),
     )
     .child(
-        div()
+        Progress::new(format!("pet-trait-progress-{emoji_kind}"))
             .flex_1()
             .min_w(px(0.0))
-            .h(px(5.0))
-            .rounded_full()
-            .overflow_hidden()
-            .bg(color(accent).opacity(0.12))
-            .child(
-                div()
-                    .h_full()
-                    .w(relative(ratio))
-                    .rounded_full()
-                    .bg(color(accent).opacity(0.75)),
-            ),
+            .value(ratio * 100.0)
+            .with_size(Size::Size(px(5.0)))
+            .color(color(accent).opacity(0.75)),
     )
     .child(
         div()

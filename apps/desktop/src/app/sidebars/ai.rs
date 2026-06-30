@@ -4,7 +4,11 @@ use crate::app::ui_helpers::{centered_empty_state, codux_tooltip_container, with
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
 use gpui::Hsla;
-use gpui_component::input::{Input, InputState};
+use gpui_component::{
+    Size,
+    input::{Input, InputState},
+    progress::Progress,
+};
 
 const AI_RECENT_USAGE_COLUMNS: usize = 20;
 const AI_RECENT_USAGE_CELL_SIZE: f32 = 10.0;
@@ -2461,6 +2465,7 @@ fn ai_ranking_row(
 ) -> impl IntoElement {
     let value_label = compact_number(row.value);
     let tooltip = format!("{} · {} tokens", row.label, value_label);
+    let progress_id = format!("ai-ranking-progress-{}", row.label);
     codux_tooltip_container(
         app_entity,
         SharedString::from(format!("ai-ranking-row-{}", row.label)),
@@ -2513,20 +2518,15 @@ fn ai_ranking_row(
             ),
     )
     .child(
-        div()
+        Progress::new(progress_id)
             .mt(px(6.0))
-            .h(px(4.0))
-            .w_full()
-            .rounded(px(4.0))
-            .bg(track_surface)
-            .child(
-                div()
-                    .h_full()
-                    .w(gpui::relative(row.percent.clamp(0.0, 1.0)))
-                    .rounded(px(4.0))
-                    .bg(color(theme::ACCENT))
-                    .opacity(if row.value > 0 { 1.0 } else { 0.35 }),
-            ),
+            .value(row.percent.clamp(0.0, 1.0) * 100.0)
+            .with_size(Size::XSmall)
+            .color(if row.value > 0 {
+                color(theme::ACCENT)
+            } else {
+                track_surface
+            }),
     )
 }
 

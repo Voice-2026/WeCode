@@ -1700,12 +1700,13 @@ impl CoduxApp {
         self.run_selected_file_system_action("reveal", cx);
     }
 
-    pub(super) fn open_selected_file_entry(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.run_selected_file_system_action("open", cx);
+    pub(super) fn open_selected_file_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.selected_file_entry() else {
+            self.status_message = "no selected file entry to open".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        self.open_file_entry(entry, window, cx);
     }
 
     pub(super) fn open_selected_file_preview(

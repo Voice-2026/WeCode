@@ -58,6 +58,8 @@ pub struct DaemonStatus {
     pub device_name: String,
     pub node_id: String,
     pub relay: String,
+    #[serde(default)]
+    pub web_test_url: String,
 }
 
 pub fn write_status(status: &DaemonStatus) {

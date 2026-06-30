@@ -938,28 +938,42 @@ impl codux_runtime_core::ai_stats::RemoteAICurrentSessionProvider
 /// candidate so a controller can connect.
 pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
     let (host, _slot) = connect_serving_host(&cfg).await?;
-    println!("codux host ready");
-    println!("hostId={}", cfg.host_id);
-    println!("name={}", cfg.name);
-    println!("platform={}", std::env::consts::OS);
+    let web_test = match crate::web_test::start_background() {
+        Ok(server) => Some(server),
+        Err(error) => {
+            eprintln!("Codux web test page disabled: {error}");
+            None
+        }
+    };
+    println!("Codux host ready.");
+    println!("  device: {}", cfg.name);
+    println!("  config: {}", crate::paths::config_path().display());
+    if let Some(server) = &web_test {
+        println!("  web:    http://{}/", server.address);
+    }
     let (node_id, relay) = host
         .iroh_candidate()
         .map(|(node_id, relay)| (node_id, relay))
         .unwrap_or_default();
     if !node_id.is_empty() {
-        println!("nodeId={node_id}");
-        println!("relay={relay}");
+        println!("  node:   {node_id}");
+        println!("  relay:  {relay}");
         // The pairing QR carries nodeId + relayUrl (NOT the bulky iroh endpoint
         // ticket) so it stays small and phone-scannable — matching the desktop
         // host's format. The controller dials from nodeId + relayUrl and the full
         // ticket is exchanged after it connects.
         let pairing = pairing_ticket_url(&cfg.host_id, &node_id, &relay, &cfg.relay_authentication);
-        println!("pairingTicket={pairing}");
+        println!("  pair:   run `codux link` or `codux qrcode`");
+        if verbose_startup_output() {
+            println!("pairingTicket={pairing}");
+        }
         // Publish for `codux link` / `codux qrcode` to read.
         crate::runstate::write_ticket(&pairing);
     }
     if let Some(ticket) = host.iroh_endpoint_ticket() {
-        println!("ticket={ticket}");
+        if verbose_startup_output() {
+            println!("ticket={ticket}");
+        }
     }
     // Publish status for `codux status` / `codux stop`.
     crate::runstate::write_status(&crate::runstate::DaemonStatus {
@@ -969,10 +983,21 @@ pub async fn run_host(cfg: AgentHostConfig) -> Result<(), String> {
         device_name: cfg.name.clone(),
         node_id,
         relay,
+        web_test_url: web_test
+            .as_ref()
+            .map(|server| format!("http://{}/", server.address))
+            .unwrap_or_default(),
     });
     // Serve until the process is terminated.
     std::future::pending::<()>().await;
     Ok(())
+}
+
+fn verbose_startup_output() -> bool {
+    matches!(
+        std::env::var("CODUX_AGENT_VERBOSE").ok().as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES")
+    )
 }
 
 /// Build the `codux://pair?payload=<base64url>` pairing URL the desktop

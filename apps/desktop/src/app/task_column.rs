@@ -1,11 +1,13 @@
 use gpui_component::{InteractiveElementExt as _, menu::ContextMenuExt as _};
 
 use super::ai_runtime_status::AIActivityState;
+use super::scroll_compat::codux_uniform_list_with_sizing;
 use super::ui_helpers::{codux_tooltip_container, titlebar_drag_area};
 use super::{
     formatting::{relative_time_label_for_language, usage_amount_label},
     *,
 };
+use gpui::ListSizingBehavior;
 
 pub(in crate::app) struct TaskColumnView {
     header_view: gpui::Entity<TaskColumnHeaderView>,
@@ -81,6 +83,8 @@ impl CoduxApp {
 struct TaskColumnLabels {
     language: String,
     no_project: String,
+    no_worktrees_title: String,
+    no_worktrees_hint: String,
     no_branch: String,
     sessions: String,
     changed_format: String,
@@ -99,6 +103,11 @@ fn task_column_labels(language: &str) -> TaskColumnLabels {
     TaskColumnLabels {
         language: language.to_string(),
         no_project: tr("files.panel.no_project", "No project selected"),
+        no_worktrees_title: tr("worktree.sidebar.empty_title", "No worktrees yet"),
+        no_worktrees_hint: tr(
+            "worktree.sidebar.empty_hint",
+            "Open a Git repository or create a worktree to see it here.",
+        ),
         no_branch: tr("git.branch.none", "No Branch"),
         sessions: tr("ai.sessions.history", "Session History"),
         changed_format: tr("worktree.sidebar.changed_format", "%@ changed"),
@@ -497,36 +506,106 @@ fn task_list_area(
     app_entity: gpui::Entity<CoduxApp>,
     cx: &mut Context<TaskWorktreeListView>,
 ) -> impl IntoElement {
-    let rows = Rc::new(rows);
-    let row_labels = labels.clone();
-    div().flex().flex_col().size_full().min_h_0().child(
-        div()
+    if rows.is_empty() {
+        return div()
             .flex()
             .flex_col()
-            .flex_1()
+            .size_full()
             .min_h_0()
-            .p_3()
-            .overflow_hidden()
-            .child(codux_uniform_list(
-                "task-column-worktrees",
-                rows,
-                scroll_handle,
-                None,
+            .p_4()
+            .child(task_empty_state(
+                labels.no_worktrees_title,
+                labels.no_worktrees_hint,
                 cx,
-                move |row, _index, _window, cx| {
+            ))
+            .into_any_element();
+    }
+    let rows = Rc::new(rows);
+    let row_labels = labels.clone();
+    div()
+        .flex()
+        .flex_col()
+        .size_full()
+        .min_h_0()
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .p_3()
+                .overflow_hidden()
+                .child(codux_uniform_list(
+                    "task-column-worktrees",
+                    rows,
+                    scroll_handle,
+                    None,
+                    cx,
+                    move |row, _index, _window, cx| {
+                        div()
+                            .w_full()
+                            .pb(px(4.0))
+                            .child(worktree_compact_row(
+                                row,
+                                row_labels.clone(),
+                                app_entity.clone(),
+                                cx,
+                            ))
+                            .into_any_element()
+                    },
+                )),
+        )
+        .into_any_element()
+}
+
+fn task_empty_state(
+    title: String,
+    hint: String,
+    cx: &mut Context<TaskWorktreeListView>,
+) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .max_w(px(220.0))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(8.0))
+                .text_center()
+                .child(
                     div()
-                        .w_full()
-                        .pb(px(4.0))
-                        .child(worktree_compact_row(
-                            row,
-                            row_labels.clone(),
-                            app_entity.clone(),
-                            cx,
-                        ))
-                        .into_any_element()
-                },
-            )),
-    )
+                        .size(px(34.0))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(cx.theme().secondary)
+                        .child(
+                            Icon::new(HeroIconName::Square3Stack3d)
+                                .size_4()
+                                .text_color(cx.theme().muted_foreground),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(rems(0.875))
+                        .line_height(rems(1.125))
+                        .text_color(cx.theme().foreground)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(hint),
+                ),
+        )
+        .into_any_element()
 }
 
 fn recent_session_area(
@@ -556,18 +635,22 @@ fn recent_session_area(
             div()
                 .relative()
                 .flex_1()
+                .w_full()
+                .min_w_0()
                 .min_h_0()
                 .p_2()
                 .overflow_hidden()
-                .child(codux_uniform_list(
+                .child(codux_uniform_list_with_sizing(
                     "task-column-recent-sessions",
                     sessions,
                     scroll_handle,
                     None,
+                    ListSizingBehavior::Auto,
                     cx,
                     move |session, _index, _window, cx| {
                         div()
                             .w_full()
+                            .min_w_0()
                             .pb(px(4.0))
                             .child(ai_session_compact_row(
                                 session,

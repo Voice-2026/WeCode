@@ -24,6 +24,31 @@ where
     T: Clone + 'static,
     F: Fn(T, usize, &mut Window, &mut Context<V>) -> AnyElement + 'static,
 {
+    codux_uniform_list_with_sizing(
+        id,
+        rows,
+        scroll_handle,
+        gap,
+        ListSizingBehavior::Infer,
+        cx,
+        render,
+    )
+}
+
+pub(super) fn codux_uniform_list_with_sizing<V, T, F>(
+    id: &'static str,
+    rows: Rc<Vec<T>>,
+    scroll_handle: UniformListScrollHandle,
+    gap: Option<Pixels>,
+    sizing_behavior: ListSizingBehavior,
+    cx: &mut Context<V>,
+    render: F,
+) -> impl IntoElement
+where
+    V: 'static,
+    T: Clone + 'static,
+    F: Fn(T, usize, &mut Window, &mut Context<V>) -> AnyElement + 'static,
+{
     let count = rows.len();
     let list = gpui::uniform_list(id, count, {
         cx.processor(move |_app, visible_range: Range<usize>, window, cx| {
@@ -38,7 +63,7 @@ where
     })
     .size_full()
     .flex_grow()
-    .with_sizing_behavior(ListSizingBehavior::Infer)
+    .with_sizing_behavior(sizing_behavior)
     .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::FitList)
     .track_scroll(&scroll_handle);
     let list = if let Some(gap) = gap {

@@ -1,9 +1,13 @@
 use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
 use codux_runtime::git::GitReviewFile;
-use gpui::{Animation, AnimationExt as _, ClickEvent, Div, ListSizingBehavior, Pixels, Stateful};
-use gpui_component::input::{Input, InputEvent, InputState};
-use std::{ops::Range, time::Duration};
+use gpui::{ClickEvent, Div, ListSizingBehavior, Pixels, Stateful};
+use gpui_component::{
+    Size,
+    input::{Input, InputEvent, InputState},
+    progress::Progress,
+};
+use std::ops::Range;
 
 #[derive(Clone)]
 pub(in crate::app) struct GitSidebarLabels {
@@ -1600,25 +1604,11 @@ fn git_empty_repository_panel(
 }
 
 fn git_clone_indeterminate_progress() -> impl IntoElement {
-    div()
+    Progress::new("git-clone-progress")
         .mt(px(8.0))
-        .w_full()
-        .h(px(4.0))
-        .rounded(px(4.0))
-        .overflow_hidden()
-        .bg(color(theme::BORDER_SOFT))
-        .child(
-            div()
-                .h_full()
-                .w(gpui::relative(0.34))
-                .rounded(px(4.0))
-                .bg(color(theme::ACCENT))
-                .with_animation(
-                    "git-clone-progress",
-                    Animation::new(Duration::from_millis(980)).repeat(),
-                    |bar, delta| bar.ml(gpui::relative(-0.34 + delta * 1.34)),
-                ),
-        )
+        .loading(true)
+        .with_size(Size::XSmall)
+        .color(color(theme::ACCENT))
 }
 
 fn git_empty_action_button(label: String, primary: bool) -> Stateful<Div> {

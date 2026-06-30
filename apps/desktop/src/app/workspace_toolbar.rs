@@ -8,7 +8,15 @@ use crate::app::{
     },
 };
 use codux_runtime::{i18n::translate, settings::locale_from_language_setting};
-use gpui_component::menu::{DropdownMenu, PopupMenuItem};
+use gpui::Rems;
+use gpui_component::{
+    Size,
+    menu::{DropdownMenu, PopupMenuItem},
+    tab::{Tab, TabBar},
+};
+
+const WORKSPACE_TAB_TEXT_SIZE: Rems = Rems(0.75);
+const WORKSPACE_TAB_LINE_HEIGHT: Rems = Rems(1.0);
 
 impl CoduxApp {
     pub(in crate::app) fn workspace_toolbar(
@@ -380,129 +388,63 @@ fn workspace_segmented_tabs(
     enabled: bool,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
+    let app_entity = cx.entity();
     let locale = locale_from_language_setting(language);
     let terminal_label = translate(&locale, "workspace.create_split.terminal", "Terminal");
     let files_label = translate(&locale, "titlebar.files", "Files");
     let review_label = translate(&locale, "titlebar.review", "Review");
     let stats_label = translate(&locale, "titlebar.stats", "Stats");
     div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .h(px(32.0))
-        .p(px(4.0))
-        .rounded_sm()
-        .bg(cx.theme().secondary)
-        .when(!enabled, |this| this.opacity(0.45))
-        .child(workspace_segmented_tab(
-            0,
-            terminal_label,
-            HeroIconName::CommandLine,
-            active_index == 0,
-            enabled,
-            cx,
-        ))
-        .child(workspace_segmented_tab(
-            1,
-            files_label,
-            HeroIconName::Document,
-            active_index == 1,
-            enabled,
-            cx,
-        ))
-        .child(workspace_segmented_tab(
-            2,
-            review_label,
-            HeroIconName::ArrowPathRoundedSquare,
-            active_index == 2,
-            enabled,
-            cx,
-        ))
-        .child(workspace_segmented_tab(
-            3,
-            stats_label,
-            HeroIconName::ChartBar,
-            active_index == 3,
-            enabled,
-            cx,
-        ))
+        .rounded(px(8.0))
+        .bg(cx.theme().tab_bar_segmented)
+        .p(px(2.0))
+        .child(
+            TabBar::new("workspace-view-tabs")
+                .pill()
+                .with_size(Size::Small)
+                .selected_index(active_index)
+                .when(!enabled, |this| this.opacity(0.45))
+                .child(workspace_segmented_tab(
+                    HeroIconName::CommandLine,
+                    terminal_label,
+                ))
+                .child(workspace_segmented_tab(HeroIconName::Document, files_label))
+                .child(workspace_segmented_tab(
+                    HeroIconName::ArrowPathRoundedSquare,
+                    review_label,
+                ))
+                .child(workspace_segmented_tab(HeroIconName::ChartBar, stats_label))
+                .on_click(move |index, window, cx| {
+                    if !enabled {
+                        return;
+                    }
+                    cx.update_entity(&app_entity, |app, cx| {
+                        if *index == 3 {
+                            app.show_stats_workspace_view(window, cx);
+                        } else {
+                            let view = match *index {
+                                0 => WorkspaceView::Terminal,
+                                1 => WorkspaceView::Files,
+                                _ => WorkspaceView::Review,
+                            };
+                            app.set_workspace_view(view, window, cx);
+                        }
+                    });
+                }),
+        )
 }
 
-fn workspace_segmented_tab(
-    index: usize,
-    label: impl Into<SharedString>,
-    icon: HeroIconName,
-    active: bool,
-    enabled: bool,
-    cx: &mut Context<CoduxApp>,
-) -> impl IntoElement {
-    let label = label.into();
-    let active_bg = cx.theme().primary.opacity(0.14);
-    let inactive_hover_bg = cx.theme().secondary_hover;
-    div()
-        .id(SharedString::from(format!("workspace-view-tab-{index}")))
-        .h(px(22.0))
-        .px_3()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_sm()
-        .text_color(if active {
-            cx.theme().primary
-        } else {
-            cx.theme().secondary_foreground
-        })
-        .bg(if active {
-            active_bg
-        } else {
-            cx.theme().transparent
-        })
-        .when(enabled, |this| {
-            this.cursor_pointer()
-                .hover(move |style| {
-                    if active {
-                        style.bg(active_bg)
-                    } else {
-                        style.bg(inactive_hover_bg)
-                    }
-                })
-                .on_click(cx.listener(move |app, _event, window, cx| {
-                    if index == 3 {
-                        app.show_stats_workspace_view(window, cx);
-                    } else {
-                        let view = match index {
-                            0 => WorkspaceView::Terminal,
-                            1 => WorkspaceView::Files,
-                            _ => WorkspaceView::Review,
-                        };
-                        app.set_workspace_view(view, window, cx);
-                    }
-                }))
-        })
-        .child(
-            div()
-                .h(px(16.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap_2()
-                .child(
-                    div()
-                        .size(px(14.0))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .child(Icon::new(icon).size_3()),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .mt(px(1.0))
-                        .text_size(rems(0.75))
-                        .child(label),
-                ),
-        )
+fn workspace_segmented_tab(icon: HeroIconName, label: String) -> Tab {
+    Tab::new().child(
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .text_size(WORKSPACE_TAB_TEXT_SIZE)
+            .line_height(WORKSPACE_TAB_LINE_HEIGHT)
+            .child(Icon::new(icon).size_3p5())
+            .child(div().child(label)),
+    )
 }
 
 fn disabled_pet_button(state: &RuntimeState, cx: &mut Context<CoduxApp>) -> impl IntoElement {

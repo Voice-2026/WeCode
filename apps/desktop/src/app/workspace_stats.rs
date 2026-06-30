@@ -2,9 +2,11 @@ use super::*;
 use crate::app::ui_helpers::codux_tooltip_container;
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::i18n::translate;
+use gpui::Rems;
 use gpui_component::{
     Selectable, Size,
     button::{Button, ButtonVariants},
+    progress::Progress,
     scroll::ScrollableElement,
     tab::{Tab, TabBar},
     table::{Column, ColumnSort, DataTable, TableDelegate, TableState},
@@ -16,6 +18,8 @@ const STATS_TREND_MAX_BAR_WIDTH: f32 = 7.0;
 const STATS_HEATMAP_ROWS: usize = 7;
 const STATS_HEATMAP_COLUMNS: usize = 52;
 const STATS_HEATMAP_GAP: f32 = 3.0;
+const STATS_FILTER_TEXT_SIZE: Rems = Rems(0.75);
+const STATS_FILTER_LINE_HEIGHT: Rems = Rems(1.0);
 
 #[derive(Clone)]
 pub(in crate::app) struct StatsWorkspaceSnapshot {
@@ -332,12 +336,12 @@ fn stats_control_row(
                 .pill()
                 .with_size(Size::Small)
                 .selected_index(selected_cache_index)
-                .child(Tab::new().label(stats_text(
+                .child(stats_cache_mode_tab(stats_text(
                     &snapshot.language,
                     "stats.cache_mode.normalized",
                     "无缓存",
                 )))
-                .child(Tab::new().label(stats_text(
+                .child(stats_cache_mode_tab(stats_text(
                     &snapshot.language,
                     "stats.cache_mode.including_cache",
                     "有缓存",
@@ -366,8 +370,19 @@ fn stats_filter_button(
         .compact()
         .rounded(px(999.0))
         .selected(active)
+        .text_size(STATS_FILTER_TEXT_SIZE)
+        .line_height(STATS_FILTER_LINE_HEIGHT)
         .label(label)
         .on_click(on_click)
+}
+
+fn stats_cache_mode_tab(label: String) -> Tab {
+    Tab::new().child(
+        div()
+            .text_size(STATS_FILTER_TEXT_SIZE)
+            .line_height(STATS_FILTER_LINE_HEIGHT)
+            .child(label),
+    )
 }
 
 fn stats_kpi_grid(
@@ -723,20 +738,14 @@ fn stats_rank_row(
                 ),
         )
         .child(
-            div()
-                .w_full()
-                .h(px(5.0))
-                .rounded(px(3.0))
-                .bg(cx.theme().secondary)
-                .overflow_hidden()
-                .child(
-                    div()
-                        .h_full()
-                        .w(relative(fill_ratio))
-                        .rounded(px(3.0))
-                        .bg(color(theme::ACCENT))
-                        .opacity(if active { 1.0 } else { 0.0 }),
-                ),
+            Progress::new(format!("stats-rank-progress-{rank}"))
+                .value(fill_ratio * 100.0)
+                .with_size(Size::Size(px(5.0)))
+                .color(if active {
+                    color(theme::ACCENT)
+                } else {
+                    cx.theme().secondary
+                }),
         )
 }
 

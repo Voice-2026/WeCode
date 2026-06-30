@@ -18,12 +18,13 @@ use codux_runtime::{
 };
 use gpui::{
     AnyElement, AppContext, Context, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, StyledImage, Window, WindowControlArea, div,
-    img, prelude::FluentBuilder as _, px, relative, rems,
+    Pixels, Rems, SharedString, StatefulInteractiveElement, Styled, StyledImage, Window,
+    WindowControlArea, div, img, prelude::FluentBuilder as _, px, relative, rems,
 };
 use gpui_component::{
     ActiveTheme, Disableable, Icon, Sizable,
     button::{Button, ButtonVariants},
+    group_box::{GroupBox, GroupBoxVariants},
     input::{Input, InputEvent, InputState},
     menu::{DropdownMenu, PopupMenuItem},
     spinner::Spinner,
@@ -32,6 +33,12 @@ use gpui_component::{
 use qrcode::{EcLevel, QrCode, types::Color as QrColor};
 
 const CODUX_MOBILE_DOWNLOAD_URL: &str = "https://codux.dux.cn/features/mobile/";
+const SETTINGS_FORM_TEXT_SIZE: Rems = Rems(0.875);
+const SETTINGS_FORM_LINE_HEIGHT: Rems = Rems(1.125);
+const SETTINGS_FORM_DESCRIPTION_TEXT_SIZE: Rems = Rems(0.75);
+const SETTINGS_FORM_DESCRIPTION_LINE_HEIGHT: Rems = Rems(1.0625);
+const SETTINGS_ROW_LABEL_MIN_WIDTH: f32 = 180.0;
+const SETTINGS_ROW_CONTROL_MIN_WIDTH: f32 = 160.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SettingsPane {
@@ -154,6 +161,8 @@ impl CoduxApp {
             .relative()
             .flex()
             .flex_1()
+            .w_full()
+            .min_w_0()
             .h_full()
             .bg(cx.theme().background)
             .child(
@@ -196,6 +205,7 @@ impl CoduxApp {
                     .flex()
                     .flex_col()
                     .flex_1()
+                    .w_full()
                     .min_w_0()
                     .h_full()
                     .bg(color(theme::BG_COLUMN))
@@ -245,6 +255,8 @@ impl CoduxApp {
                     .child(
                         div()
                             .flex_1()
+                            .w_full()
+                            .min_w_0()
                             .min_h_0()
                             .overflow_y_scrollbar()
                             .px(px(28.0))
@@ -396,7 +408,6 @@ fn settings_form(children: Vec<AnyElement>) -> impl IntoElement {
         .flex()
         .flex_col()
         .w_full()
-        .max_w(px(720.0))
         .gap(px(22.0))
         .children(children)
 }
@@ -412,18 +423,14 @@ fn settings_card(
 
 fn settings_card_with_actions(
     title: Option<String>,
-    _description: Option<String>,
+    description: Option<String>,
     actions: Option<AnyElement>,
     children: Vec<AnyElement>,
     cx: &mut Context<CoduxApp>,
 ) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
-        .child(if title.is_some() || actions.is_some() {
+    let title_element = if title.is_some() || description.is_some() || actions.is_some() {
+        Some(
             div()
-                .mb(px(8.0))
-                .px(px(1.0))
                 .min_h(px(28.0))
                 .flex()
                 .items_center()
@@ -431,33 +438,58 @@ fn settings_card_with_actions(
                 .gap(px(12.0))
                 .child(
                     div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
-                        .text_color(color(theme::TEXT))
-                        .child(title.clone().unwrap_or_default()),
+                        .min_w_0()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .text_size(SETTINGS_FORM_TEXT_SIZE)
+                                .line_height(SETTINGS_FORM_LINE_HEIGHT)
+                                .text_color(color(theme::TEXT))
+                                .child(title.clone().unwrap_or_default()),
+                        )
+                        .when_some(description, |this, description| {
+                            this.child(
+                                div()
+                                    .mt(px(3.0))
+                                    .max_w(px(520.0))
+                                    .text_size(SETTINGS_FORM_DESCRIPTION_TEXT_SIZE)
+                                    .line_height(SETTINGS_FORM_DESCRIPTION_LINE_HEIGHT)
+                                    .text_color(color(theme::TEXT_DIM))
+                                    .child(description),
+                            )
+                        }),
                 )
-                .child(actions.unwrap_or_else(|| div().hidden().into_any_element()))
-                .into_any_element()
-        } else {
-            div().hidden().into_any_element()
-        })
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .rounded(px(12.0))
-                .bg(cx.theme().group_box)
-                .px(px(22.0))
-                .py(px(10.0))
-                .children(children.into_iter().enumerate().flat_map(|(index, child)| {
-                    let mut elements = Vec::with_capacity(if index == 0 { 1 } else { 2 });
-                    if index > 0 {
-                        elements.push(settings_form_separator(cx));
-                    }
-                    elements.push(div().w_full().child(child).into_any_element());
-                    elements
-                })),
+                .child(actions.unwrap_or_else(|| div().hidden().into_any_element())),
         )
+    } else {
+        None
+    };
+
+    div().w_full().child(
+        GroupBox::new()
+            .w_full()
+            .fill()
+            .when_some(title_element, |this, title| this.title(title))
+            .content_style(
+                div()
+                    .w_full()
+                    .px(px(22.0))
+                    .py(px(10.0))
+                    .gap(px(0.0))
+                    .style()
+                    .clone(),
+            )
+            .children(children.into_iter().enumerate().flat_map(|(index, child)| {
+                let mut elements = Vec::with_capacity(if index == 0 { 1 } else { 2 });
+                if index > 0 {
+                    elements.push(settings_form_separator(cx));
+                }
+                elements.push(div().w_full().child(child).into_any_element());
+                elements
+            })),
+    )
 }
 
 fn settings_form_separator(cx: &mut Context<CoduxApp>) -> AnyElement {
@@ -488,14 +520,14 @@ fn settings_row(
         .gap(px(24.0))
         .child(
             div()
-                .min_w_0()
+                .min_w(px(SETTINGS_ROW_LABEL_MIN_WIDTH))
                 .flex_1()
                 .flex()
                 .flex_col()
                 .child(
                     div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
+                        .text_size(SETTINGS_FORM_TEXT_SIZE)
+                        .line_height(SETTINGS_FORM_LINE_HEIGHT)
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
@@ -504,8 +536,8 @@ fn settings_row(
                         .when(description.is_none(), |this| this.hidden())
                         .mt(px(3.0))
                         .max_w(px(420.0))
-                        .text_size(rems(0.75))
-                        .line_height(rems(1.0625))
+                        .text_size(SETTINGS_FORM_DESCRIPTION_TEXT_SIZE)
+                        .line_height(SETTINGS_FORM_DESCRIPTION_LINE_HEIGHT)
                         .text_color(color(theme::TEXT_DIM))
                         .child(description.unwrap_or_default()),
                 ),
@@ -513,9 +545,10 @@ fn settings_row(
         .child(
             div()
                 .w(relative(0.3))
-                .min_w(px(180.0))
+                .min_w(px(SETTINGS_ROW_CONTROL_MIN_WIDTH))
                 .max_w(relative(0.3))
                 .flex()
+                .flex_shrink_0()
                 .items_center()
                 .justify_end()
                 .child(control),
@@ -547,8 +580,8 @@ fn settings_small_button_state(
         .on_click(cx.listener(action))
         .child(
             div()
-                .text_size(rems(0.75))
-                .line_height(rems(1.0))
+                .text_size(SETTINGS_FORM_TEXT_SIZE)
+                .line_height(SETTINGS_FORM_LINE_HEIGHT)
                 .text_color(color(theme::TEXT))
                 .child(value.into()),
         )
@@ -931,7 +964,8 @@ fn settings_selectable_tile(
 ) -> AnyElement {
     div()
         .id(SharedString::from(id.into()))
-        .w(px(112.0))
+        .w_full()
+        .min_w(px(112.0))
         .flex()
         .flex_col()
         .items_center()
@@ -949,6 +983,47 @@ fn settings_selectable_tile(
                 .truncate()
                 .child(label.into()),
         )
+        .into_any_element()
+}
+
+fn settings_selectable_tile_cell(tile: AnyElement) -> AnyElement {
+    div().min_w_0().flex_1().child(tile).into_any_element()
+}
+
+fn settings_selectable_tile_rows(
+    tiles: Vec<AnyElement>,
+    columns: usize,
+    gap: Pixels,
+) -> AnyElement {
+    let columns = columns.max(1);
+    let mut rows = Vec::new();
+    let mut row = Vec::new();
+    for tile in tiles {
+        row.push(settings_selectable_tile_cell(tile));
+        if row.len() == columns {
+            rows.push(row);
+            row = Vec::new();
+        }
+    }
+    if !row.is_empty() {
+        let filler_count = columns.saturating_sub(row.len());
+        row.extend((0..filler_count).map(|_| div().min_w_0().flex_1().into_any_element()));
+        rows.push(row);
+    }
+
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap(gap)
+        .children(rows.into_iter().map(move |row| {
+            div()
+                .w_full()
+                .flex()
+                .gap(gap)
+                .children(row)
+                .into_any_element()
+        }))
         .into_any_element()
 }
 
@@ -1117,7 +1192,7 @@ fn remote_connect_overlay(
                 .child(settings_text(
                     language,
                     "remote.connect.hint",
-                    "Paste the codux://pair link the other device shows (its Share menu).",
+                    "Paste the codux://pair link from the host. The name below is how this desktop will appear on that host.",
                 )),
         )
         .child(settings_textarea(
@@ -1133,19 +1208,36 @@ fn remote_connect_overlay(
             cx,
             |app, value, window, cx| app.set_remote_connect_ticket(value, window, cx),
         ))
-        .child(settings_text_input(
-            "settings-remote-connect-name",
-            name,
-            settings_text(
-                language,
-                "remote.connect.name_placeholder",
-                "This device name",
-            ),
-            false,
-            window,
-            cx,
-            |app, value, window, cx| app.set_remote_connect_name(value, window, cx),
-        ));
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .child(
+                    div()
+                        .text_size(rems(0.75))
+                        .line_height(rems(1.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(settings_text(
+                            language,
+                            "remote.connect.name_label",
+                            "This desktop name",
+                        )),
+                )
+                .child(settings_text_input(
+                    "settings-remote-connect-name",
+                    name,
+                    settings_text(
+                        language,
+                        "remote.connect.name_placeholder",
+                        "This desktop name",
+                    ),
+                    false,
+                    window,
+                    cx,
+                    |app, value, window, cx| app.set_remote_connect_name(value, window, cx),
+                )),
+        );
     if let Some(error) = error {
         card = card.child(
             div()
@@ -1589,6 +1681,7 @@ fn theme_preview_grid(
     cx: &mut Context<CoduxApp>,
 ) -> AnyElement {
     div()
+        .w_full()
         .flex()
         .flex_col()
         .gap(px(8.0))
@@ -1602,15 +1695,16 @@ fn theme_preview_grid(
                     .child(title.clone().unwrap_or_default()),
             )
         })
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(10.0))
-                .children(options.into_iter().map(|(value, label)| {
+        .child(settings_selectable_tile_rows(
+            options
+                .into_iter()
+                .map(|(value, label)| {
                     theme_preview_button(value, label, selected == value, language, cx)
-                })),
-        )
+                })
+                .collect(),
+            5,
+            px(10.0),
+        ))
         .into_any_element()
 }
 
@@ -1633,7 +1727,8 @@ fn theme_preview_button(
         label,
         div()
             .relative()
-            .w(px(112.0))
+            .w_full()
+            .min_w(px(112.0))
             .h(px(50.0))
             .rounded(px(8.0))
             .border_1()
@@ -1680,54 +1775,62 @@ fn theme_preview_button(
 }
 
 fn theme_color_grid(selected: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
-    div()
-        .flex()
-        .flex_wrap()
-        .gap(px(8.0))
-        .children(theme_color_values().into_iter().map(|item| {
-            let selected = selected == item.label;
-            let value = item.label;
-            settings_selectable_tile(
-                format!("settings-theme-color-{value}"),
-                value,
-                div()
-                    .relative()
-                    .size(px(28.0))
-                    .rounded_full()
-                    .border(px(3.0))
-                    .border_color(color(if selected {
-                        0xFFFFFF
-                    } else {
-                        theme::BORDER_SOFT
-                    }))
-                    .bg(color(item.color))
-                    .shadow_sm()
-                    .into_any_element(),
-                cx,
-                move |app, _event, window, cx| app.set_theme_color(value.to_string(), window, cx),
-            )
-        }))
-        .into_any_element()
+    settings_selectable_tile_rows(
+        theme_color_values()
+            .into_iter()
+            .map(|item| {
+                let selected = selected == item.label;
+                let value = item.label;
+                settings_selectable_tile(
+                    format!("settings-theme-color-{value}"),
+                    value,
+                    div()
+                        .relative()
+                        .size(px(28.0))
+                        .rounded_full()
+                        .border(px(3.0))
+                        .border_color(color(if selected {
+                            0xFFFFFF
+                        } else {
+                            theme::BORDER_SOFT
+                        }))
+                        .bg(color(item.color))
+                        .shadow_sm()
+                        .into_any_element(),
+                    cx,
+                    move |app, _event, window, cx| {
+                        app.set_theme_color(value.to_string(), window, cx)
+                    },
+                )
+            })
+            .collect(),
+        4,
+        px(8.0),
+    )
 }
 
 fn app_icon_grid(selected: &str, language: &str, cx: &mut Context<CoduxApp>) -> AnyElement {
-    div()
-        .flex()
-        .flex_wrap()
-        .gap(px(14.0))
-        .children(icon_style_values().into_iter().map(|item| {
-            let selected = selected == item.value;
-            let value = item.value;
-            let label = settings_text(language, item.label_key, item.fallback);
-            settings_selectable_tile(
-                format!("settings-app-icon-{value}"),
-                label,
-                app_icon_preview(item.value, selected),
-                cx,
-                move |app, _event, window, cx| app.set_icon_style(value.to_string(), window, cx),
-            )
-        }))
-        .into_any_element()
+    settings_selectable_tile_rows(
+        icon_style_values()
+            .into_iter()
+            .map(|item| {
+                let selected = selected == item.value;
+                let value = item.value;
+                let label = settings_text(language, item.label_key, item.fallback);
+                settings_selectable_tile(
+                    format!("settings-app-icon-{value}"),
+                    label,
+                    app_icon_preview(item.value, selected),
+                    cx,
+                    move |app, _event, window, cx| {
+                        app.set_icon_style(value.to_string(), window, cx)
+                    },
+                )
+            })
+            .collect(),
+        4,
+        px(14.0),
+    )
 }
 
 fn app_icon_preview(style: &'static str, selected: bool) -> AnyElement {
@@ -2205,14 +2308,14 @@ fn appearance_slider_row(
         .gap(px(24.0))
         .child(
             div()
-                .min_w_0()
-                .flex_1()
+                .min_w(px(160.0))
+                .max_w(px(420.0))
                 .flex()
                 .flex_col()
                 .child(
                     div()
-                        .text_size(rems(0.875))
-                        .line_height(rems(1.125))
+                        .text_size(SETTINGS_FORM_TEXT_SIZE)
+                        .line_height(SETTINGS_FORM_LINE_HEIGHT)
                         .text_color(color(theme::TEXT))
                         .child(label),
                 )
@@ -2220,17 +2323,16 @@ fn appearance_slider_row(
                     div()
                         .mt(px(3.0))
                         .max_w(px(420.0))
-                        .text_size(rems(0.75))
-                        .line_height(rems(1.0625))
+                        .text_size(SETTINGS_FORM_DESCRIPTION_TEXT_SIZE)
+                        .line_height(SETTINGS_FORM_DESCRIPTION_LINE_HEIGHT)
                         .text_color(color(theme::TEXT_DIM))
                         .child(help),
                 ),
         )
         .child(
             div()
-                .w(relative(0.3))
-                .min_w(px(180.0))
-                .max_w(relative(0.3))
+                .min_w(px(220.0))
+                .flex_1()
                 .flex()
                 .items_center()
                 .gap(px(10.0))
@@ -3251,6 +3353,7 @@ fn settings_remote_pane(
                 .child(
                     div()
                         .min_w_0()
+                        .flex_1()
                         .flex()
                         .flex_col()
                         .child(
@@ -3351,6 +3454,7 @@ fn settings_remote_pane(
                 .child(
                     div()
                         .min_w_0()
+                        .flex_1()
                         .flex()
                         .flex_col()
                         .child(
@@ -3595,6 +3699,7 @@ fn remote_mobile_download_banner(language: &str, cx: &mut Context<CoduxApp>) -> 
         .child(
             div()
                 .min_w_0()
+                .flex_1()
                 .flex()
                 .items_center()
                 .gap(px(12.0))
@@ -3616,6 +3721,7 @@ fn remote_mobile_download_banner(language: &str, cx: &mut Context<CoduxApp>) -> 
                 .child(
                     div()
                         .min_w_0()
+                        .flex_1()
                         .flex()
                         .flex_col()
                         .child(

@@ -58,6 +58,9 @@ fn print_already_running() {
     if let Some(status) = runstate::read_status() {
         println!("  started: {}", status.started_at);
         println!("  device:  {}", status.device_name);
+        if !status.web_test_url.is_empty() {
+            println!("  web:     {}", status.web_test_url);
+        }
     }
     if let Ok(exe) = std::env::current_exe() {
         println!("  binary:  {}", exe.display());

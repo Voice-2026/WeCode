@@ -69,7 +69,7 @@ use gpui::{
     MouseButton, ObjectFit, ParentElement, PathBuilder, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, StyledImage, Subscription, UniformListScrollHandle, Window,
     WindowAppearance, WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowKind,
-    WindowOptions, anchored, canvas, deferred, div, img, linear_color_stop, linear_gradient, point,
+    WindowOptions, canvas, div, img, linear_color_stop, linear_gradient, point,
     prelude::FluentBuilder as _, px, relative, rems, size,
 };
 use gpui_component::{

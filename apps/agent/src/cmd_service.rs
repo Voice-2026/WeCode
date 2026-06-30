@@ -24,6 +24,9 @@ pub fn status() -> Result<(), String> {
             if !status.node_id.is_empty() {
                 println!("  node:     {}", status.node_id);
             }
+            if !status.web_test_url.is_empty() {
+                println!("  web:      {}", status.web_test_url);
+            }
         }
     }
     println!("  paired:   {devices} device(s)");

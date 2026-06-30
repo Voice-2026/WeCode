@@ -110,6 +110,22 @@ codux smoke transport   # in-process iroh host↔controller round trip
 codux smoke serve       # full controlled-host domain verification
 ```
 
+## Web Tunnel test page
+
+The running host always serves a host-local diagnostic page for verifying
+desktop ⇄ agent web access. Pair the agent with Codux Desktop, open a remote
+project on that host, click the globe "Web Tunnel Browser" button in the desktop
+toolbar, and visit:
+
+```text
+http://127.0.0.1:8765/
+```
+
+The page shows a tunnel health check and live round-trip latency. On a single
+computer this still tests the same tunnel path, but it does not prove
+cross-machine network reachability; for that, run the Codux host on a different
+machine and connect to it from the desktop.
+
 ## Boundary
 
 Keep the agent thin. Shared host behavior belongs in

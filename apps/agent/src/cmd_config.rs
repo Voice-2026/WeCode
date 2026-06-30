@@ -10,6 +10,7 @@ use crate::config_store::{CoduxConfig, RELAY_PRESET_CUSTOM};
 pub fn run() -> Result<(), String> {
     let mut config = CoduxConfig::load();
     let existed = CoduxConfig::exists();
+    config.ensure_identity();
     let theme = ColorfulTheme::default();
 
     println!("Codux host setup\n");

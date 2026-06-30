@@ -35,7 +35,8 @@
       "remote.error.not_connected_internet": "Netzwerk ist offline.",
       "remote.error.timed_out": "Codux-Dienstanfrage zeitüberschritten.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "Name, der auf dem anderen Gerät angezeigt wird (optional)",
+      "remote.connect.name_label": "Name dieses Desktops",
+      "remote.connect.name_placeholder": "Name dieses Desktops (optional)",
       "remote.connect.ticket_required": "Fügen Sie einen Kopplungslink oder ein Kopplungsticket ein."
     },
     "en": {
@@ -77,9 +78,10 @@
       "remote.add.share": "Share this device",
       "remote.add.connect": "Connect to a device",
       "remote.connect.title": "Connect to a device",
-      "remote.connect.hint": "Paste the codux://pair link the other device shows (its Share menu).",
+      "remote.connect.hint": "Paste the codux://pair link from the host. The name below is how this desktop appears on that host.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "Name shown on the other device (optional)",
+      "remote.connect.name_label": "This desktop name",
+      "remote.connect.name_placeholder": "This desktop name (optional)",
       "remote.connect.ticket_required": "Paste a pairing ticket.",
       "remote.connect.submit": "Connect"
     },
@@ -118,7 +120,8 @@
       "remote.error.not_connected_internet": "La red está desconectada.",
       "remote.error.timed_out": "La solicitud al servicio Codux agotó el tiempo.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "Nombre que verá el otro dispositivo (opcional)",
+      "remote.connect.name_label": "Nombre de este escritorio",
+      "remote.connect.name_placeholder": "Nombre de este escritorio (opcional)",
       "remote.connect.ticket_required": "Pega un enlace o ticket de emparejamiento."
     },
     "fr": {
@@ -156,7 +159,8 @@
       "remote.error.not_connected_internet": "Le réseau est hors ligne.",
       "remote.error.timed_out": "La requête au service Codux a expiré.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "Nom affiché sur l'autre appareil (facultatif)",
+      "remote.connect.name_label": "Nom de ce bureau",
+      "remote.connect.name_placeholder": "Nom de ce bureau (facultatif)",
       "remote.connect.ticket_required": "Collez un lien ou un ticket d'appairage."
     },
     "ja": {
@@ -194,7 +198,8 @@
       "remote.error.not_connected_internet": "ネットワークに接続されていません。",
       "remote.error.timed_out": "Coduxサービス要求がタイムアウトしました。",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "相手側に表示するこのデバイス名（任意）",
+      "remote.connect.name_label": "このデスクトップ名",
+      "remote.connect.name_placeholder": "このデスクトップ名（任意）",
       "remote.connect.ticket_required": "ペアリングリンクまたはペアリングチケットを貼り付けてください。"
     },
     "ko": {
@@ -232,7 +237,8 @@
       "remote.error.not_connected_internet": "네트워크가 연결되어 있지 않습니다.",
       "remote.error.timed_out": "Codux 서비스 요청 시간이 초과되었습니다.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "상대 기기에 표시될 이 기기 이름(선택 사항)",
+      "remote.connect.name_label": "이 데스크톱 이름",
+      "remote.connect.name_placeholder": "이 데스크톱 이름(선택 사항)",
       "remote.connect.ticket_required": "페어링 링크 또는 페어링 티켓을 붙여넣으세요."
     },
     "pt-BR": {
@@ -270,7 +276,8 @@
       "remote.error.not_connected_internet": "A rede está offline.",
       "remote.error.timed_out": "A solicitação ao serviço Codux expirou.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "Nome exibido no outro dispositivo (opcional)",
+      "remote.connect.name_label": "Nome deste desktop",
+      "remote.connect.name_placeholder": "Nome deste desktop (opcional)",
       "remote.connect.ticket_required": "Cole um link ou ticket de pareamento."
     },
     "ru": {
@@ -308,7 +315,8 @@
       "remote.error.not_connected_internet": "Сеть недоступна.",
       "remote.error.timed_out": "Истекло время ожидания запроса к сервису Codux.",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "Имя этого устройства, которое увидит другая сторона (необязательно)",
+      "remote.connect.name_label": "Имя этого рабочего стола",
+      "remote.connect.name_placeholder": "Имя этого рабочего стола (необязательно)",
       "remote.connect.ticket_required": "Вставьте ссылку или билет сопряжения."
     },
     "zh-Hans": {
@@ -350,9 +358,10 @@
       "remote.add.share": "分享此设备",
       "remote.add.connect": "连接到设备",
       "remote.connect.title": "连接到设备",
-      "remote.connect.hint": "粘贴对方设备「分享」菜单里显示的 codux://pair 链接。",
+      "remote.connect.hint": "粘贴主机上显示的 codux://pair 链接。下面的名称是本机在该主机上显示的名字。",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "显示给对方的本机名称（可选）",
+      "remote.connect.name_label": "本桌面名称",
+      "remote.connect.name_placeholder": "本桌面名称（可选）",
       "remote.connect.ticket_required": "请粘贴配对链接或配对票据。",
       "remote.connect.submit": "连接"
     },
@@ -395,9 +404,10 @@
       "remote.add.share": "分享此裝置",
       "remote.add.connect": "連接到裝置",
       "remote.connect.title": "連接到裝置",
-      "remote.connect.hint": "貼上對方裝置「分享」選單顯示的 codux://pair 連結。",
+      "remote.connect.hint": "貼上主機上顯示的 codux://pair 連結。下方名稱是本機在該主機上顯示的名字。",
       "remote.connect.ticket_placeholder": "codux://pair?payload=…",
-      "remote.connect.name_placeholder": "顯示給對方的本機名稱（可選）",
+      "remote.connect.name_label": "本桌面名稱",
+      "remote.connect.name_placeholder": "本桌面名稱（可選）",
       "remote.connect.ticket_required": "請貼上配對連結或配對票據。",
       "remote.connect.submit": "連接"
     }

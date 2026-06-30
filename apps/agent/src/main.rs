@@ -19,6 +19,7 @@ mod runstate;
 mod sessions;
 mod smoke;
 mod terminals;
+mod web_test;
 mod worktree;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
