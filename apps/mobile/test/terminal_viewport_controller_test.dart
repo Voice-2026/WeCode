@@ -164,7 +164,7 @@ void main() {
       ),
       isTrue,
     );
-    expect(controller.owner, 'desktop');
+    expect(controller.ownerFor('session-1'), 'desktop');
     expect(controller.generation, 2);
 
     expect(
@@ -177,7 +177,7 @@ void main() {
       ),
       isFalse,
     );
-    expect(controller.owner, 'desktop');
+    expect(controller.ownerFor('session-1'), 'desktop');
     expect(controller.generation, 2);
   });
 

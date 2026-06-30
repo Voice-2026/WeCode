@@ -685,14 +685,18 @@ void _paintBlock(
         1,
       );
     case TerminalBlockGraphicKind.quadrants:
-      if (graphic.upperLeft)
+      if (graphic.upperLeft) {
         _paintFraction(canvas, paint, bounds, 0, 0, 0.5, 0.5);
-      if (graphic.upperRight)
+      }
+      if (graphic.upperRight) {
         _paintFraction(canvas, paint, bounds, 0.5, 0, 0.5, 0.5);
-      if (graphic.lowerLeft)
+      }
+      if (graphic.lowerLeft) {
         _paintFraction(canvas, paint, bounds, 0, 0.5, 0.5, 0.5);
-      if (graphic.lowerRight)
+      }
+      if (graphic.lowerRight) {
         _paintFraction(canvas, paint, bounds, 0.5, 0.5, 0.5, 0.5);
+      }
   }
 }
 
