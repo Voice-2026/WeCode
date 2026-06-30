@@ -158,7 +158,7 @@ pub(super) fn project_runtime_worktrees(
         project_id: project.id.clone(),
         path: project.path.clone(),
         is_default: true,
-        exists: std::path::Path::new(&project.path).exists(),
+        exists: project.host_device_id.is_some() || std::path::Path::new(&project.path).exists(),
     })
     .chain(
         snapshot

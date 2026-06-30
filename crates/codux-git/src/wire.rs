@@ -95,6 +95,18 @@ pub fn invoke(repo: &str, op: &str, args: &Value) -> Result<(), String> {
         "commit_sync" => GitService::commit_action(path, s("message"), "commitAndSync"),
         "commit_merge" => GitService::commit_merge(path, s("message"), s("target")),
         "init" => GitService::init(path),
+        "clone" => {
+            let credentials = args
+                .get("credentials")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok());
+            match credentials {
+                Some(credentials) => {
+                    GitService::clone_repository_with_credentials(path, s("remoteUrl"), credentials)
+                }
+                None => GitService::clone_repository(path, s("remoteUrl")),
+            }
+        }
         "checkout_branch" => GitService::checkout_branch(path, s("branch")),
         "checkout_remote_branch" => GitService::checkout_remote_branch(path, s("remoteBranch")),
         "checkout_commit" => GitService::checkout_commit(path, s("commit")),
@@ -147,6 +159,8 @@ pub fn read(repo: &str, op: &str, args: &Value) -> Result<Value, String> {
         "diff" => GitService::file_diff(path, s("filePath")).map(|diff| json!({ "diff": diff })),
         "review_diff" => GitService::review_file_diff(path, s("filePath"), base().as_deref())
             .map(|diff| json!({ "diff": diff })),
+        "review" => serde_json::to_value(GitService::review(path, base().as_deref()))
+            .map_err(|error| error.to_string()),
         "review_file_content" => serde_json::to_value(GitService::review_file_content(
             path,
             s("filePath"),

@@ -187,13 +187,20 @@ impl RuntimeService {
         project_path: &str,
         directory_path: Option<&str>,
     ) -> Vec<FileEntry> {
+        self.try_reload_project_files(project_path, directory_path)
+            .unwrap_or_default()
+    }
+
+    pub fn try_reload_project_files(
+        &self,
+        project_path: &str,
+        directory_path: Option<&str>,
+    ) -> Result<Vec<FileEntry>, String> {
         // Remote-hosted projects list their files on the host over the controller.
         if let Some(device_id) = self.host_device_for_project_path(project_path) {
-            return self
-                .remote_project_files(&device_id, project_path, directory_path)
-                .unwrap_or_default();
+            return self.remote_project_files(&device_id, project_path, directory_path);
         }
-        load_file_entries(project_path, directory_path)
+        try_load_file_entries(project_path, directory_path)
     }
 
     pub fn watch_project_files(
@@ -341,6 +348,21 @@ impl RuntimeService {
         project_path: &str,
         base_branch: Option<&str>,
     ) -> git::GitReviewSummary {
+        if let Some(result) = self.remote_git_read(
+            project_path,
+            "review",
+            serde_json::json!({ "baseBranch": base_branch }),
+        ) {
+            return result
+                .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
+                .unwrap_or_else(|error| git::GitReviewSummary {
+                    mode: "workingTreeAudit".to_string(),
+                    title: "Uncommitted Audit".to_string(),
+                    base_branch: base_branch.map(str::to_string),
+                    error: Some(error),
+                    ..Default::default()
+                });
+        }
         refresh_git_review(&self.support_dir, project_path, base_branch)
     }
 

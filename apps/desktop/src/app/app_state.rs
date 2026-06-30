@@ -158,6 +158,7 @@ pub struct CoduxApp {
     pub(in crate::app) file_tree_children: HashMap<String, Vec<FileEntry>>,
     pub(in crate::app) file_tree_scroll_handle: UniformListScrollHandle,
     pub(in crate::app) file_panel_refreshing: bool,
+    pub(in crate::app) file_mutation_generation: u64,
     // Whether the selected LOCAL project's worktree path is currently a live
     // directory. A false→true flip (an external drive remounting at the same
     // path with a new inode) triggers auto-recovery of the file tree, git, and

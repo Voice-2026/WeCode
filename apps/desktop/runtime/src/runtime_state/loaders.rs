@@ -12,7 +12,7 @@ fn load_projects(support_dir: &Path) -> (Vec<ProjectInfo>, Option<ProjectInfo>) 
         .projects
         .into_iter()
         .map(|project| ProjectInfo {
-            exists: Path::new(&project.path).exists(),
+            exists: project.host_device_id.is_some() || Path::new(&project.path).exists(),
             id: project.id,
             badge: project
                 .badge_text
@@ -82,23 +82,30 @@ fn refresh_git_review(
 }
 
 fn load_file_entries(project_path: &str, directory_path: Option<&str>) -> Vec<FileEntry> {
-    FilesService::list_children(project_path, directory_path)
-        .map(|mut entries| {
-            entries.truncate(80);
-            entries
-        })
-        .unwrap_or_default()
-        .into_iter()
-        .map(|entry| FileEntry {
-            name: entry.name,
-            relative_path: entry.relative_path,
-            size: entry.size,
-            kind: match entry.kind {
-                crate::files::FileKind::Directory => FileKind::Directory,
-                crate::files::FileKind::File | crate::files::FileKind::Symlink => FileKind::File,
-            },
-        })
-        .collect()
+    try_load_file_entries(project_path, directory_path).unwrap_or_default()
+}
+
+pub(super) fn try_load_file_entries(
+    project_path: &str,
+    directory_path: Option<&str>,
+) -> Result<Vec<FileEntry>, String> {
+    FilesService::list_children(project_path, directory_path).map(|mut entries| {
+        entries.truncate(80);
+        entries
+            .into_iter()
+            .map(|entry| FileEntry {
+                name: entry.name,
+                relative_path: entry.relative_path,
+                size: entry.size,
+                kind: match entry.kind {
+                    crate::files::FileKind::Directory => FileKind::Directory,
+                    crate::files::FileKind::File | crate::files::FileKind::Symlink => {
+                        FileKind::File
+                    }
+                },
+            })
+            .collect()
+    })
 }
 
 fn load_ai_history(support_dir: &Path, project_path: &str) -> AIHistorySummary {

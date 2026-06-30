@@ -11,7 +11,7 @@ impl RuntimeService {
         &self,
         project_path: &str,
     ) -> Result<String, String> {
-        let context = git::GitService::commit_message_context(project_path);
+        let context = self.read_project_git_commit_context(project_path);
         if !context.is_repository {
             return Err(context
                 .error

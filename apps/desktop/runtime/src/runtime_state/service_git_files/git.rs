@@ -1,5 +1,10 @@
 impl RuntimeService {
     pub fn init_project_git(&self, project_path: &str) -> Result<git::GitSummary, String> {
+        if let Some(result) =
+            self.remote_git_invoke_blocking(project_path, "init", serde_json::json!({}))
+        {
+            return result;
+        }
         git::GitService::init(project_path)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -9,6 +14,13 @@ impl RuntimeService {
         project_path: &str,
         remote_url: &str,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke_blocking(
+            project_path,
+            "clone",
+            serde_json::json!({ "remoteUrl": remote_url }),
+        ) {
+            return result;
+        }
         git::GitService::clone_repository(project_path, remote_url)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -19,6 +31,13 @@ impl RuntimeService {
         remote_url: &str,
         credentials: git::GitCredentials,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke_blocking(
+            project_path,
+            "clone",
+            serde_json::json!({ "remoteUrl": remote_url, "credentials": credentials }),
+        ) {
+            return result;
+        }
         git::GitService::clone_repository_with_credentials(project_path, remote_url, credentials)?;
         Ok(refresh_git_summary(&self.support_dir, project_path))
     }
@@ -52,6 +71,17 @@ impl RuntimeService {
         &self,
         project_path: &str,
     ) -> git::GitCommitMessageContextSummary {
+        if let Some(result) =
+            self.remote_git_read(project_path, "commit_context", serde_json::json!({}))
+        {
+            return result
+                .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
+                .unwrap_or_else(|error| git::GitCommitMessageContextSummary {
+                    is_repository: false,
+                    error: Some(error),
+                    ..Default::default()
+                });
+        }
         git::GitService::commit_message_context(project_path)
     }
 
@@ -61,6 +91,16 @@ impl RuntimeService {
         file_path: &str,
         base_branch: Option<&str>,
     ) -> git::GitReviewContentSummary {
+        if let Some(result) = self.remote_git_read(project_path, "review_file_content", serde_json::json!({ "filePath": file_path, "baseBranch": base_branch })) {
+            return result
+                .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
+                .unwrap_or_else(|error| git::GitReviewContentSummary {
+                    path: file_path.to_string(),
+                    is_repository: false,
+                    error: Some(error),
+                    ..Default::default()
+                });
+        }
         git::GitService::review_file_content(project_path, file_path, base_branch)
     }
 
@@ -141,7 +181,14 @@ impl RuntimeService {
         message: &str,
         action: &str,
     ) -> Result<git::GitSummary, String> {
-        if let Some(result) = self.remote_git_invoke(project_path, "commit", serde_json::json!({ "message": message })) {
+        let remote_op = match action {
+            "commitAndPush" => "commit_push",
+            "commitAndSync" => "commit_sync",
+            _ => "commit",
+        };
+        if let Some(result) =
+            self.remote_git_invoke(project_path, remote_op, serde_json::json!({ "message": message }))
+        {
             return result;
         }
         git::GitService::commit_action(project_path, message, action)?;
@@ -260,6 +307,9 @@ impl RuntimeService {
         remote_branch: &str,
         local_branch: Option<&str>,
     ) -> Result<git::GitSummary, String> {
+        if let Some(result) = self.remote_git_invoke(project_path, "push_remote_branch", serde_json::json!({ "remoteBranch": remote_branch, "localBranch": local_branch })) {
+            return result;
+        }
         let remote_branch = remote_branch.to_string();
         let local_branch = local_branch.map(str::to_string);
         self.run_cancellable_project_git(project_path, move |path, cancel| {

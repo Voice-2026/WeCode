@@ -225,6 +225,24 @@ impl RuntimeService {
         )
     }
 
+    /// Blocking-pool variant for explicit user Git operations. It waits briefly
+    /// for a paired host to reconnect, matching the first-use behavior of
+    /// remote directory browsing and terminal attach.
+    pub(crate) fn remote_git_invoke_blocking(
+        &self,
+        project_path: &str,
+        op: &str,
+        args: serde_json::Value,
+    ) -> Option<Result<crate::git::GitSummary, String>> {
+        let device_id = self.host_device_for_project_path(project_path)?;
+        Some(
+            self.remote_controllers
+                .controller_for_blocking(&device_id, REMOTE_CONNECT_TIMEOUT)
+                .and_then(|controller| controller.git_invoke(op, project_path, args))
+                .map(|value| git_summary_from_payload(&value)),
+        )
+    }
+
     /// Route a git read to the host if the project is remote. `None` ⇒ local.
     pub(crate) fn remote_git_read(
         &self,

@@ -1,6 +1,328 @@
 use super::*;
 
+struct FileMutationResult {
+    files: Vec<FileEntry>,
+    file_tree_children: HashMap<String, Vec<FileEntry>>,
+    expanded_dirs: HashSet<String>,
+    selection: FileMutationSelection,
+    preview: Option<(String, bool, bool)>,
+    git: GitSummary,
+    status: String,
+    clear_draft: bool,
+    saved_editor_path: Option<String>,
+    saved_editor_content: Option<String>,
+}
+
+#[derive(Default)]
+enum FileMutationSelection {
+    #[default]
+    Keep,
+    Clear,
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+enum FileMoveConflictCheckResult {
+    Clear,
+    Conflicts(Vec<String>),
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+struct FileMutationSelectionState {
+    selected_entry: Option<String>,
+    selected_entries: HashSet<String>,
+    selection_anchor: Option<String>,
+}
+
+#[derive(Clone, Default, PartialEq, Eq)]
+struct FileMutationDraftState {
+    kind: Option<FileNameDraftKind>,
+    target: Option<String>,
+    value: String,
+}
+
+fn load_file_mutation_tree(
+    runtime_service: &RuntimeService,
+    project_path: &str,
+    directory: Option<&str>,
+    expanded_dirs: &[String],
+) -> Result<(Vec<FileEntry>, HashMap<String, Vec<FileEntry>>), String> {
+    let files = runtime_service.try_reload_project_files(project_path, directory)?;
+    let file_tree_children =
+        load_file_mutation_children(runtime_service, project_path, expanded_dirs)?;
+    Ok((files, file_tree_children))
+}
+
+fn load_file_mutation_children(
+    runtime_service: &RuntimeService,
+    project_path: &str,
+    expanded_dirs: &[String],
+) -> Result<HashMap<String, Vec<FileEntry>>, String> {
+    expanded_dirs
+        .iter()
+        .cloned()
+        .map(|directory_path| {
+            let children =
+                runtime_service.try_reload_project_files(project_path, Some(&directory_path))?;
+            Ok((directory_path, children))
+        })
+        .collect::<Result<HashMap<_, _>, String>>()
+}
+
+fn file_mutation_text_preview(
+    runtime_service: &RuntimeService,
+    project_path: &str,
+    path: &str,
+    fallback: &str,
+) -> (String, bool, bool) {
+    if matches!(
+        crate::app::file_editor::file_preview_kind_for_path(path),
+        crate::app::file_editor::FilePreviewKind::Image
+            | crate::app::file_editor::FilePreviewKind::External
+    ) {
+        return (fallback.to_string(), false, false);
+    }
+    runtime_service
+        .read_project_file_edit_buffer(project_path, path)
+        .map(|(content, editable)| (content, editable, false))
+        .unwrap_or_else(|error| (format!("failed to load file: {error}"), false, false))
+}
+
+fn file_mutation_prune_expanded(expanded_dirs: &[String], removed_paths: &[String]) -> Vec<String> {
+    expanded_dirs
+        .iter()
+        .filter(|expanded| {
+            !removed_paths
+                .iter()
+                .any(|path| *expanded == path || expanded.starts_with(&format!("{path}/")))
+        })
+        .cloned()
+        .collect()
+}
+
+fn file_mutation_refresh_error(action: &str, error: String) -> String {
+    format!("{action}, but the first file tree refresh failed: {error}")
+}
+
 impl CoduxApp {
+    fn spawn_file_mutation<F>(
+        &mut self,
+        pending_status: String,
+        task_failed_status: &'static str,
+        cx: &mut Context<Self>,
+        task: F,
+    ) where
+        F: FnOnce() -> Result<FileMutationResult, String> + Send + 'static,
+    {
+        let generation = self.project_switch_generation;
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
+        let started_selection = self.file_mutation_selection_state();
+        let started_draft = self.file_mutation_draft_state();
+        self.file_mutation_generation = self.file_mutation_generation.wrapping_add(1);
+        let mutation_generation = self.file_mutation_generation;
+        self.status_message = pending_status;
+        self.invalidate_file_panel(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                task,
+            )
+            .await
+            .ok()
+            .unwrap_or_else(|| Err(task_failed_status.to_string()));
+
+            let _ = this.update_in(cx, |app, window, cx| {
+                let current_key = super::app_state::current_worktree_scope_key(&app.state);
+                if app.project_switch_generation != generation || current_key != scope_key {
+                    app.invalidate_file_panel(cx);
+                    return;
+                }
+                let mutation_is_current = app.file_mutation_generation == mutation_generation;
+                app.apply_file_mutation_result(
+                    result,
+                    mutation_is_current,
+                    started_selection,
+                    started_draft,
+                    window,
+                    cx,
+                );
+            });
+        })
+        .detach();
+    }
+
+    fn file_mutation_selection_state(&self) -> FileMutationSelectionState {
+        FileMutationSelectionState {
+            selected_entry: self.selected_file_entry.clone(),
+            selected_entries: self.selected_file_entries.clone(),
+            selection_anchor: self.file_selection_anchor.clone(),
+        }
+    }
+
+    fn file_mutation_draft_state(&self) -> FileMutationDraftState {
+        FileMutationDraftState {
+            kind: self.file_name_draft_kind,
+            target: self.file_name_draft_target.clone(),
+            value: self.file_name_draft_value.clone(),
+        }
+    }
+
+    fn spawn_file_mutation_failure_sync(&mut self, error: String, cx: &mut Context<Self>) {
+        let Some(project_path) = self.selected_worktree_path() else {
+            self.status_message = error;
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        let file_directory = self.file_directory.clone();
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        let generation = self.project_switch_generation;
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
+        let mutation_generation = self.file_mutation_generation;
+        self.status_message = format!("{error}. Retrying file tree refresh…");
+        self.invalidate_file_panel(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                {
+                    let project_path = project_path.clone();
+                    let file_directory = file_directory.clone();
+                    let expanded_dirs = expanded_dirs.clone();
+                    move || {
+                        let (files, file_tree_children) = load_file_mutation_tree(
+                            &runtime_service,
+                            &project_path,
+                            file_directory_option(&file_directory),
+                            &expanded_dirs,
+                        )?;
+                        let git = runtime_service.reload_project_git(&project_path);
+                        Ok::<_, String>((
+                            files,
+                            file_tree_children,
+                            expanded_dirs.into_iter().collect::<HashSet<_>>(),
+                            git,
+                        ))
+                    }
+                },
+            )
+            .await
+            .ok()
+            .unwrap_or_else(|| Err("file refresh retry task failed".to_string()));
+
+            let _ = this.update(cx, |app, cx| {
+                if app.project_switch_generation != generation
+                    || super::app_state::current_worktree_scope_key(&app.state) != scope_key
+                    || app.file_mutation_generation != mutation_generation
+                {
+                    app.invalidate_file_panel(cx);
+                    return;
+                }
+                match result {
+                    Ok((files, file_tree_children, expanded_dirs, git)) => {
+                        app.state.files = files;
+                        app.file_tree_children = file_tree_children;
+                        app.file_tree_expanded_dirs = expanded_dirs;
+                        app.prune_missing_file_tree_directories();
+                        app.normalize_selected_file_entry();
+                        app.state.git = git;
+                        app.normalize_selected_git_file();
+                        app.normalize_selected_git_branch();
+                        app.status_message = format!("{error}. File tree refreshed.");
+                        app.remember_current_file_panel_state();
+                    }
+                    Err(refresh_error) => {
+                        app.status_message = format!(
+                            "{error}. Refresh retry failed: {refresh_error}. Please refresh files manually."
+                        );
+                    }
+                }
+                app.invalidate_file_panel(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn apply_file_mutation_result(
+        &mut self,
+        result: Result<FileMutationResult, String>,
+        mutation_is_current: bool,
+        started_selection: FileMutationSelectionState,
+        started_draft: FileMutationDraftState,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !mutation_is_current {
+            self.invalidate_file_panel(cx);
+            return;
+        }
+        match result {
+            Ok(result) => {
+                self.state.files = result.files;
+                self.file_tree_expanded_dirs = result.expanded_dirs;
+                self.file_tree_children = result.file_tree_children;
+                self.prune_missing_file_tree_directories();
+                let selection_unchanged = self.file_mutation_selection_state() == started_selection;
+                if selection_unchanged {
+                    match result.selection {
+                        FileMutationSelection::Keep => self.normalize_selected_file_entry(),
+                        FileMutationSelection::Clear => self.clear_file_selection(),
+                        FileMutationSelection::Single(path) => self.set_single_file_selection(path),
+                        FileMutationSelection::Multiple(paths) => {
+                            self.selected_file_entries = paths.iter().cloned().collect();
+                            self.selected_file_entry = paths.last().cloned();
+                            self.file_selection_anchor = self.selected_file_entry.clone();
+                        }
+                    }
+                } else {
+                    self.normalize_selected_file_entry();
+                }
+                let saved_editor_unchanged =
+                    result.saved_editor_path.as_deref().is_none_or(|path| {
+                        result.saved_editor_content.as_ref().is_none_or(|content| {
+                            self.file_editor_states
+                                .get(&self.file_editor_state_key(path))
+                                .map(|state| state.read(cx).value().as_ref() == content)
+                                .unwrap_or(self.file_preview == *content)
+                        })
+                    });
+                if selection_unchanged && saved_editor_unchanged {
+                    if let Some((preview, editable, dirty)) = result.preview {
+                        self.file_preview = preview;
+                        self.file_editable = editable;
+                        self.file_dirty = dirty;
+                    }
+                }
+                self.state.git = result.git;
+                self.normalize_selected_git_file();
+                self.normalize_selected_git_branch();
+                if result.clear_draft && self.file_mutation_draft_state() == started_draft {
+                    self.file_name_draft_kind = None;
+                    self.file_name_draft_target = None;
+                    self.file_name_draft_value.clear();
+                    self.file_name_draft_select_all = false;
+                }
+                if saved_editor_unchanged {
+                    if let Some(path) = result.saved_editor_path.as_deref() {
+                        self.mark_file_editor_dirty(path, false, window, cx);
+                        self.normalize_file_search_index();
+                        self.persist_file_editor_layout_async(cx);
+                    }
+                }
+                self.status_message = result.status;
+                self.remember_current_file_panel_state();
+            }
+            Err(error) => {
+                self.spawn_file_mutation_failure_sync(error, cx);
+                return;
+            }
+        }
+        self.invalidate_file_panel(cx);
+    }
+
     pub(super) fn current_file_panel_state_snapshot(&self) -> super::app_state::FilePanelState {
         super::app_state::FilePanelState {
             files: self.state.files.clone(),
@@ -581,6 +903,169 @@ impl CoduxApp {
         self.select_file_entry(paths[next_index].clone(), cx);
     }
 
+    fn spawn_file_move_conflict_check(
+        &mut self,
+        paths: Vec<String>,
+        target_directory_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = &self.state.selected_project else {
+            self.status_message = "no selected project for file move".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        };
+        let project_path = project.path.clone();
+        let runtime_service = self.runtime_service.clone();
+        let generation = self.project_switch_generation;
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
+        self.file_mutation_generation = self.file_mutation_generation.wrapping_add(1);
+        let mutation_generation = self.file_mutation_generation;
+        let target_directory_for_read = target_directory_path.clone();
+        let worker_paths = paths.clone();
+        self.status_message = format!(
+            "checking move conflicts for {} file item{}",
+            paths.len(),
+            plural(paths.len())
+        );
+        self.invalidate_file_panel(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    let target_entries = runtime_service.try_reload_project_files(
+                        &project_path,
+                        file_directory_option(&target_directory_for_read),
+                    )?;
+                    let target_names = target_entries
+                        .iter()
+                        .map(|entry| entry.name.as_str())
+                        .collect::<HashSet<_>>();
+                    let conflicts = worker_paths
+                        .iter()
+                        .filter_map(|path| {
+                            let name = path.rsplit('/').next()?;
+                            target_names
+                                .contains(name)
+                                .then(|| join_relative_child_path(&target_directory_for_read, name))
+                        })
+                        .collect::<Vec<_>>();
+                    Ok::<_, String>(if conflicts.is_empty() {
+                        FileMoveConflictCheckResult::Clear
+                    } else {
+                        FileMoveConflictCheckResult::Conflicts(conflicts)
+                    })
+                },
+            )
+            .await
+            .ok()
+            .unwrap_or_else(|| Err("file move conflict check failed".to_string()));
+
+            let _ = this.update(cx, |app, cx| {
+                let current_key = super::app_state::current_worktree_scope_key(&app.state);
+                if app.project_switch_generation != generation
+                    || current_key != scope_key
+                    || app.file_mutation_generation != mutation_generation
+                {
+                    app.invalidate_file_panel(cx);
+                    return;
+                }
+                app.apply_file_move_conflict_check_result(paths, target_directory_path, result, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn apply_file_move_conflict_check_result(
+        &mut self,
+        paths: Vec<String>,
+        target_directory_path: String,
+        result: Result<FileMoveConflictCheckResult, String>,
+        cx: &mut Context<Self>,
+    ) {
+        let conflicts = match result {
+            Ok(FileMoveConflictCheckResult::Clear) => {
+                self.move_file_entries_to_directory_confirmed(
+                    paths,
+                    target_directory_path,
+                    false,
+                    cx,
+                );
+                return;
+            }
+            Ok(FileMoveConflictCheckResult::Conflicts(conflicts)) => conflicts,
+            Err(error) => {
+                self.status_message = format!("failed to check file move conflicts: {error}");
+                self.invalidate_file_panel(cx);
+                return;
+            }
+        };
+
+        let title = if conflicts.len() == 1 {
+            self.text("files.move.conflict_one_format", "Overwrite \"%@\"?")
+                .replace("%@", &conflicts[0])
+        } else {
+            self.text(
+                "files.move.conflict_many_format",
+                "Overwrite %d file items?",
+            )
+            .replace("%d", &conflicts.len().to_string())
+        };
+        let message = self.text(
+            "files.move.conflict.message",
+            "The destination already contains file items with the same name. Overwriting will replace the destination items.",
+        );
+        let confirm_label = self.text("files.move.conflict.confirm", "Overwrite");
+        let cancel_label = self.text("common.cancel", "Cancel");
+        let service = self.runtime_service.clone();
+        let generation = self.project_switch_generation;
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
+        let mutation_generation = self.file_mutation_generation;
+        self.status_message = "waiting for file move confirmation".to_string();
+        let timer = cx.background_executor().clone();
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            timer.timer(Duration::from_millis(120)).await;
+            let result = codux_runtime::async_runtime::spawn_blocking(move || {
+                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
+                    title,
+                    message,
+                    confirm_label,
+                    cancel_label,
+                })
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+
+            let _ = this.update(cx, |app, cx| {
+                if app.project_switch_generation != generation
+                    || super::app_state::current_worktree_scope_key(&app.state) != scope_key
+                    || app.file_mutation_generation != mutation_generation
+                {
+                    app.invalidate_file_panel(cx);
+                    return;
+                }
+                match result {
+                    Ok(true) => app.move_file_entries_to_directory_confirmed(
+                        paths,
+                        target_directory_path,
+                        true,
+                        cx,
+                    ),
+                    Ok(false) => {
+                        app.status_message = "file move canceled".to_string();
+                        app.invalidate_file_panel(cx);
+                    }
+                    Err(error) => {
+                        app.status_message = format!("failed to show move confirmation: {error}");
+                        app.invalidate_file_panel(cx);
+                    }
+                }
+            });
+        })
+        .detach();
+        self.invalidate_file_panel(cx);
+    }
+
     pub(super) fn move_file_entries_to_directory(
         &mut self,
         paths: Vec<String>,
@@ -609,85 +1094,7 @@ impl CoduxApp {
             return;
         }
 
-        let Some(project) = &self.state.selected_project else {
-            self.status_message = "no selected project for file move".to_string();
-            self.invalidate_file_panel(cx);
-            return;
-        };
-        self.status_message = format!(
-            "moving {} file item{} to {target_directory_path}",
-            paths.len(),
-            plural(paths.len())
-        );
-        let project_path = project.path.clone();
-        let conflicts = paths
-            .iter()
-            .filter_map(|path| {
-                let name = path.rsplit('/').next()?;
-                let target = join_relative_child_path(&target_directory_path, name);
-                Path::new(&project_path)
-                    .join(&target)
-                    .exists()
-                    .then_some(target)
-            })
-            .collect::<Vec<_>>();
-        if conflicts.is_empty() {
-            self.move_file_entries_to_directory_confirmed(paths, target_directory_path, false, cx);
-            return;
-        }
-
-        let title = if conflicts.len() == 1 {
-            self.text("files.move.conflict_one_format", "Overwrite \"%@\"?")
-                .replace("%@", &conflicts[0])
-        } else {
-            self.text(
-                "files.move.conflict_many_format",
-                "Overwrite %d file items?",
-            )
-            .replace("%d", &conflicts.len().to_string())
-        };
-        let message = self.text(
-            "files.move.conflict.message",
-            "The destination already contains file items with the same name. Overwriting will replace the destination items.",
-        );
-        let confirm_label = self.text("files.move.conflict.confirm", "Overwrite");
-        let cancel_label = self.text("common.cancel", "Cancel");
-        let service = self.runtime_service.clone();
-        self.status_message = "waiting for file move confirmation".to_string();
-        let timer = cx.background_executor().clone();
-        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
-            timer.timer(Duration::from_millis(120)).await;
-            let result = codux_runtime::async_runtime::spawn_blocking(move || {
-                service.localized_confirm_dialog(LocalizedConfirmDialogRequest {
-                    title,
-                    message,
-                    confirm_label,
-                    cancel_label,
-                })
-            })
-            .await
-            .map_err(|error| error.to_string())
-            .and_then(|result| result);
-
-            let _ = this.update(cx, |app, cx| match result {
-                Ok(true) => app.move_file_entries_to_directory_confirmed(
-                    paths,
-                    target_directory_path,
-                    true,
-                    cx,
-                ),
-                Ok(false) => {
-                    app.status_message = "file move canceled".to_string();
-                    app.invalidate_file_panel(cx);
-                }
-                Err(error) => {
-                    app.status_message = format!("failed to show move confirmation: {error}");
-                    app.invalidate_file_panel(cx);
-                }
-            });
-        })
-        .detach();
-        self.invalidate_file_panel(cx);
+        self.spawn_file_move_conflict_check(paths, target_directory_path, cx);
     }
 
     pub(super) fn move_file_entries_to_directory_confirmed(
@@ -702,57 +1109,73 @@ impl CoduxApp {
             self.invalidate_file_panel(cx);
             return;
         };
+        if paths.is_empty() {
+            self.status_message = "no movable file item selected".to_string();
+            self.invalidate_file_panel(cx);
+            return;
+        }
         let project_path = project.path.clone();
-        let mut moved = Vec::new();
-        let mut latest_files = None;
-        for path in paths {
-            let result = if overwrite {
-                self.runtime_service.move_project_file_entry_overwrite(
-                    &project_path,
-                    &path,
-                    &target_directory_path,
-                    file_directory_option(&self.file_directory),
-                )
-            } else {
-                self.runtime_service.move_project_file_entry(
-                    &project_path,
-                    &path,
-                    &target_directory_path,
-                    file_directory_option(&self.file_directory),
-                )
-            };
-            match result {
-                Ok((files, moved_path)) => {
-                    latest_files = Some(files);
+        let file_directory = self.file_directory.clone();
+        let directory = file_directory_option(&file_directory).map(str::to_string);
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        let count = paths.len();
+        self.spawn_file_mutation(
+            format!("moving {count} file item{}", plural(count)),
+            "file move task failed",
+            cx,
+            move || {
+                let mut moved = Vec::new();
+                let mut files = None;
+                for path in &paths {
+                    let (next_files, moved_path) = if overwrite {
+                        runtime_service.move_project_file_entry_overwrite(
+                            &project_path,
+                            path,
+                            &target_directory_path,
+                            directory.as_deref(),
+                        )
+                    } else {
+                        runtime_service.move_project_file_entry(
+                            &project_path,
+                            path,
+                            &target_directory_path,
+                            directory.as_deref(),
+                        )
+                    }
+                    .map_err(|error| format!("failed to move {path}: {error}"))?;
+                    files = Some(next_files);
                     moved.push(moved_path);
-                    self.file_tree_expanded_dirs.retain(|expanded| {
-                        expanded != &path && !expanded.starts_with(&format!("{path}/"))
-                    });
                 }
-                Err(error) => {
-                    self.status_message = format!("failed to move {path}: {error}");
-                    self.invalidate_file_panel(cx);
-                    return;
-                }
-            }
-        }
-
-        if let Some(files) = latest_files {
-            self.state.files = files;
-        }
-        self.refresh_file_tree_state();
-        if moved.len() == 1 {
-            self.set_single_file_selection(moved[0].clone());
-        } else {
-            self.selected_file_entries = moved.iter().cloned().collect();
-            self.selected_file_entry = moved.last().cloned();
-            self.file_selection_anchor = self.selected_file_entry.clone();
-        }
-        self.state.git = self.runtime_service.reload_project_git(&project_path);
-        self.normalize_selected_git_file();
-        self.normalize_selected_git_branch();
-        self.status_message = format!("moved {} file item{}", moved.len(), plural(moved.len()));
-        self.invalidate_file_panel(cx);
+                let files = files.unwrap_or_default();
+                let next_expanded = file_mutation_prune_expanded(&expanded_dirs, &paths);
+                let file_tree_children =
+                    load_file_mutation_children(&runtime_service, &project_path, &next_expanded)
+                        .map_err(|error| file_mutation_refresh_error("file items moved", error))?;
+                let git = runtime_service.reload_project_git(&project_path);
+                let selection = if moved.len() == 1 {
+                    FileMutationSelection::Single(moved[0].clone())
+                } else {
+                    FileMutationSelection::Multiple(moved.clone())
+                };
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: next_expanded.into_iter().collect(),
+                    selection,
+                    preview: None,
+                    git,
+                    status: format!("moved {} file item{}", moved.len(), plural(moved.len())),
+                    clear_draft: false,
+                    saved_editor_path: None,
+                    saved_editor_content: None,
+                })
+            },
+        );
     }
 
     pub(super) fn normalize_selected_file_entry(&mut self) {
@@ -1030,45 +1453,51 @@ impl CoduxApp {
         };
         let project_path = project.path.clone();
         let parent = file_directory_option(&self.file_directory).map(str::to_string);
-        let result = if directory {
-            self.runtime_service
-                .create_project_directory(&project_path, parent.as_deref(), &name)
-        } else {
-            self.runtime_service
-                .create_project_file(&project_path, parent.as_deref(), &name)
-        };
-        match result {
-            Ok(files) => {
-                let relative_path = join_relative_child_path(&self.file_directory, &name);
-                self.state.files = files;
-                self.refresh_file_tree_state();
-                self.set_single_file_selection(relative_path.clone());
-                self.file_preview = if directory {
-                    "directory created".to_string()
+        let file_directory = self.file_directory.clone();
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        let item_label = if directory { "directory" } else { "file" };
+        self.spawn_file_mutation(
+            format!("creating {item_label}: {name}"),
+            "file creation task failed",
+            cx,
+            move || {
+                let files = if directory {
+                    runtime_service.create_project_directory(
+                        &project_path,
+                        parent.as_deref(),
+                        &name,
+                    )?
                 } else {
-                    String::new()
+                    runtime_service.create_project_file(&project_path, parent.as_deref(), &name)?
                 };
-                self.file_editable = !directory;
-                self.file_dirty = false;
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.file_name_draft_kind = None;
-                self.file_name_draft_target = None;
-                self.file_name_draft_value.clear();
-                self.status_message = format!(
-                    "{} created: {relative_path}",
-                    if directory { "directory" } else { "file" }
-                );
-            }
-            Err(error) => {
-                self.status_message = format!(
-                    "failed to create {}: {error}",
-                    if directory { "directory" } else { "file" }
-                );
-            }
-        }
-        self.invalidate_file_panel(cx);
+                let relative_path = join_relative_child_path(&file_directory, &name);
+                let file_tree_children =
+                    load_file_mutation_children(&runtime_service, &project_path, &expanded_dirs)
+                        .map_err(|error| file_mutation_refresh_error("file created", error))?;
+                let git = runtime_service.reload_project_git(&project_path);
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: expanded_dirs.into_iter().collect(),
+                    selection: FileMutationSelection::Single(relative_path.clone()),
+                    preview: Some(if directory {
+                        ("directory created".to_string(), false, false)
+                    } else {
+                        (String::new(), true, false)
+                    }),
+                    git,
+                    status: format!("{item_label} created: {relative_path}"),
+                    clear_draft: true,
+                    saved_editor_path: None,
+                    saved_editor_content: None,
+                })
+            },
+        );
     }
 
     pub(super) fn request_delete_selected_file_entries(
@@ -1106,6 +1535,10 @@ impl CoduxApp {
             let confirm_label = self.text("common.delete", "Delete");
             let cancel_label = self.text("common.cancel", "Cancel");
             let service = self.runtime_service.clone();
+            self.file_mutation_generation = self.file_mutation_generation.wrapping_add(1);
+            let mutation_generation = self.file_mutation_generation;
+            let generation = self.project_switch_generation;
+            let scope_key = super::app_state::current_worktree_scope_key(&self.state);
             self.status_message = "waiting for file deletion confirmation".to_string();
             let timer = cx.background_executor().clone();
             cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
@@ -1122,15 +1555,25 @@ impl CoduxApp {
                 .map_err(|error| error.to_string())
                 .and_then(|result| result);
 
-                let _ = this.update(cx, |app, cx| match result {
-                    Ok(true) => app.delete_file_entries(paths, cx),
-                    Ok(false) => {
-                        app.status_message = "file deletion canceled".to_string();
+                let _ = this.update(cx, |app, cx| {
+                    if app.project_switch_generation != generation
+                        || super::app_state::current_worktree_scope_key(&app.state) != scope_key
+                        || app.file_mutation_generation != mutation_generation
+                    {
                         app.invalidate_file_panel(cx);
+                        return;
                     }
-                    Err(error) => {
-                        app.status_message = format!("failed to show delete confirmation: {error}");
-                        app.invalidate_file_panel(cx);
+                    match result {
+                        Ok(true) => app.delete_file_entries(paths, cx),
+                        Ok(false) => {
+                            app.status_message = "file deletion canceled".to_string();
+                            app.invalidate_file_panel(cx);
+                        }
+                        Err(error) => {
+                            app.status_message =
+                                format!("failed to show delete confirmation: {error}");
+                            app.invalidate_file_panel(cx);
+                        }
                     }
                 });
             })
@@ -1153,46 +1596,55 @@ impl CoduxApp {
             return;
         }
         let project_path = project.path.clone();
-        let directory = file_directory_option(&self.file_directory).map(str::to_string);
+        let file_directory = self.file_directory.clone();
+        let directory = file_directory_option(&file_directory).map(str::to_string);
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
         let count = paths.len();
-        let mut latest_files = None;
-        for entry_path in &paths {
-            match self.runtime_service.delete_project_file_entry(
-                &project_path,
-                entry_path,
-                directory.as_deref(),
-            ) {
-                Ok(files) => {
-                    latest_files = Some(files);
-                    self.file_tree_expanded_dirs.retain(|path| {
-                        path != entry_path && !path.starts_with(&format!("{entry_path}/"))
-                    });
+        self.spawn_file_mutation(
+            format!("moving {count} file item{} to trash", plural(count)),
+            "file deletion task failed",
+            cx,
+            move || {
+                let mut files = None;
+                for entry_path in &paths {
+                    files = Some(runtime_service.delete_project_file_entry(
+                        &project_path,
+                        entry_path,
+                        directory.as_deref(),
+                    )?);
                 }
-                Err(error) => {
-                    self.status_message = format!("failed to delete file entry: {error}");
-                    self.invalidate_file_panel(cx);
-                    return;
-                }
-            }
-        }
-        if let Some(files) = latest_files {
-            self.state.files = files;
-        }
-        self.refresh_file_tree_state();
-        self.clear_file_selection();
-        self.file_preview = "select a file to preview it".to_string();
-        self.file_editable = false;
-        self.file_dirty = false;
-        self.state.git = self.runtime_service.reload_project_git(&project_path);
-        self.normalize_selected_git_file();
-        self.normalize_selected_git_branch();
-        self.status_message = format!("moved {count} file item{} to trash", plural(count));
-        self.invalidate_file_panel(cx);
+                let files = files.unwrap_or_default();
+                let next_expanded = file_mutation_prune_expanded(&expanded_dirs, &paths);
+                let file_tree_children =
+                    load_file_mutation_children(&runtime_service, &project_path, &next_expanded)
+                        .map_err(|error| {
+                            file_mutation_refresh_error("file items deleted", error)
+                        })?;
+                let git = runtime_service.reload_project_git(&project_path);
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: next_expanded.into_iter().collect(),
+                    selection: FileMutationSelection::Clear,
+                    preview: Some(("select a file to preview it".to_string(), false, false)),
+                    git,
+                    status: format!("moved {count} file item{} to trash", plural(count)),
+                    clear_draft: false,
+                    saved_editor_path: None,
+                    saved_editor_content: None,
+                })
+            },
+        );
     }
 
     pub(super) fn save_selected_file_preview(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(project_path) = self.selected_worktree_path() else {
@@ -1224,36 +1676,47 @@ impl CoduxApp {
             .active_file_editor_state()
             .map(|state| state.read(cx).value().to_string())
             .unwrap_or_else(|| self.file_preview.clone());
-        match self
-            .runtime_service
-            .write_project_file(&project_path, &entry_path, &content)
-        {
-            Ok(preview) => {
-                self.file_preview = preview;
-                self.file_editable = true;
-                self.file_dirty = false;
-                self.mark_file_editor_dirty(&entry_path, false, window, cx);
-                self.normalize_file_search_index();
-                self.state.files = self.runtime_service.reload_project_files(
+        let file_directory = self.file_directory.clone();
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        self.spawn_file_mutation(
+            format!("saving file: {entry_path}"),
+            "file save task failed",
+            cx,
+            move || {
+                let preview =
+                    runtime_service.write_project_file(&project_path, &entry_path, &content)?;
+                let (files, file_tree_children) = load_file_mutation_tree(
+                    &runtime_service,
                     &project_path,
-                    file_directory_option(&self.file_directory),
-                );
-                self.refresh_file_tree_state();
-                self.set_single_file_selection(entry_path.clone());
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.status_message = format!("file saved: {entry_path}");
-                self.persist_file_editor_layout_async(cx);
-            }
-            Err(error) => self.status_message = format!("failed to save file: {error}"),
-        }
-        self.invalidate_file_panel(cx);
+                    file_directory_option(&file_directory),
+                    &expanded_dirs,
+                )
+                .map_err(|error| file_mutation_refresh_error("file saved", error))?;
+                let git = runtime_service.reload_project_git(&project_path);
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: expanded_dirs.into_iter().collect(),
+                    selection: FileMutationSelection::Single(entry_path.clone()),
+                    preview: Some((preview, true, false)),
+                    git,
+                    status: format!("file saved: {entry_path}"),
+                    clear_draft: false,
+                    saved_editor_path: Some(entry_path),
+                    saved_editor_content: Some(content.clone()),
+                })
+            },
+        );
     }
 
     pub(super) fn reload_active_file_editor_tab(
         &mut self,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(project_path) = self.selected_worktree_path() else {
@@ -1266,11 +1729,44 @@ impl CoduxApp {
             self.invalidate_file_panel(cx);
             return;
         };
+        let runtime_service = self.runtime_service.clone();
+        let generation = self.project_switch_generation;
+        let scope_key = super::app_state::current_worktree_scope_key(&self.state);
+        self.status_message = format!("reloading file: {entry_path}");
+        self.invalidate_file_panel(cx);
+        cx.spawn(async move |this: gpui::WeakEntity<Self>, cx| {
+            let worker_entry_path = entry_path.clone();
+            let result = codux_runtime::async_runtime::run_limited_blocking_with_priority(
+                codux_runtime::async_runtime::BLOCKING_PRIORITY_FOREGROUND + generation,
+                move || {
+                    runtime_service.read_project_file_edit_buffer(&project_path, &worker_entry_path)
+                },
+            )
+            .await
+            .ok()
+            .unwrap_or_else(|| Err("file reload task failed".to_string()));
 
-        match self
-            .runtime_service
-            .read_project_file_edit_buffer(&project_path, &entry_path)
-        {
+            let _ = this.update_in(cx, |app, window, cx| {
+                if app.project_switch_generation != generation
+                    || super::app_state::current_worktree_scope_key(&app.state) != scope_key
+                {
+                    app.invalidate_file_panel(cx);
+                    return;
+                }
+                app.apply_active_file_editor_tab_reload(entry_path, result, window, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn apply_active_file_editor_tab_reload(
+        &mut self,
+        entry_path: String,
+        result: Result<(String, bool), String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
             Ok((content, editable)) => {
                 let key = self.file_editor_state_key(&entry_path);
                 let language = self
@@ -1347,54 +1843,60 @@ impl CoduxApp {
             return;
         };
         let project_path = project.path.clone();
-        match self.runtime_service.rename_project_file_entry(
-            &project_path,
-            &entry_path,
-            &new_name,
-            file_directory_option(&self.file_directory),
-        ) {
-            Ok((files, renamed_path)) => {
-                self.state.files = files;
-                let was_expanded = self.file_tree_expanded_dirs.remove(&entry_path);
-                self.file_tree_expanded_dirs
-                    .retain(|path| !path.starts_with(&format!("{entry_path}/")));
+        let file_directory = self.file_directory.clone();
+        let directory = file_directory_option(&file_directory).map(str::to_string);
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        let was_file = matches!(entry.kind, FileKind::File);
+        self.spawn_file_mutation(
+            format!("renaming file entry: {entry_path}"),
+            "file rename task failed",
+            cx,
+            move || {
+                let (files, renamed_path) = runtime_service.rename_project_file_entry(
+                    &project_path,
+                    &entry_path,
+                    &new_name,
+                    directory.as_deref(),
+                )?;
+                let was_expanded = expanded_dirs.iter().any(|path| path == &entry_path);
+                let mut next_expanded =
+                    file_mutation_prune_expanded(&expanded_dirs, std::slice::from_ref(&entry_path));
                 if was_expanded {
-                    self.file_tree_expanded_dirs.insert(renamed_path.clone());
+                    next_expanded.push(renamed_path.clone());
                 }
-                self.refresh_file_tree_state();
-                self.set_single_file_selection(renamed_path.clone());
-                if matches!(entry.kind, FileKind::File) {
-                    match self
-                        .runtime_service
-                        .read_project_file_edit_buffer(&project_path, &renamed_path)
-                    {
-                        Ok((content, editable)) => {
-                            self.file_preview = content;
-                            self.file_editable = editable;
-                            self.file_dirty = false;
-                        }
-                        Err(error) => {
-                            self.file_preview = format!("failed to reload renamed file: {error}");
-                            self.file_editable = false;
-                            self.file_dirty = false;
-                        }
-                    }
+                let file_tree_children =
+                    load_file_mutation_children(&runtime_service, &project_path, &next_expanded)
+                        .map_err(|error| file_mutation_refresh_error("file renamed", error))?;
+                let preview = if was_file {
+                    file_mutation_text_preview(
+                        &runtime_service,
+                        &project_path,
+                        &renamed_path,
+                        "file entry renamed",
+                    )
                 } else {
-                    self.file_preview = "directory renamed".to_string();
-                    self.file_editable = false;
-                    self.file_dirty = false;
-                }
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.file_name_draft_kind = None;
-                self.file_name_draft_target = None;
-                self.file_name_draft_value.clear();
-                self.status_message = format!("renamed file entry: {renamed_path}");
-            }
-            Err(error) => self.status_message = format!("failed to rename file entry: {error}"),
-        }
-        self.invalidate_file_panel(cx);
+                    ("directory renamed".to_string(), false, false)
+                };
+                let git = runtime_service.reload_project_git(&project_path);
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: next_expanded.into_iter().collect(),
+                    selection: FileMutationSelection::Single(renamed_path.clone()),
+                    preview: Some(preview),
+                    git,
+                    status: format!("renamed file entry: {renamed_path}"),
+                    clear_draft: true,
+                    saved_editor_path: None,
+                    saved_editor_content: None,
+                })
+            },
+        );
     }
 
     pub(super) fn selected_file_entry_paths(&self) -> Vec<String> {
@@ -1528,44 +2030,53 @@ impl CoduxApp {
             return;
         };
         let project_path = project.path.clone();
-        match self.runtime_service.copy_project_file_entry(
-            &project_path,
-            &entry_path,
-            file_directory_option(&self.file_directory),
-        ) {
-            Ok((files, copied_path)) => {
-                self.state.files = files;
-                self.refresh_file_tree_state();
-                self.set_single_file_selection(copied_path.clone());
-                if matches!(entry.kind, FileKind::File) {
-                    match self
-                        .runtime_service
-                        .read_project_file_edit_buffer(&project_path, &copied_path)
-                    {
-                        Ok((content, editable)) => {
-                            self.file_preview = content;
-                            self.file_editable = editable;
-                            self.file_dirty = false;
-                        }
-                        Err(error) => {
-                            self.file_preview = format!("failed to load copied file: {error}");
-                            self.file_editable = false;
-                            self.file_dirty = false;
-                        }
-                    }
+        let file_directory = self.file_directory.clone();
+        let directory = file_directory_option(&file_directory).map(str::to_string);
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        let was_file = matches!(entry.kind, FileKind::File);
+        self.spawn_file_mutation(
+            format!("copying file entry: {entry_path}"),
+            "file copy task failed",
+            cx,
+            move || {
+                let (files, copied_path) = runtime_service.copy_project_file_entry(
+                    &project_path,
+                    &entry_path,
+                    directory.as_deref(),
+                )?;
+                let file_tree_children =
+                    load_file_mutation_children(&runtime_service, &project_path, &expanded_dirs)
+                        .map_err(|error| file_mutation_refresh_error("file copied", error))?;
+                let preview = if was_file {
+                    file_mutation_text_preview(
+                        &runtime_service,
+                        &project_path,
+                        &copied_path,
+                        "file entry copied",
+                    )
                 } else {
-                    self.file_preview = "directory copied".to_string();
-                    self.file_editable = false;
-                    self.file_dirty = false;
-                }
-                self.state.git = self.runtime_service.reload_project_git(&project_path);
-                self.normalize_selected_git_file();
-                self.normalize_selected_git_branch();
-                self.status_message = format!("copied file entry: {copied_path}");
-            }
-            Err(error) => self.status_message = format!("failed to copy file entry: {error}"),
-        }
-        self.invalidate_file_panel(cx);
+                    ("directory copied".to_string(), false, false)
+                };
+                let git = runtime_service.reload_project_git(&project_path);
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: expanded_dirs.into_iter().collect(),
+                    selection: FileMutationSelection::Single(copied_path.clone()),
+                    preview: Some(preview),
+                    git,
+                    status: format!("copied file entry: {copied_path}"),
+                    clear_draft: false,
+                    saved_editor_path: None,
+                    saved_editor_content: None,
+                })
+            },
+        );
     }
 
     pub(super) fn paste_external_file_entries(
@@ -1594,102 +2105,88 @@ impl CoduxApp {
             self.invalidate_file_panel(cx);
             return;
         };
-        let paths = payload
-            .paths
-            .into_iter()
-            .filter(|path| Path::new(path).exists())
-            .collect::<Vec<_>>();
-        if paths.is_empty() && payload.images.is_empty() {
+        if payload.paths.is_empty() && payload.images.is_empty() {
             self.status_message = "clipboard has no files or images to paste".to_string();
             self.invalidate_file_panel(cx);
             return;
         }
         let directory = file_directory_option(&target_directory).map(str::to_string);
-
-        let mut selected = None;
-        let mut latest_files = None;
-        if !paths.is_empty() {
-            match self.runtime_service.import_external_project_files(
-                &project_path,
-                paths,
-                directory.as_deref(),
-            ) {
-                Ok((files, pasted)) => {
-                    latest_files = Some(files);
+        let expanded_dirs = self
+            .file_tree_expanded_dirs
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let runtime_service = self.runtime_service.clone();
+        self.spawn_file_mutation(
+            "pasting clipboard files".to_string(),
+            "file paste task failed",
+            cx,
+            move || {
+                let paths = payload
+                    .paths
+                    .into_iter()
+                    .filter(|path| Path::new(path).exists())
+                    .collect::<Vec<_>>();
+                if paths.is_empty() && payload.images.is_empty() {
+                    return Err("clipboard has no files or images to paste".to_string());
+                }
+                let mut selected = None;
+                let mut files = None;
+                if !paths.is_empty() {
+                    let (next_files, pasted) = runtime_service.import_external_project_files(
+                        &project_path,
+                        paths,
+                        directory.as_deref(),
+                    )?;
+                    files = Some(next_files);
                     selected = pasted;
                 }
-                Err(error) => {
-                    self.status_message = format!("failed to paste clipboard file: {error}");
-                    self.invalidate_file_panel(cx);
-                    return;
-                }
-            }
-        }
-
-        let mut pasted_image_count = 0usize;
-        for image in payload.images {
-            match self.runtime_service.write_project_file_bytes(
-                &project_path,
-                directory.as_deref(),
-                &image.file_name,
-                image.bytes,
-            ) {
-                Ok((files, path)) => {
-                    latest_files = Some(files);
+                let mut pasted_image_count = 0usize;
+                for image in payload.images {
+                    let (next_files, path) = runtime_service.write_project_file_bytes(
+                        &project_path,
+                        directory.as_deref(),
+                        &image.file_name,
+                        image.bytes,
+                    )?;
+                    files = Some(next_files);
                     selected = Some(path);
                     pasted_image_count += 1;
                 }
-                Err(error) => {
-                    self.status_message = format!("failed to paste clipboard image: {error}");
-                    self.invalidate_file_panel(cx);
-                    return;
-                }
-            }
-        }
-
-        if let Some(files) = latest_files {
-            self.state.files = files;
-        }
-        self.refresh_file_tree_state();
-        if let Some(path) = selected.clone() {
-            self.set_single_file_selection(path.clone());
-            self.load_file_preview_after_file_paste(&project_path, &path);
-        }
-        self.file_dirty = false;
-        self.state.git = self.runtime_service.reload_project_git(&project_path);
-        self.normalize_selected_git_file();
-        self.normalize_selected_git_branch();
-        self.status_message = if pasted_image_count > 0 {
-            format!("clipboard image{} pasted", plural(pasted_image_count))
-        } else {
-            "clipboard file pasted".to_string()
-        };
-        self.invalidate_file_panel(cx);
-    }
-
-    fn load_file_preview_after_file_paste(&mut self, project_path: &str, path: &str) {
-        if matches!(
-            crate::app::file_editor::file_preview_kind_for_path(path),
-            crate::app::file_editor::FilePreviewKind::Image
-                | crate::app::file_editor::FilePreviewKind::External
-        ) {
-            self.file_preview = "clipboard file pasted".to_string();
-            self.file_editable = false;
-            return;
-        }
-        match self
-            .runtime_service
-            .read_project_file_edit_buffer(project_path, path)
-        {
-            Ok((content, editable)) => {
-                self.file_preview = content;
-                self.file_editable = editable;
-            }
-            Err(_) => {
-                self.file_preview = "clipboard file pasted".to_string();
-                self.file_editable = false;
-            }
-        }
+                let files = files.unwrap_or_default();
+                let file_tree_children =
+                    load_file_mutation_children(&runtime_service, &project_path, &expanded_dirs)
+                        .map_err(|error| file_mutation_refresh_error("clipboard pasted", error))?;
+                let preview = selected.as_ref().map(|path| {
+                    file_mutation_text_preview(
+                        &runtime_service,
+                        &project_path,
+                        path,
+                        "clipboard file pasted",
+                    )
+                });
+                let git = runtime_service.reload_project_git(&project_path);
+                Ok(FileMutationResult {
+                    files,
+                    file_tree_children,
+                    expanded_dirs: expanded_dirs.into_iter().collect(),
+                    selection: selected
+                        .clone()
+                        .map(FileMutationSelection::Single)
+                        .unwrap_or_default(),
+                    preview,
+                    git,
+                    status: if pasted_image_count > 0 {
+                        format!("clipboard image{} pasted", plural(pasted_image_count))
+                    } else {
+                        "clipboard file pasted".to_string()
+                    },
+                    clear_draft: false,
+                    saved_editor_path: None,
+                    saved_editor_content: None,
+                })
+            },
+        );
     }
 
     pub(super) fn reveal_selected_file_entry(
