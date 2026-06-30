@@ -3,7 +3,7 @@ use crate::app::ui_helpers::codux_tooltip_container;
 use chrono::{Datelike as _, TimeZone as _, Timelike as _};
 use codux_runtime::i18n::translate;
 use gpui_component::{
-    Selectable,
+    Selectable, Size,
     button::{Button, ButtonVariants},
     scroll::ScrollableElement,
     tab::{Tab, TabBar},
@@ -227,7 +227,7 @@ pub(in crate::app) fn stats_workspace_body(
         .h_full()
         .min_w_0()
         .min_h_0()
-        .bg(cx.theme().sidebar)
+        .bg(theme::vibrancy_panel(cx.theme().sidebar))
         .child(
             div()
                 .relative()
@@ -330,6 +330,7 @@ fn stats_control_row(
         .child(
             TabBar::new("stats-cache-mode-tabs")
                 .pill()
+                .with_size(Size::Small)
                 .selected_index(selected_cache_index)
                 .child(Tab::new().label(stats_text(
                     &snapshot.language,
@@ -361,6 +362,7 @@ fn stats_filter_button(
 ) -> impl IntoElement {
     Button::new(SharedString::from(format!("stats-filter-{label}")))
         .secondary()
+        .with_size(Size::Small)
         .compact()
         .rounded(px(999.0))
         .selected(active)

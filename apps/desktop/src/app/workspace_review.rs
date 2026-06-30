@@ -241,24 +241,38 @@ pub(in crate::app) fn review_workspace_body(
         .flex()
         .flex_col()
         .flex_1()
+        .flex_basis(px(0.0))
+        .w_full()
+        .h_full()
+        .min_w_0()
         .min_h_0()
         .bg(color(theme::BG_TERMINAL))
         .child(review_workspace_header(&snapshot, cx))
         .child(
-            h_resizable("git-review-workspace-split")
+            div()
+                .flex()
+                .flex_1()
+                .flex_basis(px(0.0))
+                .w_full()
+                .h_full()
+                .min_w_0()
+                .min_h_0()
                 .child(
-                    resizable_panel()
-                        .size(px(320.0))
-                        .size_range(px(180.0)..px(520.0))
-                        .child(gpui::AnyView::from(file_list_view)),
-                )
-                .child(
-                    resizable_panel().size_range(px(280.0)..Pixels::MAX).child(
-                        div()
-                            .size_full()
-                            .min_w_0()
-                            .child(gpui::AnyView::from(diff_content_view)),
-                    ),
+                    h_resizable("git-review-workspace-split")
+                        .child(
+                            resizable_panel()
+                                .size(px(320.0))
+                                .size_range(px(180.0)..px(520.0))
+                                .child(gpui::AnyView::from(file_list_view)),
+                        )
+                        .child(
+                            resizable_panel().size_range(px(280.0)..Pixels::MAX).child(
+                                div()
+                                    .size_full()
+                                    .min_w_0()
+                                    .child(gpui::AnyView::from(diff_content_view)),
+                            ),
+                        ),
                 ),
         )
 }
