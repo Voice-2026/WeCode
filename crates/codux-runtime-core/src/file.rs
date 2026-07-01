@@ -263,30 +263,7 @@ fn same_file_metadata(left: &Path, right: &Path) -> bool {
     left_metadata.dev() == right_metadata.dev() && left_metadata.ino() == right_metadata.ino()
 }
 
-#[cfg(windows)]
-fn same_file_metadata(left: &Path, right: &Path) -> bool {
-    use std::os::windows::fs::MetadataExt;
-
-    let Ok(left_metadata) = fs::metadata(left) else {
-        return false;
-    };
-    let Ok(right_metadata) = fs::metadata(right) else {
-        return false;
-    };
-    match (
-        left_metadata.volume_serial_number(),
-        right_metadata.volume_serial_number(),
-        left_metadata.file_index(),
-        right_metadata.file_index(),
-    ) {
-        (Some(left_volume), Some(right_volume), Some(left_index), Some(right_index)) => {
-            left_volume == right_volume && left_index == right_index
-        }
-        _ => false,
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
+#[cfg(not(unix))]
 fn same_file_metadata(_left: &Path, _right: &Path) -> bool {
     false
 }

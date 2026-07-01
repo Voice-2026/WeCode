@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Fixed remote terminals sometimes rendering blank until the window was resized or input was sent by registering viewers before PTY output and replaying the baseline on reattach.
 - Fixed Codex/Claude wrapper settings in the integrated terminal so permission mode, model, reasoning effort, memory injection, and SSH profile environment are applied reliably even when third-party shell integrations modify `ZDOTDIR` or `PATH`.
 - Fixed SSH profile private-key selection, file-picker scrolling and operations, remote Git/file operations, and remote terminal attach behavior across the desktop app and headless agent.
+- Fixed Windows release builds by removing unstable file-identity metadata APIs from rename conflict checks.
 
 ### Changed
 
