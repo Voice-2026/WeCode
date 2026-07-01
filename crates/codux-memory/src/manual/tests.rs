@@ -86,9 +86,11 @@ fn history_session(project_path: &str) -> AISessionSummary {
         total_output_tokens: 34,
         total_tokens: 46,
         cached_input_tokens: 5,
+        usage_amounts: Vec::new(),
         active_duration_seconds: 6,
         today_tokens: 46,
         today_cached_input_tokens: 5,
+        today_usage_amounts: Vec::new(),
     }
 }
 
@@ -107,6 +109,7 @@ fn manual_enqueue_limits_candidates_by_project() {
     let settings = MemorySettings {
         enabled: true,
         max_index_sessions: 1,
+        extraction_heuristic_gate_enabled: false,
         ..Default::default()
     };
     let sessions = vec![
@@ -154,6 +157,7 @@ fn automatic_enqueue_respects_idle_delay_and_enabled_flag() {
         automatic_extraction_enabled: true,
         extraction_idle_delay_seconds: 60,
         max_index_sessions: 10,
+        extraction_heuristic_gate_enabled: false,
         ..Default::default()
     };
     let now = now_seconds();
@@ -218,6 +222,7 @@ fn automatic_enqueue_keeps_older_ready_runtime_candidates() {
         automatic_extraction_enabled: true,
         extraction_idle_delay_seconds: 300,
         max_index_sessions: 20,
+        extraction_heuristic_gate_enabled: false,
         ..Default::default()
     };
     let now = now_seconds();
@@ -264,6 +269,7 @@ fn automatic_enqueue_skips_session_with_active_pending_task() {
         automatic_extraction_enabled: true,
         extraction_idle_delay_seconds: 0,
         max_index_sessions: 10,
+        extraction_heuristic_gate_enabled: false,
         ..Default::default()
     };
     let first_session =
@@ -310,6 +316,7 @@ fn automatic_enqueue_uses_configured_candidate_limit_and_stores_only_task_metada
         automatic_extraction_enabled: true,
         extraction_idle_delay_seconds: 0,
         max_index_sessions: 40,
+        extraction_heuristic_gate_enabled: false,
         ..Default::default()
     };
     let sessions = (0..12)

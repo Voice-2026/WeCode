@@ -5,6 +5,9 @@ impl SettingsService {
             "automaticInjectionEnabled" => "automaticInjectionEnabled",
             "automaticExtractionEnabled" => "automaticExtractionEnabled",
             "allowCrossProjectUserRecall" => "allowCrossProjectUserRecall",
+            "extractionHeuristicGateEnabled" => "extractionHeuristicGateEnabled",
+            "recallUseFts" => "recallUseFts",
+            "privacyScrubEnabled" => "privacyScrubEnabled",
             _ => return Err("Unsupported memory setting.".to_string()),
         };
         let mut raw = self.raw_settings();
@@ -29,6 +32,13 @@ impl SettingsService {
                 900,
                 1,
                 86_400,
+            ),
+            "extractionGrowthThresholdLines" => (
+                "extractionGrowthThresholdLines",
+                None,
+                8,
+                0,
+                5_000,
             ),
             "maxIndexSessions" => ("maxIndexSessions", Some(&[5, 10, 20, 50, 100][..]), 20, 1, 500),
             "maxInjectedUserWorkingMemories" => (

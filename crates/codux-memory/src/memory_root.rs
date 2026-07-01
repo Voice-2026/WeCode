@@ -4,6 +4,7 @@ pub mod extraction;
 mod launch;
 mod management;
 mod manual;
+mod privacy;
 mod profile;
 mod queries;
 mod queue;

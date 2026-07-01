@@ -1,4 +1,5 @@
 use crate::ai_runtime::{
+    binding::normalized_runtime_project_name,
     payload::AIHookEventPayload,
     snapshot::AISessionSnapshot,
     state::{
@@ -186,6 +187,13 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
         note_latest_active_started_at(core, &event.project_id, started_at);
     }
 
+    let project_path = normalized_string(event.project_path.as_deref())
+        .or_else(|| base.and_then(|session| session.project_path.clone()));
+    let project_name = normalized_runtime_project_name(
+        Some(&event.project_name),
+        project_path.as_deref(),
+        Some(&event.project_id),
+    );
     let next = AISessionSnapshot {
         terminal_id: terminal_id.clone(),
         terminal_instance_id: terminal_instance_id
@@ -193,12 +201,12 @@ pub(in crate::ai_runtime::store) fn apply_hook_unlocked(
         project_id: event.project_id.clone(),
         project_name: if event.project_name.trim().is_empty() {
             base.map(|session| session.project_name.clone())
-                .unwrap_or_else(|| "Workspace".to_string())
+                .filter(|name| !name.eq_ignore_ascii_case("Workspace"))
+                .unwrap_or(project_name)
         } else {
-            event.project_name.clone()
+            project_name
         },
-        project_path: normalized_string(event.project_path.as_deref())
-            .or_else(|| base.and_then(|session| session.project_path.clone())),
+        project_path,
         session_title: if event.session_title.trim().is_empty() {
             base.map(|session| session.session_title.clone())
                 .unwrap_or_else(|| "Terminal".to_string())

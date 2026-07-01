@@ -2,7 +2,7 @@ use super::{
     MemoryService,
     extraction::ensure_memory_provider_available,
     now_seconds,
-    queue::MemoryExtractionStatusSnapshot,
+    queue::{MemoryExtractionStatusSnapshot, source_state::MemorySourceGate},
     transcript::{MemoryProjectContext, resolve_transcript_source, session_identifier},
 };
 use crate::{
@@ -46,8 +46,10 @@ impl MemoryService {
             history_sessions,
         ));
         let sessions = deduplicate_manual_candidates(sessions);
-        // Manual extraction is user-triggered — no cooldown.
-        self.enqueue_extraction_candidates(projects, &sessions, 0)
+        // Manual extraction is user-triggered — no cooldown, but still runs the
+        // cheap low-signal/growth gates unless the transcript has an automatic
+        // trigger marker.
+        self.enqueue_extraction_candidates(projects, &sessions, memory_settings, 0)
     }
 
     pub fn enqueue_automatic_extraction_candidates(
@@ -80,6 +82,7 @@ impl MemoryService {
         self.enqueue_extraction_candidates(
             projects,
             &sessions,
+            memory_settings,
             memory_settings.session_extraction_cooldown_seconds.max(0) as i64,
         )
     }
@@ -114,13 +117,14 @@ impl MemoryService {
         &self,
         projects: &[MemoryProjectRecord],
         sessions: &[MemorySessionSnapshot],
+        memory_settings: &MemorySettings,
         cooldown_seconds: i64,
     ) -> Result<MemoryExtractionEnqueueResult, String> {
         let checked_count = sessions.len() as i64;
         let mut enqueued_count = 0_i64;
 
         for session in sessions {
-            if self.enqueue_session_for_extraction(projects, session, cooldown_seconds)? {
+            if self.enqueue_session_for_extraction(projects, session, memory_settings, cooldown_seconds)? {
                 enqueued_count += 1;
             }
         }
@@ -139,6 +143,7 @@ impl MemoryService {
         &self,
         projects: &[MemoryProjectRecord],
         session: &MemorySessionSnapshot,
+        memory_settings: &MemorySettings,
         cooldown_seconds: i64,
     ) -> Result<bool, String> {
         if session.state != "idle" || !session.has_completed_turn {
@@ -169,7 +174,15 @@ impl MemoryService {
         let Some(source) = resolve_transcript_source(session, &project) else {
             return Ok(false);
         };
-        self.enqueue_extraction_if_needed(
+        let (gate, source_snapshot) =
+            self.extraction_preflight(memory_settings, &project, session, &source)?;
+        if gate != MemorySourceGate::Allow {
+            if gate == MemorySourceGate::LowSignal {
+                self.update_source_state(&source_snapshot)?;
+            }
+            return Ok(false);
+        }
+        let enqueued = self.enqueue_extraction_if_needed(
             &project.project_id,
             &project.workspace_path,
             &session.tool,
@@ -177,7 +190,9 @@ impl MemoryService {
             &source.location,
             &source.fingerprint,
             false,
-        )
+        )?;
+        self.update_source_state(&source_snapshot)?;
+        Ok(enqueued)
     }
 
     fn has_active_extraction_for_session(
@@ -204,39 +219,6 @@ impl MemoryService {
         Ok(count > 0)
     }
 
-    /// True if this session already produced a completed (`done`) extraction
-    /// within `cooldown_seconds`. Anchored on the most recent done task's
-    /// `enqueued_at` (the queue has no completion timestamp). `<= 0` disables it.
-    fn recent_completed_extraction_within(
-        &self,
-        project_id: &str,
-        tool: &str,
-        session_id: &str,
-        cooldown_seconds: i64,
-    ) -> Result<bool, String> {
-        if cooldown_seconds <= 0 {
-            return Ok(false);
-        }
-        let conn = self.open_or_create_connection()?;
-        let latest: Option<f64> = conn
-            .query_row(
-                r#"
-                SELECT MAX(enqueued_at)
-                FROM memory_extraction_queue
-                WHERE project_id = ?1
-                  AND tool = ?2
-                  AND session_id = ?3
-                  AND status = 'done';
-                "#,
-                rusqlite::params![project_id, tool, session_id],
-                |row| row.get(0),
-            )
-            .map_err(|error| error.to_string())?;
-        let Some(latest) = latest else {
-            return Ok(false);
-        };
-        Ok(now_seconds() - latest < cooldown_seconds as f64)
-    }
 }
 
 fn manual_extraction_candidates(

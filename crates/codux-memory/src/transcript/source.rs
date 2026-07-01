@@ -77,6 +77,8 @@ fn transcript_source_if_readable(
             "{tool}|{session_id}|{path}|{}|{modified_at}",
             metadata.len()
         )),
+        byte_len: metadata.len() as i64,
+        modified_at,
     })
 }
 

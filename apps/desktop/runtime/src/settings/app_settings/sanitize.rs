@@ -123,6 +123,8 @@ fn sanitize_ai_settings(mut ai: AISettings) -> AISettings {
     ai.memory.extraction_idle_delay_seconds = ai.memory.extraction_idle_delay_seconds.clamp(0, 900);
     ai.memory.session_extraction_cooldown_seconds =
         ai.memory.session_extraction_cooldown_seconds.clamp(0, 7200);
+    ai.memory.extraction_growth_threshold_lines =
+        ai.memory.extraction_growth_threshold_lines.clamp(0, 200);
     ai.memory.max_extraction_transcript_lines =
         ai.memory.max_extraction_transcript_lines.clamp(20, 200);
     ai.memory.max_extraction_transcript_tokens = ai

@@ -44,6 +44,7 @@ impl MemoryService {
                 None,
                 i64::from(memory_settings.max_injected_user_working_memories.max(0)),
                 query,
+                memory_settings.recall_use_fts,
             )?
         } else {
             Vec::new()
@@ -54,6 +55,7 @@ impl MemoryService {
             Some(project_id),
             i64::from(memory_settings.max_injected_project_working_memories.max(0)),
             query,
+            memory_settings.recall_use_fts,
         )?;
         Ok((user_summary, user_memories, project_memories))
     }

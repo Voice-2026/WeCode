@@ -152,6 +152,23 @@ fn summary_from_raw(raw: &Map<String, Value>) -> SettingsSummary {
             .and_then(Value::as_i64)
             .map(|value| value.to_string())
             .unwrap_or(defaults.memory_session_extraction_cooldown_seconds),
+        memory_extraction_heuristic_gate_enabled: memory
+            .and_then(|memory| memory.get("extractionHeuristicGateEnabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_extraction_heuristic_gate_enabled),
+        memory_extraction_growth_threshold_lines: memory
+            .and_then(|memory| memory.get("extractionGrowthThresholdLines"))
+            .and_then(Value::as_i64)
+            .map(|value| value.to_string())
+            .unwrap_or(defaults.memory_extraction_growth_threshold_lines),
+        memory_recall_use_fts: memory
+            .and_then(|memory| memory.get("recallUseFts"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_recall_use_fts),
+        memory_privacy_scrub_enabled: memory
+            .and_then(|memory| memory.get("privacyScrubEnabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.memory_privacy_scrub_enabled),
         memory_max_index_sessions: memory
             .and_then(|memory| memory.get("maxIndexSessions"))
             .and_then(Value::as_i64)

@@ -1,6 +1,6 @@
 use super::AIRuntimeStateCore;
 use crate::ai_runtime::{
-    binding::AIRuntimeBinding,
+    binding::{AIRuntimeBinding, normalized_runtime_project_name},
     constants::{CODEX_INTERVAL_POLL_MINIMUM_SECONDS, RUNNING_STALE_SECONDS},
     payload::AIHookEventPayload,
     registry::AIRuntimeTerminalState,
@@ -61,12 +61,17 @@ pub(super) fn detected_terminal_session(
     }
     let project_id = normalized_string(Some(terminal.project_id.as_str()))?;
     let terminal_id = normalized_string(Some(terminal.terminal_id.as_str()))?;
+    let project_path = normalized_string(Some(terminal.cwd.as_str()));
     Some(AISessionSnapshot {
         terminal_id,
         terminal_instance_id: normalized_string(terminal.terminal_instance_id.as_deref()),
+        project_name: normalized_runtime_project_name(
+            None,
+            project_path.as_deref(),
+            Some(&project_id),
+        ),
         project_id,
-        project_name: "Workspace".to_string(),
-        project_path: normalized_string(Some(terminal.cwd.as_str())),
+        project_path,
         session_title: normalized_string(Some(terminal.title.as_str()))
             .unwrap_or_else(|| "Terminal".to_string()),
         tool,

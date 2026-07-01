@@ -95,12 +95,43 @@ impl MemoryService {
                 error TEXT,
                 enqueued_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS memory_extraction_source_state (
+                source_key TEXT PRIMARY KEY,
+                last_seen_lines INTEGER NOT NULL,
+                last_seen_len INTEGER NOT NULL,
+                last_seen_mtime REAL NOT NULL,
+                prefix_hash TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL
+            );
             CREATE INDEX IF NOT EXISTS idx_memory_queue_status_time
                 ON memory_extraction_queue(status, enqueued_at);
             CREATE INDEX IF NOT EXISTS idx_memory_entries_recall
                 ON memory_entries(status, project_id, tier, updated_at);
             CREATE INDEX IF NOT EXISTS idx_memory_entries_scope
                 ON memory_entries(scope, project_id, tier, status);
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+                content,
+                rationale,
+                module_key,
+                content='memory_entries',
+                content_rowid='rowid',
+                tokenize='trigram'
+            );
+            CREATE TRIGGER IF NOT EXISTS memory_entries_ai AFTER INSERT ON memory_entries BEGIN
+                INSERT INTO memory_fts(rowid, content, rationale, module_key)
+                VALUES (new.rowid, new.content, COALESCE(new.rationale, ''), COALESCE(new.module_key, ''));
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_entries_ad AFTER DELETE ON memory_entries BEGIN
+                INSERT INTO memory_fts(memory_fts, rowid, content, rationale, module_key)
+                VALUES ('delete', old.rowid, old.content, COALESCE(old.rationale, ''), COALESCE(old.module_key, ''));
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_entries_au AFTER UPDATE ON memory_entries BEGIN
+                INSERT INTO memory_fts(memory_fts, rowid, content, rationale, module_key)
+                VALUES ('delete', old.rowid, old.content, COALESCE(old.rationale, ''), COALESCE(old.module_key, ''));
+                INSERT INTO memory_fts(rowid, content, rationale, module_key)
+                VALUES (new.rowid, new.content, COALESCE(new.rationale, ''), COALESCE(new.module_key, ''));
+            END;
+            INSERT INTO memory_fts(memory_fts) VALUES('rebuild');
             ALTER TABLE memory_extraction_queue ADD COLUMN workspace_path TEXT;
             "#,
         )

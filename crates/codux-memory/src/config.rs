@@ -53,6 +53,14 @@ pub struct MemorySettings {
     pub extraction_idle_delay_seconds: i32,
     #[serde(default = "default_memory_session_extraction_cooldown_seconds")]
     pub session_extraction_cooldown_seconds: i32,
+    #[serde(default = "default_true")]
+    pub extraction_heuristic_gate_enabled: bool,
+    #[serde(default = "default_memory_extraction_growth_threshold_lines")]
+    pub extraction_growth_threshold_lines: i32,
+    #[serde(default = "default_true")]
+    pub recall_use_fts: bool,
+    #[serde(default = "default_true")]
+    pub privacy_scrub_enabled: bool,
     #[serde(default = "default_memory_max_index_sessions")]
     pub max_index_sessions: i32,
     #[serde(default = "default_memory_max_extraction_transcript_lines")]
@@ -78,6 +86,10 @@ impl Default for MemorySettings {
             extraction_idle_delay_seconds: default_memory_extraction_idle_delay_seconds(),
             session_extraction_cooldown_seconds: default_memory_session_extraction_cooldown_seconds(
             ),
+            extraction_heuristic_gate_enabled: true,
+            extraction_growth_threshold_lines: default_memory_extraction_growth_threshold_lines(),
+            recall_use_fts: true,
+            privacy_scrub_enabled: true,
             max_index_sessions: default_memory_max_index_sessions(),
             max_extraction_transcript_lines: default_memory_max_extraction_transcript_lines(),
             max_extraction_transcript_tokens: default_memory_max_extraction_transcript_tokens(),
@@ -267,6 +279,9 @@ fn default_memory_extraction_idle_delay_seconds() -> i32 {
 }
 fn default_memory_session_extraction_cooldown_seconds() -> i32 {
     900
+}
+fn default_memory_extraction_growth_threshold_lines() -> i32 {
+    8
 }
 fn default_memory_max_index_sessions() -> i32 {
     20

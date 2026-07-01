@@ -33,6 +33,10 @@ pub struct SettingsSummary {
     pub memory_automatic_extraction_enabled: bool,
     pub memory_extraction_idle_delay_seconds: String,
     pub memory_session_extraction_cooldown_seconds: String,
+    pub memory_extraction_heuristic_gate_enabled: bool,
+    pub memory_extraction_growth_threshold_lines: String,
+    pub memory_recall_use_fts: bool,
+    pub memory_privacy_scrub_enabled: bool,
     pub memory_max_index_sessions: String,
     pub memory_max_injected_user_working_memories: String,
     pub memory_max_injected_project_working_memories: String,
@@ -138,6 +142,14 @@ pub struct AIMemorySettings {
     pub extraction_idle_delay_seconds: i32,
     #[serde(default)]
     pub session_extraction_cooldown_seconds: i32,
+    #[serde(default = "default_true")]
+    pub extraction_heuristic_gate_enabled: bool,
+    #[serde(default = "default_memory_extraction_growth_threshold_lines")]
+    pub extraction_growth_threshold_lines: i32,
+    #[serde(default = "default_true")]
+    pub recall_use_fts: bool,
+    #[serde(default = "default_true")]
+    pub privacy_scrub_enabled: bool,
     #[serde(default)]
     pub max_index_sessions: i32,
     #[serde(default)]
@@ -203,4 +215,8 @@ impl Default for AIProviderSettings {
             priority: 0,
         }
     }
+}
+
+fn default_memory_extraction_growth_threshold_lines() -> i32 {
+    8
 }

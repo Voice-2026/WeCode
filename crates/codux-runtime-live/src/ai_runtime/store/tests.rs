@@ -37,6 +37,33 @@ fn hook_lifecycle_tracks_running_and_completion() {
 }
 
 #[test]
+fn workspace_placeholder_project_name_falls_back_to_project_path_for_completion() {
+    let store = AIRuntimeStateStore::default();
+    let mut prompt = test_hook("promptSubmitted", 1000.0);
+    prompt.project_name = "Workspace".to_string();
+    prompt.project_path = Some("/tmp/codux-gpui".to_string());
+    assert!(store.apply_hook(prompt).did_change);
+
+    let complete = store.apply_hook(AIHookEventPayload {
+        kind: "turnCompleted".to_string(),
+        project_name: "Workspace".to_string(),
+        project_path: Some("/tmp/codux-gpui".to_string()),
+        total_tokens: Some(150),
+        updated_at: 1010.0,
+        metadata: Some(AIHookEventMetadata {
+            has_completed_turn: Some(true),
+            ..empty_metadata()
+        }),
+        ..test_hook("turnCompleted", 1010.0)
+    });
+
+    assert_eq!(
+        complete.completion.expect("completion").project_name,
+        "codux-gpui"
+    );
+}
+
+#[test]
 fn runtime_snapshot_sets_restored_session_baseline() {
     let mut core = AIRuntimeStateCore::default();
     assert!(apply_hook_unlocked(
@@ -140,6 +167,7 @@ fn detected_codewhale_terminal_is_canonicalized_not_filtered() {
 
     assert_eq!(session.tool, "codewhale");
     assert_eq!(session.terminal_id, "codewhale-term-1");
+    assert_eq!(session.project_name, "codewhale-project");
     assert_eq!(session.state, "idle");
     assert!(session.ai_session_id.is_none());
 }

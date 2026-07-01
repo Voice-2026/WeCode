@@ -64,9 +64,12 @@ impl AIRuntimeBinding {
         self.terminal_instance_id = normalized_string(self.terminal_instance_id.as_deref());
         self.tool = canonical_tool_name(&self.tool)?;
         self.project_id = normalized_string(Some(&self.project_id))?;
-        self.project_name =
-            normalized_string(Some(&self.project_name)).unwrap_or_else(|| "Workspace".to_string());
         self.project_path = normalized_string(self.project_path.as_deref());
+        self.project_name = normalized_runtime_project_name(
+            Some(&self.project_name),
+            self.project_path.as_deref(),
+            Some(&self.project_id),
+        );
         self.session_title =
             normalized_string(Some(&self.session_title)).unwrap_or_else(|| "Terminal".to_string());
         self.external_session_id = normalized_string(self.external_session_id.as_deref());
@@ -77,6 +80,26 @@ impl AIRuntimeBinding {
         }
         (self.launch_started_at > 0.0).then_some(self)
     }
+}
+
+pub(crate) fn normalized_runtime_project_name(
+    project_name: Option<&str>,
+    project_path: Option<&str>,
+    project_id: Option<&str>,
+) -> String {
+    normalized_string(project_name)
+        .filter(|name| !name.eq_ignore_ascii_case("Workspace"))
+        .or_else(|| project_path.and_then(project_name_from_path))
+        .or_else(|| normalized_string(project_id))
+        .unwrap_or_else(|| "Workspace".to_string())
+}
+
+fn project_name_from_path(path: &str) -> Option<String> {
+    let path = normalized_string(Some(path))?;
+    path.replace('\\', "/")
+        .trim_end_matches('/')
+        .rsplit('/')
+        .find_map(|segment| normalized_string(Some(segment)))
 }
 
 pub fn scan_runtime_bindings(
@@ -201,6 +224,29 @@ mod tests {
         );
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn runtime_binding_project_name_falls_back_to_path_basename() {
+        let binding = AIRuntimeBinding {
+            runtime_binding_id: "bind-1".to_string(),
+            terminal_id: "term-1".to_string(),
+            terminal_instance_id: None,
+            tool: "codex".to_string(),
+            project_id: "project-1".to_string(),
+            project_name: String::new(),
+            project_path: Some("/tmp/codux-gpui/".to_string()),
+            session_title: "Codex".to_string(),
+            launch_started_at: 10.0,
+            external_session_id: None,
+            transcript_path: None,
+            model: None,
+            updated_at: 10.0,
+        }
+        .normalized()
+        .expect("binding");
+
+        assert_eq!(binding.project_name, "codux-gpui");
     }
 
     #[test]

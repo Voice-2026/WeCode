@@ -167,6 +167,13 @@ impl CoduxApp {
         }
     }
 
+    pub(super) fn clear_file_name_draft(&mut self) {
+        self.file_name_draft_kind = None;
+        self.file_name_draft_target = None;
+        self.file_name_draft_value.clear();
+        self.file_name_draft_select_all = false;
+    }
+
     fn spawn_file_mutation_failure_sync(&mut self, error: String, cx: &mut Context<Self>) {
         let Some(project_path) = self.selected_worktree_path() else {
             self.status_message = error;
@@ -300,10 +307,7 @@ impl CoduxApp {
                 self.normalize_selected_git_file();
                 self.normalize_selected_git_branch();
                 if result.clear_draft && self.file_mutation_draft_state() == started_draft {
-                    self.file_name_draft_kind = None;
-                    self.file_name_draft_target = None;
-                    self.file_name_draft_value.clear();
-                    self.file_name_draft_select_all = false;
+                    self.clear_file_name_draft();
                 }
                 if saved_editor_unchanged {
                     if let Some(path) = result.saved_editor_path.as_deref() {
@@ -389,10 +393,7 @@ impl CoduxApp {
         self.file_tree_children = cached.file_tree_children;
         self.file_editor_tabs = cached.file_editor_tabs;
         self.active_file_editor_tab = cached.active_file_editor_tab;
-        self.file_name_draft_kind = None;
-        self.file_name_draft_target = None;
-        self.file_name_draft_value.clear();
-        self.file_name_draft_select_all = false;
+        self.clear_file_name_draft();
         self.runtime_trace(
             "files",
             &format!(
@@ -1394,10 +1395,7 @@ impl CoduxApp {
                 .map(|entry| entry.name == value)
                 .unwrap_or(false);
         if value.is_empty() || value.eq_ignore_ascii_case("undefined") || unchanged_rename {
-            self.file_name_draft_kind = None;
-            self.file_name_draft_target = None;
-            self.file_name_draft_value.clear();
-            self.file_name_draft_select_all = false;
+            self.clear_file_name_draft();
             self.status_message = "file name edit canceled".to_string();
             self.invalidate_file_panel(cx);
         } else {
@@ -1406,10 +1404,7 @@ impl CoduxApp {
     }
 
     pub(super) fn cancel_file_name_draft(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.file_name_draft_kind = None;
-        self.file_name_draft_target = None;
-        self.file_name_draft_value.clear();
-        self.file_name_draft_select_all = false;
+        self.clear_file_name_draft();
         self.status_message = "file name edit canceled".to_string();
         self.invalidate_file_panel(cx);
     }
@@ -1421,6 +1416,7 @@ impl CoduxApp {
             return;
         };
         let name = self.file_name_draft_value.trim().to_string();
+        self.clear_file_name_draft();
         if name.is_empty()
             || name.eq_ignore_ascii_case("undefined")
             || name.contains('/')

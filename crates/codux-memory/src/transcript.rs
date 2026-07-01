@@ -25,6 +25,8 @@ pub(super) struct MemoryProjectContext {
 pub(super) struct TranscriptSource {
     pub(super) location: String,
     pub(super) fingerprint: String,
+    pub(super) byte_len: i64,
+    pub(super) modified_at: f64,
 }
 
 include!("transcript/context.rs");

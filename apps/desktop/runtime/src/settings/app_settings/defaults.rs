@@ -94,6 +94,10 @@ pub(super) fn default_memory_session_extraction_cooldown_seconds() -> i32 {
     900
 }
 
+pub(super) fn default_memory_extraction_growth_threshold_lines() -> i32 {
+    8
+}
+
 pub(super) fn default_memory_max_index_sessions() -> i32 {
     20
 }

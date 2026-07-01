@@ -1,7 +1,8 @@
 use super::{
     MemoryService, now_seconds,
     transcript::{
-        memory_project_context, memory_project_context_for_task, resolve_transcript_for_task,
+        MemoryProjectContext, TranscriptSource, memory_project_context,
+        memory_project_context_for_task, resolve_transcript_for_task,
         resolve_transcript_for_task_with_settings, resolve_transcript_source, session_identifier,
     },
 };
@@ -21,8 +22,9 @@ use std::time::Duration;
 const MEMORY_EXTRACTION_TASK_INTERVAL: Duration = Duration::from_secs(1);
 
 mod db;
-mod prompt_context;
+pub(crate) mod prompt_context;
 mod schema;
+pub(crate) mod source_state;
 mod types;
 
 use db::{
@@ -31,6 +33,7 @@ use db::{
     memory_task_from_row, queue_count, queue_pending_running_counts,
 };
 use prompt_context::prompt_entries;
+use source_state::{MemorySourceGate, MemorySourceSnapshot};
 pub use types::{
     MemoryEnqueueResult, MemoryExtractionStatus, MemoryExtractionStatusSnapshot,
     MemoryExtractionTask,

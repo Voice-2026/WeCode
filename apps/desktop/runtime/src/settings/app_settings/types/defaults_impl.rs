@@ -98,6 +98,10 @@ impl Default for AIMemorySettings {
             extraction_idle_delay_seconds: default_memory_extraction_idle_delay_seconds(),
             session_extraction_cooldown_seconds: default_memory_session_extraction_cooldown_seconds(
             ),
+            extraction_heuristic_gate_enabled: true,
+            extraction_growth_threshold_lines: default_memory_extraction_growth_threshold_lines(),
+            recall_use_fts: true,
+            privacy_scrub_enabled: true,
             max_index_sessions: default_memory_max_index_sessions(),
             max_extraction_transcript_lines: default_memory_max_extraction_transcript_lines(),
             max_extraction_transcript_tokens: default_memory_max_extraction_transcript_tokens(),

@@ -1,4 +1,34 @@
 impl MemoryService {
+    pub(crate) fn extraction_preflight(
+        &self,
+        memory_settings: &MemorySettings,
+        project: &MemoryProjectContext,
+        session: &MemorySessionSnapshot,
+        source: &TranscriptSource,
+    ) -> Result<(MemorySourceGate, MemorySourceSnapshot), String> {
+        let task = MemoryExtractionTask {
+            id: String::new(),
+            project_id: project.project_id.clone(),
+            tool: session.tool.clone(),
+            session_id: session_identifier(session),
+            transcript_path: source.location.clone(),
+            workspace_path: Some(project.workspace_path.clone()),
+            source_fingerprint: source.fingerprint.clone(),
+            status: "pending".to_string(),
+            attempts: 0,
+            error: None,
+            enqueued_at: now_seconds(),
+        };
+        let transcript =
+            resolve_transcript_for_task_with_settings(&task, project, memory_settings)?;
+        let mut snapshot =
+            self.source_snapshot(&session.tool, &task.session_id, &source.location, &transcript);
+        snapshot.byte_len = source.byte_len;
+        snapshot.modified_at = source.modified_at;
+        let gate = self.source_gate(memory_settings, &snapshot, &transcript)?;
+        Ok((gate, snapshot))
+    }
+
     pub fn enqueue_completed_session_if_ready(
         &self,
         memory_settings: &MemorySettings,
@@ -41,15 +71,41 @@ impl MemoryService {
             });
         };
         self.ensure_queue_schema()?;
+        let session_id = session_identifier(session);
+        if self.recent_completed_extraction_within(
+            &project.project_id,
+            &session.tool,
+            &session_id,
+            memory_settings.session_extraction_cooldown_seconds.max(0) as i64,
+        )? {
+            return Ok(MemoryEnqueueResult {
+                enqueued: false,
+                reason: "cooldown".to_string(),
+                summary: self.summary(Some(&project.project_id)),
+            });
+        }
+        let (gate, source_snapshot) =
+            self.extraction_preflight(memory_settings, &project, session, &source)?;
+        if gate != MemorySourceGate::Allow {
+            if gate == MemorySourceGate::LowSignal {
+                self.update_source_state(&source_snapshot)?;
+            }
+            return Ok(MemoryEnqueueResult {
+                enqueued: false,
+                reason: gate.reason().to_string(),
+                summary: self.summary(Some(&project.project_id)),
+            });
+        }
         let enqueued = self.enqueue_extraction_if_needed(
             &project.project_id,
             &project.workspace_path,
             &session.tool,
-            &session_identifier(session),
+            &session_id,
             &source.location,
             &source.fingerprint,
             false,
         )?;
+        self.update_source_state(&source_snapshot)?;
         Ok(MemoryEnqueueResult {
             enqueued,
             reason: if enqueued {

@@ -196,6 +196,14 @@ pub struct AIMemorySettings {
     pub extraction_idle_delay_seconds: i32,
     #[serde(default = "default_memory_session_extraction_cooldown_seconds")]
     pub session_extraction_cooldown_seconds: i32,
+    #[serde(default = "default_true")]
+    pub extraction_heuristic_gate_enabled: bool,
+    #[serde(default = "default_memory_extraction_growth_threshold_lines")]
+    pub extraction_growth_threshold_lines: i32,
+    #[serde(default = "default_true")]
+    pub recall_use_fts: bool,
+    #[serde(default = "default_true")]
+    pub privacy_scrub_enabled: bool,
     #[serde(default = "default_memory_max_index_sessions")]
     pub max_index_sessions: i32,
     #[serde(default = "default_memory_max_extraction_transcript_lines")]

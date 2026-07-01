@@ -9,6 +9,7 @@ use crate::{
     extraction::{
         MemoryExtractionResponse, MemoryScope, parse_uuid_string, valid_summary_content,
     },
+    privacy::privacy_scrub,
 };
 use helpers::*;
 use types::{MemoryCandidate, MemoryWriteDecision};
@@ -57,6 +58,21 @@ impl MemoryService {
                 )?;
                 continue;
             }
+            let content = if settings.privacy_scrub_enabled {
+                privacy_scrub(&content)
+            } else {
+                content
+            };
+            let rationale = item
+                .rationale
+                .and_then(|value| normalized_non_empty(&value))
+                .map(|value| {
+                    if settings.privacy_scrub_enabled {
+                        privacy_scrub(&value)
+                    } else {
+                        value
+                    }
+                });
             let scope = item.scope.unwrap_or(MemoryScope::Project);
             let project_id = (scope == MemoryScope::Project).then(|| task.project_id.clone());
             let explicit_decision = if let Some(target_entry_id) = item.replace {
@@ -109,9 +125,7 @@ impl MemoryService {
                         .unwrap_or_else(|| default_tier_for_kind(&item.kind)),
                     kind: item.kind,
                     content,
-                    rationale: item
-                        .rationale
-                        .and_then(|value| normalized_non_empty(&value)),
+                    rationale,
                     source_tool: Some(task.tool.clone()),
                     source_session_id: Some(task.session_id.clone()),
                     source_fingerprint: Some(task.source_fingerprint.clone()),
@@ -128,6 +142,11 @@ impl MemoryService {
 
         if let Some(content) = valid_summary_content(response.user_summary.as_deref().unwrap_or(""))
         {
+            let content = if settings.privacy_scrub_enabled {
+                privacy_scrub(&content)
+            } else {
+                content
+            };
             let summary = self.upsert_summary(
                 conn,
                 MemoryScope::User,

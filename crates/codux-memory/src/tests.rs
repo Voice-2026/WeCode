@@ -15,6 +15,40 @@ fn temp_support_dir() -> PathBuf {
     dir
 }
 
+fn test_project(project_id: &str, project_dir: &std::path::Path) -> MemoryProjectRecord {
+    MemoryProjectRecord {
+        id: project_id.to_string(),
+        root_project_id: project_id.to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: project_dir.display().to_string(),
+        workspace_path: project_dir.display().to_string(),
+        git_default_push_remote_name: None,
+    }
+}
+
+fn completed_test_session(
+    project_id: &str,
+    transcript_dir: &std::path::Path,
+    transcript_path: &std::path::Path,
+    session_id: &str,
+) -> MemorySessionSnapshot {
+    MemorySessionSnapshot {
+        terminal_id: format!("term-{session_id}"),
+        project_id: project_id.to_string(),
+        project_name: "Project A".to_string(),
+        project_path: Some(transcript_dir.display().to_string()),
+        session_title: "Task".to_string(),
+        tool: "codex".to_string(),
+        ai_session_id: Some(session_id.to_string()),
+        state: "idle".to_string(),
+        status: "idle".to_string(),
+        updated_at: now_seconds() - 10.0,
+        has_completed_turn: true,
+        transcript_path: Some(transcript_path.display().to_string()),
+        ..Default::default()
+    }
+}
+
 fn create_memory_db(support_dir: &std::path::Path) {
     let conn = Connection::open(support_dir.join("memory.sqlite3")).unwrap();
     conn.execute_batch(
@@ -159,6 +193,26 @@ fn create_memory_db(support_dir: &std::path::Path) {
             [],
         )
         .unwrap();
+}
+
+fn insert_test_memory(
+    conn: &Connection,
+    id: &str,
+    content: &str,
+    access_count: i64,
+    updated_at: f64,
+) {
+    conn.execute(
+        r#"
+        INSERT INTO memory_entries (
+            id, scope, project_id, tier, kind, content, rationale, normalized_hash,
+            status, access_count, created_at, updated_at, module_key
+        )
+        VALUES (?1, 'project', 'project-a', 'working', 'fact', ?2, NULL, ?1, 'active', ?3, 1, ?4, 'general');
+        "#,
+        params![id, content, access_count, updated_at],
+    )
+    .unwrap();
 }
 
 #[test]
@@ -333,6 +387,218 @@ fn extraction_prompt_context_respects_cross_project_user_memory_setting() {
             .iter()
             .any(|entry| entry.content == "project active entry")
     );
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn fts_recall_finds_old_relevant_memory_outside_legacy_candidate_pool() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let conn = service.open_connection().unwrap();
+    for index in 0..70 {
+        insert_test_memory(
+            &conn,
+            &format!("popular-{index}"),
+            &format!("popular unrelated memory {index}"),
+            1000 - index,
+            10_000.0 - index as f64,
+        );
+    }
+    insert_test_memory(
+        &conn,
+        "cold-relevant",
+        "Remote terminal baseline uses keyed event subscribers to avoid duplicate PTY output.",
+        0,
+        1.0,
+    );
+
+    let legacy = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        4,
+        "keyed event subscribers duplicate PTY output",
+        false,
+    )
+    .unwrap();
+    assert!(!legacy.iter().any(|entry| entry.id == "cold-relevant"));
+
+    let fts = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        4,
+        "keyed event subscribers duplicate PTY output",
+        true,
+    )
+    .unwrap();
+    assert!(fts.iter().any(|entry| entry.id == "cold-relevant"));
+
+    let bumped: i64 = conn
+        .query_row(
+            "SELECT access_count FROM memory_entries WHERE id = 'cold-relevant'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(bumped > 0);
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn fts_rrf_uses_bm25_result_order_not_score_magnitude() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let conn = service.open_connection().unwrap();
+    insert_test_memory(
+        &conn,
+        "exact-memory",
+        "Remote terminal baseline keyed event subscribers duplicate PTY output.",
+        0,
+        1.0,
+    );
+    insert_test_memory(
+        &conn,
+        "repeated-noisy-memory",
+        "Remote terminal terminal terminal terminal terminal terminal baseline.",
+        0,
+        1.0,
+    );
+
+    let entries = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        2,
+        "keyed event subscribers duplicate PTY output",
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(entries.first().map(|entry| entry.id.as_str()), Some("exact-memory"));
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn fts_recall_backfills_with_legacy_entries_when_matches_are_sparse() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let conn = service.open_connection().unwrap();
+    insert_test_memory(
+        &conn,
+        "popular-a",
+        "Popular project memory about release checklist.",
+        10,
+        100.0,
+    );
+    insert_test_memory(
+        &conn,
+        "popular-b",
+        "Popular project memory about test commands.",
+        9,
+        90.0,
+    );
+    insert_test_memory(
+        &conn,
+        "sparse-match",
+        "Remote terminal baseline subscribes through a keyed event sink.",
+        0,
+        1.0,
+    );
+
+    let entries = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        3,
+        "keyed event sink",
+        true,
+    )
+    .unwrap();
+    assert_eq!(entries.len(), 3);
+    assert!(entries.iter().any(|entry| entry.id == "sparse-match"));
+    assert!(entries.iter().any(|entry| entry.id == "popular-a"));
+    assert!(entries.iter().any(|entry| entry.id == "popular-b"));
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn fts_recall_matches_chinese_memory_with_trigram_tokenizer() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let conn = service.open_connection().unwrap();
+    insert_test_memory(
+        &conn,
+        "chinese-memory",
+        "远程终端基线需要异步生成，避免移动端接管历史终端时一直转圈。",
+        0,
+        1.0,
+    );
+
+    let entries = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        4,
+        "移动端 历史终端 转圈",
+        true,
+    )
+    .unwrap();
+    assert!(entries.iter().any(|entry| entry.id == "chinese-memory"));
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn fts_index_tracks_memory_updates_and_deletes() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let conn = service.open_connection().unwrap();
+    insert_test_memory(
+        &conn,
+        "mutable-memory",
+        "Project uses old baseline wording.",
+        0,
+        1.0,
+    );
+    conn.execute(
+        "UPDATE memory_entries SET content = 'Project uses refreshed async baseline wording.' WHERE id = 'mutable-memory'",
+        [],
+    )
+    .unwrap();
+
+    let updated = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        4,
+        "refreshed async baseline",
+        true,
+    )
+    .unwrap();
+    assert!(updated.iter().any(|entry| entry.id == "mutable-memory"));
+
+    conn.execute("DELETE FROM memory_entries WHERE id = 'mutable-memory'", [])
+        .unwrap();
+    let deleted = crate::queue::prompt_context::prompt_entries(
+        &conn,
+        "project",
+        Some("project-a"),
+        4,
+        "refreshed async baseline",
+        true,
+    )
+    .unwrap();
+    assert!(!deleted.iter().any(|entry| entry.id == "mutable-memory"));
 
     fs::remove_dir_all(support_dir).unwrap();
 }
@@ -524,6 +790,7 @@ fn enqueue_completed_session_creates_pending_memory_task() {
         enabled: true,
         automatic_extraction_enabled: true,
         extraction_idle_delay_seconds: 0,
+        extraction_heuristic_gate_enabled: false,
         ..Default::default()
     };
     let project = MemoryProjectRecord {
@@ -582,6 +849,309 @@ fn enqueue_completed_session_creates_pending_memory_task() {
 
     fs::remove_dir_all(support_dir).unwrap();
     fs::remove_dir_all(transcript_dir).unwrap();
+}
+
+#[test]
+fn enqueue_completed_session_respects_cooldown() {
+    let support_dir = temp_support_dir();
+    let transcript_dir = support_dir.join("project-a");
+    fs::create_dir_all(&transcript_dir).unwrap();
+    let transcript = transcript_dir.join("session.jsonl");
+    fs::write(
+        &transcript,
+        "user decided config path is crates/codux-memory/src/config.rs\nassistant fixed memory config\n",
+    )
+    .unwrap();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    service
+        .enqueue_extraction_if_needed(
+            "project-a",
+            &transcript_dir.display().to_string(),
+            "codex",
+            "session-a",
+            &transcript.display().to_string(),
+            "old-fingerprint",
+            false,
+        )
+        .unwrap();
+    let task = service.next_pending_extraction_task().unwrap().unwrap();
+    service.mark_extraction_task_done(&task.id).unwrap();
+
+    let settings = MemorySettings {
+        enabled: true,
+        automatic_extraction_enabled: true,
+        extraction_idle_delay_seconds: 0,
+        session_extraction_cooldown_seconds: 900,
+        ..Default::default()
+    };
+    let project = MemoryProjectRecord {
+        id: "project-a".to_string(),
+        root_project_id: "project-a".to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: transcript_dir.display().to_string(),
+        workspace_path: transcript_dir.display().to_string(),
+        git_default_push_remote_name: None,
+    };
+    let session = MemorySessionSnapshot {
+        terminal_id: "term-a".to_string(),
+        project_id: "project-a".to_string(),
+        project_name: "Project A".to_string(),
+        project_path: Some(transcript_dir.display().to_string()),
+        session_title: "Task".to_string(),
+        tool: "codex".to_string(),
+        ai_session_id: Some("session-a".to_string()),
+        state: "idle".to_string(),
+        status: "idle".to_string(),
+        updated_at: now_seconds() - 10.0,
+        has_completed_turn: true,
+        transcript_path: Some(transcript.display().to_string()),
+        ..Default::default()
+    };
+
+    let result = service
+        .enqueue_completed_session_if_ready(&settings, &[project], &session)
+        .unwrap();
+    assert!(!result.enqueued);
+    assert_eq!(result.reason, "cooldown");
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn enqueue_completed_session_skips_low_signal_but_allows_auto_trigger_marker() {
+    let support_dir = temp_support_dir();
+    let transcript_dir = support_dir.join("project-a");
+    fs::create_dir_all(&transcript_dir).unwrap();
+    let low_signal = transcript_dir.join("low.jsonl");
+    let auto_trigger = transcript_dir.join("auto-trigger.jsonl");
+    fs::write(&low_signal, "hello\nthanks\n").unwrap();
+    fs::write(
+        &auto_trigger,
+        "remember: project memory uses command `just desktop` for local testing\nassistant noted\n",
+    )
+    .unwrap();
+    let service = MemoryService::new(support_dir.clone());
+    let settings = MemorySettings {
+        enabled: true,
+        automatic_extraction_enabled: true,
+        extraction_idle_delay_seconds: 0,
+        session_extraction_cooldown_seconds: 0,
+        ..Default::default()
+    };
+    let project = MemoryProjectRecord {
+        id: "project-a".to_string(),
+        root_project_id: "project-a".to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: transcript_dir.display().to_string(),
+        workspace_path: transcript_dir.display().to_string(),
+        git_default_push_remote_name: None,
+    };
+    let mut session = MemorySessionSnapshot {
+        terminal_id: "term-low".to_string(),
+        project_id: "project-a".to_string(),
+        project_name: "Project A".to_string(),
+        project_path: Some(transcript_dir.display().to_string()),
+        session_title: "Task".to_string(),
+        tool: "codex".to_string(),
+        ai_session_id: Some("session-low".to_string()),
+        state: "idle".to_string(),
+        status: "idle".to_string(),
+        updated_at: now_seconds() - 10.0,
+        has_completed_turn: true,
+        transcript_path: Some(low_signal.display().to_string()),
+        ..Default::default()
+    };
+
+    let result = service
+        .enqueue_completed_session_if_ready(&settings, std::slice::from_ref(&project), &session)
+        .unwrap();
+    assert!(!result.enqueued);
+    assert_eq!(result.reason, "low-signal");
+
+    session.terminal_id = "term-auto-trigger".to_string();
+    session.ai_session_id = Some("session-auto-trigger".to_string());
+    session.transcript_path = Some(auto_trigger.display().to_string());
+    let result = service
+        .enqueue_completed_session_if_ready(&settings, &[project], &session)
+        .unwrap();
+    assert!(result.enqueued);
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn enqueue_completed_session_skips_insufficient_growth() {
+    let support_dir = temp_support_dir();
+    let transcript_dir = support_dir.join("project-a");
+    fs::create_dir_all(&transcript_dir).unwrap();
+    let transcript = transcript_dir.join("session.jsonl");
+    fs::write(
+        &transcript,
+        "user decided config path crates/codux-memory/src/config.rs\nassistant fixed memory config bug\n",
+    )
+    .unwrap();
+    let service = MemoryService::new(support_dir.clone());
+    let settings = MemorySettings {
+        enabled: true,
+        automatic_extraction_enabled: true,
+        extraction_idle_delay_seconds: 0,
+        session_extraction_cooldown_seconds: 0,
+        extraction_growth_threshold_lines: 8,
+        ..Default::default()
+    };
+    let project = MemoryProjectRecord {
+        id: "project-a".to_string(),
+        root_project_id: "project-a".to_string(),
+        root_project_name: "Project A".to_string(),
+        root_project_path: transcript_dir.display().to_string(),
+        workspace_path: transcript_dir.display().to_string(),
+        git_default_push_remote_name: None,
+    };
+    let session = MemorySessionSnapshot {
+        terminal_id: "term-a".to_string(),
+        project_id: "project-a".to_string(),
+        project_name: "Project A".to_string(),
+        project_path: Some(transcript_dir.display().to_string()),
+        session_title: "Task".to_string(),
+        tool: "codex".to_string(),
+        ai_session_id: Some("session-a".to_string()),
+        state: "idle".to_string(),
+        status: "idle".to_string(),
+        updated_at: now_seconds() - 10.0,
+        has_completed_turn: true,
+        transcript_path: Some(transcript.display().to_string()),
+        ..Default::default()
+    };
+
+    let first = service
+        .enqueue_completed_session_if_ready(&settings, std::slice::from_ref(&project), &session)
+        .unwrap();
+    assert!(first.enqueued);
+    let task = service.next_pending_extraction_task().unwrap().unwrap();
+    service.mark_extraction_task_done(&task.id).unwrap();
+    fs::write(
+        &transcript,
+        "user decided config path crates/codux-memory/src/config.rs\nassistant fixed memory config bug\nuser config still ok\n",
+    )
+    .unwrap();
+    let second = service
+        .enqueue_completed_session_if_ready(&settings, &[project], &session)
+        .unwrap();
+    assert!(!second.enqueued);
+    assert_eq!(second.reason, "insufficient-growth");
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn insufficient_growth_accumulates_until_threshold() {
+    let support_dir = temp_support_dir();
+    let transcript_dir = support_dir.join("project-a");
+    fs::create_dir_all(&transcript_dir).unwrap();
+    let transcript = transcript_dir.join("session.jsonl");
+    fs::write(
+        &transcript,
+        "user decided config path crates/codux-memory/src/config.rs\nassistant fixed memory config bug\n",
+    )
+    .unwrap();
+    let service = MemoryService::new(support_dir.clone());
+    let settings = MemorySettings {
+        enabled: true,
+        automatic_extraction_enabled: true,
+        extraction_idle_delay_seconds: 0,
+        session_extraction_cooldown_seconds: 0,
+        extraction_growth_threshold_lines: 3,
+        ..Default::default()
+    };
+    let project = test_project("project-a", &transcript_dir);
+    let session = completed_test_session("project-a", &transcript_dir, &transcript, "session-a");
+
+    assert!(
+        service
+            .enqueue_completed_session_if_ready(
+                &settings,
+                std::slice::from_ref(&project),
+                &session
+            )
+            .unwrap()
+            .enqueued
+    );
+    let task = service.next_pending_extraction_task().unwrap().unwrap();
+    service.mark_extraction_task_done(&task.id).unwrap();
+
+    fs::write(
+        &transcript,
+        "user decided config path crates/codux-memory/src/config.rs\nassistant fixed memory config bug\nuser config still ok\n",
+    )
+    .unwrap();
+    let skipped = service
+        .enqueue_completed_session_if_ready(&settings, std::slice::from_ref(&project), &session)
+        .unwrap();
+    assert!(!skipped.enqueued);
+    assert_eq!(skipped.reason, "insufficient-growth");
+
+    fs::write(
+        &transcript,
+        "user decided config path crates/codux-memory/src/config.rs\nassistant fixed memory config bug\nuser config still ok\nassistant kept same decision\nuser cargo test validates config gate\n",
+    )
+    .unwrap();
+    let enqueued = service
+        .enqueue_completed_session_if_ready(&settings, &[project], &session)
+        .unwrap();
+    assert!(enqueued.enqueued);
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn long_transcript_growth_uses_full_file_line_count_not_tail_window() {
+    let support_dir = temp_support_dir();
+    let transcript_dir = support_dir.join("project-a");
+    fs::create_dir_all(&transcript_dir).unwrap();
+    let transcript = transcript_dir.join("session.jsonl");
+    let service = MemoryService::new(support_dir.clone());
+    let settings = MemorySettings {
+        enabled: true,
+        automatic_extraction_enabled: true,
+        extraction_idle_delay_seconds: 0,
+        session_extraction_cooldown_seconds: 0,
+        extraction_growth_threshold_lines: 8,
+        max_extraction_transcript_lines: 20,
+        ..Default::default()
+    };
+    let project = test_project("project-a", &transcript_dir);
+    let session = completed_test_session("project-a", &transcript_dir, &transcript, "session-long");
+    let base_lines = (0..80)
+        .map(|index| format!("log line {index}: fixed config path crates/codux-memory/src/config.rs"))
+        .collect::<Vec<_>>();
+    fs::write(&transcript, base_lines.join("\n")).unwrap();
+
+    assert!(
+        service
+            .enqueue_completed_session_if_ready(
+                &settings,
+                std::slice::from_ref(&project),
+                &session
+            )
+            .unwrap()
+            .enqueued
+    );
+    let task = service.next_pending_extraction_task().unwrap().unwrap();
+    service.mark_extraction_task_done(&task.id).unwrap();
+
+    let mut grown_lines = base_lines;
+    grown_lines.extend((0..9).map(|index| {
+        format!("new durable bug lesson {index}: prefer async memory extraction queue")
+    }));
+    fs::write(&transcript, grown_lines.join("\n")).unwrap();
+    let enqueued = service
+        .enqueue_completed_session_if_ready(&settings, &[project], &session)
+        .unwrap();
+
+    assert!(enqueued.enqueued);
+
+    fs::remove_dir_all(support_dir).unwrap();
 }
 
 #[test]
@@ -994,6 +1564,153 @@ fn apply_extraction_response_writes_memory_and_summary() {
     assert_eq!(entry_count, 1);
     assert_eq!(decision_count, 1);
     assert_eq!(summary_count, 1);
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn apply_extraction_response_redacts_secrets_before_storage() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let task = MemoryExtractionTask {
+        id: "task-secret".to_string(),
+        project_id: "project-a".to_string(),
+        tool: "codex".to_string(),
+        session_id: "session-secret".to_string(),
+        transcript_path: "/tmp/session-secret.jsonl".to_string(),
+        workspace_path: Some("/workspace/project-a".to_string()),
+        source_fingerprint: "fingerprint-secret".to_string(),
+        status: "pending".to_string(),
+        attempts: 0,
+        error: None,
+        enqueued_at: 1.0,
+    };
+
+    service
+        .apply_extraction_response(
+            MemoryExtractionResponse {
+                user_summary: Some(
+                    "Authorization: Bearer sk-user-summary-secret-1234567890abcdef"
+                        .to_string(),
+                ),
+                working_add: vec![MemoryExtractionItem {
+                    scope: Some(MemoryScope::Project),
+                    module_key: Some("security".to_string()),
+                    tier: Some(MemoryTier::Working),
+                    kind: MemoryKind::BugLesson,
+                    content: "API_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890 should never be stored".to_string(),
+                    rationale: Some(
+                        "Private key -----BEGIN OPENSSH PRIVATE KEY----- abc -----END OPENSSH PRIVATE KEY-----".to_string(),
+                    ),
+                    merge_with: Vec::new(),
+                    replace: None,
+                    archive: Vec::new(),
+                    skip_reason: None,
+                }],
+                working_archive: Vec::new(),
+                merged_entry_ids: Vec::new(),
+                project_profile_refresh_recommended: false,
+            },
+            &task,
+            &MemorySettings {
+                max_active_working_entries: 10,
+                max_summary_versions: 3,
+                privacy_scrub_enabled: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let conn = Connection::open(support_dir.join("memory.sqlite3")).unwrap();
+    let content: String = conn
+        .query_row("SELECT content FROM memory_entries LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let rationale: String = conn
+        .query_row(
+            "SELECT COALESCE(rationale, '') FROM memory_entries LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let summary: String = conn
+        .query_row("SELECT content FROM memory_summaries LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    let combined = format!("{content}\n{rationale}\n{summary}");
+    assert!(combined.contains("[REDACTED_SECRET]") || combined.contains("[REDACTED_PRIVATE_KEY]"));
+    assert!(!combined.contains("ghp_abcdefghijklmnopqrstuvwxyz"));
+    assert!(!combined.contains("sk-user-summary-secret"));
+    assert!(!combined.contains("OPENSSH PRIVATE KEY"));
+
+    fs::remove_dir_all(support_dir).unwrap();
+}
+
+#[test]
+fn privacy_scrub_preserves_durable_hex_hashes() {
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let scrubbed = crate::privacy::privacy_scrub(&format!(
+        "Keep commit {sha} as the fixed regression reference."
+    ));
+
+    assert!(scrubbed.contains(sha));
+    assert!(!scrubbed.contains("[REDACTED_SECRET]"));
+}
+
+#[test]
+fn privacy_scrub_can_be_disabled() {
+    let support_dir = temp_support_dir();
+    let service = MemoryService::new(support_dir.clone());
+    service.ensure_queue_schema().unwrap();
+    let task = MemoryExtractionTask {
+        id: "task-no-scrub".to_string(),
+        project_id: "project-a".to_string(),
+        tool: "codex".to_string(),
+        session_id: "session-no-scrub".to_string(),
+        transcript_path: "/tmp/session-no-scrub.jsonl".to_string(),
+        workspace_path: Some("/workspace/project-a".to_string()),
+        source_fingerprint: "fingerprint-no-scrub".to_string(),
+        status: "pending".to_string(),
+        attempts: 0,
+        error: None,
+        enqueued_at: 1.0,
+    };
+
+    service
+        .apply_extraction_response(
+            MemoryExtractionResponse {
+                working_add: vec![MemoryExtractionItem {
+                    scope: Some(MemoryScope::Project),
+                    module_key: Some("security".to_string()),
+                    tier: Some(MemoryTier::Working),
+                    kind: MemoryKind::Fact,
+                    content: "Uses API_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz1234567890 in test fixture".to_string(),
+                    rationale: None,
+                    merge_with: Vec::new(),
+                    replace: None,
+                    archive: Vec::new(),
+                    skip_reason: None,
+                }],
+                ..Default::default()
+            },
+            &task,
+            &MemorySettings {
+                privacy_scrub_enabled: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let conn = Connection::open(support_dir.join("memory.sqlite3")).unwrap();
+    let content: String = conn
+        .query_row("SELECT content FROM memory_entries LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(content.contains("ghp_abcdefghijklmnopqrstuvwxyz"));
 
     fs::remove_dir_all(support_dir).unwrap();
 }

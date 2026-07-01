@@ -411,10 +411,7 @@ impl CoduxApp {
         self.file_tree_children = state.file_tree_children;
         self.file_editor_tabs = state.file_editor_tabs;
         self.active_file_editor_tab = state.active_file_editor_tab;
-        self.file_name_draft_kind = None;
-        self.file_name_draft_target = None;
-        self.file_name_draft_value.clear();
-        self.file_name_draft_select_all = false;
+        self.clear_file_name_draft();
         self.prune_missing_file_tree_directories();
         self.normalize_selected_file_entry();
         self.file_dirty = self
@@ -2337,6 +2334,10 @@ impl CoduxApp {
         self.invalidate_project_management(cx);
     }
 
+    fn clear_file_picker_rename_draft(&mut self) {
+        self.file_picker_rename_draft = None;
+    }
+
     pub(super) fn confirm_file_picker_rename(
         &mut self,
         window: &mut Window,
@@ -2349,6 +2350,7 @@ impl CoduxApp {
             return;
         };
         let name = draft.name.trim().to_string();
+        self.clear_file_picker_rename_draft();
         if name.is_empty() || name.contains('/') || name.contains('\\') {
             self.project_editor_browse_error = Some(self.text(
                 "file.picker.rename.invalid",
@@ -2358,7 +2360,6 @@ impl CoduxApp {
             return;
         }
         if name == file_picker_path_name(&draft.path) {
-            self.file_picker_rename_draft = None;
             self.invalidate_project_management(cx);
             return;
         }
@@ -2391,7 +2392,6 @@ impl CoduxApp {
                 app.project_editor_browse_busy = false;
                 match result {
                     Ok((device_id, reload_path)) => {
-                        app.file_picker_rename_draft = None;
                         if app.file_picker_selected.as_deref() == Some(selected_old_path.as_str()) {
                             app.file_picker_selected = Some(renamed_path);
                         }
@@ -2423,9 +2423,13 @@ impl CoduxApp {
 
     /// Dismiss the inline new-folder editor without creating anything.
     pub(super) fn cancel_file_picker_new_folder(&mut self, cx: &mut Context<Self>) {
+        self.clear_file_picker_new_folder_draft();
+        self.invalidate_project_management(cx);
+    }
+
+    fn clear_file_picker_new_folder_draft(&mut self) {
         self.file_picker_new_folder_active = false;
         self.project_editor_browse_new_folder.clear();
-        self.invalidate_project_management(cx);
     }
 
     pub(super) fn handle_file_picker_key(
@@ -2641,7 +2645,9 @@ impl CoduxApp {
         }
         let name = self.project_editor_browse_new_folder.trim().to_string();
         let device_id = self.project_editor_host_device_id.clone();
+        self.clear_file_picker_new_folder_draft();
         if name.is_empty() || self.project_editor_browse_path.trim().is_empty() {
+            self.invalidate_project_management(cx);
             return;
         }
         // Reload the directory the folder is created in using the *untrimmed*
@@ -2679,8 +2685,6 @@ impl CoduxApp {
                 app.project_editor_browse_busy = false;
                 match result {
                     Ok((device_id, reload_path)) => {
-                        app.project_editor_browse_new_folder.clear();
-                        app.file_picker_new_folder_active = false;
                         app.load_project_editor_browse(
                             device_id,
                             Some(reload_path),

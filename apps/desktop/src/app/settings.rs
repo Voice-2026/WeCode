@@ -3210,6 +3210,63 @@ fn settings_memory_pane(
                     settings_row(
                         settings_text(
                             language,
+                            "settings.ai.memory.heuristic_gate",
+                            "Skip Low-Signal Sessions",
+                        ),
+                        Some(settings_text(
+                            language,
+                            "settings.ai.memory.heuristic_gate.help",
+                            "Avoid LLM extraction for transcripts that do not contain durable memory signals.",
+                        )),
+                        settings_toggle(
+                            "settings-memory-heuristic-gate",
+                            settings.memory_extraction_heuristic_gate_enabled,
+                            cx,
+                            |app, window, cx| {
+                                let next =
+                                    !app.state.settings.memory_extraction_heuristic_gate_enabled;
+                                app.set_ai_memory_bool(
+                                    "extractionHeuristicGateEnabled",
+                                    next,
+                                    window,
+                                    cx,
+                                )
+                            },
+                        ),
+                    )
+                    .into_any_element(),
+                    settings_row(
+                        settings_text(
+                            language,
+                            "settings.ai.memory.growth_threshold",
+                            "Minimum Transcript Growth",
+                        ),
+                        Some(settings_text(
+                            language,
+                            "settings.ai.memory.growth_threshold.help",
+                            "Skip repeat extraction until a session grows by at least this many lines.",
+                        )),
+                        settings_text_input(
+                            "settings-memory-growth-threshold",
+                            &settings.memory_extraction_growth_threshold_lines,
+                            "8",
+                            false,
+                            window,
+                            cx,
+                            |app, value, window, cx| {
+                                app.set_ai_memory_number(
+                                    "extractionGrowthThresholdLines",
+                                    value,
+                                    window,
+                                    cx,
+                                )
+                            },
+                        ),
+                    )
+                    .into_any_element(),
+                    settings_row(
+                        settings_text(
+                            language,
                             "settings.ai.memory.max_index_sessions",
                             "Maximum Recent Sessions",
                         ),
@@ -3223,6 +3280,50 @@ fn settings_memory_pane(
                             language,
                             |app, value, window, cx| {
                                 app.set_ai_memory_number("maxIndexSessions", value, window, cx)
+                            },
+                        ),
+                    )
+                    .into_any_element(),
+                    settings_row(
+                        settings_text(
+                            language,
+                            "settings.ai.memory.recall_fts",
+                            "Use FTS Recall",
+                        ),
+                        Some(settings_text(
+                            language,
+                            "settings.ai.memory.recall_fts.help",
+                            "Use local SQLite BM25 search to recall older relevant memories.",
+                        )),
+                        settings_toggle(
+                            "settings-memory-recall-fts",
+                            settings.memory_recall_use_fts,
+                            cx,
+                            |app, window, cx| {
+                                let next = !app.state.settings.memory_recall_use_fts;
+                                app.set_ai_memory_bool("recallUseFts", next, window, cx)
+                            },
+                        ),
+                    )
+                    .into_any_element(),
+                    settings_row(
+                        settings_text(
+                            language,
+                            "settings.ai.memory.privacy_scrub",
+                            "Redact Secrets Before Saving",
+                        ),
+                        Some(settings_text(
+                            language,
+                            "settings.ai.memory.privacy_scrub.help",
+                            "Redact common API keys, tokens and private keys before memory is stored.",
+                        )),
+                        settings_toggle(
+                            "settings-memory-privacy-scrub",
+                            settings.memory_privacy_scrub_enabled,
+                            cx,
+                            |app, window, cx| {
+                                let next = !app.state.settings.memory_privacy_scrub_enabled;
+                                app.set_ai_memory_bool("privacyScrubEnabled", next, window, cx)
                             },
                         ),
                     )
