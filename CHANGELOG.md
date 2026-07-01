@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [2.0.0-beta.5] - 2026-07-01
+
+### Fixed
+
+- Fixed remote terminals duplicating pasted text and Ctrl-C output after repeated reconnects or project switches by replacing leaked host-side terminal event viewers instead of appending duplicate sinks.
+- Fixed remote terminals sometimes rendering blank until the window was resized or input was sent by registering viewers before PTY output and replaying the baseline on reattach.
+- Fixed Codex/Claude wrapper settings in the integrated terminal so permission mode, model, reasoning effort, memory injection, and SSH profile environment are applied reliably even when third-party shell integrations modify `ZDOTDIR` or `PATH`.
+- Fixed SSH profile private-key selection, file-picker scrolling and operations, remote Git/file operations, and remote terminal attach behavior across the desktop app and headless agent.
+
+### Changed
+
+- Restored terminal layouts immediately during project switches so moving between local and remote projects no longer waits on the asynchronous terminal-load worker.
+- Centralized the remote terminal create lifecycle into shared runtime helpers used by both the desktop host and headless agent, removing duplicate host-specific wrapper paths.
+- Improved `codux-ssh` one-off command performance with safer SSH connection reuse and stdin forwarding while keeping credentials inside the saved profile/helper path.
+
 ## [2.0.0-beta.4] - 2026-06-30
 
 ### Added

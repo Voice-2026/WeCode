@@ -4,6 +4,12 @@ Important changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.0.0-beta.5] - 2026-07-01
+
+### Changed
+
+- Aligned the mobile package with the Codux 2.0.0-beta.5 desktop and agent release. No mobile protocol changes are required for this beta.
+
 ## [2.0.0-beta.4] - 2026-06-30
 
 ### Changed

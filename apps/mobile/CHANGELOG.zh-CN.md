@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [2.0.0-beta.5] - 2026-07-01
+
+### Changed
+
+- 移动端发布包同步 Codux 2.0.0-beta.5 桌面端与 agent 发布。本 beta 不包含移动端协议变更。
+
 ## [2.0.0-beta.4] - 2026-06-30
 
 ### Changed
