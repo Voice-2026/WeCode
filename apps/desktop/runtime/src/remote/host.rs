@@ -4455,24 +4455,6 @@ impl RemoteTerminalDispatch for DesktopTerminalCtx<'_> {
     fn handle_terminal_viewport_resize_msg(&self, _msg: &TerminalMessage) {
         self.host.handle_terminal_viewport_resize(self.envelope);
     }
-
-    fn add_terminal_viewer_for_create(&self, session_id: &str, device_id: &str) {
-        self.host
-            .terminal_subscriptions
-            .add_session_viewer(session_id, device_id);
-    }
-
-    fn send_terminal_create_baseline(&self, session_id: &str, device_id: &str, _payload: &Value) {
-        self.host.send_terminal_buffer(
-            session_id,
-            Some(device_id),
-            0,
-            REMOTE_TERMINAL_BUFFER_MAX_CHARS,
-            None,
-            None,
-            false,
-        );
-    }
 }
 
 fn default_project_name(path: &str) -> String {

@@ -165,62 +165,6 @@ pub trait RemoteTerminalDispatch {
 
     // ---- shared defaults (identical across hosts) ----
 
-    /// Register a device as a viewer for `session_id`. Hosts store viewers
-    /// differently, but `terminal.create` must register them at the same points:
-    /// before spawn when a stable terminal id is known, and again after create
-    /// with the actual session id.
-    fn add_terminal_viewer_for_create(&self, session_id: &str, device_id: &str);
-
-    /// Send the reattach baseline for a terminal that already existed before
-    /// this create request. Each host owns its transport/buffering details; the
-    /// lifecycle decision is shared.
-    fn send_terminal_create_baseline(&self, session_id: &str, device_id: &str, payload: &Value);
-
-    /// Prepare a create request before the PTY may emit output. The stable
-    /// terminal id is the final host session id on reattach, so pre-registering
-    /// it prevents the first shell prompt from being dropped.
-    fn prepare_terminal_create(
-        &self,
-        config: &TerminalPtyConfig,
-        device_id: Option<&str>,
-    ) -> TerminalCreateLifecycle {
-        prepare_terminal_create_lifecycle(
-            self.terminal_manager(),
-            config,
-            device_id,
-            |session_id, device_id| {
-                self.add_terminal_viewer_for_create(session_id, device_id);
-            },
-        )
-    }
-
-    /// Register the actual created session. This is intentionally separate from
-    /// baseline sending so hosts can preserve their existing reply/list/viewport
-    /// ordering.
-    fn finish_terminal_create_viewer(&self, session_id: &str, device_id: Option<&str>) {
-        finish_terminal_create_viewer_lifecycle(session_id, device_id, |session_id, device_id| {
-            self.add_terminal_viewer_for_create(session_id, device_id);
-        });
-    }
-
-    /// Replay the seed buffer only for reattach. A fresh shell should render its
-    /// initial prompt as live output; replaying a buffer there can duplicate it.
-    fn send_terminal_create_baseline_if_reattaching(
-        &self,
-        lifecycle: &TerminalCreateLifecycle,
-        session_id: &str,
-        device_id: Option<&str>,
-        payload: &Value,
-    ) {
-        if !lifecycle.reattaching {
-            return;
-        }
-        let Some(device_id) = device_id.map(str::trim).filter(|value| !value.is_empty()) else {
-            return;
-        };
-        self.send_terminal_create_baseline(session_id, device_id, payload);
-    }
-
     /// Map a device id to its viewport-lease owner string, computed the same way
     /// everywhere so a lease taken on one host is recognized by the resolver.
     fn viewport_owner_for(&self, device_id: Option<&str>) -> String {
