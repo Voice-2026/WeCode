@@ -297,6 +297,7 @@ impl CoduxApp {
             ai_global_history_refresh_pending: false,
             project_switch_generation: 0,
             terminal_restore_epoch: 0,
+            terminal_restored_generation: None,
             scheduled_work_in_flight: HashSet::new(),
             scheduled_work_last_started_at: HashMap::new(),
             scheduled_work_last_finished_at: HashMap::new(),

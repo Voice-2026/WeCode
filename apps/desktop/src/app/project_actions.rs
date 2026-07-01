@@ -217,6 +217,11 @@ impl CoduxApp {
         self.status_message = "selected project in memory".to_string();
         self.persist_selected_project_async(project_id.clone(), cx);
         self.select_project_after_state_reload(project_id, window, cx);
+        self.restore_selected_project_terminal_layout_now(
+            self.project_switch_generation,
+            window,
+            cx,
+        );
         self.runtime_trace(
             "project-switch",
             &format!(
@@ -276,6 +281,28 @@ impl CoduxApp {
             });
         })
         .detach();
+    }
+
+    fn restore_selected_project_terminal_layout_now(
+        &mut self,
+        generation: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(_scope_key) = current_worktree_scope_key(&self.state) else {
+            return;
+        };
+        self.runtime_trace(
+            "project-switch",
+            &format!("terminal_restore_immediate generation={generation}"),
+        );
+        self.schedule_terminal_layout_restore(
+            self.state.terminal_layout.clone(),
+            self.state.terminal_runtime.clone(),
+            generation,
+            window,
+            cx,
+        );
     }
 
     fn select_project_after_state_reload(
@@ -1008,6 +1035,20 @@ impl CoduxApp {
                 ),
             );
         } else {
+            if self
+                .terminal_restored_generation
+                .as_ref()
+                .is_some_and(|token| token == &(load.generation, load.scope_key.clone()))
+            {
+                self.runtime_trace(
+                    "project-switch",
+                    &format!(
+                        "terminal_load skip_already_restored project={} worktree={} generation={}",
+                        load.project_id, load.scope_key.worktree_id, load.generation
+                    ),
+                );
+                return;
+            }
             self.schedule_terminal_layout_restore(
                 load.terminal_layout,
                 load.terminal_runtime,
@@ -1196,6 +1237,9 @@ impl CoduxApp {
     ) {
         if self.terminal_restore_epoch != restore_epoch {
             return;
+        }
+        if let Some(scope_key) = current_worktree_scope_key(&self.state) {
+            self.terminal_restored_generation = Some((generation, scope_key));
         }
         let restore_started_at = Instant::now();
         let owner_id = super::ai_runtime_status::terminal_layout_owner_id(&self.state);

@@ -254,6 +254,7 @@ pub struct CoduxApp {
     pub(in crate::app) ai_global_history_refresh_pending: bool,
     pub(in crate::app) project_switch_generation: u64,
     pub(in crate::app) terminal_restore_epoch: u64,
+    pub(in crate::app) terminal_restored_generation: Option<(u64, WorktreeScopeKey)>,
     pub(in crate::app) scheduled_work_in_flight: HashSet<String>,
     pub(in crate::app) scheduled_work_last_started_at: HashMap<String, f64>,
     pub(in crate::app) scheduled_work_last_finished_at: HashMap<String, f64>,
