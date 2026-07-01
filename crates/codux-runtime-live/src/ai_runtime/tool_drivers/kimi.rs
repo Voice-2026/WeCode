@@ -24,7 +24,7 @@ pub const DRIVER: AIRuntimeToolDriver = AIRuntimeToolDriver {
     liveness_from_process: false,
     screen_starts_idle: false,
     screen_patterns: NO_SCREEN_PATTERNS,
-    hook: AIRuntimeToolHookDriver::KimiToml,
+    hook: AIRuntimeToolHookDriver::None,
     probe: Some(probe_kimi_runtime),
     resource_paths: Some(resource_paths),
     memory_injection: AIRuntimeMemoryInjectionDriver::None,

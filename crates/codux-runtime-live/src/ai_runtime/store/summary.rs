@@ -129,7 +129,7 @@ fn completed_phase_from(
 ) -> AIProjectPhase {
     if sorted
         .iter()
-        .any(|session| session_has_active_needs_input(session, now))
+        .any(|session| session_suppresses_completed_phase(session, now))
     {
         return AIProjectPhase::Idle;
     }
@@ -315,6 +315,18 @@ pub(super) fn next_completion_event_unlocked(
 
 fn session_has_active_needs_input(session: &AISessionSnapshot, now: f64) -> bool {
     session.state == "needsInput" && now - session.updated_at <= NEEDS_INPUT_VISIBLE_SECONDS
+}
+
+fn session_suppresses_completed_phase(session: &AISessionSnapshot, now: f64) -> bool {
+    if session_has_active_needs_input(session, now) || session.state == "responding" {
+        return true;
+    }
+    if session.has_completed_turn || session.was_interrupted {
+        return false;
+    }
+    session.active_turn_started_at.is_some()
+        || session.runtime_turn_started_at.is_some()
+        || session.completed_turn_started_at.is_some()
 }
 
 fn visible_session_snapshot(mut session: AISessionSnapshot, now: f64) -> AISessionSnapshot {

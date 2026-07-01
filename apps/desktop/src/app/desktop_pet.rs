@@ -1,6 +1,8 @@
 use super::*;
 use chrono::Timelike as _;
 
+pub(in crate::app) const DESKTOP_PET_COMPLETION_VISIBLE_SECONDS: f64 = 10.0;
+
 #[derive(Clone)]
 struct DesktopPetLabels {
     mute_30: String,
@@ -144,6 +146,10 @@ pub(in crate::app) fn desktop_pet_runtime_activity_line(
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
+    let has_running_session = runtime
+        .sessions
+        .iter()
+        .any(|session| session.state == "running");
 
     if let Some(session) = runtime
         .sessions
@@ -210,12 +216,7 @@ pub(in crate::app) fn desktop_pet_runtime_activity_line(
     if let Some(session) = runtime
         .sessions
         .iter()
-        .filter(|session| {
-            session.state != "running"
-                && session.state != "needs-input"
-                && session.has_completed_turn
-                && now - session.updated_at <= 30.0
-        })
+        .filter(|session| desktop_pet_completion_is_visible(session, now, has_running_session))
         .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
     {
         if session.was_interrupted {
@@ -329,6 +330,10 @@ pub(in crate::app) fn desktop_pet_llm_context(
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs_f64())
         .unwrap_or(0.0);
+    let has_running_session = runtime
+        .sessions
+        .iter()
+        .any(|session| session.state == "running");
 
     if let Some(session) = runtime
         .sessions
@@ -409,12 +414,7 @@ pub(in crate::app) fn desktop_pet_llm_context(
     if let Some(session) = runtime
         .sessions
         .iter()
-        .filter(|session| {
-            session.state != "running"
-                && session.state != "needs-input"
-                && session.has_completed_turn
-                && now - session.updated_at <= 30.0
-        })
+        .filter(|session| desktop_pet_completion_is_visible(session, now, has_running_session))
         .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
     {
         let failed = session.was_interrupted;
@@ -472,6 +472,18 @@ pub(in crate::app) fn desktop_pet_llm_context(
     }
 
     None
+}
+
+fn desktop_pet_completion_is_visible(
+    session: &codux_runtime::ai_runtime_state::AIRuntimeSessionSummary,
+    now: f64,
+    has_running_session: bool,
+) -> bool {
+    session.state != "running"
+        && session.state != "needs-input"
+        && session.has_completed_turn
+        && now - session.updated_at <= DESKTOP_PET_COMPLETION_VISIBLE_SECONDS
+        && !has_running_session
 }
 
 pub(in crate::app) fn desktop_pet_llm_cooldown_seconds(value: &str) -> f64 {
@@ -1261,6 +1273,49 @@ mod tests {
 
         assert!(line.text.contains("codex"));
         assert_eq!(line.tone, DesktopPetActivityTone::Success);
+    }
+
+    #[test]
+    fn runtime_activity_line_suppresses_completion_while_running() {
+        let mut completed = runtime_session("completed");
+        completed.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0);
+        completed.has_completed_turn = true;
+        let mut running = runtime_session("running");
+        running.terminal_id = "term-running".to_string();
+        running.updated_at = completed.updated_at + 1.0;
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![completed, running],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "english");
+
+        assert!(line.text.contains("running"));
+        assert_eq!(line.tone, DesktopPetActivityTone::Normal);
+    }
+
+    #[test]
+    fn runtime_activity_line_hides_expired_completion() {
+        let mut session = runtime_session("completed");
+        session.updated_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs_f64())
+            .unwrap_or(0.0)
+            - DESKTOP_PET_COMPLETION_VISIBLE_SECONDS
+            - 1.0;
+        session.has_completed_turn = true;
+        let runtime = codux_runtime::ai_runtime_state::AIRuntimeStateSummary {
+            sessions: vec![session],
+            ..Default::default()
+        };
+
+        let line = desktop_pet_runtime_activity_line(&runtime, "english");
+
+        assert!(line.text.is_empty());
+        assert_eq!(line.tone, DesktopPetActivityTone::Normal);
     }
 
     #[test]

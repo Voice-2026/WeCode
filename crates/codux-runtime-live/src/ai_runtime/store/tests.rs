@@ -1795,8 +1795,9 @@ fn ensure_detected_sessions_creates_idle_session_without_hook_or_active_binding(
     // Idempotent: a second detection on the same terminal does not duplicate or
     // clobber the existing session.
     let again = store.ensure_detected_sessions(&[terminal], &detected, 1001.0);
-    assert!(!again.did_change);
+    assert!(again.did_change);
     assert_eq!(store.snapshot().sessions.len(), 1);
+    assert_eq!(store.snapshot().sessions[0].updated_at, 1001.0);
 }
 
 #[test]
@@ -1932,14 +1933,14 @@ fn ensure_detected_sessions_refreshes_existing_idle_kiro_session() {
     );
 
     assert!(
-        store
+        !store
             .ensure_detected_sessions(&[terminal], &detected, 2000.0)
             .did_change
     );
     let snapshot = store.snapshot();
     assert_eq!(snapshot.sessions[0].tool, "kiro");
     assert_eq!(snapshot.sessions[0].state, "idle");
-    assert_eq!(snapshot.sessions[0].updated_at, 2000.0);
+    assert_eq!(snapshot.sessions[0].updated_at, 1010.0);
 }
 
 #[test]
@@ -2630,6 +2631,186 @@ fn same_session_next_prompt_completion_notifies_again() {
 
     assert!(second.did_change);
     assert!(second.completion.is_some());
+}
+
+#[test]
+fn running_session_suppresses_project_completion_badge() {
+    let store = AIRuntimeStateStore::default();
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-a", "session-a", 1000.0))
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-b", "session-b", 1001.0))
+            .did_change
+    );
+    let complete = store.apply_hook(AIHookEventPayload {
+        kind: "turnCompleted".to_string(),
+        updated_at: 1010.0,
+        metadata: Some(AIHookEventMetadata {
+            has_completed_turn: Some(true),
+            ..empty_metadata()
+        }),
+        ..test_hook_for("codex", "terminal-a", "session-a", 1010.0)
+    });
+
+    assert!(complete.did_change);
+    assert!(complete.completion.is_none());
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 1);
+    assert_eq!(snapshot.completion_count, 0);
+    assert!(snapshot.latest_completion.is_none());
+    assert!(matches!(
+        snapshot.projects[0].project_phase,
+        AIProjectPhase::Running { .. }
+    ));
+    assert!(matches!(
+        snapshot.projects[0].completed_phase,
+        AIProjectPhase::Idle
+    ));
+}
+
+#[test]
+fn dismissed_completion_does_not_reappear_while_another_session_runs() {
+    let store = AIRuntimeStateStore::default();
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-a", "session-a", 1000.0))
+            .did_change
+    );
+    let complete = store.apply_hook(AIHookEventPayload {
+        kind: "turnCompleted".to_string(),
+        updated_at: 1010.0,
+        metadata: Some(AIHookEventMetadata {
+            has_completed_turn: Some(true),
+            ..empty_metadata()
+        }),
+        ..test_hook_for("codex", "terminal-a", "session-a", 1010.0)
+    });
+    assert!(complete.completion.is_some());
+    assert!(store.dismiss_completion("project-1"));
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-b", "session-b", 1020.0))
+            .did_change
+    );
+
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 1);
+    assert_eq!(snapshot.completion_count, 0);
+    assert!(snapshot.latest_completion.is_none());
+    assert!(matches!(
+        snapshot.projects[0].completed_phase,
+        AIProjectPhase::Idle
+    ));
+}
+
+#[test]
+fn detected_idle_session_does_not_suppress_sibling_completion() {
+    let store = AIRuntimeStateStore::default();
+    let idle_terminal = AIRuntimeTerminalState {
+        terminal_id: "terminal-b".to_string(),
+        terminal_instance_id: Some("terminal-b-instance".to_string()),
+        project_id: "project-1".to_string(),
+        slot_id: "slot-b".to_string(),
+        title: "Claude".to_string(),
+        cwd: "/tmp/codex-project".to_string(),
+        tool: None,
+        is_active: false,
+        session_key: None,
+    };
+    let detected =
+        std::collections::HashMap::from([("terminal-b".to_string(), "claude".to_string())]);
+    assert!(
+        store
+            .ensure_detected_sessions(&[idle_terminal.clone()], &detected, 1000.0)
+            .did_change
+    );
+    assert!(
+        store
+            .ensure_detected_sessions(&[idle_terminal], &detected, 1015.0)
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-a", "session-a", 1020.0))
+            .did_change
+    );
+    let complete = store.apply_hook(AIHookEventPayload {
+        kind: "turnCompleted".to_string(),
+        updated_at: 1030.0,
+        metadata: Some(AIHookEventMetadata {
+            has_completed_turn: Some(true),
+            ..empty_metadata()
+        }),
+        ..test_hook_for("codex", "terminal-a", "session-a", 1030.0)
+    });
+
+    assert!(complete.did_change);
+    assert!(complete.completion.is_some());
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 0);
+    assert_eq!(snapshot.completion_count, 1);
+    assert!(snapshot.latest_completion.is_some());
+    assert!(matches!(
+        snapshot.projects[0].completed_phase,
+        AIProjectPhase::Completed { .. }
+    ));
+}
+
+#[test]
+fn timed_out_unfinished_session_still_suppresses_old_completion() {
+    let store = AIRuntimeStateStore::default();
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-a", "session-a", 1000.0))
+            .did_change
+    );
+    assert!(
+        store
+            .apply_hook(AIHookEventPayload {
+                kind: "turnCompleted".to_string(),
+                updated_at: 1010.0,
+                metadata: Some(AIHookEventMetadata {
+                    has_completed_turn: Some(true),
+                    ..empty_metadata()
+                }),
+                ..test_hook_for("codex", "terminal-a", "session-a", 1010.0)
+            })
+            .completion
+            .is_some()
+    );
+    assert!(
+        store
+            .apply_hook(test_hook_for("codex", "terminal-b", "session-b", 1020.0))
+            .did_change
+    );
+    assert!(
+        store
+            .reconcile_bridge_snapshot(&[AIRuntimeTerminalState {
+                terminal_id: "terminal-b".to_string(),
+                terminal_instance_id: Some("terminal-b-instance".to_string()),
+                project_id: "project-1".to_string(),
+                slot_id: "slot-b".to_string(),
+                title: "Codex".to_string(),
+                cwd: "/tmp/codex-project".to_string(),
+                tool: None,
+                is_active: false,
+                session_key: None,
+            }])
+            .did_change
+    );
+
+    let snapshot = store.snapshot();
+    assert_eq!(snapshot.running_count, 0);
+    assert_eq!(snapshot.completion_count, 0);
+    assert!(snapshot.latest_completion.is_none());
+    assert!(matches!(
+        snapshot.projects[0].completed_phase,
+        AIProjectPhase::Idle
+    ));
 }
 
 fn test_hook(kind: &str, updated_at: f64) -> AIHookEventPayload {

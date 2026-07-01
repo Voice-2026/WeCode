@@ -407,6 +407,8 @@ impl AIRuntimeStateStore {
             if let Some(existing) = core.sessions.get_mut(&terminal.terminal_id) {
                 if canonical_tool_name(&existing.tool) == canonical_tool_name(tool) {
                     if existing.state == "idle"
+                        && !existing.has_completed_turn
+                        && !existing.was_interrupted
                         && terminal.terminal_instance_id.is_some()
                         && existing.terminal_instance_id == terminal.terminal_instance_id
                         && existing.updated_at < now

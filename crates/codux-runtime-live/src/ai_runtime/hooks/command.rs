@@ -1,6 +1,7 @@
 use serde_json::Value;
 
-pub(super) fn is_managed_hook(value: &Value, action: &str, owner: &str, tool: &str) -> bool {
+#[cfg(test)]
+fn is_managed_hook(value: &Value, action: &str, owner: &str, tool: &str) -> bool {
     is_managed_hook_action(value, action, Some(owner), Some(tool))
 }
 

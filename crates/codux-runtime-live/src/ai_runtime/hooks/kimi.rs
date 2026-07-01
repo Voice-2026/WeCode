@@ -1,24 +1,10 @@
-use crate::{ai_runtime::bridge::AIRuntimeToolHookConfigStatus, runtime_paths::app_slug};
+use crate::runtime_paths::app_slug;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
 const MANAGED_NAME_PREFIX: &str = "codux-kimi-";
-
-pub(in crate::ai_runtime::hooks) const KIMI_HOOKS: &[(&str, &str)] = &[
-    ("SessionStart", "session-start"),
-    ("UserPromptSubmit", "prompt-submit"),
-    ("PreToolUse", "before-agent"),
-    ("PostToolUse", "after-agent"),
-    ("PermissionRequest", "permission-request"),
-    ("Stop", "stop"),
-    ("SubagentStop", "after-agent"),
-    ("PreCompact", "pre-compact"),
-    ("PostCompact", "post-compact"),
-    ("SessionEnd", "session-end"),
-    ("Notification", "notification"),
-];
 
 pub(in crate::ai_runtime::hooks) fn kimi_config_path_in(home_dir: &Path) -> PathBuf {
     home_dir.join(".kimi-code").join("config.toml")
@@ -55,24 +41,6 @@ pub(in crate::ai_runtime::hooks) fn uninstall_kimi_hooks_in(home_dir: &Path) -> 
     fs::write(path, updated).map_err(|error| error.to_string())
 }
 
-pub(in crate::ai_runtime::hooks) fn kimi_hook_config_status_in(
-    home_dir: &Path,
-) -> AIRuntimeToolHookConfigStatus {
-    let path = kimi_config_path_in(home_dir);
-    let text = fs::read_to_string(&path).unwrap_or_default();
-    let missing = KIMI_HOOKS
-        .iter()
-        .filter_map(|(event, action)| {
-            (!has_kimi_managed_hook(&text, event, action)).then(|| format!("{event}:{action}"))
-        })
-        .collect::<Vec<_>>();
-    AIRuntimeToolHookConfigStatus {
-        configured: missing.is_empty(),
-        config_path: path.display().to_string(),
-        missing,
-    }
-}
-
 fn remove_managed_kimi_hook_blocks(lines: Vec<String>) -> Vec<String> {
     let mut output = Vec::new();
     let mut index = 0;
@@ -105,6 +73,7 @@ fn block_is_managed(block: &[String]) -> bool {
     })
 }
 
+#[cfg(test)]
 fn has_kimi_managed_hook(text: &str, event: &str, action: &str) -> bool {
     let owner = app_slug();
     let lines = text

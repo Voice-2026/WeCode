@@ -135,11 +135,11 @@ pub(in crate::app) fn aggregate_project_activity(
     if activities.contains(&AIActivityState::Review) {
         return AIActivityState::Review;
     }
-    if activities.contains(&AIActivityState::Done) {
-        return AIActivityState::Done;
-    }
     if activities.contains(&AIActivityState::Running) {
         return AIActivityState::Running;
+    }
+    if activities.contains(&AIActivityState::Done) {
+        return AIActivityState::Done;
     }
     AIActivityState::Idle
 }
@@ -175,11 +175,11 @@ fn resolve_displayed_phase<'a>(
     if project_phase.kind == "needsInput" {
         return project_phase;
     }
-    if completed_phase.kind == "completed" {
-        return completed_phase;
-    }
     if project_phase.kind == "running" {
         return project_phase;
+    }
+    if completed_phase.kind == "completed" {
+        return completed_phase;
     }
     project_phase
 }
@@ -231,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_displayed_phase_prioritizes_review_done_running_idle() {
+    fn resolve_displayed_phase_prioritizes_review_running_done_idle() {
         let running = AIRuntimeProjectPhaseSummary {
             kind: "running".to_string(),
             ..Default::default()
@@ -243,7 +243,7 @@ mod tests {
         };
         assert_eq!(
             resolve_displayed_phase(&running, &completed).kind,
-            "completed"
+            "running"
         );
 
         let review = AIRuntimeProjectPhaseSummary {
@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_project_activity_prioritizes_done_before_running() {
+    fn aggregate_project_activity_prioritizes_running_before_done() {
         let worktrees = vec![
             WorktreeInfo {
                 id: "worktree-a".to_string(),
@@ -296,7 +296,7 @@ mod tests {
                 &worktrees,
                 &worktree_activity,
             ),
-            AIActivityState::Done
+            AIActivityState::Running
         );
     }
 }

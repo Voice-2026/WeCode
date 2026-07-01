@@ -1297,6 +1297,12 @@ impl CoduxApp {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_secs_f64())
             .unwrap_or(0.0);
+        let has_running_session = self
+            .state
+            .ai_runtime_state
+            .sessions
+            .iter()
+            .any(|session| session.state == "running");
         if let Some(session) = self
             .state
             .ai_runtime_state
@@ -1306,7 +1312,8 @@ impl CoduxApp {
                 session.state != "running"
                     && session.state != "needs-input"
                     && session.has_completed_turn
-                    && now - session.updated_at <= 30.0
+                    && now - session.updated_at <= DESKTOP_PET_COMPLETION_VISIBLE_SECONDS
+                    && !has_running_session
             })
             .max_by(|left, right| left.updated_at.total_cmp(&right.updated_at))
         {

@@ -75,33 +75,9 @@ pub const KIRO_SCREEN_PATTERNS: AIRuntimeScreenPatterns = AIRuntimeScreenPattern
 
 #[derive(Debug, Clone, Copy)]
 pub enum AIRuntimeToolHookDriver {
-    Json(AIRuntimeJsonHookDriver),
     CodeWhaleToml,
-    KimiToml,
     OpenCodePlugin,
     None,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct AIRuntimeJsonHookDriver {
-    pub tool: &'static str,
-    pub path_segments: &'static [&'static str],
-    pub format: AIRuntimeJsonHookFormat,
-    pub definitions: &'static [AIRuntimeHookDefinition],
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AIRuntimeJsonHookFormat {
-    Standard,
-    Kiro,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct AIRuntimeHookDefinition {
-    pub event_key: &'static str,
-    pub action: &'static str,
-    pub timeout_ms: i64,
-    pub is_async: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -151,20 +127,6 @@ pub struct AIRuntimeToolLaunchDriverConfig {
 #[serde(rename_all = "camelCase")]
 pub struct AIRuntimeToolLaunchDriverConfigFile {
     pub tools: Vec<AIRuntimeToolLaunchDriverConfig>,
-}
-
-pub const fn hook(
-    event_key: &'static str,
-    action: &'static str,
-    timeout_ms: i64,
-    is_async: bool,
-) -> AIRuntimeHookDefinition {
-    AIRuntimeHookDefinition {
-        event_key,
-        action,
-        timeout_ms,
-        is_async,
-    }
 }
 
 pub const fn lifecycle_hook(
@@ -552,6 +514,60 @@ mod tests {
             codewhale.lifecycle_hook_format,
             AIRuntimeLifecycleHookFormat::CodeWhaleToml
         );
+    }
+
+    #[test]
+    fn active_drivers_do_not_use_legacy_global_hook_configs() {
+        for driver in ai_runtime_tool_drivers() {
+            match driver.id {
+                "codex" | "claude" | "kimi" | "kiro" | "agy" => {
+                    assert!(
+                        matches!(driver.hook, AIRuntimeToolHookDriver::None),
+                        "{} must not modify global CLI hook configs",
+                        driver.id
+                    );
+                    assert_eq!(
+                        driver.lifecycle_hook_format,
+                        AIRuntimeLifecycleHookFormat::None,
+                        "{} must not expose staged lifecycle hooks",
+                        driver.id
+                    );
+                    assert!(
+                        driver.lifecycle_hooks.is_empty(),
+                        "{} must not publish lifecycle hook definitions",
+                        driver.id
+                    );
+                    assert!(
+                        driver.lifecycle_config.is_none(),
+                        "{} must not publish lifecycle config files",
+                        driver.id
+                    );
+                }
+                "codewhale" => {
+                    assert!(matches!(
+                        driver.hook,
+                        AIRuntimeToolHookDriver::CodeWhaleToml
+                    ));
+                    assert_eq!(
+                        driver.lifecycle_hook_format,
+                        AIRuntimeLifecycleHookFormat::CodeWhaleToml
+                    );
+                }
+                "opencode" | "mimo" => {
+                    assert!(matches!(
+                        driver.hook,
+                        AIRuntimeToolHookDriver::OpenCodePlugin
+                    ));
+                    assert_eq!(
+                        driver.lifecycle_hook_format,
+                        AIRuntimeLifecycleHookFormat::None
+                    );
+                    assert!(driver.lifecycle_hooks.is_empty());
+                    assert!(driver.lifecycle_config.is_none());
+                }
+                _ => panic!("unexpected AI runtime tool driver {}", driver.id),
+            }
+        }
     }
 
     fn restore_env(key: &str, value: Option<std::ffi::OsString>) {

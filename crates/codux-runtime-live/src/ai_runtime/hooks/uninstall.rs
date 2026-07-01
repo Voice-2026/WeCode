@@ -1,12 +1,16 @@
 use super::{
-    codewhale::uninstall_codewhale_hooks_in, codex::uninstall_codex_config,
-    command::is_managed_hook_action, json::load_json_object, json::write_json_object,
+    codewhale::uninstall_codewhale_hooks_in,
+    codex::uninstall_codex_config,
+    command::is_managed_hook_action,
+    json::load_json_object,
+    json::write_json_object,
     kimi::uninstall_kimi_hooks_in,
+    legacy::{
+        AGY_LEGACY_HOOKS, KIRO_LEGACY_HOOKS, LEGACY_JSON_HOOK_CONFIGS, LegacyHookDefinition,
+        legacy_json_hook_path,
+    },
 };
-use crate::ai_runtime::tool_driver::{
-    AIRuntimeHookDefinition, AIRuntimeJsonHookFormat, AIRuntimeToolHookDriver,
-    ai_runtime_tool_drivers,
-};
+use crate::ai_runtime::tool_driver::{AIRuntimeToolHookDriver, ai_runtime_tool_drivers};
 use serde_json::{Map, Value};
 use std::path::Path;
 
@@ -18,102 +22,36 @@ use std::path::Path;
 /// idempotent, so it is safe to run on every start; once a config is clean the
 /// subsequent runs are no-op no-write passes.
 pub fn uninstall_managed_hook_configs_in(home_dir: &Path) -> Result<(), String> {
+    for config in LEGACY_JSON_HOOK_CONFIGS {
+        let path = legacy_json_hook_path(home_dir, config);
+        uninstall_tool_hooks(&path, config.tool, config.definitions)?;
+        if config.tool == "codex" {
+            uninstall_codex_config(&path)?;
+        }
+    }
     for driver in ai_runtime_tool_drivers() {
         match driver.hook {
-            AIRuntimeToolHookDriver::Json(hook) => {
-                let path = hook
-                    .path_segments
-                    .iter()
-                    .fold(home_dir.to_path_buf(), |path, segment| path.join(segment));
-                match hook.format {
-                    AIRuntimeJsonHookFormat::Standard => {
-                        uninstall_tool_hooks(&path, hook.tool, hook.definitions)?;
-                    }
-                    AIRuntimeJsonHookFormat::Kiro => {
-                        uninstall_kiro_tool_hooks(&path, hook.definitions)?;
-                    }
-                }
-                if hook.tool == "codex" {
-                    uninstall_codex_config(&path)?;
-                }
-            }
             AIRuntimeToolHookDriver::CodeWhaleToml => {
                 uninstall_codewhale_hooks_in(home_dir)?;
-            }
-            AIRuntimeToolHookDriver::KimiToml => {
-                uninstall_kimi_hooks_in(home_dir)?;
             }
             AIRuntimeToolHookDriver::OpenCodePlugin | AIRuntimeToolHookDriver::None => {}
         }
     }
+    uninstall_kimi_hooks_in(home_dir)?;
     let agy_settings_path = home_dir
         .join(".gemini")
         .join("antigravity-cli")
         .join("settings.json");
-    uninstall_tool_hooks(&agy_settings_path, "agy", AGY_MANAGED_HOOKS)?;
+    uninstall_tool_hooks(&agy_settings_path, "agy", AGY_LEGACY_HOOKS)?;
     uninstall_kiro_tool_hooks(
         &home_dir
             .join(".kiro")
             .join("agents")
             .join("codux-managed.json"),
-        KIRO_LEGACY_MANAGED_HOOKS,
+        KIRO_LEGACY_HOOKS,
     )?;
     Ok(())
 }
-
-const AGY_MANAGED_HOOKS: &[AIRuntimeHookDefinition] = &[
-    AIRuntimeHookDefinition {
-        event_key: "SessionStart",
-        action: "session-start",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-    AIRuntimeHookDefinition {
-        event_key: "BeforeAgent",
-        action: "before-agent",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-    AIRuntimeHookDefinition {
-        event_key: "AfterAgent",
-        action: "after-agent",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-    AIRuntimeHookDefinition {
-        event_key: "Notification",
-        action: "notification",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-    AIRuntimeHookDefinition {
-        event_key: "SessionEnd",
-        action: "session-end",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-];
-
-const KIRO_LEGACY_MANAGED_HOOKS: &[AIRuntimeHookDefinition] = &[
-    AIRuntimeHookDefinition {
-        event_key: "agentSpawn",
-        action: "session-start",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-    AIRuntimeHookDefinition {
-        event_key: "userPromptSubmit",
-        action: "prompt-submit",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-    AIRuntimeHookDefinition {
-        event_key: "stop",
-        action: "stop",
-        timeout_ms: 5000,
-        is_async: false,
-    },
-];
 
 /// Strip every codux-managed hook entry (any codux owner) from a Standard JSON
 /// config, preserving the user's own hooks and the rest of the file. Never
@@ -122,7 +60,7 @@ const KIRO_LEGACY_MANAGED_HOOKS: &[AIRuntimeHookDefinition] = &[
 fn uninstall_tool_hooks(
     path: &Path,
     tool: &str,
-    definitions: &[AIRuntimeHookDefinition],
+    definitions: &[LegacyHookDefinition],
 ) -> Result<(), String> {
     if tool == "kiro" {
         return uninstall_kiro_tool_hooks(path, definitions);
@@ -170,7 +108,7 @@ fn uninstall_tool_hooks(
 /// user-authored agent).
 fn uninstall_kiro_tool_hooks(
     path: &Path,
-    definitions: &[AIRuntimeHookDefinition],
+    definitions: &[LegacyHookDefinition],
 ) -> Result<(), String> {
     if !path.exists() {
         return Ok(());

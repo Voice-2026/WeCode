@@ -32,9 +32,7 @@ pub use constants::{
     TRANSCRIPT_MONITOR_INTERVAL_MS, TRANSCRIPT_POLL_MINIMUM_SECONDS,
 };
 pub use frame::{opencode_runtime_to_hook, runtime_frame_to_hook};
-pub use hooks::{
-    hook_config_status, hook_config_status_in, opencode_hook_config_status, tool_hook_config_status,
-};
+pub use hooks::{hook_config_status, hook_config_status_in, opencode_hook_config_status};
 pub use log::{reset_runtime_live_log, runtime_log_line};
 pub use paths::{runtime_event_dir, runtime_live_log_path, runtime_root_dir};
 pub use payload::{
