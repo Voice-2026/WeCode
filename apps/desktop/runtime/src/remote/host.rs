@@ -50,7 +50,8 @@ use codux_runtime_core::{
     terminal as runtime_terminal, upload as runtime_upload, worktree as runtime_worktree,
 };
 use codux_runtime_live::remote_terminal_dispatch::{
-    RemoteTerminalDispatch, TerminalMessage, is_terminal_kind,
+    RemoteTerminalDispatch, TerminalMessage, finish_terminal_create_viewer_lifecycle,
+    is_terminal_kind, prepare_terminal_create_lifecycle,
 };
 use codux_terminal_core::{
     RemoteSequenceGuard, TerminalDriver, TerminalSequence, TerminalSessionHandle,
@@ -2404,17 +2405,15 @@ impl RemoteHostRuntime {
                 }
             }
         }
-        // Detect re-attach BEFORE create (which reuses the session by terminal_id).
-        // Only a re-attach needs the seed buffer: a freshly spawned shell prints
-        // its own prompt as live output, so sending the buffer too could duplicate
-        // it — whereas a re-attached (idle) shell emits nothing, so its screen has
-        // to be replayed from the buffer or the pane stays blank.
-        let reattaching = plan
-            .config
-            .terminal_id
-            .as_deref()
-            .map(|id| self.terminals.snapshot(id).is_ok())
-            .unwrap_or(false);
+        let lifecycle = prepare_terminal_create_lifecycle(
+            self.terminals.as_ref(),
+            &plan.config,
+            envelope.device_id.as_deref(),
+            |session_id, device_id| {
+                self.terminal_subscriptions
+                    .add_session_viewer(session_id, device_id);
+            },
+        );
         let event_key = plan
             .config
             .terminal_id
@@ -2442,7 +2441,13 @@ impl RemoteHostRuntime {
                 );
                 self.publish_remote_terminal_layout_changed();
                 self.mark_terminal_event_subscription(&session_id);
-                self.register_terminal_viewer(&session_id, envelope.device_id.as_deref());
+                finish_terminal_create_viewer_lifecycle(
+                    &session_id,
+                    envelope.device_id.as_deref(),
+                    |session_id, device_id| {
+                        self.register_terminal_viewer(session_id, Some(device_id))
+                    },
+                );
                 self.send_terminal_data(
                     REMOTE_TERMINAL_CREATED,
                     envelope.device_id.as_deref(),
@@ -2452,7 +2457,7 @@ impl RemoteHostRuntime {
                 );
                 self.send_terminal_list(envelope.device_id.as_deref());
                 self.send_terminal_viewport_state(&session_id, envelope.device_id.as_deref());
-                if reattaching {
+                if lifecycle.reattaching {
                     self.send_terminal_buffer(
                         &session_id,
                         envelope.device_id.as_deref(),
@@ -4449,6 +4454,24 @@ impl RemoteTerminalDispatch for DesktopTerminalCtx<'_> {
 
     fn handle_terminal_viewport_resize_msg(&self, _msg: &TerminalMessage) {
         self.host.handle_terminal_viewport_resize(self.envelope);
+    }
+
+    fn add_terminal_viewer_for_create(&self, session_id: &str, device_id: &str) {
+        self.host
+            .terminal_subscriptions
+            .add_session_viewer(session_id, device_id);
+    }
+
+    fn send_terminal_create_baseline(&self, session_id: &str, device_id: &str, _payload: &Value) {
+        self.host.send_terminal_buffer(
+            session_id,
+            Some(device_id),
+            0,
+            REMOTE_TERMINAL_BUFFER_MAX_CHARS,
+            None,
+            None,
+            false,
+        );
     }
 }
 

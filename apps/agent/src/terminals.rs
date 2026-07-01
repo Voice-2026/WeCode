@@ -409,18 +409,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
             ),
             ..Default::default()
         };
-        let requested_terminal_id = config
-            .terminal_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string);
-        let reattaching = requested_terminal_id
-            .as_deref()
-            .map(|id| self.driver.snapshot(id).is_ok())
-            .unwrap_or(false);
-        if let (Some(device_id), Some(terminal_id)) = (device_id, requested_terminal_id.as_deref()) {
-            self.fanout.add_viewer(terminal_id, device_id);
-        }
+        let lifecycle = self.prepare_terminal_create(&config, device_id);
         // Stream this session's output to ALL of its viewers (fan-out), and
         // forward viewport-state changes (lease claim/handoff) too.
         let driver_for_emit = Arc::clone(self.driver);
@@ -497,9 +486,7 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
         };
         match create_result {
             Ok(session_id) => {
-                if let Some(device_id) = device_id {
-                    self.fanout.add_viewer(&session_id, device_id);
-                }
+                self.finish_terminal_create_viewer(&session_id, device_id);
                 reply(
                     self.transport,
                     device_id,
@@ -512,18 +499,12 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                     REMOTE_TERMINAL_LIST,
                     list_payload(self.driver),
                 );
-                if reattaching
-                    && let Some(device_id) = device_id
-                {
-                    send_terminal_baseline(
-                        self.driver,
-                        self.transport,
-                        self.fanout,
-                        device_id,
-                        &session_id,
-                        payload,
-                    );
-                }
+                self.send_terminal_create_baseline_if_reattaching(
+                    &lifecycle,
+                    &session_id,
+                    device_id,
+                    payload,
+                );
             }
             Err(error) => reply(
                 self.transport,
@@ -627,6 +608,21 @@ impl RemoteTerminalDispatch for AgentTerminalCtx<'_> {
                 .unwrap_or(24) as u16;
             let _ = self.driver.resize_viewport(id, &owner, cols, rows);
         }
+    }
+
+    fn add_terminal_viewer_for_create(&self, session_id: &str, device_id: &str) {
+        self.fanout.add_viewer(session_id, device_id);
+    }
+
+    fn send_terminal_create_baseline(&self, session_id: &str, device_id: &str, payload: &Value) {
+        send_terminal_baseline(
+            self.driver,
+            self.transport,
+            self.fanout,
+            device_id,
+            session_id,
+            payload,
+        );
     }
 }
 
